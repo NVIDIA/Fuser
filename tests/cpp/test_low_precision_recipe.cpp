@@ -405,6 +405,322 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
+class BlockQuantizationValidationTest : public BlackwellBase {
+ protected:
+  // Helper function to create test input tensor
+  at::Tensor createTestInput(int64_t dim = 2) {
+    if (dim == 2) {
+      return at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat));
+    } else if (dim == 3) {
+      return at::randn({16, 64, 1024}, at::device(at::kCUDA).dtype(at::kFloat));
+    } else {
+      throw std::runtime_error("Unsupported dimension for createTestInput");
+    }
+  }
+
+  // Helper function to assert compilation fails with expected error message
+  void assertCompilationFails(
+      Fusion* fusion,
+      const std::vector<at::Tensor>& inputs,
+      const char* expected_error_msg) {
+    KernelExecutor ke;
+    try {
+      ke.compile(fusion, inputs);
+      FAIL() << "Expected compilation to throw error: " << expected_error_msg;
+    } catch (const std::exception& e) {
+      ASSERT_TRUE(strstr(e.what(), expected_error_msg) != nullptr)
+          << "Expected error message containing: \"" << expected_error_msg
+          << "\"\nActual error: " << e.what();
+    }
+  }
+
+  // Helper to create a fusion with blockQuantize and apply scheduling
+  struct FusionSetup {
+    std::unique_ptr<Fusion> fusion;
+    TensorView* tv_data_hp;
+    TensorView* t0;
+    TensorView* quantized_tensor;
+    TensorView* block_scales;
+    TensorView* t_out;
+  };
+
+  FusionSetup createBlockQuantizeFusion(int64_t dim = 2) {
+    FusionSetup setup;
+    setup.fusion = std::make_unique<Fusion>();
+    FusionGuard fg(setup.fusion.get());
+
+    setup.tv_data_hp = makeContigTensor(dim, DataType::Float);
+    setup.fusion->addInput(setup.tv_data_hp);
+
+    setup.t0 = set(setup.tv_data_hp);
+    auto quantization_results = blockQuantize(setup.t0);
+    setup.quantized_tensor = quantization_results.quantized_tensor;
+    setup.block_scales = quantization_results.block_scales;
+    setup.t_out = set(setup.quantized_tensor);
+
+    setup.fusion->addOutput(setup.block_scales);
+    setup.fusion->addOutput(setup.t_out);
+
+    return setup;
+  }
+
+  // Helper to apply common merge and split operations
+  void applyMergeAndSplit(
+      TensorView* t,
+      int64_t split_factor,
+      int64_t inner_split = 1,
+      int64_t thread_split = 128) {
+    // Merge all dims
+    t->merge(-2);
+    if (t->getLoopDomain().size() >= 2) {
+      t->merge(-2);
+    }
+
+    // Apply splits: I -> I/split_factor, split_factor
+    t->split(-1, split_factor);
+    // I/split_factor, split_factor -> I/split_factor, inner_split,
+    // split_factor/inner_split
+    t->split(-2, inner_split);
+    // I/split_factor, inner_split, split_factor/inner_split -> I/thread_split,
+    // thread_split/split_factor, inner_split, split_factor/inner_split
+    t->split(-3, thread_split);
+  }
+};
+
+TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  // Don't set memory type - remains global (default for inputs)
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(t_out);
+
+  assertCompilationFails(
+      fusion.get(), {createTestInput()}, "Input must be a local memory tensor");
+}
+
+TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(quantization_results.quantized_tensor);
+
+  assertCompilationFails(
+      fusion.get(),
+      {createTestInput()},
+      "Quantized output must be a local memory tensor");
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    BlockScalingFactorMustBeInGlobalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto tv_block_scales = set(quantization_results.block_scales);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_block_scales);
+  fusion->addOutput(tv_quantized_out);
+
+  assertCompilationFails(
+      fusion.get(),
+      {createTestInput()},
+      "Block scaling factor must be a global memory tensor");
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    QuantizedOutputCannotHaveVectorizedDimension) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(t, /*split_factor=*/4);
+
+    // Vectorize all non-input tensors (this should fail)
+    // as quantized output cannot be vectorized
+    if (t != setup.tv_data_hp) {
+      t->axis(-1)->parallelize(ParallelType::Vectorize);
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  assertCompilationFails(
+      setup.fusion.get(),
+      {createTestInput()},
+      "Cannot have vectorized ID in BlockQuantizationOp");
+}
+
+TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(
+        t, /*split_factor=*/128, /*inner_split=*/1, /*thread_split=*/4);
+
+    if (t != setup.tv_data_hp) {
+      // Mark outer ID as Group for quantized outputs (should fail)
+      // instead of innermost ID
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-3)->parallelize(ParallelType::Group);
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+        t->axis(-3)->parallelize(ParallelType::TIDx);
+      }
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  assertCompilationFails(
+      setup.fusion.get(),
+      {createTestInput()},
+      "The grouped ID must correspond to the innermost of all splits from "
+      "logical domains to loop domains for BlockQuantizationOp");
+}
+
+TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(t, /*split_factor=*/4, /*inner_split=*/2);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  assertCompilationFails(
+      setup.fusion.get(),
+      {createTestInput()},
+      "Expected non-TID/BID/Group ID to have extent of 1 for "
+      "BlockQuantizationOp");
+}
+
+TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(t, /*split_factor=*/4);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::BIDx);
+      t->axis(-4)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  assertCompilationFails(
+      setup.fusion.get(),
+      {createTestInput()},
+      "Only constant extent IDs with extent of 1 are expected between TIDx "
+      "and Group ID in BlockQuantizationOp quantized output");
+}
+
+TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
+  auto setup = createBlockQuantizeFusion(/*dim=*/3);
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    // Merge first two dims instead of last two
+    t->reorder({{0, 1}, {1, 0}}); // (i0, i1, i2) -> (i1, i0, i2)
+    t->merge(1);
+
+    // split I1 by 4
+    t->split(-1, 4);
+    // I/4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I/4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+      t->axis(-5)->parallelize(ParallelType::BIDy);
+    }
+  }
+
+  assertCompilationFails(
+      setup.fusion.get(),
+      {createTestInput(/*dim=*/3)},
+      "Invalid merge found while tracing back the grouped ID for "
+      "BlockQuantizationOp. All inputs to merge must be from logical domain "
+      "or be outputs of other merges");
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 

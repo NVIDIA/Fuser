@@ -261,6 +261,246 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
+// Helper class for BlockQuantization validation
+//
+// This class validates the scheduling requirements for BlockQuantizationOp:
+// 1. The Group ID must be derived from the innermost logical IDs
+// 2. Merge operations must combine contiguous logical IDs
+// 3. TIDx must follow the Group ID in the schedule
+class BlockQuantizationValidationHelper {
+ public:
+  BlockQuantizationValidationHelper(const TensorView* tv, IterDomain* group_id)
+      : tv_(tv), group_id_(group_id) {}
+
+  // Validates the complete scheduling structure for block quantization
+  void run() {
+    traceGroupIdToLogicalDomain();
+    IterDomain* restart_traversal_from = determineThreadXTraversalStart();
+    validateThreadXFollowsGroupId(restart_traversal_from);
+  }
+
+ private:
+  // Checks if a merge operation combines contiguous IDs from the logical
+  // domain. A merge is acceptable if its inputs can be traced back to IDs in
+  // the logical domain and those IDs are contiguous.
+  bool isAcceptableMerge(Merge* merge) const {
+    const auto& logical_domain = tv_->getLogicalDomain();
+    auto ids_in_logical_domain = IterVisitor::getInputsTo({merge->out()});
+
+    // Collect positions of IDs in the logical domain
+    std::vector<int64_t> logical_positions;
+    for (auto id : ids_in_logical_domain) {
+      auto iter_domain = id->as<IterDomain>();
+      auto it =
+          std::find(logical_domain.begin(), logical_domain.end(), iter_domain);
+      if (it == logical_domain.end()) {
+        return false; // ID not found in logical domain
+      }
+      logical_positions.push_back(std::distance(logical_domain.begin(), it));
+    }
+
+    // Check contiguity: positions should be consecutive when sorted
+    if (logical_positions.size() > 1) {
+      std::sort(logical_positions.begin(), logical_positions.end());
+      for (size_t i = 1; i < logical_positions.size(); ++i) {
+        if (logical_positions[i] != logical_positions[i - 1] + 1) {
+          return false; // Not contiguous
+        }
+      }
+    }
+
+    return true;
+  }
+
+  //                   M    K
+  //                 │    │
+  //                 ▼    ▼
+  //              ┌────────────┐
+  //              │   merge    │
+  //              └─────┬──────┘
+  //                    │
+  //                    ▼
+  //                   M*K
+  //               ┌──────────┐
+  //               │  split   ┼──┐
+  //               └─┬────────┘  │
+  //                 ▼           ▼
+  //           (M*K)/4          4(G)
+  //           ┌────────┐
+  //           │ split  ┼────┐
+  //           └─┬──────┘    │
+  //             ▼           ▼
+  //         (M*K)/4        1(U)
+  //     ┌─────────┐
+  //     │  split  │
+  //   ┌─┼         ┼───┐
+  //   │ └─────────┘   │
+  //   ▼               ▼
+  // (M*K)/4/128      128(Tx)
+  //
+  // Traces the Group ID backwards through splits and merges to ensure it
+  // derives from the innermost logical IDs. The diagram above shows a typical
+  // transformation chain from logical IDs (M, K) to the Group ID (G).
+  //
+  // Traversal rules:
+  // - For splits: Only traverse through the inner output (Group ID must be
+  //   innermost)
+  // - For merges: Traverse through the inner input and validate contiguity
+  //
+  // Returns via last_split_seen_: The last split encountered during traversal,
+  // which is used as the starting point for validating the TIDx path.
+  void traceGroupIdToLogicalDomain() {
+    NVF_ERROR(
+        group_id_ != nullptr,
+        "Expected a valid loop grouped ID for BlockQuantizationOp: ",
+        tv_->toString());
+
+    auto current_id = group_id_;
+    last_split_seen_ = nullptr;
+
+    while (current_id->definition() != nullptr) {
+      auto def = current_id->definition();
+
+      if (auto merge = dynamic_cast<Merge*>(def)) {
+        NVF_ERROR(
+            isAcceptableMerge(merge),
+            "Invalid merge found while tracing back the grouped ID for "
+            "BlockQuantizationOp. All inputs to merge must be from logical "
+            "domain or be outputs of other merges. TV: ",
+            tv_->toString());
+        current_id = merge->inner();
+      } else if (auto split = dynamic_cast<Split*>(def)) {
+        NVF_ERROR(
+            current_id == split->inner(),
+            "The grouped ID must correspond to the innermost of all splits "
+            "from logical domains to loop domains for BlockQuantizationOp. "
+            "TV: ",
+            tv_->toString());
+        last_split_seen_ = split;
+        current_id = split->in();
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected definition found while tracing back the grouped ID for "
+            "BlockQuantizationOp: ",
+            tv_->toString());
+      }
+    }
+
+    NVF_ERROR(
+        current_id->definition() == nullptr &&
+            current_id == tv_->getLogicalDomain().back(),
+        "The grouped ID must be the innermost logical domain ID for "
+        "BlockQuantizationOp: ",
+        tv_->toString());
+  }
+
+  // Determines the starting point for validating that TIDx follows the Group
+  // ID. Two cases:
+  // 1. If no splits were seen (last_split_seen_ == nullptr):
+  //    Group ID comes directly from logical domain or via merges only.
+  //    Start from the logical ID just before those feeding into Group ID.
+  // 2. Otherwise:
+  //    Start from the outer output of the last split seen.
+  IterDomain* determineThreadXTraversalStart() const {
+    if (last_split_seen_ == nullptr) {
+      // Case 1: Group ID derived directly from logical domain
+      auto ids_in_logical = IterVisitor::getInputsTo({group_id_});
+
+      // Validate all IDs feeding into Group ID have constant extents
+      for (auto id : ids_in_logical) {
+        auto iter_domain = id->as<IterDomain>();
+        NVF_ERROR(
+            iter_domain->extent()->isConstInt(),
+            "Expected all IDs feeding directly into Group ID to have constant "
+            "extents for BlockQuantizationOp: ",
+            tv_->toString());
+      }
+
+      // Ensure there are logical IDs left to derive thread IDs
+      const auto& logical_domain = tv_->getLogicalDomain();
+      NVF_ERROR(
+          ids_in_logical.size() < logical_domain.size(),
+          "There aren't enough logical IDs to derive thread IDs: ",
+          tv_->toString());
+
+      // Return the logical ID just before the ones feeding into Group ID
+      return logical_domain[logical_domain.size() - ids_in_logical.size() - 1];
+    } else {
+      // Case 2: Start from the outer output of the last split
+      return last_split_seen_->outer();
+    }
+  }
+
+  // Validates that TIDx follows the Group ID in the schedule using DFS
+  // traversal. Starting from the given ID, traverses through splits and merges
+  // to ensure TIDx is reachable. Any terminating IDs that are not TIDx must
+  // have extent 1.
+  void validateThreadXFollowsGroupId(IterDomain* start_id) const {
+    std::stack<IterDomain*> to_visit;
+    to_visit.push(start_id);
+
+    while (!to_visit.empty()) {
+      auto current_id = to_visit.top();
+      to_visit.pop();
+
+      // Check terminating IDs (no uses)
+      if (current_id->uses().empty()) {
+        if (current_id->getParallelType() == ParallelType::TIDx) {
+          return; // Found TIDx - validation successful
+        }
+
+        // Non-TIDx terminating IDs must have constant extent of 1
+        NVF_ERROR(
+            current_id->extent()->isConstInt(),
+            "Only constant extent IDs are expected between TIDx and Group ID "
+            "in BlockQuantizationOp quantized output: ",
+            tv_->toInlineString());
+        NVF_ERROR(
+            current_id->extent()->evaluate().as<int64_t>() == 1,
+            "Only constant extent IDs with extent of 1 are expected between "
+            "TIDx and Group ID in BlockQuantizationOp quantized output: ",
+            tv_->toInlineString());
+        continue;
+      }
+
+      // Validate single use (no branching in the path to TIDx)
+      NVF_ERROR(
+          current_id->uses().size() == 1,
+          "Expected single use for IDs in logical to loop transforms for "
+          "BlockQuantizationOp quantization output: ",
+          current_id->toString());
+
+      // Process the use expression
+      auto use_expr = current_id->uses().at(0);
+      if (auto merge = dynamic_cast<Merge*>(use_expr)) {
+        NVF_ERROR(
+            isAcceptableMerge(merge),
+            "Invalid merge found while tracing forward in the logical to loop "
+            "transforms for BlockQuantizationOp quantization output: ",
+            tv_->toString());
+        to_visit.push(merge->out());
+      } else if (auto split = dynamic_cast<Split*>(use_expr)) {
+        // DFS: inner split first, then outer split
+        to_visit.push(split->outer());
+        to_visit.push(split->inner());
+      } else {
+        NVF_ERROR(
+            false,
+            "Unexpected use of an ID found while tracing forward in the "
+            "logical to loop transforms for BlockQuantizationOp quantization "
+            "output: ",
+            tv_->toString());
+      }
+    }
+  }
+
+ private:
+  const TensorView* tv_;
+  IterDomain* group_id_;
+  Split* last_split_seen_ = nullptr;
+};
+
 // Expr-specific validaion
 //
 // TODO: Move individual validations to here, e.g.,
@@ -410,6 +650,133 @@ class ExprValidator : public OptOutDispatch {
           " due to ",
           (*it)->toString());
     }
+  }
+
+  // Basic tests:
+  // Input is in local memory.
+  // Block scaling factor is in global memory and
+  // quantized output is in local memory.
+  // Any loop ID that is not TID(x/y). BID(x/y) or Group
+  // has an extent of 1.
+  // The Group ID has an extent of 4/8 depending on the data type.
+  // The following are more complex checks that look at the schedule.
+  // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
+  // Our aims for the following checks are to ensure that the Group ID is
+  // contiguous and unit stride, and then after Group ID, we have TIDx.
+  // Such that (G) * ThreadIdx.x + GID is contiguous.
+  // Checks for Group ID:
+  // Next we check that the Group ID is contiguous and unit stride.
+  // We walk up the logical domain to loop domains path starting from the Group
+  // ID (G).
+  void handle(BlockQuantizationOp* bqop) final {
+    auto inp_tv = bqop->input(0)->as<TensorView>();
+    auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
+    auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+
+    NVF_ERROR_EQ(
+        inp_tv->getMemoryType(),
+        MemoryType::Local,
+        "Input must be a local memory tensor. Found: ",
+        inp_tv->getMemoryType());
+
+    NVF_ERROR_EQ(
+        quantized_output->getMemoryType(),
+        MemoryType::Local,
+        "Quantized output must be a local memory tensor. Found: ",
+        quantized_output->getMemoryType());
+
+    NVF_ERROR_EQ(
+        block_scaling_factor->getMemoryType(),
+        MemoryType::Global,
+        "Block scaling factor must be a global memory tensor. Found: ",
+        block_scaling_factor->getMemoryType());
+
+    // outputs have the same allocation domain
+    // as the loop domain. This has to be later
+    // relaxed for the scaling factors.
+    NVF_ERROR(
+        quantized_output->hasAllocation() == false,
+        "Quantized output must not have an allocation domain.");
+    NVF_ERROR(
+        block_scaling_factor->hasAllocation() == false,
+        "Block scaling factor must not have an allocation domain.");
+
+    // Check that it either had vectorized ID or grouped ID
+    // not both and the extent is either 4(FP32) or 8(BF16)
+    IterDomain* grouped_id = nullptr;
+    IterDomain* thread_x = nullptr;
+    IterDomain* block_x = nullptr;
+    IterDomain* thread_z = nullptr;
+    IterDomain* block_z = nullptr;
+
+    for (const auto& loop_id : quantized_output->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        grouped_id = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::Vectorize) {
+        NVF_ERROR(false, "Cannot have vectorized ID in BlockQuantizationOp");
+      } else if (loop_id->getParallelType() == ParallelType::TIDx) {
+        thread_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDx) {
+        block_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::TIDz) {
+        thread_z = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDz) {
+        block_z = loop_id;
+      } else if (
+          loop_id->getParallelType() == ParallelType::Serial ||
+          loop_id->getParallelType() == ParallelType::Unswitch ||
+          loop_id->getParallelType() == ParallelType::Unroll) {
+        // Check this is ID has a constant extent and is 1
+        NVF_ERROR(
+            loop_id->extent()->isConstInt(),
+            "Expected constant extent for Serial/Unswitch/Unroll ID in "
+            "BlockQuantizationOp");
+        NVF_ERROR(
+            loop_id->extent()->evaluate().as<int64_t>() == 1,
+            "Expected non-TID/BID/Group ID to have extent of 1 for "
+            "BlockQuantizationOp: ",
+            bqop->toString());
+      }
+    }
+
+    NVF_ERROR(
+        grouped_id != nullptr,
+        "One of the output IDs must be grouped for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        thread_x != nullptr && block_x != nullptr,
+        "Need to have both TIDx and BIDx when using BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        !thread_z && !block_z,
+        "Parallelization along z axis is not supported for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto input_dtype = inp_tv->dtype();
+
+    NVF_ERROR(
+        (inner_extent == 4 && input_dtype == DataType::Float) ||
+            (inner_extent == 8 &&
+             (input_dtype == DataType::BFloat16 ||
+              input_dtype == DataType::Half)),
+        "The vectorized/grouped dimension must be  4 (FP32) or 8 "
+        "(BF16). Found: ",
+        inner_extent,
+        ". Expr: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        grouped_id != nullptr,
+        "Expected a valid loop grouped ID for BlockQuantizationOp: ",
+        bqop->toString());
+
+    BlockQuantizationValidationHelper helper(quantized_output, grouped_id);
+    helper.run();
   }
 };
 
