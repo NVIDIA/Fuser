@@ -1069,6 +1069,11 @@ ValGraph& IdModel::buildGraph(IdMappingMode mode) {
       return buildBroadcastGraph();
     case IdMappingMode::PERMISSIVE:
       return buildPermissiveGraph();
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      NVF_THROW(
+          "PERMISSIVE_RESIZE graph should be built using "
+          "buildPermissiveResizeGraph() function, not through "
+          "IdModel::buildGraph()");
     case IdMappingMode::LOOP:
       return buildLoopGraph();
     default:
@@ -1437,6 +1442,23 @@ Val* IdModel::getLoopIndexVariable(
     CircularBufferLoopStage circular_buffer_loop_stage) const {
   const auto& loop_group = idGraph(IdMappingMode::LOOP).toGroup(id);
   return getLoopIndexVariable(loop_group, circular_buffer_loop_stage);
+}
+
+ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph) {
+  ValGraph resize_graph(permissive_graph);
+  // Add resize mappings: if an id's definition is a resize op, map resize input
+  // to id
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    for (Val* val : *val_group) {
+      auto def = val->as<IterDomain>()->definition();
+      if (def && def->isA<Resize>()) {
+        resize_graph.mapVals(def->as<Resize>()->in(), val);
+      }
+    }
+  }
+  resize_graph.validateConsistency();
+  return resize_graph;
 }
 
 } // namespace nvfuser
