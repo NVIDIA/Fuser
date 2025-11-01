@@ -13,6 +13,7 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>

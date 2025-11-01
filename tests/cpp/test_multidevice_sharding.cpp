@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
+#include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
 #include <preseg_passes/optimization_pass.h>

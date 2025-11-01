@@ -24,6 +24,7 @@
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
