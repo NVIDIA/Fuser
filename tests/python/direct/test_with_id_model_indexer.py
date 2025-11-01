@@ -214,4 +214,4 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)

@@ -5,6 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/communication.h>
+
+#include <algorithm>
+#include <iterator>
+#include <limits>
+#include <sstream>
+#include <string>
+#include <vector>
+
 #include <c10/cuda/CUDAStream.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
@@ -13,7 +22,7 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
-#include <multidevice/communication.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/utils.h>
 #include <utils.h>
 

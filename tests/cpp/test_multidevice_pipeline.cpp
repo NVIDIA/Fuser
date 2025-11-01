@@ -26,6 +26,7 @@
 #include <iter_visitor.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/reorder_sharded_axis.h>
@@ -41,6 +42,25 @@
 #include <transform_rfactor.h>
 
 namespace nvfuser {
+
+namespace {
+
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh(DeviceMesh());
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    unshard(tv);
+  }
+}
+
+} // namespace
 
 class PipelineTest : public MultiDeviceTest {
  protected:

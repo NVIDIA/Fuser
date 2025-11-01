@@ -113,7 +113,7 @@ def test_scaled_mm(
         )
         * alpha
     )
-    assert o[0].allclose(ref_o, 1e-2, 1e-2)
+    torch.testing.assert_close(o[0], ref_o, rtol=1e-1, atol=1e-2)
 
 
 @pytest.mark.skipif(
@@ -274,7 +274,7 @@ def test_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.skipif(

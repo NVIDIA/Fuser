@@ -20,6 +20,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <utils.h>

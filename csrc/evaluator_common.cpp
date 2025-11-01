@@ -12,6 +12,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
