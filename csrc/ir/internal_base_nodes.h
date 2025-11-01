@@ -106,6 +106,8 @@ class NVF_API IterDomain : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  bool checkDefinition(const Val* other) const override;
+
   bool sameAs(const Statement* other) const override;
 
   std::string toString(int indent_size = 0) const override;
