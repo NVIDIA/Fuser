@@ -405,6 +405,106 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
+class BlockQuantizationValidationTest : public BlackwellBase {
+ protected:
+  // Helper function to create test input tensor
+  at::Tensor createTestInput() {
+    return at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat));
+  }
+
+  // Helper function to assert compilation fails with expected error message
+  void assertCompilationFails(
+      Fusion* fusion,
+      const std::vector<at::Tensor>& inputs,
+      const char* expected_error_msg) {
+    KernelExecutor ke;
+    try {
+      ke.compile(fusion, inputs);
+      FAIL() << "Expected compilation to throw error: " << expected_error_msg;
+    } catch (const std::exception& e) {
+      ASSERT_TRUE(strstr(e.what(), expected_error_msg) != nullptr)
+          << "Expected error message containing: \"" << expected_error_msg
+          << "\"\nActual error: " << e.what();
+    }
+  }
+};
+
+TEST_F(BlockQuantizationValidationTest, InvalidMemoryLocations) {
+  // Test 1: Input must be in local memory, not global
+  {
+    std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv_data_hp = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tv_data_hp);
+
+    // Don't set memory type - remains global (default for inputs)
+    auto quantization_results = blockQuantize(tv_data_hp);
+    auto t_out = set(quantization_results.quantized_tensor);
+
+    fusion->addOutput(quantization_results.block_scales);
+    fusion->addOutput(t_out);
+
+    assertCompilationFails(
+        fusion.get(),
+        {createTestInput()},
+        "Input must be a local memory tensor");
+  }
+
+  // Test 2: Quantized output must be in local memory
+  {
+    std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv_data_hp = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tv_data_hp);
+
+    tv_data_hp = set(tv_data_hp);
+    auto quantization_results = blockQuantize(tv_data_hp);
+
+    fusion->addOutput(quantization_results.block_scales);
+    fusion->addOutput(quantization_results.quantized_tensor);
+
+    assertCompilationFails(
+        fusion.get(),
+        {createTestInput()},
+        "Quantized output must be a local memory tensor");
+  }
+
+  // Test 3: Block scaling factor output must be in global memory
+  {
+    std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv_data_hp = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tv_data_hp);
+
+    tv_data_hp = set(tv_data_hp);
+    auto quantization_results = blockQuantize(tv_data_hp);
+    auto tv_block_scales = set(quantization_results.block_scales);
+    auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+    fusion->addOutput(tv_block_scales);
+    fusion->addOutput(tv_quantized_out);
+
+    assertCompilationFails(
+        fusion.get(),
+        {createTestInput()},
+        "Block scaling factor must be a global memory tensor");
+  }
+}
+
+TEST_F(BlockQuantizationValidationTest, BasicSchedulingTests) {
+  // Test that the quantized output is sceduled with a vectorized dim
+
+  // Test that the group ID is inner-most
+
+  // Test that the group ID is derived from the inner-most logical ID of the
+  // quantized output
+
+  //
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
