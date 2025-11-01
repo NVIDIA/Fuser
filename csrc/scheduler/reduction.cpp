@@ -1564,9 +1564,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   auto reduction_tv = reduction_tvs[0];
 
   if (!ir_utils::getReshapeOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
     // Propagate reshape transforms through the graph, expecially the reference.
-    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+    scheduler_utils::propagateReshapeTransforms(fusion);
 
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
