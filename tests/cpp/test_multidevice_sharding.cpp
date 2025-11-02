@@ -1200,4 +1200,45 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
   EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
 }
 
+TEST_F(MultiDeviceTest, MultipleReshapes) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t d = communicator_->size();
+  int64_t b = 1, s = 2048, h = 96;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide H=" << h;
+  }
+
+  TensorView* tv0 = makeContigConcreteTensor({b, s, h}, DataType::BFloat16);
+  TensorView* tv1 = castOp(DataType::Float, tv0);
+  TensorView* tv2 = reshape(tv1, {b, s, h}, {b, s, h / 4, 4});
+  TensorView* tv3 = reshape(tv1, {b, s, h}, {b, s, h / 4, 4});
+  TensorView* tv4 = add(tv2, tv2);
+  TensorView* tv5 = add(tv3, tv3);
+  TensorView* tv6 = castOp(DataType::BFloat16, tv4);
+  TensorView* tv7 = castOp(DataType::BFloat16, tv5);
+
+  for (TensorView* tv : {tv0}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    fusion->addInput(tv);
+  }
+
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  at::Tensor input = at::randn({b, s, h}, tensor_options_.dtype(at::kBFloat16));
+  at::Tensor sharded_input = shardTensor(input, 2, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_input})[0].as<at::Tensor>();
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+}
 } // namespace nvfuser

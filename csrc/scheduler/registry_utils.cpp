@@ -7,6 +7,7 @@
 // clang-format on
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
@@ -1163,6 +1164,75 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
 
       if (inp_groups_i.hasIntersect(out_groups_j)) {
         return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+// Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
+// Returns true if IDs are mapped together (same ValGroup) but have
+// different transformations (different ExprGroups). This indicates the reshape
+// operations cannot be replayed and the fusion must be segmented.
+// See test IncompatibleReshapesDifferentDisjointSetsMultiSteps
+// It has:  slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+//          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
+// Both slices produce tv[24] which map together, but reshape differently.
+bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+
+  for (const ValGroup& val_group :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    // Check for consistency if there are at least 2 IDs
+    if (val_group->size() < 2) {
+      continue;
+    }
+    // Collect only rfactor product ids. These are IDs that have been
+    // transformed from root IDs and need consistent replay behavior.
+    std::vector<IterDomain*> ids;
+    for (Val* val : *val_group) {
+      auto id = val->as<IterDomain>();
+      if (id->isRFactorProduct()) {
+        ids.push_back(id);
+      }
+    }
+    if (ids.size() < 2) {
+      continue;
+    }
+    // For IDs in the same val group, their usages should be in the same expr
+    // group. Resize ops are skipped since they are not propagated during
+    // replay.
+    std::optional<ExprGroup> common_use_group;
+    for (auto id : ids) {
+      if (!permissive_resize_graph.hasUses(
+              permissive_resize_graph.toGroup(id))) {
+        continue;
+      }
+      const auto& use_groups =
+          permissive_resize_graph.getUses(permissive_resize_graph.toGroup(id));
+      for (const auto& use_group : use_groups) {
+        // skip resize as they are not propagated during replay.
+        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+              return expr->isA<Resize>();
+            })) {
+          continue;
+        }
+        // skip device splits as they are processed by PropagateShardingsPass
+        // in the pre-segment pass.
+        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+              return isValidDeviceSplit(expr);
+            })) {
+          continue;
+        }
+        if (!common_use_group.has_value()) {
+          common_use_group = use_group;
+        } else if (common_use_group.value() != use_group) {
+          return true;
+        }
       }
     }
   }
