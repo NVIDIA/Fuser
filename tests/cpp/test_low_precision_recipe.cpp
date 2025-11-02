@@ -405,7 +405,6 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
-<<<<<<< HEAD
 class BlockQuantizationValidationTest : public BlackwellBase {
  protected:
   // Helper function to create test input tensor
@@ -722,8 +721,6 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
       "or be outputs of other merges");
 }
 
-=======
->>>>>>> main
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
