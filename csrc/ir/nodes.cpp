@@ -6421,4 +6421,52 @@ std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
 
+// Details:
+// Currently output_scales is the first input in the constructor even though
+// it's the second output. This is because if it's the second output then we hit
+// a bug in indexing. The stack trace can be seen here:
+// https://gist.github.com/protonu/dc35024c1291625b2b7ce87baa39e2ae
+// This happens when creating UnswitchPredicate, probably in the call to
+// TensorIndexer::getPredicates. The incorrect predicate_domains for the tv
+// in the call to getPredicateDomains.
+BlockQuantizationOp::BlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input,
+    Val* logical_index,
+    Val* global_scale,
+    int64_t block_size)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(output_scales);
+  addInput(input);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addAttribute(logical_index);
+  addDataAttribute(block_size);
+}
+
+std::string BlockQuantizationOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
+                          << quantizedOutput()->toString() << ")\n"
+                          << " = block_quantize(" << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "BlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("BlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
+
 } // namespace nvfuser

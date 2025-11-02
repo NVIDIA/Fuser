@@ -312,6 +312,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_topk = true;
   }
 
+  void handle(BlockQuantizationOp* bqop) final {
+    summary_.has_block_quantize_op = true;
+  }
+
   void handle(ScanOp* scan) final {
     summary_.has_scan = true;
   }
