@@ -1811,6 +1811,68 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("scan::blockScan", template_args, func_args) << ";\n";
   }
 
+  // Special handling of BlockQuantizationOp to call the runtime function.
+  // TODO: add support for global scaling factor
+  void handle(const BlockQuantizationOp* bqop) final {
+    // This operator is plumbed down to a runtime function call.
+    // One of the assumptions is that the device runtime expects
+    // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
+    // the input tv scheduler to have the inner dimension grouped by 4/8.
+    auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    int64_t group_size = 1;
+
+    // Get the loop domain of the TensorView output and check for group
+    // parallel types. This assumes that both parallel types aren't present.
+    const auto& loop_domain = output->getLoopDomain();
+    for (auto* domain : loop_domain) {
+      auto parallel_type = domain->getParallelType();
+      if (parallel_type == ParallelType::Group) {
+        if (domain->extent()->isConstInt()) {
+          group_size = domain->extent()->evaluate().as<int64_t>();
+        }
+      }
+    }
+
+    auto input_dtype =
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
+
+    if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
+      NVF_ERROR(
+          group_size == 8,
+          "Group size should be 8 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+
+    } else {
+      NVF_ERROR(
+          group_size == 4,
+          "Group size should be 4 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+    }
+
+    ArgumentBuilder template_args;
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Function arguments
+    ArgumentBuilder func_args;
+
+    // First argument: input data array
+    // Second argument: quantized output
+    // Third argument: block scale output
+    func_args.arg(genInline(bqop->input(0)->as<kir::TensorIndex>()->view()));
+    func_args.arg(genInline(output));
+    func_args.arg(
+        genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
+
+    // Fourth argument: This holds the linearized index that will be used to
+    // write out the block scaling factors in the runtime function.
+    func_args.arg(genInline(bqop->attributeVal(0)));
+
+    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
+             << ";\n";
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "

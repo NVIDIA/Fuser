@@ -6,6 +6,11 @@
  */
 // clang-format on
 #include <bindings.h>
+#include <direct_utils.h>
+#include <options.h>
+#include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
+#include <scheduler/scheduler_types.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
@@ -153,6 +158,122 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
           None
         )",
       py::arg("selected_tensors") = std::vector<TensorView*>());
+
+  schedule.def(
+      "can_schedule",
+      [](Fusion* fusion,
+         SchedulerType scheduler_type,
+         const py::iterable& inputs) {
+        // Enable collection of messages from canScheduleRejectReason
+        DebugDumpOptionsGuard debug_dump_options_guard;
+        DebugDumpOptionsGuard::getCurOptions().set(
+            DebugDumpOption::FusionSegmenterLog);
+
+        // Send debug messages to stringstream
+        std::stringstream ss;
+        DebugStreamGuard dsg(ss);
+
+        // Create runtime info from inputs
+        auto args = from_pyiterable(inputs);
+        SchedulerRuntimeInfo runtime_info(fusion, args);
+
+        bool can_schedule =
+            Schedule::canSchedule(scheduler_type, fusion, runtime_info);
+        return std::make_tuple(can_schedule, ss.str());
+      },
+      py::arg("fusion"),
+      py::arg("scheduler_type"),
+      py::arg("inputs"),
+      R"(
+          Check if a scheduler can schedule the given fusion with the provided inputs.
+
+          Parameters
+          ----------
+          fusion : Fusion
+              The fusion to check.
+          scheduler_type : SchedulerType
+              The type of scheduler to check.
+          inputs : iterable
+              The input tensors/values for the fusion.
+
+          Returns
+          -------
+          tuple of (bool, str)
+              A tuple containing:
+              - bool: True if the scheduler can schedule the fusion, False otherwise.
+              - str: Debug message explaining why the scheduler was accepted or rejected.
+        )");
+
+  schedule.def(
+      "find_compatible_schedulers",
+      [](Fusion* fusion, const py::iterable& inputs) {
+        // Create runtime info from inputs
+        auto args = from_pyiterable(inputs);
+        SchedulerRuntimeInfo runtime_info(fusion, args);
+
+        std::vector<SchedulerType> compatible_schedulers;
+
+        // Check all scheduler types except None
+        for (const auto& scheduler_type : all_heuristics_in_priority_order) {
+          if (scheduler_type != SchedulerType::None &&
+              Schedule::canSchedule(scheduler_type, fusion, runtime_info)) {
+            compatible_schedulers.push_back(scheduler_type);
+          }
+        }
+
+        return compatible_schedulers;
+      },
+      py::arg("fusion"),
+      py::arg("inputs"),
+      R"(
+          Find all schedulers compatible with the given fusion and inputs.
+
+          Parameters
+          ----------
+          fusion : Fusion
+              The fusion to check.
+          inputs : iterable
+              The input tensors/values for the fusion.
+
+          Returns
+          -------
+          list of SchedulerType
+              A list of scheduler types that can schedule the fusion.
+        )");
+
+  schedule.def(
+      "schedule",
+      [](Fusion* fusion,
+         SchedulerType scheduler_type,
+         const py::iterable& inputs) {
+        auto args = from_pyiterable(inputs);
+        return SchedulerEntry::scheduleWith(
+            fusion, scheduler_type, args, /*validate_scheduler=*/true);
+      },
+      py::arg("fusion"),
+      py::arg("scheduler_type"),
+      py::arg("inputs"),
+      R"(
+          Schedule the fusion with the specified scheduler type.
+
+          Parameters
+          ----------
+          fusion : Fusion
+              The fusion to schedule.
+          scheduler_type : SchedulerType
+              The type of scheduler to use.
+          inputs : iterable
+              The input tensors/values for the fusion.
+
+          Returns
+          -------
+          HeuristicParams
+              The heuristics for the scheduled fusion.
+
+          Notes
+          -----
+          This function will raise an error if the scheduler cannot schedule the fusion.
+        )");
 }
 
 } // namespace

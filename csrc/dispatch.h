@@ -110,6 +110,7 @@ class Val;
   f(ScaledMmaOp);                    \
   f(CutlassNvfp4GroupedMmaOp);       \
   f(PreprocessGroupedMatmulInputSf); \
+  f(BlockQuantizationOp);            \
   f(TopKOp);                         \
   f(ScanOp);                         \
   f(Merge);                          \
