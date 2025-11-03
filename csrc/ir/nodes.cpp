@@ -5682,6 +5682,45 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  // Meta-device fast path outside of torch version guard
+  if (inputs.size() >= 3 && inputs[0].is<at::Tensor>() &&
+      inputs[1].is<at::Tensor>() && inputs[2].is<at::Tensor>()) {
+    const auto& mat1_meta_check = inputs[0].as<at::Tensor>();
+    const auto& mat2_meta_check = inputs[1].as<at::Tensor>();
+    const auto& offsets_meta_check = inputs[2].as<at::Tensor>();
+    if (mat1_meta_check.is_meta() || mat2_meta_check.is_meta() ||
+        offsets_meta_check.is_meta()) {
+      const int64_t num_groups = offsets_meta_check.numel();
+      std::vector<int64_t> result_sizes;
+      if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 2) {
+        result_sizes = {
+            num_groups, mat1_meta_check.size(0), mat2_meta_check.size(-1)};
+      } else if (mat1_meta_check.dim() == 3 && mat2_meta_check.dim() == 2) {
+        result_sizes = {mat1_meta_check.size(1), mat2_meta_check.size(-1)};
+      } else if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 3) {
+        result_sizes = {mat1_meta_check.size(0), mat2_meta_check.size(-1)};
+      } else {
+        NVF_THROW(
+            "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
+            mat1_meta_check.sizes(),
+            " and mat2 = ",
+            mat2_meta_check.sizes());
+      }
+
+      auto options = mat1_meta_check.options()
+                         .device(c10::Device(c10::kMeta))
+                         .dtype(data_type_to_aten(out()->dtype()));
+      at::Tensor result = at::empty(result_sizes, options);
+
+      if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+          rfactor_did_idx != -1) {
+        result = result.unsqueeze(rfactor_did_idx);
+      }
+
+      return {result};
+    }
+  }
+
   NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
