@@ -2518,8 +2518,8 @@ class Scope {
 // dropout_p = scalar(double)
 // is_causal = scalar(bool)
 // philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale
-// = scalar(double)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// scale = scalar(double)
 
 // Note: For older versions, torch accepts CPU scalar tensors for philox_seed
 // and philox_offset. For torch 2.7.0 and above, torch accepts philox_seed ->
