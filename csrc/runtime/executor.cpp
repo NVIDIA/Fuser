@@ -10,7 +10,6 @@
 
 #include <cmath>
 #include <cstring>
-#include "type.h"
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -44,6 +43,7 @@
 #include <runtime/executor_utils.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
+#include <type.h>
 #include <utils.h>
 
 namespace nvfuser {
