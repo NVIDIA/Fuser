@@ -427,7 +427,7 @@ void validateInputsGroupMm(
       c10::cuda::CaptureStatus::None) {
     const int64_t m = a.size(0);
     const int64_t g = expert_offsets.size(0);
-    // This validation requires an expensive synchronization and therfore is
+    // This validation requires an expensive synchronization and therefore is
     // only enabled in debug mode. See #5470.
     at::Tensor expert_offsets_cpu = expert_offsets.cpu();
     int64_t prev_offset = 0;
