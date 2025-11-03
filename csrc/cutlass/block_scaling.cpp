@@ -246,7 +246,7 @@ std::vector<BlockScaledOutputPattern> findBlockScaledOutputs(Fusion* fusion) {
       block_scales_unquantized = clamp_op->in1()->as<TensorView>();
     }
 
-    // If there's a global scale, there's can be an extra division:
+    // If there's a global scale, there can be an extra division:
     //   block_scales_raw / global_scale -> block_scales_scaled
     // Otherwise it's just: amax / constant -> block_scales_raw
     TensorView* block_scales_raw = block_scales_unquantized;
