@@ -36,8 +36,6 @@ jobs:
           ccache --set-config=max_size=2G
           ccache --set-config=compression=true
           ccache --zero-stats
-          echo "CC=ccache clang" >> $GITHUB_ENV
-          echo "CXX=ccache clang++" >> $GITHUB_ENV
       - name: Build with clang++
         working-directory: ${{ env.working_directory }}
         run: |
