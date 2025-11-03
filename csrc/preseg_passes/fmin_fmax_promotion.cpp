@@ -19,13 +19,12 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-//
 // To analyze a single min or max reduction op, the "target" op, we perform
 // a downstream dataflow analysis to detect whether a NAN squelched by the
 // promotion will reach any fusion outputs, or if it will be repaired by a
 // downstream "safe" reductions.
 //
-// The entire analysis happens on TensorView, not IterDomains.
+// The entire analysis happens on TensorViews, not IterDomains.
 enum class NanStatus {
   // "None" status corresponds to a lack of relevant information. This status is
   // the default when looking up an un-tracked node in the NanStatusMap. This
@@ -158,7 +157,7 @@ bool canBeAnalyzed(
     Expr* expr,
     ReductionOp* compareRop,
     std::optional<BroadcastOp*>& compareBop) {
-  // This is where we enforce the restricted-subgraph rules. Arbitrary binary
+  // This is where we enforce the restricted-subgraph rules. Arbitrary unary
   // and binary ops are allowed, and do not affect the analysis. Reduction and
   // broadcasts have strict requirements to simplify the state tracking.
 
@@ -270,8 +269,8 @@ bool minMaxOpIsRepaired(
 
     if (isSafeReduction(expr, promotedOps)) {
       if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
-        // Unreduced and Mixed states both indicate the targetRop's input have
-        // propagated here pointwise, preserving their NAN values unchanged
+        // Unreduced and Mixed states both indicate the targetRop's input has
+        // propagated here pointwise, preserving its NAN values in unchanged
         // positions. Therefore, this reduction will create the tensor with
         // reduced NAN values matching the original targetRop if it propagated
         // its NANs.
