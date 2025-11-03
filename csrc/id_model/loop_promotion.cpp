@@ -425,6 +425,38 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
         loop_group->begin(), loop_group->end());
   }
 
+  // Grab all IDs between logical and loop domains as only these IDs
+  // should be relevant for loop promotion.
+  //
+  // Although it should not be generally harmful to do the analysis
+  // also with IDs that are outside of the logical and loop paths, in
+  // special cases such as PreprocessGroupedMatmulInputSf, allocation
+  // IDs may not be connected with logical IDs, which would cause the
+  // loop promotion analysis to fail at, e.g., computeCoveredGroups, if
+  // allocation IDs were not excluded. The root cause of this problem is
+  // the missing connection between the logical and allocation domains,
+  // but just omitting the loop promotion analysis for allocation-only
+  // IDs also avoids the issue and should generally make the analysis
+  // more efficient as the analysis of non-loop IDs is unnecessary.
+  for (const auto tv : id_model_.tvs()) {
+    auto logical_to_loop_ids = DependencyCheck::getAllValsBetween(
+        {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    logical_to_loop_ids_.insert(
+        logical_to_loop_ids.begin(), logical_to_loop_ids.end());
+    // Make sure loop IDs are included as logical_to_loop_ids may not
+    // when loop is not generated from logical, e.g., scatter. In that
+    // case, no broadcast promotion is done but we still need to pick
+    // some ID as a promotion ID.
+    logical_to_loop_ids_.insert(
+        tv->getLoopDomain().begin(), tv->getLoopDomain().end());
+    if (tv->getAlternateLoopDomain().has_value()) {
+      logical_to_loop_ids_.insert(
+          tv->getAlternateLoopDomain()->begin(),
+          tv->getAlternateLoopDomain()->end());
+    }
+  }
+
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -932,6 +964,18 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       continue;
     }
 
+    const std::vector<ValGroup> out_groups = iel_graph.outputGroups(iel_expr);
+
+    // If no output is an ID between logical to loop, it should not be
+    // necessary to propagate the promotion info
+    if (std::ranges::none_of(out_groups, [&](const ValGroup& out_group) {
+          return std::ranges::any_of(*out_group, [&](Val* out_val) {
+            return logical_to_loop_ids_.contains(out_val);
+          });
+        })) {
+      continue;
+    }
+
     Expr* promoted_expr = findMatchingExpr(
         iel_expr,
         iel_graph,
@@ -947,7 +991,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     }
 
     // Mark outputs as having a promoted iter domain
-    std::vector<ValGroup> out_groups = iel_graph.outputGroups(iel_expr);
     NVF_ERROR(promoted_expr->outputs().size() == out_groups.size());
     NVF_ERROR(
         ir_utils::filterByType<IterDomain>(promoted_expr->outputs()).size() ==
@@ -1091,6 +1134,13 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
 
   for (const ValGroup& loop_group :
        loop_graph.disjointValSets().disjointSets()) {
+    // If this is a group with no logical to loop ID, no promotion is
+    // necessary.
+    if (std::ranges::none_of(*loop_group, [&](Val* loop_group_id) {
+          return logical_to_loop_ids_.contains(loop_group_id);
+        })) {
+      continue;
+    }
     IterDomain* promotion_id = findPromotionOfLoopGroup(
         loop_group,
         iel_graph,
@@ -1238,29 +1288,31 @@ VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
 void LoopPromotionMapBuilder::sanityCheckLoopPromotionMap(
     const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) const {
   const auto& loop_graph = idGraph(IdMappingMode::LOOP);
-  for (const ValGroup& loop_group :
-       loop_graph.disjointValSets().disjointSets()) {
-    // Non-loop loop groups are not guaranteed to have valid
-    // promotions. See for example FusionRepro1713, where root domains
-    // are all grouped together but there's no valid promotion.
-    if (loop_graph.hasUses(loop_group)) {
-      continue;
+
+  // Make sure all loop IDs have a promotion ID
+  for (auto tv : id_model_.tvs()) {
+    for (auto loop_id : tv->getLoopDomain()) {
+      const auto& loop_group = loop_graph.toGroup(loop_id);
+      // Make sure the loop group is promoted to a domain that is mapped
+      // in the LOOP graph
+      auto promotion_it = loop_promotion_map.find(loop_group);
+      NVF_ERROR(
+          promotion_it != loop_promotion_map.end(),
+          "Loop promotion not found for ",
+          loop_id->toString(),
+          " (",
+          nvfuser::toString(loop_group),
+          ") of ",
+          tv->toString());
+      IterDomain* promotion = promotion_it->second;
+      // Make sure the promotion domain is also loop-mapped
+      NVF_ERROR(
+          loop_group->has(promotion),
+          "Loop promotion not loop-mapped. Loop group: ",
+          nvfuser::toString(loop_group),
+          ". Promotion domain: ",
+          promotion->name());
     }
-    // Make sure the loop group is promoted to a domain that is mapped
-    // in the LOOP graph
-    auto promotion_it = loop_promotion_map.find(loop_group);
-    NVF_ERROR(
-        promotion_it != loop_promotion_map.end(),
-        "Loop promotion not found for ",
-        nvfuser::toString(loop_group));
-    IterDomain* promotion = promotion_it->second;
-    // Make sure the promotion domain is also loop-mapped
-    NVF_ERROR(
-        loop_group->has(promotion),
-        "Loop promotion not loop-mapped. Loop group: ",
-        nvfuser::toString(loop_group),
-        ". Promotion domain: ",
-        promotion->name());
   }
 }
 
