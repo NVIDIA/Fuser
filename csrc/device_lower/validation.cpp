@@ -262,20 +262,25 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
 }
 
 // Helper class for BlockQuantization validation
-//
-// This class validates the scheduling requirements for BlockQuantizationOp:
+// This class validates the following scheduling requirements for
+// BlockQuantizationOp:
 // 1. The Group ID must be derived from the innermost logical IDs
 // 2. Merge operations must combine contiguous logical IDs
-// 3. TIDx must follow the Group ID in the schedule
+// 3. TIDx must follow the Group ID in the schedule -- that is when derived from
+// the logical domain, group ID must be inner-most, the next "inner-most" should
+// be TIDx (unless there is an ID with a unit trip count)
 class BlockQuantizationValidationHelper {
  public:
   BlockQuantizationValidationHelper(const TensorView* tv, IterDomain* group_id)
       : tv_(tv), group_id_(group_id) {}
 
-  // Validates the complete scheduling structure for block quantization
   void run() {
+    // Trace back from Group ID to logical domain to see group is "inner-most"
     traceGroupIdToLogicalDomain();
+    // Find where to start the search for TIDx
     IterDomain* restart_traversal_from = determineThreadXTraversalStart();
+    // We start a DFS for TIDx taking the inner outputs of Split nodes first.
+    // We should not find a terminating ID that is not TIDx and has extent > 1.
     validateThreadXFollowsGroupId(restart_traversal_from);
   }
 
@@ -347,7 +352,7 @@ class BlockQuantizationValidationHelper {
   //   innermost)
   // - For merges: Traverse through the inner input and validate contiguity
   //
-  // Returns via last_split_seen_: The last split encountered during traversal,
+  // Stores last_split_seen_: The last split encountered during traversal,
   // which is used as the starting point for validating the TIDx path.
   void traceGroupIdToLogicalDomain() {
     NVF_ERROR(
@@ -401,7 +406,8 @@ class BlockQuantizationValidationHelper {
   //    Group ID comes directly from logical domain or via merges only.
   //    Start from the logical ID just before those feeding into Group ID.
   // 2. Otherwise:
-  //    Start from the outer output of the last split seen.
+  //    Start from the outer output of the last split seen - as we must come up
+  //    to the split from the group ID via the inner output.
   IterDomain* determineThreadXTraversalStart() const {
     if (last_split_seen_ == nullptr) {
       // Case 1: Group ID derived directly from logical domain
@@ -432,10 +438,10 @@ class BlockQuantizationValidationHelper {
     }
   }
 
-  // Validates that TIDx follows the Group ID in the schedule using DFS
-  // traversal. Starting from the given ID, traverses through splits and merges
-  // to ensure TIDx is reachable. Any terminating IDs that are not TIDx must
-  // have extent 1.
+  // Validates that TIDx follows the Group ID in the schedule using DFS.
+  // Starting from the given ID, traverses through splits and merges
+  // to ensure TIDx is reachable. We traverse through the split by taking the
+  // inner path first. Any terminating IDs that are not TIDx must have extent 1.
   void validateThreadXFollowsGroupId(IterDomain* start_id) const {
     std::stack<IterDomain*> to_visit;
     to_visit.push(start_id);
@@ -464,7 +470,6 @@ class BlockQuantizationValidationHelper {
         continue;
       }
 
-      // Validate single use (no branching in the path to TIDx)
       NVF_ERROR(
           current_id->uses().size() == 1,
           "Expected single use for IDs in logical to loop transforms for "
@@ -652,22 +657,24 @@ class ExprValidator : public OptOutDispatch {
     }
   }
 
-  // Basic tests:
+  // Basic checks:
   // Input is in local memory.
   // Block scaling factor is in global memory and
   // quantized output is in local memory.
   // Any loop ID that is not TID(x/y). BID(x/y) or Group
   // has an extent of 1.
   // The Group ID has an extent of 4/8 depending on the data type.
-  // The following are more complex checks that look at the schedule.
   // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
-  // Our aims for the following checks are to ensure that the Group ID is
-  // contiguous and unit stride, and then after Group ID, we have TIDx.
-  // Such that (G) * ThreadIdx.x + GID is contiguous.
-  // Checks for Group ID:
-  // Next we check that the Group ID is contiguous and unit stride.
-  // We walk up the logical domain to loop domains path starting from the Group
-  // ID (G).
+  // The following are more complex checks that look at the schedule.
+  // These checks are implemented using the helper class
+  // BlockQuantizationValidationHelper.
+  // Our aims for the following checks are to ensure that the group ID is
+  // contiguous and unit stride, and then after group ID, we have TIDx. Such
+  // that (G -- extent of GID) * ThreadIdx.x + GID is contiguous.
+  // We do so by checking that the group ID unit stride. It is derived from the
+  // innermost logical IDs via merges and inner splits only. Next we check that
+  // TIDx in the next inner-most ID, and if there was any other ID between TIDx
+  // and group ID then it must have an extent of 1.
   void handle(BlockQuantizationOp* bqop) final {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
@@ -691,12 +698,13 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    // outputs have the same allocation domain
-    // as the loop domain. This has to be later
-    // relaxed for the scaling factors.
+    // Outputs have the same allocation domain
+    // as the logical domain - no allocation domain.
     NVF_ERROR(
         quantized_output->hasAllocation() == false,
         "Quantized output must not have an allocation domain.");
+
+    // TODO: Relax this for swizzled block scaling factor outputs
     NVF_ERROR(
         block_scaling_factor->hasAllocation() == false,
         "Block scaling factor must not have an allocation domain.");
@@ -775,6 +783,7 @@ class ExprValidator : public OptOutDispatch {
         "Expected a valid loop grouped ID for BlockQuantizationOp: ",
         bqop->toString());
 
+    // Helper to check to the most involved scheduling requirements.
     BlockQuantizationValidationHelper helper(quantized_output, grouped_id);
     helper.run();
   }
