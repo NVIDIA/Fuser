@@ -242,6 +242,11 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
     }
   }
 
+  auto update = [&](ParallelDim* pdim, Val* extent) {
+    dim_eval_extent_map_.emplace(pdim, extent);
+    num_updates++;
+  };
+
   num_updates = 0;
   while (!queue.empty()) {
     auto [expr, num_updates_when_pushed] = queue.front();
@@ -253,6 +258,10 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
       break;
     }
 
+    for (Val* out : expr->outputs()) {
+      std::cout << out->toString() << ", ";
+    }
+    std::cout << " = ";
     std::cout << expr->toString() << std::endl;
     if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
       Val* in = mapOrDefault(
@@ -267,20 +276,23 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
       } else if (in && outer && !inner) {
         // We know that inner should be  in / outer
         // TODO: we should mark in % outer == 0 for later validation somehow
-        dim_eval_extent_map_.emplace(
-            split->inner(), SimplifyingIrBuilder::divExpr(in, outer));
-        num_updates++;
+        for (Expr* use : split->inner()->uses()) {
+          queue.emplace(use, num_updates);
+        }
+        update(split->inner(), SimplifyingIrBuilder::divExpr(in, outer));
       } else if (in && !outer && inner) {
-        dim_eval_extent_map_.emplace(
-            split->outer(), SimplifyingIrBuilder::divExpr(in, inner));
-        num_updates++;
+        for (Expr* use : split->outer()->uses()) {
+          queue.emplace(use, num_updates);
+        }
+        // TODO: we should mark in % inner == 0 for later validation somehow
+        update(split->outer(), SimplifyingIrBuilder::divExpr(in, inner));
       } else if (!in && outer && inner) {
-        dim_eval_extent_map_.emplace(
-            split->in(), SimplifyingIrBuilder::mulExpr(outer, inner));
-        num_updates++;
+        if (split->in()->definition() != nullptr) {
+          queue.emplace(split->in()->definition(), num_updates);
+        }
+        update(split->in(), SimplifyingIrBuilder::mulExpr(outer, inner));
       } else {
         // We can't infer anything about this Expr yet
-        // TODO: we need a termination condition to avoid infinite loops here
         queue.emplace(expr, num_updates);
       }
     } else {

@@ -6505,8 +6505,16 @@ std::string ParallelDim::toString(int indent_size) const {
     std::stringstream ss;
     ss << parallel_type_.value();
     return ss.str();
+  } else if (definition() != nullptr) {
+    std::stringstream ss;
+    ss << "( " << definition()->toInlineString(indent_size) << " )";
+    return ss.str();
+  } else {
+    std::stringstream ss;
+    ss << ir_utils::varName(this);
+    return ss.str();
   }
-  return Val::toInlineString(indent_size);
+  return Val::toString(indent_size);
 }
 
 void ParallelDim::setParallelType(ParallelType ptype) {
