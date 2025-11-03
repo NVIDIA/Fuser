@@ -808,6 +808,8 @@ std::string varName(const Val* val) {
   std::stringstream name;
   if (val->isA<TensorView>()) {
     name << "T";
+  } else if (val->isA<ParallelDim>()) {
+    name << "par";
   } else {
     name << typePrefix(val->dtype());
   }

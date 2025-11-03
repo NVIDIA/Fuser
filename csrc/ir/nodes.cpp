@@ -6500,7 +6500,7 @@ bool ParallelDim::sameAs(const Statement* other) const {
   return false;
 }
 
-std::string ParallelDim::toInlineString(int indent_size) const {
+std::string ParallelDim::toString(int indent_size) const {
   if (parallel_type_.has_value()) {
     std::stringstream ss;
     ss << parallel_type_.value();

@@ -48,6 +48,10 @@ TEST_F(ParallelDimTest, Binding) {
   tv1->split(1, 256);
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
+  std::cout << fusion->parallelDimGraphMermaid() << std::endl;
+
+  fusion->printMath();
+
   KernelExecutor ke;
   ke.compile(fusion);
 }
