@@ -285,7 +285,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   at::Tensor mat1_input = createTensor3D({3, 4, 8}, mat1_format, options);
   at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {1, 3, 4}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
