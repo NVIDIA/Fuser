@@ -20,3 +20,5 @@ else
     echo "Error: clang-19 not found. Please ensure clang-19 is installed."
     exit 1
 fi
+
+export TORCH_CUDA_ARCH_LIST="10.0"
