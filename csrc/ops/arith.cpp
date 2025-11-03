@@ -2528,47 +2528,58 @@ TopKResult topk(
       "TopKOp expects int64_t input for k but got ",
       k->dtype());
 
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(inp_domain.size());
+  TensorView* out_values = nullptr;
+  TensorView* out_indices = nullptr;
 
-  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-    // TODO: nvfuser enumerate implementation is not correct, it should return
-    // signed ints instead.
-    if (index != (size_t)dim) {
-      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
-      continue;
+  // Create a root-to-logical resize for the topk dimension. The root
+  // dimension just inherits the same properties as the producer
+  // dimension. It's resized to generate a logical iter domain of
+  // extent K by slicing the root iter domain by [0:k].
+  //
+  // The first output generated when i == 0 is the value output. The
+  // second is the index output.
+  for (const int i : arange(2)) {
+    std::vector<IterDomain*> values_root;
+    values_root.reserve(inp_domain.size());
+    std::vector<IterDomain*> values_logical;
+    values_logical.reserve(inp_domain.size());
+
+    for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+      auto root_id = inp_domain_ptr->cloneWithoutRFactor();
+      values_root.push_back(root_id);
+      if (index != (size_t)dim) {
+        // Root and logical are the same for non topk dim
+        values_logical.push_back(root_id);
+        continue;
+      }
+
+      auto logical_id = IterDomain::resize(
+          root_id,
+          inp->fusion()->zeroVal(DataType::Index),
+          SimplifyingIrBuilder::subExpr(k, root_id->extent()),
+          /*mark_as_rfactor=*/true);
+
+      values_logical.push_back(logical_id);
     }
 
-    // Handling top k dimension, since the output extent is k.
-    ExpressionEvaluator ee;
-    PolymorphicValue ext = ee.evaluate(k);
-
-    IterType iter_type;
-    if (ext.hasValue()) {
-      iter_type =
-          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    auto dtype = i == 0 ? inp->getDataType().value() : DataType::Int;
+    auto out_tv = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            values_root,
+            values_logical,
+            values_logical,
+            TensorDomain::getContiguityFilledWith(values_logical, true)),
+        dtype);
+    if (i == 0) {
+      out_values = out_tv;
     } else {
-      iter_type =
-          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+      out_indices = out_tv;
     }
-    out_domain.push_back(
-        IterDomainBuilder(
-            inp->fusion()->zeroVal(),
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
-            .iter_type(iter_type)
-            .build());
   }
-
-  TensorView* out_values = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  Val* out_indices = ops::newValLike(out_values, DataType::Int);
 
   IrBuilder::create<TopKOp>(
       out_values, out_indices, inp, k, dim, largest, sorted);
-  return TopKResult(
-      out_values->as<TensorView>(), out_indices->as<TensorView>());
+  return TopKResult(out_values, out_indices);
 }
 
 TensorView* scan(
