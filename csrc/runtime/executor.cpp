@@ -342,6 +342,9 @@ LaunchParams KernelExecutor::computeLaunchParams(
   const auto& parallel_dim_map = lower->info().parallelDimensionMap().getMap();
 
   // First bind any set dimensions in launch_constraints
+  // We do this in a separate loop from the next loop because some extent
+  // expressions might depend on the values we bind here, so we need to bind
+  // them in advance.
   for (auto [p_type, extent] : parallel_dim_map) {
     if (launch_constraints.hasDim(p_type)) {
       // User provided a launch constraint for this parallel type
