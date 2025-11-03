@@ -434,7 +434,7 @@ class BlockQuantizationValidationTest : public BlackwellBase {
     }
   }
 
-  // Helper to create a fusion with blockQuantize and apply scheduling
+  // Helper function to create a fusion with blockQuantize and apply scheduling
   struct FusionSetup {
     std::unique_ptr<Fusion> fusion;
     TensorView* tv_data_hp;
@@ -465,28 +465,29 @@ class BlockQuantizationValidationTest : public BlackwellBase {
   }
 
   // Helper to apply common merge and split operations
+  // This is limited for the tests with 2D tv inputs.
   void applyMergeAndSplit(
       TensorView* t,
       int64_t split_factor,
       int64_t inner_split = 1,
       int64_t thread_split = 128) {
     // Merge all dims
+    // (I0, I1) -> (I0*I1) == (I)
     t->merge(-2);
-    if (t->getLoopDomain().size() >= 2) {
-      t->merge(-2);
-    }
 
     // Apply splits: I -> I/split_factor, split_factor
     t->split(-1, split_factor);
-    // I/split_factor, split_factor -> I/split_factor, inner_split,
-    // split_factor/inner_split
+    // I/split_factor, split_factor -> I/split_factor/inner_split, inner_split,
+    // I/split_factor
     t->split(-2, inner_split);
-    // I/split_factor, inner_split, split_factor/inner_split -> I/thread_split,
-    // thread_split/split_factor, inner_split, split_factor/inner_split
+    // I/split_factor/inner_split, inner_split, I/split_factor  ->
+    // I/split_factor/inner_split/thread_split, thread_split, inner_split,
+    // I/split_factor
     t->split(-3, thread_split);
   }
 };
 
+// Input is in global memory - not valid
 TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -494,7 +495,6 @@ TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
   auto tv_data_hp = makeContigTensor(2, DataType::Float);
   fusion->addInput(tv_data_hp);
 
-  // Don't set memory type - remains global (default for inputs)
   auto quantization_results = blockQuantize(tv_data_hp);
   auto t_out = set(quantization_results.quantized_tensor);
 
@@ -505,6 +505,7 @@ TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
       fusion.get(), {createTestInput()}, "Input must be a local memory tensor");
 }
 
+// Quantized output is written to global memory - not valid
 TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -524,6 +525,7 @@ TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
       "Quantized output must be a local memory tensor");
 }
 
+// Block scaling factor is written to local memory - not valid
 TEST_F(
     BlockQuantizationValidationTest,
     BlockScalingFactorMustBeInGlobalMemory) {
@@ -547,6 +549,8 @@ TEST_F(
       "Block scaling factor must be a global memory tensor");
 }
 
+// Quantized output when scheduled cannot have a vectorized dimension
+// but should have a group dim - this is not valid.
 TEST_F(
     BlockQuantizationValidationTest,
     QuantizedOutputCannotHaveVectorizedDimension) {
@@ -578,6 +582,8 @@ TEST_F(
       "Cannot have vectorized ID in BlockQuantizationOp");
 }
 
+// Group ID must be the innermost of all splits from logical domains to loop
+// domains
 TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
   auto setup = createBlockQuantizeFusion();
   FusionGuard fg(setup.fusion.get());
@@ -614,6 +620,9 @@ TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
       "logical domains to loop domains for BlockQuantizationOp");
 }
 
+// We do not allow IDs of types serial, unroll, unswitch to have extent > 1
+// We do not want the runtime kernel which implement block quantization to be
+// called multiple times in a kernel as yet
 TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
   auto setup = createBlockQuantizeFusion();
   FusionGuard fg(setup.fusion.get());
@@ -626,6 +635,7 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
       setup.t_out};
 
   for (auto t : tensors) {
+    // There will be a non-parallelized ID with a trip count of 2
     applyMergeAndSplit(t, /*split_factor=*/4, /*inner_split=*/2);
 
     if (t != setup.tv_data_hp) {
@@ -646,6 +656,12 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
       "BlockQuantizationOp");
 }
 
+// The runtime kernel for block quantization expects TIDx to access contiguous
+// memory locations - just 16, but to be safe we enfore all memory locations of
+// TIDx are contiguous. To enfore this, TIDx must be the second innermost ID
+// after Group ID. By that we mean if we derive this ID from the logical domain,
+// there should be no other IDs between Group ID and TIDx except for IDs with
+// extent of 1.
 TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
   auto setup = createBlockQuantizeFusion();
   FusionGuard fg(setup.fusion.get());
@@ -666,6 +682,7 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
       } else {
         t->axis(-1)->parallelize(ParallelType::Vectorize);
       }
+      // TIDx is "outer" compared to BIDx causing a failure
       t->axis(-3)->parallelize(ParallelType::BIDx);
       t->axis(-4)->parallelize(ParallelType::TIDx);
     }
@@ -678,6 +695,10 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
       "and Group ID in BlockQuantizationOp quantized output");
 }
 
+// When running validation checks we traverse from loop to logical domain
+// and vice-versa. During this traversal, when we encounter a merge operation,
+// we find all input IDs to the merge (traced back to the logical domain of the
+// quantized output). The input IDs in the logical domain need to be contiguous.
 TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
   auto setup = createBlockQuantizeFusion(/*dim=*/3);
   FusionGuard fg(setup.fusion.get());
@@ -691,6 +712,7 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
 
   for (auto t : tensors) {
     // Merge first two dims instead of last two
+    // This will cause a failure as the merged IDs are not contiguous
     t->reorder({{0, 1}, {1, 0}}); // (i0, i1, i2) -> (i1, i0, i2)
     t->merge(1);
 
