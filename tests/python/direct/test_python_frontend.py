@@ -885,7 +885,7 @@ def test_slice(nvfuser_direct_test):
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     for out in nvf_out:
-        nvfuser_direct_test.assertTrue(out.allclose(x[:, 1:, 2:]))
+        torch.testing.assert_close(out, x[:, 1:, 2:])
 
 
 def test_iota(nvfuser_direct_test):

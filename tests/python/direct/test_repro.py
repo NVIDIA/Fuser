@@ -4725,3 +4725,107 @@ def test_issue5377(nvfuser_direct_test):
     ]
 
     nvfuser_direct_test.exec_nvfuser(nvfuser_fusion, inputs, validate_results=True)
+
+    # https://github.com/NVIDIA/Fuser/issues/5346
+    def test_register_aliasing_bug(nvfuser_direct_test):
+        def nvfuser_fusion(fd: FusionDefinition, dim0, dim1) -> None:
+            T0 = fd.define_tensor(
+                shape=[dim1],
+                contiguity=[True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0],
+            )
+            T1 = fd.define_tensor(
+                shape=[1, dim0, dim1],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T2 = fd.define_tensor(
+                shape=[1, dim0, dim1],
+                contiguity=[None, True, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T3 = fd.define_tensor(
+                shape=[1, dim0, 1],
+                contiguity=[None, True, None],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T8 = fd.ops.broadcast_in_dim(T0, shape=[1, dim0, dim1], broadcast_dims=[2])
+            T9 = fd.ops.mul(T8, T1)
+            T10 = fd.ops.mul(T2, T9)
+            T11 = fd.ops.sum(T10, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+            T16 = fd.ops.broadcast_in_dim(T11, shape=[1, dim0, 1], broadcast_dims=[1])
+            S17 = fd.define_scalar(3.00000, dtype=DataType.Double)
+            T18 = fd.ops.pow(T3, S17)
+            S19 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+            T20 = fd.ops.mul(S19, T16)
+            T21 = fd.ops.mul(T20, T18)
+            S22 = fd.define_scalar(dim1, dtype=DataType.Double)
+            S23 = fd.ops.reciprocal(S22)
+            T24 = fd.ops.mul(T21, S23)
+            T25 = fd.ops.sum(T24, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+            T29 = fd.ops.broadcast_in_dim(T25, shape=[1, dim0], broadcast_dims=[1])
+            T34 = fd.ops.broadcast_in_dim(
+                T29, shape=[1, dim0, 1], broadcast_dims=[0, 1]
+            )
+            T39 = fd.ops.broadcast_in_dim(
+                T3, shape=[1, dim0, dim1], broadcast_dims=[0, 1, 2]
+            )
+            T44 = fd.ops.broadcast_in_dim(
+                T34, shape=[1, dim0, dim1], broadcast_dims=[0, 1, 2]
+            )
+            T45 = fd.ops.mul(T2, T39)
+            T46 = fd.ops.mul(T2, T44)
+            T47 = fd.ops.mul(T39, T9)
+            T48 = fd.ops.mul(T45, T1)
+            T49 = fd.ops.add(T47, T46)
+            T50 = fd.ops.add(T49, T46)
+            T51 = fd.ops.sum(T48, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+            T55 = fd.ops.reshape(T50, new_shape=[dim0, dim1])
+            fd.add_output(T50)
+            fd.add_output(T55)
+            fd.add_output(T51)
+
+        dim0 = 2048
+        dim1 = 32
+        with FusionDefinition() as fd:
+            nvfuser_fusion(fd, dim0, dim1)
+
+        inputs = [
+            torch.testing.make_tensor(
+                (dim1,),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=LOW_VAL,
+                high=HIGH_VAL,
+            ),
+            torch.testing.make_tensor(
+                (1, dim0, dim1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=LOW_VAL,
+                high=HIGH_VAL,
+            ),
+            torch.testing.make_tensor(
+                (1, dim0, dim1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=LOW_VAL,
+                high=HIGH_VAL,
+            ),
+            torch.testing.make_tensor(
+                (1, dim0, 1),
+                dtype=torch.float32,
+                device="cuda:0",
+                low=LOW_VAL,
+                high=HIGH_VAL,
+            ),
+        ]
+        nvfuser_direct_test.exec_nvfuser(nvfuser_fusion, inputs, validate_results=True)

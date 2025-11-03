@@ -41,8 +41,9 @@ class EVTModel {
   struct Node {
     const std::string name;
     std::vector<Node*> inputs;
-    // If an argument is required, provide it here
-    Val* argument = nullptr;
+    // Arguments are an ordered set of key-value pairs corresponding to the
+    // struct field and the value we will assign at runtime
+    std::vector<std::pair<std::string, std::string>> arguments;
   };
 
   Node* makeNode(const std::string& name) {
@@ -58,6 +59,19 @@ class EVTModel {
     root_ = new_root;
   }
 
+  //! The fusion can have multiple outputs, but only one can correspond to the
+  //! root of the EVT tree. For instance, if the output is block scaled, there
+  //! will be two outputs: the quantized gemm output and the block scale
+  //! factors. In that case, the root output will be the quantized output.
+  TensorView* getRootTensorView() const {
+    return root_tv_;
+  }
+
+  void setRootTensorView(TensorView* tv) {
+    NVF_ERROR(tv != nullptr);
+    root_tv_ = tv;
+  }
+
   //! Generate the C++ code used to define the EVT type
   std::string defString(Node* node = nullptr, int64_t indent = 2) const;
 
@@ -70,6 +84,7 @@ class EVTModel {
  private:
   std::deque<std::unique_ptr<Node>> nodes_up_;
   Node* root_;
+  TensorView* root_tv_ = nullptr;
 };
 
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
