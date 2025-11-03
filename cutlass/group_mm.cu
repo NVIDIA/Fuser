@@ -8,6 +8,7 @@
 #include <cassert>
 
 #include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
 
@@ -420,6 +421,24 @@ void validateInputsGroupMm(
       b.scalar_type() == at::ScalarType::BFloat16 ||
           b.scalar_type() == at::ScalarType::Half,
       "Expected BFloat16 or Half for Operand B.")
+
+#ifndef NDEBUG
+  if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
+      c10::cuda::CaptureStatus::None) {
+    const int64_t m = a.size(0);
+    const int64_t g = expert_offsets.size(0);
+    // This validation requires an expensive synchronization and therfore is
+    // only enabled in debug mode. See #5470.
+    at::Tensor expert_offsets_cpu = expert_offsets.cpu();
+    int64_t prev_offset = 0;
+    for (int64_t i = 0; i < g; i++) {
+      const auto expert_offset = expert_offsets_cpu[i].item<int64_t>();
+      NVF_CHECK_LE(expert_offset, m);
+      NVF_CHECK_LE(prev_offset, expert_offset);
+      prev_offset = expert_offset;
+    }
+  }
+#endif
 
   NVF_CHECK_EQ(ab_strides.dtype(), at::kLong);
   NVF_CHECK_EQ(c_strides.dtype(), at::kLong);
