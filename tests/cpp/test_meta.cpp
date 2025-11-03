@@ -98,7 +98,7 @@ enum class MemoryFormat3D {
   Perm102, // [1, 0, 2]
   Perm120, // [1, 2, 0]
   Perm201, // [2, 0, 1]
-  Perm210  // [2, 1, 0]
+  Perm210 // [2, 1, 0]
 };
 
 // All memory format values for parameterized tests
@@ -156,10 +156,9 @@ at::Tensor createTensor3D(
 }
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[k, n] -> out=[g, m, n]
-class GroupedMma2D2DTest
-    : public NVFuserTest,
-      public ::testing::WithParamInterface<
-          std::tuple<MemoryFormat2D, MemoryFormat2D>> {};
+class GroupedMma2D2DTest : public NVFuserTest,
+                           public ::testing::WithParamInterface<
+                               std::tuple<MemoryFormat2D, MemoryFormat2D>> {};
 
 TEST_P(GroupedMma2D2DTest, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
@@ -224,10 +223,9 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(all2DMemoryFormats)));
 
 // Test GroupedMmaOp with mat1=[g, m, k], mat2=[k, n] -> out=[m, n]
-class GroupedMma3D2DTest
-    : public NVFuserTest,
-      public ::testing::WithParamInterface<
-          std::tuple<MemoryFormat3D, MemoryFormat2D>> {};
+class GroupedMma3D2DTest : public NVFuserTest,
+                           public ::testing::WithParamInterface<
+                               std::tuple<MemoryFormat3D, MemoryFormat2D>> {};
 
 TEST_P(GroupedMma3D2DTest, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
@@ -292,10 +290,9 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(all2DMemoryFormats)));
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[g, k, n] -> out=[m, n]
-class GroupedMma2D3DTest
-    : public NVFuserTest,
-      public ::testing::WithParamInterface<
-          std::tuple<MemoryFormat2D, MemoryFormat3D>> {};
+class GroupedMma2D3DTest : public NVFuserTest,
+                           public ::testing::WithParamInterface<
+                               std::tuple<MemoryFormat2D, MemoryFormat3D>> {};
 
 TEST_P(GroupedMma2D3DTest, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
