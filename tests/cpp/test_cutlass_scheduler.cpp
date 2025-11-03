@@ -322,7 +322,7 @@ QuantizedTensor quantizeNvfp4(const at::Tensor x) {
 at::Tensor e2m1ToFp32(const at::Tensor& int4_value) {
   NVF_ERROR_EQ(int4_value.dtype(), at::kByte);
   const at::Tensor signBit = int4_value & 0b1000;
-  const at::Tensor index = int4_value & 0xb0111;
+  const at::Tensor index = int4_value & 0b0111;
 
   // Map the 8 possible non-negative values of e2m1 to corresponding positive
   // fp32 value
