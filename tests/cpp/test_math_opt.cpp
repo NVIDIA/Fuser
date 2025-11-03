@@ -152,7 +152,7 @@ class FMinFMaxPromotionTest : public NVFuserTest {
       }
     }
 
-    NVF_CHECK(anyFMax == should_promote_fmax_);
+    EXPECT_EQ(anyFMax, should_promote_fmax_);
   }
 
   std::unique_ptr<Fusion> fusion_;
