@@ -113,8 +113,8 @@ TEST_F(MetaTest, GroupedMma2D2D) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor mat1_input = at::randn({4, 8}, options);
   at::Tensor mat2_input = at::randn({8, 6}, options);
-  at::Tensor offsets_input =
-      at::tensor({2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+  at::Tensor offsets_input = at::tensor(
+      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
@@ -171,8 +171,8 @@ TEST_F(MetaTest, GroupedMma3D2D) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor mat1_input = at::randn({3, 4, 8}, options);
   at::Tensor mat2_input = at::randn({8, 6}, options);
-  at::Tensor offsets_input =
-      at::tensor({2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+  at::Tensor offsets_input = at::tensor(
+      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
@@ -229,8 +229,8 @@ TEST_F(MetaTest, GroupedMma2D3D) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor mat1_input = at::randn({4, 8}, options);
   at::Tensor mat2_input = at::randn({3, 8, 6}, options);
-  at::Tensor offsets_input =
-      at::tensor({2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+  at::Tensor offsets_input = at::tensor(
+      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
