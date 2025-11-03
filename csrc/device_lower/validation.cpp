@@ -709,8 +709,6 @@ class ExprValidator : public OptOutDispatch {
         block_scaling_factor->hasAllocation() == false,
         "Block scaling factor must not have an allocation domain.");
 
-    // Check that it either had vectorized ID or grouped ID
-    // not both and the extent is either 4(FP32) or 8(BF16)
     IterDomain* grouped_id = nullptr;
     IterDomain* thread_x = nullptr;
     IterDomain* block_x = nullptr;
