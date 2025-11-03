@@ -156,11 +156,11 @@ at::Tensor createTensor3D(
 }
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[k, n] -> out=[g, m, n]
-class GroupedMma2D2DTest : public NVFuserTest,
-                           public ::testing::WithParamInterface<
-                               std::tuple<MemoryFormat2D, MemoryFormat2D>> {};
+class MetaTestGroupedMma2D2D : public NVFuserTest,
+                               public ::testing::WithParamInterface<
+                                   std::tuple<MemoryFormat2D, MemoryFormat2D>> {};
 
-TEST_P(GroupedMma2D2DTest, MemoryFormats) {
+TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -217,17 +217,17 @@ TEST_P(GroupedMma2D2DTest, MemoryFormats) {
 
 INSTANTIATE_TEST_SUITE_P(
     MemoryFormatCombinations,
-    GroupedMma2D2DTest,
+    MetaTestGroupedMma2D2D,
     ::testing::Combine(
         ::testing::ValuesIn(all2DMemoryFormats),
         ::testing::ValuesIn(all2DMemoryFormats)));
 
 // Test GroupedMmaOp with mat1=[g, m, k], mat2=[k, n] -> out=[m, n]
-class GroupedMma3D2DTest : public NVFuserTest,
-                           public ::testing::WithParamInterface<
-                               std::tuple<MemoryFormat3D, MemoryFormat2D>> {};
+class MetaTestGroupedMma3D2D : public NVFuserTest,
+                               public ::testing::WithParamInterface<
+                                   std::tuple<MemoryFormat3D, MemoryFormat2D>> {};
 
-TEST_P(GroupedMma3D2DTest, MemoryFormats) {
+TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -284,17 +284,17 @@ TEST_P(GroupedMma3D2DTest, MemoryFormats) {
 
 INSTANTIATE_TEST_SUITE_P(
     MemoryFormatCombinations,
-    GroupedMma3D2DTest,
+    MetaTestGroupedMma3D2D,
     ::testing::Combine(
         ::testing::ValuesIn(all3DMemoryFormats),
         ::testing::ValuesIn(all2DMemoryFormats)));
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[g, k, n] -> out=[m, n]
-class GroupedMma2D3DTest : public NVFuserTest,
-                           public ::testing::WithParamInterface<
-                               std::tuple<MemoryFormat2D, MemoryFormat3D>> {};
+class MetaTestGroupedMma2D3D : public NVFuserTest,
+                               public ::testing::WithParamInterface<
+                                   std::tuple<MemoryFormat2D, MemoryFormat3D>> {};
 
-TEST_P(GroupedMma2D3DTest, MemoryFormats) {
+TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -351,7 +351,7 @@ TEST_P(GroupedMma2D3DTest, MemoryFormats) {
 
 INSTANTIATE_TEST_SUITE_P(
     MemoryFormatCombinations,
-    GroupedMma2D3DTest,
+    MetaTestGroupedMma2D3D,
     ::testing::Combine(
         ::testing::ValuesIn(all2DMemoryFormats),
         ::testing::ValuesIn(all3DMemoryFormats)));
