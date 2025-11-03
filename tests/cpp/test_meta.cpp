@@ -200,7 +200,7 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   // mat1: [m, k] = [4, 8], mat2: [k, n] = [8, 6], output: [g, m, n] = [3, 4, 6]
   auto mat1 = makeConcreteTensor({4, 8}, DataType::Float);
   auto mat2 = makeConcreteTensor({8, 6}, DataType::Float);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Int);
+  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion_ptr->addInput(mat1);
   fusion_ptr->addInput(mat2);
   fusion_ptr->addInput(offsets);
@@ -272,7 +272,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   // mat1: [g, m, k] = [3, 4, 8], mat2: [k, n] = [8, 6], output: [m, n] = [4, 6]
   auto mat1 = makeConcreteTensor({3, 4, 8}, DataType::Float);
   auto mat2 = makeConcreteTensor({8, 6}, DataType::Float);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Int);
+  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion_ptr->addInput(mat1);
   fusion_ptr->addInput(mat2);
   fusion_ptr->addInput(offsets);
@@ -344,7 +344,7 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   // mat1: [m, k] = [4, 8], mat2: [g, k, n] = [3, 8, 6], output: [m, n] = [4, 6]
   auto mat1 = makeConcreteTensor({4, 8}, DataType::Float);
   auto mat2 = makeConcreteTensor({3, 8, 6}, DataType::Float);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Int);
+  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion_ptr->addInput(mat1);
   fusion_ptr->addInput(mat2);
   fusion_ptr->addInput(offsets);
