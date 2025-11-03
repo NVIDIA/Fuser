@@ -129,16 +129,6 @@ void CutlassCompiledKernel::run(
     int64_t* strides = nullptr;
   };
 
-  // TODO: Pattern match and find this ordering automatically (see below for
-  // codegen of entry point which will unpack the discovered ordering) For
-  // nvfp4_scaled_mm_kernel, we need to call it as a C function Extract
-  // arguments for nvfp4_scaled_mm_kernel Expected order: output, a, b,
-  // scales_a, scales_b, alpha, beta
-  NVF_ERROR(
-      args.size() == 6,
-      "Expected 6 arguments for nvfp4_scaled_mm_kernel but found ",
-      args.size());
-
   // Get tensors from arguments
   std::vector<TensorArg> tensor_args;
   tensor_args.reserve(args.size());
