@@ -40,6 +40,8 @@ TEST_F(ParallelDimTest, Binding) {
   FusionGuard fg(fusion);
 
   auto tv0 = makeSymbolicTensor(2);
+  fusion->addInput(tv0);
+
   auto tv1 = set(tv0);
 
   fusion->addOutput(tv1);
