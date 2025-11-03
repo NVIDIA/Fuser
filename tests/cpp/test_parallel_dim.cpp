@@ -44,8 +44,9 @@ TEST_F(ParallelDimTest, Binding) {
 
   fusion->addOutput(tv1);
 
-  tv1->axis(0)->setParallelDim(fusion->getParallelDim(ParallelType::BIDx));
   tv1->split(1, 256);
+
+  tv1->axis(0)->setParallelDim(fusion->getParallelDim(ParallelType::BIDx));
   tv1->axis(-1)->parallelize(ParallelType::TIDx);
 
   std::cout << fusion->parallelDimGraphMermaid() << std::endl;
