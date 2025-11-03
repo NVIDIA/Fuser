@@ -49,9 +49,9 @@ TensorView::TensorView(
 
 NVFUSER_DEFINE_CLONE(TensorView)
 
-bool TensorView::checkDefinition(const Val* other) const {
-  // Val::checkDefinition checks nullptr, dtype, vtype, and definition.
-  if (!Val::checkDefinition(other)) {
+bool TensorView::sameDefinition(const Val* other) const {
+  // Val::sameDefinition checks nullptr, dtype, vtype, and definition.
+  if (!Val::sameDefinition(other)) {
     return false;
   }
   if (!other->isA<TensorView>()) {
@@ -61,7 +61,7 @@ bool TensorView::checkDefinition(const Val* other) const {
   if (isCpuScalar() != other_tv->isCpuScalar()) {
     return false;
   }
-  return domain()->checkDefinition(other_tv->domain());
+  return domain()->sameDefinition(other_tv->domain());
 }
 
 std::string TensorView::toString(int indent_size) const {

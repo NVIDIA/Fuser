@@ -64,7 +64,7 @@ class LRUCache {
     bool operator()(
         const std::shared_ptr<Fusion>& lhs,
         const std::shared_ptr<Fusion>& rhs) const {
-      return lhs->checkDefinition(*rhs);
+      return lhs->sameDefinition(*rhs);
     }
   };
 

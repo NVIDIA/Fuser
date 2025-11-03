@@ -283,12 +283,12 @@ class NVF_API Val : public Statement {
 
   size_t getHash() const final;
 
-  // checkDefinition determines if a two values will create the same fusion
+  // sameDefinition determines if a two values will create the same fusion
   // definition. If this value contains a scalar, check if other value has the
   // same scalar. NaN values are considered equal. Unlike Val::sameAs,
   // non-deterministic definitions are permitted if both Vals have the same
   // definition.
-  virtual bool checkDefinition(const Val* other) const;
+  virtual bool sameDefinition(const Val* other) const;
 
   std::string toString(int indent_size = 0) const override;
 
@@ -548,9 +548,9 @@ class NVF_API Expr : public Statement {
   virtual bool sameOp(const Expr* other) const;
 
   // Check that if this and other have same definition. This main difference
-  // from sameAs is that checkDefinition checks the inputs with checkDefinition
+  // from sameAs is that sameDefinition checks the inputs with sameDefinition
   // instead of sameAs.
-  virtual bool checkDefinition(const Expr* other) const;
+  virtual bool sameDefinition(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
 

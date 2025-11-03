@@ -106,7 +106,7 @@ class NVF_API IterDomain : public Val {
 
   NVFUSER_DECLARE_CLONE
 
-  bool checkDefinition(const Val* other) const override;
+  bool sameDefinition(const Val* other) const override;
 
   bool sameAs(const Statement* other) const override;
 
@@ -496,7 +496,7 @@ class NVF_API TensorDomain : public Val {
     return static_cast<int64_t>(loop_domain_.size());
   }
 
-  bool checkDefinition(const Val* other) const override;
+  bool sameDefinition(const Val* other) const override;
 
   bool sameAs(const Statement* other) const override;
 

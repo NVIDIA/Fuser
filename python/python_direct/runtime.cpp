@@ -64,7 +64,7 @@ Examples
 )")
       .def(
           "__eq__",
-          &Fusion::checkDefinition,
+          &Fusion::sameDefinition,
           R"(
 
 Whether the fusion definitions are the same.

@@ -62,18 +62,18 @@ bool checkAliasInfo(
   if (this_alias_info.aliased_io == nullptr) {
     return other_alias_info.aliased_io == nullptr;
   }
-  return this_alias_info.aliased_io->checkDefinition(
+  return this_alias_info.aliased_io->sameDefinition(
       other_alias_info.aliased_io);
 }
 } // namespace
 
-bool Fusion::checkDefinition(const Fusion& other) const {
+bool Fusion::sameDefinition(const Fusion& other) const {
   // Check if the inputs are the same
   if (inputs().size() != other.inputs().size()) {
     return false;
   }
   for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
-    if (!input->checkDefinition(other_input)) {
+    if (!input->sameDefinition(other_input)) {
       return false;
     }
   }
@@ -85,7 +85,7 @@ bool Fusion::checkDefinition(const Fusion& other) const {
   const auto& this_output_aliases = getOutputAliases();
   const auto& other_output_aliases = other.getOutputAliases();
   for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
-    if (!output->checkDefinition(other_output)) {
+    if (!output->sameDefinition(other_output)) {
       return false;
     }
     if (!checkAliasInfo(
@@ -102,7 +102,7 @@ bool Fusion::checkDefinition(const Fusion& other) const {
     return false;
   }
   for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
-    if (!expr->checkDefinition(other_expr)) {
+    if (!expr->sameDefinition(other_expr)) {
       return false;
     }
   }

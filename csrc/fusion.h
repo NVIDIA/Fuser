@@ -164,7 +164,7 @@ class NVF_API Fusion : public IrContainer {
   size_t hash() const;
 
   // Check if the definition of this fusion is the same as the other fusion.
-  bool checkDefinition(const Fusion& other) const;
+  bool sameDefinition(const Fusion& other) const;
 
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr

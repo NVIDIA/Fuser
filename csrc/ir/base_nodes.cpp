@@ -169,7 +169,7 @@ bool Val::sameAs(const Statement* other) const {
   return false;
 }
 
-bool Val::checkDefinition(const Val* other) const {
+bool Val::sameDefinition(const Val* other) const {
   if (other == nullptr) {
     return false;
   }
@@ -205,7 +205,7 @@ bool Val::checkDefinition(const Val* other) const {
   }
   NVF_ERROR(!value_.hasValue());
   // sameAs checks if definition is deterministic
-  if (!definition_->checkDefinition(other->definition_)) {
+  if (!definition_->sameDefinition(other->definition_)) {
     return false;
   }
   if (definition_->outputs().size() != other->definition_->outputs().size()) {
@@ -410,7 +410,7 @@ bool Expr::sameOp(const Expr* other) const {
   return true;
 }
 
-bool Expr::checkDefinition(const Expr* other) const {
+bool Expr::sameDefinition(const Expr* other) const {
   if (!sameOp(other)) {
     return false;
   }
@@ -418,9 +418,9 @@ bool Expr::checkDefinition(const Expr* other) const {
     return false;
   }
   // Only check the input argument definitions to avoid infinite recursion
-  // because Val::checkDefinition will check the definition.
+  // because Val::sameDefinition will check the definition.
   for (const auto i : arange(inputs().size())) {
-    if (!input(i)->checkDefinition(other->input(i))) {
+    if (!input(i)->sameDefinition(other->input(i))) {
       return false;
     }
   }

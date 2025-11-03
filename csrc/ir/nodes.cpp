@@ -2716,7 +2716,7 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
-bool IterDomain::checkDefinition(const Val* other) const {
+bool IterDomain::sameDefinition(const Val* other) const {
   if (other == this) {
     return true;
   }
@@ -2743,12 +2743,12 @@ bool IterDomain::checkDefinition(const Val* other) const {
 
   // TODO: Consider managing them as attributes
 
-  return start()->checkDefinition(other_id->start()) &&
-      extent()->checkDefinition(other_id->extent()) &&
+  return start()->sameDefinition(other_id->start()) &&
+      extent()->sameDefinition(other_id->extent()) &&
       hasExpandedExtent() == other_id->hasExpandedExtent() &&
       (!hasExpandedExtent() ||
-       expandedExtent()->checkDefinition(other_id->expandedExtent())) &&
-      stopOffset()->checkDefinition(other_id->stopOffset()) &&
+       expandedExtent()->sameDefinition(other_id->expandedExtent())) &&
+      stopOffset()->sameDefinition(other_id->stopOffset()) &&
       getParallelType() == other_id->getParallelType() &&
       getIterType() == other_id->getIterType() &&
       hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
@@ -3557,9 +3557,9 @@ bool TensorDomain::hasGridBroadcast() const {
       });
 }
 
-bool TensorDomain::checkDefinition(const Val* other) const {
-  // Val::checkDefinition checks nullptr, dtype, vtype, and definition.
-  if (!Val::checkDefinition(other)) {
+bool TensorDomain::sameDefinition(const Val* other) const {
+  // Val::sameDefinition checks nullptr, dtype, vtype, and definition.
+  if (!Val::sameDefinition(other)) {
     return false;
   }
   if (!other->isA<TensorDomain>()) {
@@ -3574,7 +3574,7 @@ bool TensorDomain::checkDefinition(const Val* other) const {
   }
   for (auto&& [id, other_id] :
        zip(logical_domain_, other_td->logical_domain_)) {
-    if (!id->checkDefinition(other_id)) {
+    if (!id->sameDefinition(other_id)) {
       return false;
     }
   }
@@ -3585,7 +3585,7 @@ bool TensorDomain::checkDefinition(const Val* other) const {
   }
   for (auto&& [id, other_id] :
        zip(allocation_domain_, other_td->allocation_domain_)) {
-    if (!id->checkDefinition(other_id)) {
+    if (!id->sameDefinition(other_id)) {
       return false;
     }
   }
