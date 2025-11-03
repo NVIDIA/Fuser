@@ -19,6 +19,7 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "type.h"
 
 namespace nvfuser {
 
@@ -34,9 +35,11 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   }
 
  private:
+  bool has_nd_tma_ = false;
   ConditionalFromPredicateModifier(const std::vector<Expr*>& exprs) {
     FUSER_PERF_SCOPE(
         "ConditionalFromPredicateModifier::ConditionalFromPredicateModifier");
+    has_nd_tma_ = isOptionEnabled(EnableOption::TmaPointwise);
     traverseAndInsert(exprs);
     // For each OneDimTmaLoadExpectArrive, expect a corresponding
     // OneDimTmaWaitParity.
@@ -49,8 +52,13 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
+      bool skip_predicate = has_nd_tma_ &&
+          expr->predicate()->predicate_type() == PredicateType::Inline;
+
       // Replace expr predicate with bool conditional
-      auto conditional = generateConditional(expr->predicate());
+      auto conditional = skip_predicate
+          ? GpuLower::current()->kernel()->trueVal()
+          : generateConditional(expr->predicate());
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -73,7 +81,16 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               ir_utils::isTvOp(vec_expr),
               "Vectorize predicate exprs only supported on tensor view "
               "operations.");
-          if (!vec_expr->inputs()[0]->isConstScalar()) {
+
+          // load from smem still needs predicate unless heuristic ensures
+          // divisible by threads count.
+          if (false && has_nd_tma_ &&
+              vec_expr->outputs()[0]
+                      ->as<kir::TensorIndex>()
+                      ->view()
+                      ->getMemoryType() != MemoryType::Global) {
+            conditional = GpuLower::current()->kernel()->trueVal();
+          } else if (!vec_expr->inputs()[0]->isConstScalar()) {
             conditional = SimplifyingIrBuilder::logicalAndExpr(
                 conditional,
                 GpuLower::current()->info().threadPredicateMap().getPredicate(

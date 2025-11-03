@@ -56,6 +56,12 @@ class PointwiseParams : public HeuristicParams {
   // Also used in 1D scheduler.
   int64_t unroll_factor_inner = 1;
 
+  // 2D TMA tile
+  bool use_tma_load = false;
+  bool use_tma_store = false;
+  int64_t tma_tile_outer = -1;
+  int64_t tma_tile_inner = -1;
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!

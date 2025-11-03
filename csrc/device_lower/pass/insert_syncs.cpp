@@ -1252,14 +1252,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         compute_warp_insertion_position_ != -1,
         "for_loop is not within a circular buffer compute warp");
 
-    // Short-circuit: no wgmma expressions to protect in computeWarp.
-    // TODO: Create direct scan for wgmma operations in nested for loops.
-    if (for_loop->body().exprs().size() < 1 ||
-        !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>()) {
-      for_loop_stack_.pop_back();
-      return;
-    }
-
     NVF_ERROR(
         warp_specialized_async_exprs_to_protect_.empty() ||
             !warp_specialized_async_inputs_in_current_scope_.empty(),
@@ -1348,7 +1340,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
-    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
+    // Don't go to this short-circuit if there are no wgmma expressions to
+    // protect in computeWarp.
+    // TODO: Create direct scan for wgmma operations in nested for loops.
+    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size() &&
+        !(for_loop->body().exprs().size() < 1 ||
+          !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>())) {
       return handleComputeWarp(for_loop);
     }
 
@@ -1375,14 +1372,34 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
               return async_inputs_in_current_scope_.count(val);
             });
 
+        // Special handling for TMA stores (CpAsyncBulk S2G operations):
+        // Unlike TMA loads and WgMma ops, TMA stores read from shared memory
+        // asynchronously and write to global memory. Their inputs (shared
+        // memory buffers) may not be tracked in async_inputs_in_current_scope_
+        // because they originate from compute operations, not async loads.
+        // However, we still need to insert commit/wait to prevent WAR hazards
+        // where the next loop iteration overwrites shared memory before the TMA
+        // store completes.
+        bool is_tma_store = ir_utils::isCpAsyncBulkStore(expr);
+
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
-        if (!is_wgmma_epilogue && is_async_inputs_not_present) {
+        if (!is_wgmma_epilogue && !is_tma_store &&
+            is_async_inputs_not_present) {
           it++;
           continue;
         }
 
         int64_t pending_ops = getPendingOpsFor(expr, for_loop);
+
+        // For TMA stores, we must wait for ALL pending stores (wait<0>) to
+        // complete before the next iteration overwrites the shared memory
+        // buffer. This prevents WAR (Write-After-Read) hazards where shared
+        // memory is reused before async stores finish reading from it.
+        if (is_tma_store) {
+          pending_ops = 0;
+        }
+
         // If there are multiple async ops of the same type to protect, we will
         // only insert a single wait expressions with the smallest
         // "pending_ops".
@@ -1428,10 +1445,42 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
-        Expr* expr = for_loop->body().exprs().at(pos);
-        while (!sync_exprs.empty()) {
-          registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
-          sync_exprs.pop_back();
+        // Special positioning for TMA stores (CpAsyncBulk S2G):
+        // TMA stores read from shared memory asynchronously and write to global
+        // memory. To prevent WAR (Write-After-Read) hazards where the next loop
+        // iteration overwrites shared memory before the TMA store completes, we
+        // must insert commit/wait operations.
+        //
+        // The commit/wait must be placed after the BlockSync that follows the
+        // TMA store. In nested loops, this BlockSync may be in an outer loop:
+        //
+        //   FOR i274:  ← Outer loop
+        //     FOR i269:
+        //       compute_to_smem();
+        //       TMA_store(smem -> gmem);
+        //       BLOCKSYNC  ← BlockSync after TMA store
+        //     cpAsyncBulkCommitGroup();  ← Insert here (after outer loop's last
+        //     BlockSync) cpAsyncBulkWaitGroup<0>(); ← Wait for ALL stores
+        //
+        // We iterate through for_loop_stack_ to find the loop whose last
+        // expression is a BlockSync, and place the commit/wait after it.
+        if (type == AsyncOpType::CpAsyncBulk) {
+          for (auto fl : for_loop_stack_) {
+            if (fl->body().exprs().back()->isA<kir::BlockSync>()) {
+              size_t num_exprs = fl->body().exprs().size();
+              Expr* expr = fl->body().exprs().at(num_exprs - 1);
+              while (!sync_exprs.empty()) {
+                registerInsertAfter(expr, sync_exprs.back(), &fl->body());
+                sync_exprs.pop_back();
+              }
+            }
+          }
+        } else {
+          Expr* expr = for_loop->body().exprs().at(pos);
+          while (!sync_exprs.empty()) {
+            registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
+            sync_exprs.pop_back();
+          }
         }
       }
     }

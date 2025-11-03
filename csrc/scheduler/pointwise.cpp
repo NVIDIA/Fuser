@@ -23,6 +23,7 @@
 #include <scheduler/vectorize_helper.h>
 
 #include <ranges>
+#include "ir/internal_nodes.h"
 
 namespace nvfuser {
 
@@ -329,6 +330,27 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
   }
 
+  // TMA pointwise heuristics
+  // TODO: tune three tiling sizes for the best performance
+  if (isOptionEnabled(EnableOption::TmaPointwise)) {
+    params->tag = "TMA pointwise heuristics";
+    params->use_tma_load = true;
+    params->use_tma_store = true;
+    // TMA tile
+    params->tma_tile_inner = 256;
+    params->tma_tile_outer =
+        std::max(ceilDiv(n_elems, params->tma_tile_inner), (int64_t)64);
+
+    // thread tile
+    params->vectorization_factor =
+        (int64_t)kOneHundredTwentyEight / max_dtype_size_bit_for_vectorization;
+    params->unroll_factor_outer = 2;
+
+    // block tile
+    params->lparams.bind(32, ParallelType::TIDx);
+    params->lparams.bind(4, ParallelType::TIDy);
+    return params;
+  }
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
   int break_point = 0;
@@ -822,6 +844,85 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
+namespace {
+// schedule the reference tv
+// propagate transformation to non-tma tvs
+void schedulePointwiseMultiwaveTMA(
+    Fusion* fusion,
+    TensorView* tv,
+    const PointwiseParams* pparams,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  std::cout << "tv: " << tv->toString() << std::endl;
+  if (tv->nDims() == 1) {
+    tv->split(0, pparams->tma_tile_inner);
+  }
+  NVF_ERROR(
+      tv->nDims() == 2,
+      "TMA pointwise scheduler should start with a 2D tensor, got ",
+      tv->toString());
+  std::cout << "tv: " << tv->toString() << std::endl;
+
+  struct TileMN {
+    int64_t m;
+    int64_t n;
+  };
+  TileMN tma_tile = {pparams->tma_tile_outer, pparams->tma_tile_inner};
+  TileMN blk_tile = {pparams->lparams.bdimy(), pparams->lparams.bdimx()};
+  TileMN tid_tile = {
+      pparams->unroll_factor_outer, pparams->vectorization_factor};
+
+  // [O, I] -> [O/m, m, I/n, n]
+  tv->split(0, tma_tile.m);
+  tv->split(-1, tma_tile.n);
+
+  // propagate tma tiles to all tvs
+  TransformPropagator tma_propagator(tv);
+  MaxLogicalDomainInfoSpanningTree(tv).traverse(&tma_propagator);
+
+  // [O/m, m, I/n, n] -> [O/m, m/u, u, I/n, n/v, v]
+  tv->split(1, tid_tile.m);
+  tv->split(-1, tid_tile.n);
+  // [O/m, m/u, u, I/n, n/v, v] -> [O/m, m/u/y, y, u, I/n, n/v/x, x, v]
+  tv->split(1, blk_tile.m);
+  tv->split(-2, blk_tile.n);
+  // reorder to [O/m, I/n, m/u/y, n/v/x, y, x, u, v]
+  tv->reorder({{1, 2}, {2, 4}, {3, 6}, {4, 1}, {5, 3}, {6, 5}});
+  tv->axis(0)->parallelize(ParallelType::BIDy);
+  tv->axis(1)->parallelize(ParallelType::BIDx);
+  tv->axis(4)->parallelize(ParallelType::TIDy);
+  tv->axis(5)->parallelize(ParallelType::TIDx);
+  std::cout << "tv: " << tv->toString() << std::endl;
+
+  // collect all tma tvs and manual parallelize them
+  std::vector<TensorView*> tma_tvs;
+  for (const auto& p : cached_inputs) {
+    auto tma_tv = p.first;
+    tma_tv->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    tma_tv->setMemoryType(MemoryType::Shared);
+    tma_tv->cacheAfter();
+    tma_tvs.push_back(tma_tv);
+    // [O/m, m, I/n, n] -> [O/m, I/n, m, n]
+    tma_tv->reorder({{1, 2}});
+    tma_tv->axis(0)->parallelize(ParallelType::BIDy);
+    tma_tv->axis(1)->parallelize(ParallelType::BIDx);
+    tma_tv->axis(2)->parallelize(ParallelType::Bulk);
+    tma_tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // propagate transformation and parallelize non-tma tvs
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  for (auto tv : non_tma_tvs) {
+    std::cout << "non_tma_tv: " << tv->toString() << std::endl;
+  }
+  TransformPropagator propagator(tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(tv, &selector).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv, non_tma_tvs);
+}
+} // namespace
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
@@ -1006,6 +1107,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         lhs_i = axis_i;
       }
     }
+  }
+
+  if (isOptionEnabled(EnableOption::TmaPointwise)) {
+    return schedulePointwiseMultiwaveTMA(
+        fusion, reference_tv, pparams, cached_inputs, cached_outputs);
   }
 
   int64_t unswitch_pos = 0;

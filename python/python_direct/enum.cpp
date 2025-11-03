@@ -73,6 +73,7 @@ void bindEnums(py::module& nvfuser) {
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
       .value("cp_async", LoadStoreOpType::CpAsync)
+      .value("tma_1d", LoadStoreOpType::CpAsyncBulk)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
   py::enum_<MemoryType>(nvfuser, "MemoryType", py::module_local())
