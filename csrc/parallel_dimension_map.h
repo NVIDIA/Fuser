@@ -10,6 +10,7 @@
 #include <exceptions.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
+#include <utils.h>
 #include <visibility.h>
 
 #include <string>
@@ -110,6 +111,23 @@ class ParallelDimensionMap {
   //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
+  void inferEvalExtents(Fusion* fusion);
+  void inferCodegenExtents(Fusion* fusion);
+  void inferIndices(Fusion* fusion);
+
+  Val* getEvalExtent(ParallelDim* pdim) const {
+    return mapOrDefault(dim_eval_extent_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
+  Val* getCodegenExtent(ParallelDim* pdim) const {
+    return mapOrDefault(
+        dim_codegen_extent_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
+  Val* getIndex(ParallelDim* pdim) const {
+    return mapOrDefault(dim_index_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
  private:
   //! Maps from parallel types to dimensions, which are constant if
   //! a unique value is found.
@@ -117,6 +135,23 @@ class ParallelDimensionMap {
   //! Set of parallel types whose dimensions are identified to be
   //! exactly the same as extents of mapped domains.
   std::unordered_set<ParallelType> exact_types_;
+
+  //! Holds the extent of each parallel dimension in a form that can be easily
+  //! evaluated by ExpressionEvaluator. NamedScalars like blockDim.x will be
+  //! avoided in favor of expressions like ceilDiv(i0, 128) where i0 is the
+  //! extent of an input TensorView.
+  std::unordered_map<ParallelDim*, Val*> dim_eval_extent_map_;
+  //! Holds the extent of each parallel dimension in a form suitable for placing
+  //! in a generated CUDA kernel.
+  //! For example these expressions will contain things like blockDim.x
+  std::unordered_map<ParallelDim*, Val*> dim_codegen_extent_map_;
+
+  //! Holds the index of a parallel dimension for use in a generated CUDA
+  //! kernel. Dims corresponding to ParallelTypes will have indices like
+  //! threadIdx.x, but these will be more complicated if there are other
+  //! expressions in the ParallelDim graph. For example a ParallelDimSplit can
+  //! result in div and mod expressions.
+  std::unordered_map<ParallelDim*, Val*> dim_index_map_;
 
   //! Keep track of warp specialized parallel type and padding value
   std::optional<ParallelType> warp_specialized_parallel_type_;

@@ -22,6 +22,7 @@
 #include <utility>
 
 using PAndID = std::pair<nvfuser::ParallelType, nvfuser::IterDomain*>;
+using PDAndID = std::pair<nvfuser::ParallelDim*, nvfuser::IterDomain*>;
 
 namespace std {
 
@@ -35,11 +36,25 @@ struct hash<PAndID> {
   }
 };
 
+template <>
+struct hash<PDAndID> {
+  std::size_t operator()(const PDAndID& data) const noexcept {
+    size_t h = std::hash<size_t>()(reinterpret_cast<size_t>(data.first));
+    nvfuser::hashCombine(
+        h, std::hash<size_t>()(reinterpret_cast<size_t>(data.second)));
+    return h;
+  }
+};
+
 } // namespace std
 
 namespace nvfuser {
 
 ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
+  inferEvalExtents(fusion);
+  inferCodegenExtents(fusion);
+  inferIndices(fusion);
+
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -99,6 +114,81 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   adjustMappingsForWarpPadding();
   adjustMappingsForWarpSpecialization();
 }
+
+namespace {
+
+// Returns true iff pdim has any producer that corresponds directly to a
+// ParallelType like DIDx, BIDx, or TIDx.
+bool isParallelDimThread(ParallelDim* pdim) {
+  std::vector<ParallelDim*> to_check{pdim};
+  while (!to_check.empty()) {
+    ParallelDim* current = to_check.back();
+    to_check.pop_back();
+
+    if (const auto& pt = current->getMaybeParallelType(); pt.has_value()) {
+      return isParallelTypeThread(pt.value());
+    }
+    if (Expr* def = current->definition()) {
+      for (Val* i : def->inputs()) {
+        if (auto* pd = dynamic_cast<ParallelDim*>(i)) {
+          to_check.push_back(pd);
+        }
+      }
+    }
+  }
+  // If no producer of pdim is a ParallelType, return false
+  return false;
+}
+
+} // namespace
+
+void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
+  // TODO: I think we still need something like exact_types_ but for
+  // ParallelDim. isExact() is currently only used by
+  // getThreadParallelTypesMergedByContiguity in tmem analysis, so we should
+  // reference that use case when designing exactness around ParallelDim*
+  // instead of ParallelType*
+
+  VectorOfUniqueEntries<PDAndID> all_concrete_ids;
+  auto all_vals = fusion->usedMathVals();
+  for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+    for (auto id : tv->domain()->allIDs()) {
+      ParallelDim* pdim = id->getParallelDim();
+      if (!isParallelDimThread(pdim)) {
+        continue;
+      }
+      IterDomain* concrete_id =
+          FusionInfoGuard::current()->caMap().getConcreteMappedID(
+              id, IdMappingMode::EXACT);
+      // NOTE: Broadcasted concrete id's can inform the shape, especially if
+      // they are broadcast
+      all_concrete_ids.pushBack(std::make_pair(pdim, concrete_id));
+    }
+  }
+
+  // Scan all TVs to build dim_eval_extent_map_
+  for (auto [pdim, concrete_id] : all_concrete_ids) {
+    auto it = dim_eval_extent_map_.find(pdim);
+    if (it == dim_eval_extent_map_.end()) {
+      dim_eval_extent_map_[pdim] = concrete_id->getMaybeExpandedExtent();
+    } else {
+      it->second =
+          SimplifyingIrBuilder::maxExpr(it->second, concrete_id->extent());
+    }
+  }
+
+  // Simplify dim_map_
+  for (auto& [k, v] : dim_eval_extent_map_) {
+    v = simplifyExpr(v);
+  }
+
+  // At this point, the extents are specified for each _bound_ ParallelDim.
+  // However, we might have only bound the dimensions for derived ParallelDims
+  // but we will also need to evaluate the ones corresponding to ParallelTypes
+}
+
+void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {}
+void ParallelDimensionMap::inferIndices(Fusion* fusion) {}
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   // If TIDx is padded to a multiple of the warp size, mark it as

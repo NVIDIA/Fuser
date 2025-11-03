@@ -2682,6 +2682,8 @@ IterDomain::IterDomain(
       "nvfuser_index_t but received ",
       stop_offset_->dtype(),
       " .");
+
+  setParallelDim(fusion()->getParallelDim(parallel_type_));
 }
 
 IterDomain::IterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args)
@@ -3156,6 +3158,14 @@ IterDomain* IterDomain::resize(
   return resized_id;
 }
 
+void IterDomain::setParallelDim(ParallelDim* d) {
+  // TODO: invalidate parallel_type_ unless it matches parallel_dim_
+  parallel_dim_ = d;
+  if (const auto& pt = d->getMaybeParallelType(); pt.has_value()) {
+    parallel_type_ = pt.value();
+  }
+}
+
 // TODO: We should change parallelize interface to be on tensorview or at least
 // vectorize should be done on tensorview. This would let us check that we don't
 // vectorize to the left of the computeAt domain, and could allow us to do some
@@ -3189,6 +3199,9 @@ void IterDomain::parallelize(ParallelType t) {
   }
 
   parallel_type_ = t;
+  // Eventually we will stop tracking parallel_type_ and will only track
+  // parallel_dim_. For now, try and keep them in sync
+  parallel_dim_ = container()->getParallelDim(t);
 }
 
 bool IterDomain::maybePartial() const {

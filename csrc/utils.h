@@ -968,4 +968,15 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   };
 };
 
+template <typename K, typename V>
+V mapOrDefault(
+    const std::unordered_map<K, V>& map,
+    const K& key,
+    V default_value) {
+  if (auto it = map.find(key); it != map.end()) {
+    return it->second;
+  }
+  return default_value;
+}
+
 } // namespace nvfuser

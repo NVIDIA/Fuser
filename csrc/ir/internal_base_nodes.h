@@ -32,6 +32,8 @@ class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
+class ParallelDim;
+
 // Convenience utility to initialize IterDomain's without having to sort through
 // all the default values. Intended to be used with
 // IterDomain::IterDomain(IrBuilderPasskey, IterDomainBuilder).
@@ -232,7 +234,13 @@ class NVF_API IterDomain : public Val {
     return getParallelType() == ParallelType::Stream;
   }
 
+  NVF_API void setParallelDim(ParallelDim* d);
+
   NVF_API void parallelize(ParallelType t);
+
+  ParallelDim* getParallelDim() const {
+    return parallel_dim_;
+  }
 
   ParallelType getParallelType() const {
     return parallel_type_;
@@ -408,6 +416,7 @@ class NVF_API IterDomain : public Val {
 
   //! Distance of stop from the end
   Val* const stop_offset_ = nullptr;
+  ParallelDim* parallel_dim_ = nullptr;
   ParallelType parallel_type_ = ParallelType::Serial;
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
