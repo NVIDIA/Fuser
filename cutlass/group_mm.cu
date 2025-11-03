@@ -426,9 +426,10 @@ void validateInputsGroupMm(
       c10::cuda::CaptureStatus::None) {
     const int64_t m = a.size(0);
     const int64_t g = expert_offsets.size(0);
+    at::Tensor expert_offsets_cpu = expert_offsets.cpu();
     int64_t prev_offset = 0;
-    for (int64_t i = 0; i < g; ++i) {
-      const auto expert_offset = expert_offsets[i].item<int64_t>();
+    for (int64_t i = 0; i < g; i++) {
+      const auto expert_offset = expert_offsets_cpu[i].item<int64_t>();
       NVF_CHECK_LE(expert_offset, m);
       NVF_CHECK_LE(prev_offset, expert_offset);
       prev_offset = expert_offset;
