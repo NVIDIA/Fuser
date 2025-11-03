@@ -189,7 +189,8 @@ at::Tensor createTensor3D(
 // Test GroupedMmaOp with mat1=[m, k], mat2=[k, n] -> out=[g, m, n]
 class MetaTestGroupedMma2D2D : public NVFuserTest,
                                public ::testing::WithParamInterface<
-                                   std::tuple<MemoryFormat2D, MemoryFormat2D>> {};
+                                   std::tuple<MemoryFormat2D, MemoryFormat2D>> {
+};
 
 TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
@@ -254,14 +255,15 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(all2DMemoryFormats)),
     [](const ::testing::TestParamInfo<
         std::tuple<MemoryFormat2D, MemoryFormat2D>>& info) {
-      return "Mat1" + memoryFormat2DToString(std::get<0>(info.param)) + "_Mat2" +
-             memoryFormat2DToString(std::get<1>(info.param));
+      return "Mat1" + memoryFormat2DToString(std::get<0>(info.param)) +
+          "_Mat2" + memoryFormat2DToString(std::get<1>(info.param));
     });
 
 // Test GroupedMmaOp with mat1=[g, m, k], mat2=[k, n] -> out=[m, n]
 class MetaTestGroupedMma3D2D : public NVFuserTest,
                                public ::testing::WithParamInterface<
-                                   std::tuple<MemoryFormat3D, MemoryFormat2D>> {};
+                                   std::tuple<MemoryFormat3D, MemoryFormat2D>> {
+};
 
 TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
@@ -326,14 +328,15 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(all2DMemoryFormats)),
     [](const ::testing::TestParamInfo<
         std::tuple<MemoryFormat3D, MemoryFormat2D>>& info) {
-      return "Mat1" + memoryFormat3DToString(std::get<0>(info.param)) + "_Mat2" +
-             memoryFormat2DToString(std::get<1>(info.param));
+      return "Mat1" + memoryFormat3DToString(std::get<0>(info.param)) +
+          "_Mat2" + memoryFormat2DToString(std::get<1>(info.param));
     });
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[g, k, n] -> out=[m, n]
 class MetaTestGroupedMma2D3D : public NVFuserTest,
                                public ::testing::WithParamInterface<
-                                   std::tuple<MemoryFormat2D, MemoryFormat3D>> {};
+                                   std::tuple<MemoryFormat2D, MemoryFormat3D>> {
+};
 
 TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   auto [mat1_format, mat2_format] = GetParam();
@@ -398,8 +401,8 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::ValuesIn(all3DMemoryFormats)),
     [](const ::testing::TestParamInfo<
         std::tuple<MemoryFormat2D, MemoryFormat3D>>& info) {
-      return "Mat1" + memoryFormat2DToString(std::get<0>(info.param)) + "_Mat2" +
-             memoryFormat3DToString(std::get<1>(info.param));
+      return "Mat1" + memoryFormat2DToString(std::get<0>(info.param)) +
+          "_Mat2" + memoryFormat3DToString(std::get<1>(info.param));
     });
 
 } // namespace nvfuser
