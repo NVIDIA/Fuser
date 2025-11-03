@@ -140,6 +140,10 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
     os() << "  " << exp->toString();
   }
   os() << " loop domain : (" << toDelimitedString(tv->getLoopDomain()) << ")\n";
+  if (tv->getAlternateLoopDomain().has_value()) {
+    os() << " alternate loop domain : ("
+         << toDelimitedString(tv->getAlternateLoopDomain().value()) << ")\n";
+  }
 }
 
 } // namespace nvfuser
