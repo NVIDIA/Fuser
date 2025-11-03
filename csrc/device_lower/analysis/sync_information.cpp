@@ -292,6 +292,21 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
             continue;
           }
 
+          // Skip BIDx and TIDx check for block scaling factor output of
+          // BlockQuantizationOp. The inner-most dimension of this output
+          // does not map to any producer ID and is used to generate BIDx and
+          // TIDx. Since this Op is codegen'd to a runtime fuction, any
+          // sync/predication is handled there.
+          if ((parallel_type == ParallelType::BIDx ||
+               parallel_type == ParallelType::TIDx) &&
+              (consumer->definition()->isA<BlockQuantizationOp>() &&
+               consumer ==
+                   consumer->definition()
+                       ->as<BlockQuantizationOp>()
+                       ->blockScales())) {
+            continue;
+          }
+
           // In the case when the parallel id's are mapped by ca map,
           //   will additionally need to consider if the producer is
           //   a redundant write. The raw dim can be skipped only if

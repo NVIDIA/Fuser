@@ -21,8 +21,8 @@ TensorInitVal::TensorInitVal(Fusion* fusion) {
 }
 
 void TensorInitVal::handle(ArgsortOp* aop) {
-  // It is already validated that the input is exclusively used by
-  // this argsort op, so it's free to initialize it for this op
+  // validateGroupedOp guarantees that the input is exclusively used
+  // by this op , so it's free to initialize it for this op
   auto inp_tv = ir_utils::getTvInput(aop);
 
   Val* init_val = nullptr;
@@ -36,8 +36,8 @@ void TensorInitVal::handle(ArgsortOp* aop) {
 }
 
 void TensorInitVal::handle(ScanOp* sop) {
-  // It is already validated that the input is exclusively used by
-  // this scan op, so it's free to initialize it for this op
+  // validateGroupedOp guarantees that the input is exclusively used
+  // by this op , so it's free to initialize it for this op
   auto inp_tv = ir_utils::getTvInput(sop);
 
   // May not be strictly required but make sure the input is always
@@ -46,8 +46,8 @@ void TensorInitVal::handle(ScanOp* sop) {
 }
 
 void TensorInitVal::handle(TopKOp* top) {
-  // It is already validated that the input is exclusively used by
-  // this argsort op, so it's free to initialize it for this op
+  // validateGroupedOp guarantees that the input is exclusively used
+  // by this op , so it's free to initialize it for this op
   auto inp_tv = ir_utils::getTvInput(top);
 
   Val* init_val = nullptr;

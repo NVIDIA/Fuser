@@ -21,7 +21,7 @@ class HeuristicDataCache;
 // Top-level class representing heuristic parameters. Most schedulers
 // have their own subclasses to have their specific parameters, except
 // for ExprEval schedulers.
-class HeuristicParams : public PolymorphicBase {
+class NVF_API HeuristicParams : public PolymorphicBase {
  public:
   std::string tag = "";
 

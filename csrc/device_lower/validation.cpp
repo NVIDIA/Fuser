@@ -47,7 +47,8 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
+    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
+        !ir_utils::hasUniformSiblings(expr)) {
       IterVisitor::dispatch(expr);
       return;
     }
@@ -730,6 +731,7 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
     if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
@@ -1415,7 +1417,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>(),
+            def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
+            def->isA<BlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

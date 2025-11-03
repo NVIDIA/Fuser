@@ -432,6 +432,10 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
         << "Rank " << my_rank << " failed at repetition " << repetition
         << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
         << ref_recv_tensor;
+    // Prevent recv_peer from writing the next iteration's data before
+    // we finish verifying this iteration's data
+    torch::cuda::synchronize();
+    communicator_->barrier();
   }
 }
 

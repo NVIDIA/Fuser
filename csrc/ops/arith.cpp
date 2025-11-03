@@ -2632,4 +2632,85 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
 }
 
+// Currently this node gets lowered to a runtime function, which expects the
+// inputs in registers and writes out the quantized values to registers and
+// block scales to global memory.
+BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    int64_t block_size,
+    DataType out_dtype) {
+  NVF_CHECK(
+      block_size == 16,
+      "Currently only block size of 16 is supported, got ",
+      block_size);
+
+  NVF_CHECK(
+      out_dtype == DataType::Float4_e2m1fn,
+      "Currently only output data type of Float4_e2m1fn is supported");
+
+  // Validate input data type
+  // We'll only support FP32 or BF16/FP16
+  NVF_CHECK(
+      input->getDataType().value() == DataType::Float ||
+          input->getDataType().value() == DataType::BFloat16 ||
+          input->getDataType().value() == DataType::Half,
+      "Block quantization expects floating point input but got ",
+      input->getDataType().value());
+
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  // Validate input tensor is not zero-dimensional
+  NVF_CHECK(
+      !inp_domain.empty(),
+      "Block quantization does not support zero-dimensional tensors");
+
+  // Create output domain for quantized tensor (same shape as input)
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  // Create output domain for block scales
+  // We'll clone the outer domains but divide the
+  // extent of the inner domain by 16. (block_size).
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      out_dtype);
+
+  // Create block scaling factors
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          scales_out_domain,
+          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+      DataType::Float8_e4m3fn);
+
+  // Create the block quantization operation
+  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
+}
+
 } // namespace nvfuser

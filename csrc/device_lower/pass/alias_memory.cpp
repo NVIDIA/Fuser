@@ -1370,13 +1370,22 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         if (!tv_def) {
           continue;
         }
-        if (!ir_utils::isPointwiseTvOp(tv_def) &&
+        // A broadcast domain in any tensor between the original and reuse
+        // tensor can lead to a cross-iteration Read-After-Write (RAW) hazard.
+        // Broadcast concretization may occur without an explicit BroadcastOp,
+        // so we check for broadcast domains on any intermediate tensor. When
+        // detected, this forces the allocationDomainsIndexMapped check (line
+        // 1349) to ensure safe aliasing. The hazard occurs when register
+        // aliasing inside an inner loop is allowed while the aliased buffer is
+        // read at an outer loop level: inner-loop stores in iteration i can
+        // clobber values needed by reads in outer-loop iteration i+1.
+        // See https://github.com/NVIDIA/Fuser/issues/5346.
+        if (tv->hasBroadcast()) {
+          info.has_broadcast_between = true;
+        } else if (
+            !ir_utils::isPointwiseTvOp(tv_def) &&
             !ir_utils::isReductionTvOp(tv_def) && !tv_def->isA<ExpandOp>()) {
-          if (isBroadcastTvOp(tv_def)) {
-            info.has_broadcast_between = true;
-          } else {
-            info.has_unsupported_op = true;
-          }
+          info.has_unsupported_op = true;
         }
       }
     }
@@ -1420,14 +1429,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     } else {
       allocation_info_map_.useOuterAlias(alloc_info, to_reuse);
     }
-  }
-
-  // Utility to capture broadcast ops
-  bool isBroadcastTvOp(const Expr* expr) {
-    if (!ir_utils::isTvOp(expr)) {
-      return false;
-    }
-    return expr->isA<BroadcastOp>();
   }
 
  private:
