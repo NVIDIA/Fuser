@@ -83,6 +83,10 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   to->metadata_ = ir_cloner.clone(from->metadata_);
 
+  for (auto [ptype, pdim] : from->parallel_dim_map_) {
+    to->parallel_dim_map_.emplace(ptype, ir_cloner.clone(pdim));
+  }
+
   return ir_cloner;
 }
 
