@@ -781,10 +781,6 @@ class ExprValidator : public OptOutDispatch {
     // Helper to check to the most involved scheduling requirements.
     BlockQuantizationValidationHelper helper(quantized_output, grouped_id);
     helper.run();
-
-    // Helper to check to the most involved scheduling requirements.
-    BlockQuantizationValidationHelper helper(quantized_output, grouped_id);
-    helper.run();
   }
 };
 
