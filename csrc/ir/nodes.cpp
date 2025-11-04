@@ -5430,6 +5430,27 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     max_norm = inputs.at(idx).as<double>();
   }
 
+  // Meta-safe path: when either input or weight is a Meta tensor, avoid
+  // calling into ATen embedding (which dispatches to index_select) and
+  // instead synthesize the output shape and strides directly on Meta.
+  if (input.is_meta() || weight.is_meta()) {
+    std::vector<int64_t> out_sizes;
+    out_sizes.reserve(input.dim() + 1);
+    for (int64_t d = 0; d < input.dim(); ++d) {
+      out_sizes.push_back(input.size(d));
+    }
+    // Embedding expands the last dimension to embedding_dim = weight.size(1)
+    NVF_CHECK(
+        weight.dim() >= 2,
+        "Embedding weight must be at least 2D [num_embeddings, embedding_dim], "
+        "but got dim=",
+        weight.dim());
+    out_sizes.push_back(weight.size(1));
+    auto out = at::empty(
+        out_sizes, at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
+    return {out};
+  }
+
   namespace F = torch::nn::functional;
   return {F::embedding(
       input,
