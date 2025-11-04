@@ -116,7 +116,7 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-bool Val::sameVal(const Val* other_val, bool strict) const {
+bool Val::sameVal(const Val* other_val) const {
   if (other_val == nullptr) {
     return false;
   }
@@ -135,40 +135,12 @@ bool Val::sameVal(const Val* other_val, bool strict) const {
   if (value_.hasValue() != other_val->value_.hasValue()) {
     return false;
   }
-  if (!strict && name() != other_val->name()) {
-    return false;
-  }
   if (definition_ == nullptr) {
-    if (!value_.hasValue()) {
-      // If strict, then return false for symbolic values.
-      return !strict;
-    }
-    // If not strict, then NaNs are considered the same.
-    if (!strict && value_.is<double>() && std::isnan(value_.as<double>()) &&
-        std::isnan(other_val->value_.as<double>())) {
-      return true;
-    }
-    return value_ == other_val->value_;
+    // Check this condition in Val::sameAs and Val::sameDefinition
+    return true;
   }
+
   NVF_ERROR(!value_.hasValue());
-
-  if (strict) {
-    // non-deterministic operation returns value that wouldn't be the same even
-    // if the inputs are the same.
-    if (!definition_->isDeterministic() ||
-        !other_val->definition_->isDeterministic()) {
-      return false;
-    }
-    if (!definition_->sameAs(other_val->definition_)) {
-      return false;
-    }
-  } else {
-    // sameAs checks if definition is deterministic
-    if (!definition_->sameDefinition(other_val->definition_)) {
-      return false;
-    }
-  }
-
   if (definition_->outputs().size() !=
       other_val->definition_->outputs().size()) {
     return false;
@@ -190,13 +162,56 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    return sameVal(other_val, /*strict=*/true);
+    if (!sameVal(other_val)) {
+      return false;
+    }
+    if (definition_ == nullptr) {
+      if (!value_.hasValue()) {
+        return false;
+      }
+      return value_ == other_val->value_;
+    }
+    // non-deterministic operation returns value that wouldn't be the same even
+    // if the inputs are the same.
+    if (!definition_->isDeterministic() ||
+        !other_val->definition_->isDeterministic()) {
+      return false;
+    }
+    if (!definition_->sameAs(other_val->definition_)) {
+      return false;
+    }
+    return true;
   }
   return false;
 }
 
-bool Val::sameDefinition(const Val* other) const {
-  return sameVal(other, /*strict=*/false);
+bool Val::sameDefinition(const Val* other_val) const {
+  if (!sameVal(other_val)) {
+    return false;
+  }
+  // This condition is not checked in sameAs. It ensures the correct argument
+  // order for symbolic Vals.
+  if (name() != other_val->name()) {
+    return false;
+  }
+  if (definition_ == nullptr) {
+    if (!value_.hasValue()) {
+      // Symbolic values are considered the same.
+      return true;
+    }
+    // NaNs are considered the same.
+    if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+        std::isnan(other_val->value_.as<double>())) {
+      return true;
+    }
+    return value_ == other_val->value_;
+  }
+  NVF_ERROR(!value_.hasValue());
+  // Expr::sameAs return false if either definition is non-deterministic.
+  if (!definition_->sameDefinition(other_val->definition_)) {
+    return false;
+  }
+  return true;
 }
 
 size_t Val::getHash() const {

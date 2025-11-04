@@ -397,7 +397,7 @@ class NVF_API Val : public Statement {
 
   // sameDefinition determines if a two values will create the same fusion
   // definition.
-  virtual bool sameDefinition(const Val* other) const;
+  virtual bool sameDefinition(const Val* other_val) const;
 
   // sameAs determines if a Statement generates the exact same outputs as this
   // Val.
@@ -455,12 +455,7 @@ class NVF_API Val : public Statement {
  private:
   // The sameVal helper function checks if the other Val has the same
   // definition, ValType, and DType.
-  // If strict:
-  //  - Symbolic values without definitions are not the same.
-  //  - Val's with nondeterministic definitions are not the same.
-  // Else:
-  //  - NaN values are considered equal.
-  bool sameVal(const Val* other, bool strict) const;
+  bool sameVal(const Val* other_val) const;
 
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
