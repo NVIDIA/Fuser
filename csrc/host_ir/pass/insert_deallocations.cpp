@@ -26,18 +26,9 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one "
-        "anyways",
+        "anyways: ",
         expr);
   });
-
-  std::unordered_set<TensorView*> fusion_inputs;
-  for (auto* in : ir_utils::filterByType<TensorView>(hic->inputs())) {
-    fusion_inputs.insert(in);
-  }
-  std::unordered_set<TensorView*> fusion_outputs;
-  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
-    fusion_outputs.insert(out);
-  }
 
   std::unordered_set<TensorView*> last_use_found;
   for (auto insertion_point = top_level_exprs.end();
@@ -45,24 +36,32 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
     auto prev = std::prev(insertion_point);
     Expr* e = *prev;
 
-    for (auto* val : e->inputs()) {
-      if (!val->isA<TensorView>()) {
-        continue;
-      }
-      auto* tv = val->as<TensorView>();
-
-      if (fusion_inputs.count(tv) > 0 || fusion_outputs.count(tv) > 0) {
-        continue;
-      }
-
-      if (!last_use_found.insert(tv).second) {
+    // Only tensors need to be allocated.
+    for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+      // Deallocate `in` if `in` needs to be deallocated and its last use is
+      // `e`.
+      //
+      // Fusion inputs are managed by the caller.
+      if (in->isFusionInput()) {
         continue;
       }
 
-      auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
+      // Fusion outputs need to be kept alive for the caller.
+      if (in->isFusionOutput()) {
+        continue;
+      }
+
+      // Skip if `e` is not the last use.
+      if (!last_use_found.insert(in).second) {
+        continue;
+      }
+
+      auto* deallocate = IrBuilder::create<hir::Deallocate>(in);
       hic->insertExprBefore(insertion_point, deallocate);
     }
 
+    // Don't `--insertion_point;` because we'd like to skip newly inserted
+    // deallocations.
     insertion_point = prev;
   }
 }

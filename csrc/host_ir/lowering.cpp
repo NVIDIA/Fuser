@@ -107,9 +107,6 @@ void lowerSegment(
       //   append the list to the top level
       //   return
       //
-      // for each non-input TensorView:
-      //   if it needs an out-of-loop allocation:
-      //     create an Allocate and append it to the top level
       // create a new, empty for loop
       // for each cloned expression:
       //   for each input TensorView of that expression:

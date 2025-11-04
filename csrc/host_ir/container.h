@@ -15,6 +15,10 @@
 
 namespace nvfuser::hir {
 
+// HostIrContainer is used to represent a host program.
+// 1) It inherits from Fusion, so that (Host) IRs can be registered to it.
+// 2) It holds a list of Host Expressions `top_level_exprs_` that represent
+// the host program.
 class HostIrContainer final : public Fusion {
  public:
   HostIrContainer() = default;
@@ -25,6 +29,7 @@ class HostIrContainer final : public Fusion {
   std::ostream& print(std::ostream& os) const;
 
   const std::list<Expr*>& topLevelExprs() const;
+  // Appends `expr` and returns the iterator pointing to `expr`.
   std::list<Expr*>::const_iterator pushBackTopLevelExprs(Expr* expr);
   void insertExprBefore(std::list<Expr*>::const_iterator position, Expr* expr);
   // Only used for MultiDeviceExecutor. While convenient, it should generally
