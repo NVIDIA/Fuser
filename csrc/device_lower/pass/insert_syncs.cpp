@@ -1296,11 +1296,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     std::vector<Expr*> sync_exprs{
         getAsyncCommit(AsyncOpType::WgMma),
         getAsyncWait(AsyncOpType::WgMma, /*keep_stages=*/pending_ops)};
-    auto& body_exprs = for_loop->body().exprs();
-    size_t num_exprs = body_exprs.size();
-    NVF_ERROR(num_exprs > 1);
+    const auto& body_exprs = for_loop->body().exprs();
+    const auto num_exprs = std::ssize(body_exprs);
+    NVF_ERROR_GT(num_exprs, 1);
     NVF_ERROR(body_exprs.back()->isA<kir::MBarrierArrive>());
-    auto reference_expr = *std::prev(body_exprs.end(), 2);
+    Expr* reference_expr = *std::prev(body_exprs.end(), 2);
     while (!sync_exprs.empty()) {
       registerInsertAfter(reference_expr, sync_exprs.back(), &for_loop->body());
       sync_exprs.pop_back();
@@ -1404,12 +1404,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             CircularBufferLoopStage::Epilog) {
           sync_exprs.push_back(getAsyncWait(type, /*keep_stages=*/pending_ops));
         }
-        auto& body_exprs = for_loop->body().exprs();
+        const std::list<Expr*>& body_exprs = for_loop->body().exprs();
         NVF_ERROR(!body_exprs.empty());
 
         // Default position is last expression in for loop
-        size_t num_exprs = body_exprs.size();
-        size_t pos = num_exprs - 1;
+        const auto num_exprs = std::ssize(body_exprs);
+        auto pos = num_exprs - 1;
 
         // The sync qualifier in the `wgmma.wait_group` ptx instruction only
         // guarantees that a warp executes the instruction. The entire warp
@@ -1430,11 +1430,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
-        NVF_ERROR(pos < num_exprs);
-        const auto offset = num_exprs - pos;
-        NVF_ERROR(offset >= 1);
-        auto expr =
-            *std::prev(body_exprs.end(), static_cast<std::ptrdiff_t>(offset));
+        NVF_ERROR_GE(pos, 0);
+        NVF_ERROR_LT(pos, num_exprs);
+        Expr* expr = *std::next(body_exprs.begin(), pos);
         while (!sync_exprs.empty()) {
           registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
           sync_exprs.pop_back();
