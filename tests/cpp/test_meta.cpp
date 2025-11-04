@@ -139,9 +139,8 @@ std::string memoryFormat3DToString(MemoryFormat3D format) {
       return "Perm201";
     case MemoryFormat3D::Perm210:
       return "Perm210";
-    default:
-      return "Unknown";
   }
+  std::unreachable();
 }
 
 // Helper function to create tensor with specified memory format for 2D tensors
@@ -149,11 +148,13 @@ at::Tensor createTensor2D(
     const std::vector<int64_t>& sizes,
     MemoryFormat2D format,
     const at::TensorOptions& options) {
-  if (format == MemoryFormat2D::Contiguous) {
-    return at::randn(sizes, options);
-  } else { // Transposed
-    return at::randn({sizes[1], sizes[0]}, options).t();
+  switch (format) {
+    case MemoryFormat2D::Contiguous:
+      return at::randn(sizes, options);
+    case MemoryFormat2D::Transposed:
+      return at::randn({sizes[1], sizes[0]}, options).t();
   }
+  std::unreachable();
 }
 
 // Helper function to create tensor with specified memory format for 3D tensors
@@ -180,9 +181,8 @@ at::Tensor createTensor3D(
     case MemoryFormat3D::Perm210: // [2, 1, 0]
       return at::randn({sizes[2], sizes[1], sizes[0]}, options)
           .permute({2, 1, 0});
-    default:
-      NVF_ERROR(false, "Unknown 3D memory format");
   }
+  std::unreachable();
 }
 
 // Test GroupedMmaOp with mat1=[m, k], mat2=[k, n] -> out=[g, m, n]
