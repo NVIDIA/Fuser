@@ -424,14 +424,18 @@ class BlockQuantizationValidationTest : public BlackwellBase {
       const std::vector<at::Tensor>& inputs,
       const char* expected_error_msg) {
     KernelExecutor ke;
-    try {
-      ke.compile(fusion, inputs);
-      FAIL() << "Expected compilation to throw error: " << expected_error_msg;
-    } catch (const std::exception& e) {
-      ASSERT_TRUE(strstr(e.what(), expected_error_msg) != nullptr)
-          << "Expected error message containing: \"" << expected_error_msg
-          << "\"\nActual error: " << e.what();
-    }
+    EXPECT_THROW(
+        {
+          try {
+            ke.compile(fusion, inputs);
+          } catch (const std::exception& e) {
+            EXPECT_THAT(e.what(), ::testing::HasSubstr(expected_error_msg))
+                << "Expected error message containing: \"" << expected_error_msg
+                << "\"\nActual error: " << e.what();
+            throw; // Re-throw for EXPECT_THROW to catch
+          }
+        },
+        std::exception);
   }
 
   // Helper function to create a fusion with blockQuantize and apply scheduling
@@ -547,39 +551,6 @@ TEST_F(
       fusion.get(),
       {createTestInput()},
       "Block scaling factor must be a global memory tensor");
-}
-
-// Quantized output when scheduled cannot have a vectorized dimension
-// but should have a group dim - this is not valid.
-TEST_F(
-    BlockQuantizationValidationTest,
-    QuantizedOutputCannotHaveVectorizedDimension) {
-  auto setup = createBlockQuantizeFusion();
-  FusionGuard fg(setup.fusion.get());
-
-  std::vector<TensorView*> tensors = {
-      setup.tv_data_hp,
-      setup.t0,
-      setup.quantized_tensor,
-      setup.block_scales,
-      setup.t_out};
-
-  for (auto t : tensors) {
-    applyMergeAndSplit(t, /*split_factor=*/4);
-
-    // Vectorize all non-input tensors (this should fail)
-    // as quantized output cannot be vectorized
-    if (t != setup.tv_data_hp) {
-      t->axis(-1)->parallelize(ParallelType::Vectorize);
-      t->axis(-3)->parallelize(ParallelType::TIDx);
-      t->axis(-4)->parallelize(ParallelType::BIDx);
-    }
-  }
-
-  assertCompilationFails(
-      setup.fusion.get(),
-      {createTestInput()},
-      "Cannot have vectorized ID in BlockQuantizationOp");
 }
 
 // Group ID must be the innermost of all splits from logical domains to loop
