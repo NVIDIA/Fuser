@@ -24,8 +24,8 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.12'
-      - name: Cache ccache
-        uses: actions/cache@v4
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-clang23-ccache-v1
@@ -47,6 +47,12 @@ jobs:
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-clang23-ccache-v1
 
   dynamic-type-meson:
     runs-on: ubuntu-latest
