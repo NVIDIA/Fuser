@@ -384,7 +384,7 @@ class BlockQuantizationValidationHelper {
         last_split_seen_ = split;
         current_id = split->in();
       } else {
-        NVF_ERROR(
+        NVF_THROW(
             false,
             "Unexpected definition found while tracing back the grouped ID for "
             "BlockQuantizationOp: ",
@@ -501,7 +501,7 @@ class BlockQuantizationValidationHelper {
   }
 
  private:
-  const TensorView* tv_;
+  const TensorView* tv_ = nullptr;
   IterDomain* group_id_;
   Split* last_split_seen_ = nullptr;
 };
@@ -701,12 +701,12 @@ class ExprValidator : public OptOutDispatch {
     // Outputs have the same allocation domain
     // as the logical domain - no allocation domain.
     NVF_ERROR(
-        quantized_output->hasAllocation() == false,
+        !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
     // TODO: Relax this for swizzled block scaling factor outputs
     NVF_ERROR(
-        block_scaling_factor->hasAllocation() == false,
+        !block_scaling_factor->hasAllocation(),
         "Block scaling factor must not have an allocation domain.");
 
     IterDomain* grouped_id = nullptr;
@@ -718,8 +718,6 @@ class ExprValidator : public OptOutDispatch {
     for (const auto& loop_id : quantized_output->getLoopDomain()) {
       if (loop_id->getParallelType() == ParallelType::Group) {
         grouped_id = loop_id;
-      } else if (loop_id->getParallelType() == ParallelType::Vectorize) {
-        NVF_ERROR(false, "Cannot have vectorized ID in BlockQuantizationOp");
       } else if (loop_id->getParallelType() == ParallelType::TIDx) {
         thread_x = loop_id;
       } else if (loop_id->getParallelType() == ParallelType::BIDx) {
@@ -737,8 +735,9 @@ class ExprValidator : public OptOutDispatch {
             loop_id->extent()->isConstInt(),
             "Expected constant extent for Serial/Unswitch/Unroll ID in "
             "BlockQuantizationOp");
-        NVF_ERROR(
-            loop_id->extent()->evaluate().as<int64_t>() == 1,
+        NVF_ERROR_EQ(
+            loop_id->extent()->evaluate().as<int64_t>(),
+            1,
             "Expected non-TID/BID/Group ID to have extent of 1 for "
             "BlockQuantizationOp: ",
             bqop->toString());

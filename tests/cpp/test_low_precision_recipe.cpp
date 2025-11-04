@@ -482,11 +482,11 @@ class BlockQuantizationValidationTest : public BlackwellBase {
     // Apply splits: I -> I/split_factor, split_factor
     t->split(-1, split_factor);
     // I/split_factor, split_factor -> I/split_factor/inner_split, inner_split,
-    // I/split_factor
+    // split_factor
     t->split(-2, inner_split);
-    // I/split_factor/inner_split, inner_split, I/split_factor  ->
+    // I/split_factor/inner_split, inner_split, split_factor  ->
     // I/split_factor/inner_split/thread_split, thread_split, inner_split,
-    // I/split_factor
+    // split_factor
     t->split(-3, thread_split);
   }
 };
