@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - ci-llm-workflow
-    paths:
-      - dockerfile
 
 env:
   IMAGE_NAME_FULL: ghcr.io/nvidia/fuser:ci-llm-workflow
