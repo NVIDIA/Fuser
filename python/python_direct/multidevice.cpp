@@ -13,6 +13,7 @@
 #include <multidevice/device_mesh.h>
 #include <multidevice/executor.h>
 #include <multidevice/multidevice.h>
+#include <multidevice/symmetric_memory.h>
 #include <runtime/fusion_kernel_runtime.h>
 
 #include <python_common/distributed_tensor.h>
@@ -225,6 +226,73 @@ Return a string representing the MultiDeviceExecutor.
       py::arg("args"));
 }
 
+void bindSymmetricMemory(py::module& nvfuser) {
+  nvfuser.def(
+      "allocate_symmetric_tensor",
+      [](const std::vector<int64_t>& sizes,
+         at::ScalarType dtype,
+         at::Device device,
+         std::optional<uint64_t> alloc_id) -> at::Tensor {
+        return allocateSymmetricTensor(sizes, dtype, device, alloc_id);
+      },
+      py::arg("sizes"),
+      py::arg("dtype"),
+      py::arg("device"),
+      py::arg("alloc_id") = std::nullopt,
+      R"(
+Allocate a symmetric CUDA tensor using Virtual Memory Management APIs.
+
+Creates a tensor that can be efficiently shared across multiple devices
+using CUDA driver APIs (cuMem VMM). The allocation uses pinned device
+memory with POSIX file descriptor handles for IPC sharing.
+
+Args:
+    sizes: Shape of the tensor (list of integers)
+    dtype: PyTorch scalar type (e.g., torch.float32, torch.float16)
+    device: Target CUDA device (e.g., torch.device('cuda:0'))
+    alloc_id: Optional allocation ID for persistent allocations (not yet supported)
+
+Returns:
+    A PyTorch tensor backed by symmetric CUDA memory
+
+Raises:
+    RuntimeError: If the device doesn't support Virtual Memory Management
+                 or if allocation fails
+
+Note:
+    The returned tensor has contiguous layout. The underlying memory
+    is aligned to the required granularity (typically 2MB) for VMM.
+)");
+
+  nvfuser.def(
+      "is_symmetric_allocation_valid",
+      [](at::Tensor tensor) -> std::string {
+        return isSymmetricAllocationValid(tensor);
+      },
+      py::arg("tensor"),
+      R"(
+Validate that a tensor is backed by symmetric CUDA memory.
+
+Checks that the tensor uses proper VMM allocation properties including:
+- CU_MEM_ALLOCATION_TYPE_PINNED allocation type
+- Device memory location matching the current rank
+- POSIX file descriptor handle type
+- Proper alignment to granularity requirements
+- Read/write access permissions
+
+Args:
+    tensor: PyTorch tensor to validate
+
+Returns:
+    Empty string if valid; otherwise returns an error description
+
+Example:
+    >>> t = nvfuser.multidevice.allocate_symmetric_tensor([4, 8], torch.float32, torch.device('cuda:0'))
+    >>> err = nvfuser.multidevice.is_symmetric_allocation_valid(t)
+    >>> assert err == "", f"Validation failed: {err}"
+)");
+}
+
 } // namespace
 
 void bindMultiDevice(py::module& nvfuser) {
@@ -235,6 +303,7 @@ void bindMultiDevice(py::module& nvfuser) {
   bindDeviceMesh(nvf_multidevice);
   bindSharding(nvf_multidevice);
   bindMultiDeviceExecutor(nvf_multidevice);
+  bindSymmetricMemory(nvf_multidevice);
 }
 
 } // namespace nvfuser::python

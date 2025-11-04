@@ -363,3 +363,62 @@ def test_inner_reduction(multidevice_direct_test):
     ref_out = sharded.sum(1)
     (out,) = fd.execute([sharded])
     assert torch.allclose(ref_out, out)
+
+
+@pytest.mark.mpi
+def test_symmetric_memory_allocation(multidevice_direct_test):
+    """Test symmetric memory allocation using VMM APIs."""
+    sizes = [4, 8]
+    dtype = torch.float32
+    device = torch.device(f"cuda:{multidevice_direct_test.local_rank}")
+
+    # Allocate symmetric tensor
+    tensor = nvfuser.multidevice.allocate_symmetric_tensor(sizes, dtype, device, None)
+
+    # Verify tensor properties
+    assert tensor.shape == torch.Size(sizes)
+    assert tensor.dtype == dtype
+    assert tensor.device == device
+    assert tensor.is_contiguous()
+
+    # Validate the allocation
+    err = nvfuser.multidevice.is_symmetric_allocation_valid(tensor)
+    assert err == "", f"Symmetric allocation validation failed: {err}"
+
+    # Test that we can write and read data
+    tensor.fill_(float(multidevice_direct_test.rank))
+    assert torch.all(tensor == float(multidevice_direct_test.rank))
+
+
+@pytest.mark.mpi
+def test_symmetric_memory_validation(multidevice_direct_test):
+    """Test validation of non-symmetric tensors."""
+    device = torch.device(f"cuda:{multidevice_direct_test.local_rank}")
+
+    # Create a regular PyTorch tensor (not symmetric)
+    regular_tensor = torch.randn(4, 8, device=device)
+
+    # Validation should fail for regular tensors
+    err = nvfuser.multidevice.is_symmetric_allocation_valid(regular_tensor)
+    assert err != "", "Regular tensor should not validate as symmetric allocation"
+    assert "symmetric" in err.lower() or "allocation" in err.lower()
+
+
+@pytest.mark.mpi
+@pytest.mark.parametrize("dtype", [torch.float32, torch.float16, torch.bfloat16])
+@pytest.mark.parametrize("shape", [(8,), (4, 8), (2, 4, 8)])
+def test_symmetric_memory_dtypes_shapes(multidevice_direct_test, dtype, shape):
+    """Test symmetric memory with different dtypes and shapes."""
+    device = torch.device(f"cuda:{multidevice_direct_test.local_rank}")
+
+    # Allocate symmetric tensor
+    tensor = nvfuser.multidevice.allocate_symmetric_tensor(shape, dtype, device, None)
+
+    # Verify properties
+    assert tensor.shape == torch.Size(shape)
+    assert tensor.dtype == dtype
+    assert tensor.device == device
+
+    # Validate the allocation
+    err = nvfuser.multidevice.is_symmetric_allocation_valid(tensor)
+    assert err == "", f"Validation failed for dtype={dtype}, shape={shape}: {err}"

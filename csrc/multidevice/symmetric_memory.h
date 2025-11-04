@@ -10,6 +10,7 @@
 #include <ATen/ATen.h>
 
 #include <driver_api.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -27,7 +28,7 @@ namespace nvfuser {
 
 // Allocate a symmetric CUDA tensor with the given size, stride, dtype and
 // device. Only contiguous strides are currently supported.
-at::Tensor allocateSymmetricTensor(
+NVF_API at::Tensor allocateSymmetricTensor(
     at::IntArrayRef sizes,
     at::ScalarType dtype,
     at::Device device,
@@ -35,7 +36,7 @@ at::Tensor allocateSymmetricTensor(
 
 // Validate that the provided tensor is backed by symmetric CUDA memory.
 // Returns "" if valid; otherwise an error description.
-std::string isSymmetricAllocationValid(at::Tensor tensor);
+NVF_API std::string isSymmetricAllocationValid(at::Tensor tensor);
 
 int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
