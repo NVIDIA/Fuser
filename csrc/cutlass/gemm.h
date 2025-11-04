@@ -15,11 +15,8 @@ class Fusion;
 class Val;
 
 class CutlassParams;
-class ScaledMmaOp;
 
 namespace cutlass_codegen {
-
-ScaledMmaOp* findScaledMmaOp(Fusion* fusion);
 
 //! Simply finds the position of a Val in fusion->inputs().
 int64_t fusionInputPosition(Fusion* fusion, Val* v);

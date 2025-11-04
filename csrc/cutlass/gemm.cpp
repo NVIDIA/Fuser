@@ -38,16 +38,60 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
       : "cutlass::layout::ColumnMajor";
 }
 
-} // namespace
-
-ScaledMmaOp* findScaledMmaOp(Fusion* fusion) {
+template <typename T>
+T* findOp(Fusion* fusion) {
   auto exprs = fusion->exprs();
-  const auto smmas =
-      ir_utils::filterByType<ScaledMmaOp>(exprs.begin(), exprs.end());
+  const auto smmas = ir_utils::filterByType<T>(exprs.begin(), exprs.end());
   if (smmas.size() != 1) {
     return nullptr;
   }
   return *smmas.begin();
+}
+
+} // namespace
+
+struct MatmulPattern {
+  Expr* mma;
+  TensorView* a;
+  TensorView* b;
+  TensorView* a_scale;
+  TensorView* b_scale;
+  TensorView* alpha = nullptr;
+  TensorView* beta = nullptr;
+  TensorView* bias = nullptr;
+  TensorView* problem_sizes = nullptr;
+  TensorView* expert_offsets = nullptr;
+  TensorView* scale_factor_offsets = nullptr;
+  bool is_grouped = false;
+};
+
+MatmulPattern findPattern(Fusion* fusion) {
+  if (auto smma = findOp<ScaledMmaOp>(fusion)) {
+    return {
+        .mma = smma,
+        .a = smma->matrix1(),
+        .b = smma->matrix2(),
+        .a_scale = smma->scale1(),
+        .b_scale = smma->scale2(),
+        .alpha = smma->alpha(),
+        .beta = smma->beta(),
+        .bias = smma->bias(),
+        .is_grouped = false};
+  } else if (auto gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
+    return {
+        .mma = gmma,
+        .a = gmma->matrix1(),
+        .b = gmma->matrix2(),
+        .a_scale = gmma->scale1(),
+        .b_scale = gmma->scale2(),
+        .alpha = gmma->alpha(),
+        .problem_sizes = gmma->problemSizes(),
+        .expert_offsets = gmma->expertOffsets(),
+        .scale_factor_offsets = gmma->scalingFactorOffsets(),
+        .is_grouped = true};
+  } else {
+    NVF_THROW("Could not find a supported matmul pattern in Fusion");
+  }
 }
 
 int64_t fusionInputPosition(Fusion* fusion, Val* v) {
@@ -84,21 +128,29 @@ std::string generateNvfp4ScaledMmKernel(
 
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
 
-  ScaledMmaOp* smma = findScaledMmaOp(fusion);
-  NVF_ERROR(smma != nullptr);
+  const MatmulPattern pattern = findPattern(fusion);
 
-  TensorView* a = smma->matrix1();
-  TensorView* b = smma->matrix2();
-  TensorView* a_scale = smma->scale1();
-  TensorView* b_scale = smma->scale2();
-
-  NVF_ERROR(a->isFusionInput());
-  NVF_ERROR(b->isFusionInput());
-  NVF_ERROR(a_scale->isFusionInput());
-  NVF_ERROR(b_scale->isFusionInput());
+  NVF_ERROR(pattern.mma != nullptr);
+  NVF_ERROR(pattern.a->isFusionInput());
+  NVF_ERROR(pattern.b->isFusionInput());
+  NVF_ERROR(pattern.a_scale->isFusionInput());
+  NVF_ERROR(pattern.b_scale->isFusionInput());
 
   // Validate that the inputs and scale factors are all contiguous
-  for (TensorView* tv : {a, b, a_scale, b_scale}) {
+  for (TensorView* tv :
+       {pattern.a,
+        pattern.b,
+        pattern.a_scale,
+        pattern.b_scale,
+        pattern.alpha,
+        pattern.beta,
+        pattern.bias,
+        pattern.problem_sizes,
+        pattern.expert_offsets,
+        pattern.scale_factor_offsets}) {
+    if (tv == nullptr) {
+      continue;
+    }
     for (const auto& c : tv->getContiguity()) {
       if (c.has_value()) {
         NVF_ERROR(
@@ -179,11 +231,11 @@ struct Fp4GemmSm100 {
   // A matrix configuration
 )";
   NVF_ERROR_EQ(
-      a->dtype(),
+      pattern.a->dtype(),
       DataType::Float4_e2m1fn,
       "Only float_e2m1_t is supported so far");
   code += "  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  code += "  using LayoutATag = " + mapLayoutToCutlass(a) + ";\n";
+  code += "  using LayoutATag = " + mapLayoutToCutlass(pattern.a) + ";\n";
   // TODO: check alignment of A and save in cutlass_params.supported_vec_sizes
   // as is done for Ampere
   code += R"(
@@ -192,11 +244,11 @@ struct Fp4GemmSm100 {
   // B matrix configuration
 )";
   NVF_ERROR_EQ(
-      b->dtype(),
+      pattern.b->dtype(),
       DataType::Float4_e2m1fn,
       "Only float_e2m1_t is supported so far");
   code += "  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  code += "  using LayoutBTag = " + mapLayoutToCutlass(b) + ";\n";
+  code += "  using LayoutBTag = " + mapLayoutToCutlass(pattern.b) + ";\n";
   // TODO: check alignment of B and save in cutlass_params.supported_vec_sizes
   // as is done for Ampere
   code += R"(
@@ -353,9 +405,9 @@ typename T::Gemm::Arguments args_from_inputs(
   using ElementB = typename T::Gemm::ElementB;
 )";
   // TODO: Handle other scale factor dtypes
-  NVF_ERROR_EQ(a_scale->dtype(), DataType::Float8_e4m3fn);
+  NVF_ERROR_EQ(pattern.a_scale->dtype(), DataType::Float8_e4m3fn);
   code += "  using ElementSFA = cutlass::float_ue4m3_t;\n";
-  NVF_ERROR_EQ(b_scale->dtype(), DataType::Float8_e4m3fn);
+  NVF_ERROR_EQ(pattern.b_scale->dtype(), DataType::Float8_e4m3fn);
   code += "  using ElementSFB = cutlass::float_ue4m3_t;\n";
 
   code += R"(
@@ -370,35 +422,35 @@ typename T::Gemm::Arguments args_from_inputs(
 )";
 
   code += "  const TensorArg& a = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, a)) + ");\n";
+      std::to_string(fusionInputPosition(fusion, pattern.a)) + ");\n";
   code += "  const TensorArg& b = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, b)) + ");\n";
+      std::to_string(fusionInputPosition(fusion, pattern.b)) + ");\n";
   code += "  const TensorArg& scales_a = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, a_scale)) + ");\n";
+      std::to_string(fusionInputPosition(fusion, pattern.a_scale)) + ");\n";
   code += "  const TensorArg& scales_b = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, b_scale)) + ");\n";
-  if (smma->alpha() != nullptr) {
+      std::to_string(fusionInputPosition(fusion, pattern.b_scale)) + ");\n";
+  if (pattern.alpha != nullptr) {
     code += "  const TensorArg& alpha = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->alpha())) + ");\n";
+        std::to_string(fusionInputPosition(fusion, pattern.alpha)) + ");\n";
   }
-  if (smma->beta() != nullptr) {
+  if (pattern.beta != nullptr) {
     code += "  const TensorArg& beta = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->beta())) + ");\n";
+        std::to_string(fusionInputPosition(fusion, pattern.beta)) + ");\n";
   }
-  if (smma->bias() != nullptr) {
+  if (pattern.bias != nullptr) {
     code += "  const TensorArg& bias = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->bias())) + ");\n";
+        std::to_string(fusionInputPosition(fusion, pattern.bias)) + ");\n";
   }
   code +=
       "  const TensorArg& output = inputs.at(" +
       std::to_string(
           fusion->inputs().size() + fusionOutputPosition(fusion, main_output)) +
       ");\n";
-  code +=
-      "  NVF_ERROR(a.dim == " + std::to_string(a->getLogicalDomain().size()) +
+  code += "  NVF_ERROR(a.dim == " +
+      std::to_string(pattern.a->getLogicalDomain().size()) +
       ", \"Wrong dimension for argument a\");\n";
-  code +=
-      "  NVF_ERROR(b.dim == " + std::to_string(b->getLogicalDomain().size()) +
+  code += "  NVF_ERROR(b.dim == " +
+      std::to_string(pattern.b->getLogicalDomain().size()) +
       ", \"Wrong dimension for argument b\");\n";
   code += R"(
 
@@ -437,7 +489,7 @@ typename T::Gemm::Arguments args_from_inputs(
     code += "       {}";
   }
   code += ",  // epilogue.thread\n";
-  if (smma->bias() != nullptr) {
+  if (pattern.bias != nullptr) {
     code += "       bias.data_ptr,";
   } else {
     code += "       /*bias=*/nullptr,";
@@ -447,15 +499,15 @@ typename T::Gemm::Arguments args_from_inputs(
        static_cast<ElementD*>(output.data_ptr),
        stride_D}};
 )";
-  if (!has_evt && (smma->alpha() != nullptr || smma->beta() != nullptr)) {
+  if (!has_evt && (pattern.alpha != nullptr || pattern.beta != nullptr)) {
     // Passing alpha and beta by name is for the default epilogue only
     code += "  auto& fusion_args = arguments.epilogue.thread;\n";
-    if (smma->alpha() != nullptr) {
+    if (pattern.alpha != nullptr) {
       code +=
           "  fusion_args.alpha_ptr = static_cast<ElementCompute "
           "const*>(alpha.data_ptr);\n";
     }
-    if (smma->beta() != nullptr) {
+    if (pattern.beta != nullptr) {
       code +=
           "  fusion_args.beta_ptr = static_cast<ElementCompute "
           "const*>(beta.data_ptr);\n";
