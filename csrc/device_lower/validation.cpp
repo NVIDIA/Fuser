@@ -618,9 +618,11 @@ class ExprValidator : public OptOutDispatch {
 
     // Iterate from the back to find TIDx, skipping group_id (last element)
     // Ensure all IDs between group_id and TIDx have extent 1
+    bool found_tidx = false;
     for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
          ++it) {
-      if ((*it)->getParallelType() == ParallelType::TIDx) {
+      if (*it == thread_x) {
+        found_tidx = true;
         break;
       }
       // All non-TIDx IDs between Group ID and TIDx must have extent of 1
@@ -631,6 +633,12 @@ class ExprValidator : public OptOutDispatch {
           "BlockQuantizationOp: ",
           quantized_output->toString());
     }
+
+    NVF_ERROR(
+        found_tidx,
+        "TIDx must follow the Group ID in the schedule for "
+        "BlockQuantizationOp: ",
+        quantized_output->toString());
 
     NVF_ERROR(
         areAllMergesContiguous(quantized_output, grouped_id),
