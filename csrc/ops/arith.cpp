@@ -2562,7 +2562,7 @@ TopKResult topk(
       values_logical.push_back(logical_id);
     }
 
-    auto dtype = i == 0 ? inp->getDataType().value() : DataType::Int;
+    auto dtype = i == 0 ? inp->dtype() : DataType::Int;
     auto out_tv = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             values_root,
