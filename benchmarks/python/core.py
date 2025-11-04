@@ -6,12 +6,12 @@ import pytest_benchmark
 import torch
 from typing import List, Callable, Union
 import numpy as np
-from nvfuser import FusionDefinition, FusionCache
-from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser_direct import FusionDefinition, PythonProfiler
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser_direct.benchmark_utils import FusionProfileTimer, CuptiTimer
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
-from nvfuser.benchmark_utils import FusionProfileTimer, CuptiTimer
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -238,9 +238,6 @@ def run_benchmark(
         # Host benchmarking expects a fusion function to generate fusion definitions everytime FusionCache is reset.
         assert fusion_fn is not None and benchmark_fn is None
 
-        # Reset the FusionCache to avoid any inadvertent fusion execution from affecting measurements
-        FusionCache.reset()
-
         # device = 'host:compile', 'host:steady', 'host:dyanamic'
         # Set the host_bench_mode -- The 3 modes require different setup calls.
         host_bench_mode = device.split(":")[-1]
@@ -287,10 +284,6 @@ def run_benchmark(
             "dynamic",
         ], f"Expected host benchmark mode to be one of compile, steady, or dynamic, found {host_bench_mode}"
 
-        if host_bench_mode == "compile":
-            # Reset the FusionCache to measure initial host overhead correctly.
-            FusionCache.reset()
-
         # Instantiate the fusion definition
         with FusionDefinition() as fd:
             fusion_fn(fd)
@@ -303,7 +296,6 @@ def run_benchmark(
         counter += 1
         if counter % len(inputs) == 0:
             # All inputs have been executed once.
-            FusionCache.reset()
             with FusionDefinition() as fd:
                 fusion_fn(fd)
             # Execute fd with the first inputs to avoid measuring first time overhead.
@@ -318,7 +310,10 @@ def run_benchmark(
     def host_benchmark_fn(inputs, fd):
         # Set the fd variable used to query the profile object
         nvf_benchmark.set_fd(fd)
-        return fd.execute(inputs, profile=not BENCHMARK_CONFIG["with_nsys"])
+        if not BENCHMARK_CONFIG["with_nsys"]:
+            with PythonProfiler() as prof:
+                return fd.execute(inputs)
+        return fd.execute(inputs)
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
 
