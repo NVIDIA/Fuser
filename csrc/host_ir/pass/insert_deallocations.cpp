@@ -7,6 +7,11 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
+
+#include <list>
+#include <unordered_set>
+
+#include <ir/iostream.h>
 #include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
@@ -16,41 +21,48 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
-  const std::vector<Expr*>& top_level_exprs = hic->topLevelExprs();
+  const std::list<Expr*>& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one "
-        "anyways");
+        "anyways: ",
+        expr);
   });
-  std::unordered_map<TensorView*, int64_t> last_use;
-  for (auto&& [i, expr] : enumerate(top_level_exprs)) {
-    for (auto* val : expr->inputs()) {
-      if (!val->isA<TensorView>()) {
+
+  std::unordered_set<TensorView*> last_use_found;
+  for (auto insertion_point = top_level_exprs.end();
+       insertion_point != top_level_exprs.begin();) {
+    auto prev = std::prev(insertion_point);
+    Expr* e = *prev;
+
+    // Only tensors need to be allocated.
+    for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+      // Deallocate `in` if `in` needs to be deallocated and its last use is
+      // `e`.
+      //
+      // Fusion inputs are managed by the caller.
+      if (in->isFusionInput()) {
         continue;
       }
-      auto tv = val->as<TensorView>();
-      last_use[tv] = i;
+
+      // Fusion outputs need to be kept alive for the caller.
+      if (in->isFusionOutput()) {
+        continue;
+      }
+
+      // Skip if `e` is not the last use.
+      if (!last_use_found.insert(in).second) {
+        continue;
+      }
+
+      auto* deallocate = IrBuilder::create<hir::Deallocate>(in);
+      hic->insertExprBefore(insertion_point, deallocate);
     }
-  }
 
-  for (auto* in : ir_utils::filterByType<TensorView>(hic->inputs())) {
-    last_use.erase(in);
-  }
-
-  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
-    last_use.erase(out);
-  }
-
-  std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
-  last_use_by_index.reserve(last_use.size());
-  for (auto&& [tv, i] : last_use) {
-    last_use_by_index.emplace_back(i, tv);
-  }
-  std::sort(last_use_by_index.begin(), last_use_by_index.end());
-  for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
-    auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
-    hic->insertExprAfter(i, deallocate);
+    // Don't `--insertion_point;` because we'd like to skip newly inserted
+    // deallocations.
+    insertion_point = prev;
   }
 }
 
