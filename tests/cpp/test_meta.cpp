@@ -19,14 +19,14 @@ namespace nvfuser {
 using MetaTest = NVFuserTest;
 
 TEST_F(MetaTest, ScanRowMajor) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   // Build a simple scan fusion: out = cumsum(in, dim=1)
   auto tv0 = makeContigConcreteTensor({4, 8}, DataType::Float);
-  fusion_ptr->addInput(tv0);
+  fusion->addInput(tv0);
   auto tv_out = scan(tv0, /*dim=*/1, BinaryOpType::Add);
-  fusion_ptr->addOutput(tv_out);
+  fusion->addOutput(tv_out);
 
   // Create a real input to also get a concrete reference layout
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -34,18 +34,18 @@ TEST_F(MetaTest, ScanRowMajor) {
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
-  ee_cuda.bind(fusion_ptr->inputs().at(0), input);
+  ee_cuda.bind(fusion->inputs().at(0), input);
   auto real_out =
-      ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   // Meta path via ExpressionEvaluator
   ExpressionEvaluator ee_meta;
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
-  ee_meta.bind(fusion_ptr->inputs().at(0), meta_in);
+  ee_meta.bind(fusion->inputs().at(0), meta_in);
   auto meta_out =
-      ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -55,14 +55,14 @@ TEST_F(MetaTest, ScanRowMajor) {
 }
 
 TEST_F(MetaTest, ScanColMajor) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   // Build a simple scan fusion: out = cumsum(in, dim=0)
   auto tv0 = makeConcreteTensor({4, 8}, DataType::Float);
-  fusion_ptr->addInput(tv0);
+  fusion->addInput(tv0);
   auto tv_out = scan(tv0, /*dim=*/0, BinaryOpType::Add);
-  fusion_ptr->addOutput(tv_out);
+  fusion->addOutput(tv_out);
 
   // Create a real input to also get a concrete reference layout
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -70,17 +70,17 @@ TEST_F(MetaTest, ScanColMajor) {
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
-  ee_cuda.bind(fusion_ptr->inputs().at(0), input);
+  ee_cuda.bind(fusion->inputs().at(0), input);
   auto real_out =
-      ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
-  ee_meta.bind(fusion_ptr->inputs().at(0), meta_in);
+  ee_meta.bind(fusion->inputs().at(0), meta_in);
   auto meta_out =
-      ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -99,8 +99,8 @@ class EmbeddingFwdMetaTest
 TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
   auto [input_is_row_major, weight_is_row_major] = GetParam();
 
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   // Build embedding fusion with appropriate memory layout
   TensorView* tv_input = input_is_row_major
@@ -109,8 +109,8 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
   TensorView* tv_weight = weight_is_row_major
       ? makeContigConcreteTensor({10, 8}, DataType::Float)
       : makeConcreteTensor({10, 8}, DataType::Float);
-  fusion_ptr->addInput(tv_input);
-  fusion_ptr->addInput(tv_weight);
+  fusion->addInput(tv_input);
+  fusion->addInput(tv_weight);
 
   auto tv_out = embedding_fwd(
       tv_input,
@@ -120,7 +120,7 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
       /*norm_type=*/nullptr,
       /*scale_grad_by_freq=*/nullptr,
       /*sparse=*/nullptr);
-  fusion_ptr->addOutput(tv_out);
+  fusion->addOutput(tv_out);
 
   // Create real inputs with specified memory layout
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -133,10 +133,10 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
-  ee_cuda.bind(fusion_ptr->inputs().at(0), input);
-  ee_cuda.bind(fusion_ptr->inputs().at(1), weight);
+  ee_cuda.bind(fusion->inputs().at(0), input);
+  ee_cuda.bind(fusion->inputs().at(1), weight);
   auto real_out =
-      ee_cuda.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
@@ -144,10 +144,10 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
       input.sizes(), input.strides(), options.device(at::kMeta).dtype(at::kInt));
   auto meta_weight = at::empty_strided(
       weight.sizes(), weight.strides(), options.device(at::kMeta));
-  ee_meta.bind(fusion_ptr->inputs().at(0), meta_input);
-  ee_meta.bind(fusion_ptr->inputs().at(1), meta_weight);
+  ee_meta.bind(fusion->inputs().at(0), meta_input);
+  ee_meta.bind(fusion->inputs().at(1), meta_weight);
   auto meta_out =
-      ee_meta.evaluate(fusion_ptr->outputs().at(0)).as<at::Tensor>();
+      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
