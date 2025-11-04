@@ -5687,10 +5687,9 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
       inputs[1].is<at::Tensor>() && inputs[2].is<at::Tensor>()) {
     const auto& mat1_meta = inputs[0].as<at::Tensor>();
     const auto& mat2_meta = inputs[1].as<at::Tensor>();
-    const auto& offsets_meta_check = inputs[2].as<at::Tensor>();
-    if (mat1_meta.is_meta() || mat2_meta.is_meta() ||
-        offsets_meta_check.is_meta()) {
-      const int64_t num_groups = offsets_meta_check.numel();
+    const auto& offsets_meta = inputs[2].as<at::Tensor>();
+    if (mat1_meta.is_meta() || mat2_meta.is_meta() || offsets_meta.is_meta()) {
+      const int64_t num_groups = offsets_meta.numel();
       std::vector<int64_t> result_sizes;
       if (mat1_meta.dim() == 2 && mat2_meta.dim() == 2) {
         result_sizes = {num_groups, mat1_meta.size(0), mat2_meta.size(-1)};
