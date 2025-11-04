@@ -29,21 +29,9 @@ namespace cutlass_codegen {
 
 namespace {
 
-Expr* getGemmExpr(Fusion* fusion) {
-  auto scaled_mma_exprs = fusion->exprs() |
-      std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
-  const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
-  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
-  NVF_ERROR_EQ(
-      num_exprs,
-      1,
-      "Found multiple ScaledMmaOps. Cannot determine which to return");
-  return scaled_mma_exprs.front();
-}
-
 //! Find the accumulator which is the direct output of the ScaledMmaOp
 TensorView* getAccTv(Fusion* fusion) {
-  return getGemmExpr(fusion)->output(0)->as<TensorView>();
+  return findPattern(fusion).mma->output(0)->as<TensorView>();
 }
 
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
@@ -61,7 +49,10 @@ class EVTConverter : OptInDispatch {
   }
 
  private:
-  EVTConverter(Fusion* fusion) : fusion_(fusion) {}
+  EVTConverter(Fusion* fusion)
+      : fusion_(fusion), pattern_(findPattern(fusion)) {
+    validatePattern();
+  }
 
   EVTModel& model() {
     return model_;
@@ -93,18 +84,7 @@ class EVTConverter : OptInDispatch {
         std::to_string(index) + ").data_ptr)";
   }
 
-  void findMma() {
-    mma_ = getGemmExpr(fusion_);
-
-    auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma_);
-    NVF_ERROR(
-        scaled_mma,
-        "Only ScaledMmaOp is currently supported for EVT translation");
-    mma_out_ = mma_->output(0)->as<TensorView>();
-    alpha_ = scaled_mma->alpha();
-    beta_ = scaled_mma->beta();
-    bias_ = scaled_mma->bias();
-
+  void validatePattern() {
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
     // this is assumed:
@@ -115,34 +95,28 @@ class EVTConverter : OptInDispatch {
     // If some of these are null, we can omit them when building our EVT.
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
-
-    NVF_ERROR(beta_ == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias_ == nullptr, "Bias not yet supported for EVT translation");
-
     NVF_ERROR(
-        scaled_mma->outScale() == nullptr,
-        "Output block scale factor not supported for EVT translation");
+        pattern_.beta == nullptr, "Beta not yet supported for EVT translation");
     NVF_ERROR(
-        scaled_mma->outGamma() == nullptr,
-        "Output global scale factor not supported for EVT translation");
+        pattern_.bias == nullptr, "Bias not yet supported for EVT translation");
   }
 
   void makeAlphaNode() {
-    if (alpha_ == nullptr) {
+    if (pattern_.alpha == nullptr) {
       return;
     }
     NVF_ERROR(
-        alpha_->nDims() == 0,
+        pattern_.alpha->nDims() == 0,
         "Only zero-dimensional alpha is supported for EVT translation");
     NVF_ERROR(
-        alpha_->dtype() == DataType::Float,
+        pattern_.alpha->dtype() == DataType::Float,
         "Only Float alpha is supported for EVT translation");
     // Broadcast alpha to the same dimensions as the accumulator
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
         "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
     alpha_bcast_node->arguments.emplace_back(
-        "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
-    val_nodes_.emplace(alpha_, alpha_bcast_node);
+        "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
+    val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
 
     EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
         BinaryOpType::Mul,
@@ -195,10 +169,9 @@ class EVTConverter : OptInDispatch {
   }
 
   void run() {
-    findMma();
-
     // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha_ == nullptr && (beta_ == nullptr || bias_ == nullptr)) {
+    if (pattern_.alpha == nullptr &&
+        (pattern_.beta == nullptr || pattern_.bias == nullptr)) {
       // No epilogue
       val_nodes_.emplace(
           mma_out_, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
@@ -385,10 +358,7 @@ class EVTConverter : OptInDispatch {
 
  private:
   Fusion* fusion_;
-  Expr* mma_;
-  TensorView* alpha_;
-  TensorView* beta_;
-  TensorView* bias_;
+  MatmulPattern pattern_;
   TensorView* mma_out_;
 
   EVTModel model_;

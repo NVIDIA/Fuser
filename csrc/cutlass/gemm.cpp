@@ -50,23 +50,14 @@ T* findOp(Fusion* fusion) {
 
 } // namespace
 
-struct MatmulPattern {
-  Expr* mma;
-  TensorView* a;
-  TensorView* b;
-  TensorView* a_scale;
-  TensorView* b_scale;
-  TensorView* alpha = nullptr;
-  TensorView* beta = nullptr;
-  TensorView* bias = nullptr;
-  TensorView* problem_sizes = nullptr;
-  TensorView* expert_offsets = nullptr;
-  TensorView* scale_factor_offsets = nullptr;
-  bool is_grouped = false;
-};
-
 MatmulPattern findPattern(Fusion* fusion) {
   if (auto smma = findOp<ScaledMmaOp>(fusion)) {
+    NVF_ERROR(
+        smma->outScale() == nullptr,
+        "Output block scale factor not supported for EVT translation");
+    NVF_ERROR(
+        smma->outGamma() == nullptr,
+        "Output global scale factor not supported for EVT translation");
     return {
         .mma = smma,
         .a = smma->matrix1(),
