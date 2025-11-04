@@ -46,6 +46,7 @@ jobs:
           cd python
           python setup.py build --no-cutlass --cpp=23
       - name: Show ccache statistics
+        if: always()
         run: ccache --show-stats
 
   dynamic-type-meson:
