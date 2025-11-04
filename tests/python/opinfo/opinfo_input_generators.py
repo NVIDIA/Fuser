@@ -917,7 +917,7 @@ def topk_error_generator(
     ), RuntimeError, "Tried to access out of boundary index"
 
     # Concretization should detect the negative K as an error
-    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Invalid TopK K parameter"
+    yield SampleInput(a, -5, 1, True, False), RuntimeError, "Invalid resized domain extent"
 
     #  error coming from aten fallback.
     yield SampleInput(
