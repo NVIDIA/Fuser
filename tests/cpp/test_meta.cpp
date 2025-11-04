@@ -194,8 +194,8 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   FusionGuard fg(fusion.get());
 
   // mat1: [m, k] = [4, 8], mat2: [k, n] = [8, 6], output: [g, m, n] = [3, 4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::Float);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::Float);
+  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
@@ -205,7 +205,7 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   fusion->addOutput(result.tv);
 
   // Create real inputs with specified memory formats
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
   at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
@@ -235,7 +235,7 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
-  EXPECT_EQ(meta_out.scalar_type(), at::kFloat);
+  EXPECT_EQ(meta_out.scalar_type(), at::kBFloat16);
   EXPECT_EQ(meta_out.sizes(), real_out.sizes());
   EXPECT_EQ(meta_out.strides(), real_out.strides());
 }
@@ -265,8 +265,8 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   FusionGuard fg(fusion.get());
 
   // mat1: [g, m, k] = [3, 4, 8], mat2: [k, n] = [8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({3, 4, 8}, DataType::Float);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::Float);
+  auto mat1 = makeConcreteTensor({3, 4, 8}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
@@ -276,7 +276,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   fusion->addOutput(result.tv);
 
   // Create real inputs with specified memory formats
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor mat1_input = createTensor3D({3, 4, 8}, mat1_format, options);
   at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
@@ -306,7 +306,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
-  EXPECT_EQ(meta_out.scalar_type(), at::kFloat);
+  EXPECT_EQ(meta_out.scalar_type(), at::kBFloat16);
   EXPECT_EQ(meta_out.sizes(), real_out.sizes());
   EXPECT_EQ(meta_out.strides(), real_out.strides());
 }
@@ -336,8 +336,8 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   FusionGuard fg(fusion.get());
 
   // mat1: [m, k] = [4, 8], mat2: [g, k, n] = [3, 8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::Float);
-  auto mat2 = makeConcreteTensor({3, 8, 6}, DataType::Float);
+  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({3, 8, 6}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({3}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
@@ -347,7 +347,7 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   fusion->addOutput(result.tv);
 
   // Create real inputs with specified memory formats
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
   at::Tensor mat2_input = createTensor3D({3, 8, 6}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
@@ -377,7 +377,7 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
-  EXPECT_EQ(meta_out.scalar_type(), at::kFloat);
+  EXPECT_EQ(meta_out.scalar_type(), at::kBFloat16);
   EXPECT_EQ(meta_out.sizes(), real_out.sizes());
   EXPECT_EQ(meta_out.strides(), real_out.strides());
 }
