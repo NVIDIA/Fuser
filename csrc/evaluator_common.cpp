@@ -83,9 +83,8 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
 
 //! Kernel IR utility, collects all the symbolic values
 //!  used in allocation nodes.
-void collectBufferSizes(
-    std::vector<Val*>& into,
-    const std::vector<Expr*>& exprs) {
+template <class ExprContainer>
+void collectBufferSizes(std::vector<Val*>& into, const ExprContainer& exprs) {
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());

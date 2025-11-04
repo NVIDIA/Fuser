@@ -5119,13 +5119,27 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<Expr*>::iterator Scope::insert(
-    std::vector<Expr*>::const_iterator pos,
+Scope::ExprList::iterator Scope::iteratorAt(size_t i) {
+  NVF_ERROR(i < exprs_.size(), "Scope index out of bounds: ", i);
+  auto it = exprs_.begin();
+  std::advance(it, (std::ptrdiff_t)i);
+  return it;
+}
+
+Scope::ExprList::const_iterator Scope::iteratorAt(size_t i) const {
+  NVF_ERROR(i < exprs_.size(), "Scope index out of bounds: ", i);
+  auto it = exprs_.cbegin();
+  std::advance(it, (std::ptrdiff_t)i);
+  return it;
+}
+
+Scope::ExprList::iterator Scope::insert(
+    ExprList::const_iterator pos,
     Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5139,7 +5153,7 @@ std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   return insert(it, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5148,15 +5162,23 @@ std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
       " after the reference: ",
       ref,
       " however the reference was not found in this scope.");
-  return insert(it + 1, expr);
+  auto insert_pos = std::next(it);
+  return insert(insert_pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
-  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
+Scope::ExprList::iterator Scope::insert(size_t pos, Expr* expr) {
+  NVF_ERROR(
+      pos <= exprs_.size(),
+      "Scope insert position ",
+      pos,
+      " out of bounds for size ",
+      exprs_.size());
+  auto it = exprs_.begin();
+  std::advance(it, (std::ptrdiff_t)pos);
   return insert(it, expr);
 }
 
-void Scope::erase(std::vector<Expr*>::const_iterator pos) {
+void Scope::erase(ExprList::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
@@ -5170,7 +5192,7 @@ void Scope::erase(Expr* ref) {
 }
 
 void Scope::erase(size_t pos) {
-  erase(exprs_.begin() + (std::ptrdiff_t)pos);
+  erase(iteratorAt(pos));
 }
 
 bool Scope::contains(Expr* expr) const {

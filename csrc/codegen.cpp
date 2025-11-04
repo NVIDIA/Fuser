@@ -548,6 +548,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  void handle(const Scope::ExprList& exprs) {
+    for (Expr* expr : exprs) {
+      kir::ConstIrVisitor::dispatch(expr);
+    }
+  }
+
   void genBody() {
     handle(kernel_->topLevelExprs());
   }

@@ -399,7 +399,7 @@ std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->elseBody().empty()) {
       if (ite->thenBody().size() == 1) {
-        return ite->thenBody().exprs()[0];
+        return ite->thenBody().exprs().front();
       }
     }
   }
@@ -451,8 +451,8 @@ class ExprFlattener : private kir::IrVisitor {
   std::vector<Expr*> flat_exprs_;
 
  public:
-  //! Flattens scopes extracting out a single ordered list of exprs.
-  static std::vector<Expr*> flatten(const std::vector<Expr*>& loop_nests) {
+  template <class ExprContainer>
+  static std::vector<Expr*> flatten(const ExprContainer& loop_nests) {
     ExprFlattener flattener;
     for (auto expr : loop_nests) {
       flattener.dispatch(expr);
@@ -464,6 +464,10 @@ class ExprFlattener : private kir::IrVisitor {
 } // namespace
 
 std::vector<Expr*> flattenScopedExprs(const std::vector<Expr*>& loop_nests) {
+  return ExprFlattener::flatten(loop_nests);
+}
+
+std::vector<Expr*> flattenScopedExprs(const Scope::ExprList& loop_nests) {
   return ExprFlattener::flatten(loop_nests);
 }
 

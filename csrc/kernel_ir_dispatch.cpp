@@ -18,11 +18,19 @@ std::vector<Expr*> IrVisitor::handle(const std::vector<Expr*>& exprs) {
   return exprs_;
 }
 
+std::vector<Expr*> IrVisitor::handle(const std::list<Expr*>& exprs) {
+  exprs_ = std::vector<Expr*>(exprs.begin(), exprs.end());
+  for (auto expr : exprs) {
+    dispatch(expr);
+  }
+  return exprs_;
+}
+
 void IrVisitor::handle(ForLoop* fl) {
   for_loops_.push_back(fl);
   scope_.push_back(&fl->body());
   scope_exprs_.push_back(fl);
-  auto body_exprs = std::vector<Expr*>(fl->body().exprs());
+  const auto& body_exprs = fl->body().exprs();
   for (auto expr : body_exprs) {
     dispatch(expr);
   }
@@ -34,14 +42,14 @@ void IrVisitor::handle(ForLoop* fl) {
 void IrVisitor::handle(IfThenElse* ite) {
   scope_exprs_.push_back(ite);
   scope_.push_back(&ite->thenBody());
-  auto then_exprs = std::vector<Expr*>(ite->thenBody().exprs());
+  const auto& then_exprs = ite->thenBody().exprs();
   for (auto expr : then_exprs) {
     dispatch(expr);
   }
   scope_.pop_back();
 
   scope_.push_back(&ite->elseBody());
-  auto else_exprs = std::vector<Expr*>(ite->elseBody().exprs());
+  const auto& else_exprs = ite->elseBody().exprs();
   for (auto expr : else_exprs) {
     dispatch(expr);
   }
@@ -53,6 +61,16 @@ std::vector<const Expr*> ConstIrVisitor::handle(
     const std::vector<const Expr*>& exprs) {
   exprs_ = exprs;
   for (auto expr : exprs) {
+    dispatch(expr);
+  }
+  return exprs_;
+}
+
+std::vector<const Expr*> ConstIrVisitor::handle(const std::list<Expr*>& exprs) {
+  exprs_.clear();
+  exprs_.reserve(exprs.size());
+  for (auto expr : exprs) {
+    exprs_.push_back(expr);
     dispatch(expr);
   }
   return exprs_;

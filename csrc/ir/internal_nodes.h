@@ -15,6 +15,7 @@
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
+#include <list>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -2427,11 +2428,13 @@ class SdpaFwdOp : public Expr {
 
 class Scope {
  public:
+  using ExprList = std::list<Expr*>;
+
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
 
-  const std::vector<Expr*>& exprs() const {
+  const ExprList& exprs() const {
     return exprs_;
   }
 
@@ -2443,30 +2446,14 @@ class Scope {
     return exprs_.size();
   }
 
-  auto& at(size_t i) {
-    return exprs_.at(i);
-  }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
   // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
+  ExprList::iterator insert(size_t pos, Expr* expr);
 
   // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
+  ExprList::iterator insert_before(Expr* ref, Expr* expr);
 
   // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
+  ExprList::iterator insert_after(Expr* ref, Expr* expr);
 
   void push_back(Expr* e) {
     exprs_.push_back(e);
@@ -2491,16 +2478,18 @@ class Scope {
   }
 
   // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
+  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
 
  private:
   // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
+  void erase(ExprList::const_iterator pos);
+
+  ExprList::iterator iteratorAt(size_t i);
+
+  ExprList::const_iterator iteratorAt(size_t i) const;
 
  private:
-  std::vector<Expr*> exprs_;
+  ExprList exprs_;
 
   //! Owner exprssion of this scope, e.g., IfThenElse
   Expr* owner_ = nullptr;

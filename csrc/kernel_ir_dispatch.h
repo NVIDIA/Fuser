@@ -9,6 +9,7 @@
 
 #include <dispatch.h>
 #include <exceptions.h>
+#include <list>
 
 namespace nvfuser {
 
@@ -36,6 +37,7 @@ class IfThenElse;
 class NVF_API IrVisitor : public OptOutDispatch {
  public:
   std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
+  std::vector<Expr*> handle(const std::list<Expr*>& exprs);
 
  protected:
   using OptOutDispatch::handle;
@@ -54,6 +56,7 @@ class NVF_API IrVisitor : public OptOutDispatch {
 class ConstIrVisitor : public OptOutConstDispatch {
  public:
   std::vector<const Expr*> handle(const std::vector<const Expr*>& exprs);
+  std::vector<const Expr*> handle(const std::list<Expr*>& exprs);
 
  protected:
   using OptOutConstDispatch::handle;

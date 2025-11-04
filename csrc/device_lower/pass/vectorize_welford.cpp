@@ -146,7 +146,8 @@ class WelfordVectorizer : public kir::ExprMutator {
         "All predicates should have been lowered at this point: ",
         wop_ite->toString());
 
-    if (!(wop_ite->thenBody().size() == 1 && wop_ite->thenBody().at(0) == wop &&
+    if (!(wop_ite->thenBody().size() == 1 &&
+          wop_ite->thenBody().exprs().front() == wop &&
           wop_ite->elseBody().empty())) {
       return false;
     }
@@ -498,7 +499,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         return false;
       }
 
-      expr = expr_ite->thenBody().at(0);
+      expr = expr_ite->thenBody().exprs().front();
 
       // Check only other expressions than the WelfordOp itself
       if (expr == wop) {

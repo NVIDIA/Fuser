@@ -14,6 +14,8 @@
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
 
+#include <iterator>
+
 #include <unordered_set>
 
 namespace nvfuser {
@@ -1294,14 +1296,13 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     std::vector<Expr*> sync_exprs{
         getAsyncCommit(AsyncOpType::WgMma),
         getAsyncWait(AsyncOpType::WgMma, /*keep_stages=*/pending_ops)};
-    size_t num_exprs = for_loop->body().exprs().size();
+    auto& body_exprs = for_loop->body().exprs();
+    size_t num_exprs = body_exprs.size();
     NVF_ERROR(num_exprs > 1);
-    NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+    NVF_ERROR(body_exprs.back()->isA<kir::MBarrierArrive>());
+    auto reference_expr = *std::prev(body_exprs.end(), 2);
     while (!sync_exprs.empty()) {
-      registerInsertAfter(
-          for_loop->body().exprs().at(num_exprs - 2),
-          sync_exprs.back(),
-          &for_loop->body());
+      registerInsertAfter(reference_expr, sync_exprs.back(), &for_loop->body());
       sync_exprs.pop_back();
     }
 
@@ -1403,10 +1404,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             CircularBufferLoopStage::Epilog) {
           sync_exprs.push_back(getAsyncWait(type, /*keep_stages=*/pending_ops));
         }
-        NVF_ERROR(!for_loop->body().exprs().empty());
+        auto& body_exprs = for_loop->body().exprs();
+        NVF_ERROR(!body_exprs.empty());
 
         // Default position is last expression in for loop
-        size_t num_exprs = for_loop->body().exprs().size();
+        size_t num_exprs = body_exprs.size();
         size_t pos = num_exprs - 1;
 
         // The sync qualifier in the `wgmma.wait_group` ptx instruction only
@@ -1418,17 +1420,21 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          if (for_loop->body().exprs().back()->isA<kir::BlockSync>()) {
+          if (body_exprs.back()->isA<kir::BlockSync>()) {
             --pos;
           } else {
             // Insert a sync if there is not one already
             auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
             kir::ExprMutator::registerInsertAfter(
-                for_loop->body().exprs().back(), sync_expr, &for_loop->body());
+                body_exprs.back(), sync_expr, &for_loop->body());
           }
         }
 
-        Expr* expr = for_loop->body().exprs().at(pos);
+        NVF_ERROR(pos < num_exprs);
+        const auto offset = num_exprs - pos;
+        NVF_ERROR(offset >= 1);
+        auto expr =
+            *std::prev(body_exprs.end(), static_cast<std::ptrdiff_t>(offset));
         while (!sync_exprs.empty()) {
           registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
           sync_exprs.pop_back();
