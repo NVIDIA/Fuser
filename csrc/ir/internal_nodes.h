@@ -2446,9 +2446,6 @@ class Scope {
     return exprs_.size();
   }
 
-  // Insert expr before expression at pos
-  ExprList::iterator insert(size_t pos, Expr* expr);
-
   // Insert expr before ref
   ExprList::iterator insert_before(Expr* ref, Expr* expr);
 
@@ -2458,9 +2455,6 @@ class Scope {
   void push_back(Expr* e) {
     exprs_.push_back(e);
   }
-
-  // Erase expr at pos
-  void erase(size_t pos);
 
   // Erase expr ref
   void erase(Expr* ref);
@@ -2473,10 +2467,6 @@ class Scope {
     return owner_;
   }
 
-  bool operator==(const Scope&) const {
-    NVF_THROW("Should not reach here");
-  }
-
   // Insert expr before pos
   ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
 
@@ -2484,7 +2474,6 @@ class Scope {
   // Erase expr at pos
   void erase(ExprList::const_iterator pos);
 
- private:
   ExprList exprs_;
 
   //! Owner exprssion of this scope, e.g., IfThenElse

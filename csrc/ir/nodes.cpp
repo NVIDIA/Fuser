@@ -5152,18 +5152,6 @@ Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   return insert(insert_pos, expr);
 }
 
-Scope::ExprList::iterator Scope::insert(size_t pos, Expr* expr) {
-  NVF_ERROR(
-      pos <= exprs_.size(),
-      "Scope insert position ",
-      pos,
-      " out of bounds for size ",
-      exprs_.size());
-  auto it = exprs_.begin();
-  std::advance(it, (std::ptrdiff_t)pos);
-  return insert(it, expr);
-}
-
 void Scope::erase(ExprList::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
@@ -5175,13 +5163,6 @@ void Scope::erase(Expr* ref) {
   if (it != exprs_.end()) {
     erase(it);
   }
-}
-
-void Scope::erase(size_t pos) {
-  NVF_ERROR(pos < exprs_.size(), "Scope erase position out of bounds: ", pos);
-  auto it = exprs_.begin();
-  std::advance(it, (std::ptrdiff_t)pos);
-  erase(it);
 }
 
 bool Scope::contains(Expr* expr) const {
