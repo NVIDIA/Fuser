@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-clang23-ccache-v1
