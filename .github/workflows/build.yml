@@ -43,7 +43,7 @@ jobs:
           tools/pip-install-things.sh &
           wait
           source tools/setup-env.sh
-          NVFUSER_BUILD_CPP_STANDARD=23 pip install -v -e ./python --no-build-isolation
+          NVFUSER_BUILD_NO_CUTLASS=true NVFUSER_BUILD_CPP_STANDARD=23 pip install -v -e ./python --no-build-isolation
       - name: Show ccache statistics
         if: always()
         run: ccache --show-stats
