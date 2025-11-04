@@ -28,7 +28,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-clang23-ccache-v1
+          key: ${{ runner.os }}-clang23-ccache-v1-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-clang23-ccache-v1-
       - name: Setup ccache
         run: |
           sudo apt-get update
@@ -55,7 +57,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-clang23-ccache-v1
+          key: ${{ runner.os }}-clang23-ccache-v1-${{ github.run_id }}
 
   dynamic-type-meson:
     runs-on: ubuntu-latest
