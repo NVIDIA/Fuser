@@ -2484,10 +2484,6 @@ class Scope {
   // Erase expr at pos
   void erase(ExprList::const_iterator pos);
 
-  ExprList::iterator iteratorAt(size_t i);
-
-  ExprList::const_iterator iteratorAt(size_t i) const;
-
  private:
   ExprList exprs_;
 

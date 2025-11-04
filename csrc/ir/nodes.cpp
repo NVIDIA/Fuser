@@ -5119,20 +5119,6 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-Scope::ExprList::iterator Scope::iteratorAt(size_t i) {
-  NVF_ERROR(i < exprs_.size(), "Scope index out of bounds: ", i);
-  auto it = exprs_.begin();
-  std::advance(it, (std::ptrdiff_t)i);
-  return it;
-}
-
-Scope::ExprList::const_iterator Scope::iteratorAt(size_t i) const {
-  NVF_ERROR(i < exprs_.size(), "Scope index out of bounds: ", i);
-  auto it = exprs_.cbegin();
-  std::advance(it, (std::ptrdiff_t)i);
-  return it;
-}
-
 Scope::ExprList::iterator Scope::insert(
     ExprList::const_iterator pos,
     Expr* expr) {
@@ -5192,7 +5178,10 @@ void Scope::erase(Expr* ref) {
 }
 
 void Scope::erase(size_t pos) {
-  erase(iteratorAt(pos));
+  NVF_ERROR(pos < exprs_.size(), "Scope erase position out of bounds: ", pos);
+  auto it = exprs_.begin();
+  std::advance(it, (std::ptrdiff_t)pos);
+  erase(it);
 }
 
 bool Scope::contains(Expr* expr) const {
