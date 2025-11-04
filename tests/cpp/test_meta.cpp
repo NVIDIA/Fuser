@@ -121,9 +121,8 @@ std::string memoryFormat2DToString(MemoryFormat2D format) {
       return "Contiguous";
     case MemoryFormat2D::Transposed:
       return "Transposed";
-    default:
-      return "Unknown";
   }
+  std::unreachable();
 }
 
 std::string memoryFormat3DToString(MemoryFormat3D format) {
