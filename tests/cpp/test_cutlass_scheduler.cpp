@@ -677,4 +677,112 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
 #endif
 }
 
+// Test Grouped GEMM + ReLU with nvfp4 block-scaled inputs and output
+TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
+  // Skip if not on SM100 or above
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
+      at::cuda::getCurrentDeviceProperties()->major > 11) {
+    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Input tensors: nvfp4 block-scaled A and B matrices
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(3, DataType::Float4_e2m1fn);
+  // B has K inner for optimal memory access
+  b->setAllocationDomain(
+      {b->axis(0), b->axis(2), b->axis(1)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(3, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(1, DataType::Float);
+  TensorView* problem_sizes = makeContigTensor(1, DataType::Int32);
+  TensorView* expert_offsets = makeContigTensor(1, DataType::Int32);
+  TensorView* sf_offsets = makeContigTensor(1, DataType::Int32);
+
+  TensorView* global_normconst = makeContigTensor(0, DataType::Float);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(alpha);
+  fusion->addInput(global_normconst);
+
+  // Perform block-scaled matmul
+  TensorView* gmmtv = cutlass_nvfp4_grouped_mm(
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets,
+      /*dtype=*/DataType::Float);
+
+  TensorView* unquantized_output = relu(gmmtv);
+
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(unquantized_output, global_normconst);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  // Test dimensions
+  constexpr int64_t // num_experts = 3,
+      M = 1024,
+      N = 128, K = 256;
+
+  // Create test data
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+
+  at::Tensor at_a = qa.elts;
+  at::Tensor at_b = qb.elts.t();
+  at::Tensor at_a_sf = qa.block_scale;
+  at::Tensor at_b_sf = qb.block_scale;
+
+  // Compute alpha to combine global scales
+  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
+
+  std::vector<c10::IValue> inputs{
+      at_a, at_b, at_a_sf, at_b_sf, at_alpha, at_global_normconst};
+
+  // Compile and run
+  CutlassParams params;
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
+
+  KernelArgumentHolder outputs = ce.run(inputs);
+
+  EXPECT_EQ(outputs.size(), 2);
+
+#if NVFUSER_ENABLE_CUTLASS
+  std::pair<torch::Tensor, torch::Tensor> aot_result =
+      cutlass_kernels::nvfp4_scaled_mm_blockscale(
+          at_a, at_b.t(), at_a_sf, at_b_sf, at_alpha, at_global_normconst);
+
+  EXPECT_TRUE(at::allclose(
+      outputs[0].as<at::Tensor>().to(at::kFloat),
+      aot_result.second.to(at::kFloat),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
+  EXPECT_TRUE(at::allclose(
+      unpackFp4Bytes(outputs[1].as<at::Tensor>()),
+      unpackFp4Bytes(aot_result.first),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
+#endif
+}
+
 } // namespace nvfuser
