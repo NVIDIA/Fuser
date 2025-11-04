@@ -2282,14 +2282,21 @@ void applyTransforms(
   }
 }
 
-// Returns a permutation reordering the loop domain of the tensor view as the
+// Compute a new loop domain (without the reordering) by applying transforms to
 // logical domain
-std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+std::vector<IterDomain*> computeLoopDomainFromLogical(TensorView* tv) {
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
       {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
   std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
   applyTransforms(ids_to_transform, transform_exprs);
+  return ids_to_transform;
+}
+
+// Returns a permutation reordering the loop domain of the tensor view as the
+// logical domain
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+  std::vector<IterDomain*> ids_to_transform = computeLoopDomainFromLogical(tv);
   std::optional<std::vector<int64_t>> permutation =
       ir_utils::computePermutation(ids_to_transform, tv->getLoopDomain());
   NVF_ERROR(

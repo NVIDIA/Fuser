@@ -17,6 +17,7 @@
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -207,17 +208,15 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
-// Check if maybe_innermost_id is derived from base_id and corresponds to the
-// innermost subregion of base_id. The split/merge exprs between
-// based_id and id must not include any ID that is not produced from
-// base_id.
-bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
-  auto exprs =
-      DependencyCheck::getAllExprsBetween({base_id}, {maybe_innermost_id});
-
-  std::deque<IterDomain*> frontier;
-  frontier.push_back(base_id);
-
+// Traverse through the expressions, updating the frontier based on merge and
+// split operations. Returns true if all merges encountered are contiguous.
+// If stop_on_noncontiguous is true, stops traversal and returns false on first
+// non-contiguous merge. Otherwise, removes non-contiguous merges from frontier
+// and continues.
+bool traverseFrontierWithContiguityCheck(
+    std::deque<IterDomain*>& frontier,
+    const std::vector<Expr*>& exprs,
+    bool stop_on_noncontiguous) {
   for (auto expr : exprs) {
     // expr is skipped if any of the inputs is missing.
     if (auto merge = dynamic_cast<Merge*>(expr)) {
@@ -235,6 +234,12 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
       auto inner_pos = std::distance(frontier.begin(), inner_it);
 
       bool is_contig = outer_pos + 1 == inner_pos;
+
+      if (!is_contig && stop_on_noncontiguous) {
+        // Found a non-contiguous merge
+        return false;
+      }
+
       frontier.erase(inner_it);
 
       // If it's contig, we can continue the analysis by proceeding to
@@ -254,6 +259,23 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
       *in_it = split->outer();
     }
   }
+  return true;
+}
+
+// Check if maybe_innermost_id is derived from base_id and corresponds to the
+// innermost subregion of base_id. The split/merge exprs between
+// based_id and id must not include any ID that is not produced from
+// base_id.
+bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({base_id}, {maybe_innermost_id});
+
+  std::deque<IterDomain*> frontier;
+  frontier.push_back(base_id);
+
+  // Don't stop on non-contiguous merges; remove them from frontier and continue
+  traverseFrontierWithContiguityCheck(
+      frontier, exprs, /*stop_on_noncontiguous=*/false);
 
   // Once the traversal is done, if the target id located at the
   // rightmost position of the frontier list, it is guaranteed to
@@ -261,250 +283,20 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
-// Helper class for BlockQuantization validation
-// This class validates the following scheduling requirements for
-// BlockQuantizationOp:
-// 1. The Group ID must be derived from the innermost logical IDs
-// 2. Merge operations must combine contiguous logical IDs
-// 3. TIDx must follow the Group ID in the schedule -- that is when derived from
-// the logical domain, group ID must be inner-most, the next "inner-most" should
-// be TIDx (unless there is an ID with a unit trip count)
-class BlockQuantizationValidationHelper {
- public:
-  BlockQuantizationValidationHelper(const TensorView* tv, IterDomain* group_id)
-      : tv_(tv), group_id_(group_id) {}
+// Check if all merges leading to id from the logical domain are contiguous
+// merges
+bool areAllMergesContiguous(const TensorView* tv, IterDomain* id) {
+  const auto& logical_domain = tv->getLogicalDomain();
+  std::deque<IterDomain*> frontier(
+      logical_domain.begin(), logical_domain.end());
 
-  void run() {
-    // Trace back from Group ID to logical domain to see group is "inner-most"
-    traceGroupIdToLogicalDomain();
-    // Find where to start the search for TIDx
-    IterDomain* restart_traversal_from = determineThreadXTraversalStart();
-    // We start a DFS for TIDx taking the inner outputs of Split nodes first.
-    // We should not find a terminating ID that is not TIDx and has extent > 1.
-    validateThreadXFollowsGroupId(restart_traversal_from);
-  }
+  auto all_exprs = DependencyCheck::getAllExprsBetween(
+      {logical_domain.begin(), logical_domain.end()}, {id});
 
- private:
-  // Checks if a merge operation combines contiguous IDs from the logical
-  // domain. A merge is acceptable if its inputs can be traced back to IDs in
-  // the logical domain and those IDs are contiguous.
-  bool isAcceptableMerge(Merge* merge) const {
-    const auto& logical_domain = tv_->getLogicalDomain();
-    auto ids_in_logical_domain = IterVisitor::getInputsTo({merge->out()});
-
-    // Collect positions of IDs in the logical domain
-    std::vector<int64_t> logical_positions;
-    for (auto id : ids_in_logical_domain) {
-      auto iter_domain = id->as<IterDomain>();
-      auto it =
-          std::find(logical_domain.begin(), logical_domain.end(), iter_domain);
-      if (it == logical_domain.end()) {
-        return false; // ID not found in logical domain
-      }
-      logical_positions.push_back(std::distance(logical_domain.begin(), it));
-    }
-
-    // Check contiguity: positions should be consecutive when sorted
-    if (logical_positions.size() > 1) {
-      std::sort(logical_positions.begin(), logical_positions.end());
-      for (size_t i = 1; i < logical_positions.size(); ++i) {
-        if (logical_positions[i] != logical_positions[i - 1] + 1) {
-          return false; // Not contiguous
-        }
-      }
-    }
-
-    return true;
-  }
-
-  //                   M    K
-  //                 │    │
-  //                 ▼    ▼
-  //              ┌────────────┐
-  //              │   merge    │
-  //              └─────┬──────┘
-  //                    │
-  //                    ▼
-  //                   M*K
-  //               ┌──────────┐
-  //               │  split   ┼──┐
-  //               └─┬────────┘  │
-  //                 ▼           ▼
-  //           (M*K)/4          4(G)
-  //           ┌────────┐
-  //           │ split  ┼────┐
-  //           └─┬──────┘    │
-  //             ▼           ▼
-  //         (M*K)/4        1(U)
-  //     ┌─────────┐
-  //     │  split  │
-  //   ┌─┼         ┼───┐
-  //   │ └─────────┘   │
-  //   ▼               ▼
-  // (M*K)/4/128      128(Tx)
-  //
-  // Traces the Group ID backwards through splits and merges to ensure it
-  // derives from the innermost logical IDs. The diagram above shows a typical
-  // transformation chain from logical IDs (M, K) to the Group ID (G).
-  //
-  // Traversal rules:
-  // - For splits: Only traverse through the inner output (Group ID must be
-  //   innermost)
-  // - For merges: Traverse through the inner input and validate contiguity
-  //
-  // Stores last_split_seen_: The last split encountered during traversal,
-  // which is used as the starting point for validating the TIDx path.
-  void traceGroupIdToLogicalDomain() {
-    NVF_ERROR(
-        group_id_ != nullptr,
-        "Expected a valid loop grouped ID for BlockQuantizationOp: ",
-        tv_->toString());
-
-    auto current_id = group_id_;
-    last_split_seen_ = nullptr;
-
-    while (current_id->definition() != nullptr) {
-      auto def = current_id->definition();
-
-      if (auto merge = dynamic_cast<Merge*>(def)) {
-        NVF_ERROR(
-            isAcceptableMerge(merge),
-            "Invalid merge found while tracing back the grouped ID for "
-            "BlockQuantizationOp. All inputs to merge must be from logical "
-            "domain or be outputs of other merges. TV: ",
-            tv_->toString());
-        current_id = merge->inner();
-      } else if (auto split = dynamic_cast<Split*>(def)) {
-        NVF_ERROR(
-            current_id == split->inner(),
-            "The grouped ID must correspond to the innermost of all splits "
-            "from logical domains to loop domains for BlockQuantizationOp. "
-            "TV: ",
-            tv_->toString());
-        last_split_seen_ = split;
-        current_id = split->in();
-      } else {
-        NVF_THROW(
-            false,
-            "Unexpected definition found while tracing back the grouped ID for "
-            "BlockQuantizationOp: ",
-            tv_->toString());
-      }
-    }
-
-    NVF_ERROR(
-        current_id->definition() == nullptr &&
-            current_id == tv_->getLogicalDomain().back(),
-        "The grouped ID must be the innermost logical domain ID for "
-        "BlockQuantizationOp: ",
-        tv_->toString());
-  }
-
-  // Determines the starting point for validating that TIDx follows the Group
-  // ID. Two cases:
-  // 1. If no splits were seen (last_split_seen_ == nullptr):
-  //    Group ID comes directly from logical domain or via merges only.
-  //    Start from the logical ID just before those feeding into Group ID.
-  // 2. Otherwise:
-  //    Start from the outer output of the last split seen - as we must come up
-  //    to the split from the group ID via the inner output.
-  IterDomain* determineThreadXTraversalStart() const {
-    if (last_split_seen_ == nullptr) {
-      // Case 1: Group ID derived directly from logical domain
-      auto ids_in_logical = IterVisitor::getInputsTo({group_id_});
-
-      // Validate all IDs feeding into Group ID have constant extents
-      for (auto id : ids_in_logical) {
-        auto iter_domain = id->as<IterDomain>();
-        NVF_ERROR(
-            iter_domain->extent()->isConstInt(),
-            "Expected all IDs feeding directly into Group ID to have constant "
-            "extents for BlockQuantizationOp: ",
-            tv_->toString());
-      }
-
-      // Ensure there are logical IDs left to derive thread IDs
-      const auto& logical_domain = tv_->getLogicalDomain();
-      NVF_ERROR(
-          ids_in_logical.size() < logical_domain.size(),
-          "There aren't enough logical IDs to derive thread IDs: ",
-          tv_->toString());
-
-      // Return the logical ID just before the ones feeding into Group ID
-      return logical_domain[logical_domain.size() - ids_in_logical.size() - 1];
-    } else {
-      // Case 2: Start from the outer output of the last split
-      return last_split_seen_->outer();
-    }
-  }
-
-  // Validates that TIDx follows the Group ID in the schedule using DFS.
-  // Starting from the given ID, traverses through splits and merges
-  // to ensure TIDx is reachable. We traverse through the split by taking the
-  // inner path first. Any terminating IDs that are not TIDx must have extent 1.
-  void validateThreadXFollowsGroupId(IterDomain* start_id) const {
-    std::stack<IterDomain*> to_visit;
-    to_visit.push(start_id);
-
-    while (!to_visit.empty()) {
-      auto current_id = to_visit.top();
-      to_visit.pop();
-
-      // Check terminating IDs (no uses)
-      if (current_id->uses().empty()) {
-        if (current_id->getParallelType() == ParallelType::TIDx) {
-          return; // Found TIDx - validation successful
-        }
-
-        // Non-TIDx terminating IDs must have constant extent of 1
-        NVF_ERROR(
-            current_id->extent()->isConstInt(),
-            "Only constant extent IDs are expected between TIDx and Group ID "
-            "in BlockQuantizationOp quantized output: ",
-            tv_->toInlineString());
-        NVF_ERROR(
-            current_id->extent()->evaluate().as<int64_t>() == 1,
-            "Only constant extent IDs with extent of 1 are expected between "
-            "TIDx and Group ID in BlockQuantizationOp quantized output: ",
-            tv_->toInlineString());
-        continue;
-      }
-
-      NVF_ERROR(
-          current_id->uses().size() == 1,
-          "Expected single use for IDs in logical to loop transforms for "
-          "BlockQuantizationOp quantization output: ",
-          current_id->toString());
-
-      // Process the use expression
-      auto use_expr = current_id->uses().at(0);
-      if (auto merge = dynamic_cast<Merge*>(use_expr)) {
-        NVF_ERROR(
-            isAcceptableMerge(merge),
-            "Invalid merge found while tracing forward in the logical to loop "
-            "transforms for BlockQuantizationOp quantization output: ",
-            tv_->toString());
-        to_visit.push(merge->out());
-      } else if (auto split = dynamic_cast<Split*>(use_expr)) {
-        // DFS: inner split first, then outer split
-        to_visit.push(split->outer());
-        to_visit.push(split->inner());
-      } else {
-        NVF_ERROR(
-            false,
-            "Unexpected use of an ID found while tracing forward in the "
-            "logical to loop transforms for BlockQuantizationOp quantization "
-            "output: ",
-            tv_->toString());
-      }
-    }
-  }
-
- private:
-  const TensorView* tv_ = nullptr;
-  IterDomain* group_id_;
-  Split* last_split_seen_ = nullptr;
-};
+  // Stop on first non-contiguous merge and return false
+  return traverseFrontierWithContiguityCheck(
+      frontier, all_exprs, /*stop_on_noncontiguous=*/true);
+}
 
 // Expr-specific validaion
 //
@@ -665,16 +457,16 @@ class ExprValidator : public OptOutDispatch {
   // has an extent of 1.
   // The Group ID has an extent of 4/8 depending on the data type.
   // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
+
   // The following are more complex checks that look at the schedule.
-  // These checks are implemented using the helper class
-  // BlockQuantizationValidationHelper.
   // Our aims for the following checks are to ensure that the group ID is
   // contiguous and unit stride, and then after group ID, we have TIDx. Such
   // that (G -- extent of GID) * ThreadIdx.x + GID is contiguous.
-  // We do so by checking that the group ID unit stride. It is derived from the
-  // innermost logical IDs via merges and inner splits only. Next we check that
+  // We do so by checking that the group ID is unit stride. It is derived from
+  // the innermost logical IDs via contiguous merges only. Next we check that
   // TIDx in the next inner-most ID, and if there was any other ID between TIDx
-  // and group ID then it must have an extent of 1.
+  // and group ID then it must have an extent of 1. TIDx must also be derived
+  // from contiguous merges of the logical IDs.
   void handle(BlockQuantizationOp* bqop) final {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
@@ -775,9 +567,82 @@ class ExprValidator : public OptOutDispatch {
         ". Expr: ",
         bqop->toString());
 
-    // Helper to check to the most involved scheduling requirements.
-    BlockQuantizationValidationHelper helper(quantized_output, grouped_id);
-    helper.run();
+    //                   M    K
+    //                 │    │
+    //                 ▼    ▼
+    //              ┌────────────┐
+    //              │   merge    │
+    //              └─────┬──────┘
+    //                    │
+    //                    ▼
+    //                   M*K
+    //               ┌──────────┐
+    //               │  split   ┼──┐
+    //               └─┬────────┘  │
+    //                 ▼           ▼
+    //           (M*K)/4          4(G)
+    //           ┌────────┐
+    //           │ split  ┼────┐
+    //           └─┬──────┘    │
+    //             ▼           ▼
+    //         (M*K)/4        1(U)
+    //     ┌─────────┐
+    //     │  split  │
+    //   ┌─┼         ┼───┐
+    //   │ └─────────┘   │
+    //   ▼               ▼
+    // (M*K)/4/128      128(Tx)
+
+    // Next we check the following scheduling requirements for
+    // BlockQuantizationOp - the above figure is an example of such a schedule.
+    // 1. The Group ID must be derived from the innermost logical IDs
+    // 2. TIDx must follow the Group ID in the schedule -- that is when derived
+    // from the logical domain, group ID must be inner-most, the next
+    // "inner-most" should be TIDx (unless there is an ID with a unit trip
+    // count)
+    // 3. All merges involved from logical domains to group and thread ID must
+    // combine contiguous logical IDs
+
+    // This will get the xforms from logical to loop and apply then on the
+    // logical domain. We will get a loop domain minus the reordering.
+    std::vector<IterDomain*> ids_to_transform =
+        scheduler_utils::computeLoopDomainFromLogical(quantized_output);
+
+    // The grouped ID must correspond to the innermost
+    NVF_ERROR(
+        ids_to_transform.back() == grouped_id,
+        "The grouped ID must correspond to the innermost of all splits "
+        "from logical domains to loop domains for BlockQuantizationOp. "
+        "TV: ",
+        quantized_output->toString());
+
+    // Iterate from the back to find TIDx, skipping group_id (last element)
+    // Ensure all IDs between group_id and TIDx have extent 1
+    for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
+         ++it) {
+      if ((*it)->getParallelType() == ParallelType::TIDx) {
+        break;
+      }
+      // All non-TIDx IDs between Group ID and TIDx must have extent of 1
+      NVF_ERROR(
+          (*it)->extent()->isConstInt() &&
+              (*it)->extent()->evaluate().as<int64_t>() == 1,
+          "Expected IDs between Group ID and TIDx to have extent of 1 for "
+          "BlockQuantizationOp: ",
+          quantized_output->toString());
+    }
+
+    NVF_ERROR(
+        areAllMergesContiguous(quantized_output, grouped_id),
+        "All merge operations deriving the grouped ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
+
+    NVF_ERROR(
+        areAllMergesContiguous(quantized_output, thread_x),
+        "All merge operations deriving the TIDx ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
   }
 };
 

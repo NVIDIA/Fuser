@@ -700,6 +700,12 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv);
 
+// Helper function that computes the loop domain by applying all transformations
+// from the logical domain to the loop domain. Returns a vector of IterDomains
+// representing what the loop domain minus reorderings would look like after
+// applying the transformations to the logical domain.
+std::vector<IterDomain*> computeLoopDomainFromLogical(TensorView* tv);
+
 // Generates an old to new map to reorder tv's loop domain as its allocation
 // order. Allocation domain is transformed to find a permutation of the loop
 // domain that satisfies the order in allocation domain.

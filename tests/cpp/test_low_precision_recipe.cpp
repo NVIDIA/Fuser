@@ -662,8 +662,8 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
   assertCompilationFails(
       setup.fusion.get(),
       {createTestInput()},
-      "Only constant extent IDs with extent of 1 are expected between TIDx "
-      "and Group ID in BlockQuantizationOp quantized output");
+      "Expected IDs between Group ID and TIDx to have extent of 1 for "
+      "BlockQuantizationOp:");
 }
 
 // When running validation checks we traverse from loop to logical domain
@@ -709,9 +709,8 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
   assertCompilationFails(
       setup.fusion.get(),
       {createTestInput(/*dim=*/3)},
-      "Invalid merge found while tracing back the grouped ID for "
-      "BlockQuantizationOp. All inputs to merge must be from logical domain "
-      "or be outputs of other merges");
+      "All merge operations deriving the grouped ID must combine contiguous "
+      "IDs from the logical domain for BlockQuantizationOp");
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
