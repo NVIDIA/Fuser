@@ -49,10 +49,12 @@ class ModelType(str, Enum):
 class PRReviewHeader(str, Enum):
     REGULAR = "## PR Reviewer Guide"
     INCREMENTAL = "## Incremental PR Reviewer Guide"
+    REGULAR_NO_HEADER = "PR Reviewer Guide"
 
 
 class PRDescriptionHeader(str, Enum):
     CHANGES_WALKTHROUGH = "### **Changes walkthrough** 📝"
+    CHANGES_WALKTHROUGH_NO_HEADER = "Changes walkthrough"
 
 
 def get_setting(key: str) -> Any:
@@ -133,7 +135,8 @@ def convert_to_markdown_v2(output_data: dict,
     markdown_text = ""
     publish_combined_output_lower_title = '#' if use_three_hash_header else ''
     if not incremental_review:
-        markdown_text += publish_combined_output_lower_title + f"{PRReviewHeader.REGULAR.value} 🔍\n\n"
+        if get_settings().config.publish_output:
+            markdown_text += publish_combined_output_lower_title + f"{PRReviewHeader.REGULAR.value} 🔍\n\n"
     else:
         markdown_text += publish_combined_output_lower_title + f"{PRReviewHeader.INCREMENTAL.value} 🔍\n\n"
         markdown_text += f"⏮️ Review for commits since previous PR-Agent review {incremental_review}.\n\n"
@@ -223,7 +226,7 @@ def convert_to_markdown_v2(output_data: dict,
                 if gfm_supported:
                     markdown_text += f"<tr><td>"
                     # markdown_text += f"{emoji}&nbsp;<strong>{key_nice}</strong><br><br>\n\n"
-                    markdown_text += f"{emoji}&nbsp;<strong>Recommended focus areas for review</strong><br><br>\n\n"
+                    markdown_text += f"{emoji}&nbsp;<strong>Recommended focus areas for review</strong></td></tr>\n<tr><td>\n"
                 else:
                     markdown_text += f"### {emoji} Recommended focus areas for review\n\n#### \n"
                 for i, issue in enumerate(issues):

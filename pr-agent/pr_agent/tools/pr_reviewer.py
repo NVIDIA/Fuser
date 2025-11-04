@@ -174,7 +174,8 @@ class PRReviewer:
             else:
                 get_logger().info("Review output is not published")
                 get_settings().data = {"artifact": pr_review}
-                return pr_review
+                wrapped_pr_review = f"<details><summary><h3> {PRReviewHeader.REGULAR_NO_HEADER.value} </h3></summary>\n\n {pr_review}\n\n</details>\n"
+                return wrapped_pr_review
         except Exception as e:
             get_logger().error(f"Failed to review PR: {e}")
 

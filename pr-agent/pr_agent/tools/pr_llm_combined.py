@@ -35,7 +35,10 @@ class PRActionCombined:
             review = PRReviewer(pr_url=self._pr_url, args=self._args, ai_handler=self._ai_handler, use_three_hash_header=True)
             pr_review = await review.run()
 
-            combined_output_dnr = pr_description + '\n\n---\n\n' + pr_review
+            internal_pr_review_placeholder = "<!-- BEGIN INTERNAL PR REVIEW PLACEHOLDER -->\n<!-- END INTERNAL PR REVIEW PLACEHOLDER -->\n\n"
+            ci_test_results_placeholder = "<!-- BEGIN CI TEST RESULTS PLACEHOLDER -->\n<!-- END CI TEST RESULTS PLACEHOLDER -->\n\n"
+
+            combined_output_dnr = '\n'.join([pr_description, pr_review, internal_pr_review_placeholder, ci_test_results_placeholder])
             initial_header="<!-- llm action combined persistent comment, dont modify this line -->"
 
             if get_settings().config.publish_combined_output:

@@ -126,7 +126,7 @@ class PRDescription:
                 pr_title, pr_body, changes_walkthrough, pr_file_changes = self._prepare_pr_answer()
                 if not self.git_provider.is_supported(
                         "publish_file_comments") or not get_settings().pr_description.inline_file_summary:
-                    pr_body += "\n\n" + changes_walkthrough
+                    pr_body += "\n\n" + changes_walkthrough + "\n\n"
             get_logger().debug("PR output", artifact={"title": pr_title, "body": pr_body})
 
             # Add help text if gfm_markdown is supported
@@ -579,7 +579,7 @@ class PRDescription:
                     pr_body += "</details>\n"
             elif 'pr_files' in key.lower() and get_settings().pr_description.enable_semantic_files_types:
                 changes_walkthrough, pr_file_changes = self.process_pr_files_prediction(changes_walkthrough, value)
-                changes_walkthrough = f"{PRDescriptionHeader.CHANGES_WALKTHROUGH.value}\n{changes_walkthrough}"
+                changes_walkthrough = f"<details><summary><h3> {PRDescriptionHeader.CHANGES_WALKTHROUGH_NO_HEADER.value}</h3></summary>\n\n{changes_walkthrough}\n\n</details>\n"
             elif key.lower().strip() == 'description':
                 if isinstance(value, list):
                     value = ', '.join(v.rstrip() for v in value)
@@ -590,8 +590,8 @@ class PRDescription:
                 if isinstance(value, list):
                     value = ', '.join(v.rstrip() for v in value)
                 pr_body += f"{value}\n"
-            if idx < len(self.data) - 1:
-                pr_body += "\n\n___\n\n"
+            # if idx < len(self.data) - 1:
+            #     pr_body += "\n\n___\n\n"
 
         return title, pr_body, changes_walkthrough, pr_file_changes,
 
