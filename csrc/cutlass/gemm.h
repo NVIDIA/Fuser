@@ -20,6 +20,11 @@ class CutlassParams;
 
 namespace cutlass_codegen {
 
+// Whether we are doing grouped GEMM or regular scaled GEMM, the default
+// epilogue is alpha*acc + beta*bias. Each of alpha, beta, and bias are
+// optional. For grouped GEMM, problem_sizes, expert_offsets, and
+// scale_factor_offsets must all be non-null, whereas they must be null for
+// non-grouped GEMM.
 struct MatmulPattern {
   Expr* mma;
   TensorView* a;
