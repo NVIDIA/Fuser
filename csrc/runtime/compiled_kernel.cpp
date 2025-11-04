@@ -59,6 +59,7 @@
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
 #include <nvfuser_resources/block_layout.h>
+#include <nvfuser_resources/block_quantization_kernels.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
 #include <nvfuser_resources/block_sync_default.h>
@@ -1065,7 +1066,8 @@ std::string _getStructuredCode(
     bool has_topk = false,
     bool has_scan = false,
     bool has_block_layout = false,
-    bool has_cluster_reduction = false) {
+    bool has_cluster_reduction = false,
+    bool has_block_quantize_op = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1108,6 +1110,10 @@ std::string _getStructuredCode(
   }
   if (has_block_layout) {
     code += nvfuser_resources::block_layout_cu;
+  }
+
+  if (has_block_quantize_op) {
+    code += nvfuser_resources::block_quantization_kernels_cu;
   }
 
   code += "\nnamespace " + CompiledKernel::kernelNamespace() + " {\n\n";
@@ -1458,7 +1464,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_topk,
       kernel()->summary().has_scan,
       kernel()->summary().has_preprocess_grouped_matmul_input_sf,
-      kernel()->summary().has_cluster_reduction);
+      kernel()->summary().has_cluster_reduction,
+      kernel()->summary().has_block_quantize_op);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {

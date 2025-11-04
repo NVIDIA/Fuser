@@ -593,3 +593,40 @@ overlapping. I've omitted those details here for brevity.
 Internal design doc: http://nv/nvfuser-cp
 
 TODO: move some content to public docs
+
+## Debugging
+
+nvFuser's multi-GPU unit tests use `mpirun` to launch one process per GPU.
+
+### Printing
+
+By default, all ranks share the same stdout file descriptor so their print
+statements interleave arbitrarily.
+
+To keep each rank's output separate, pass `--output-filename` when invoking
+`mpirun`.
+
+```
+$ mpirun --help output
+...
+   -output-filename|--output-filename <arg0>
+                         Redirect output from application processes into
+                         filename/job/rank/std[out,err,diag]. A relative
+                         path value will be converted to an absolute path
+...
+```
+
+### GDB
+
+When a specific rank crashes or generates wrong outputs, you can pause it at startup with
+`NVFUSER_ENABLE=wait_debugger(...)` and attach `gdb` before it proceeds. The
+argument list selects which ranks wait:
+
+```
+$ mpirun -np 4 -x NVFUSER_ENABLE='wait_debugger(2)' bin/test_multidevice --gtest_filter=DistributedMatmulTest.Matmul_LayoutNT_ReduceScatter
+```
+
+The selected ranks print their PID and spin on a `waiting` flag. From another
+terminal, run `gdb`, attach to the reported PID, execute `set var waiting=false`
+followed by `continue`, and the process resumes under the debugger while the
+other ranks keep running.

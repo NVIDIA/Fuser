@@ -2318,39 +2318,36 @@ class LinearOp : public Expr {
   }
 };
 
-/*
-SDPA node with same functionality at::_scaled_dot_product_flash_attention
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-query_seq_len = scalar(int)
-key_seq_len = scalar(int)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
-debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
-setting `return_debug_mask=False` when invoking flash attention)
+// SDPA node with same functionality at::_scaled_dot_product_flash_attention
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// query_seq_len = scalar(int)
+// key_seq_len = scalar(int)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+// setting `return_debug_mask=False` when invoking flash attention)
 
-Note: For older versions, torch returns CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// Note: For older versions, torch returns CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch returns philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-scale = scalar(double)
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// scale = scalar(double)
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -2506,42 +2503,37 @@ class Scope {
   Expr* owner_ = nullptr;
 };
 
-// ForLoop moved to kernel_ir.{h,cpp} as kir::ForLoop
+// SDPA bwd node with same functionality
+// at::_scaled_dot_product_flash_attention_backward
+// grad_query = [N, H, L, E]
+// grad_key = [N, H, S, E]
+// grad_value = [N, H, S, Ev]
 
-/*
-SDPA bwd node with same functionality
-at::_scaled_dot_product_flash_attention_backward
-grad_query = [N, H, L, E]
-grad_key = [N, H, S, E]
-grad_value = [N, H, S, Ev]
+// grad_output = [N, H, L, Ev]
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// scale = scalar(double)
 
-grad_output = [N, H, L, Ev]
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
-scalar(double)
+// Note: For older versions, torch accepts CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch accepts philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
-
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaBwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -3397,6 +3389,69 @@ class PreprocessGroupedMatmulInputSf : public Expr {
   BlockScalingFactorLayout layout() const {
     return attribute<BlockScalingFactorLayout>(0);
   }
+};
+
+class BlockQuantizationOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // This op takes in a high precision input(input)
+  // and returns the quantized output(output) along with the block scaling
+  // factors (output_scales). It can also take as an optional input the global
+  // scaling factor and block size (though we currently only support 16).
+  // logical_index is used for internal implemtation. This op is currently
+  // implemented via a runtime function. During index computation, we compute
+  // the index of the output_scales and pass it to the runtime function.
+  BlockQuantizationOp(
+      IrBuilderPasskey,
+      Val* output_scales,
+      Val* output,
+      Val* input,
+      Val* logical_index = nullptr,
+      Val* global_scale = nullptr,
+      int64_t block_size = 16);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  Val* blockScales() const {
+    return output(1);
+  }
+
+  Val* quantizedOutput() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t blockSize() const {
+    return attribute<int64_t>(1);
+  }
+
+  bool hasGlobalScale() const {
+    if (inputs().size() > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  Val* globalScale() const {
+    if (hasGlobalScale()) {
+      return input(1);
+    }
+    return nullptr;
+  }
+
+  const char* getOpString() const override {
+    return "BlockQuantizationOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser
