@@ -84,6 +84,11 @@ class EVTConverter : OptInDispatch {
         std::to_string(index) + ").data_ptr)";
   }
 
+  std::string getPointerArrayPointerCode(TensorView* tv) {
+    // TODO: track 
+    return getPointerCode(tv);
+  }
+
   void validatePattern() {
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
@@ -106,16 +111,27 @@ class EVTConverter : OptInDispatch {
       return;
     }
     NVF_ERROR(
-        pattern_.alpha->nDims() == 0,
-        "Only zero-dimensional alpha is supported for EVT translation");
-    NVF_ERROR(
         pattern_.alpha->dtype() == DataType::Float,
         "Only Float alpha is supported for EVT translation");
-    // Broadcast alpha to the same dimensions as the accumulator
-    EVTModel::Node* alpha_bcast_node = model_.makeNode(
-        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-    alpha_bcast_node->arguments.emplace_back(
-        "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
+    EVTModel::Node* alpha_bcast_node = nullptr;
+    if (pattern_.alpha->nDims() == 0) {
+      // Broadcast scalar alpha to the same dimensions as the accumulator
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
+    } else if (pattern_.alpha->nDims() == 1) {
+      NVF_ERROR(
+          pattern_.is_grouped,
+          "Non-scalar alpha only supported for grouped GEMM");
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<float>");
+      alpha_bcast_node->arguments = {
+        {"scalars", "{}"},
+        {"scalar_ptrs", "{}"},
+        {"scalar_ptr_arrays", "{" + getPointerArrayPointerCode(pattern_.alpha) + "}"},
+      };
+    }
     val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
 
     EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
