@@ -15,6 +15,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/remove_empty.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/tools/cub_utils.h>
@@ -447,6 +448,9 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
   auto topk_result = topk(tv0, k);
   fusion.addOutput(topk_result.values);
 
+  auto tv3 = add(topk_result.values, fusion.oneVal());
+  fusion.addOutput(tv3);
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({16}, options);
 
@@ -460,10 +464,17 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
 
   IterDomain* out_id = fusion.outputs().at(0)->as<TensorView>()->axis(0);
   EXPECT_TRUE(out_id->isIteration());
-  Val* out_extent = out_id->extent();
-  EXPECT_TRUE(out_extent->isZeroInt())
-      << "Expected output extent to concretize to constant zero but found "
-      << out_extent->toInlineString();
+
+  // Replacement of the extent to zero doesn't seem to be working as
+  // topk now uses IterDomain::resize, which then uses
+  // SimplyfingIrBuilder::addExpr and that introduces casting to the
+  // index type. However, the preseg pass should detect the empty topk
+  // output and the use of the output should be converted to fullop
+  preseg_passes::OptimizationPass<preseg_passes::RemoveEmptyPass>::runPass(
+      &fusion);
+  tv3 = fusion.outputs().at(1)->as<TensorView>();
+  EXPECT_TRUE(tv3->definition()->isA<FullOp>())
+      << tv3->definition()->toString();
 }
 
 class TopKTest : public NVFuserTest {
