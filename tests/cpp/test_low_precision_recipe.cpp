@@ -629,7 +629,7 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
 
 // The runtime kernel for block quantization expects TIDx to access contiguous
 // memory locations - just 16, but to be safe we enforce all memory locations of
-// TIDx are contiguous. To enfore this, TIDx must be the second innermost ID
+// TIDx are contiguous. To enforce this, TIDx must be the second innermost ID
 // after Group ID. By that we mean if we derive this ID from the logical domain,
 // there should be no other IDs between Group ID and TIDx except for IDs with
 // extent of 1.
