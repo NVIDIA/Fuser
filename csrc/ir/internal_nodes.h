@@ -2318,39 +2318,36 @@ class LinearOp : public Expr {
   }
 };
 
-/*
-SDPA node with same functionality at::_scaled_dot_product_flash_attention
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-query_seq_len = scalar(int)
-key_seq_len = scalar(int)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
-debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
-setting `return_debug_mask=False` when invoking flash attention)
+// SDPA node with same functionality at::_scaled_dot_product_flash_attention
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// query_seq_len = scalar(int)
+// key_seq_len = scalar(int)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+// setting `return_debug_mask=False` when invoking flash attention)
 
-Note: For older versions, torch returns CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// Note: For older versions, torch returns CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch returns philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-scale = scalar(double)
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// scale = scalar(double)
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -2506,42 +2503,37 @@ class Scope {
   Expr* owner_ = nullptr;
 };
 
-// ForLoop moved to kernel_ir.{h,cpp} as kir::ForLoop
+// SDPA bwd node with same functionality
+// at::_scaled_dot_product_flash_attention_backward
+// grad_query = [N, H, L, E]
+// grad_key = [N, H, S, E]
+// grad_value = [N, H, S, Ev]
 
-/*
-SDPA bwd node with same functionality
-at::_scaled_dot_product_flash_attention_backward
-grad_query = [N, H, L, E]
-grad_key = [N, H, S, E]
-grad_value = [N, H, S, Ev]
+// grad_output = [N, H, L, Ev]
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// scale = scalar(double)
 
-grad_output = [N, H, L, Ev]
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
-scalar(double)
+// Note: For older versions, torch accepts CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch accepts philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
-
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaBwdOp : public Expr {
  public:
   using Expr::Expr;
