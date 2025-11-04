@@ -35,8 +35,7 @@ TEST_F(MetaTest, ScanRowMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion->inputs().at(0), input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   // Meta path via ExpressionEvaluator
@@ -44,8 +43,7 @@ TEST_F(MetaTest, ScanRowMajor) {
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion->inputs().at(0), meta_in);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -71,16 +69,14 @@ TEST_F(MetaTest, ScanColMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion->inputs().at(0), input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion->inputs().at(0), meta_in);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -220,8 +216,7 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   ee_cuda.bind(fusion->inputs().at(0), mat1_input);
   ee_cuda.bind(fusion->inputs().at(1), mat2_input);
   ee_cuda.bind(fusion->inputs().at(2), offsets_input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
@@ -236,8 +231,7 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   ee_meta.bind(fusion->inputs().at(0), meta_mat1);
   ee_meta.bind(fusion->inputs().at(1), meta_mat2);
   ee_meta.bind(fusion->inputs().at(2), meta_offsets);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
@@ -293,8 +287,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   ee_cuda.bind(fusion->inputs().at(0), mat1_input);
   ee_cuda.bind(fusion->inputs().at(1), mat2_input);
   ee_cuda.bind(fusion->inputs().at(2), offsets_input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
@@ -309,8 +302,7 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   ee_meta.bind(fusion->inputs().at(0), meta_mat1);
   ee_meta.bind(fusion->inputs().at(1), meta_mat2);
   ee_meta.bind(fusion->inputs().at(2), meta_offsets);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
@@ -366,8 +358,7 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   ee_cuda.bind(fusion->inputs().at(0), mat1_input);
   ee_cuda.bind(fusion->inputs().at(1), mat2_input);
   ee_cuda.bind(fusion->inputs().at(2), offsets_input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
@@ -382,8 +373,7 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   ee_meta.bind(fusion->inputs().at(0), meta_mat1);
   ee_meta.bind(fusion->inputs().at(1), meta_mat2);
   ee_meta.bind(fusion->inputs().at(2), meta_offsets);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks
   EXPECT_TRUE(meta_out.is_meta());
