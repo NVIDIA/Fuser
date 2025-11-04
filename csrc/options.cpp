@@ -151,7 +151,8 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
       {"transform_propagator", DebugDumpOption::TransformPropagator},
-      {"communication", DebugDumpOption::Communication}};
+      {"communication", DebugDumpOption::Communication},
+      {"compile_params", DebugDumpOption::CompileParams}};
 
   return parseEnvOptions("DUMP", available_options);
 }

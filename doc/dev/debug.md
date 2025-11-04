@@ -85,6 +85,7 @@ a_python_script_that_imports_and_runs_nvfuser.py`.
 Examples:
 * `NVFUSER_DUMP=cuda_kernel` prints the generated CUDA kernels.
 * `NVFUSER_DUMP=segmenter_logging` prints which scheduler gets used.
+* `NVFUSER_DUMP=compile_params` prints NVRTC compilation parameters.
 
 ### gdb
 
