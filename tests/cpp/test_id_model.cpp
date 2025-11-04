@@ -236,7 +236,8 @@ void validateIELResolution(
     auto promotion_id = iel_promotion_map_it->second;
     ASSERT_TRUE(
         exact_graph.disjointValSets().strictAreMapped(promotion_id, ref_id))
-        << "Unexpected promotion. " << "Expected: " << ref_id->toString()
+        << "Unexpected promotion. "
+        << "Expected: " << ref_id->toString()
         << ". Actual: " << promotion_id->toString();
     ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
         << "Promotion of " << id->toString()
@@ -376,9 +377,9 @@ void checkStep4Results(
   const auto& iel_promotion_map = tester.s4_iel_promotion_map;
 
   EXPECT_EQ(iel_promotion_map.size(), ref_promotion_map.size())
-      << "Mismatched Step-4 result map. " << "Expected to have "
-      << ref_promotion_map.size() << " mappings but found "
-      << iel_promotion_map.size();
+      << "Mismatched Step-4 result map. "
+      << "Expected to have " << ref_promotion_map.size()
+      << " mappings but found " << iel_promotion_map.size();
 
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
@@ -3177,6 +3178,44 @@ TEST_F(IdModelTest, ScatterLoopMapping) {
   for (const auto i : arange(tv6->getLogicalDomain().size())) {
     EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv6->getLoopDomain().at(i), tv4->getLoopDomain().at(i)));
+  }
+}
+
+// This test validates no promotion analysis is done for IDs that are
+// not part of logical-loop traversal paths. This is not strictly
+// required but is a WAR for special ops like
+// PreprocessGroupedMatmulInputSf. See also issue #5391.
+TEST_F(IdModelTest, LoopPromotionIncludeOnlyLoopIds) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 128);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  AbstractTensor tv3_alloc(tv3->getLogicalDomain());
+  tv3_alloc.flatten();
+  tv3_alloc.split(0, 4);
+  tv3->setAllocationDomain(tv3_alloc.as<IterDomain*>(), true);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+  const auto& loop_graph = id_model.buildLoopGraph();
+  for (auto tv3_alloc : tv3->getAllocationDomain()) {
+    EXPECT_FALSE(
+        id_model.loopPromotionMap().contains(loop_graph.toGroup(tv3_alloc)));
   }
 }
 
