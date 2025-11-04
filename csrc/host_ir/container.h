@@ -13,9 +13,7 @@
 #include <host_ir/host_ir.h>
 #include <runtime/executor.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 class HostIrContainer final : public Fusion {
  public:
@@ -23,15 +21,18 @@ class HostIrContainer final : public Fusion {
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
-  //! Print to an output stream
+  // Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
+  const std::list<Expr*>& topLevelExprs() const;
+  std::list<Expr*>::const_iterator pushBackTopLevelExprs(Expr* expr);
+  void insertExprBefore(std::list<Expr*>::const_iterator position, Expr* expr);
+  // Only used for MultiDeviceExecutor. While convenient, it should generally
+  // be avoided because it implicitly modifies `top_level_exprs_`, making the
+  // code harder to reason about.
   void resetTopLevelExprs(std::list<Expr*> exprs) {
     top_level_exprs_ = std::move(exprs);
   }
-  const std::list<Expr*>& topLevelExprs() const;
-  void pushBackTopLevelExprs(Expr* expr);
-  void insertExprBefore(std::list<Expr*>::const_iterator position, Expr* expr);
 
   void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
   bool hasKernelExecutor(int64_t group_id) const;
@@ -49,6 +50,4 @@ class HostIrContainer final : public Fusion {
   Stream* default_stream_ = nullptr;
 };
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir

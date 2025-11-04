@@ -46,9 +46,10 @@ void HostIrContainer::insertExprBefore(
   top_level_exprs_.insert(position, expr);
 }
 
-void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
+std::list<Expr*>::const_iterator HostIrContainer::pushBackTopLevelExprs(
+    Expr* expr) {
   assertInContainer(expr, "Cannot add expr, ");
-  top_level_exprs_.push_back(expr);
+  return top_level_exprs_.insert(top_level_exprs_.end(), expr);
 }
 
 bool HostIrContainer::hasKernelExecutor(int64_t group_id) const {
