@@ -7,6 +7,9 @@
 // clang-format on
 
 #include <host_ir/pass/insert_deallocations.h>
+
+#include <list>
+
 #include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
@@ -16,7 +19,7 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
-  const std::vector<Expr*>& top_level_exprs = hic->topLevelExprs();
+  const std::list<Expr*>& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),

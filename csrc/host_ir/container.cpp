@@ -7,6 +7,9 @@
 // clang-format on
 
 #include <host_ir/container.h>
+
+#include <iterator>
+
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -33,12 +36,20 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   return os;
 }
 
-const std::vector<Expr*>& HostIrContainer::topLevelExprs() const {
+const std::list<Expr*>& HostIrContainer::topLevelExprs() const {
   return top_level_exprs_;
 }
 
 void HostIrContainer::insertExprAfter(int64_t index, Expr* expr) {
-  top_level_exprs_.insert(top_level_exprs_.begin() + index + 1, expr);
+  NVF_CHECK(
+      index >= -1 && index < std::ssize(top_level_exprs_),
+      "Index ",
+      index,
+      " is out of range for HostIrContainer::insertExprAfter");
+  auto insert_pos = index == -1
+      ? top_level_exprs_.begin()
+      : std::next(top_level_exprs_.begin(), index + 1);
+  top_level_exprs_.insert(insert_pos, expr);
 }
 
 void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
