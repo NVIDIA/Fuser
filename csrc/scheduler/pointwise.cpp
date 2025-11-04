@@ -295,10 +295,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       });
 
   int64_t max_dtype_size_bit_for_vectorization = 0;
-  // ugly WAR.
-  bool has_sub_byte = false;
   for (auto inp : vectorizable_inputs_outputs_entry.get()) {
-    has_sub_byte |= dataTypeSizeBit(inp->getDataType().value()) < 8;
     max_dtype_size_bit_for_vectorization = std::max(
         max_dtype_size_bit_for_vectorization,
         dataTypeSizeBit(inp->getDataType().value(), index_type));
@@ -487,11 +484,21 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
   }
 
+  int64_t vectorization_factor = max_vect_factor;
   // If we have sub-byte data types, we wouldn't want to clamp vectorization
   // factor to 1, otherwise we could end up with illegal array type with
   // sub-byte length.
-  params->vectorization_factor = std::min(
-      has_sub_byte ? std::max(2l, max_vect_factor) : max_vect_factor,
+  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
+  // necessarily need vectorization, but rather just consecutive elements being
+  // handled together so we have byte-sized buffer per thread.
+  if (std::ranges::any_of(
+          vectorizable_inputs_outputs_entry.get(), [](TensorView* inp) {
+            return dataTypeSizeBit(inp->getDataType().value()) < 8;
+          })) {
+    vectorization_factor = std::max(2l, max_vect_factor);
+  }
+  vectorization_factor = std::min(
+      vectorization_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           largest_out,
@@ -499,6 +506,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           /*max_vectorization_size_in_bit=*/128,
           logical_reorder_map));
+  params->vectorization_factor = vectorization_factor;
 
   // get unroll factor:
 

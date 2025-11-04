@@ -41,7 +41,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
       // size is represented separately, and here we assume we're using nvfp.
       // TODO: if block scaling is tied to element type in nvFuser in the future
       // we can update this mapping
-      return "cutlass::nv_float4_t<float_e2m1_t>";
+      return "cutlass::float_e2m1_t";
     default:
       NVF_THROW(
           "nvFuser DataType ",

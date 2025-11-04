@@ -948,6 +948,13 @@ class PredicateChecker : public IterVisitor {
     }
   }
 
+  // Disable predicate elimination for now. Should be unnecessary if
+  // the input input is properly initialized. See also
+  // https://github.com/NVIDIA/Fuser/pull/5355.
+  void handle(TopKOp* op) final {
+    needs_predicate_ = true;
+  }
+
  private:
   const PredicateElimination& pred_elimination_;
   const std::unordered_set<const Expr*>& non_predicated_exprs_;
