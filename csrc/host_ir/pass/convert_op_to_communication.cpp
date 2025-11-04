@@ -6,10 +6,13 @@
  */
 // clang-format on
 
+#include <host_ir/pass/convert_op_to_communication.h>
+
+#include <list>
+
 #include <host_ir/container.h>
 #include <host_ir/lower.h>
 #include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
@@ -27,7 +30,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
 
   auto handle_top_level_expr = [&](Expr* top_level_expr,
-                                   std::vector<Expr*>& new_top_level_exprs) {
+                                   auto& new_top_level_exprs) {
     if (!isResharding(top_level_expr)) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
@@ -51,7 +54,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
     }
   };
 
-  std::vector<Expr*> new_top_level_exprs;
+  std::list<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
     if (top_level_expr->isA<kir::ForLoop>()) {
       auto* for_loop = top_level_expr->as<kir::ForLoop>();
