@@ -265,7 +265,7 @@ std::vector<Expr*> addTensorAllocations(
           if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) !=
               -1) {
             new_top_level_exprs.push_back(
-                IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
+                IrBuilder::create<kir::Allocate>(output, output->getMemoryType()));
           }
         }
       }

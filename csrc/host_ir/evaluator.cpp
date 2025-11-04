@@ -616,7 +616,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
   at::Tensor tensor;
-  if (allocate->memoryType() == MemoryType::Symmetric) {
+  if (tv->getMemoryType() == MemoryType::Symmetric) {
     NVF_ERROR(isTvContiguous(tv), "Symmetric memory must be contiguous");
     tensor = allocateSymmetricTensor(
         info.shape_info.logical_sizes, info.type, device, c10::nullopt);

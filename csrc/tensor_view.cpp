@@ -1365,7 +1365,7 @@ void TensorView::setMemoryType(MemoryType mt) {
   memory_type_ = mt;
   if (isFusionInput() || isFusionOutput()) {
     NVF_ERROR(
-        mt == MemoryType::Global,
+        mt == MemoryType::Global || mt == MemoryType::Symmetric,
         "Tried to set an input or output to the fusion to a non-global memory "
         "type.");
   }

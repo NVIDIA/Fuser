@@ -88,7 +88,7 @@ void lowerSegment(
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(device_id)) {
           auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           hic.pushBackTopLevelExprs(allocate);
         }
         hic.pushBackTopLevelExprs(communication);
@@ -137,7 +137,7 @@ void lowerSegment(
           for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
             if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
               auto* allocate =
-                  IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+                  IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
               hic.pushBackTopLevelExprs(allocate);
             }
           }
@@ -215,7 +215,7 @@ void lowerSegment(
             alias);
         auto* tv = out->as<TensorView>();
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
         hic.pushBackTopLevelExprs(allocate);
       }
 
