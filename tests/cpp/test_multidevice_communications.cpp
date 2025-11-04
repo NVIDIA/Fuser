@@ -7,14 +7,11 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
-
 #include <fusion.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/cuda_p2p.h>
-#include <multidevice/symmetric_memory.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
 
@@ -628,37 +625,10 @@ TEST_F(CUDACommunicationTest, Allgather) {
               at::arange(kTensorSize, tensor_options_) +
               (rank_idx + 1) * repetition);
     }
+    EXPECT_TRUE(at::allclose(outputs.back().as<at::Tensor>(), ref))
+        << "Rank " << communicator_->deviceId() << " failed at repetition " << repetition
+        << " with output tensor " << outputs.back().as<at::Tensor>() << " and ref " << ref;
 
-    {
-      const at::Tensor& out_tensor = outputs.back().as<at::Tensor>();
-      if (!out_tensor.equal(ref)) {
-        // Copy both tensors to CPU (host)
-        at::Tensor got_cpu = out_tensor.to(torch::kCPU);
-        at::Tensor ref_cpu = ref.to(torch::kCPU);
-
-        // Search for first mismatch
-        int64_t mismatch_idx = -1;
-        for (int64_t i = 0; i < got_cpu.numel(); ++i) {
-          auto got_val = got_cpu.data_ptr<float>()[i];
-          auto ref_val = ref_cpu.data_ptr<float>()[i];
-          if (got_val != ref_val) {
-            mismatch_idx = i;
-            break;
-          }
-        }
-        std::ostringstream oss;
-        oss << "On iteration " << repetition << ", device "
-            << communicator_->deviceId() << " got an unexpected output.\n";
-        if (mismatch_idx != -1) {
-          oss << "First difference at index " << mismatch_idx << ": got "
-              << got_cpu.data_ptr<float>()[mismatch_idx] << ", expected "
-              << ref_cpu.data_ptr<float>()[mismatch_idx] << "\n";
-        } else {
-          oss << "Tensors are not equal, but no differing index found.\n";
-        }
-        FAIL() << oss.str();
-      }
-    }
   }
 }
 
