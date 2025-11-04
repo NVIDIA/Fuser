@@ -40,16 +40,10 @@ const std::list<Expr*>& HostIrContainer::topLevelExprs() const {
   return top_level_exprs_;
 }
 
-void HostIrContainer::insertExprAfter(int64_t index, Expr* expr) {
-  NVF_CHECK(
-      index >= -1 && index < std::ssize(top_level_exprs_),
-      "Index ",
-      index,
-      " is out of range for HostIrContainer::insertExprAfter");
-  auto insert_pos = index == -1
-      ? top_level_exprs_.begin()
-      : std::next(top_level_exprs_.begin(), index + 1);
-  top_level_exprs_.insert(insert_pos, expr);
+void HostIrContainer::insertExprBefore(
+    std::list<Expr*>::const_iterator position,
+    Expr* expr) {
+  top_level_exprs_.insert(position, expr);
 }
 
 void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {

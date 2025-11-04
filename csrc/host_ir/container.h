@@ -31,7 +31,7 @@ class HostIrContainer final : public Fusion {
   }
   const std::list<Expr*>& topLevelExprs() const;
   void pushBackTopLevelExprs(Expr* expr);
-  void insertExprAfter(int64_t index, Expr* expr);
+  void insertExprBefore(std::list<Expr*>::const_iterator position, Expr* expr);
 
   void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
   bool hasKernelExecutor(int64_t group_id) const;

@@ -95,8 +95,7 @@ TEST_F(HirLowerStreamTest, SingleSetOp) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -130,8 +129,7 @@ TEST_F(HirLowerStreamTest, SingleSetOpNonOutermost) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -168,8 +166,7 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -209,8 +206,7 @@ TEST_F(HirLowerStreamTest, TwoSetOps) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -256,8 +252,7 @@ TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -306,8 +301,7 @@ TEST_F(HirLowerStreamTest, Reduction) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -345,8 +339,7 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -387,8 +380,7 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -429,8 +421,7 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   HostIrEvaluator hie(std::move(hic));
 
@@ -575,8 +566,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOp) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -608,8 +598,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOpNonOutermost) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -643,8 +632,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor tv0_input = at::rand({4, 4}, options);
@@ -680,8 +668,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, TwoSetOps) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -721,8 +708,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
@@ -767,8 +753,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8, 2}, options);
@@ -803,8 +788,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -841,8 +825,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   constexpr int64_t B = 16, M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -879,8 +862,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
           IsA<kir::Allocate>(),
           IsA<hir::GetCurrentStream>(),
           IsA<kir::ForLoop>(),
-          IsA<kir::ForLoop>()
-      ));
+          IsA<kir::ForLoop>()));
 
   constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);

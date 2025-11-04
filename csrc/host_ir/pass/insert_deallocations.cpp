@@ -9,7 +9,9 @@
 #include <host_ir/pass/insert_deallocations.h>
 
 #include <list>
+#include <unordered_set>
 
+#include <ir/iostream.h>
 #include <ir/utils.h>
 
 namespace nvfuser::hir_pass {
@@ -24,36 +26,44 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one "
-        "anyways");
+        "anyways",
+        expr);
   });
-  std::unordered_map<TensorView*, int64_t> last_use;
-  for (auto&& [i, expr] : enumerate(top_level_exprs)) {
-    for (auto* val : expr->inputs()) {
+
+  std::unordered_set<TensorView*> fusion_inputs;
+  for (auto* in : ir_utils::filterByType<TensorView>(hic->inputs())) {
+    fusion_inputs.insert(in);
+  }
+  std::unordered_set<TensorView*> fusion_outputs;
+  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
+    fusion_outputs.insert(out);
+  }
+
+  std::unordered_set<TensorView*> last_use_found;
+  for (auto insertion_point = top_level_exprs.end();
+       insertion_point != top_level_exprs.begin();) {
+    auto prev = std::prev(insertion_point);
+    Expr* e = *prev;
+
+    for (auto* val : e->inputs()) {
       if (!val->isA<TensorView>()) {
         continue;
       }
-      auto tv = val->as<TensorView>();
-      last_use[tv] = i;
+      auto* tv = val->as<TensorView>();
+
+      if (fusion_inputs.count(tv) > 0 || fusion_outputs.count(tv) > 0) {
+        continue;
+      }
+
+      if (!last_use_found.insert(tv).second) {
+        continue;
+      }
+
+      auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
+      hic->insertExprBefore(insertion_point, deallocate);
     }
-  }
 
-  for (auto* in : ir_utils::filterByType<TensorView>(hic->inputs())) {
-    last_use.erase(in);
-  }
-
-  for (auto* out : ir_utils::filterByType<TensorView>(hic->outputs())) {
-    last_use.erase(out);
-  }
-
-  std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
-  last_use_by_index.reserve(last_use.size());
-  for (auto&& [tv, i] : last_use) {
-    last_use_by_index.emplace_back(i, tv);
-  }
-  std::sort(last_use_by_index.begin(), last_use_by_index.end());
-  for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
-    auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
-    hic->insertExprAfter(i, deallocate);
+    insertion_point = prev;
   }
 }
 
