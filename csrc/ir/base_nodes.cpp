@@ -116,33 +116,43 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-bool Val::sameAs(const Statement* other) const {
-  if (this == other) {
-    return true;
+bool Val::sameVal(const Val* other_val, bool strict) const {
+  if (other_val == nullptr) {
+    return false;
   }
-  if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (typeid(*this) != typeid(*other_val)) {
-      return false;
+  if (typeid(*this) != typeid(*other_val)) {
+    return false;
+  }
+  if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
+    return false;
+  }
+  if (vtype_ != other_val->vtype_) {
+    return false;
+  }
+  if (dtype_ != other_val->dtype_) {
+    return false;
+  }
+  if (value_.hasValue() != other_val->value_.hasValue()) {
+    return false;
+  }
+  if (!strict && name() != other_val->name()) {
+    return false;
+  }
+  if (definition_ == nullptr) {
+    if (!value_.hasValue()) {
+      // If strict, then return false for symbolic values.
+      return !strict;
     }
-    if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
-      return false;
+    // If not strict, then NaNs are considered the same.
+    if (!strict && value_.is<double>() && std::isnan(value_.as<double>()) &&
+        std::isnan(other_val->value_.as<double>())) {
+      return true;
     }
-    if (vtype_ != other_val->vtype_) {
-      return false;
-    }
-    if (dtype_ != other_val->dtype_) {
-      return false;
-    }
-    if (value_.hasValue() != other_val->value_.hasValue()) {
-      return false;
-    }
-    if (definition_ == nullptr) {
-      if (value_.hasValue()) {
-        return value_ == other_val->value_;
-      } else {
-        return false;
-      }
-    }
+    return value_ == other_val->value_;
+  }
+  NVF_ERROR(!value_.hasValue());
+
+  if (strict) {
     // non-deterministic operation returns value that wouldn't be the same even
     // if the inputs are the same.
     if (!definition_->isDeterministic() ||
@@ -152,74 +162,41 @@ bool Val::sameAs(const Statement* other) const {
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
     }
-    if (definition_->outputs().size() !=
-        other_val->definition_->outputs().size()) {
+  } else {
+    // sameAs checks if definition is deterministic
+    if (!definition_->sameDefinition(other_val->definition_)) {
       return false;
     }
-    // For definition with multiple outputs, only outputs at the same position
-    // could be the same
-    for (auto i : arange(definition_->outputs().size())) {
-      if ((definition_->output(i) == this) !=
-          (other_val->definition_->output(i) == other_val)) {
-        return false;
-      }
-    }
-    return true;
   }
-  return false;
-}
 
-bool Val::sameDefinition(const Val* other) const {
-  if (other == nullptr) {
-    return false;
-  }
-  if (typeid(*this) != typeid(*other)) {
-    return false;
-  }
-  if (name() != other->name()) {
-    return false;
-  }
-  if ((definition_ == nullptr) != (other->definition_ == nullptr)) {
-    return false;
-  }
-  if (vtype_ != other->vtype_) {
-    return false;
-  }
-  if (dtype_ != other->dtype_) {
-    return false;
-  }
-  if (value_.hasValue() != other->value_.hasValue()) {
-    return false;
-  }
-  if (definition_ == nullptr) {
-    if (!value_.hasValue()) {
-      // sameAs return false if value is symbolic
-      return true;
-    }
-    // NaNs are considered the same
-    if (value_.is<double>() && std::isnan(value_.as<double>()) &&
-        std::isnan(other->value_.as<double>())) {
-      return true;
-    }
-    return value_ == other->value_;
-  }
-  NVF_ERROR(!value_.hasValue());
-  // sameAs checks if definition is deterministic
-  if (!definition_->sameDefinition(other->definition_)) {
-    return false;
-  }
-  if (definition_->outputs().size() != other->definition_->outputs().size()) {
+  if (definition_->outputs().size() !=
+      other_val->definition_->outputs().size()) {
     return false;
   }
   // For definition with multiple outputs, only outputs at the same position
   // could be the same
   for (auto i : arange(definition_->outputs().size())) {
     if ((definition_->output(i) == this) !=
-        (other->definition_->output(i) == other)) {
+        (other_val->definition_->output(i) == other_val)) {
       return false;
     }
   }
+
   return true;
+}
+
+bool Val::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+  if (auto other_val = dynamic_cast<const Val*>(other)) {
+    return sameVal(other_val, /*strict=*/true);
+  }
+  return false;
+}
+
+bool Val::sameDefinition(const Val* other) const {
+  return sameVal(other, /*strict=*/false);
 }
 
 size_t Val::getHash() const {

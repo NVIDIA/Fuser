@@ -283,13 +283,6 @@ class NVF_API Val : public Statement {
 
   size_t getHash() const final;
 
-  // sameDefinition determines if a two values will create the same fusion
-  // definition. If this value contains a scalar, check if other value has the
-  // same scalar. NaN values are considered equal. Unlike Val::sameAs,
-  // non-deterministic definitions are permitted if both Vals have the same
-  // definition.
-  virtual bool sameDefinition(const Val* other) const;
-
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
@@ -402,10 +395,12 @@ class NVF_API Val : public Statement {
         getDataType() == other->as<Val>()->getDataType();
   }
 
-  // sameAs determines if a Statement will return the exact same outputs as this
-  // Val. Both this Val and other Statement must be deterministic. It checks if
-  // the other Statement is a Val and has the same definition, ValType, and
-  // DType.
+  // sameDefinition determines if a two values will create the same fusion
+  // definition.
+  virtual bool sameDefinition(const Val* other) const;
+
+  // sameAs determines if a Statement generates the exact same outputs as this
+  // Val.
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
@@ -458,6 +453,15 @@ class NVF_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
+  // The sameVal helper function checks if the other Val has the same
+  // definition, ValType, and DType.
+  // If strict:
+  //  - Symbolic values without definitions are not the same.
+  //  - Val's with nondeterministic definitions are not the same.
+  // Else:
+  //  - NaN values are considered equal.
+  bool sameVal(const Val* other, bool strict) const;
+
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
