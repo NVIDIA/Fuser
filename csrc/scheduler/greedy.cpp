@@ -481,12 +481,6 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(TopKOp* topk) override {
-    // Due to the current limitations of TopKOp codegen, all of the
-    // TIDx threads participate, which means the TID parallelized iter
-    // domain of this TopKOp must have an extent that is no less
-    // than any other TID parallelized iter domains.
-    needs_all_tid_participation_ = true;
-
     auto in_tv = ir_utils::getTvInput(topk);
     auto out_tv = ir_utils::getTvOutput(topk);
 
@@ -622,7 +616,8 @@ class CompileTimeChecker : private IterVisitor {
 
   ValGroups all_constrained_domain_;
 
-  // True if all threads need to participate without predicates
+  // True if all threads need to participate without predicates. This
+  // was previously used for ops like TopKOp.
   bool needs_all_tid_participation_ = false;
   bool has_largest_constrained_size_ = true;
   int64_t largest_constrained_size_ = -1;
