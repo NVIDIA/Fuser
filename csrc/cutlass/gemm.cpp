@@ -68,11 +68,20 @@ std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   NVF_ERROR(fusion != nullptr);
-  NVF_ERROR_EQ(
-      fusion->outputs().size(),
-      1,
-      "Cutlass executor currently only supports a single output");
-  auto* main_output = fusion->outputs().front()->as<TensorView>();
+
+  TensorView* main_output = fusion->outputs().front()->as<TensorView>();
+  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
+  const bool has_evt = model_opt.isValid();
+  if (has_evt) {
+    main_output = model_opt.getData().getRootTensorView();
+  } else {
+    NVF_ERROR_EQ(
+        fusion->outputs().size(),
+        1,
+        "Fusions without EVT must have a single output");
+  }
+  NVF_ERROR(main_output != nullptr);
+
   const std::string output_dtype = dtypeToCutlass(main_output->dtype());
 
   ScaledMmaOp* smma = findScaledMmaOp(fusion);
@@ -196,7 +205,8 @@ struct Fp4GemmSm100 {
   // C/D matrix configuration
 )";
   code += "  using ElementD = " + output_dtype + ";\n";
-  code += "  using ElementC = " + output_dtype + ";\n";
+  // This should be void unless there is a bias
+  code += "  using ElementC = void;\n";
 
   NVF_ERROR(
       !main_output->hasAllocation(),
@@ -207,7 +217,9 @@ struct Fp4GemmSm100 {
 
   code += R"(
   static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+  // Avoid division by zero in case ElementC is void
+  static constexpr int AlignmentC = 128 / std::max(cutlass::sizeof_bits<ElementC>::value, 1);
+
   // Kernel functional config
   using ElementAccumulator = float;
   using ArchTag = cutlass::arch::Sm100;
@@ -218,9 +230,26 @@ struct Fp4GemmSm100 {
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
 
+  // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
+  static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
+  using TmemWarpShape_MN =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_tmem_warps<Is2SmMma, MmaTileShape>());
+  // Compute the actual epilogue tile that will be auto-selected by the builder
+  using EpilogueTileShape =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_dense_compute_tile_shape_or_override<
+                       OperatorClass,
+                       PerSmTileShape_MNK,
+                       cutlass::epilogue::collective::EpilogueTileAuto,
+                       TmemWarpShape_MN,
+                       ElementC,
+                       LayoutCTag,
+                       ElementD,
+                       LayoutDTag,
+                       /*IsPerColScaleSupported=*/false>());
+
 )";
-  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
-  const bool has_evt = model_opt.isValid();
   if (has_evt) {
     const EVTModel& evt_model = model_opt.getData();
     code += "  using EVTOp =\n" +
@@ -360,7 +389,6 @@ typename T::Gemm::Arguments args_from_inputs(
     code += "  const TensorArg& bias = inputs.at(" +
         std::to_string(fusionInputPosition(fusion, smma->bias())) + ");\n";
   }
-  NVF_ERROR_EQ(fusion->outputs().size(), 1);
   code +=
       "  const TensorArg& output = inputs.at(" +
       std::to_string(

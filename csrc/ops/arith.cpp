@@ -2535,6 +2535,9 @@ TopKResult topk(
   // dimension just inherits the same properties as the producer
   // dimension. It's resized to generate a logical iter domain of
   // extent K by slicing the root iter domain by [0:k].
+  //
+  // The first output generated when i == 0 is the value output. The
+  // second is the index output.
   for (const int i : arange(2)) {
     std::vector<IterDomain*> values_root;
     values_root.reserve(inp_domain.size());
@@ -2542,8 +2545,6 @@ TopKResult topk(
     values_logical.reserve(inp_domain.size());
 
     for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-      // TODO: nvfuser enumerate implementation is not correct, it should return
-      // signed ints instead.
       auto root_id = inp_domain_ptr->cloneWithoutRFactor();
       values_root.push_back(root_id);
       if (index != (size_t)dim) {
@@ -2561,9 +2562,7 @@ TopKResult topk(
       values_logical.push_back(logical_id);
     }
 
-    // The first output is the value output. The second is the index
-    // output.
-    auto dtype = i == 0 ? inp->getDataType().value() : DataType::Int;
+    auto dtype = i == 0 ? inp->dtype() : DataType::Int;
     auto out_tv = IrBuilder::create<TensorView>(
         IrBuilder::create<TensorDomain>(
             values_root,

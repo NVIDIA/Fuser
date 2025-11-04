@@ -179,12 +179,15 @@ std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
   const auto constrained_exprs = getAllConstrainedOps(fusion);
 
   std::vector<TensorView*> constrained_tvs;
+
+  // All outputs of constrained ops are considered constrained
   constrained_tvs.reserve(constrained_exprs.size());
   std::ranges::transform(
       constrained_exprs,
       std::back_inserter(constrained_tvs),
       [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
 
+  // Grab additional constrained tensors
   for (auto expr : constrained_exprs) {
     if (auto scatter = dynamic_cast<ScatterOp*>(expr)) {
       // ScatterOp's inputs are also considered constrained unless it's
@@ -207,12 +210,10 @@ std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
       }
     } else if (auto topk = dynamic_cast<TopKOp*>(expr)) {
       // Similar to ScatterOp, TopKOp inputs are also considered
-      // constrained since there's a reshape between the output and
+      // constrained since there's a resize between the output and
       // input tensors.
-      for (auto inp : topk->inputs()) {
-        if (!inp->isFusionInput() && inp->isA<TensorView>()) {
-          constrained_tvs.push_back(inp->as<TensorView>());
-        }
+      if (!topk->in()->isFusionInput()) {
+        constrained_tvs.push_back(topk->in()->as<TensorView>());
       }
     }
   }
@@ -898,12 +899,13 @@ class HeuristicsBuilder : private IterVisitor {
     // Batching factor is determined by the dimension of the input
     // topk ID, so add a heuristics parameter based on the topk input
     // tensor
+    auto inp_tv = ir_utils::getTvInput(topk);
+    auto out_tv = ir_utils::getTvOutput(topk);
     addHeuristicsFor(
-        ir_utils::getTvInput(topk),
-        TensorDomain::noReductions(
-            ir_utils::getTvInput(topk)->getLogicalDomain()),
+        inp_tv,
+        TensorDomain::noReductions(inp_tv->getLogicalDomain()),
         {topk->dim()},
-        ir_utils::getTvOutput(topk));
+        out_tv);
   }
 
   // Make sure a given tensor has some heuristics parameters
@@ -1192,6 +1194,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  // In TopKOp, both input and output are constrained tensors
   void handle(TopKOp* topk) override {
     auto topk_dim = topk->dim();
     auto inp_tv = ir_utils::getTvInput(topk);
@@ -1215,7 +1218,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets,
       const GreedyParams::TvParams& heuristic_params,
-      bool suppot_grouping = false) {
+      bool support_grouping = false) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
     const auto& constrained_loop_id_offsets =
@@ -1247,7 +1250,7 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       // for-loops for batch dimensions. However, if the batch
       // dimension is a broadcast, it does not make any difference as
       // broadcast IDs do not create for-loops.
-      if (suppot_grouping && !tv->axis(-1)->isBroadcast()) {
+      if (support_grouping && !tv->axis(-1)->isBroadcast()) {
         tv->axis(-1)->parallelize(ParallelType::Group);
       }
     } else {
