@@ -594,7 +594,7 @@ class ExprValidator : public OptOutDispatch {
     // (M*K)/4/128      128(Tx)
 
     // Next we check the following scheduling requirements for
-    // BlockQuantizationOp - the above figure is an example of such a schedule.
+    // BlockQuantizationOp - the above figure is an example of a valid schedule.
     // 1. The Group ID must be derived from the innermost logical IDs
     // 2. TIDx must follow the Group ID in the schedule -- that is when derived
     // from the logical domain, group ID must be inner-most, the next
@@ -603,7 +603,7 @@ class ExprValidator : public OptOutDispatch {
     // 3. All merges involved from logical domains to group and thread ID must
     // combine contiguous logical IDs
 
-    // This will get the xforms from logical to loop and apply then on the
+    // This will get the xforms from logical to loop and apply them on the
     // logical domain. We will get a loop domain minus the reordering.
     std::vector<IterDomain*> ids_to_transform =
         scheduler_utils::computeLoopDomainFromLogical(quantized_output);
