@@ -98,7 +98,7 @@ enum class MemoryFormat3D {
   Perm102, // [1, 0, 2]
   Perm120, // [1, 2, 0]
   Perm201, // [2, 0, 1]
-  Perm210 // [2, 1, 0]
+  Perm210, // [2, 1, 0]
 };
 
 // All memory format values for parameterized tests
