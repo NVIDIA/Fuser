@@ -20,6 +20,7 @@
 #include <ops/arith.h>
 #include <ops/composite.h>
 #include <ops/utils.h>
+#include <scheduler/utils.h>
 #include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
@@ -121,18 +122,17 @@ void insertReshardingSetsBefore(Fusion* fusion) {
     }
 
     // Reshard each input of expr to match output if necessary
-    std::vector<TensorView*> new_inputs;
     for (auto input : inputs) {
       // TODO: reuse cacheAfter?
       // TODO: here we should add a mechanism to potentially reuse the
       // inserted resharding accross all the consumer of the resharded tensor.
       // This way we could avoid wasteful resharding set insertion.
       TensorView* new_input = set(input);
-      new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
+      new_input->setDeviceMesh(output->getDeviceMesh());
+      propagateDeviceAndStream(
+          output, new_input, allParallelTypes(), PropagateDirection::kBackward);
     }
-
-    shardAllLike(output, new_inputs, allParallelTypes());
   }
 }
 
