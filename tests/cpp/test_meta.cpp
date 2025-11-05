@@ -166,7 +166,8 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(false, true), // input: col-major, weight: row-major
         std::make_tuple(false, false)), // input: col-major, weight: col-major
     [](const testing::TestParamInfo<std::tuple<bool, bool>>& info) {
-      auto [input_is_row_major, weight_is_row_major] = info.param;
+      bool input_is_row_major = std::get<0>(info.param);
+      bool weight_is_row_major = std::get<1>(info.param);
       return std::string("input_") +
           (input_is_row_major ? "RowMajor" : "ColMajor") + "_weight_" +
           (weight_is_row_major ? "RowMajor" : "ColMajor");
