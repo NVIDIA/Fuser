@@ -66,9 +66,6 @@ TEST_F(ParallelDimTest, Binding) {
 
   fusion->printMath();
 
-  const ParallelDimensionMap pdm(fusion);
-  std::cout << pdm.toString() << std::endl;
-
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({192, 768, 384}, options);
@@ -76,6 +73,15 @@ TEST_F(ParallelDimTest, Binding) {
 
   KernelExecutor ke;
   ke.compile(fusion, inputs);
+
+  const ParallelDimensionMap& pdm =
+      ke.compiledKernel()->lowered()->info().parallelDimensionMap();
+
+  std::cout << pdm.toString() << std::endl;
+
+  EXPECT_TRUE(pdm.has(ParallelType::BIDx));
+  EXPECT_TRUE(pdm.has(ParallelType::TIDx));
+  EXPECT_TRUE(pdm.has(ParallelType::TIDy));
 
   const auto cg_outputs = ke.run(inputs);
 
