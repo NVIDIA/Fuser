@@ -407,14 +407,6 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
 class BlockQuantizationValidationTest : public BlackwellBase {
  protected:
-  // Helper function to assert compilation fails
-  void assertCompilationFails(Fusion* fusion, const char* expected_error_msg) {
-    EXPECT_THAT(
-        [&]() { GpuLower(fusion).run(); },
-        testing::ThrowsMessage<nvfuser::nvfError>(
-            testing::HasSubstr(expected_error_msg)));
-  }
-
   // Helper function to create a fusion with blockQuantize and apply scheduling
   struct FusionSetup {
     std::unique_ptr<Fusion> fusion;
@@ -482,7 +474,10 @@ TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
   fusion->addOutput(quantization_results.block_scales);
   fusion->addOutput(t_out);
 
-  assertCompilationFails(fusion.get(), "Input must be a local memory tensor");
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Input must be a local memory tensor")));
 }
 
 // Quantized output is written to global memory - not valid
@@ -499,8 +494,10 @@ TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
   fusion->addOutput(quantization_results.block_scales);
   fusion->addOutput(quantization_results.quantized_tensor);
 
-  assertCompilationFails(
-      fusion.get(), "Quantized output must be a local memory tensor");
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Quantized output must be a local memory tensor")));
 }
 
 // Block scaling factor is written to local memory - not valid
@@ -521,8 +518,10 @@ TEST_F(
   fusion->addOutput(tv_block_scales);
   fusion->addOutput(tv_quantized_out);
 
-  assertCompilationFails(
-      fusion.get(), "Block scaling factor must be a global memory tensor");
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block scaling factor must be a global memory tensor")));
 }
 
 // Group ID must be the innermost of all splits from logical domains to loop
@@ -556,10 +555,11 @@ TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
     }
   }
 
-  assertCompilationFails(
-      setup.fusion.get(),
-      "The grouped ID must correspond to the innermost of all splits from "
-      "logical domains to loop domains for BlockQuantizationOp");
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "The grouped ID must correspond to the innermost of all splits from "
+          "logical domains to loop domains for BlockQuantizationOp")));
 }
 
 // We do not allow IDs of types serial, unroll, unswitch to have extent > 1
@@ -591,11 +591,11 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
     }
   }
 
-  assertCompilationFails(
-      setup.fusion.get(),
-
-      "Expected non-TID/BID/Group ID to have extent of 1 for "
-      "BlockQuantizationOp");
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Expected non-TID/BID/Group ID to have extent of 1 for "
+          "BlockQuantizationOp")));
 }
 
 // The runtime kernel for block quantization expects TIDx to access contiguous
@@ -630,10 +630,11 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
     }
   }
 
-  assertCompilationFails(
-      setup.fusion.get(),
-      "Expected IDs between Group ID and TIDx to have extent of 1 for "
-      "BlockQuantizationOp:");
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Expected IDs between Group ID and TIDx to have extent of 1 for "
+          "BlockQuantizationOp:")));
 }
 
 // When running validation checks we traverse from loop to logical domain
@@ -676,10 +677,12 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
     }
   }
 
-  assertCompilationFails(
-      setup.fusion.get(),
-      "All merge operations deriving the grouped ID must combine contiguous "
-      "IDs from the logical domain for BlockQuantizationOp");
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "All merge operations deriving the grouped ID must combine "
+          "contiguous "
+          "IDs from the logical domain for BlockQuantizationOp")));
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
