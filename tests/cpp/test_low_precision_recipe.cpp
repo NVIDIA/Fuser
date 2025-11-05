@@ -409,8 +409,6 @@ class BlockQuantizationValidationTest : public BlackwellBase {
  protected:
   // Helper function to assert compilation fails
   void assertCompilationFails(Fusion* fusion, const char* expected_error_msg) {
-    KernelExecutor ke;
-
     EXPECT_THAT(
         [&]() { GpuLower(fusion).run(); },
         testing::ThrowsMessage<nvfuser::nvfError>(
