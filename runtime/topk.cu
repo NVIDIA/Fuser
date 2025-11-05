@@ -31,20 +31,11 @@ constexpr __device__ bool isIter(int STATE) {
 // fused_reduction.cu and argsort.cu
 //
 // For simplicity, we assume that:
-// - top_values: Output array containing top-K values. Each thread holds
-//   up to ITEMS_PER_THREAD values.
+// - top_values: Output array containing top-K values.
 // - top_indices: Output array containing original indices of top-K values
-// - Each thread holds sufficiently large output arrays to hold top-K
-//   values and indices.
+// - Each thread holds up to ITEMS_PER_THREAD values.
 // - This implementation sorts ALL elements and returns them in the output
 //   arrays, but the consuming kernel should only read the first k elements
-//
-// IMPLEMENTATION NOTE: This test implementation populates ALL
-// ITEMS_PER_THREAD elements in the output arrays with sorted results.
-// However, in the actual nvFuser-generated kernel, only the first k elements
-// should be consumed from each thread's output arrays (top_values[0..k-1] and
-// top_indices[0..k-1]). The remaining elements beyond index k-1 should be
-// ignored via predication.
 //
 // Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
 // always produces sorted output. Future optimization could skip sorting
@@ -126,6 +117,12 @@ __device__ void blockTopK(
   }
 
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
+    // This predicate is necessary when k == 1, where the output iter
+    // domain is just a broadcast, so splitting off ITEMS_PER_THREAD
+    // would still just yield another broadcast, for which we would
+    // not allocate anything for. Thus, the output buffer may look
+    // like [b0(TIDx), b1(ITEMS_PER_THREAD)], meaning each thread only
+    // has a buffer of a scalar value.
     if (thread_id * ITEMS_PER_THREAD + i < k) {
       top_values[i] = cub_utils::NvFuserType<DataT>::get(temp_data[i]);
       top_indices[i] = temp_indices[i];
