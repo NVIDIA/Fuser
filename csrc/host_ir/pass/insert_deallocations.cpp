@@ -31,8 +31,7 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   });
 
   std::unordered_set<TensorView*> last_use_found;
-  Scope& top_level_scope = hic->topLevel();
-  for (auto insertion_point = top_level_scope.exprs().end();
+  for (auto insertion_point = top_level_exprs.end();
        insertion_point != top_level_exprs.begin();) {
     auto prev = std::prev(insertion_point);
     Expr* e = *prev;

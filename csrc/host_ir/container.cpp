@@ -40,24 +40,17 @@ const Scope& HostIrContainer::topLevel() const {
   return top_level_;
 }
 
-Scope& HostIrContainer::topLevel() {
-  return top_level_;
-}
-
 void HostIrContainer::resetTopLevelExprs(std::list<Expr*> exprs) {
-  topLevel().clear();
-  for (auto* expr : exprs) {
-    pushBackTopLevelExprs(expr);
-  }
+  top_level_.exprs() = std::move(exprs);
 }
 
-void HostIrContainer::insertExprBefore(Scope::Iterator position, Expr* expr) {
-  topLevel().insert(position, expr);
+void HostIrContainer::insertExprBefore(Scope::Iterator position, Expr* e) {
+  top_level_.insert(position, e);
 }
 
-Scope::Iterator HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
-  assertInContainer(expr, "Cannot add expr, ");
-  return topLevel().insert(topLevel().exprs().end(), expr);
+Scope::Iterator HostIrContainer::pushBackTopLevelExprs(Expr* e) {
+  assertInContainer(e, "Cannot add expr, ");
+  return top_level_.push_back(e);
 }
 
 bool HostIrContainer::hasKernelExecutor(int64_t group_id) const {

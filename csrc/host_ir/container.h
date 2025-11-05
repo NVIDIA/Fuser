@@ -30,11 +30,10 @@ class HostIrContainer final : public Fusion {
   std::ostream& print(std::ostream& os) const;
 
   const Scope& topLevel() const;
-  Scope& topLevel();
-
   const Scope::ExprList& topLevelExprs() const {
     return topLevel().exprs();
   }
+
   // Appends `expr` and returns the iterator pointing to `expr`.
   Scope::Iterator pushBackTopLevelExprs(Expr* expr);
   void insertExprBefore(Scope::Iterator position, Expr* expr);
