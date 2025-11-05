@@ -486,10 +486,7 @@ class CompileTimeChecker : private IterVisitor {
 
     // Like ScatterOp, the input defines the scheduling, so check the
     // input logical domain
-    checkDomainConstraints(
-        in_tv->getLogicalDomain(),
-        {topk->dim()},
-        /*require_exact_constrained_ids=*/true);
+    checkDomainConstraints(in_tv->getLogicalDomain(), {topk->dim()});
 
     // Only static dim supported for now.
     auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
