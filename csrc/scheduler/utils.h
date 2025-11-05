@@ -681,11 +681,12 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // Update the vector of ids_to_transform as progressing through the
 // `transform_exprs`. We'll always insert the result of split in the
 // location of the input, and insert the merge result in the position of the
-// inner dimension.
+// inner dimension. Optionally accepts a callback after each transform is
+// applied for analysis of the expr nodes.
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
     const std::vector<Expr*>& transform_exprs,
-    std::optional<std::function<void(Expr*)>> after_transform = std::nullopt);
+    std::optional<std::function<void(Expr*)>> post_transform = std::nullopt);
 
 // Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
@@ -700,12 +701,6 @@ std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 // logical domain that satisfies the order in allocation domain.
 std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv);
-
-// Helper function that computes the loop domain by applying all transformations
-// from the logical domain to the loop domain. Returns a vector of IterDomains
-// representing what the loop domain minus reorderings would look like after
-// applying the transformations to the logical domain.
-std::vector<IterDomain*> computeLoopDomainFromLogical(TensorView* tv);
 
 // Generates an old to new map to reorder tv's loop domain as its allocation
 // order. Allocation domain is transformed to find a permutation of the loop

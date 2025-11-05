@@ -208,11 +208,8 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
-// Traverse through the expressions, updating the frontier based on merge and
-// split operations. Returns true if all merges encountered are contiguous.
-// If stop_on_noncontiguous is true, stops traversal and returns false on first
-// non-contiguous merge. Otherwise, removes non-contiguous merges from frontier
-// and continues.
+// For each expressions, update the frontier based on merge and
+// split operations. Removes non-contiguous merges from frontier.
 void traverseFrontierWithContiguityCheck(
     std::deque<IterDomain*>& frontier,
     Expr* expr) {
@@ -232,7 +229,6 @@ void traverseFrontierWithContiguityCheck(
     auto inner_pos = std::distance(frontier.begin(), inner_it);
 
     bool is_contig = outer_pos + 1 == inner_pos;
-
     frontier.erase(inner_it);
 
     // If it's contig, we can continue the analysis by proceeding to
@@ -250,12 +246,15 @@ void traverseFrontierWithContiguityCheck(
     }
     frontier.insert(in_it + 1, split->inner());
     *in_it = split->outer();
+  } else {
+    NVF_ERROR(expr != nullptr);
+    NVF_THROW("Unexpected expression: ", expr->toString());
   }
 }
 
 // Check if maybe_innermost_id is derived from base_id and corresponds to the
 // innermost subregion of base_id. The split/merge exprs between
-// based_id and id must not include any ID that is not produced from
+// base_id and id must not include any ID that is not produced from
 // base_id.
 bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   auto exprs =
@@ -577,10 +576,7 @@ class ExprValidator : public OptOutDispatch {
     // "inner-most" should be TIDx (unless there is an ID with a unit trip
     // count)
     // 3. All merges involved from logical domains to group and thread ID must
-    // combine contiguous logical IDs
-
-    // This will get the xforms from logical to loop and apply them on the
-    // logical domain. We will get a loop domain minus the reordering.
+    // combine contiguous IDs
 
     auto transform_exprs = DependencyCheck::getAllExprsBetween(
         {quantized_output->getLogicalDomain().begin(),
@@ -594,12 +590,17 @@ class ExprValidator : public OptOutDispatch {
     std::deque<IterDomain*> frontier(
         quantized_output->getLogicalDomain().begin(),
         quantized_output->getLogicalDomain().end());
+
+    // This will get the xforms from logical to loop and apply them on the
+    // logical domain. We will get a loop domain minus the reordering.
+    // This pass also removes all IDs from frontier that were derived using
+    // non-contiguous merges.
     scheduler_utils::applyTransforms(
         ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
           traverseFrontierWithContiguityCheck(frontier, expr);
         });
 
-    // The grouped ID must correspond to the innermost
+    // The grouped ID must correspond to the innermost loop-like domain
     NVF_ERROR(
         ids_to_transform.back() == grouped_id,
         "The grouped ID must correspond to the innermost of all splits "
@@ -631,7 +632,7 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         quantized_output->toString());
 
-    // Check if grouped_is in frontier.
+    // Check if grouped_is in frontier
     auto grouped_it =
         std::ranges::find(frontier.begin(), frontier.end(), grouped_id);
     NVF_ERROR(

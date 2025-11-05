@@ -407,7 +407,6 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
 class BlockQuantizationValidationTest : public BlackwellBase {
  protected:
-  // Helper function to create a fusion with blockQuantize and apply scheduling
   struct FusionSetup {
     std::unique_ptr<Fusion> fusion;
     TensorView* tv_data_hp;
@@ -417,6 +416,7 @@ class BlockQuantizationValidationTest : public BlackwellBase {
     TensorView* t_out;
   };
 
+  // Helper function to create a fusion with blockQuantize and apply scheduling
   FusionSetup createBlockQuantizeFusion(int64_t dim = 2) {
     FusionSetup setup;
     setup.fusion = std::make_unique<Fusion>();
