@@ -407,35 +407,14 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
 class BlockQuantizationValidationTest : public BlackwellBase {
  protected:
-  // Helper function to create test input tensor
-  at::Tensor createTestInput(int64_t dim = 2) {
-    if (dim == 2) {
-      return at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat));
-    } else if (dim == 3) {
-      return at::randn({16, 64, 1024}, at::device(at::kCUDA).dtype(at::kFloat));
-    } else {
-      throw std::runtime_error("Unsupported dimension for createTestInput");
-    }
-  }
-
-  // Helper function to assert compilation fails with expected error message
-  void assertCompilationFails(
-      Fusion* fusion,
-      const std::vector<at::Tensor>& inputs,
-      const char* expected_error_msg) {
+  // Helper function to assert compilation fails
+  void assertCompilationFails(Fusion* fusion, const char* expected_error_msg) {
     KernelExecutor ke;
-    EXPECT_THROW(
-        {
-          try {
-            ke.compile(fusion, inputs);
-          } catch (const std::exception& e) {
-            EXPECT_THAT(e.what(), ::testing::HasSubstr(expected_error_msg))
-                << "Expected error message containing: \"" << expected_error_msg
-                << "\"\nActual error: " << e.what();
-            throw; // Re-throw for EXPECT_THROW to catch
-          }
-        },
-        std::exception);
+
+    EXPECT_THAT(
+        [&]() { GpuLower(fusion).run(); },
+        testing::ThrowsMessage<nvfuser::nvfError>(
+            testing::HasSubstr(expected_error_msg)));
   }
 
   // Helper function to create a fusion with blockQuantize and apply scheduling
@@ -505,8 +484,7 @@ TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
   fusion->addOutput(quantization_results.block_scales);
   fusion->addOutput(t_out);
 
-  assertCompilationFails(
-      fusion.get(), {createTestInput()}, "Input must be a local memory tensor");
+  assertCompilationFails(fusion.get(), "Input must be a local memory tensor");
 }
 
 // Quantized output is written to global memory - not valid
@@ -524,9 +502,7 @@ TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
   fusion->addOutput(quantization_results.quantized_tensor);
 
   assertCompilationFails(
-      fusion.get(),
-      {createTestInput()},
-      "Quantized output must be a local memory tensor");
+      fusion.get(), "Quantized output must be a local memory tensor");
 }
 
 // Block scaling factor is written to local memory - not valid
@@ -548,9 +524,7 @@ TEST_F(
   fusion->addOutput(tv_quantized_out);
 
   assertCompilationFails(
-      fusion.get(),
-      {createTestInput()},
-      "Block scaling factor must be a global memory tensor");
+      fusion.get(), "Block scaling factor must be a global memory tensor");
 }
 
 // Group ID must be the innermost of all splits from logical domains to loop
@@ -586,7 +560,6 @@ TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
 
   assertCompilationFails(
       setup.fusion.get(),
-      {createTestInput()},
       "The grouped ID must correspond to the innermost of all splits from "
       "logical domains to loop domains for BlockQuantizationOp");
 }
@@ -622,7 +595,7 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
 
   assertCompilationFails(
       setup.fusion.get(),
-      {createTestInput()},
+
       "Expected non-TID/BID/Group ID to have extent of 1 for "
       "BlockQuantizationOp");
 }
@@ -661,7 +634,6 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
 
   assertCompilationFails(
       setup.fusion.get(),
-      {createTestInput()},
       "Expected IDs between Group ID and TIDx to have extent of 1 for "
       "BlockQuantizationOp:");
 }
@@ -708,7 +680,6 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
 
   assertCompilationFails(
       setup.fusion.get(),
-      {createTestInput(/*dim=*/3)},
       "All merge operations deriving the grouped ID must combine contiguous "
       "IDs from the logical domain for BlockQuantizationOp");
 }
