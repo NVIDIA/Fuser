@@ -34,6 +34,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
       getCommunicationLayout(input, communication_info.type, p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
+    input_copy->setDeviceMesh(input->getDeviceMesh());
     TransformReplay::selfReplay(input->domain(), input_copy->domain());
     ir_utils::replaceValInExprInputs(expr, input, input_copy);
     p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
@@ -58,6 +59,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
       // extra copy -- a contiguous tensor can be used as non-contiguous.
       !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
     TensorView* output_copy = set(output);
+    output_copy->setDeviceMesh(output->getDeviceMesh());
     TransformReplay::selfReplay(output->domain(), output_copy->domain());
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
   }
