@@ -5,6 +5,9 @@
 
 import pytest
 import torch
+import itertools
+import math
+from dataclasses import dataclass
 from nvfuser_direct import (
     FusionDefinition,
     IdMappingMode,
@@ -1746,3 +1749,190 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     assert prof.profile.fusion_id >= 0
     assert len(prof.profile.kernel_profiles) > 0
     assert prof.profile.kernel_profiles[0].scheduler == "user"
+
+
+def test_tutorial_autotune_pointwise_mul():
+    """
+    Test autotuning with machine learning for pointwise multiplication fusion.
+    Demonstrates the full workflow: data collection, ML training, and validation.
+    """
+    # Check if sklearn is available
+    pytest.importorskip("sklearn")
+    from sklearn import ensemble
+    from nvfuser_direct.autotune import (
+        ScriptConfiguration,
+        collect_data,
+        separate_data,
+        test_model_rmse,
+    )
+
+    class AutotunePointwiseMul:
+        """Autotuning configuration for pointwise multiplication fusion."""
+
+        @dataclass(unsafe_hash=True)
+        class PointwiseConfiguration:
+            break_point: int
+            bdim: [int]
+            vectorize_factor: int
+            outer_unroll: int
+            inner_unroll: int
+
+        def __repr__(self):
+            return "pointwise_MUL"
+
+        def generate_scheduler_configurations(self, input_shape):
+            """Generate all possible scheduler configurations for the given input shape."""
+
+            def _named_product(**items):
+                return itertools.starmap(
+                    self.PointwiseConfiguration, itertools.product(*items.values())
+                )
+
+            num_dimensions = len(input_shape)
+            warp_size = 32
+            warp_group = warp_size * 4
+            # limited to a maximum of 128 threads because of pointwise scheduler
+            max_threads_per_cta = 128
+            threads_per_cta = list(
+                range(warp_group, max_threads_per_cta + 1, warp_group)
+            )
+
+            scheduler_configs = []
+            for bp in range(num_dimensions):
+                for num_threads in threads_per_cta:
+                    if bp == 0:
+                        # 1D scheduler configurations
+                        bdim_shapes = [(num_threads, 1)]
+                        outer_unroll_range = [1]
+                        # unroll_factor is between [1, 9]
+                        inner_unroll_range = range(1, 10)
+                    else:
+                        # 2D scheduler configurations
+                        max_bdimy = num_threads // warp_size
+                        log2_max_bdimy = int(math.log2(max_bdimy))
+                        bdimy_configs = [
+                            2**log_bdimy for log_bdimy in range(1, log2_max_bdimy + 1)
+                        ]
+
+                        bdim_shapes = [
+                            (max(warp_size, num_threads // bdimy), bdimy)
+                            for bdimy in bdimy_configs
+                        ]
+                        # total_unroll_factor is between [1, 9] given that outer and
+                        # inner unroll factors are between [1, 3].
+                        outer_unroll_range = range(1, 4)
+                        inner_unroll_range = range(1, 4)
+
+                    scheduler_config = _named_product(
+                        break_point=[bp],
+                        bdim=bdim_shapes,
+                        vectorize_factor=[1, 2, 4, 8],
+                        outer_unroll=outer_unroll_range,
+                        inner_unroll=inner_unroll_range,
+                    )
+                    scheduler_configs.append(scheduler_config)
+            return itertools.chain(*scheduler_configs)
+
+        def create_inputs(self, shape, tensor_datatype):
+            """Create input tensors for the MUL fusion."""
+            return [
+                torch.randn(*shape, dtype=tensor_datatype, device="cuda"),
+                torch.randn(*shape, dtype=tensor_datatype, device="cuda"),
+            ]
+
+        def create_fusion_func(self, inputs):
+            """Create the fusion definition function for MUL."""
+
+            def mul(fd: FusionDefinition) -> None:
+                T0 = fd.define_tensor(
+                    shape=[-1, -1],
+                    contiguity=[True, True],
+                    dtype=DataType.BFloat16,
+                    is_cpu=False,
+                    stride_order=[1, 0],
+                )
+                T1 = fd.define_tensor(
+                    shape=[-1, -1],
+                    contiguity=[True, True],
+                    dtype=DataType.BFloat16,
+                    is_cpu=False,
+                    stride_order=[1, 0],
+                )
+                T2 = fd.ops.cast(T0, dtype=DataType.Float)
+                T3 = fd.ops.cast(T1, dtype=DataType.Float)
+                T4 = fd.ops.mul(T2, T3)
+                T5 = fd.ops.cast(T4, dtype=DataType.BFloat16)
+                fd.add_output(T5)
+
+            return mul
+
+        def eager_reference(self, inputs):
+            """PyTorch eager mode reference for validation."""
+            return inputs[0] * inputs[1]
+
+        def custom_scheduler(self, fd, inputs, scheduler_config):
+            """Get heuristic parameters with custom scheduler configuration."""
+            # Check if compatible with pointwise scheduler and get default parameters
+            pointwise_params = schedule.compute_heuristics(
+                fd.fusion, SchedulerType.pointwise, inputs
+            )
+
+            # Modify original parameters
+            if scheduler_config is not None:
+                pointwise_params.break_point = scheduler_config.break_point
+                pointwise_params.vectorization_factor = (
+                    scheduler_config.vectorize_factor
+                )
+                pointwise_params.unroll_factor_outer = scheduler_config.outer_unroll
+                pointwise_params.unroll_factor_inner = scheduler_config.inner_unroll
+                pointwise_params.lparams.bdimx = scheduler_config.bdim[0]
+                pointwise_params.lparams.bdimy = scheduler_config.bdim[1]
+
+            # Get base heuristic parameters
+            schedule.schedule(fd.fusion, SchedulerType.pointwise, pointwise_params)
+            return pointwise_params
+
+    # ====================== Setup Script Configuration  =======================
+    script_config = ScriptConfiguration(
+        num_dimensions=2,
+        outer_shapes=[16384],
+        inner_shapes=[128, 1024, 4096, 16384],
+        tensor_datatype=torch.bfloat16,
+        test_data_percentage=0.1,
+        empirical_batch_size=16384,
+        empirical_hidden_sizes=list(range(256, 32768, 256)),
+    )
+
+    autotune_config = AutotunePointwiseMul()
+
+    # ============================ Run Experiments  ============================
+    print("Collecting training data...")
+    parameters, performance = collect_data(script_config, autotune_config)
+    print(f"Collected {len(parameters)} data points")
+
+    # ============================ Separate Data  ==============================
+    train_data, test_data = separate_data(script_config, parameters, performance)
+    train_inputs, train_perf = train_data
+    test_inputs, test_perf, test_shapes, best_test_scheduler_config = test_data
+
+    print(f"Training set size: {len(train_inputs)}")
+    print(f"Test set size: {len(test_inputs)}")
+
+    # ========================= Train Regression Models  =======================
+    print("Training RandomForestRegressor...")
+    clf = ensemble.RandomForestRegressor()
+    clf = clf.fit(train_inputs, train_perf)
+
+    # Verify the model trained successfully
+    assert clf is not None
+    assert hasattr(clf, "predict")
+
+    # ========================= Test Regression Models  ========================
+    print("Testing model performance...")
+    test_model_rmse(clf, script_config, autotune_config, test_data)
+
+    # Note: test_model() is commented out as it's very time-consuming
+    # and generates plots. Uncomment if needed for detailed analysis:
+    # test_model(clf, script_config, autotune_config)
+
+    print("Autotune test completed successfully!")
