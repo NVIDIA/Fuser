@@ -11,4 +11,4 @@
 #include <ops/composite.h>
 #include <ops/indexing.h>
 #include <ops/normalization.h>
-#include <ops/pipeline.h>
+#include <ops/schedule.h>

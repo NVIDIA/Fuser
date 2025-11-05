@@ -360,6 +360,11 @@ class NVF_API Val : public Statement {
     return definition_;
   }
 
+  // Add given dependency as an input to this Val's definition. It is for
+  // inserting schedule operations like programmatic dependent launch into a
+  // math-only fusion definition.
+  void addDependency(Val* dependency);
+
   // Determine if value definition matches given expression type
   template <typename T>
   inline bool isDefinitionType() const;
@@ -566,6 +571,13 @@ class NVF_API Expr : public Statement {
     return outputs_.at(index);
   }
 
+  // TODO: Add Fusion passkey
+  // Allow scheduling to modify inputs
+  void addInput(Val* input) {
+    NVF_ERROR(input != nullptr);
+    inputs_.push_back(input);
+  }
+
   auto attribute(size_t index) const {
     return attributes_.at(index);
   }
@@ -618,12 +630,7 @@ class NVF_API Expr : public Statement {
   void setWritePredicate(kir::Predicate* write_predicate);
 
   // TODO: Add Fusion passkey
-  void addInput(Val* input) {
-    NVF_ERROR(input != nullptr);
-    inputs_.push_back(input);
-  }
-
-  // TODO: Add Fusion passkey
+  // Allow scheduling to modify outputs
   void addOutput(Val* output) {
     NVF_ERROR(output != nullptr);
     outputs_.push_back(output);

@@ -7,13 +7,15 @@
 // clang-format on
 
 #include <ir/all_nodes.h>
-#include <ops/pipeline.h>
+#include <ops/schedule.h>
 #include <algorithm>
 
 namespace nvfuser {
 
 namespace {
 
+// Given a reference TensorView, create a new TensorView with the same sized
+// logical domain but only with broadcast IterDomains.
 TensorView* createBroadcastTv(TensorView* reference) {
   auto logical_domain =
       reference->getLogicalDomain() | TensorDomain::kNoReductions;
@@ -30,7 +32,6 @@ TensorView* createBroadcastTv(TensorView* reference) {
             .iter_type(IterType::Broadcast)
             .build();
       });
-
   TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
@@ -41,17 +42,29 @@ TensorView* createBroadcastTv(TensorView* reference) {
 } // namespace
 
 TensorView* launch_dependent_grid(std::vector<Val*> inputs) {
-  NVF_ERROR(inputs.size() > 0, "Expected at least one input tensor view.");
-  NVF_ERROR(inputs.front()->isA<TensorView>(), "Expected a tensor view.");
-  TensorView* out = createBroadcastTv(inputs.front()->as<TensorView>());
+  auto tensorview_input_iter =
+      std::find_if(inputs.begin(), inputs.end(), [](const Val* val) {
+        return val->isA<TensorView>();
+      });
+  NVF_ERROR(
+      tensorview_input_iter != inputs.end(),
+      "Expected at least one TensorView input.");
+  TensorView* out =
+      createBroadcastTv((*tensorview_input_iter)->as<TensorView>());
   IrBuilder::create<LaunchDependentGridOp>(out, inputs);
   return out;
 }
 
 TensorView* wait_for_prior_grid(std::vector<Val*> inputs) {
-  NVF_ERROR(inputs.size() > 0, "Expected at least one input tensor view.");
-  NVF_ERROR(inputs.front()->isA<TensorView>(), "Expected a tensor view.");
-  TensorView* out = createBroadcastTv(inputs.front()->as<TensorView>());
+  auto tensorview_input_iter =
+      std::find_if(inputs.begin(), inputs.end(), [](const Val* val) {
+        return val->isA<TensorView>();
+      });
+  NVF_ERROR(
+      tensorview_input_iter != inputs.end(),
+      "Expected at least one TensorView input.");
+  TensorView* out =
+      createBroadcastTv((*tensorview_input_iter)->as<TensorView>());
   IrBuilder::create<WaitForPriorGridOp>(out, inputs);
   return out;
 }
