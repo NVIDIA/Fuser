@@ -95,6 +95,7 @@ TEST_F(ReshardingTest, Set_SameMesh_NoParallelTypes) {
   TensorView* in = makeContigTensor(3);
   in->setDeviceMesh({0, 1});
   TensorView* out = set(in);
+  out->setDeviceMesh({0, 1});
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -118,6 +119,7 @@ TEST_F(ReshardingTest, Set_DifferentParallelTypes) {
   TensorView* in = makeContigTensor(3);
   in->setDeviceMesh({0, 1, 2});
   TensorView* out = set(in);
+  out->setDeviceMesh({0, 1, 2});
   out->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_TRUE(isResharding(out->definition()));
@@ -131,6 +133,8 @@ TEST_F(ReshardingTest, Set_SameMesh_SameParallelType) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = set(in);
+  out->setDeviceMesh({0, 1, 2});
+  out->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -142,6 +146,7 @@ TEST_F(ReshardingTest, Sum_SameMesh_NoParallelTypes) {
   TensorView* in = makeContigTensor(3);
   in->setDeviceMesh({0, 1, 2});
   TensorView* out = sum(in, {0});
+  out->setDeviceMesh({0, 1, 2});
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -167,6 +172,7 @@ TEST_F(ReshardingTest, Sum_ParallelizeDifferentAxes) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = sum(in, {0});
+  out->setDeviceMesh({0, 1, 2});
   out->axis(1)->parallelize(ParallelType::DIDx);
 
   EXPECT_TRUE(isResharding(out->definition()));
@@ -180,7 +186,7 @@ TEST_F(ReshardingTest, Sum_UnshardedAxis) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = sum(in, {1});
-
+  out->setDeviceMesh({0, 1, 2});
   EXPECT_FALSE(isResharding(out->definition()));
 }
 
@@ -192,7 +198,7 @@ TEST_F(ReshardingTest, Sum_AllReduce) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = sum(in, {0});
-
+  out->setDeviceMesh({0, 1, 2});
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
@@ -300,13 +306,12 @@ TEST_F(ReshardingTest, Add_Broadcast) {
   FusionGuard fg(&fusion);
 
   TensorView* x = makeContigTensor(2);
-  x->setDeviceMesh({0, 1});
   TensorView* y = makeContigTensor(1);
-  y->setDeviceMesh({0, 1});
   y = broadcast(y, {true, false});
   TensorView* z = add(x, y);
 
   for (auto* tv : {x, y, z}) {
+    tv->setDeviceMesh({0, 1});
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 

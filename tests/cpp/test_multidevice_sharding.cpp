@@ -326,8 +326,7 @@ TEST_F(MultiDeviceTest, Issue2758) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   at::Tensor expected_out_tensor =
-      shardTensor(unsharded_in_tensor.sum(0), reduce_scattered) +
-      in_tensor.size(1);
+      shardTensor(unsharded_in_tensor.sum(0), 0, mesh) + in_tensor.size(1);
   testValidate(
       executor_cache.fusion(),
       {out_tensor},

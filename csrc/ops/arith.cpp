@@ -1233,7 +1233,6 @@ TensorView* newForReduction(
   data_type =
       data_type == DataType::Null ? tv->getDataType().value() : data_type;
   auto* out = IrBuilder::create<TensorView>(td, data_type);
-  out->setDeviceMesh(tv->getDeviceMesh());
   return out;
 }
 

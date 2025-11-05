@@ -302,6 +302,7 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
     }
 
     auto* without_bias = linear(linear_op->inA(), linear_op->inB());
+    without_bias->setDeviceMesh(out->getDeviceMesh());
     TransformReplay::selfReplay(out->domain(), without_bias->domain());
 
     TensorView* broadcasted_bias = [&]() {
@@ -313,11 +314,15 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
           without_bias);
       std::vector<bool> is_broadcast_dim(rank_after_broadcast, true);
       is_broadcast_dim.back() = false;
-      return broadcast(linear_op->bias(), is_broadcast_dim);
+      TensorView* broadcast_bias =
+          broadcast(linear_op->bias(), is_broadcast_dim);
+      broadcast_bias->setDeviceMesh(linear_op->bias()->getDeviceMesh());
+      return broadcast_bias;
     }();
 
     TensorView* new_out =
         maybeCastOp(out->dtype(), add(without_bias, broadcasted_bias));
+    new_out->setDeviceMesh(out->getDeviceMesh());
     TransformReplay::selfReplay(out->domain(), new_out->domain());
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(out, new_out);
   }

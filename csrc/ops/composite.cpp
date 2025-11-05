@@ -166,7 +166,6 @@ TensorView* newForLinear(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
 
   auto* output = IrBuilder::create<TensorView>(td, input->dtype());
-  output->setDeviceMesh(input->getDeviceMesh());
   return output;
 }
 

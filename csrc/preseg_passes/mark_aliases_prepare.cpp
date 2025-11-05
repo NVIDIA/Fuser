@@ -106,6 +106,7 @@ void insertSegmentSetAfter(
   // is not mapped to its logical domain. We might want to either extend
   // selfReplay or create a new API that can propagate the allocation
   // domain only.
+  copy->setDeviceMesh(use_of->getDeviceMesh());
   if (!use_of->isDefinitionType<ScatterOp>()) {
     TransformReplay::selfReplay(use_of->domain(), copy->domain());
   } else if (use_of->hasAllocation()) {
