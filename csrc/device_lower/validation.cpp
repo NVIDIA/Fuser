@@ -424,24 +424,47 @@ class ExprValidator : public OptOutDispatch {
     }
   }
 
-  // Basic checks:
+  // The block quantization operator is implemented via a runtime function.
+  // This runtime function expects the inputs to be in local memory. The
+  // quantized output will also be in local memory, but the block scaling
+  // factors will be written out to global memory. The device runtime currently
+  // works on 4 elements per thread (8 for bf16/fp16) - this will be expanded
+  // later to support 2, 4, and 8 (only bf16/fp16) per thread. The runtime
+  // function is based on a parallelization scheme that expects TIDx and BIDx,
+  // and optionally TIDy and BIDy. 3D parallelization is not supported. Based
+  // on the above, we have the following basic validation checks:
+
   // Input is in local memory.
   // Block scaling factor is in global memory and
   // quantized output is in local memory.
-  // Any loop ID that is not TID(x/y). BID(x/y) or Group
-  // has an extent of 1.
-  // The Group ID has an extent of 4/8 depending on the data type.
+  // The Group ID has an extent of 4/8 depending on the data
+  // type.
   // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
 
-  // The following are more complex checks that look at the schedule.
-  // Our aims for the following checks are to ensure that the group ID is
-  // contiguous and unit stride, and then after group ID, we have TIDx. Such
-  // that (G -- extent of GID) * ThreadIdx.x + GID is contiguous.
-  // We do so by checking that the group ID is unit stride. It is derived from
-  // the innermost logical IDs via contiguous merges only. Next we check that
-  // TIDx in the next inner-most ID, and if there was any other ID between TIDx
-  // and group ID then it must have an extent of 1. TIDx must also be derived
-  // from contiguous merges of the logical IDs.
+  // For this op, the indices for block scaling factor is partially computed
+  // in nvfuser's index computation. It is done do by linearizing the logical
+  // index of the quantized outputs and the extents of the allocation domain
+  // of the quantized output. This index is passed to the runtime function,
+  // where is it divided by 16 (blocksize) to compute the output index for block
+  // scaling factor. Because of this indexing scheme we have to put the
+  // following restrictions. Our aim for the following checks is to ensure that
+  // the group ID is contiguous and has unit stride, and then after the group
+  // ID, we have TIDx, such that (G -- extent of GID) * ThreadIdx.x + GID is
+  // contiguous. We have these restrictions because 4 threads (x) will be
+  // working on contiguous data in the input (actually #threads *
+  // #elements_per_thread == blocksize(16)) - so we conservatively want all
+  // threads(x) to be accessing contiguous data.
+
+  // We do so by checking that the group ID has unit stride.
+  // It should be derived from the innermost logical IDs via contiguous merges
+  // only.
+  // Next, we check that TIDx is the next inner-most ID, and if there is
+  // any other ID between TIDx and the group ID, then it must have an extent
+  // of 1.
+  // TIDx must also be derived from contiguous merges of the logical IDs.
+  // Any loop ID that is not TIDx, TIDy, BIDx, BIDy, or Group
+  // has an extent of 1. (we don't want the runtime kernel to be called multiple
+  // times by a thread).
   void handle(BlockQuantizationOp* bqop) final {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
@@ -471,10 +494,21 @@ class ExprValidator : public OptOutDispatch {
         !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
-    // TODO: Relax this for swizzled block scaling factor outputs
+    // TODO: Relax these for swizzled block scaling factor outputs
+    // When scaling will be swizzled we will need to allow these checks
+    // to be relaxed, but we will need to ensure that the swizzling
+    // allocation allowed is a fixed pattern:
+    // 2D logical and 5D allocation domain.
+    // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     NVF_ERROR(
         !block_scaling_factor->hasAllocation(),
         "Block scaling factor must not have an allocation domain.");
+    NVF_ERROR(
+        std::all_of(
+            block_scaling_factor->getContiguity().begin(),
+            block_scaling_factor->getContiguity().end(),
+            [](std::optional<bool> c) { return c.value_or(true); }),
+        "Block scaling factor not contiguous");
 
     IterDomain* grouped_id = nullptr;
     IterDomain* thread_x = nullptr;
@@ -633,8 +667,7 @@ class ExprValidator : public OptOutDispatch {
         quantized_output->toString());
 
     // Check if grouped_id in frontier
-    auto grouped_it =
-        std::ranges::find(frontier, grouped_id);
+    auto grouped_it = std::ranges::find(frontier, grouped_id);
     NVF_ERROR(
         grouped_it != frontier.end(),
         "All merge operations deriving the grouped ID must combine "
