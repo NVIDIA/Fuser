@@ -52,6 +52,8 @@ class EVTConverter : OptInDispatch {
   EVTConverter(Fusion* fusion)
       : fusion_(fusion), pattern_(findPattern(fusion)) {
     validatePattern();
+    NVF_ERROR_EQ(pattern_.mma->outputs().size(), 1);
+    mma_out_ = pattern_.mma->output(0)->as<TensorView>();
   }
 
   EVTModel& model() {
