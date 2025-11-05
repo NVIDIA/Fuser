@@ -633,7 +633,7 @@ void validateInputsNvfp4ScaledGroupMm(
 
   // Check dimensions
   NVF_CHECK_EQ(a.dim(), 2, "Expected Operand A to be a 2D tensor.");
-  NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 2D tensor.");
+  NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 3D tensor.");
 
   // Alignment constraints
   static constexpr int OperandAlignment = 32;
