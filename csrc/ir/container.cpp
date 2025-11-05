@@ -485,6 +485,10 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
       dim = IrBuilder::createInContainer<ParallelDim>(this);
       break;
     }
+    case ParallelType::Derived:
+      NVF_THROW(
+          "ParallelDim::Derived dims must be created manually through "
+          "transforms");
     case ParallelType::Count:
       // This is not a real ParallelType.
       NVF_THROW(
@@ -514,9 +518,7 @@ std::string IrContainer::parallelDimGraphMermaid() const {
   // Sort named_dims for deterministic printing
   std::sort(named_dims.begin(), named_dims.end(), stmt_cmp);
   for (ParallelDim* pdim : named_dims) {
-    NVF_ERROR(pdim->getMaybeParallelType().has_value());
-    ss << "  d" << pdim->name() << "[\"" << pdim->getMaybeParallelType().value()
-       << "\"];\n";
+    ss << "  d" << pdim->name() << "[\"" << pdim->parallelType() << "\"];\n";
   }
 
   // Now get all exprs connected to the named dims

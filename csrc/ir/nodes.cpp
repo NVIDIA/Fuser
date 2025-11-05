@@ -3159,11 +3159,8 @@ IterDomain* IterDomain::resize(
 }
 
 void IterDomain::setParallelDim(ParallelDim* d) {
-  // TODO: invalidate parallel_type_ unless it matches parallel_dim_
   parallel_dim_ = d;
-  if (const auto& pt = d->getMaybeParallelType(); pt.has_value()) {
-    parallel_type_ = pt.value();
-  }
+  parallel_type_ = d->parallelType();
 }
 
 // TODO: We should change parallelize interface to be on tensorview or at least
@@ -6511,8 +6508,8 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
-ParallelDim::ParallelDim(IrBuilderPasskey passkey)
-    : Val(passkey, ValType::ParallelDim) {}
+ParallelDim::ParallelDim(IrBuilderPasskey passkey, ParallelType ptype)
+    : Val(passkey, ValType::ParallelDim), parallel_type_(ptype) {}
 
 ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner) {}
@@ -6520,19 +6517,14 @@ ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
 NVFUSER_DEFINE_CLONE(ParallelDim)
 
 bool ParallelDim::sameAs(const Statement* other) const {
-  if (this == other) {
-    return true;
-  }
-  if (!other->isA<ParallelDim>()) {
-    return false;
-  }
-  return false;
+  // ParallelDims are not checked for structural equality
+  return this == other;
 }
 
 std::string ParallelDim::toString(int indent_size) const {
-  if (parallel_type_.has_value()) {
+  if (parallel_type_ != ParallelType::Derived) {
     std::stringstream ss;
-    ss << parallel_type_.value();
+    ss << parallel_type_;
     return ss.str();
   } else if (definition() != nullptr) {
     std::stringstream ss;

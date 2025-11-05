@@ -12,6 +12,7 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
+#include <ir/container.h>
 #include <ir/interface_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
@@ -3430,8 +3431,6 @@ class BlockQuantizationOp : public Expr {
 
 class ParallelDim : public Val {
  public:
-  ParallelDim(IrBuilderPasskey passkey);
-
   ParallelDim(const ParallelDim* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
@@ -3444,16 +3443,24 @@ class ParallelDim : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
-  void setParallelType(ParallelType ptype);
-
-  const std::optional<ParallelType>& getMaybeParallelType() const {
+  ParallelType parallelType() const {
     return parallel_type_;
   }
 
   std::pair<ParallelDim*, ParallelDim*> split();
 
+ protected:
+  friend IrBuilder;
+  friend IrContainer;
+
+  ParallelDim(
+      IrBuilderPasskey passkey,
+      ParallelType ptype = ParallelType::Derived);
+
+  void setParallelType(ParallelType ptype);
+
  private:
-  std::optional<ParallelType> parallel_type_ = std::nullopt;
+  ParallelType parallel_type_ = ParallelType::Derived;
 };
 
 //! This represents a split of a ParallelDim into two parts

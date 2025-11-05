@@ -694,6 +694,9 @@ enum class ParallelType {
   Group,
   Bulk,
   Serial,
+  // This indicates it is not a "pure" ParallelType but the result of a
+  // ParallelDim expression
+  Derived,
   Count, // sentinel, not an actual ParallelType
 };
 

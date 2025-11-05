@@ -807,6 +807,8 @@ static const char* parallel_type2string(ParallelType t) {
       return "S";
     case ParallelType::Bulk:
       return "B";
+    case ParallelType::Derived:
+      return "D";
     default:
       NVF_THROW("Unexpected ParallelType");
   }

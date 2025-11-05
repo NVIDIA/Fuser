@@ -130,8 +130,8 @@ bool isParallelDimThread(ParallelDim* pdim) {
     ParallelDim* current = to_check.back();
     to_check.pop_back();
 
-    if (const auto& pt = current->getMaybeParallelType(); pt.has_value()) {
-      return isParallelTypeThread(pt.value());
+    if (current->parallelType() != ParallelType::Derived) {
+      return isParallelTypeThread(current->parallelType());
     }
     if (Expr* def = current->definition()) {
       for (Val* i : def->inputs()) {
