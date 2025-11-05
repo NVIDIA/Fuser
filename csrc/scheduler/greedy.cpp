@@ -1363,7 +1363,8 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
         def != nullptr && def->outputs().size() > 1) {
       for (const auto out_tv :
            ir_utils::filterByType<TensorView>(def->outputs())) {
-        if (constrained_tvs.contains(out_tv)) {
+        //if (constrained_tvs.contains(out_tv)) {
+        if (out_tv == tv) {
           continue;
         }
         NVF_ERROR(
