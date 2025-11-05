@@ -218,10 +218,14 @@ void run_group_mm(
   using LayoutD = LayoutC;
 
   // Alignment constraints
-  static constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
-  static constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
-  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int kAlignmentA =
+      128 / cutlass::sizeof_bits<ElementA>::value;
+  static constexpr int kAlignmentB =
+      128 / cutlass::sizeof_bits<ElementB>::value;
+  static constexpr int kAlignmentC =
+      128 / cutlass::sizeof_bits<ElementC>::value;
+  static constexpr int kAlignmentD =
+      128 / cutlass::sizeof_bits<ElementD>::value;
 
   // Architecture definitions
   using ArchTag = cutlass::arch::Sm100;
@@ -247,10 +251,10 @@ void run_group_mm(
           ElementAccumulator,
           ElementC,
           LayoutC*,
-          AlignmentC,
+          kAlignmentC,
           ElementD,
           LayoutC*,
-          AlignmentD,
+          kAlignmentD,
           typename SingleSmKernelTraits::EpilogueSchedule>::CollectiveOp;
 
   using CollectiveMainloop =
@@ -259,10 +263,10 @@ void run_group_mm(
           MainloopOperatorClass,
           ElementA,
           LayoutA*,
-          AlignmentA,
+          kAlignmentA,
           ElementB,
           LayoutB*,
-          AlignmentB,
+          kAlignmentB,
           ElementAccumulator,
           MmaTileShape,
           ClusterShape,
@@ -456,29 +460,29 @@ void validateInputsGroupMm(
   NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 3D tensor.");
 
   // Alignment constraints
-  static constexpr int Alignment =
+  static constexpr int kAlignment =
       128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
   NVF_CHECK_EQ(
-      a.size(-1) % Alignment,
+      a.size(-1) % kAlignment,
       0,
       "The inner dimension ",
       a.size(-1),
       " of Operand A is not a multiple of ",
-      Alignment)
+      kAlignment)
   NVF_CHECK_EQ(
-      b.size(-1) % Alignment,
+      b.size(-1) % kAlignment,
       0,
       "The inner dimension ",
       b.size(-1),
       " of Operand B is not a multiple of ",
-      Alignment)
+      kAlignment)
   NVF_CHECK_EQ(
-      b.size(-2) % Alignment,
+      b.size(-2) % kAlignment,
       0,
       "The inner dimension ",
       b.size(-2),
       " of the output tensor is not a multiple of ",
-      Alignment)
+      kAlignment)
 
   // Check shapes
   NVF_CHECK_EQ(problem_sizes.dim(), 2);

@@ -337,10 +337,12 @@ void run_nvfp4_scaled_group_mm(
   using LayoutD = LayoutC;
 
   // Alignment constraints
-  static constexpr int AlignmentA = 32;
-  static constexpr int AlignmentB = 32;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
-  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int kAlignmentA = 32;
+  static constexpr int kAlignmentB = 32;
+  static constexpr int kAlignmentC =
+      128 / cutlass::sizeof_bits<ElementC>::value;
+  static constexpr int kAlignmentD =
+      128 / cutlass::sizeof_bits<ElementD>::value;
 
   // Architecture definitions
   using ArchTag = cutlass::arch::Sm100;
@@ -365,10 +367,10 @@ void run_nvfp4_scaled_group_mm(
           ElementAccumulator,
           ElementC,
           LayoutC*,
-          AlignmentC,
+          kAlignmentC,
           ElementD,
           LayoutC*,
-          AlignmentD,
+          kAlignmentD,
           cutlass::epilogue::PtrArrayTmaWarpSpecialized1Sm>::CollectiveOp;
 
   using CollectiveMainloop =
@@ -377,10 +379,10 @@ void run_nvfp4_scaled_group_mm(
           MainloopOperatorClass,
           ElementA,
           LayoutA*,
-          AlignmentA,
+          kAlignmentA,
           ElementB,
           LayoutB*,
-          AlignmentB,
+          kAlignmentB,
           ElementAccumulator,
           MmaTileShape,
           ClusterShape,
@@ -636,30 +638,30 @@ void validateInputsNvfp4ScaledGroupMm(
   NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 3D tensor.");
 
   // Alignment constraints
-  static constexpr int OperandAlignment = 32;
+  static constexpr int kOperandAlignment = 32;
   NVF_CHECK_EQ(
-      a.size(-1) % OperandAlignment,
+      a.size(-1) % kOperandAlignment,
       0,
       "The inner dimension ",
       a.size(-1),
       " of Operand A is not a multiple of ",
-      OperandAlignment)
+      kOperandAlignment)
   NVF_CHECK_EQ(
-      b.size(-1) % OperandAlignment,
+      b.size(-1) % kOperandAlignment,
       0,
       "The inner dimension ",
       b.size(-1),
       " of Operand B is not a multiple of ",
-      OperandAlignment)
-  static constexpr int OutputAlignment =
+      kOperandAlignment)
+  static constexpr int kOutputAlignment =
       128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
   NVF_CHECK_EQ(
-      b.size(-2) % OutputAlignment,
+      b.size(-2) % kOutputAlignment,
       0,
       "The inner dimension ",
       b.size(-2),
       " of the output tensor is not a multiple of ",
-      OutputAlignment)
+      kOutputAlignment)
 
 #ifndef NDEBUG
   if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
