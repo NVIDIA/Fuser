@@ -213,53 +213,44 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
 // If stop_on_noncontiguous is true, stops traversal and returns false on first
 // non-contiguous merge. Otherwise, removes non-contiguous merges from frontier
 // and continues.
-bool traverseFrontierWithContiguityCheck(
+void traverseFrontierWithContiguityCheck(
     std::deque<IterDomain*>& frontier,
-    const std::vector<Expr*>& exprs,
-    bool stop_on_noncontiguous) {
-  for (auto expr : exprs) {
-    // expr is skipped if any of the inputs is missing.
-    if (auto merge = dynamic_cast<Merge*>(expr)) {
-      // Check if this merge is logically contiguous merge, that is,
-      // both of the two inputs are adjacent to each other
-      auto outer_it = std::ranges::find(frontier, merge->outer());
-      if (outer_it == frontier.end()) {
-        continue;
-      }
-      auto inner_it = std::ranges::find(frontier, merge->inner());
-      if (inner_it == frontier.end()) {
-        continue;
-      }
-      auto outer_pos = std::distance(frontier.begin(), outer_it);
-      auto inner_pos = std::distance(frontier.begin(), inner_it);
-
-      bool is_contig = outer_pos + 1 == inner_pos;
-
-      if (!is_contig && stop_on_noncontiguous) {
-        // Found a non-contiguous merge
-        return false;
-      }
-
-      frontier.erase(inner_it);
-
-      // If it's contig, we can continue the analysis by proceeding to
-      // the output. If not, no further analysis is possible, so the
-      // two inputs are just removed from the frontier list
-      if (is_contig) {
-        frontier[outer_pos] = merge->out();
-      } else {
-        frontier.erase(outer_it);
-      }
-    } else if (auto split = dynamic_cast<Split*>(expr)) {
-      auto in_it = std::ranges::find(frontier, split->in());
-      if (in_it == frontier.end()) {
-        continue;
-      }
-      frontier.insert(in_it + 1, split->inner());
-      *in_it = split->outer();
+    Expr* expr) {
+  // expr is skipped if any of the inputs is missing.
+  if (auto merge = dynamic_cast<Merge*>(expr)) {
+    // Check if this merge is logically contiguous merge, that is,
+    // both of the two inputs are adjacent to each other
+    auto outer_it = std::ranges::find(frontier, merge->outer());
+    if (outer_it == frontier.end()) {
+      return;
     }
+    auto inner_it = std::ranges::find(frontier, merge->inner());
+    if (inner_it == frontier.end()) {
+      return;
+    }
+    auto outer_pos = std::distance(frontier.begin(), outer_it);
+    auto inner_pos = std::distance(frontier.begin(), inner_it);
+
+    bool is_contig = outer_pos + 1 == inner_pos;
+
+    frontier.erase(inner_it);
+
+    // If it's contig, we can continue the analysis by proceeding to
+    // the output. If not, no further analysis is possible, so the
+    // two inputs are just removed from the frontier list
+    if (is_contig) {
+      frontier[outer_pos] = merge->out();
+    } else {
+      frontier.erase(outer_it);
+    }
+  } else if (auto split = dynamic_cast<Split*>(expr)) {
+    auto in_it = std::ranges::find(frontier, split->in());
+    if (in_it == frontier.end()) {
+      return;
+    }
+    frontier.insert(in_it + 1, split->inner());
+    *in_it = split->outer();
   }
-  return true;
 }
 
 // Check if maybe_innermost_id is derived from base_id and corresponds to the
@@ -273,29 +264,14 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   std::deque<IterDomain*> frontier;
   frontier.push_back(base_id);
 
-  // Don't stop on non-contiguous merges; remove them from frontier and continue
-  traverseFrontierWithContiguityCheck(
-      frontier, exprs, /*stop_on_noncontiguous=*/false);
+  for (auto expr : exprs) {
+    traverseFrontierWithContiguityCheck(frontier, expr);
+  }
 
   // Once the traversal is done, if the target id located at the
   // rightmost position of the frontier list, it is guaranteed to
   // correspond to the innermost subregion of the base ID.
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
-}
-
-// Check if all merges leading to id from the logical domain are contiguous
-// merges
-bool areAllMergesContiguous(const TensorView* tv, IterDomain* id) {
-  const auto& logical_domain = tv->getLogicalDomain();
-  std::deque<IterDomain*> frontier(
-      logical_domain.begin(), logical_domain.end());
-
-  auto all_exprs = DependencyCheck::getAllExprsBetween(
-      {logical_domain.begin(), logical_domain.end()}, {id});
-
-  // Stop on first non-contiguous merge and return false
-  return traverseFrontierWithContiguityCheck(
-      frontier, all_exprs, /*stop_on_noncontiguous=*/true);
 }
 
 // Expr-specific validaion
@@ -605,8 +581,23 @@ class ExprValidator : public OptOutDispatch {
 
     // This will get the xforms from logical to loop and apply them on the
     // logical domain. We will get a loop domain minus the reordering.
+
+    auto transform_exprs = DependencyCheck::getAllExprsBetween(
+        {quantized_output->getLogicalDomain().begin(),
+         quantized_output->getLogicalDomain().end()},
+        {quantized_output->getLoopDomain().begin(),
+         quantized_output->getLoopDomain().end()});
+
     std::vector<IterDomain*> ids_to_transform =
-        scheduler_utils::computeLoopDomainFromLogical(quantized_output);
+        quantized_output->getLogicalDomain();
+
+    std::deque<IterDomain*> frontier(
+        quantized_output->getLogicalDomain().begin(),
+        quantized_output->getLogicalDomain().end());
+    scheduler_utils::applyTransforms(
+        ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
+          traverseFrontierWithContiguityCheck(frontier, expr);
+        });
 
     // The grouped ID must correspond to the innermost
     NVF_ERROR(
@@ -640,14 +631,19 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         quantized_output->toString());
 
+    // Check if grouped_is in frontier.
+    auto grouped_it =
+        std::ranges::find(frontier.begin(), frontier.end(), grouped_id);
     NVF_ERROR(
-        areAllMergesContiguous(quantized_output, grouped_id),
+        grouped_it != frontier.end(),
         "All merge operations deriving the grouped ID must combine "
         "contiguous IDs from the logical domain for BlockQuantizationOp: ",
         quantized_output->toString());
-
+    // Do the same for thread_x
+    auto threadx_it =
+        std::ranges::find(frontier.begin(), frontier.end(), thread_x);
     NVF_ERROR(
-        areAllMergesContiguous(quantized_output, thread_x),
+        threadx_it != frontier.end(),
         "All merge operations deriving the TIDx ID must combine "
         "contiguous IDs from the logical domain for BlockQuantizationOp: ",
         quantized_output->toString());

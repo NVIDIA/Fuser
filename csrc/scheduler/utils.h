@@ -684,7 +684,8 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // inner dimension.
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
-    const std::vector<Expr*>& transform_exprs);
+    const std::vector<Expr*>& transform_exprs,
+    std::optional<std::function<void(Expr*)>> after_transform = std::nullopt);
 
 // Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
