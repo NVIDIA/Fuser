@@ -2426,6 +2426,8 @@ class SdpaFwdOp : public Expr {
 class Scope {
  public:
   using ExprList = std::list<Expr*>;
+  using Iterator = ExprList::iterator;
+  using ConstIterator = ExprList::const_iterator;
 
   explicit Scope(Expr* owner) : owner_(owner) {}
 
@@ -2435,10 +2437,36 @@ class Scope {
     return exprs_;
   }
 
+  ExprList& exprs() {
+    return exprs_;
+  }
+
+  Iterator begin() {
+    return exprs_.begin();
+  }
+
+  ConstIterator begin() const {
+    return exprs_.begin();
+  }
+
+  Iterator end() {
+    return exprs_.end();
+  }
+
+  ConstIterator end() const {
+    return exprs_.end();
+  }
+
   Expr* front() const {
     NVF_ERROR(
         !exprs_.empty(), "Attempting to access the front of an empty Scope");
     return exprs_.front();
+  }
+
+  Expr* back() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the back of an empty Scope");
+    return exprs_.back();
   }
 
   bool empty() const {
@@ -2449,7 +2477,7 @@ class Scope {
     return std::ssize(exprs_);
   }
 
-  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
+  Iterator insert(ConstIterator pos, Expr* expr);
 
   void push_back(Expr* e) {
     exprs_.push_back(e);
@@ -2463,13 +2491,13 @@ class Scope {
 
   // The following methods perform linear searches over exprs_. Use them only
   // when necessary, as they do not scale well with large scopes.
-  ExprList::iterator insert_before(Expr* ref, Expr* expr);
-  ExprList::iterator insert_after(Expr* ref, Expr* expr);
+  Iterator insert_before(Expr* ref, Expr* expr);
+  Iterator insert_after(Expr* ref, Expr* expr);
   void erase(Expr* ref);
   bool contains(Expr* expr) const;
 
  private:
-  void erase(ExprList::const_iterator pos);
+  void erase(ConstIterator pos);
 
   ExprList exprs_;
 

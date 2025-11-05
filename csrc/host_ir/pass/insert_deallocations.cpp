@@ -21,7 +21,7 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
 
-  const std::list<Expr*>& top_level_exprs = hic->topLevelExprs();
+  const auto& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
@@ -31,7 +31,8 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   });
 
   std::unordered_set<TensorView*> last_use_found;
-  for (auto insertion_point = top_level_exprs.end();
+  auto& top_level_scope = hic->topLevel();
+  for (auto insertion_point = top_level_scope.end();
        insertion_point != top_level_exprs.begin();) {
     auto prev = std::prev(insertion_point);
     Expr* e = *prev;

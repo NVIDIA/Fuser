@@ -11,6 +11,7 @@
 
 #include <fusion.h>
 #include <host_ir/host_ir.h>
+#include <ir/internal_nodes.h>
 #include <runtime/executor.h>
 
 namespace nvfuser::hir {
@@ -28,16 +29,23 @@ class HostIrContainer final : public Fusion {
   // Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  const std::list<Expr*>& topLevelExprs() const;
+  const Scope& topLevel() const;
+  Scope& topLevel();
+
+  const Scope::ExprList& topLevelExprs() const {
+    return topLevel().exprs();
+  }
+
+  Scope::ExprList& topLevelExprs() {
+    return topLevel().exprs();
+  }
   // Appends `expr` and returns the iterator pointing to `expr`.
-  std::list<Expr*>::const_iterator pushBackTopLevelExprs(Expr* expr);
-  void insertExprBefore(std::list<Expr*>::const_iterator position, Expr* expr);
+  Scope::ConstIterator pushBackTopLevelExprs(Expr* expr);
+  void insertExprBefore(Scope::ConstIterator position, Expr* expr);
   // Only used for MultiDeviceExecutor. While convenient, it should generally
   // be avoided because it implicitly modifies `top_level_exprs_`, making the
   // code harder to reason about.
-  void resetTopLevelExprs(std::list<Expr*> exprs) {
-    top_level_exprs_ = std::move(exprs);
-  }
+  void resetTopLevelExprs(std::list<Expr*> exprs);
 
   void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
   bool hasKernelExecutor(int64_t group_id) const;
@@ -46,7 +54,7 @@ class HostIrContainer final : public Fusion {
   Stream* getDefaultStream();
 
  private:
-  std::list<Expr*> top_level_exprs_;
+  Scope top_level_exprs_{nullptr};
 
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.
