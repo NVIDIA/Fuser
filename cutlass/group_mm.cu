@@ -451,6 +451,29 @@ void validateInputsGroupMm(
   NVF_CHECK(a.is_contiguous(), "Expected contiguous tensor for Operand A.")
   NVF_CHECK(b.is_contiguous(), "Expected contiguous tensor for Operand B.")
 
+  // Check dimensions
+  NVF_CHECK_EQ(a.dim(), 2, "Expected Operand A to be a 2D tensor.");
+  NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 2D tensor.");
+
+  // Alignment constraints
+  static constexpr int Alignment =
+      128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
+  NVF_CHECK_EQ(
+      a.size(-1) % Alignment,
+      0,
+      "Expected inner dimension of Operand A to be a multiple of ",
+      Alignment)
+  NVF_CHECK_EQ(
+      b.size(-1) % Alignment,
+      0,
+      "Expected inner dimension of Operand B to be a multiple of ",
+      Alignment)
+  NVF_CHECK_EQ(
+      b.size(-2) % Alignment,
+      0,
+      "Expected inner dimension of Output to be a multiple of ",
+      Alignment)
+
   // Check shapes
   NVF_CHECK_EQ(problem_sizes.dim(), 2);
   NVF_CHECK_EQ(problem_sizes.size(1), 3);
