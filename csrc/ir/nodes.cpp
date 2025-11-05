@@ -6512,7 +6512,7 @@ ParallelDim::ParallelDim(IrBuilderPasskey passkey, ParallelType ptype)
     : Val(passkey, ValType::ParallelDim), parallel_type_(ptype) {}
 
 ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner) {}
+    : Val(src, ir_cloner), parallel_type_(src->parallelType()) {}
 
 NVFUSER_DEFINE_CLONE(ParallelDim)
 
@@ -6549,8 +6549,10 @@ void ParallelDim::setParallelType(ParallelType ptype) {
 std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
   // TODO: Should we reuse the existing Split Expr for IterDomains here?
 
-  auto* outer = IrBuilder::createInContainer<ParallelDim>(container());
-  auto* inner = IrBuilder::createInContainer<ParallelDim>(container());
+  auto* outer = IrBuilder::createInContainer<ParallelDim>(
+      container(), ParallelType::Derived);
+  auto* inner = IrBuilder::createInContainer<ParallelDim>(
+      container(), ParallelType::Derived);
 
   IrBuilder::createInContainer<ParallelDimSplit>(
       this->container(), outer, inner, this);

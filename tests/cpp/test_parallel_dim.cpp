@@ -33,6 +33,9 @@ TEST_F(ParallelDimTest, Basic) {
 
   std::cout << fusion->parallelDimGraphMermaid() << std::endl;
 
+  // Test that we can only create "real" parallel dims. Derived dims must be
+  // created with ops like dim->split()
+  EXPECT_ANY_THROW(fusion->getParallelDim(ParallelType::Derived););
   EXPECT_ANY_THROW(fusion->getParallelDim(ParallelType::Count););
 }
 

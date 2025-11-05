@@ -169,6 +169,7 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
       if (!isParallelDimThread(pdim)) {
         continue;
       }
+      NVF_ERROR(FusionInfoGuard::hasCurrent());
       IterDomain* concrete_id =
           FusionInfoGuard::current()->caMap().getConcreteMappedID(
               id, IdMappingMode::EXACT);
@@ -231,11 +232,16 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // Initialize queue with definitions and uses of known parallel types
   for (auto ptype_num : arange(toUnderlying(ParallelType::Count))) {
     ParallelType ptype{ptype_num};
+    if (ptype == ParallelType::Derived || ptype == ParallelType::Count) {
+      continue;
+    }
     if (fusion->hasParallelDim(ptype)) {
       ParallelDim* pdim = fusion->getParallelDim(ptype);
+      NVF_ERROR(pdim != nullptr);
       if (pdim->definition() != nullptr) {
         queue.emplace(pdim->definition(), num_updates);
       }
+      NVF_ERROR_LE(pdim->uses().size(), 1);
       for (Expr* use : pdim->uses()) {
         queue.emplace(use, num_updates);
       }
@@ -249,6 +255,11 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
 
   num_updates = 0;
   while (!queue.empty()) {
+    NVF_ERROR_LT(
+        queue.size(),
+        1 << 20,
+        "Maximum ParallelDim processing queue size exceeded");
+
     auto [expr, num_updates_when_pushed] = queue.front();
     queue.pop();
 
