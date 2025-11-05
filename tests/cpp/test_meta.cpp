@@ -106,8 +106,8 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
 
   // Build embedding fusion with appropriate memory layout
   TensorView* tv_input = input_is_row_major
-      ? makeContigConcreteTensor({2, 4}, DataType::Int)
-      : makeConcreteTensor({2, 4}, DataType::Int);
+      ? makeContigConcreteTensor({2, 4}, DataType::Int32)
+      : makeConcreteTensor({2, 4}, DataType::Int32);
   TensorView* tv_weight = weight_is_row_major
       ? makeContigConcreteTensor({10, 8}, DataType::Float)
       : makeConcreteTensor({10, 8}, DataType::Float);
