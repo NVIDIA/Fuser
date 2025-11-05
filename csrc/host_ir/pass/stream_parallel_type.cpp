@@ -189,11 +189,11 @@ struct TensorSlicingCache {
 
 // Step 1: Group expressions into stream-parallel regions
 std::list<Expr*> groupStreamParallelRegions(
-    const Scope& top_level_exprs,
+    const std::list<Expr*>& top_level_exprs,
     const IdModel& id_model) {
   std::list<Expr*> new_top_level_exprs;
 
-  for (auto* expr : top_level_exprs.exprs()) {
+  for (Expr* expr : top_level_exprs) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
       new_top_level_exprs.push_back(expr);
@@ -610,7 +610,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
 
   // Step 1: Group expressions into stream-parallel regions
   std::list<Expr*> top_level_exprs =
-      groupStreamParallelRegions(hic->topLevel(), id_model);
+      groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them
   top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model);

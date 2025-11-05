@@ -2426,9 +2426,9 @@ class SdpaFwdOp : public Expr {
 class Scope {
  public:
   using ExprList = std::list<Expr*>;
-  using Iterator = ExprList::iterator;
-  using ConstIterator = ExprList::const_iterator;
+  using Iterator = ExprList::const_iterator;
 
+  Scope() = default;
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
@@ -2439,22 +2439,6 @@ class Scope {
 
   ExprList& exprs() {
     return exprs_;
-  }
-
-  Iterator begin() {
-    return exprs_.begin();
-  }
-
-  ConstIterator begin() const {
-    return exprs_.begin();
-  }
-
-  Iterator end() {
-    return exprs_.end();
-  }
-
-  ConstIterator end() const {
-    return exprs_.end();
   }
 
   Expr* front() const {
@@ -2477,7 +2461,7 @@ class Scope {
     return std::ssize(exprs_);
   }
 
-  Iterator insert(ConstIterator pos, Expr* expr);
+  Iterator insert(Iterator pos, Expr* expr);
 
   void push_back(Expr* e) {
     exprs_.push_back(e);
@@ -2497,7 +2481,7 @@ class Scope {
   bool contains(Expr* expr) const;
 
  private:
-  void erase(ConstIterator pos);
+  void erase(Iterator pos);
 
   ExprList exprs_;
 

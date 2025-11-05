@@ -18,7 +18,7 @@ namespace nvfuser::hir {
 
 // HostIrContainer is used to represent a host program.
 // 1) It inherits from Fusion, so that (Host) IRs can be registered to it.
-// 2) It holds a list of Host Expressions `top_level_exprs_` that represent
+// 2) It holds a list of Host Expressions `top_level_` that represent
 // the host program.
 class HostIrContainer final : public Fusion {
  public:
@@ -35,15 +35,11 @@ class HostIrContainer final : public Fusion {
   const Scope::ExprList& topLevelExprs() const {
     return topLevel().exprs();
   }
-
-  Scope::ExprList& topLevelExprs() {
-    return topLevel().exprs();
-  }
   // Appends `expr` and returns the iterator pointing to `expr`.
-  Scope::ConstIterator pushBackTopLevelExprs(Expr* expr);
-  void insertExprBefore(Scope::ConstIterator position, Expr* expr);
+  Scope::Iterator pushBackTopLevelExprs(Expr* expr);
+  void insertExprBefore(Scope::Iterator position, Expr* expr);
   // Only used for MultiDeviceExecutor. While convenient, it should generally
-  // be avoided because it implicitly modifies `top_level_exprs_`, making the
+  // be avoided because it implicitly modifies `top_level_`, making the
   // code harder to reason about.
   void resetTopLevelExprs(std::list<Expr*> exprs);
 
@@ -54,7 +50,7 @@ class HostIrContainer final : public Fusion {
   Stream* getDefaultStream();
 
  private:
-  Scope top_level_exprs_{nullptr};
+  Scope top_level_;
 
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.

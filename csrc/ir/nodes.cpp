@@ -5136,7 +5136,7 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-Scope::Iterator Scope::insert(ConstIterator pos, Expr* expr) {
+Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
@@ -5167,7 +5167,7 @@ Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
   return insert(insert_pos, expr);
 }
 
-void Scope::erase(ConstIterator pos) {
+void Scope::erase(Iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
