@@ -179,29 +179,41 @@ std::vector<TensorView*> getAllConstrainedTvs(Fusion* fusion) {
   const auto constrained_exprs = getAllConstrainedOps(fusion);
 
   std::vector<TensorView*> constrained_tvs;
+
+  // All outputs of constrained ops are considered constrained
   constrained_tvs.reserve(constrained_exprs.size());
   std::ranges::transform(
       constrained_exprs,
       std::back_inserter(constrained_tvs),
       [](const Expr* expr) { return ir_utils::getTvOutput(expr); });
 
-  for (auto scatter : ir_utils::filterByType<ScatterOp>(constrained_exprs)) {
-    // ScatterOp's inputs are also considered constrained unless it's
-    // a fusion input. Fusion inputs don't need to be scheduled, so they
-    // shouldn't impose any constraint.
-    for (auto inp : scatter->inputs()) {
-      if (!inp->isFusionInput() && inp->isA<TensorView>()) {
-        constrained_tvs.push_back(inp->as<TensorView>());
+  // Grab additional constrained tensors
+  for (auto expr : constrained_exprs) {
+    if (auto scatter = dynamic_cast<ScatterOp*>(expr)) {
+      // ScatterOp's inputs are also considered constrained unless it's
+      // a fusion input. Fusion inputs don't need to be scheduled, so they
+      // shouldn't impose any constraint.
+      for (auto inp : scatter->inputs()) {
+        if (!inp->isFusionInput() && inp->isA<TensorView>()) {
+          constrained_tvs.push_back(inp->as<TensorView>());
+        }
       }
-    }
-    for (auto use : scatter->out()->uses()) {
-      auto use_tv_out = ir_utils::getTvOutput(use);
-      if (use_tv_out == nullptr) {
-        continue;
+      for (auto use : scatter->out()->uses()) {
+        auto use_tv_out = ir_utils::getTvOutput(use);
+        if (use_tv_out == nullptr) {
+          continue;
+        }
+        if (std::ranges::find(constrained_tvs, use_tv_out) ==
+            constrained_tvs.end()) {
+          constrained_tvs.push_back(use_tv_out);
+        }
       }
-      if (std::ranges::find(constrained_tvs, use_tv_out) ==
-          constrained_tvs.end()) {
-        constrained_tvs.push_back(use_tv_out);
+    } else if (auto topk = dynamic_cast<TopKOp*>(expr)) {
+      // Similar to ScatterOp, TopKOp inputs are also considered
+      // constrained since there's a resize between the output and
+      // input tensors.
+      if (!topk->in()->isFusionInput()) {
+        constrained_tvs.push_back(topk->in()->as<TensorView>());
       }
     }
   }
@@ -890,9 +902,23 @@ class HeuristicsBuilder : private IterVisitor {
         out_tv);
   }
 
-  // TODO: Support batching
   void handle(TopKOp* topk) override {
-    setDefaultParameters(ir_utils::getTvOutput(topk));
+    // Batching factor is determined by the dimension of the input
+    // topk ID, so add a heuristics parameter based on the topk input
+    // tensor
+    auto inp_tv = ir_utils::getTvInput(topk);
+    auto out_tv = ir_utils::getTvOutput(topk);
+    addHeuristicsFor(
+        inp_tv,
+        TensorDomain::noReductions(inp_tv->getLogicalDomain()),
+        {topk->dim()},
+        out_tv);
+
+    // TODO: Support batching
+    NVF_ERROR_EQ(
+        params_->getProducerParams(inp_tv, out_tv).batch_size,
+        1,
+        "TopKOp does not support batching");
   }
 
   // Make sure a given tensor has some heuristics parameters
@@ -979,7 +1005,7 @@ void propagateReshape(Fusion* fusion) {
 // Scatter: For each scatter output, if there's a use of the output,
 // insert a copy between the output and the use (i.e.,
 // cacheAfter). This intermediate copy is used to simplify the
-// propagation of scheduling from the scatter output tensor. Similary,
+// propagation of scheduling from the scatter output tensor. Similarly,
 // since scatter inputs need to be scheduled in a particular way, they
 // are considered constrained for the scatter op, but they may be also
 // produced by another constrained op, which may have different
@@ -1059,26 +1085,24 @@ class ConstrainedOpScheduler : public OptOutDispatch {
  public:
   static void run(
       Fusion* fusion,
-      const std::vector<TensorView*>& constrained_out_tvs,
       const ValGraph& exact_graph,
       std::unordered_set<IterDomain*>& uninlinable_ids,
       const GreedyParams* params) {
     ConstrainedOpScheduler scheduler(
-        fusion, constrained_out_tvs, exact_graph, uninlinable_ids, params);
+        fusion, exact_graph, uninlinable_ids, params);
   }
 
  private:
   ConstrainedOpScheduler(
       Fusion* fusion,
-      const std::vector<TensorView*>& constrained_out_tvs,
       const ValGraph& exact_graph,
       std::unordered_set<IterDomain*>& uninlinable_ids,
       const GreedyParams* params)
       : exact_graph_(exact_graph),
         uninlinable_ids_(uninlinable_ids),
         params_(params) {
-    for (auto constrained_tv : constrained_out_tvs) {
-      dispatch(constrained_tv->definition());
+    for (auto expr : fusion->exprs()) {
+      dispatch(expr);
     }
   }
 
@@ -1183,18 +1207,27 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     }
   }
 
+  // In TopKOp, both input and output are constrained tensors
   void handle(TopKOp* topk) override {
     auto topk_dim = topk->dim();
+    auto inp_tv = ir_utils::getTvInput(topk);
     auto out_tv = ir_utils::getTvOutput(topk);
-    scheduleConstrainedTv(
-        out_tv, {topk_dim}, params_->getConsumerParams(out_tv));
+
+    const auto& params_for_input = params_->getProducerParams(inp_tv, out_tv);
+
+    scheduleConstrainedTv(inp_tv, {topk_dim}, params_for_input);
+
+    // The heuristics parameter for the input is also used to schedule
+    // the output so that both inputs and outputs have the same number
+    // of items per thread
+    scheduleConstrainedTv(out_tv, {topk_dim}, params_for_input);
   }
 
   void scheduleConstrainedTv(
       TensorView* tv,
       const std::vector<int64_t>& constrained_logical_id_offsets,
       const GreedyParams::TvParams& heuristic_params,
-      bool suppot_grouping = false) {
+      bool support_grouping = false) {
     NVF_ERROR(!constrained_logical_id_offsets.empty());
 
     const auto& constrained_loop_id_offsets =
@@ -1221,7 +1254,12 @@ class ConstrainedOpScheduler : public OptOutDispatch {
       tv->split(-1, batch_size);
       ++num_constrained_loop_ids;
       tv->axis(-2)->parallelize(ParallelType::TIDx);
-      if (suppot_grouping) {
+      // The batch dimension is grouped. This is convenient as grouped
+      // iter domains do not manifest as for-loops, and we do not want
+      // for-loops for batch dimensions. However, if the batch
+      // dimension is a broadcast, it does not make any difference as
+      // broadcast IDs do not create for-loops.
+      if (support_grouping && !tv->axis(-1)->isBroadcast()) {
         tv->axis(-1)->parallelize(ParallelType::Group);
       }
     } else {
@@ -1346,8 +1384,10 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
   // consistent scheduling.
   for (auto expr : all_exprs) {
     // Put all inputs of these ops together with the output. This is
-    // not strictly required unless grouped but enforced for simplicity
-    if (expr->isOneOf<ArgsortOp, ScanOp, TopKOp>()) {
+    // not strictly required unless grouped but enforced for
+    // simplicity. Inputs of ScatterOp and TopKOp are scheduled
+    // separately from the outputs, so they are not included here.
+    if (expr->isOneOf<ArgsortOp, ScanOp>()) {
       auto out_tv = ir_utils::getTvOutput(expr);
       NVF_ERROR(
           tv_to_constrained_tv_map.contains(out_tv),
@@ -1558,6 +1598,13 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   for (const auto& [cache, original] : cached_outputs) {
     greedy_params.transferConsumerParams(
         fusion->outputs().at(original)->as<TensorView>(), cache);
+    for (const auto& producer : ir_utils::producerTvsOf(cache)) {
+      greedy_params.transferProducerParams(
+          producer,
+          fusion->outputs().at(original)->as<TensorView>(),
+          producer,
+          cache);
+    }
   }
 
   propagateReshape(fusion);
@@ -1573,10 +1620,9 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Schedule all constrained tensors
   ConstrainedOpScheduler::run(
-      fusion, constrained_tvs, exact_graph, uninlinable_ids, &greedy_params);
+      fusion, exact_graph, uninlinable_ids, &greedy_params);
 
-  // Need to fetch constrained ops again as cacheAfter/Before may be used
-  // TODO: Cleanup.
+  // Need to fetch constrained tensors again as cacheAfter/Before may be used
   constrained_tvs = getAllConstrainedTvs(fusion);
 
   // Partition the fusion

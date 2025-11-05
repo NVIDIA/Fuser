@@ -7,6 +7,10 @@
 // clang-format on
 #include <evaluator_common.h>
 
+#include <concepts>
+#include <optional>
+#include <ranges>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
@@ -16,8 +20,6 @@
 #include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
-
-#include <optional>
 
 namespace nvfuser {
 
@@ -83,9 +85,10 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
 
 //! Kernel IR utility, collects all the symbolic values
 //!  used in allocation nodes.
-void collectBufferSizes(
-    std::vector<Val*>& into,
-    const std::vector<Expr*>& exprs) {
+template <std::ranges::input_range ExprRange>
+requires std::
+    convertible_to<std::ranges::range_reference_t<ExprRange>, Expr*> void
+    collectBufferSizes(std::vector<Val*>& into, const ExprRange& exprs) {
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
