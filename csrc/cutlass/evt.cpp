@@ -87,7 +87,7 @@ class EVTConverter : OptInDispatch {
   }
 
   std::string getPointerArrayPointerCode(TensorView* tv) {
-    // TODO: track 
+    // TODO: track
     return getPointerCode(tv);
   }
 
@@ -129,9 +129,10 @@ class EVTConverter : OptInDispatch {
       alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<float>");
       alpha_bcast_node->arguments = {
-        {"scalars", "{}"},
-        {"scalar_ptrs", "{}"},
-        {"scalar_ptr_arrays", "{" + getPointerArrayPointerCode(pattern_.alpha) + "}"},
+          {"scalars", "{}"},
+          {"scalar_ptrs", "{}"},
+          {"scalar_ptr_arrays",
+           "{" + getPointerArrayPointerCode(pattern_.alpha) + "}"},
       };
     }
     val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);

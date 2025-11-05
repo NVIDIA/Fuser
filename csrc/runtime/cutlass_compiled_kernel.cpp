@@ -118,16 +118,8 @@ void CutlassCompiledKernel::run(
   }
 
   NVF_ERROR(workspace_size_function_);
-  NVF_ERROR(cuda_function_);
+  NVF_ERROR(run_kernel_function_);
   // Launch the CUTLASS kernel
-
-  // This must match the expected type in the generated kernel
-  struct TensorArg {
-    void* data_ptr;
-    int64_t dim;
-    int64_t* sizes;
-    int64_t* strides = nullptr;
-  };
 
   // Get tensors from arguments
   std::vector<TensorArg> tensor_args;
@@ -147,10 +139,7 @@ void CutlassCompiledKernel::run(
     }
   }
 
-  using WorkspaceSizeFunc = size_t (*)(void*);
-  auto workspace_size_func =
-      reinterpret_cast<WorkspaceSizeFunc>(workspace_size_function_);
-  const size_t workspace_size = workspace_size_func(&tensor_args);
+  const size_t workspace_size = workspace_size_function_(&tensor_args);
   auto const workspace_options = at::TensorOptions().dtype(at::kByte).device(
       at::kCUDA, args.getDeviceIndex());
   if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
@@ -159,14 +148,8 @@ void CutlassCompiledKernel::run(
   }
   const at::Tensor workspace = at::empty(workspace_size, workspace_options);
 
-  // Define the function signature for the kernel
-  using KernelFunc =
-      void (*)(const std::vector<TensorArg>&, uint8_t*, cudaStream_t);
-
-  auto kernel_func = reinterpret_cast<KernelFunc>(cuda_function_);
-
   // Call the kernel
-  kernel_func(
+  run_kernel_function_(
       tensor_args, reinterpret_cast<uint8_t*>(workspace.data_ptr()), stream);
 }
 
@@ -366,12 +349,14 @@ void CutlassCompiledKernel::compileWithNVCC() {
 void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
     // Get functions from dlopen-loaded library
-    workspace_size_function_ = dlsym(shared_library_handle_, "workspace_size");
+    workspace_size_function_ = reinterpret_cast<WorkspaceSizeFunc>(
+        dlsym(shared_library_handle_, "workspace_size"));
     if (!workspace_size_function_) {
       NVF_THROW("Failed to get CUTLASS workspace size function: ", dlerror());
     }
-    cuda_function_ = dlsym(shared_library_handle_, "run_kernel");
-    if (!cuda_function_) {
+    run_kernel_function_ = reinterpret_cast<RunKernelFunc>(
+        dlsym(shared_library_handle_, "run_kernel"));
+    if (!run_kernel_function_) {
       NVF_THROW("Failed to get CUTLASS kernel function: ", dlerror());
     }
   }
