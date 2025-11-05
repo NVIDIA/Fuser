@@ -632,7 +632,7 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         quantized_output->toString());
 
-    // Check if grouped_is in frontier
+    // Check if grouped_id in frontier
     auto grouped_it =
         std::ranges::find(frontier, grouped_id);
     NVF_ERROR(
