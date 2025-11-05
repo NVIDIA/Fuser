@@ -128,13 +128,10 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // getThreadParallelTypesMergedByContiguity in tmem analysis, so we should
   // reference that use case when designing exactness around ParallelDim*
   // instead of ParallelType*
-  std::cout << "inferEvalExtents\n";
-
   VectorOfUniqueEntries<PDAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     for (auto id : tv->domain()->allIDs()) {
-      std::cout << "  " << id->toString();
       ParallelDim* pdim = id->getParallelDim();
       ParallelType ptype = id->getParallelType();
       if (pdim == nullptr) {
@@ -251,11 +248,6 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
       break;
     }
 
-    for (Val* out : expr->outputs()) {
-      std::cout << out->toString() << ", ";
-    }
-    std::cout << " = ";
-    std::cout << expr->toString() << std::endl;
     if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
       Val* in = mapOrDefault(
           dim_eval_extent_map_, split->in(), /*default=*/(Val*)nullptr);
