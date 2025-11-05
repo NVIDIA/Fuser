@@ -2709,6 +2709,9 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
           src->hasExpandedExtent() ? ir_cloner->clone(src->expandedExtent())
                                    : nullptr),
       stop_offset_(ir_cloner->clone(src->stop_offset_)),
+      parallel_dim_(
+          src->parallel_dim_ == nullptr ? nullptr
+                                        : ir_cloner->clone(src->parallel_dim_)),
       parallel_type_(src->parallel_type_),
       iter_type_(src->iter_type_),
       is_rfactor_domain_(src->is_rfactor_domain_),
@@ -6547,7 +6550,11 @@ void ParallelDim::setParallelType(ParallelType ptype) {
 }
 
 std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
-  // TODO: Should we reuse the existing Split Expr for IterDomains here?
+  NVF_CHECK(
+      parallelType() == ParallelType::Derived ||
+          isParallelTypeThread(parallelType()),
+      "Split is not supported for ",
+      parallelType());
 
   auto* outer = IrBuilder::createInContainer<ParallelDim>(
       container(), ParallelType::Derived);

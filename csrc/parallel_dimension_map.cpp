@@ -116,37 +116,6 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   adjustMappingsForWarpSpecialization();
 }
 
-namespace {
-
-// Returns true iff pdim has any producer that corresponds directly to a
-// ParallelType like DIDx, BIDx, or TIDx.
-bool isParallelDimThread(ParallelDim* pdim) {
-  if (pdim == nullptr) {
-    return false;
-  }
-
-  std::vector<ParallelDim*> to_check{pdim};
-  while (!to_check.empty()) {
-    ParallelDim* current = to_check.back();
-    to_check.pop_back();
-
-    if (current->parallelType() != ParallelType::Derived) {
-      return isParallelTypeThread(current->parallelType());
-    }
-    if (Expr* def = current->definition()) {
-      for (Val* i : def->inputs()) {
-        if (auto* pd = dynamic_cast<ParallelDim*>(i)) {
-          to_check.push_back(pd);
-        }
-      }
-    }
-  }
-  // If no producer of pdim is a ParallelType, return false
-  return false;
-}
-
-} // namespace
-
 void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // TODO: I think we still need something like exact_types_ but for
   // ParallelDim. isExact() is currently only used by
@@ -159,14 +128,15 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
     for (auto id : tv->domain()->allIDs()) {
-      ParallelDim* pdim = id->getParallelDim();
       std::cout << "  " << id->toString();
+      ParallelDim* pdim = id->getParallelDim();
+      ParallelType ptype = id->getParallelType();
       if (pdim == nullptr) {
-        std::cout << "  pdim=nullptr\n";
-      } else {
-        std::cout << "  pdim=" << pdim->toString() << std::endl;
+        pdim = fusion->getParallelDim(ptype);
       }
-      if (!isParallelDimThread(pdim)) {
+      NVF_ERROR_EQ(pdim->parallelType(), ptype);
+
+      if (ptype != ParallelType::Derived && !isParallelTypeThread(ptype)) {
         continue;
       }
       NVF_ERROR(FusionInfoGuard::hasCurrent());

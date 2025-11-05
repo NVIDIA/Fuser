@@ -423,7 +423,8 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
       // and split by device-z first
 
       // Create a new node to represent "all threads in the cluster"
-      auto* all_threads = IrBuilder::createInContainer<ParallelDim>(this);
+      auto* all_threads = IrBuilder::createInContainer<ParallelDim>(
+          this, ParallelType::Derived);
       auto [didz, inner] = all_threads->split();
       dim = didz;
       break;
