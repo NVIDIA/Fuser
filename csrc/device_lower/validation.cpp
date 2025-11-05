@@ -634,7 +634,7 @@ class ExprValidator : public OptOutDispatch {
 
     // Check if grouped_is in frontier
     auto grouped_it =
-        std::ranges::find(frontier.begin(), frontier.end(), grouped_id);
+        std::ranges::find(frontier, grouped_id);
     NVF_ERROR(
         grouped_it != frontier.end(),
         "All merge operations deriving the grouped ID must combine "
