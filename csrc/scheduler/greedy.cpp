@@ -1348,22 +1348,18 @@ std::unordered_map<TensorView*, TensorView*> partitionFusion(
 
   std::unordered_map<TensorView*, TensorView*> tv_to_constrained_tv_map;
 
-  // Register self mappings for constrained tensors.
+  // Register self and sibling mappings for constrained
+  // tensors.
   for (auto tv : constrained_tvs) {
     NVF_ERROR(
         tv_to_constrained_tv_map.emplace(tv, tv).second,
         "Already mapped: ",
         tv->toString());
-  }
 
-  // Siblings should belong to the same partition unless they are also
-  // designated as constrained
-  for (auto tv : constrained_tvs) {
     if (auto def = tv->definition();
         def != nullptr && def->outputs().size() > 1) {
       for (const auto out_tv :
            ir_utils::filterByType<TensorView>(def->outputs())) {
-        //if (constrained_tvs.contains(out_tv)) {
         if (out_tv == tv) {
           continue;
         }
