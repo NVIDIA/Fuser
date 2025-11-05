@@ -193,7 +193,8 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [128, 128], mat2: [k, n] = [128, 128], output: [g, m, n] = [4, 128, 128]
+  // mat1: [m, k] = [128, 128], mat2: [k, n] = [128, 128]
+  // output: [g, m, n] = [4, 128, 128]
   auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
   auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({4}, DataType::Index);
@@ -209,7 +210,8 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
   at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {32, 64, 96, 128}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -264,7 +266,8 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [g, m, k] = [4, 128, 128], mat2: [k, n] = [128, 128], output: [m, n] = [128, 128]
+  // mat1: [g, m, k] = [4, 128, 128], mat2: [k, n] = [128, 128]
+  // output: [m, n] = [128, 128]
   auto mat1 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
   auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({4}, DataType::Index);
@@ -280,7 +283,8 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   at::Tensor mat1_input = createTensor3D({4, 128, 128}, mat1_format, options);
   at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {32, 64, 96, 128}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -335,7 +339,8 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [128, 128], mat2: [g, k, n] = [4, 128, 128], output: [m, n] = [128, 128]
+  // mat1: [m, k] = [128, 128], mat2: [g, k, n] = [4, 128, 128]
+  // output: [m, n] = [128, 128]
   auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
   auto mat2 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
   auto offsets = makeContigConcreteTensor({4}, DataType::Index);
@@ -351,7 +356,8 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
   at::Tensor mat2_input = createTensor3D({4, 128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {32, 64, 96, 128}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
