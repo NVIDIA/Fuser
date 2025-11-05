@@ -84,6 +84,15 @@ kir::Kernel* Statement::kernel() const {
 
 NVFUSER_DEFINE_CLONE(Val)
 
+void Val::addDependency(Val* dependency) {
+  NVF_ERROR(dependency != nullptr);
+
+  Expr* def = definition();
+  NVF_ERROR(def != nullptr);
+
+  def->addInput(dependency);
+}
+
 const std::vector<Expr*>& Val::uses() const {
   if (vtype_ == ValType::TensorView) {
     if (!fusion()->isTVUseInfoValid() && !fusion()->isUpdatingTVUseInfo()) {
