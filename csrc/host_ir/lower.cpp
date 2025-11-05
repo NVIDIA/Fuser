@@ -134,7 +134,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
 
   for (auto group : workspace.group_run_order) {
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
-    if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
+    if (involvedDevices(group->exprs().front()).count(my_device_index) == 0) {
       continue;
     }
     // we decide whether to insert the Expr as a standalone op in the
@@ -148,7 +148,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       NVF_ERROR(
           group->exprs().size() == 1,
           "Expr executed as a standalone op cannot be fused");
-      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().at(0)));
+      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().front()));
     } else {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);

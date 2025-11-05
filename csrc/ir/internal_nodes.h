@@ -7,11 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/interface_nodes.h>
+#include <list>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
@@ -2424,58 +2425,35 @@ class SdpaFwdOp : public Expr {
 
 class Scope {
  public:
+  using ExprList = std::list<Expr*>;
+
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
 
-  const std::vector<Expr*>& exprs() const {
+  const ExprList& exprs() const {
     return exprs_;
+  }
+
+  Expr* front() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the front of an empty Scope");
+    return exprs_.front();
   }
 
   bool empty() const {
     return exprs_.empty();
   }
 
-  auto size() const {
-    return exprs_.size();
+  int64_t size() const {
+    return std::ssize(exprs_);
   }
 
-  auto& at(size_t i) {
-    return exprs_.at(i);
-  }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
-  // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
-
-  // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
+  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
 
   void push_back(Expr* e) {
     exprs_.push_back(e);
   }
-
-  // Erase expr at pos
-  void erase(size_t pos);
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
 
   void clear();
 
@@ -2483,21 +2461,17 @@ class Scope {
     return owner_;
   }
 
-  bool operator==(const Scope&) const {
-    NVF_THROW("Should not reach here");
-  }
-
-  // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
+  // The following methods perform linear searches over exprs_. Use them only
+  // when necessary, as they do not scale well with large scopes.
+  ExprList::iterator insert_before(Expr* ref, Expr* expr);
+  ExprList::iterator insert_after(Expr* ref, Expr* expr);
+  void erase(Expr* ref);
+  bool contains(Expr* expr) const;
 
  private:
-  // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
+  void erase(ExprList::const_iterator pos);
 
- private:
-  std::vector<Expr*> exprs_;
+  ExprList exprs_;
 
   //! Owner exprssion of this scope, e.g., IfThenElse
   Expr* owner_ = nullptr;
