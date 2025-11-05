@@ -56,6 +56,12 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   inferCodegenExtents(fusion);
   inferIndices(fusion);
 
+  for (auto [pdim, extent] : dim_eval_extent_map_) {
+    if (pdim->parallelType() != ParallelType::Derived) {
+      dim_map_[pdim->parallelType()] = extent;
+    }
+  }
+
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -161,8 +167,11 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   }
 
   // Simplify dim_map_
-  for (auto& [k, v] : dim_eval_extent_map_) {
-    v = simplifyExpr(v);
+  for (auto& [pdim, extent] : dim_eval_extent_map_) {
+    extent = simplifyExpr(extent);
+    if (extent->isConstInt()) {
+      pdim->value() = extent->evaluate().as<int64_t>();
+    }
   }
 
   // At this point, the extents are specified for each _bound_ ParallelDim.
@@ -219,6 +228,9 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   }
 
   auto update = [&](ParallelDim* pdim, Val* extent) {
+    if (extent->isConstInt()) {
+      pdim->value() = extent->evaluate();
+    }
     dim_eval_extent_map_.emplace(pdim, extent);
     num_updates++;
   };

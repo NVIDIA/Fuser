@@ -51,8 +51,9 @@ TEST_F(ParallelDimTest, Binding) {
 
   fusion->addOutput(tv1);
 
-  tv1->split(2, 32);
-  tv1->split(1, 128);
+  tv1->split(2, 256); // [ i0, i1, i2/256, 256 ]
+  tv1->split(3, 32); // [ i0, i1, i2/256, 256/32, 32 ]
+  tv1->split(1, 2); // [ i0, i1/128, 128, i2/256, 256/32, 32 ]
 
   tv1->axis(0)->setParallelDim(fusion->getParallelDim(ParallelType::BIDx));
   tv1->axis(2)->parallelize(ParallelType::TIDy);
@@ -86,9 +87,9 @@ TEST_F(ParallelDimTest, Binding) {
   const auto cg_outputs = ke.run(inputs);
 
   const LaunchParams lp = ke.lastLaunchParams();
-  EXPECT_EQ(lp.gdimx(), 192);
-  EXPECT_EQ(lp.bdimx(), 32);
-  EXPECT_EQ(lp.bdimy(), 128);
+  EXPECT_EQ(lp.gdimx(), t0.size(0));
+  EXPECT_EQ(lp.bdimx(), 256);
+  EXPECT_EQ(lp.bdimy(), 2);
 
   testValidate(fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
