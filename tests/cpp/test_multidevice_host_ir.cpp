@@ -448,7 +448,7 @@ TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
   const int64_t communicator_size = communicator_->size();
   const int64_t my_device_index = communicator_->deviceId();
 
-  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152};
+  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152 / sizeof(float)};
   std::vector<int64_t> sharded_sizes = {1, unsharded_sizes[1]};
 
   // Create a host IR container
@@ -491,16 +491,22 @@ TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
   EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef(unsharded_sizes));
 
 
-  at::Tensor cpu_output_tensor = output_tensor.to(at::kCPU);
-  auto cpu_options = at::TensorOptions().device(at::kCPU).dtype(at::kFloat);
+  at::Tensor local_output_tensor = at::empty(unsharded_sizes, options);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      local_output_tensor.data_ptr(),
+      output_tensor.data_ptr(),
+      output_tensor.numel() * output_tensor.element_size(),
+      cudaMemcpyDeviceToDevice));
+  // at::Tensor cpu_output_tensor = output_tensor.to(at::kCPU);
+  // auto cpu_options = at::TensorOptions().device(at::kCPU).dtype(at::kFloat);
 
-  at::Tensor ref_output = at::empty(unsharded_sizes, cpu_options);
+  at::Tensor ref_output = at::empty(unsharded_sizes, options);
   for (int64_t rank = 0; rank < communicator_size; ++rank) {
     ref_output.slice(0, rank, rank + 1)
-        .copy_(at::arange(unsharded_sizes[1], cpu_options) + (rank * 1000));
+        .copy_(at::arange(unsharded_sizes[1], options) + (rank * 1000));
   }
 
-  EXPECT_TRUE(at::allclose(cpu_output_tensor, ref_output))
+  EXPECT_TRUE(at::allclose(local_output_tensor, ref_output))
       << "Output tensor does not match expected values";
 }
 
