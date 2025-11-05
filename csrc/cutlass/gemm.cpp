@@ -99,10 +99,13 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
       std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
 }
 
-std::string generateNvfp4ScaledMmKernel(
+CutlassGeneratedCode generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   NVF_ERROR(fusion != nullptr);
+
+  // We always need a workspace
+  int64_t num_temp_tensors = 1;
 
   TensorView* main_output = fusion->outputs().front()->as<TensorView>();
   const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
@@ -544,7 +547,7 @@ extern "C" void run_kernel(
 }
 )";
 
-  return code;
+  return {code, num_temp_tensors};
 }
 
 } // namespace cutlass_codegen

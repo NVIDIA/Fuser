@@ -162,7 +162,10 @@ void CutlassCompiledKernel::generateCode() {
   }
 
   // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = cutlass_codegen::generateCode(fusion_, params_);
+  const cutlass_codegen::CutlassGeneratedCode ck =
+      cutlass_codegen::generateCode(fusion_, params_);
+  cutlass_code_ = ck.code;
+  num_temp_tensors_ = ck.num_temp_tensors;
 
   // Dump the kernel if requested. Note that we do not currently distinguish
   // between the kernel and the entire CUTLASS source file.

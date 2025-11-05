@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <cutlass/codegen.h>
 #include <cutlass/gemm.h>
 #include <exceptions.h>
 #include <type.h>
@@ -50,7 +51,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
   }
 }
 
-std::string generateCode(Fusion* fusion, const CutlassParams& params) {
+CutlassGeneratedCode generateCode(Fusion* fusion, const CutlassParams& params) {
   return generateNvfp4ScaledMmKernel(fusion, params);
 }
 

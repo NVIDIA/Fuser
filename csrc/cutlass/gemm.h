@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <string>
+#include <cstdint>
 
 namespace nvfuser {
 
@@ -19,6 +19,8 @@ class Val;
 class CutlassParams;
 
 namespace cutlass_codegen {
+
+struct CutlassGeneratedCode;
 
 // Whether we are doing grouped GEMM or regular scaled GEMM, the default
 // epilogue is alpha*acc + beta*bias. Each of alpha, beta, and bias are
@@ -50,7 +52,7 @@ int64_t fusionInputPosition(Fusion* fusion, Val* v);
 //! Simply finds the position of a Val in fusion->outputs().
 int64_t fusionOutputPosition(Fusion* fusion, Val* v);
 
-std::string generateNvfp4ScaledMmKernel(
+CutlassGeneratedCode generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params);
 

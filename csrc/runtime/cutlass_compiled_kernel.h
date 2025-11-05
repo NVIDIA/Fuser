@@ -72,12 +72,15 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   };
 
   //! Running the jitted CUTLASS kernel is a four-step process:
-  //!   1) Query number of temporary tensors needed and their sizes using the
-  //!      dlsym'ed temp_sizes function
+  //!   1) Query the size of temporary tensors needed using the dlsym'ed
+  //!   temp_sizes function
   //!   2) Allocate those temporary tensors via ATen and place them in a vector
   //!   3) Run the dlsym'ed init_kernel function to initialize the temporary
   //!   tensors
   //!   4) Run the kernel using the dlsym'ed run_kernel function
+
+  // This is set when generating the kernel
+  int64_t num_temp_tensors_ = 32;
 
   //! Signature for the function for getting the workspace size
   using WorkspaceSizeFunc = size_t (*)(void*);
