@@ -49,7 +49,7 @@ class HostIrContainer final : public Fusion {
   Stream* getDefaultStream();
 
  private:
-  Scope top_level_;
+  Scope top_level_{nullptr};
 
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.

@@ -2428,7 +2428,6 @@ class Scope {
   using ExprList = std::list<Expr*>;
   using Iterator = ExprList::const_iterator;
 
-  Scope() = default;
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
