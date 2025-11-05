@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/interface_nodes.h>
+#include <list>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
-#include <list>
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -2438,28 +2438,25 @@ class Scope {
     return exprs_;
   }
 
+  Expr* front() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the front of an empty Scope");
+    return exprs_.front();
+  }
+
   bool empty() const {
     return exprs_.empty();
   }
 
-  auto size() const {
-    return exprs_.size();
+  int64_t size() const {
+    return std::ssize(exprs_);
   }
 
-  // Insert expr before ref
-  ExprList::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  ExprList::iterator insert_after(Expr* ref, Expr* expr);
+  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
 
   void push_back(Expr* e) {
     exprs_.push_back(e);
   }
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
 
   void clear();
 
@@ -2467,11 +2464,14 @@ class Scope {
     return owner_;
   }
 
-  // Insert expr before pos
-  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
+  // The following methods perform linear searches over exprs_. Use them only
+  // when necessary, as they do not scale well with large scopes.
+  ExprList::iterator insert_before(Expr* ref, Expr* expr);
+  ExprList::iterator insert_after(Expr* ref, Expr* expr);
+  void erase(Expr* ref);
+  bool contains(Expr* expr) const;
 
  private:
-  // Erase expr at pos
   void erase(ExprList::const_iterator pos);
 
   ExprList exprs_;

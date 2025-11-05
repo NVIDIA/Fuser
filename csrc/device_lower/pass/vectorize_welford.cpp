@@ -147,8 +147,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         wop_ite->toString());
 
     if (!(wop_ite->thenBody().size() == 1 &&
-          wop_ite->thenBody().exprs().front() == wop &&
-          wop_ite->elseBody().empty())) {
+          wop_ite->thenBody().front() == wop && wop_ite->elseBody().empty())) {
       return false;
     }
 
@@ -499,7 +498,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         return false;
       }
 
-      expr = expr_ite->thenBody().exprs().front();
+      expr = expr_ite->thenBody().front();
 
       // Check only other expressions than the WelfordOp itself
       if (expr == wop) {

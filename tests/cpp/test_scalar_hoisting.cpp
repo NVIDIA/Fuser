@@ -74,7 +74,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
         break;
       }
       auto* first_expr_loop =
-          dynamic_cast<kir::ForLoop*>(innermost_loop->body().exprs().front());
+          dynamic_cast<kir::ForLoop*>(innermost_loop->body().front());
       if (first_expr_loop == nullptr) {
         break;
       }
@@ -95,8 +95,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
     for (auto expr : exprs) {
       if (expr->isA<kir::IfThenElse>()) {
         pred = expr->as<kir::IfThenElse>()->predicate();
-        auto arith_expr =
-            expr->as<kir::IfThenElse>()->thenBody().exprs().front();
+        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().front();
         auto out_ti = arith_expr->outputs()[0]->as<kir::TensorIndex>();
         if (out_ti->view()->name() == 1) {
           // Ref: T1[*, hoisted_index] = T0[*, hoisted_index * T0.stride];

@@ -64,7 +64,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               ite->thenBody().size() == 1,
               "Expecting predicated body to only have one vectorized "
               "expression.");
-          auto vec_expr = ite->thenBody().exprs().front();
+          auto vec_expr = ite->thenBody().front();
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
                   vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),

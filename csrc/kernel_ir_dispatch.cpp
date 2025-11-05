@@ -5,27 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+
+#include <kernel_ir.h>
 
 namespace nvfuser {
 namespace kir {
-std::vector<Expr*> IrVisitor::handle(const std::vector<Expr*>& exprs) {
-  exprs_ = std::vector<Expr*>(exprs);
-  for (auto expr : exprs) {
-    dispatch(expr);
-  }
-  return exprs_;
-}
-
-std::vector<Expr*> IrVisitor::handle(const std::list<Expr*>& exprs) {
-  exprs_ = std::vector<Expr*>(exprs.begin(), exprs.end());
-  for (auto expr : exprs) {
-    dispatch(expr);
-  }
-  return exprs_;
-}
-
 void IrVisitor::handle(ForLoop* fl) {
   for_loops_.push_back(fl);
   scope_.push_back(&fl->body());
@@ -55,25 +40,6 @@ void IrVisitor::handle(IfThenElse* ite) {
   }
   scope_.pop_back();
   scope_exprs_.pop_back();
-}
-
-std::vector<const Expr*> ConstIrVisitor::handle(
-    const std::vector<const Expr*>& exprs) {
-  exprs_ = exprs;
-  for (auto expr : exprs) {
-    dispatch(expr);
-  }
-  return exprs_;
-}
-
-std::vector<const Expr*> ConstIrVisitor::handle(const std::list<Expr*>& exprs) {
-  exprs_.clear();
-  exprs_.reserve(exprs.size());
-  for (auto expr : exprs) {
-    exprs_.push_back(expr);
-    dispatch(expr);
-  }
-  return exprs_;
 }
 
 void ConstIrVisitor::handle(const ForLoop* fl) {

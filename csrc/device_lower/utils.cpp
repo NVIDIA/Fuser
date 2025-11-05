@@ -7,10 +7,17 @@
 // clang-format on
 #include <device_lower/utils.h>
 
+#include <algorithm>
+#include <concepts>
+#include <deque>
+#include <memory>
+#include <ranges>
+
 #include <ATen/cuda/CUDAContext.h>
+
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <id_model/utils.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -19,11 +26,6 @@
 #include <logical_domain_map.h>
 #include <ops/arith.h>
 #include <val_graph_visitor.h>
-
-#include <expr_simplifier.h>
-#include <algorithm>
-#include <deque>
-#include <memory>
 
 // TODO: refactor this file (one per namespace)
 
@@ -399,7 +401,7 @@ std::optional<Expr*> getMaybePredicatedSingleton(Expr* expr) {
   if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
     if (ite->elseBody().empty()) {
       if (ite->thenBody().size() == 1) {
-        return ite->thenBody().exprs().front();
+        return ite->thenBody().front();
       }
     }
   }
@@ -451,8 +453,11 @@ class ExprFlattener : private kir::IrVisitor {
   std::vector<Expr*> flat_exprs_;
 
  public:
-  template <class ExprContainer>
-  static std::vector<Expr*> flatten(const ExprContainer& loop_nests) {
+  template <std::ranges::input_range ExprRange>
+  requires std::convertible_to<
+      std::ranges::range_reference_t<ExprRange>,
+      Expr*> static std::vector<Expr*>
+  flatten(const ExprRange& loop_nests) {
     ExprFlattener flattener;
     for (auto expr : loop_nests) {
       flattener.dispatch(expr);
