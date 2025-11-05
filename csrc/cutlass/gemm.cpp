@@ -514,11 +514,18 @@ typename T::Gemm::Arguments args_from_inputs(
 } // namespace
 
 // Calling code should pass a pointer to a vector of TensorArgs
-extern "C" size_t workspace_size(void* input_ptr) {
-  const std::vector<TensorArg>& inputs =
-      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
+extern "C" void temp_tensor_size(
+    int64_t* out_tensor_sizes,
+    const std::vector<TensorArg>& inputs) {
   auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
-  return Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+}
+
+extern "C" void init_temp_tensors(uint8_t** temp_tensors) {
+  // TODO: do stuff here other than workspace initialization
+  // The cutlass workspace _is_ a temporary tensor, but since it needs
+  // arguments to be built in order to initialize it, I currently left it in
+  // run_kernel to avoid needing to call args_from_inputs twice.
 }
 
 // Executes the FP4 scaled matrix multiplication using CUTLASS kernels
@@ -528,7 +535,7 @@ extern "C" size_t workspace_size(void* input_ptr) {
 // It handles the complete lifecycle from kernel initialization to execution.
 extern "C" void run_kernel(
     const std::vector<TensorArg>& inputs,
-    uint8_t* workspace_ptr,
+    uint8_t** temp_tensor_ptrs,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
@@ -539,6 +546,7 @@ extern "C" void run_kernel(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
+  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
   auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
