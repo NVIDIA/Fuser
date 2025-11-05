@@ -640,19 +640,25 @@ void validateInputsNvfp4ScaledGroupMm(
   NVF_CHECK_EQ(
       a.size(-1) % OperandAlignment,
       0,
-      "Expected inner dimension of Operand A to be a multiple of ",
+      "The inner dimension ",
+      a.size(-1),
+      " of Operand A is not a multiple of ",
       OperandAlignment)
   NVF_CHECK_EQ(
       b.size(-1) % OperandAlignment,
       0,
-      "Expected inner dimension of Operand B to be a multiple of ",
+      "The inner dimension ",
+      b.size(-1),
+      " of Operand B is not a multiple of ",
       OperandAlignment)
   static constexpr int OutputAlignment =
       128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
   NVF_CHECK_EQ(
       b.size(-2) % OutputAlignment,
       0,
-      "Expected inner dimension of Operand B to be a multiple of ",
+      "The inner dimension ",
+      b.size(-2),
+      " of the output tensor is not a multiple of ",
       OutputAlignment)
 
 #ifndef NDEBUG

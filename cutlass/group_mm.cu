@@ -461,17 +461,23 @@ void validateInputsGroupMm(
   NVF_CHECK_EQ(
       a.size(-1) % Alignment,
       0,
-      "Expected inner dimension of Operand A to be a multiple of ",
+      "The inner dimension ",
+      a.size(-1),
+      " of Operand A is not a multiple of ",
       Alignment)
   NVF_CHECK_EQ(
       b.size(-1) % Alignment,
       0,
-      "Expected inner dimension of Operand B to be a multiple of ",
+      "The inner dimension ",
+      b.size(-1),
+      " of Operand B is not a multiple of ",
       Alignment)
   NVF_CHECK_EQ(
       b.size(-2) % Alignment,
       0,
-      "Expected inner dimension of Output to be a multiple of ",
+      "The inner dimension ",
+      b.size(-2),
+      " of the output tensor is not a multiple of ",
       Alignment)
 
   // Check shapes
