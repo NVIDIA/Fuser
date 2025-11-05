@@ -35,8 +35,7 @@ TEST_F(MetaTest, ScanRowMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion->inputs().at(0), input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   // Meta path via ExpressionEvaluator
@@ -44,8 +43,7 @@ TEST_F(MetaTest, ScanRowMajor) {
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion->inputs().at(0), meta_in);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -71,16 +69,14 @@ TEST_F(MetaTest, ScanColMajor) {
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion->inputs().at(0), input);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
   auto meta_in = at::empty_strided(
       input.sizes(), input.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion->inputs().at(0), meta_in);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
@@ -127,27 +123,26 @@ TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
   at::Tensor input = input_is_row_major
       ? at::randint(0, 10, {2, 4}, options.dtype(at::kLong)).to(at::kInt)
       : at::randint(0, 10, {4, 2}, options.dtype(at::kLong)).to(at::kInt).t();
-  at::Tensor weight = weight_is_row_major
-      ? at::randn({10, 8}, options)
-      : at::randn({8, 10}, options).t();
+  at::Tensor weight = weight_is_row_major ? at::randn({10, 8}, options)
+                                          : at::randn({8, 10}, options).t();
 
   // CUDA path via ExpressionEvaluator
   ExpressionEvaluator ee_cuda;
   ee_cuda.bind(fusion->inputs().at(0), input);
   ee_cuda.bind(fusion->inputs().at(1), weight);
-  auto real_out =
-      ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Meta evaluation
   ExpressionEvaluator ee_meta;
   auto meta_input = at::empty_strided(
-      input.sizes(), input.strides(), options.device(at::kMeta).dtype(at::kInt));
+      input.sizes(),
+      input.strides(),
+      options.device(at::kMeta).dtype(at::kInt));
   auto meta_weight = at::empty_strided(
       weight.sizes(), weight.strides(), options.device(at::kMeta));
   ee_meta.bind(fusion->inputs().at(0), meta_input);
   ee_meta.bind(fusion->inputs().at(1), meta_weight);
-  auto meta_out =
-      ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
 
   // Checks: tensor is meta, dtype/size/stride match
   EXPECT_TRUE(meta_out.is_meta());
