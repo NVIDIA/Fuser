@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <cuda_utils.h>
+#include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <multidevice/symmetric_memory.h>
@@ -557,24 +558,263 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
     return it->second.get();
   }
 
-  // If not found, create a new handle based on communication type
+  // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (key.comm->type() == CommunicationType::Broadcast) {
-    handle =
-        std::make_unique<MulticastHandleForBroadcast>(key.comm, key.buffer);
-  } else if (key.comm->type() == CommunicationType::Allgather) {
-    handle =
-        std::make_unique<MulticastHandleForAllgather>(key.comm, key.buffer);
+  if (auto* dtca =
+          dynamic_cast<hir::DistributedTensorContiguousAliasing*>(key.expr)) {
+    // DistributedTensorContiguousAliasing
+    handle = std::make_unique<ContiguousAliasingHandle>(key.buffer, dtca);
+  } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
+    // Communication (Broadcast/Allgather)
+    if (comm->type() == CommunicationType::Broadcast) {
+      handle = std::make_unique<MulticastHandleForBroadcast>(comm, key.buffer);
+    } else if (comm->type() == CommunicationType::Allgather) {
+      handle =
+          std::make_unique<MulticastHandleForAllgather>(comm, key.buffer);
+    } else {
+      NVF_ERROR(
+          false,
+          "Unsupported communication type for multicast handle: ",
+          comm->type());
+    }
   } else {
     NVF_ERROR(
-        false,
-        "Unsupported communication type for multicast handle: ",
-        key.comm->type());
+        false, "Unsupported expr type for symmetric memory handle: ", key.expr);
   }
 
   auto inserted = handles_.emplace(key, std::move(handle));
   return inserted.first->second.get();
 }
+
+ContiguousAliasingHandle::ContiguousAliasingHandle(
+    at::Tensor in_tensor,
+    hir::DistributedTensorContiguousAliasing* unshard) {
+  Communicator& communicator = Communicator::getInstance();
+
+  // Validate that input has symmetric memory
+  std::string validation_error = isSymmetricAllocationValid(in_tensor);
+  NVF_CHECK(
+      validation_error.empty(),
+      "Input tensor must be allocated with symmetric memory. Error: ",
+      validation_error);
+
+  // Get world size and local rank
+  const int64_t num_devices = communicator.size();
+  const int64_t rank = communicator.deviceId();
+  const int64_t local_rank = communicator.local_rank();
+
+  // Verify VMM support
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  NVF_CHECK(
+      is_vmm_supported != 0,
+      "Device does not support Virtual Memory Management");
+
+  // Verify IPC handle support
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  NVF_CHECK(is_ipc_supported != 0, "Device does not support IPC handles");
+
+  // Setup allocation properties for VMM
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
+  // Get allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
+  // Calculate sizes - each rank has a shard
+  size_t bytes_per_rank =
+      static_cast<size_t>(in_tensor.numel() * in_tensor.element_size());
+
+  // Align allocation size to granularity
+  size_t aligned_size =
+      ((bytes_per_rank + granularity - 1) / granularity) * granularity;
+
+  // Get the base pointer of the input tensor's symmetric allocation
+  void* local_ptr = in_tensor.data_ptr();
+  CUdeviceptr local_cuda_ptr = reinterpret_cast<CUdeviceptr>(local_ptr);
+
+  // Get the actual mapped range to determine the correct allocation size
+  CUdeviceptr actual_base_ptr = 0;
+  size_t actual_mapped_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
+      &actual_base_ptr,
+      &actual_mapped_size,
+      local_cuda_ptr));
+  
+  NVF_CHECK(
+      actual_base_ptr == local_cuda_ptr,
+      "Tensor data pointer is not at the base of the allocation. ",
+      "This suggests the tensor is a view or has been manipulated, ",
+      "which is not supported for DistributedTensorContiguousAliasing.");
+
+  // Debug: Print size discrepancy
+  std::cerr << "Rank " << rank << " size comparison:" << std::endl;
+  std::cerr << "  bytes_per_rank = " << bytes_per_rank << std::endl;
+  std::cerr << "  calculated aligned_size = " << aligned_size << std::endl;
+  std::cerr << "  actual_mapped_size = " << actual_mapped_size << std::endl;
+  std::cerr << "  granularity = " << granularity << std::endl;
+
+  // Use the actual mapped size for all subsequent operations to ensure
+  // consistency across all ranks
+  aligned_size = actual_mapped_size;
+
+  // Retrieve the allocation handle from the symmetric memory tensor
+  CUmemGenericAllocationHandle local_alloc_handle = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
+      &local_alloc_handle,
+      local_ptr));
+
+  // Export local allocation handle to shareable file descriptor
+  int shared_fd;
+  NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+      &shared_fd,
+      local_alloc_handle,
+      CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+      /*flags=*/0));
+
+  // Allow peer processes to use pidfd_getfd on this process
+  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+
+  // Share the file descriptor and PID via TCP store
+  auto store = communicator.getTcpStore();
+  std::string key_prefix =
+      "unshard_" + std::to_string(unshard->name());
+
+  store->set(key_prefix + "_fd_" + std::to_string(rank), toBytes(shared_fd));
+  pid_t my_pid = getpid();
+  store->set(key_prefix + "_pid_" + std::to_string(rank), toBytes(my_pid));
+
+  // Wait for all ranks to finish exporting
+  communicator.barrier();
+
+  // Import all other ranks' allocation handles
+  std::vector<CUmemGenericAllocationHandle> all_alloc_handles(num_devices);
+  std::vector<int> peer_fds;
+  std::vector<int> pid_fds;
+
+  all_alloc_handles[rank] = local_alloc_handle;
+
+  for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
+    if (peer_rank == rank) {
+      continue; // Skip self
+    }
+
+    int peer_shared_fd = fromBytes<int>(
+        store->get(key_prefix + "_fd_" + std::to_string(peer_rank)));
+    pid_t peer_pid = fromBytes<pid_t>(
+        store->get(key_prefix + "_pid_" + std::to_string(peer_rank)));
+
+    // Get the peer's file descriptor using pidfd_open and pidfd_getfd
+    int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
+    NVF_CHECK(
+        pid_fd >= 0,
+        "rank ",
+        rank,
+        " failed to open pidfd for pid ",
+        peer_pid);
+    pid_fds.push_back(pid_fd);
+
+    int peer_fd =
+        syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
+    NVF_CHECK(peer_fd >= 0, "rank ", rank, " failed to get peer fd");
+    peer_fds.push_back(peer_fd);
+
+    // Import the peer's memory handle
+    CUmemGenericAllocationHandle peer_alloc_handle = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+        &peer_alloc_handle,
+        (void*)((uint64_t)peer_fd),
+        CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+
+    all_alloc_handles[peer_rank] = peer_alloc_handle;
+  }
+
+  // Create one contiguous virtual address range for all allocations
+  size_t total_size = aligned_size * num_devices;
+  CUdeviceptr base_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &base_ptr,
+      total_size,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+
+  // Map each rank's allocation to consecutive regions in the virtual address
+  // space
+  for (int64_t i = 0; i < num_devices; ++i) {
+    NVFUSER_CUDA_SAFE_CALL(cuMemMap(
+        base_ptr + i * aligned_size,
+        aligned_size,
+        /*offset=*/0,
+        all_alloc_handles[i],
+        /*flags=*/0));
+  }
+
+  // Set memory access permissions (read-only for all allocations)
+  for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
+    CUdeviceptr peer_offset_ptr = base_ptr + (peer_rank * aligned_size);
+    CUmemAccessDesc peer_access_desc{};
+    peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+    peer_access_desc.location.id = static_cast<int>(local_rank);
+    peer_access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+    NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(
+        peer_offset_ptr, aligned_size, &peer_access_desc, /*count=*/1));
+  }
+
+  // Create the unsharded tensor view - concatenate all shards along the first
+  // dimension
+  std::vector<int64_t> unsharded_sizes = in_tensor.sizes().vec();
+  unsharded_sizes[0] *= num_devices;
+
+  // Create an ATen tensor wrapping the contiguous virtual address space
+  // Capture in_tensor to keep the local allocation alive
+  tensor_ = at::from_blob(
+      reinterpret_cast<void*>(base_ptr),
+      unsharded_sizes,
+      [=, in_tensor_keep_alive = in_tensor](void* ptr) {
+        // Cleanup lambda: unmap memory and free virtual address space
+        for (int64_t i = 0; i < num_devices; ++i) {
+          CUdeviceptr offset_ptr =
+              reinterpret_cast<CUdeviceptr>(ptr) + (i * aligned_size);
+          cuMemUnmap(offset_ptr, aligned_size);
+        }
+        cuMemAddressFree(reinterpret_cast<CUdeviceptr>(ptr), total_size);
+
+        // Release remote allocation handles (not local - in_tensor's deleter
+        // will handle that)
+        for (int64_t i = 0; i < num_devices; ++i) {
+          if (i != rank) {
+            cuMemRelease(all_alloc_handles[i]);
+          }
+        }
+
+        // Close file descriptors
+        for (int fd : peer_fds) {
+          close(fd);
+        }
+        for (int fd : pid_fds) {
+          close(fd);
+        }
+        
+        // in_tensor_keep_alive goes out of scope here, its deleter will
+        // clean up the local allocation normally
+      },
+      at::TensorOptions().dtype(in_tensor.dtype()).device("cuda:0")); // to avoid c10 throwing
+}
+
+ContiguousAliasingHandle::~ContiguousAliasingHandle() = default;
 
 } // namespace nvfuser

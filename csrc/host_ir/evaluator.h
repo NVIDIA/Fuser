@@ -114,6 +114,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(HirAliasSelect*) override;
   void handle(Deallocate*) override;
   void handle(ShardByStream*) override;
+  void handle(DistributedTensorContiguousAliasing*) override;
   void unhandled(Statement*) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

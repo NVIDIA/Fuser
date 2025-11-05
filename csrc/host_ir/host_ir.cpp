@@ -464,6 +464,35 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   return out;
 }
 
+DistributedTensorContiguousAliasing::DistributedTensorContiguousAliasing(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in)
+    : Expr(passkey, {in}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(
+      in->getMemoryType() == MemoryType::Symmetric,
+      "Input tensor must have symmetric memory type, got: ",
+      in->getMemoryType());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(DistributedTensorContiguousAliasing)
+
+std::string DistributedTensorContiguousAliasing::toString(
+    int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size)
+      << out()->toString() << " = DistributedTensorContiguousAliasing("
+      << in()->toString() << ")" << std::endl;
+  return ss.str();
+}
+
+std::string DistributedTensorContiguousAliasing::toInlineString(
+    int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
     : Expr(passkey, {index, start, stop}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

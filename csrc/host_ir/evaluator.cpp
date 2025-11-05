@@ -798,6 +798,30 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   expr_evaluator_.bind(out_tv, out_tensor);
 }
 
+void HostIrEvaluator::handle(DistributedTensorContiguousAliasing* unshard) {
+  FUSER_PERF_SCOPE(
+      "HostIrEvaluator::handle(DistributedTensorContiguousAliasing)");
+
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided for "
+      "DistributedTensorContiguousAliasing");
+
+  auto* in_tv = unshard->in();
+  auto* out_tv = unshard->out();
+
+  // Get the sharded input tensor
+  at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
+
+  // Get or create the ContiguousAliasingHandle from the cache
+  ContiguousAliasingHandle* handle =
+      static_cast<ContiguousAliasingHandle*>(
+          multicast_handle_cache_.get({in_tensor, unshard}));
+
+  // Bind the unsharded tensor to the output
+  expr_evaluator_.bind(out_tv, handle->tensor());
+}
+
 void HostIrEvaluator::handle(Deallocate* deallocate) {
   auto* tv = deallocate->buffer();
   NVF_ERROR(

@@ -174,7 +174,8 @@ class Val;
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
   f(Deallocate);                      \
-  f(ForLoop);
+  f(ForLoop);                         \
+  f(DistributedTensorContiguousAliasing);
 
 // Forward declarations for all Val and Expr types
 

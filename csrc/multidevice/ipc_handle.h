@@ -13,6 +13,10 @@
 
 namespace nvfuser {
 
+namespace hir {
+class DistributedTensorContiguousAliasing;
+} // namespace hir
+
 enum class IpcSemaphore : cuuint32_t { kReady, kInUse };
 
 // The class IpcHandle represents a cuda buffer that can be exported/imported to
@@ -286,6 +290,28 @@ class MulticastHandleForAllgather : public SymmetricMemoryHandle {
   std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
 };
 
+// ContiguousAliasingHandle performs IPC handle exchange and creates a
+// contiguous virtual address mapping across all ranks for a sharded symmetric
+// memory tensor. This enables all ranks to access each other's data in a
+// contiguous address space using CUDA VMM (Virtual Memory Management) APIs.
+class ContiguousAliasingHandle : public SymmetricMemoryHandle {
+ public:
+  ContiguousAliasingHandle(
+      at::Tensor buffer,
+      hir::DistributedTensorContiguousAliasing* expr);
+
+  ~ContiguousAliasingHandle() override;
+
+  // Returns the contiguous tensor that provides access to all ranks' data
+  at::Tensor tensor() const {
+    return tensor_;
+  }
+
+ private:
+  at::Tensor tensor_;
+  // VMM cleanup data captured in tensor deleter
+};
+
 class SymmetricMemoryHandleCache {
  public:
   SymmetricMemoryHandleCache() = default;
@@ -293,16 +319,15 @@ class SymmetricMemoryHandleCache {
 
   struct KeyType {
     at::Tensor buffer;
-    Communication* comm;
+    Expr* expr;
 
     bool operator==(const KeyType& other) const {
-      return TensorEqual{}(buffer, other.buffer) && comm == other.comm;
+      return TensorEqual{}(buffer, other.buffer) && expr == other.expr;
     }
 
     struct Hash {
       std::size_t operator()(const KeyType& key) const {
-        return (TensorHash{}(key.buffer)) ^
-            (std::hash<Communication*>()(key.comm));
+        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr));
       }
     };
   };

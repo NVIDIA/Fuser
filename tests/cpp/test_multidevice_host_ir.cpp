@@ -14,6 +14,7 @@
 #include <host_ir/evaluator.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
+#include <multidevice/symmetric_memory.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
@@ -437,6 +438,70 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
     torch::cuda::synchronize();
     communicator_->barrier();
   }
+}
+
+TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Test requires at least 2 devices";
+  }
+
+  const int64_t communicator_size = communicator_->size();
+  const int64_t my_device_index = communicator_->deviceId();
+
+  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152};
+  std::vector<int64_t> sharded_sizes = {1, unsharded_sizes[1]};
+
+  // Create a host IR container
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard::setCurFusion(hic.get());
+
+  // Create input and output TensorViews
+  TensorView* input_tv = makeContigConcreteTensor(sharded_sizes);
+  input_tv->setMemoryType(MemoryType::Symmetric);
+
+  TensorView* output_tv = makeContigConcreteTensor(unsharded_sizes);
+  output_tv->setMemoryType(MemoryType::Symmetric);
+
+  // Create the DistributedTensorContiguousAliasing operation
+  auto* aliasing_op =
+      IrBuilder::create<DistributedTensorContiguousAliasing>(output_tv, input_tv);
+
+  // Set up the host program
+  hic->addInput(input_tv);
+  hic->addOutput(output_tv);
+  hic->pushBackTopLevelExprs(aliasing_op);
+
+  // Execute the host program
+  HostIrEvaluator hie(std::move(hic), communicator_);
+
+  auto options = at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
+  // Allocate input with symmetric memory
+  at::Tensor input_tensor =
+      allocateSymmetricTensor(sharded_sizes, at::kFloat, options.device(), c10::nullopt);
+
+  // Fill each rank's shard with a unique pattern (rank * 1000 + element_index)
+  input_tensor.copy_(
+      at::arange(unsharded_sizes[1], options) + (my_device_index * 1000));
+
+  // Run the host IR
+  auto outputs = hie.runWithInput({{input_tv, input_tensor}});
+
+  // Verify the output
+  at::Tensor output_tensor = outputs.back().as<at::Tensor>();
+  EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef(unsharded_sizes));
+
+
+  at::Tensor cpu_output_tensor = output_tensor.to(at::kCPU);
+  auto cpu_options = at::TensorOptions().device(at::kCPU).dtype(at::kFloat);
+
+  at::Tensor ref_output = at::empty(unsharded_sizes, cpu_options);
+  for (int64_t rank = 0; rank < communicator_size; ++rank) {
+    ref_output.slice(0, rank, rank + 1)
+        .copy_(at::arange(unsharded_sizes[1], cpu_options) + (rank * 1000));
+  }
+
+  EXPECT_TRUE(at::allclose(cpu_output_tensor, ref_output))
+      << "Output tensor does not match expected values";
 }
 
 } // namespace hir
