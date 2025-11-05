@@ -631,15 +631,47 @@ void validateInputsNvfp4ScaledGroupMm(
   NVF_CHECK(
       problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
 
-  const int64_t m = a.sizes()[0];
-  const int64_t g = expert_offsets.sizes()[0];
-  int64_t prev_offset = 0;
-  for (int64_t i = 0; i < g; ++i) {
-    int64_t expert_offset = expert_offsets[i].item<int64_t>();
-    NVF_CHECK_LE(expert_offset, m);
-    NVF_CHECK_LE(prev_offset, expert_offset);
-    prev_offset = expert_offset;
+  // Check dimensions
+  NVF_CHECK_EQ(a.dim(), 2, "Expected Operand A to be a 2D tensor.");
+  NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 2D tensor.");
+
+  // Alignment constraints
+  static constexpr int OperandAlignment = 32;
+  NVF_CHECK_EQ(
+      a.size(-1) % OperandAlignment,
+      0,
+      "Expected inner dimension of Operand A to be a multiple of ",
+      OperandAlignment)
+  NVF_CHECK_EQ(
+      b.size(-1) % OperandAlignment,
+      0,
+      "Expected inner dimension of Operand B to be a multiple of ",
+      OperandAlignment)
+  static constexpr int OutputAlignment =
+      128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
+  NVF_CHECK_EQ(
+      b.size(-2) % OutputAlignment,
+      0,
+      "Expected inner dimension of Operand B to be a multiple of ",
+      OutputAlignment)
+
+#ifndef NDEBUG
+  if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
+      c10::cuda::CaptureStatus::None) {
+    const int64_t m = a.sizes()[0];
+    const int64_t g = expert_offsets.sizes()[0];
+    // This validation requires an expensive synchronization and therefore is
+    // only enabled in debug mode. See #5470.
+    at::Tensor expert_offsets_cpu = expert_offsets.cpu();
+    int64_t prev_offset = 0;
+    for (int64_t i = 0; i < g; ++i) {
+      int64_t expert_offset = expert_offsets_cpu[i].item<int64_t>();
+      NVF_CHECK_LE(expert_offset, m);
+      NVF_CHECK_LE(prev_offset, expert_offset);
+      prev_offset = expert_offset;
+    }
   }
+#endif
 }
 
 } // namespace
