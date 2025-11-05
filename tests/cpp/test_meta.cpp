@@ -14,6 +14,12 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 
+#include <array>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
+
 namespace nvfuser {
 
 using MetaTest = NVFuserTest;
