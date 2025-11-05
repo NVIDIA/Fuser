@@ -38,7 +38,7 @@ namespace {
 kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
   auto* new_scope = IrBuilder::create<kir::ForLoop>(id);
   if (scope != nullptr) {
-    scope->body().insert(0, new_scope);
+    scope->body().insert(scope->body().exprs().begin(), new_scope);
   }
   return new_scope;
 }
@@ -65,7 +65,8 @@ void LoopNestGenerator::pushFront(Expr* expr) {
   if (for_loops_.empty()) {
     lowered_exprs_.insert(lowered_exprs_.begin(), expr);
   } else {
-    for_loops_.back()->body().insert(0, expr);
+    for_loops_.back()->body().insert(
+        for_loops_.back()->body().exprs().begin(), expr);
   }
 }
 

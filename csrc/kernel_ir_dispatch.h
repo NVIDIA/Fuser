@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <concepts>
+#include <ranges>
+
 #include <dispatch.h>
 #include <exceptions.h>
 
@@ -35,7 +38,15 @@ class IfThenElse;
 // Expr list
 class NVF_API IrVisitor : public OptOutDispatch {
  public:
-  std::vector<Expr*> handle(const std::vector<Expr*>& exprs);
+  template <std::ranges::input_range ExprRange>
+  requires std::convertible_to<std::ranges::range_reference_t<ExprRange>, Expr*>
+      std::vector<Expr*> handle(const ExprRange& exprs) {
+    exprs_.assign(exprs.begin(), exprs.end());
+    for (auto expr : exprs) {
+      dispatch(expr);
+    }
+    return exprs_;
+  }
 
  protected:
   using OptOutDispatch::handle;
@@ -53,7 +64,16 @@ class NVF_API IrVisitor : public OptOutDispatch {
 // Const version of IrVisitor
 class ConstIrVisitor : public OptOutConstDispatch {
  public:
-  std::vector<const Expr*> handle(const std::vector<const Expr*>& exprs);
+  template <std::ranges::input_range ExprRange>
+  requires std::
+      convertible_to<std::ranges::range_reference_t<ExprRange>, const Expr*>
+          std::vector<const Expr*> handle(const ExprRange& exprs) {
+    exprs_.assign(exprs.begin(), exprs.end());
+    for (auto expr : exprs) {
+      dispatch(expr);
+    }
+    return exprs_;
+  }
 
  protected:
   using OptOutConstDispatch::handle;

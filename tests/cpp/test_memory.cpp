@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <filesystem>
+#include <iterator>
 #include <regex>
 
 #include <debug.h>
@@ -1581,9 +1582,10 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 0);
-    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+    EXPECT_TRUE(body.size() >= 2 && is_commit(*std::prev(body.end(), 2)));
 
-    auto flattened_exprs = ir_utils::flattenScopedExprs(body);
+    auto flattened_exprs = ir_utils::flattenScopedExprs(
+        (*fl_it)->as<kir::ForLoop>()->body().exprs());
     EXPECT_EQ(
         std::count_if(
             flattened_exprs.begin(), flattened_exprs.end(), is_commit),
@@ -1643,7 +1645,7 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 5);
-    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+    EXPECT_TRUE(body.size() >= 2 && is_commit(*std::prev(body.end(), 2)));
 
     auto commit_it = std::find_if(
         kernel->topLevelExprs().begin(),

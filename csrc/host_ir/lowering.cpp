@@ -74,7 +74,7 @@ void lowerSegment(
           group.exprs().size(),
           1,
           "Communication segments must contain only one Expr.");
-      Expr* e = group.exprs().at(0);
+      Expr* e = group.exprs().front();
       Expr* e_clone = ir_cloner.clone(e);
       recomputeOutputTvs(e, ir_cloner);
 

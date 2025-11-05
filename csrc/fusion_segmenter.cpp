@@ -3805,7 +3805,7 @@ class MergeCatWithInputPads {
     // represented with pad and add.
     // TODO: Consider extending this pattern matching to support
     // add-based concat
-    auto cat = dynamic_cast<CatOp*>(cat_group->exprs().at(0));
+    auto cat = dynamic_cast<CatOp*>(cat_group->exprs().front());
     if (cat == nullptr) {
       return std::nullopt;
     }
@@ -3835,7 +3835,7 @@ class MergeCatWithInputPads {
           cat_group->producer_edges, [&](SegmentedEdge* producer_edge) {
             SegmentedGroup* producer_group = producer_edge->from;
             return producer_group->exprs().size() == 1 &&
-                producer_group->exprs().at(0) == pad &&
+                producer_group->exprs().front() == pad &&
                 producer_group->consumer_edges.size() == 1;
           });
       if (producer_edge_it == cat_group->producer_edges.end()) {
