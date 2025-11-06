@@ -2267,7 +2267,8 @@ void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
 
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
-    const std::vector<Expr*>& transform_exprs) {
+    const std::vector<Expr*>& transform_exprs,
+    std::optional<std::function<void(Expr*)>> post_transform) {
   for (auto* expr : transform_exprs) {
     if (Split* split = dynamic_cast<Split*>(expr)) {
       applySplitTransform(split, ids_to_transform);
@@ -2278,6 +2279,9 @@ void applyTransforms(
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
+    }
+    if (post_transform) {
+      (*post_transform)(expr);
     }
   }
 }
