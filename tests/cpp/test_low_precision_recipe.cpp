@@ -108,7 +108,7 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -155,7 +155,7 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -187,7 +187,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
   // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -297,7 +297,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -708,7 +708,7 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_type);
+  createNVFP4QuantizationFusion(fusion.get(), data_type);
 
   FusionExecutorCache fec(std::move(fusion));
 
