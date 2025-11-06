@@ -1520,17 +1520,57 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
           IrBuilder::create<kir::MBarrierArriveExpectTx>(
               nullptr, mbarrier, expected_bytes);
 
-      // Non-circular buffered TMA loads
-      Val* parity = IrBuilder::create<Val>(0, DataType::UInt32);
-      kir::MBarrierWaitParity* mbarrier_wait =
-          IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
-      // Insert before the outermost for loop or top-level scope
-      // insert wait after the for-loop that contains the TMA loads
       if (!for_loops_.empty()) {
+        // Use compute-at position to determine which for loop to wrap
+        auto ca_pos = tv->getComputeAtPosition();
+        std::cout << "ca_pos: " << ca_pos
+                  << ", for_loops size: " << for_loops_.size() << std::endl;
+
+        // The loop at ca_pos is where the tensor is computed
+        // Ensure ca_pos is within bounds
+        NVF_ERROR(
+            ca_pos < (int64_t)for_loops_.size(),
+            "Compute-at position ",
+            ca_pos,
+            " is out of bounds for for_loops of size ",
+            for_loops_.size());
+
+        // Compute parity based on the first non-parallelized loop before ca_pos
+        // Parallelized loops (TIDx, BIDx, etc) don't generate actual loops in
+        // CUDA
+        Val* parity = nullptr;
+        kir::ForLoop* parity_loop = nullptr;
+        for (int64_t i = ca_pos - 1; i >= 0; --i) {
+          kir::ForLoop* loop = for_loops_[i];
+          // Skip trivial loops and thread-parallelized loops
+          if (!loop->isTrivial() && !loop->iter_domain()->isThread()) {
+            parity_loop = loop;
+            break;
+          }
+        }
+
+        if (parity_loop != nullptr) {
+          Val* two = IrBuilder::create<Val>(2, DataType::Index);
+          parity = IrBuilder::maybeCastExpr(
+              DataType::UInt32,
+              SimplifyingIrBuilder::modExpr(parity_loop->index(), two));
+        } else {
+          // No non-parallelized loop found, use constant parity
+          parity = IrBuilder::create<Val>(0, DataType::UInt32);
+        }
+        // Non-circular buffered TMA loads
+        kir::MBarrierWaitParity* mbarrier_wait =
+            IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
+
         // Track that this loop needs ElectSync wrapping
-        loops_to_wrap_[for_loops_[0]] = {
+        kir::ForLoop* tma_load_loop = for_loops_[ca_pos];
+        loops_to_wrap_[tma_load_loop] = {
             mbarrier_arrive_tx_expr, mbarrier_wait};
       } else {
+        // Non-circular buffered TMA loads without for loops
+        Val* parity = IrBuilder::create<Val>(0, DataType::UInt32);
+        kir::MBarrierWaitParity* mbarrier_wait =
+            IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
         registerInsertBefore(
             expr,
             mbarrier_arrive_tx_expr,
@@ -1574,12 +1614,17 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
       elect_sync_ite->thenBody().push_back(arrive_expr);
       elect_sync_ite->thenBody().push_back(fl);
 
-      // Insert wait after the original for loop position (before replacement)
-      // This will be after the IfThenElse once the replacement happens
-      registerInsertAfter(fl, wait_expr, nullptr);
+      // The parent scope is either the body of the parent loop or nullptr for
+      // top-level
+      Scope* parent_scope = scope_.empty() ? nullptr : scope_.back();
+
+      // Insert wait after fl first (before replacement)
+      // When fl is replaced by elect_sync_ite, the wait will be after
+      // elect_sync_ite
+      registerInsertAfter(fl, wait_expr, parent_scope);
 
       // Replace the for_loop with the IfThenElse wrapper
-      registerReplace(fl, elect_sync_ite);
+      registerReplace(fl, elect_sync_ite, parent_scope);
     }
   }
 };
