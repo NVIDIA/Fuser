@@ -32,33 +32,93 @@ namespace {
 // dimension is the same as the inner allocation dimension. Otherwise it is
 // ColumnMajor
 std::string mapLayoutToCutlass(const TensorView* tv) {
-  NVF_ERROR(!tv->getLogicalDomain().empty());
+  NVF_CUTLASS_REJECT_IF(
+      tv->getLogicalDomain().empty(),
+      "Zero-dimensional tensors cannot be inputs");
   return tv->getMaybeAllocationDomain().back() == tv->getLogicalDomain().back()
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
 }
 
+class CutlassCodeGenerator {
+ public:
+  static std::string generate(Fusion* fusion, const CutlassParams& params) {
+    CutlassCodeGenerator gen(fusion, params);
+    gen.run();
+    return gen.code_;
+  }
+
+  static std::string getRejectReason(Fusion* fusion) {
+    try {
+      const CutlassParams params;
+      CutlassCodeGenerator gen(fusion, params);
+      gen.gatherInfo();
+    } catch (const UnsupportedFusion& e) {
+      return e.what();
+    }
+    return "";
+  }
+
+ private:
+  CutlassCodeGenerator(Fusion* fusion, const CutlassParams& params)
+      : fusion_(fusion), params_(params) {
+    NVF_ERROR(fusion_ != nullptr);
+  }
+
+  void findPattern() {
+    auto exprs = fusion_->exprs();
+    const auto smmas =
+        ir_utils::filterByType<ScaledMmaOp>(exprs.begin(), exprs.end());
+    NVF_CUTLASS_REJECT_IF(smmas.size() == 0, "No ScaledMmaOps detected");
+    NVF_CUTLASS_REJECT_IF(
+        smmas.size() != 1,
+        "Multiple ScaledMmaOps detected. Only one is supported");
+    mma_ = *smmas.begin();
+
+    main_output_ = fusion_->outputs().front()->as<TensorView>();
+  }
+
+  // Gathers necessary info from fusion_ but does not start generating code. If
+  // this method succeeds then we are able to schedule this fusion, so this can
+  // be used in a canScheduleCompile check
+  void gatherInfo() {
+    findPattern();
+
+    model_opt_ = std::make_unique(extractEVTModel(fusion_));
+  }
+
+  void run() {
+    gatherInfo();
+  }
+
+ private:
+  Fusion* fusion_;
+  const CutlassParams& params_;
+
+  Expr* mma_ = nullptr;
+  TensorView* main_output_ = nullptr;
+
+  std::unique_ptr<EVTModel> evt_model_ = nullptr;
+
+  std::string code_;
+};
+
 } // namespace
 
-ScaledMmaOp* findScaledMmaOp(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  const auto smmas =
-      ir_utils::filterByType<ScaledMmaOp>(exprs.begin(), exprs.end());
-  if (smmas.size() != 1) {
-    return nullptr;
-  }
-  return *smmas.begin();
-}
-
 int64_t fusionInputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionInput());
+  NVF_CUTLASS_REJECT_IF(
+      v->isFusionInput(), "Expected ", v->toString(), " to be a fusion input");
   return std::distance(
       fusion->inputs().begin(),
       std::find(fusion->inputs().begin(), fusion->inputs().end(), v));
 }
 
 int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionOutput());
+  NVF_CUTLASS_REJECT_IF(
+      v->isFusionOutput(),
+      "Expected ",
+      v->toString(),
+      " to be a fusion output");
   return std::distance(
       fusion->outputs().begin(),
       std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
@@ -67,17 +127,15 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
 std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
-  NVF_ERROR(fusion != nullptr);
+  return CutlassCodeGenerator::generate(fusion, params);
 
-  TensorView* main_output = fusion->outputs().front()->as<TensorView>();
   const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
   const bool has_evt = model_opt.isValid();
   if (has_evt) {
     main_output = model_opt.getData().getRootTensorView();
   } else {
-    NVF_ERROR_EQ(
-        fusion->outputs().size(),
-        1,
+    NVF_CUTLASS_REJECT_IF(
+        fusion->outputs().size() != 1,
         "Fusions without EVT must have a single output");
   }
   NVF_ERROR(main_output != nullptr);
@@ -502,6 +560,10 @@ extern "C" void run_kernel(
 )";
 
   return code;
+}
+
+std::string getRejectReason(Fusion* fusion) {
+  return CutlassCodeGenerator::getRejectReason(fusion);
 }
 
 } // namespace cutlass_codegen

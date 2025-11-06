@@ -33,11 +33,8 @@ Expr* getGemmExpr(Fusion* fusion) {
   auto scaled_mma_exprs = fusion->exprs() |
       std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
   const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
-  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
-  NVF_ERROR_EQ(
-      num_exprs,
-      1,
-      "Found multiple ScaledMmaOps. Cannot determine which to return");
+  NVF_CUTLASS_REJECT_IF(num_exprs == 0, "No ScaledMmaOps detected");
+  NVF_CUTLASS_REJECT_IF(num_exprs != 1, "Found multiple ScaledMmaOps");
   return scaled_mma_exprs.front();
 }
 
@@ -84,7 +81,7 @@ class EVTConverter : OptInDispatch {
     } else if (tv->isFusionOutput()) {
       index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
     } else {
-      NVF_THROW(
+      NVF_CUTLASS_REJECT(
           "Cannot get pointer for TV ",
           tv->toString(),
           " which is not a fusion input or output");
@@ -97,8 +94,8 @@ class EVTConverter : OptInDispatch {
     mma_ = getGemmExpr(fusion_);
 
     auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma_);
-    NVF_ERROR(
-        scaled_mma,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma == nullptr,
         "Only ScaledMmaOp is currently supported for EVT translation");
     mma_out_ = mma_->output(0)->as<TensorView>();
     alpha_ = scaled_mma->alpha();
@@ -116,14 +113,16 @@ class EVTConverter : OptInDispatch {
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
 
-    NVF_ERROR(beta_ == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias_ == nullptr, "Bias not yet supported for EVT translation");
+    NVF_CUTLASS_REJECT_IF(
+        beta_ != nullptr, "Beta not yet supported for EVT translation");
+    NVF_CUTLASS_REJECT_IF(
+        bias_ != nullptr, "Bias not yet supported for EVT translation");
 
-    NVF_ERROR(
-        scaled_mma->outScale() == nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma->outScale() != nullptr,
         "Output block scale factor not supported for EVT translation");
-    NVF_ERROR(
-        scaled_mma->outGamma() == nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma->outGamma() != nullptr,
         "Output global scale factor not supported for EVT translation");
   }
 
@@ -131,11 +130,11 @@ class EVTConverter : OptInDispatch {
     if (alpha_ == nullptr) {
       return;
     }
-    NVF_ERROR(
-        alpha_->nDims() == 0,
+    NVF_CUTLASS_REJECT_IF(
+        alpha_->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");
-    NVF_ERROR(
-        alpha_->dtype() == DataType::Float,
+    NVF_CUTLASS_REJECT_IF(
+        alpha_->dtype() != DataType::Float,
         "Only Float alpha is supported for EVT translation");
     // Broadcast alpha to the same dimensions as the accumulator
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
@@ -213,15 +212,15 @@ class EVTConverter : OptInDispatch {
 
     // Traverse from the accumulator to the unquantized outputs, creating nodes
     // in the EVT for each of these
-    NVF_ERROR(model_.getRootTensorView() != nullptr);
+    NVF_CUTLASS_REJECT_IF(
+        model_.getRootTensorView() == nullptr, "Could not set root TV");
     for (Statement* stmt :
          StmtSort::getStmtsBetween({getAccTv(fusion_)}, unquantized_outputs)) {
       dispatch(stmt);
     }
-    NVF_ERROR_EQ(
-        unquantized_outputs.size(),
-        1,
-        "Only one unquantized output is supported");
+    NVF_CUTLASS_REJECT_IF(
+        unquantized_outputs.size() != 1,
+        "Only one unquantized output is currently supported");
     model_.setRoot(val_nodes_.at(unquantized_outputs.front()));
   }
 
@@ -251,7 +250,7 @@ class EVTConverter : OptInDispatch {
         op_name = "minus";
         break;
       default:
-        NVF_THROW("Unhandled binary op type: ", op_type);
+        NVF_CUTLASS_REJECT("Unhandled binary op type: ", op_type);
     }
     // This node and its inputs is essentially a function signature
     EVTModel::Node* func_node =
@@ -294,20 +293,20 @@ class EVTConverter : OptInDispatch {
     // scaling EVT node which will handle the scaling and outputting the scale
     // factors.
     const BlockScaledOutputPattern& pattern = it->second;
-    NVF_ERROR(
-        pattern.global_scale_factor != nullptr &&
-            pattern.global_scale_factor->isFusionInput(),
+    NVF_CUTLASS_REJECT_IF(
+        pattern.global_scale_factor == nullptr ||
+            !pattern.global_scale_factor->isFusionInput(),
         "Block-scaled outputs currently require a global scale factor "
         "residing in global memory");
-    NVF_ERROR(
-        tv->definition() != nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        tv->definition() == nullptr,
         "Must have already processed pre-scaled output's definition but it "
         "has no definition");
     // Assume we have already processed val's definition, so it should have an
     // EVT node
     EVTModel::Node* unquantized_node = getNodeFor(pattern.unquantized_output);
-    NVF_ERROR(
-        unquantized_node != nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        unquantized_node == nullptr,
         "Could not find EVT node for unquantized output");
 
     EVTModel::Node* scaling_node = model_.makeNode(
@@ -340,7 +339,7 @@ class EVTConverter : OptInDispatch {
         op_name = "epilogue::thread::ReLU";
         break;
       default:
-        NVF_THROW("Unhandled unary op type: ", uop->getUnaryOpType());
+        NVF_CUTLASS_REJECT("Unhandled unary op type: ", uop->getUnaryOpType());
     }
     // This node and its inputs is essentially a function signature
     EVTModel::Node* func_node =
@@ -367,8 +366,8 @@ class EVTConverter : OptInDispatch {
   }
 
   void handle(BinaryOp* bop) {
-    NVF_ERROR(
-        bop->lhs()->dtype() == bop->rhs()->dtype(),
+    NVF_CUTLASS_REJECT_IF(
+        bop->lhs()->dtype() != bop->rhs()->dtype(),
         "We require both inputs to have the same dtype but found ",
         bop->lhs()->dtype(),
         " and ",
