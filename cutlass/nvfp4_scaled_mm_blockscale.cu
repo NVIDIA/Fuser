@@ -49,12 +49,12 @@ struct Fp4GemmSm100 {
   // A matrix configuration
   using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
   using LayoutATag = cutlass::layout::RowMajor;
-  static constexpr int AlignmentA = 32;
+  static constexpr int kAlignmentA = 32;
 
   // B matrix configuration
   using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;
   using LayoutBTag = cutlass::layout::ColumnMajor;
-  static constexpr int AlignmentB = 32;
+  static constexpr int kAlignmentB = 32;
 
   // C/D matrix configuration
   using ElementD = cutlass::float_e2m1_t;
@@ -64,8 +64,10 @@ struct Fp4GemmSm100 {
   using LayoutDTag = cutlass::layout::RowMajor;
   using LayoutSFDTag = LayoutDTag;
 
-  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
+  static constexpr int kAlignmentD =
+      128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int kAlignmentC =
+      128 / cutlass::sizeof_bits<ElementC>::value;
 
   // Kernel functional config
   using ElementAccumulator = float;
@@ -101,10 +103,10 @@ struct Fp4GemmSm100 {
           ElementAccumulator,
           ElementC,
           LayoutCTag,
-          AlignmentC,
+          kAlignmentC,
           ElementD,
           LayoutDTag,
-          AlignmentD,
+          kAlignmentD,
           cutlass::epilogue::collective::EpilogueScheduleAuto,
           FusionOperation>::CollectiveOp;
 
@@ -114,10 +116,10 @@ struct Fp4GemmSm100 {
           OperatorClass,
           ElementA,
           LayoutATag,
-          AlignmentA,
+          kAlignmentA,
           ElementB,
           LayoutBTag,
-          AlignmentB,
+          kAlignmentB,
           ElementAccumulator,
           MmaTileShape,
           ClusterShape,
