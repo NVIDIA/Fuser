@@ -66,14 +66,65 @@ class CutlassCodeGenerator {
   }
 
   void findPattern() {
-    auto exprs = fusion_->exprs();
-    const auto smmas =
-        ir_utils::filterByType<ScaledMmaOp>(exprs.begin(), exprs.end());
-    NVF_CUTLASS_REJECT_IF(smmas.size() == 0, "No ScaledMmaOps detected");
+    pattern_ = findCutlassMatmulPattern(fusion_);
+
+    // These must always be set
+    NVF_ERROR(pattern_.mma != nullptr);
+    NVF_ERROR(pattern_.a != nullptr);
+    NVF_ERROR(pattern_.b != nullptr);
+
     NVF_CUTLASS_REJECT_IF(
-        smmas.size() != 1,
-        "Multiple ScaledMmaOps detected. Only one is supported");
-    mma_ = *smmas.begin();
+        pattern_.a->dtype() != DataType::Float4_e2m1fn,
+        "Only NVFP4 inputs are supported but tensor ",
+        pattern_.a->toString(),
+        " has A role and dtype is ",
+        pattern_.a->dtype());
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b->dtype() != DataType::Float4_e2m1fn,
+        "Only NVFP4 inputs are supported but tensor ",
+        pattern_.b->toString(),
+        " has B role and dtype is ",
+        pattern_.b->dtype());
+
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.a->isFusionInput(), "A must be a fusion input");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b->isFusionInput(), "B must be a fusion input");
+
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.a_scale == nullptr, "Could not find A scale factors");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b_scale == nullptr, "Could not find B scale factors");
+
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.a_scale->isFusionInput(),
+        "Scale factors for A must be a fusion input");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b_scale->isFusionInput(),
+        "Scale factors for B must be a fusioninput");
+
+    // Validate that the inputs and scale factors are all contiguous
+    for (TensorView* tv :
+         {pattern_.a, pattern_.b, pattern_.a_scale, pattern_.b_scale}) {
+      if (tv == nullptr) {
+        continue;
+      }
+      for (const auto& c : tv->getContiguity()) {
+        if (c.has_value()) {
+          NVF_CUTLASS_REJECT_IF(
+              c.value() != true,
+              "We require input TensorView ",
+              tv->toString(),
+              " to be fully contiguous for the Cutlass executor.");
+        }
+      }
+    }
+
+    NVF_CUTLASS_REJECT_IF(
+        !pattern_.mma->isA<ScaledMmaOp>(),
+        "Only ScaledMmaOp is supported so far");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.is_grouped, "Grouped patterns are not yet supported");
 
     main_output_ = fusion_->outputs().front()->as<TensorView>();
   }
@@ -171,7 +222,7 @@ struct KernelTraits {
   Fusion* fusion_;
   const CutlassParams& params_;
 
-  Expr* mma_ = nullptr;
+  CutlassMatmulPattern pattern_;
   TensorView* main_output_ = nullptr;
 
   std::unique_ptr<EVTModel> evt_model_ = nullptr;
@@ -217,9 +268,9 @@ std::string generateNvfp4ScaledMmKernel(
   }
   NVF_ERROR(main_output != nullptr);
 
-  const std::string output_dtype = dtypeToCutlass(main_output->dtype());
+  std::string output_dtype = dtypeToCutlass(main_output->dtype());
 
-  ScaledMmaOp* smma = findScaledMmaOp(fusion);
+  ScaledMmaOp* smma = nullptr;
   NVF_ERROR(smma != nullptr);
 
   TensorView* a = smma->matrix1();
@@ -637,6 +688,55 @@ extern "C" void run_kernel(
 )";
 
   return code;
+}
+
+namespace {
+
+template <typename T>
+T* findOp(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  const auto smmas = ir_utils::filterByType<T>(exprs.begin(), exprs.end());
+  if (smmas.size() != 1) {
+    return nullptr;
+  }
+  return *smmas.begin();
+}
+
+} // namespace
+
+CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
+  if (auto smma = findOp<ScaledMmaOp>(fusion)) {
+    NVF_CUTLASS_REJECT_IF(
+        smma->outScale() != nullptr,
+        "Output block scale factor not supported for EVT translation");
+    NVF_CUTLASS_REJECT_IF(
+        smma->outGamma() != nullptr,
+        "Output global scale factor not supported for EVT translation");
+    return {
+        .mma = smma,
+        .a = smma->matrix1(),
+        .b = smma->matrix2(),
+        .a_scale = smma->scale1(),
+        .b_scale = smma->scale2(),
+        .alpha = smma->alpha(),
+        .beta = smma->beta(),
+        .bias = smma->bias(),
+        .is_grouped = false};
+  } else if (auto gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
+    return {
+        .mma = gmma,
+        .a = gmma->matrix1(),
+        .b = gmma->matrix2(),
+        .a_scale = gmma->scale1(),
+        .b_scale = gmma->scale2(),
+        .alpha = gmma->alpha(),
+        .problem_sizes = gmma->problemSizes(),
+        .expert_offsets = gmma->expertOffsets(),
+        .scale_factor_offsets = gmma->scalingFactorOffsets(),
+        .is_grouped = true};
+  } else {
+    NVF_CUTLASS_REJECT("Could not find a supported matmul pattern in Fusion");
+  }
 }
 
 std::string getGemmRejectReason(Fusion* fusion) {

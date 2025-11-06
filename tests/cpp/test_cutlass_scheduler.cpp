@@ -393,6 +393,9 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
 
   fusion->addOutput(smm.tv);
 
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
+
   // Note that K is the actual problem size independent of data type, not the
   // packed size.
   constexpr int64_t M = 8192, N = 8192, K = 8192;
