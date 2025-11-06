@@ -1498,6 +1498,8 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
   }
 
   std::unordered_map<TensorView*, Val*> tma_buffer_size_map_;
+  // Track which for loops need ElectSync wrapping
+  std::unordered_map<kir::ForLoop*, std::pair<Expr*, Expr*>> loops_to_wrap_;
 
   void dispatch(Expr* expr) override {
     std::cout << "dispatching expr: " << expr->toString() << std::endl;
@@ -1506,9 +1508,6 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
         std::cout << "k: " << k->toString() << ", v: " << v->toString()
                   << std::endl;
       }
-      Val* state = IrBuilder::create<Val>(DataType::UInt64);
-      auto state_expr = IrBuilder::create<kir::Allocate>(
-          state, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
       TensorView* all_mbarriers =
           GpuLower::current()->nonCircularBufferMBarrier();
       auto mbarrier = IrBuilder::create<kir::TensorIndex>(
@@ -1519,18 +1518,19 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
           DataType::UInt32, tma_buffer_size_map_[tv]);
       auto mbarrier_arrive_tx_expr =
           IrBuilder::create<kir::MBarrierArriveExpectTx>(
-              state, mbarrier, expected_bytes);
-      auto mbarrier_wait =
-          IrBuilder::create<kir::MBarrierWait>(mbarrier, state);
+              nullptr, mbarrier, expected_bytes);
+
+      // Non-circular buffered TMA loads
+      Val* parity = IrBuilder::create<Val>(0, DataType::UInt32);
+      kir::MBarrierWaitParity* mbarrier_wait =
+          IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
       // Insert before the outermost for loop or top-level scope
       // insert wait after the for-loop that contains the TMA loads
       if (!for_loops_.empty()) {
-        registerInsertBefore(for_loops_[0], state_expr, nullptr);
-        registerInsertBefore(for_loops_[0], mbarrier_arrive_tx_expr, nullptr);
-        registerInsertAfter(for_loops_[0], mbarrier_wait, nullptr);
+        // Track that this loop needs ElectSync wrapping
+        loops_to_wrap_[for_loops_[0]] = {
+            mbarrier_arrive_tx_expr, mbarrier_wait};
       } else {
-        registerInsertBefore(
-            expr, state_expr, scope_.empty() ? nullptr : scope_.back());
         registerInsertBefore(
             expr,
             mbarrier_arrive_tx_expr,
@@ -1559,6 +1559,28 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
     scope_exprs_.pop_back();
     scope_.pop_back();
     for_loops_.pop_back();
+
+    // Check if this loop needs ElectSync wrapping
+    if (loops_to_wrap_.count(fl)) {
+      auto [arrive_expr, wait_expr] = loops_to_wrap_[fl];
+
+      // Create ElectSync IfThenElse wrapper
+      auto elect_sync_predicate =
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+      auto elect_sync_ite =
+          IrBuilder::create<kir::IfThenElse>(elect_sync_predicate);
+
+      // Add arrive and for_loop to the then body
+      elect_sync_ite->thenBody().push_back(arrive_expr);
+      elect_sync_ite->thenBody().push_back(fl);
+
+      // Insert wait after the original for loop position (before replacement)
+      // This will be after the IfThenElse once the replacement happens
+      registerInsertAfter(fl, wait_expr, nullptr);
+
+      // Replace the for_loop with the IfThenElse wrapper
+      registerReplace(fl, elect_sync_ite);
+    }
   }
 };
 

@@ -3439,7 +3439,7 @@ TEST_F(TMATest, MultipleLoadsOnSameAxisCircularBuffered) {
 
   tv0_smem->inlineAt(1);
 
-  tv0_smem->circularBuffer(1, 1, WarpSpecialized(ParallelType::TIDy));
+  tv0_smem->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({2048}, options);

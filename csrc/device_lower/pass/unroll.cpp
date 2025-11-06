@@ -41,12 +41,12 @@ void UnrollPass::registerReplace(Expr* reference, Expr* new_expr) {
 }
 
 void UnrollPass::dispatch(Expr* expr) {
+  std::cout << "dispatching expr: " << expr->toString() << std::endl;
   // short-circuit: skip adding predicate if tma load with circular buffering or
   // stand-alone arrive_expect_tx.
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
   bool is_circular_buffer_nd_tma_load =
-      ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
-      expr->output(0)->as<TensorView>()->isCircularBuffered();
+      ir_utils::isCpAsyncBulkTensorTileLoad(expr);
   if (is_arrive_expect_tx || is_circular_buffer_nd_tma_load) {
     return;
   }
@@ -242,7 +242,7 @@ void UnrollPass::dispatch(Expr* expr) {
       // TMA loads within the ite scope, we need to replace it with
       // PredicateType::OneDimTmaLoadExpectArrive
       current_elect_sync_ite_ = ite;
-      elect_sync_scope_ = scope_.back();
+      elect_sync_scope_ = scope_.empty() ? nullptr : scope_.back();
     }
     kir::ExprMutator::handle(ite);
   }
