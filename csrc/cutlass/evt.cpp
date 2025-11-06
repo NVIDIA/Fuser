@@ -50,6 +50,7 @@ class EVTConverter : OptInDispatch {
  public:
   static EVTModel convert(Fusion* fusion) {
     EVTConverter conv(fusion);
+    conv.run();
     return std::move(conv.model());
   }
 

@@ -239,6 +239,10 @@ struct Fp4GemmSm100 {
     // Sets up basic
     genBasicConfig();
 
+    genEpilogueConfig();
+
+    genFinalGemmConfig();
+
     code_ += R"(
 };
 )";
@@ -261,13 +265,15 @@ struct Fp4GemmSm100 {
     // set dtype to void for null tensors. This is used to represent missing
     // bias
     std::string dtype = "void";
-    std::string alignment = tv == nullptr
-        ? "128"
-        : "128 / cutlass::sizeof_bits<Element" + tv_name + ">::value";
     if (tv != nullptr) {
       dtype = is_nvfp4 ? "cutlass::nv_float4_t<cutlass::float_e2m1_t>"
                        : dtypeToCutlass(tv->dtype());
     }
+    std::string layout =
+        tv == nullptr ? "cutlass::layout::RowMajor" : mapLayoutToCutlass(tv);
+    std::string alignment = tv == nullptr
+        ? "128"
+        : "128 / cutlass::sizeof_bits<Element" + tv_name + ">::value";
     code_ += std::format(
         R"(
   using Element{0} = {1};
@@ -277,7 +283,7 @@ struct Fp4GemmSm100 {
     )",
         tv_name,
         dtype,
-        mapLayoutToCutlass(tv),
+        layout,
         alignment);
   }
 
@@ -311,7 +317,14 @@ struct Fp4GemmSm100 {
                        ElementD,
                        LayoutDTag,
                        /*IsPerColScaleSupported=*/false>());
+)";
+  }
 
+  void genEpilogueConfig() {
+    NVF_ERROR(evt_model_.get() != nullptr);
+    code_ += "  using EVTOp =\n" +
+        evt_model_->defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
+    code_ += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -329,7 +342,11 @@ struct Fp4GemmSm100 {
           AlignmentD,
           cutlass::epilogue::collective::EpilogueScheduleAuto,
           EVTOp>::CollectiveOp;
+)";
+  }
 
+  void genFinalGemmConfig() {
+    code_ += R"(
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
@@ -390,7 +407,7 @@ struct Fp4GemmSm100 {
 
 int64_t fusionInputPosition(Fusion* fusion, Val* v) {
   NVF_CUTLASS_REJECT_IF(
-      v->isFusionInput(), "Expected ", v->toString(), " to be a fusion input");
+      !v->isFusionInput(), "Expected ", v->toString(), " to be a fusion input");
   return std::distance(
       fusion->inputs().begin(),
       std::find(fusion->inputs().begin(), fusion->inputs().end(), v));
@@ -398,7 +415,7 @@ int64_t fusionInputPosition(Fusion* fusion, Val* v) {
 
 int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
   NVF_CUTLASS_REJECT_IF(
-      v->isFusionOutput(),
+      !v->isFusionOutput(),
       "Expected ",
       v->toString(),
       " to be a fusion output");
