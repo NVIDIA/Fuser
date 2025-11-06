@@ -495,6 +495,42 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   //
   // will remain [t, t, t] because the stream-parallel IterDomain is allocated
   // outermost.
+  //
+  // Contiguity refinement is done after shardAllocationAsLoop because
+  // FinalizeMultideviceDomainPass (which also uses shardAllocationAsLoop)
+  // doesn't want to compute contiguity this way.
+  //
+  // Let's say the loop domains look like the following during finalization:
+  // ```
+  //   in: [m, n]
+  //          / \.
+  //         s
+  //         |
+  //         | op1
+  //         v
+  //    x: [m, n]
+  //          / \.
+  //         s
+  //         |
+  //         | op2
+  //         v
+  //  out: [m, n]
+  //          / \.
+  //         s
+  // ```
+  // `x`'s allocation should be parallelized on stream because `op2` isn't
+  // resharding, and the new contiguity ought to be `[t, t, t]`. However, the
+  // code below would refine the contiguity to `[f, t, t]`.
+  //
+  // The issue stems from a time-dependent contract on allocation domains:
+  // pre-finalization we treat allocations as unsharded, while post-finalization
+  // we commit them to the target sharding. Because shardByStream runs after
+  // finalization, it follows a different set of assumptions than the
+  // finalization pass.  We anticipated that a "when" in the contract could
+  // cause mismatches; this example validates that concern.  I don't see an
+  // easy fix. The principled approach is to remove the "when" and pay the cost
+  // to make sharding propagation and decomposition reason about both loop and
+  // allocation consistently.
   std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
   std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
   bool next_will_be_noncontiguous = false;
