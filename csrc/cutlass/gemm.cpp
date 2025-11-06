@@ -84,11 +84,87 @@ class CutlassCodeGenerator {
   void gatherInfo() {
     findPattern();
 
-    model_opt_ = std::make_unique(extractEVTModel(fusion_));
+    {
+      EVTModel model = extractEVTModel(fusion_);
+      evt_model_ = std::make_unique<EVTModel>(std::move(model));
+    }
+  }
+
+  void generateCode() {
+    // Fill the preamble first
+    code_ += R"(#include "cutlass/cutlass.h"
+#include "cutlass/epilogue/collective/collective_builder.hpp"
+#include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
+#include "cutlass/gemm/collective/collective_builder.hpp"
+#include "cutlass/gemm/device/gemm_universal_adapter.h"
+#include "cutlass/gemm/kernel/gemm_universal.hpp"
+#include "cutlass/numeric_conversion.h"
+#include "cutlass/util/packed_stride.hpp"
+
+#define NVF_THROW(msg) throw std::runtime_error(msg);
+#define NVF_ERROR(cond, msg)                                      \
+  if (!(cond)) {                                                  \
+    NVF_THROW("Condition " #cond " failed: " + std::string(msg)); \
+  }
+
+#define NVFUSER_CUDA_RT_SAFE_CALL(x)               \
+  do {                                             \
+    cudaError_t _result = x;                       \
+    NVF_ERROR(                                     \
+        _result == cudaSuccess,                    \
+        std::string("CUDA error: ") +              \
+        std::string(cudaGetErrorName(_result)) +   \
+        std::string(" failed with error ") +       \
+        std::string(cudaGetErrorString(_result))); \
+  } while (0)
+
+// This is a surrogate for a CUDA at::Tensor
+struct TensorArg {
+  void* data_ptr;
+  int64_t dim;
+  int64_t* sizes;
+  int64_t* strides=nullptr;
+};
+
+namespace {
+using namespace cute;
+)";
+    genParams();
+  }
+
+  //! Here we put all the CutlassParams into the KernelTraits struct in the
+  //! generated code.
+  void genParams() {
+    code_ += R"(
+// Kernel configuration traits for different output data types
+// Defines tile shapes and cluster configurations.
+struct KernelTraits {
+)";
+    code_ += std::format(
+        R"(
+  using MmaTileShape = Shape<_{}, _{}, _{}>;
+  using ClusterShape = Shape<_{}, _{}, _{}>;
+  using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
+)",
+        params_.mma_tile.m,
+        params_.mma_tile.n,
+        params_.mma_tile.k,
+        params_.cluster_shape.m,
+        params_.cluster_shape.n,
+        params_.cluster_shape.k,
+        params_.per_sm_tile.m,
+        params_.per_sm_tile.n,
+        params_.per_sm_tile.k);
+
+    code_ += R"(
+};
+)";
   }
 
   void run() {
     gatherInfo();
+
+    generateCode();
   }
 
  private:
@@ -131,6 +207,7 @@ std::string generateNvfp4ScaledMmKernel(
 
   const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
   const bool has_evt = model_opt.isValid();
+  TensorView* main_output = nullptr;
   if (has_evt) {
     main_output = model_opt.getData().getRootTensorView();
   } else {
@@ -562,7 +639,7 @@ extern "C" void run_kernel(
   return code;
 }
 
-std::string getRejectReason(Fusion* fusion) {
+std::string getGemmRejectReason(Fusion* fusion) {
   return CutlassCodeGenerator::getRejectReason(fusion);
 }
 

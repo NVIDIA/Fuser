@@ -57,7 +57,7 @@ std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params);
 
-std::string getRejectReason(Fusion* fusion);
+std::string getGemmRejectReason(Fusion* fusion);
 
 } // namespace cutlass_codegen
 

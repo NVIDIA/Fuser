@@ -48,12 +48,8 @@ TensorView* getAccTv(Fusion* fusion) {
 //! https://dx.doi.org/10.1145/3620666.3651369
 class EVTConverter : OptInDispatch {
  public:
-  static mma_utils::DataWrapperOpt<EVTModel> convert(Fusion* fusion) {
+  static EVTModel convert(Fusion* fusion) {
     EVTConverter conv(fusion);
-    conv.run();
-    if (!conv.failureReason().empty()) {
-      return {conv.failureReason().c_str()};
-    }
     return std::move(conv.model());
   }
 
@@ -62,10 +58,6 @@ class EVTConverter : OptInDispatch {
 
   EVTModel& model() {
     return model_;
-  }
-
-  const std::string& failureReason() const {
-    return failure_reason_;
   }
 
   //! We pass both inputs and output tensors to the launcher code via a vector
@@ -81,6 +73,7 @@ class EVTConverter : OptInDispatch {
     } else if (tv->isFusionOutput()) {
       index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
     } else {
+      // TODO: We should check this condition before generating code
       NVF_CUTLASS_REJECT(
           "Cannot get pointer for TV ",
           tv->toString(),
@@ -393,7 +386,6 @@ class EVTConverter : OptInDispatch {
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
   std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
-  std::string failure_reason_;
 };
 
 } // namespace
@@ -613,7 +605,7 @@ std::string EVTModel::toString() const {
 }
 
 // TODO: DataWrapperOpt belongs in scheduler_utils
-mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion) {
+EVTModel extractEVTModel(Fusion* fusion) {
   return EVTConverter::convert(fusion);
 }
 
