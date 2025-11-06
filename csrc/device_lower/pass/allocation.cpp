@@ -1706,52 +1706,40 @@ class AllocationInserter : public kir::ExprMutator {
 
     kir::ExprMutator::traverseAndInsert(exprs);
 
-    // // insert MBarrierArriveExpectTx
-    // // ExpectTx equals allocated shared memory size for each non-circular
-    // buffered TMA loaded tensor view for(int i=0; i<block_mbarrier_count; i++)
-    // {
-    //   Val* state = IrBuilder::create<Val>(DataType::UInt64);
-    //   auto kstate = IrBuilder::create<kir::Allocate>(state,
-    //   MemoryType::Local, GpuLower::current()->kernel()->oneVal());
+    if (block_mbarrier_count > 0) {
+      TensorView* all_mbarriers =
+          GpuLower::current()->nonCircularBufferMBarrier();
 
-    //   TensorView* all_mbarriers =
-    //   GpuLower::current()->nonCircularBufferMBarrier(); auto mbarrier =
-    //   IrBuilder::create<kir::TensorIndex>(
-    //     all_mbarriers,
-    //     IrBuilder::create<Val>(i, DataType::Index));
-    //   Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+      ock_mbarrier_count == 1) {
+        // For single mbarrier, use TensorView directly without loop
+        auto mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(all_mbarriers);
+        Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
+            IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-    //   // Get the TMA load expression and compute expected bytes
-    //   auto tma_load_expr =
-    //   GpuLower::current()->nonCircularBufferTmaLoadExprs().at(i); auto* ldst
-    //   = dynamic_cast<LoadStoreOp*>(tma_load_expr); NVF_ERROR(ldst != nullptr,
-    //   "TMA load expression must be a LoadStoreOp"); auto* tv =
-    //   ldst->out()->as<TensorView>();
+        he end of the kernel exprs_.push_back(pred_mbarrier_inval);
+      }
+      else {
+        // For multiple mbarriers, create a for loop to invalidate all
+        auto fl = ir_utils::createRangeLoop(block_mbarrier_count);
+        kir::TensorIndex* indexed_mbarrier =
+            IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
 
-    //   // Compute the total size: product of all allocation domain extents
-    //   Val* total_elements = tv->container()->oneVal();
-    //   for (const auto* id : tv->getMaybeAllocationDomain()) {
-    //     if (!id->isBroadcast() && !id->isReduction()) {
-    //       total_elements = SimplifyingIrBuilder::mulExpr(total_elements,
-    //       id->extent());
-    //     }
-    //   }
+        auto
 
-    //   // Convert to bytes
-    //   Val* expect_bytes = SimplifyingIrBuilder::mulExpr(
-    //       total_elements,
-    //       IrBuilder::create<Val>(dataTypeSizeByte(tv->dtype()),
-    //       DataType::Index));
-    //   expect_bytes = SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32,
-    //   expect_bytes);
+            IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
+        Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
+            IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-    //   auto kmbarrier_arrive_tx =
-    //   IrBuilder::create<kir::MBarrierArriveExpectTx>(
-    //       state, mbarrier_index, expect_bytes);
+        fl->body().p
 
-    //   registerInsertBefore(first_expr, kstate, nullptr);
-    //   registerInsertBefore(first_expr, kmbarrier_arrive_tx, nullptr);
-    // }
+        rier_inval);
+
+        // Insert at the end
+
+        exprs_.push_back(fl);
+      }
+    }
   }
 
  private:
@@ -2023,3 +2011,4 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
+                                      

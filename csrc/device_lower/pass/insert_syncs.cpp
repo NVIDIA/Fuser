@@ -1502,12 +1502,8 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
   std::unordered_map<kir::ForLoop*, std::pair<Expr*, Expr*>> loops_to_wrap_;
 
   void dispatch(Expr* expr) override {
-    std::cout << "dispatching expr: " << expr->toString() << std::endl;
-    if (ir_utils::isCpAsyncBulkLoad(expr)) {
-      for (auto [k, v] : tma_buffer_size_map_) {
-        std::cout << "k: " << k->toString() << ", v: " << v->toString()
-                  << std::endl;
-      }
+    if (ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
+        !expr->output(0)->as<TensorView>()->isCircularBuffered()) {
       TensorView* all_mbarriers =
           GpuLower::current()->nonCircularBufferMBarrier();
       auto mbarrier = IrBuilder::create<kir::TensorIndex>(
@@ -1521,13 +1517,7 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
               nullptr, mbarrier, expected_bytes);
 
       if (!for_loops_.empty()) {
-        // Use compute-at position to determine which for loop to wrap
         auto ca_pos = tv->getComputeAtPosition();
-        std::cout << "ca_pos: " << ca_pos
-                  << ", for_loops size: " << for_loops_.size() << std::endl;
-
-        // The loop at ca_pos is where the tensor is computed
-        // Ensure ca_pos is within bounds
         NVF_ERROR(
             ca_pos < (int64_t)for_loops_.size(),
             "Compute-at position ",
@@ -1538,27 +1528,21 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
         // Compute parity based on the first non-parallelized loop before ca_pos
         // Parallelized loops (TIDx, BIDx, etc) don't generate actual loops in
         // CUDA
-        Val* parity = nullptr;
+        Val* parity = IrBuilder::create<Val>(0, DataType::UInt32);
         kir::ForLoop* parity_loop = nullptr;
         for (int64_t i = ca_pos - 1; i >= 0; --i) {
           kir::ForLoop* loop = for_loops_[i];
-          // Skip trivial loops and thread-parallelized loops
           if (!loop->isTrivial() && !loop->iter_domain()->isThread()) {
             parity_loop = loop;
             break;
           }
         }
-
         if (parity_loop != nullptr) {
           Val* two = IrBuilder::create<Val>(2, DataType::Index);
           parity = IrBuilder::maybeCastExpr(
               DataType::UInt32,
               SimplifyingIrBuilder::modExpr(parity_loop->index(), two));
-        } else {
-          // No non-parallelized loop found, use constant parity
-          parity = IrBuilder::create<Val>(0, DataType::UInt32);
         }
-        // Non-circular buffered TMA loads
         kir::MBarrierWaitParity* mbarrier_wait =
             IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
 
@@ -1567,7 +1551,6 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
         loops_to_wrap_[tma_load_loop] = {
             mbarrier_arrive_tx_expr, mbarrier_wait};
       } else {
-        // Non-circular buffered TMA loads without for loops
         Val* parity = IrBuilder::create<Val>(0, DataType::UInt32);
         kir::MBarrierWaitParity* mbarrier_wait =
             IrBuilder::create<kir::MBarrierWaitParity>(mbarrier, parity);
@@ -1583,7 +1566,6 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
   }
 
   void handle(kir::Allocate* allocate) override {
-    std::cout << "handling allocate: " << allocate->toString() << std::endl;
     tma_buffer_size_map_[allocate->buffer()->as<TensorView>()] =
         lower_utils::allocSizeBytes(allocate);
   }

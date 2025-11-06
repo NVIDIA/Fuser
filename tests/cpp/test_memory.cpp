@@ -3389,6 +3389,8 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+// T2_s_float[iS6{8}, iB4{256}] ca_pos( 0 )
+// One mbarrier, used one time to sync the 8 TMA loads
 TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWait) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
@@ -3417,6 +3419,70 @@ TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWait) {
   testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
 }
 
+// Two mbarriers, one for each input
+TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitTwoInuts) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({2048});
+  auto tv1 = makeContigConcreteTensor({2048});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  for (auto tv : {tv0, tv1}) {
+    auto tv_smem = tv->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv_smem->setMemoryType(MemoryType::Shared);
+    tv_smem->split(0, 256);
+    tv_smem->axis(1)->parallelize(ParallelType::Bulk);
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({2048}, options);
+  at::Tensor at_tv1 = at::randn({2048}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1});
+  auto outputs = ke.run({at_tv0, at_tv1});
+  testValidate(fusion.get(), outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
+}
+
+// T2_s_float[iS6{8}, iB4{256}] ca_pos( 0 )
+// One mbarrier, used one time to sync the 8 TMA loads
+TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitBIDx) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({2048});
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // 256 elelmenst per axis per tma load
+  // multiple loads on the same tensor should shared the same mbarrier
+  tv0_smem->split(0, 256);
+  tv0_smem->axis(1)->parallelize(ParallelType::Bulk);
+
+  tv1->split(0, 256);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  for (auto tv : {tv0_smem, tv1}) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({2048}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+// T2_s_float[i5{8}, iS6{2}, iB4{128}] ca_pos( 1 )
+// One mbarrier, reused 8 times, each time sync 2 TMA loads.
 TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitNestedLoop) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
@@ -3448,6 +3514,8 @@ TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitNestedLoop) {
   testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
 }
 
+// T2_s_float[iblockIdx.x5{8}, iS6{2}, iB4{128}] ca_pos( 1 )
+// One mbarrier per CTA, reused 2 times, each time sync 2 TMA loads.
 TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitNestedLoopBIDx) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
