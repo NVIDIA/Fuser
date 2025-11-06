@@ -2436,7 +2436,9 @@ class Scope {
     return exprs_;
   }
 
-  ExprList& exprs() {
+  // Used only by MultiDeviceExecutor. Should generally be avoided in favor of
+  // other modifying methods.
+  ExprList& mutableExprs() {
     return exprs_;
   }
 

@@ -41,7 +41,7 @@ const Scope& HostIrContainer::topLevel() const {
 }
 
 void HostIrContainer::resetTopLevelExprs(std::list<Expr*> exprs) {
-  top_level_.exprs() = std::move(exprs);
+  top_level_.mutableExprs() = std::move(exprs);
 }
 
 void HostIrContainer::insertExprBefore(Scope::Iterator position, Expr* e) {
