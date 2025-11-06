@@ -237,7 +237,7 @@ void traverseFrontierWithContiguityCheck(
     if (is_contig) {
       frontier[outer_pos] = merge->out();
     } else {
-      frontier.erase(outer_it);
+      frontier.erase(frontier.begin() + outer_pos);
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
     auto in_it = std::ranges::find(frontier, split->in());
