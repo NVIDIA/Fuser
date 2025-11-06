@@ -190,6 +190,8 @@ using namespace cute;
     genParams();
 
     genGemmConfigClass();
+
+    genArgumentsFunction();
   }
 
   //! Here we put all the CutlassParams into the KernelTraits struct in the
@@ -385,6 +387,115 @@ struct Fp4GemmSm100 {
 )";
   }
 
+  void genArgumentsFunction() {
+    // TODO: Handle other scale factor dtypes
+    code_ += R"(
+// Constructs CUTLASS GEMM arguments from PyTorch tensors and dimensions
+//
+// This function converts PyTorch tensor data and metadata into the format
+// expected by CUTLASS GEMM kernels, including proper stride calculations
+// and layout configurations for the scaled matrix multiplication.
+//
+// Parameters:
+//   output: Output tensor for storing results
+//   a: Input matrix A in NVFP4 format
+//   b: Input matrix B in NVFP4 format
+//   scales_a: Per-block scaling factors for matrix A
+//   scales_b: Per-block scaling factors for matrix B
+//   alpha: Global scaling factor
+//   M, N, K: Matrix dimensions
+//
+// Returns: CUTLASS GEMM arguments structure ready for kernel execution
+typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
+  const std::vector<TensorArg>& inputs) {
+  using T = Fp4GemmSm100;
+
+  using ElementA = typename T::Gemm::ElementA;
+  using ElementB = typename T::Gemm::ElementB;
+  using ElementSFA = cutlass::float_ue4m3_t;
+  using ElementSFB = cutlass::float_ue4m3_t;
+)";
+    if (pattern_.bias != nullptr) {
+      code_ += "  using ElementC = " + dtypeToCutlass(pattern_.bias->dtype()) +
+          ";\n";
+    }
+    code_ += R"(
+  using ElementD = typename T::Gemm::ElementD;
+  using ElementCompute = float;
+  using StrideA = typename T::StrideA;
+  using StrideB = typename T::StrideB;
+  using StrideC = typename T::StrideC;
+  using StrideD = typename T::StrideD;
+  using Sm1xxBlkScaledConfig =
+      typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
+    const auto maybe_define =
+        [&](std::string tv_name, TensorView* tv, bool is_output) {
+          if (tv == nullptr) {
+            return;
+          }
+          int64_t pos = is_output
+              ? fusionOutputPosition(fusion_, tv) + fusion_->inputs().size()
+              : fusionInputPosition(fusion_, tv);
+          code_ += "  const TensorArg& " + tv_name + " = inputs.at(" +
+              std::to_string(pos) + ");\n";
+        };
+    maybe_define("a", pattern_.a, /*is_output=*/false);
+    maybe_define("b", pattern_.b, /*is_output=*/false);
+    maybe_define("a_scale", pattern_.a_scale, /*is_output=*/false);
+    maybe_define("b_scale", pattern_.b_scale, /*is_output=*/false);
+    maybe_define("alpha", pattern_.alpha, /*is_output=*/false);
+    maybe_define("beta", pattern_.beta, /*is_output=*/false);
+    maybe_define("bias", pattern_.bias, /*is_output=*/false);
+    maybe_define("output", main_output_, /*is_output=*/true);
+
+    // TODO: handle finding mnk for differently sized dimensions of a and b
+    code_ += R"(
+  int m = static_cast<int>(a.sizes[0]);
+  int n = static_cast<int>(b.sizes[1]);
+  int k = static_cast<int>(a.sizes[1]) * 2;
+  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
+
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
+
+  auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
+      cute::make_shape(m, n, k, 1));
+  auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
+      cute::make_shape(m, n, k, 1));
+
+  typename T::Gemm::Arguments arguments{
+      cutlass::gemm::GemmUniversalMode::kGemm,
+      {m, n, k, 1},
+      {// Mainloop arguments
+       static_cast<ElementA const*>(a.data_ptr),
+       stride_A,
+       static_cast<ElementB const*>(b.data_ptr),
+       stride_B,
+       static_cast<ElementSFA const*>(a_scale.data_ptr),
+       layout_SFA,
+       static_cast<ElementSFB const*>(b_scale.data_ptr),
+       layout_SFB},
+      {// Epilogue arguments
+)";
+    code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
+    code_ += ",  // epilogue.thread\n";
+    if (pattern_.bias != nullptr) {
+      code_ += "       bias.data_ptr,";
+    } else {
+      code_ += "       /*bias=*/nullptr,";
+    }
+    code_ += R"(
+       stride_C,
+       static_cast<ElementD*>(output.data_ptr),
+       stride_D}};
+  return arguments;
+}
+)";
+  }
+
   void run() {
     gatherInfo();
 
@@ -471,220 +582,7 @@ std::string generateNvfp4ScaledMmKernel(
 
   std::string code;
 
-  if (has_evt) {
-    const EVTModel& evt_model = model_opt.getData();
-    code += "  using EVTOp =\n" +
-        evt_model.defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
-    code += R"(
-  using CollectiveEpilogue =
-      typename cutlass::epilogue::collective::CollectiveBuilder<
-          ArchTag,
-          OperatorClass,
-          PerSmTileShape_MNK,
-          ClusterShape,
-          cutlass::epilogue::collective::EpilogueTileAuto,
-          ElementAccumulator,
-          ElementAccumulator,
-          ElementC,
-          LayoutCTag,
-          AlignmentC,
-          ElementD,
-          LayoutDTag,
-          AlignmentD,
-          cutlass::epilogue::collective::EpilogueScheduleAuto,
-          EVTOp>::CollectiveOp;
-)";
-  } else {
-    code += R"(
-  using CollectiveEpilogue =
-      typename cutlass::epilogue::collective::CollectiveBuilder<
-          ArchTag,
-          OperatorClass,
-          PerSmTileShape_MNK,
-          ClusterShape,
-          cutlass::epilogue::collective::EpilogueTileAuto,
-          ElementAccumulator,
-          ElementAccumulator,
-          ElementC,
-          LayoutCTag,
-          AlignmentC,
-          ElementD,
-          LayoutDTag,
-          AlignmentD,
-          cutlass::epilogue::collective::EpilogueScheduleAuto>::CollectiveOp;
-)";
-  }
   code += R"(
-
-  using CollectiveMainloop =
-      typename cutlass::gemm::collective::CollectiveBuilder<
-          ArchTag,
-          OperatorClass,
-          ElementA,
-          LayoutATag,
-          AlignmentA,
-          ElementB,
-          LayoutBTag,
-          AlignmentB,
-          ElementAccumulator,
-          MmaTileShape,
-          ClusterShape,
-          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
-              sizeof(typename CollectiveEpilogue::SharedStorage))>,
-          cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
-
-  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-      Shape<int, int, int, int>,
-      CollectiveMainloop,
-      CollectiveEpilogue,
-      void>;
-  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
-  using StrideA = typename Gemm::GemmKernel::StrideA;
-  using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
-  using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
-  using StrideB = typename Gemm::GemmKernel::StrideB;
-  using LayoutB = decltype(cute::make_layout(make_shape(0, 0, 0), StrideB{}));
-  using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using StrideC = typename Gemm::GemmKernel::StrideC;
-  using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
-  using StrideD = typename Gemm::GemmKernel::StrideD;
-  using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
-};
-
-// Constructs CUTLASS GEMM arguments from PyTorch tensors and dimensions
-//
-// This function converts PyTorch tensor data and metadata into the format
-// expected by CUTLASS GEMM kernels, including proper stride calculations
-// and layout configurations for the scaled matrix multiplication.
-//
-// Parameters:
-//   output: Output tensor for storing results
-//   a: Input matrix A in NVFP4 format
-//   b: Input matrix B in NVFP4 format
-//   scales_a: Per-block scaling factors for matrix A
-//   scales_b: Per-block scaling factors for matrix B
-//   alpha: Global scaling factor
-//   M, N, K: Matrix dimensions
-//
-// Returns: CUTLASS GEMM arguments structure ready for kernel execution
-template <typename T>
-typename T::Gemm::Arguments args_from_inputs(
-  const std::vector<TensorArg>& inputs) {
-  using ElementA = typename T::Gemm::ElementA;
-  using ElementB = typename T::Gemm::ElementB;
-)";
-  // TODO: Handle other scale factor dtypes
-  NVF_ERROR_EQ(a_scale->dtype(), DataType::Float8_e4m3fn);
-  code += "  using ElementSFA = cutlass::float_ue4m3_t;\n";
-  NVF_ERROR_EQ(b_scale->dtype(), DataType::Float8_e4m3fn);
-  code += "  using ElementSFB = cutlass::float_ue4m3_t;\n";
-
-  code += R"(
-  using ElementD = typename T::Gemm::ElementD;
-  using ElementCompute = float;
-  using StrideA = typename T::StrideA;
-  using StrideB = typename T::StrideB;
-  using StrideC = typename T::StrideC;
-  using StrideD = typename T::StrideD;
-  using Sm1xxBlkScaledConfig =
-      typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
-)";
-
-  code += "  const TensorArg& a = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, a)) + ");\n";
-  code += "  const TensorArg& b = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, b)) + ");\n";
-  code += "  const TensorArg& scales_a = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, a_scale)) + ");\n";
-  code += "  const TensorArg& scales_b = inputs.at(" +
-      std::to_string(fusionInputPosition(fusion, b_scale)) + ");\n";
-  if (smma->alpha() != nullptr) {
-    code += "  const TensorArg& alpha = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->alpha())) + ");\n";
-  }
-  if (smma->beta() != nullptr) {
-    code += "  const TensorArg& beta = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->beta())) + ");\n";
-  }
-  if (smma->bias() != nullptr) {
-    code += "  const TensorArg& bias = inputs.at(" +
-        std::to_string(fusionInputPosition(fusion, smma->bias())) + ");\n";
-  }
-  code +=
-      "  const TensorArg& output = inputs.at(" +
-      std::to_string(
-          fusion->inputs().size() + fusionOutputPosition(fusion, main_output)) +
-      ");\n";
-  code +=
-      "  NVF_ERROR(a.dim == " + std::to_string(a->getLogicalDomain().size()) +
-      ", \"Wrong dimension for argument a\");\n";
-  code +=
-      "  NVF_ERROR(b.dim == " + std::to_string(b->getLogicalDomain().size()) +
-      ", \"Wrong dimension for argument b\");\n";
-  code += R"(
-
-  int m = static_cast<int>(a.sizes[0]);
-  int n = static_cast<int>(b.sizes[1]);
-  int k = static_cast<int>(a.sizes[1]) * 2;
-  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
-
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
-
-  auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-      cute::make_shape(m, n, k, 1));
-  auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-      cute::make_shape(m, n, k, 1));
-
-  typename T::Gemm::Arguments arguments{
-      cutlass::gemm::GemmUniversalMode::kGemm,
-      {m, n, k, 1},
-      {// Mainloop arguments
-       static_cast<ElementA const*>(a.data_ptr),
-       stride_A,
-       static_cast<ElementB const*>(b.data_ptr),
-       stride_B,
-       static_cast<ElementSFA const*>(scales_a.data_ptr),
-       layout_SFA,
-       static_cast<ElementSFB const*>(scales_b.data_ptr),
-       layout_SFB},
-      {// Epilogue arguments
-)";
-  if (has_evt) {
-    code += model_opt.getData().argString(/*node=*/nullptr, /*indent=*/4);
-  } else {
-    code += "       {}";
-  }
-  code += ",  // epilogue.thread\n";
-  if (smma->bias() != nullptr) {
-    code += "       bias.data_ptr,";
-  } else {
-    code += "       /*bias=*/nullptr,";
-  }
-  code += R"(
-       stride_C,
-       static_cast<ElementD*>(output.data_ptr),
-       stride_D}};
-)";
-  if (!has_evt && (smma->alpha() != nullptr || smma->beta() != nullptr)) {
-    // Passing alpha and beta by name is for the default epilogue only
-    code += "  auto& fusion_args = arguments.epilogue.thread;\n";
-    if (smma->alpha() != nullptr) {
-      code +=
-          "  fusion_args.alpha_ptr = static_cast<ElementCompute "
-          "const*>(alpha.data_ptr);\n";
-    }
-    if (smma->beta() != nullptr) {
-      code +=
-          "  fusion_args.beta_ptr = static_cast<ElementCompute "
-          "const*>(beta.data_ptr);\n";
-    }
-  }
-  code += R"(
-  return arguments;
-}
 
 } // namespace
 
