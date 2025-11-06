@@ -879,7 +879,7 @@ IterDomain* projectLogicalToShardedAllocation(
 
 void shardAllocationAsLoop(
     TensorView* tv,
-    const std::vector<ParallelType>& parallel_types) {
+    const std::unordered_set<ParallelType>& parallel_types) {
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
   for (const auto&& [id, contiguity] :
        zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
@@ -888,8 +888,7 @@ void shardAllocationAsLoop(
 
   auto loop_ids_to_replicate =
       tv->getLoopDomain() | std::views::filter([&](IterDomain* id) {
-        return std::ranges::find(parallel_types, id->getParallelType()) !=
-            parallel_types.end();
+        return parallel_types.count(id->getParallelType()) > 0;
       });
 
   // Allocation domain should be a permutation of logical domain at this point.

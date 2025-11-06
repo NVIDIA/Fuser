@@ -75,10 +75,10 @@ void shardAllocation(TensorView* tv) {
     return;
   }
 
-  std::vector<ParallelType> parallel_types(
+  std::unordered_set<ParallelType> parallel_types(
       kParallelTypeDIDs.begin(), kParallelTypeDIDs.end());
   if (shouldParallelizeAllocationOnStream(tv)) {
-    parallel_types.push_back(ParallelType::Stream);
+    parallel_types.insert(ParallelType::Stream);
   }
   shardAllocationAsLoop(tv, parallel_types);
 }

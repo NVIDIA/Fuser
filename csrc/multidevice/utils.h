@@ -194,6 +194,6 @@ IterDomain* projectLogicalToShardedAllocation(
 // original storage layout.
 void shardAllocationAsLoop(
     TensorView* tv,
-    const std::vector<ParallelType>& parallel_types);
+    const std::unordered_set<ParallelType>& parallel_types);
 
 } // namespace nvfuser
