@@ -1504,10 +1504,11 @@ class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
   void dispatch(Expr* expr) override {
     if (ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
         !expr->output(0)->as<TensorView>()->isCircularBuffered()) {
-      TensorView* all_mbarriers =
-          GpuLower::current()->nonCircularBufferMBarrier();
-      auto mbarrier = IrBuilder::create<kir::TensorIndex>(
-          all_mbarriers, IrBuilder::create<Val>(0, DataType::Index));
+      // Get the mbarrier for this specific TMA load expression
+      kir::TensorIndex* mbarrier =
+          GpuLower::current()->getNonCircularTmaMBarrier(expr);
+      NVF_ERROR(
+          mbarrier != nullptr, "MBarrier not found for TMA load expression");
       TensorView* tv = dynamic_cast<TensorView*>(expr->output(0));
       NVF_ERROR(tma_buffer_size_map_.count(tv));
       Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(

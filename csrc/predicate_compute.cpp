@@ -521,6 +521,7 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
 // ptx::elect_sync if not warp collective.
 // TODO If TIDx is known at compile-time, generate custom mask.
 Val* createElectSyncPredicateAsync() {
+  std::cout << "createElectSyncPredicateAsync" << std::endl;
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
 
@@ -700,7 +701,9 @@ Val* createMultipleExpressionElectSync(
   // IfThenElse already selects on `async_warp_on`, so we should not
   // generate predicates for it here.
   if (async_warp_loop_it == loops.end()) {
-    Val* conditional = async_warp_on == ParallelType::TIDx
+    // TMAIndexingTest.NonOneElementStride
+    Val* conditional =
+        async_warp_on == ParallelType::TIDx || !pdim_map.has(ParallelType::TIDx)
         ? pred->fusion()->trueVal()
         : selectFirstWarpElectSyncPredicate(/*is_warp_collective=*/false);
     for (ParallelType pt : {ParallelType::TIDy, ParallelType::TIDz}) {
@@ -826,8 +829,10 @@ Val* PredicateCompute::getElectSyncPredicate(
 
   // Short-Circuit: A single expression is associated with the predicate.
   if (pred->expr() != nullptr) {
+    std::cout << "createSingleExpressionElectSync" << std::endl;
     return createSingleExpressionElectSync(pred, loops);
   }
+  std::cout << "createMultipleExpressionElectSync" << std::endl;
 
   return createMultipleExpressionElectSync(pred, loops);
 }

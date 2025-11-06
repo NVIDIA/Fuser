@@ -1528,8 +1528,8 @@ void validateAndCollectTmaExprs(Fusion* fusion) {
     // collect non-circular buffered tma load exprs
     if (ir_utils::isCpAsyncBulkLoad(tv->definition()) &&
         !tv->isCircularBuffered()) {
-      GpuLower::current()->nonCircularBufferTmaLoadExprs().push_back(
-          tv->definition());
+      // Add to map with nullptr placeholder (will be filled in allocation pass)
+      GpuLower::current()->setNonCircularTmaMBarrier(tv->definition(), nullptr);
     }
     // Following checks for 1D TMA
     if (!ir_utils::isCpAsyncBulk1D(tv->definition())) {

@@ -252,12 +252,14 @@ class GpuLower : public NonCopyable {
     return tmem_info_;
   }
 
-  const std::vector<Expr*>& nonCircularBufferTmaLoadExprs() const {
-    return non_circular_buffer_tma_load_exprs_;
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  nonCircularTmaMBarrierMap() const {
+    return non_circular_tma_mbarrier_map_;
   }
 
-  std::vector<Expr*>& nonCircularBufferTmaLoadExprs() {
-    return non_circular_buffer_tma_load_exprs_;
+  std::unordered_map<const Expr*, kir::TensorIndex*>&
+  nonCircularTmaMBarrierMap() {
+    return non_circular_tma_mbarrier_map_;
   }
 
   const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
@@ -326,14 +328,18 @@ class GpuLower : public NonCopyable {
     cluster_reduction_mbarrier_tensor_ = mbarrier;
   }
 
-  //! Get the non-circular buffer mbarrier tensor
-  TensorView* nonCircularBufferMBarrier() const {
-    return non_circular_buffer_mbarrier_tensor_;
+  //! Get the mbarrier TensorIndex for a specific TMA load expression
+  kir::TensorIndex* getNonCircularTmaMBarrier(const Expr* expr) const {
+    auto it = non_circular_tma_mbarrier_map_.find(expr);
+    if (it != non_circular_tma_mbarrier_map_.end()) {
+      return it->second;
+    }
+    return nullptr;
   }
 
-  //! Set the non-circular buffer mbarrier tensor
-  void setNonCircularBufferMBarrier(TensorView* mbarrier) {
-    non_circular_buffer_mbarrier_tensor_ = mbarrier;
+  //! Set the mbarrier TensorIndex for a specific TMA load expression
+  void setNonCircularTmaMBarrier(const Expr* expr, kir::TensorIndex* mbarrier) {
+    non_circular_tma_mbarrier_map_[expr] = mbarrier;
   }
 
   //! Define an alias for consumer as producer.
@@ -453,10 +459,10 @@ class GpuLower : public NonCopyable {
   // pass
   TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
 
-  // The shared non-circular buffer mbarrier tensor(s) allocated during
-  // allocation pass for non-circular buffered TMA loads
-  TensorView* non_circular_buffer_mbarrier_tensor_ = nullptr;
-  std::vector<Expr*> non_circular_buffer_tma_load_exprs_;
+  // Map from non-circular buffered TMA load expression to its corresponding
+  // mbarrier TensorIndex, allocated during allocation pass
+  std::unordered_map<const Expr*, kir::TensorIndex*>
+      non_circular_tma_mbarrier_map_;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

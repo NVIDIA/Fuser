@@ -3437,6 +3437,8 @@ TEST_F(TMATest, NonCircularBuffertedTmaMultipleLoadsOneWaitTwoInuts) {
     tv_smem->split(0, 256);
     tv_smem->axis(1)->parallelize(ParallelType::Bulk);
   }
+  tv2->split(0, 256);
+  tv2->axis(1)->parallelize(ParallelType::TIDx);
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({2048}, options);

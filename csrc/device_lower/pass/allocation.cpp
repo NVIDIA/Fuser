@@ -1256,7 +1256,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       registerInsertBefore(expr, pred_mbarrier_init, nullptr);
     } else {
-      // For multiple mbarriers, create a for loop using the utility function
+      // For multiple mbarriers, create a for loop and wrap with ElectSync
       auto fl = ir_utils::createRangeLoop(mbarrier_count);
       kir::TensorIndex* indexed_mbarrier =
           IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
@@ -1265,12 +1265,17 @@ class AllocationInserter : public kir::ExprMutator {
           indexed_mbarrier,
           simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
               DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
-      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
-          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-      fl->body().push_back(pred_mbarrier_init);
+      fl->body().push_back(mbarrier_init);
 
-      registerInsertBefore(expr, fl, nullptr);
+      // Wrap the ForLoop with IfThenElse using ElectSync predicate
+      auto elect_sync_predicate =
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+      auto elect_sync_ite =
+          IrBuilder::create<kir::IfThenElse>(elect_sync_predicate);
+      elect_sync_ite->thenBody().push_back(fl);
+
+      registerInsertBefore(expr, elect_sync_ite, nullptr);
     }
     return all_mbarriers;
   }
@@ -1410,30 +1415,9 @@ class AllocationInserter : public kir::ExprMutator {
       // order
       if (alloc_expr != nullptr) {
         if (allocation.buffer->getMemoryType() == MemoryType::Shared) {
-          std::cout << "alloc_expr: " << alloc_expr->toString() << std::endl;
-          std::cout << "out_tv: " << out_tv->toString() << std::endl;
           // Shared allocations go at the begining of scope
           NVF_ERROR(!exprs_.empty());
           registerInsertBefore(exprs_[0], alloc_expr, nullptr);
-          // if (!out_tv->isCircularBuffered() &&
-          //     ir_utils::isCpAsyncBulkLoad(expr)) {
-          //   Val* state = IrBuilder::create<Val>(DataType::UInt64);
-          //   auto state_expr = IrBuilder::create<kir::Allocate>(
-          //       state, MemoryType::Local, out_tv->container()->oneVal());
-
-          //   TensorView* all_mbarriers =
-          //       GpuLower::current()->nonCircularBufferMBarrier();
-          //   auto mbarrier = IrBuilder::create<kir::TensorIndex>(
-          //       all_mbarriers, IrBuilder::create<Val>(0, DataType::Index));
-          //   Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
-          //     DataType::UInt32, alloc_expr->size());
-          //   auto mbarrier_arrive_tx_expr =
-          //       IrBuilder::create<kir::MBarrierArriveExpectTx>(
-          //           state, mbarrier, expected_bytes);
-          //   registerInsertBefore(exprs_[0], state_expr, nullptr);
-          //   registerInsertBefore(exprs_[0], mbarrier_arrive_tx_expr,
-          //   nullptr);
-          // }
         } else {
           NVF_ERROR(allocation.alloc_place_before != nullptr);
           Scope* scope = allocation.alloc_for_loop == nullptr
@@ -1683,15 +1667,22 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     // insert mbarrier for non-circular buffered tma load
-    int64_t block_mbarrier_count =
-        GpuLower::current()->nonCircularBufferTmaLoadExprs().size();
-    std::cout << "block_mbarrier_count: " << block_mbarrier_count << std::endl;
+    const auto& tma_load_exprs =
+        GpuLower::current()->nonCircularTmaMBarrierMap();
+    int64_t block_mbarrier_count = tma_load_exprs.size();
     if (block_mbarrier_count > 0) {
       auto all_mbarriers =
           insertMBarriersBeforeExpr(first_expr, block_mbarrier_count);
 
-      // Store the mbarrier in GpuLower for later use in TMA loads
-      GpuLower::current()->setNonCircularBufferMBarrier(all_mbarriers);
+      // Create TensorIndex for each TMA load expression and store in map
+      int64_t index = 0;
+      for (const auto& [expr, _] : tma_load_exprs) {
+        kir::TensorIndex* indexed_mbarrier =
+            IrBuilder::create<kir::TensorIndex>(
+                all_mbarriers, IrBuilder::create<Val>(index, DataType::Index));
+        GpuLower::current()->setNonCircularTmaMBarrier(expr, indexed_mbarrier);
+        index++;
+      }
     }
 
     // insert block or cluster sync after mbarrier initialization
@@ -1707,38 +1698,32 @@ class AllocationInserter : public kir::ExprMutator {
     kir::ExprMutator::traverseAndInsert(exprs);
 
     if (block_mbarrier_count > 0) {
-      TensorView* all_mbarriers =
-          GpuLower::current()->nonCircularBufferMBarrier();
+      // Invalidate all mbarriers using a for-loop wrapped with ElectSync
+      const auto& tma_map = GpuLower::current()->nonCircularTmaMBarrierMap();
+      auto it = tma_map.begin();
+      TensorView* all_mbarriers = it->second->view();
 
-      ock_mbarrier_count == 1) {
-        // For single mbarrier, use TensorView directly without loop
-        auto mbarrier_inval =
-            IrBuilder::create<kir::MBarrierInvalidate>(all_mbarriers);
-        Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
-            IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      auto fl = ir_utils::createRangeLoop(block_mbarrier_count);
+      auto fl_index = block_mbarrier_count > 1
+          ? fl->index()
+          : IrBuilder::create<Val>(0, DataType::Index);
+      kir::TensorIndex* indexed_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl_index);
 
-        he end of the kernel exprs_.push_back(pred_mbarrier_inval);
-      }
-      else {
-        // For multiple mbarriers, create a for loop to invalidate all
-        auto fl = ir_utils::createRangeLoop(block_mbarrier_count);
-        kir::TensorIndex* indexed_mbarrier =
-            IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
+      auto mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
 
-        auto
+      fl->body().push_back(mbarrier_inval);
 
-            IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
-        Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
-            IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      // Wrap the ForLoop with IfThenElse using ElectSync predicate
+      auto elect_sync_predicate =
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync);
+      auto elect_sync_ite =
+          IrBuilder::create<kir::IfThenElse>(elect_sync_predicate);
+      elect_sync_ite->thenBody().push_back(fl);
 
-        fl->body().p
-
-        rier_inval);
-
-        // Insert at the end
-
-        exprs_.push_back(fl);
-      }
+      // Insert at the end of the kernel
+      exprs_.push_back(elect_sync_ite);
     }
   }
 
@@ -2011,4 +1996,3 @@ std::vector<Expr*> insertAllocations(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
-                                      

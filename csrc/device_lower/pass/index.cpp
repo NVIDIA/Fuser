@@ -1671,9 +1671,12 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* tv_mbarrier = GpuLower::current()->nonCircularBufferMBarrier();
-    kir::TensorIndex* tv_idx_mbarrier = IrBuilder::create<kir::TensorIndex>(
-        tv_mbarrier, IrBuilder::create<Val>(0, DataType::Index));
+    // Get the mbarrier for this specific TMA load expression
+    kir::TensorIndex* tv_idx_mbarrier =
+        GpuLower::current()->getNonCircularTmaMBarrier(ldst);
+    NVF_ERROR(
+        tv_idx_mbarrier != nullptr,
+        "MBarrier not found for non-circular TMA load expression");
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(tv_idx_mbarrier);
     // gmem indexing and expect_bytes for mbarrier
     auto [in, _] = Index::getCpAsyncBulkGmemIndex(
