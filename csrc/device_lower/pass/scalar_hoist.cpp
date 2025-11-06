@@ -526,7 +526,14 @@ class CommonScalarInserter : private kir::ExprMutator {
     if (loop != nullptr) {
       scope = &loop->body();
     }
-    const auto& exprs = (scope == nullptr ? exprs_ : scope->exprs());
+
+    std::vector<Expr*> exprs;
+    if (scope == nullptr) {
+      exprs = exprs_;
+    } else {
+      exprs.assign(scope->exprs().begin(), scope->exprs().end());
+    }
+
     int64_t alloc_point = -1;
     Expr* insert_ref = nullptr;
     for (auto value : common_scalar_map_.getHoistedScalars(loop)) {

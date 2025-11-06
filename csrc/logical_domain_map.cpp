@@ -115,24 +115,6 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
-  } else if (auto* top = dynamic_cast<TopKOp*>(consumer_tv->definition());
-             top != nullptr && !map_different_extents) {
-    // For TopKOp, the topk dimension should not be mapped between producer and
-    // consumer because they have different extents: input[topk_dim] = D,
-    // output[topk_dim] = k (where k < D)
-    if (producer_tv == top->in()) {
-      auto producer_logical =
-          TensorDomain::noReductions(producer_tv->getLogicalDomain());
-      auto topk_dim = top->dim();
-      NVF_ERROR(
-          topk_dim >= 0 && (size_t)topk_dim < producer_logical.size(),
-          "TopKOp dimension ",
-          topk_dim,
-          " is out of bounds for producer logical domain size ",
-          producer_logical.size());
-      non_mapping_ids.insert(producer_logical.at(topk_dim));
-      has_consumer_id = true;
-    }
   } else if (
       auto* preprocess_op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(
           consumer_tv->definition())) {
@@ -152,6 +134,19 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
           non_mapping_ids.insert(p_id);
         }
       }
+      has_consumer_id = true;
+    }
+  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
+    // We don't map the inner-most dimension of the block scaling factors
+    // as it's extent is reduced by a factor of the block size
+    // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+    if (consumer_tv ==
+        consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto last_logical_dim = producer_logical.size() - 1;
+      non_mapping_ids.insert(producer_logical.at(last_logical_dim));
+      // We are mapping everything but the last ID.
       has_consumer_id = true;
     }
   }

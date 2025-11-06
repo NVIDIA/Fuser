@@ -12,6 +12,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <runtime/executor.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -342,6 +343,37 @@ TEST_F(LayoutOpTest, SchedulerKernelWithExplicitQuantizationPattern) {
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::InnerPersistent),
           HeuristicIs(SchedulerType::ExprEval)));
+}
+
+// Make sure the input to PreprocessGroupedMatmulInputSf is fully inlined
+TEST_F(LayoutOpTest, Inlining) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  // Same fusion as SchedulerKernelWithOffsetsProducer
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto offsets_add = add(offsets, fusion.oneVal());
+  auto rounded_offsets_add = add(rounded_offsets, fusion.oneVal());
+
+  auto inp_cache = set(inp);
+
+  auto out_tv = preprocessGroupedMatmulInputSf(
+      inp_cache,
+      offsets_add,
+      rounded_offsets_add,
+      BlockScalingFactorLayout::Block128x4);
+  fusion.addOutput(out_tv);
+
+  inlineMost();
+
+  EXPECT_EQ(inp_cache->getComputeAtPosition(), 2);
 }
 
 } // namespace nvfuser

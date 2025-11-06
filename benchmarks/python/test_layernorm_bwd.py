@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -42,8 +42,7 @@ def layernorm_bwd_fusion(
         T1 = fd.ops.cast(T1, dtype=DataType.Float)
         T4 = fd.ops.cast(T4, dtype=DataType.Float)
 
-    V8 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    T9 = fd.ops.broadcast_in_dim(T2, shape=V8, broadcast_dims=[0])
+    T9 = fd.ops.broadcast_in_dim(T2, shape=[T0.size(0), 1], broadcast_dims=[0])
     V12 = T0.shape()
     T13 = fd.ops.broadcast_in_dim(T9, shape=V12, broadcast_dims=[0, 1])
     T14 = fd.ops.sub(T0, T13)
@@ -62,10 +61,10 @@ def layernorm_bwd_fusion(
     T35 = fd.ops.mul(T30, T14)
     T36 = fd.ops.sum(T35, dims=[1], keepdim=False, dtype=DataType.Null)
 
-    T40 = fd.ops.broadcast_in_dim(T36, shape=V8, broadcast_dims=[0])
+    T40 = fd.ops.broadcast_in_dim(T36, shape=[T0.size(0), 1], broadcast_dims=[0])
     T41 = fd.ops.neg(T34)
     T42 = fd.ops.sum(T41, dims=[1], keepdim=False, dtype=DataType.Null)
-    T46 = fd.ops.broadcast_in_dim(T42, shape=V8, broadcast_dims=[0])
+    T46 = fd.ops.broadcast_in_dim(T42, shape=[T0.size(0), 1], broadcast_dims=[0])
     S47 = fd.define_scalar(-0.500000, dtype=DataType.Double)
     T48 = fd.ops.mul(S47, T40)
     S49 = fd.define_scalar(3.00000, dtype=DataType.Double)
@@ -74,9 +73,9 @@ def layernorm_bwd_fusion(
     T54 = fd.ops.sum(T46, dims=[1], keepdim=False, dtype=DataType.Null)
     T55 = fd.ops.sum(T51, dims=[1], keepdim=False, dtype=DataType.Null)
 
-    T59 = fd.ops.broadcast_in_dim(T55, shape=V8, broadcast_dims=[0])
+    T59 = fd.ops.broadcast_in_dim(T55, shape=[T0.size(0), 1], broadcast_dims=[0])
     T63 = fd.ops.broadcast_in_dim(T59, shape=V12, broadcast_dims=[0, 1])
-    T67 = fd.ops.broadcast_in_dim(T2, shape=V8, broadcast_dims=[0])
+    T67 = fd.ops.broadcast_in_dim(T2, shape=[T0.size(0), 1], broadcast_dims=[0])
     T71 = fd.ops.broadcast_in_dim(T67, shape=V12, broadcast_dims=[0, 1])
 
     S72 = fd.define_scalar(2.00000, dtype=DataType.Double)
@@ -86,7 +85,7 @@ def layernorm_bwd_fusion(
 
     S77 = fd.ops.reciprocal(T0.size(1))
     T78 = fd.ops.mul(T75, S77)
-    T82 = fd.ops.broadcast_in_dim(T54, shape=V8, broadcast_dims=[0])
+    T82 = fd.ops.broadcast_in_dim(T54, shape=[T0.size(0), 1], broadcast_dims=[0])
     T86 = fd.ops.broadcast_in_dim(T82, shape=V12, broadcast_dims=[0, 1])
     T88 = fd.ops.mul(S77, T86)
     T89 = fd.ops.add(T78, T88)
