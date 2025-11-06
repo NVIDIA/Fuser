@@ -192,6 +192,13 @@ using namespace cute;
     genGemmConfigClass();
 
     genArgumentsFunction();
+
+    code_ += R"(
+
+} // namespace
+
+)";
+    genRunKernel();
   }
 
   //! Here we put all the CutlassParams into the KernelTraits struct in the
@@ -273,9 +280,8 @@ struct Fp4GemmSm100 {
     }
     std::string layout =
         tv == nullptr ? "cutlass::layout::RowMajor" : mapLayoutToCutlass(tv);
-    std::string alignment = tv == nullptr
-        ? "128"
-        : "128 / cutlass::sizeof_bits<Element" + tv_name + ">::value";
+    int64_t alignment_bits =
+        tv == nullptr ? 128 : 128 / dataTypeSizeBit(tv->dtype());
     code_ += std::format(
         R"(
   using Element{0} = {1};
@@ -286,7 +292,7 @@ struct Fp4GemmSm100 {
         tv_name,
         dtype,
         layout,
-        alignment);
+        alignment_bits);
   }
 
   void genBasicConfig() {
@@ -496,6 +502,44 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
 )";
   }
 
+  void genRunKernel() {
+    code_ += R"(
+
+// Calling code should pass a pointer to a vector of TensorArgs
+extern "C" size_t workspace_size(void* input_ptr) {
+  const std::vector<TensorArg>& inputs =
+      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
+  auto arguments = args_from_inputs(inputs);
+  return Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+}
+
+// Executes the FP4 scaled matrix multiplication using CUTLASS kernels
+//
+// This function orchestrates the GEMM operation by setting up the kernel,
+// allocating workspace memory, and running the computation on the GPU.
+// It handles the complete lifecycle from kernel initialization to execution.
+extern "C" void run_kernel(
+    const std::vector<TensorArg>& inputs,
+    uint8_t* workspace_ptr,
+    cudaStream_t stream) {
+  typename Fp4GemmSm100::Gemm gemm;
+
+  auto arguments = args_from_inputs(inputs);
+
+  auto can_implement_status = gemm.can_implement(arguments);
+  NVF_ERROR(
+      can_implement_status == cutlass::Status::kSuccess,
+      "Failed to implement GEMM");
+
+  auto status = gemm.initialize(arguments, workspace_ptr, stream);
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
+
+  status = gemm.run(arguments, workspace_ptr, stream);
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
+}
+)";
+  }
+
   void run() {
     gatherInfo();
 
@@ -513,6 +557,16 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
 
   std::string code_;
 };
+
+template <typename T>
+T* findOp(Fusion* fusion) {
+  auto exprs = fusion->exprs();
+  const auto smmas = ir_utils::filterByType<T>(exprs.begin(), exprs.end());
+  if (smmas.size() != 1) {
+    return nullptr;
+  }
+  return *smmas.begin();
+}
 
 } // namespace
 
@@ -534,108 +588,6 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
       fusion->outputs().begin(),
       std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
 }
-
-std::string generateNvfp4ScaledMmKernel(
-    Fusion* fusion,
-    const CutlassParams& params) {
-  return CutlassCodeGenerator::generate(fusion, params);
-
-  const mma_utils::DataWrapperOpt<EVTModel> model_opt = extractEVTModel(fusion);
-  const bool has_evt = model_opt.isValid();
-  TensorView* main_output = nullptr;
-  if (has_evt) {
-    main_output = model_opt.getData().getRootTensorView();
-  } else {
-    NVF_CUTLASS_REJECT_IF(
-        fusion->outputs().size() != 1,
-        "Fusions without EVT must have a single output");
-  }
-  NVF_ERROR(main_output != nullptr);
-
-  std::string output_dtype = dtypeToCutlass(main_output->dtype());
-
-  ScaledMmaOp* smma = nullptr;
-  NVF_ERROR(smma != nullptr);
-
-  TensorView* a = smma->matrix1();
-  TensorView* b = smma->matrix2();
-  TensorView* a_scale = smma->scale1();
-  TensorView* b_scale = smma->scale2();
-
-  NVF_ERROR(a->isFusionInput());
-  NVF_ERROR(b->isFusionInput());
-  NVF_ERROR(a_scale->isFusionInput());
-  NVF_ERROR(b_scale->isFusionInput());
-
-  // Validate that the inputs and scale factors are all contiguous
-  for (TensorView* tv : {a, b, a_scale, b_scale}) {
-    for (const auto& c : tv->getContiguity()) {
-      if (c.has_value()) {
-        NVF_ERROR(
-            c.value() == true,
-            "We require input TensorView ",
-            tv->toString(),
-            " to be fully contiguous for the Cutlass executor.");
-      }
-    }
-  }
-
-  std::string code;
-
-  code += R"(
-
-} // namespace
-
-// Calling code should pass a pointer to a vector of TensorArgs
-extern "C" size_t workspace_size(void* input_ptr) {
-  const std::vector<TensorArg>& inputs =
-      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
-  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
-  return Fp4GemmSm100::Gemm::get_workspace_size(arguments);
-}
-
-// Executes the FP4 scaled matrix multiplication using CUTLASS kernels
-//
-// This function orchestrates the GEMM operation by setting up the kernel,
-// allocating workspace memory, and running the computation on the GPU.
-// It handles the complete lifecycle from kernel initialization to execution.
-extern "C" void run_kernel(
-    const std::vector<TensorArg>& inputs,
-    uint8_t* workspace_ptr,
-    cudaStream_t stream) {
-  typename Fp4GemmSm100::Gemm gemm;
-
-  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
-
-  auto can_implement_status = gemm.can_implement(arguments);
-  NVF_ERROR(
-      can_implement_status == cutlass::Status::kSuccess,
-      "Failed to implement GEMM");
-
-  auto status = gemm.initialize(arguments, workspace_ptr, stream);
-  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
-
-  status = gemm.run(arguments, workspace_ptr, stream);
-  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
-}
-)";
-
-  return code;
-}
-
-namespace {
-
-template <typename T>
-T* findOp(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  const auto smmas = ir_utils::filterByType<T>(exprs.begin(), exprs.end());
-  if (smmas.size() != 1) {
-    return nullptr;
-  }
-  return *smmas.begin();
-}
-
-} // namespace
 
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
   if (auto smma = findOp<ScaledMmaOp>(fusion)) {
@@ -670,6 +622,12 @@ CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
   } else {
     NVF_CUTLASS_REJECT("Could not find a supported matmul pattern in Fusion");
   }
+}
+
+std::string generateNvfp4ScaledMmKernel(
+    Fusion* fusion,
+    const CutlassParams& params) {
+  return CutlassCodeGenerator::generate(fusion, params);
 }
 
 std::string getGemmRejectReason(Fusion* fusion) {
