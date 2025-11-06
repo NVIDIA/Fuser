@@ -10,6 +10,7 @@
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/allocation_utils.h>
 #include <scheduler/utils.h>
 #include <visibility.h>
 
@@ -108,12 +109,5 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
-
-// Propagate sharding for the given parallel types from loop domain to
-// allocation domain, refining contiguity as needed so allocation aliases the
-// original storage layout.
-void shardAllocationAsLoop(
-    TensorView* tv,
-    const std::unordered_set<ParallelType>& parallel_types);
 
 } // namespace nvfuser
