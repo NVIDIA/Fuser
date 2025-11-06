@@ -82,6 +82,22 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   EXPECT_TRUE(out_tensor.equal(in_tensor));
 }
 
+namespace {
+// Ideally, recomputation should be done automatically in TensorView's cloner.
+// But I'm hitting #4849 when trying that.
+void recomputeTv(const TensorView* tv, IrCloner& ir_cloner) {
+  for (Expr* e : StmtSort::getExprsTo(
+           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
+    ir_cloner.clone(e);
+  }
+  for (IterDomain* id : tv->getLoopDomain()) {
+    for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
+      ir_cloner.clone(e);
+    }
+  }
+}
+} // namespace
+
 TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
   constexpr int64_t c = 3;
 
@@ -106,11 +122,17 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
   // some tweaks for test coverage.
   auto hic = std::make_unique<HostIrContainer>();
   {
+    auto* original_in = fusion.inputs().at(0)->as<TensorView>();
+    auto* original_w = fusion.inputs().at(1)->as<TensorView>();
+    auto* original_out = fusion.outputs().at(0)->as<TensorView>();
+
     FusionGuard fg(hic.get());
     IrCloner ir_cloner(hic.get());
-    auto* in = ir_cloner.clone(fusion.inputs().at(0))->as<TensorView>();
-    auto* w = ir_cloner.clone(fusion.inputs().at(1))->as<TensorView>();
-    auto* out = ir_cloner.clone(fusion.outputs().at(0))->as<TensorView>();
+    auto* in = ir_cloner.clone(original_in);
+    auto* w = ir_cloner.clone(original_w);
+    recomputeTv(original_w, ir_cloner);
+    auto* out = ir_cloner.clone(original_out);
+    recomputeTv(original_out, ir_cloner);
     hic->addInput(in);
     hic->addInput(w);
     hic->addOutput(out);
@@ -129,21 +151,11 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
         /*start=*/hic->oneVal(DataType::Index),
         /*stop=*/IrBuilder::create<Val>(c, DataType::Index));
 
-    TensorView* loop_w = set(w);
-    loop_w->outer_split(1, c);
-    loop_w->axis(1)->parallelize(ParallelType::Stream);
-    loop_w->setAllocationDomain(loop_w->getLoopDomain(), {false, true, true});
-    auto* shard_w = IrBuilder::create<ShardByStream>(loop_w, w, stream_index);
-    for_loop->body().push_back(shard_w);
+    TensorView* loop_w = shardByStream(w, stream_index);
+    for_loop->body().push_back(loop_w->definition());
 
-    TensorView* loop_out = set(out);
-    loop_out->outer_split(1, c);
-    loop_out->axis(1)->parallelize(ParallelType::Stream);
-    loop_out->setAllocationDomain(
-        loop_out->getLoopDomain(), {false, true, true});
-    auto* shard_out =
-        IrBuilder::create<ShardByStream>(loop_out, out, stream_index);
-    for_loop->body().push_back(shard_out);
+    TensorView* loop_out = shardByStream(out, stream_index);
+    for_loop->body().push_back(loop_out->definition());
 
     // By default, MatmulOp is computed by ExpressionEvaluator so it appears in
     // host IR.
