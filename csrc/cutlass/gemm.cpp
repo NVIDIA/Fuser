@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <cutlass/block_scaling.h>
 #include <cutlass/codegen.h>
 #include <cutlass/evt.h>
 #include <cutlass/gemm.h>
@@ -132,8 +133,6 @@ class CutlassCodeGenerator {
         "Only ScaledMmaOp is supported so far");
     NVF_CUTLASS_REJECT_IF(
         pattern_.is_grouped, "Grouped patterns are not yet supported");
-
-    main_output_ = fusion_->outputs().front()->as<TensorView>();
   }
 
   // Gathers necessary info from fusion_ but does not start generating code. If
@@ -145,6 +144,16 @@ class CutlassCodeGenerator {
     {
       EVTModel model = extractEVTModel(fusion_);
       evt_model_ = std::make_unique<EVTModel>(std::move(model));
+    }
+
+    block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
+    NVF_CUTLASS_REJECT_IF(
+        block_scaled_outputs_.size() > 1,
+        "At most one block scaled output is currently supported");
+    if (block_scaled_outputs_.empty()) {
+      main_output_ = fusion_->outputs().front()->as<TensorView>();
+    } else {
+      main_output_ = block_scaled_outputs_.front().quantized_output;
     }
   }
 
@@ -554,6 +563,8 @@ extern "C" void run_kernel(
   TensorView* main_output_ = nullptr;
 
   std::unique_ptr<EVTModel> evt_model_ = nullptr;
+
+  std::vector<BlockScaledOutputPattern> block_scaled_outputs_;
 
   std::string code_;
 };
