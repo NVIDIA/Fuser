@@ -1817,8 +1817,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This operator is plumbed down to a runtime function call.
     // One of the assumptions is that the device runtime expects
     // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
-    // 4, or 8 for Half. We achieve this by having the input tv scheduler to
-    // have the inner dimension grouped by 4/8.
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t group_size = 1;
 
