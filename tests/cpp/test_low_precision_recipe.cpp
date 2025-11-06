@@ -176,11 +176,13 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
-class BlockQuantizationTest : public BlackwellBase,
-                              public ::testing::WithParamInterface<DataType> {};
+class BlockQuantizationTest
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<std::tuple<DataType, int64_t>> {};
 
 TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
-  auto data_hp_dtype = GetParam();
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto group_width = std::get<1>(GetParam());
 
   // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -221,7 +223,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
 
-  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
+  auto vectorization_factor = group_width;
 
   for (auto t :
        {tv_data_hp,
@@ -289,7 +291,8 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
 }
 
 TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
-  auto data_hp_dtype = GetParam();
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto group_width = std::get<1>(GetParam());
 
   // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -335,7 +338,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
   t0->setMemoryType(MemoryType::Local);
 
-  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
+  auto vectorization_factor = group_width;
 
   for (auto t :
        {tv_data_hp,
@@ -836,7 +839,19 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ,
     BlockQuantizationTest,
-    ::testing::Values(DataType::BFloat16, DataType::Float, DataType::Half),
-    testing::PrintToStringParamName());
+    ::testing::Values(
+        std::make_tuple(DataType::Float, 2),
+        std::make_tuple(DataType::Float, 4),
+        std::make_tuple(DataType::BFloat16, 2),
+        std::make_tuple(DataType::BFloat16, 4),
+        std::make_tuple(DataType::BFloat16, 8),
+        std::make_tuple(DataType::Half, 2),
+        std::make_tuple(DataType::Half, 4),
+        std::make_tuple(DataType::Half, 8)),
+    [](const testing::TestParamInfo<std::tuple<DataType, int64_t>>& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "_GroupWidth" << std::get<1>(info.param);
+      return os.str();
+    });
 
 } // namespace nvfuser

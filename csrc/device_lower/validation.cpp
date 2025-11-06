@@ -428,8 +428,7 @@ class ExprValidator : public OptOutDispatch {
   // This runtime function expects the inputs to be in local memory. The
   // quantized output will also be in local memory, but the block scaling
   // factors will be written out to global memory. The device runtime currently
-  // works on 4 elements per thread (8 for bf16/fp16) - this will be expanded
-  // later to support 2, 4, and 8 (only bf16/fp16) per thread. The runtime
+  // works on 2/4 elements per thread (also 8 for bf16/fp16). The runtime
   // function is based on a parallelization scheme that expects TIDx and BIDx,
   // and optionally TIDy and BIDy. 3D parallelization is not supported. Based
   // on the above, we have the following basic validation checks:
@@ -437,7 +436,7 @@ class ExprValidator : public OptOutDispatch {
   // Input is in local memory.
   // Block scaling factor is in global memory and
   // quantized output is in local memory.
-  // The Group ID has an extent of 4/8 depending on the data
+  // The Group ID has an extent of 2/4/8 depending on the data
   // type.
   // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
 
@@ -566,11 +565,12 @@ class ExprValidator : public OptOutDispatch {
     auto input_dtype = inp_tv->dtype();
 
     NVF_ERROR(
-        (inner_extent == 4 && input_dtype == DataType::Float) ||
-            (inner_extent == 8 &&
+        ((inner_extent == 4 || inner_extent == 2) &&
+         input_dtype == DataType::Float) ||
+            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
              (input_dtype == DataType::BFloat16 ||
               input_dtype == DataType::Half)),
-        "The vectorized/grouped dimension must be  4 (FP32) or 8 "
+        "Thegroup dimension must be  2/4 (FP32) or 2/4/8 "
         "(BF16). Found: ",
         inner_extent,
         ". Expr: ",
