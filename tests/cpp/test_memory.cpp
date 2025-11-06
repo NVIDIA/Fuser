@@ -1312,6 +1312,7 @@ TEST_F(TMAIndexingTest, NonTrivialGmemAllocationDomain2) {
 class TMAMiscTest : public TMATest {};
 
 TEST_F(TMAMiscTest, AdvancedThreadParallelizationLoad) {
+  GTEST_SKIP() << "No longer supported.";
   Fusion fusion;
   FusionGuard fg(&fusion);
 

@@ -422,8 +422,22 @@ LaunchParams KernelExecutor::computeLaunchParams(
         " to set launch bounds but could not.");
 
     if (val > 0) {
-      expr_eval.bind(p_type, val);
-      launch_params.bind(val.as<int64_t>(), p_type);
+      auto computed_val = val.as<int64_t>();
+
+      // Pad TIDx to at least warp_size (32) if ElectSync predicates are present
+      // ElectSync requires a full warp for proper synchronization (typically
+      // for TMA)
+      if (p_type == ParallelType::TIDx &&
+          compiled_kernel_->lowered()
+              ->kernel()
+              ->summary()
+              .has_elect_sync_predicate &&
+          computed_val < warp_size) {
+        computed_val = warp_size;
+      }
+
+      expr_eval.bind(p_type, computed_val);
+      launch_params.bind(computed_val, p_type);
     }
   }
 
