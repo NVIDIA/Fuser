@@ -22,6 +22,7 @@
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>

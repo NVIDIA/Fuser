@@ -64,7 +64,7 @@ bool isLoopStreamParallelized(const TensorView* tv) {
       [](IterDomain* id) { return id->isStream(); });
 }
 
-// Split the allocation domain of a TensorView when it has device or stream
+// Splits the allocation domain of a TensorView when it has device or stream
 // parallelization. Device parallelization always propagates to the allocation
 // domain. Stream parallelization propagates only if the tensor is allocated
 // inside a for loop.

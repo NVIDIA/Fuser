@@ -10,7 +10,6 @@
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <multidevice/allocation_utils.h>
 #include <scheduler/utils.h>
 #include <visibility.h>
 

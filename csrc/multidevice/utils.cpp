@@ -14,7 +14,6 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <instrumentation.h>
-#include <ir/allocation_utils.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>
