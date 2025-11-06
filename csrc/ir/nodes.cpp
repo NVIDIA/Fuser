@@ -5124,13 +5124,13 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<Expr*>::iterator Scope::insert(
-    std::vector<Expr*>::const_iterator pos,
+Scope::ExprList::iterator Scope::insert(
+    ExprList::const_iterator pos,
     Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5144,7 +5144,7 @@ std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   return insert(it, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5153,15 +5153,11 @@ std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
       " after the reference: ",
       ref,
       " however the reference was not found in this scope.");
-  return insert(it + 1, expr);
+  auto insert_pos = std::next(it);
+  return insert(insert_pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
-  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
-  return insert(it, expr);
-}
-
-void Scope::erase(std::vector<Expr*>::const_iterator pos) {
+void Scope::erase(ExprList::const_iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
@@ -5172,10 +5168,6 @@ void Scope::erase(Expr* ref) {
   if (it != exprs_.end()) {
     erase(it);
   }
-}
-
-void Scope::erase(size_t pos) {
-  erase(exprs_.begin() + (std::ptrdiff_t)pos);
 }
 
 bool Scope::contains(Expr* expr) const {
@@ -5444,12 +5436,6 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     for (int64_t d = 0; d < input.dim(); ++d) {
       out_sizes.push_back(input.size(d));
     }
-    // Embedding expands the last dimension to embedding_dim = weight.size(1)
-    NVF_CHECK(
-        weight.dim() >= 2,
-        "Embedding weight must be at least 2D [num_embeddings, embedding_dim], "
-        "but got dim=",
-        weight.dim());
     out_sizes.push_back(weight.size(1));
     auto out = at::empty(
         out_sizes, at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
@@ -5711,29 +5697,27 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
   // Meta-device fast path outside of torch version guard
   if (inputs.size() >= 3 && inputs[0].is<at::Tensor>() &&
       inputs[1].is<at::Tensor>() && inputs[2].is<at::Tensor>()) {
-    const auto& mat1_meta_check = inputs[0].as<at::Tensor>();
-    const auto& mat2_meta_check = inputs[1].as<at::Tensor>();
-    const auto& offsets_meta_check = inputs[2].as<at::Tensor>();
-    if (mat1_meta_check.is_meta() || mat2_meta_check.is_meta() ||
-        offsets_meta_check.is_meta()) {
-      const int64_t num_groups = offsets_meta_check.numel();
+    const auto& mat1_meta = inputs[0].as<at::Tensor>();
+    const auto& mat2_meta = inputs[1].as<at::Tensor>();
+    const auto& offsets_meta = inputs[2].as<at::Tensor>();
+    if (mat1_meta.is_meta() || mat2_meta.is_meta() || offsets_meta.is_meta()) {
+      const int64_t num_groups = offsets_meta.numel();
       std::vector<int64_t> result_sizes;
-      if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 2) {
-        result_sizes = {
-            num_groups, mat1_meta_check.size(0), mat2_meta_check.size(-1)};
-      } else if (mat1_meta_check.dim() == 3 && mat2_meta_check.dim() == 2) {
-        result_sizes = {mat1_meta_check.size(1), mat2_meta_check.size(-1)};
-      } else if (mat1_meta_check.dim() == 2 && mat2_meta_check.dim() == 3) {
-        result_sizes = {mat1_meta_check.size(0), mat2_meta_check.size(-1)};
+      if (mat1_meta.dim() == 2 && mat2_meta.dim() == 2) {
+        result_sizes = {num_groups, mat1_meta.size(0), mat2_meta.size(-1)};
+      } else if (mat1_meta.dim() == 3 && mat2_meta.dim() == 2) {
+        result_sizes = {mat1_meta.size(1), mat2_meta.size(-1)};
+      } else if (mat1_meta.dim() == 2 && mat2_meta.dim() == 3) {
+        result_sizes = {mat1_meta.size(0), mat2_meta.size(-1)};
       } else {
         NVF_THROW(
             "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
-            mat1_meta_check.sizes(),
+            mat1_meta.sizes(),
             " and mat2 = ",
-            mat2_meta_check.sizes());
+            mat2_meta.sizes());
       }
 
-      auto options = mat1_meta_check.options()
+      auto options = mat1_meta.options()
                          .device(c10::Device(c10::kMeta))
                          .dtype(data_type_to_aten(out()->dtype()));
       at::Tensor result = at::empty(result_sizes, options);
