@@ -689,6 +689,87 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
           "IDs from the logical domain for BlockQuantizationOp")));
 }
 
+struct BlockQuantizationSchedulingTestParams {
+  DataType data_type;
+  int m;
+  int n;
+};
+
+class BlockQuantizationSchedulingTest
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<
+          BlockQuantizationSchedulingTestParams> {};
+
+TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
+  auto params = GetParam();
+  auto data_type = params.data_type;
+  const int m = params.m;
+  const int n = params.n;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QunatizationFusion(fusion.get(), data_type);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_type)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, data_type);
+  fusion_new_op->addInput(tv_in_1);
+
+  auto quantization_results = blockQuantize(tv_in_1);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
@@ -853,6 +934,26 @@ INSTANTIATE_TEST_SUITE_P(
       std::ostringstream os;
       os << std::get<0>(info.param) << "_GroupWidth" << std::get<1>(info.param);
       return os.str();
+    });
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    BlockQuantizationSchedulingTest,
+    ::testing::Values(
+        BlockQuantizationSchedulingTestParams{DataType::Float, 1024, 1024},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 128, 64},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 128},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 2048},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 1024, 1024},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 128, 64},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 128},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 2048}),
+    [](const testing::TestParamInfo<BlockQuantizationSchedulingTestParams>&
+           info) {
+      std::ostringstream name;
+      name << info.param.data_type << "_" << info.param.m << "x"
+           << info.param.n;
+      return name.str();
     });
 
 } // namespace nvfuser

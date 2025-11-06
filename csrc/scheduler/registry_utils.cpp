@@ -840,6 +840,21 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
   return false;
 }
 
+// Returns true if the output of the block quantization op
+// is not the fusion/segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<BlockQuantizationOp>()) {
+      auto block_scales =
+          expr->as<BlockQuantizationOp>()->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // Checks if any broadcasts are resolved after a reduction, this shouldn't be
 // accepted in the single reduction or multi-reduction scheduler
 bool SchedulerTopologyChecker::hasPostReductionBCast(Fusion* fusion) {

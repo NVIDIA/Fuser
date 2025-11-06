@@ -524,6 +524,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
 
+  // Check if fusion has BlockQuantizationOp
+  auto fusion_has_block_quantization =
+      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
+
+  // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
+  // function which implements quantization assumes no unrolling
+  if (fusion_has_block_quantization && unroll_factor > 1) {
+    unroll_factor = 1;
+  }
+
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
   } else {
@@ -824,6 +834,17 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Broadcasting dimension might be broadcasting to multiple sizes.");
+    return false;
+  }
+
+  // The block scales output of the Block Quantization Op
+  // should be a segment output as it is written to the global
+  // memory.
+  if (registry_utils::hasNonTerminalBlockQuantizeOp(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "no support for block quantization where block scales is not a fusion "
+        "output");
     return false;
   }
 
@@ -1219,6 +1240,19 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     unswitch_pos = 2;
   }
 
+  auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+  std::vector<TensorView*> nvfp4_quantized_outputs = {};
+  for (auto bq_op : bq_ops) {
+    nvfp4_quantized_outputs.push_back(
+        bq_op->quantizedOutput()->as<TensorView>());
+  }
+
+  if (bq_ops.size() > 0 && pparams->vectorization_factor < 2) {
+    NVF_THROW(
+        "Unable to schedule BlockQuantization since we were not able to "
+        "vectorize the reference tensor");
+  }
+
   TransformPropagator propagator(reference_tv);
   MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
   spanning_tree.traverse(&propagator);
@@ -1255,6 +1289,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     }
+
+    // Vectorize nvfp4 quantized outputs.
+    // We will later change the vectorized ID to group ID
+    for (auto quantized_output : nvfp4_quantized_outputs) {
+      vectorized_tvs.emplace_back(quantized_output);
+    }
+
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.
@@ -1263,6 +1304,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv, vectorized_tvs, {ParallelType::Vectorize});
       if (!should_vectorize_reference_tv) {
         vectorize_id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+
+  // Change vectorized IDs to group IDs for quantized outputs
+  for (auto quantized_output : nvfp4_quantized_outputs) {
+    for (auto id : quantized_output->getLoopDomain()) {
+      if (id->getParallelType() == ParallelType::Vectorize) {
+        id->parallelize(ParallelType::Group);
       }
     }
   }
