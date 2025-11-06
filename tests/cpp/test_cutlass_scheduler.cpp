@@ -30,7 +30,15 @@
 
 namespace nvfuser {
 
-using CutlassExecutorTest = NVFuserTest;
+class CutlassExecutorTest : public NVFuserTest {
+ public:
+  void SetUp() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::CutlassScheduler);
+  }
+
+ private:
+  EnableOptionsGuard eog_;
+};
 
 struct QuantizedTensorView {
   TensorView* elts;
