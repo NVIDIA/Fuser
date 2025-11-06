@@ -6,8 +6,10 @@
  */
 // clang-format on
 
+#include <cutlass/block_scaling.h>
 #include <cutlass/codegen.h>
 #include <cutlass/evt.h>
+#include <cutlass/gemm.h>
 #include <device_lower/utils.h>
 #include <dispatch.h>
 #include <exceptions.h>
@@ -19,7 +21,6 @@
 #include <scheduler/mma_utils.h>
 #include <type.h>
 
-#include <format>
 #include <string>
 
 namespace nvfuser {
@@ -70,17 +71,39 @@ class EVTConverter : OptInDispatch {
     return failure_reason_;
   }
 
-  void run() {
-    Expr* mma = getGemmExpr(fusion_);
+  //! We pass both inputs and output tensors to the launcher code via a vector
+  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
+  //! this function returns something like
+  //!
+  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
+  //!
+  std::string getPointerCode(TensorView* tv) {
+    int64_t index = -1;
+    if (tv->isFusionInput()) {
+      index = fusionInputPosition(fusion_, tv);
+    } else if (tv->isFusionOutput()) {
+      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
+    } else {
+      NVF_THROW(
+          "Cannot get pointer for TV ",
+          tv->toString(),
+          " which is not a fusion input or output");
+    }
+    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+        std::to_string(index) + ").data_ptr)";
+  }
 
-    auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma);
+  void findMma() {
+    mma_ = getGemmExpr(fusion_);
+
+    auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma_);
     NVF_ERROR(
         scaled_mma,
         "Only ScaledMmaOp is currently supported for EVT translation");
-    TensorView* mma_out = mma->output(0)->as<TensorView>();
-    TensorView* alpha = scaled_mma->alpha();
-    TensorView* beta = scaled_mma->beta();
-    TensorView* bias = scaled_mma->bias();
+    mma_out_ = mma_->output(0)->as<TensorView>();
+    alpha_ = scaled_mma->alpha();
+    beta_ = scaled_mma->beta();
+    bias_ = scaled_mma->bias();
 
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
@@ -93,8 +116,8 @@ class EVTConverter : OptInDispatch {
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
 
-    NVF_ERROR(beta == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias == nullptr, "Bias not yet supported for EVT translation");
+    NVF_ERROR(beta_ == nullptr, "Beta not yet supported for EVT translation");
+    NVF_ERROR(bias_ == nullptr, "Bias not yet supported for EVT translation");
 
     NVF_ERROR(
         scaled_mma->outScale() == nullptr,
@@ -102,47 +125,104 @@ class EVTConverter : OptInDispatch {
     NVF_ERROR(
         scaled_mma->outGamma() == nullptr,
         "Output global scale factor not supported for EVT translation");
+  }
+
+  void makeAlphaNode() {
+    if (alpha_ == nullptr) {
+      return;
+    }
+    NVF_ERROR(
+        alpha_->nDims() == 0,
+        "Only zero-dimensional alpha is supported for EVT translation");
+    NVF_ERROR(
+        alpha_->dtype() == DataType::Float,
+        "Only Float alpha is supported for EVT translation");
+    // Broadcast alpha to the same dimensions as the accumulator
+    EVTModel::Node* alpha_bcast_node = model_.makeNode(
+        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+    alpha_bcast_node->arguments.emplace_back(
+        "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
+    val_nodes_.emplace(alpha_, alpha_bcast_node);
+
+    EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+        BinaryOpType::Mul,
+        /*in_type=*/DataType::Float,
+        // NOTE: CUTLASS does not have explicit cast EVT nodes.
+        /*out_type=*/mma_out_->dtype(),
+        /*lhs_node=*/alpha_bcast_node,
+        /*rhs_node=*/
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+
+    val_nodes_.emplace(mma_out_, alpha_acc_node);
+  }
+
+  // Detect block scaled outputs. Any output that is block scaled will
+  // have its own special block scaling EVT node, so we don't want to create
+  // EVT nodes for the block scaling pattern itself. This function returns all
+  // outputs that are not blockscaled, as well as the _inputs_ to block-scaled
+  // output before block scaling. This is used to traverse between the
+  // accumulator and these outputs so that we don't accidentally create an
+  // entire EVT tree for each block scaling portion of the graph.
+  std::vector<Val*> getUnquantizedOutputs() {
+    std::vector<Val*> unscaled_outputs;
+    const std::vector<BlockScaledOutputPattern> scaling_patterns =
+        findBlockScaledOutputs(fusion_);
+    if (scaling_patterns.empty()) {
+      unscaled_outputs.insert(
+          unscaled_outputs.end(),
+          fusion_->outputs().begin(),
+          fusion_->outputs().end());
+      model_.setRootTensorView(fusion_->outputs().front()->as<TensorView>());
+    } else {
+      // This holds all quantized outputs as well as scale factors, so we can
+      // skip those outputs
+      std::unordered_set<Val*> all_scaling_outputs;
+      for (const BlockScaledOutputPattern& pattern : scaling_patterns) {
+        block_scaling_patterns_.emplace(pattern.unquantized_output, pattern);
+        unscaled_outputs.push_back(pattern.unquantized_output);
+        all_scaling_outputs.insert(pattern.quantized_output);
+        all_scaling_outputs.insert(pattern.block_scale_factors);
+      }
+      for (Val* v : fusion_->outputs()) {
+        if (!all_scaling_outputs.contains(v)) {
+          unscaled_outputs.push_back(v);
+        }
+      }
+      // The first scaling pattern is considered the root
+      model_.setRootTensorView(scaling_patterns.front().quantized_output);
+    }
+    return unscaled_outputs;
+  }
+
+  void run() {
+    findMma();
 
     // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha == nullptr && (beta == nullptr || bias == nullptr)) {
+    if (alpha_ == nullptr && (beta_ == nullptr || bias_ == nullptr)) {
       // No epilogue
       val_nodes_.emplace(
-          mma_out, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+          mma_out_, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
     }
 
-    if (alpha != nullptr) {
-      NVF_ERROR(
-          alpha->nDims() == 0,
-          "Only zero-dimensional alpha is supported for EVT translation");
-      NVF_ERROR(
-          alpha->dtype() == DataType::Float,
-          "Only Float alpha is supported for EVT translation");
-      // Broadcast alpha to the same dimensions as the accumulator
-      EVTModel::Node* alpha_bcast_node = model_.makeNode(
-          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-      alpha_bcast_node->argument = alpha;
-      val_nodes_.emplace(alpha, alpha_bcast_node);
-
-      EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
-          BinaryOpType::Mul,
-          /*in_type=*/DataType::Float,
-          // NOTE: CUTLASS does not have explicit cast EVT nodes.
-          /*out_type=*/mma_out->dtype(),
-          /*lhs_node=*/alpha_bcast_node,
-          /*rhs_node=*/
-          model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-
-      val_nodes_.emplace(mma_out, alpha_acc_node);
-    }
+    makeAlphaNode();
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
 
-    for (Expr* expr :
-         StmtSort::getExprsBetween({getAccTv(fusion_)}, fusion_->outputs())) {
-      dispatch(expr);
+    const std::vector<Val*> unquantized_outputs = getUnquantizedOutputs();
+
+    // Traverse from the accumulator to the unquantized outputs, creating nodes
+    // in the EVT for each of these
+    NVF_ERROR(model_.getRootTensorView() != nullptr);
+    for (Statement* stmt :
+         StmtSort::getStmtsBetween({getAccTv(fusion_)}, unquantized_outputs)) {
+      dispatch(stmt);
     }
-    model_.setRoot(val_nodes_.at(fusion_->outputs().at(0)));
+    NVF_ERROR_EQ(
+        unquantized_outputs.size(),
+        1,
+        "Only one unquantized output is supported");
+    model_.setRoot(val_nodes_.at(unquantized_outputs.front()));
   }
 
   EVTModel::Node* getNodeFor(Val* val) {
@@ -196,11 +276,58 @@ class EVTConverter : OptInDispatch {
     return visitor_node;
   }
 
+  using OptInDispatch::dispatch;
+
   void dispatch(Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
     OptInDispatch::dispatch(expr);
+  }
+
+  void handle(TensorView* tv) {
+    const auto it = block_scaling_patterns_.find(tv);
+    if (it == block_scaling_patterns_.end()) {
+      return;
+    }
+    // This is the pre-scaling version of a block-scaled output. Insert a block
+    // scaling EVT node which will handle the scaling and outputting the scale
+    // factors.
+    const BlockScaledOutputPattern& pattern = it->second;
+    NVF_ERROR(
+        pattern.global_scale_factor != nullptr &&
+            pattern.global_scale_factor->isFusionInput(),
+        "Block-scaled outputs currently require a global scale factor "
+        "residing in global memory");
+    NVF_ERROR(
+        tv->definition() != nullptr,
+        "Must have already processed pre-scaled output's definition but it "
+        "has no definition");
+    // Assume we have already processed val's definition, so it should have an
+    // EVT node
+    EVTModel::Node* unquantized_node = getNodeFor(pattern.unquantized_output);
+    NVF_ERROR(
+        unquantized_node != nullptr,
+        "Could not find EVT node for unquantized output");
+
+    EVTModel::Node* scaling_node = model_.makeNode(
+        "cutlass::epilogue::fusion::Sm100BlockScaleFactorRowStore<" +
+        std::to_string(pattern.block_size) + ", EpilogueTileShape, " +
+        dtypeToCutlass(pattern.quantized_output->dtype()) + ", " +
+        dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
+        dtypeToCutlass(pattern.block_scale_factors->dtype()) +
+        ", cutlass::FloatRoundStyle::round_to_nearest>");
+    scaling_node->arguments = {
+        {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
+        {"norm_constant_ptr", getPointerCode(pattern.global_scale_factor)},
+        {"norm_constant_stride", "{}"}};
+
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(scaling_node);
+    visitor_node->inputs.push_back(unquantized_node);
+
+    val_nodes_[pattern.unquantized_output] = visitor_node;
   }
 
   void handle(LoadStoreOp* uop) {}
@@ -258,8 +385,15 @@ class EVTConverter : OptInDispatch {
 
  private:
   Fusion* fusion_;
+  Expr* mma_;
+  TensorView* alpha_;
+  TensorView* beta_;
+  TensorView* bias_;
+  TensorView* mma_out_;
+
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
+  std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
   std::string failure_reason_;
 };
 
@@ -270,9 +404,7 @@ EVTModel::EVTModel(const EVTModel& model) {
 
   for (const auto& node_up : model.nodes_up_) {
     Node* new_node = makeNode(node_up->name);
-    if (node_up->argument != nullptr) {
-      new_node->argument = node_up->argument;
-    }
+    new_node->arguments = node_up->arguments;
     old2new.emplace(node_up.get(), new_node);
   }
   // Loop again now that have old2new fully populated
@@ -285,6 +417,7 @@ EVTModel::EVTModel(const EVTModel& model) {
     }
   }
   setRoot(old2new.at(model.root()));
+  setRootTensorView(model.getRootTensorView());
 }
 
 std::string EVTModel::defString(Node* node, int64_t indent_size) const {
@@ -320,31 +453,21 @@ struct CommentedString {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size);
 
 CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
-  std::stringstream ss;
-  if (node->argument->isA<TensorView>()) {
-    indent(ss, indent_size) << "{  // " << node->name << "\n";
-    // TODO: If this is an input scalar, we need to obtain its name in the
-    // kernel here
-    const std::string internal_var_name = "alpha";
-    indent(ss, indent_size + 1)
-        << ".scalar_ptrs={static_cast<"
-        << dtypeToCutlass(node->argument->dtype()) << " const*>("
-        << internal_var_name << ".data_ptr)}\n";
-    indent(ss, indent_size) << "}";
-    return {ss.str(), ""};
-  } else {
-    // If this is a constant scalar, print its value directly
-    if (node->argument->isConstScalar()) {
-      return {
-          "{.scalars={" + node->argument->toInlineString() + "}}", node->name};
-    }
-    NVF_ERROR(
-        node->argument->isFusionInput(),
-        "Non-constant scalars are expected to be fusion inputs for EVT "
-        "translation");
-    NVF_THROW("Input scalars not yet supported in EVT translation");
-    return {ss.str(), ""};
+  if (node->arguments.empty()) {
+    return {"{}", node->name};
   }
+  std::stringstream ss;
+  indent(ss, indent_size) << "{  // " << node->name << "\n";
+
+  for (const auto& [i, kv] : enumerate(node->arguments)) {
+    indent(ss, indent_size + 1) << "." << kv.first << "=" << kv.second;
+    if (i < node->arguments.size() - 1) {
+      ss << ",";
+    }
+    ss << "\n";
+  }
+  indent(ss, indent_size) << "}";
+  return {ss.str(), ""};
 }
 
 // For nodes with no inputs, we print their args like this:
@@ -359,6 +482,13 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
 //     { ... }  // args for input N
 //   }
 CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
+  if (node->name == "cutlass::epilogue::fusion::Sm90Compute") {
+    // Sm90Compute does not require arguments
+    // TODO: We should probably not represent Sm90Compute's template parameters
+    // as nodes in the EVT
+    return {"{}", node->name};
+  }
+
   std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
   CommentedString prev_cs;
@@ -375,26 +505,39 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
     }
     ss << "\n";
   };
-  std::string node_op_name;
+
+  // Sm90TreeVisitor is defined like this:
+  //
+  //   template <class NodeOp, class... ChildOps>
+  //   struct Sm90TreeVisitor : Sm90VisitorImpl<ChildOps..., NodeOp>
+  //
+  // Sm90EVT is just an alias to Sm90TreeVisitor.
+  //
+  // Notice that NodeOp is the op for the root of the tree and ChildOps are its
+  // in-neighbors (producer nodes). When specifying the template parameters
+  // NodeOp comes first, but when specifying arguments we need to follow the
+  // Sm90VisitorImpl pattern and pass the NodeOp args last instead.
+  bool has_node_op =
+      node->name == "cutlass::epilogue::fusion::Sm90TreeVisitor" ||
+      node->name == "cutlass::epilogue::fusion::Sm90EVT";
+
+  CommentedString node_op_args;
   for (EVTModel::Node* input : node->inputs) {
-    // TODO: add all other node op names that might appear here
-    if (input->name == "cutlass::epilogue::fusion::Sm90Compute") {
-      // This just describes what op is being computed in an EVT node. It
-      // should not appear in the argument list
-      NVF_ERROR(node_op_name.empty());
-      node_op_name = input->name;
+    if (has_node_op && node_op_args.str.empty()) {
+      // Save NodeOp args in order to print them last
+      node_op_args = argStringHelper(input, indent_size + 1);
+      node_op_args.comment = "(NodeOp arguments last) " + node_op_args.comment;
       continue;
     }
     print_line(false);
     prev_cs = argStringHelper(input, indent_size + 1);
   }
-  if (!node_op_name.empty()) {
-    // We have a node op. Print its arguments last (there never are any, so
-    // don't recurse)
+  if (has_node_op) {
+    NVF_ERROR(!node_op_args.str.empty(), "Could not find NodeOp");
+    // We have a node op. Print its arguments last
     print_line(false);
     std::stringstream ss_name;
-    indent(ss_name, indent_size + 1) << "{}";
-    prev_cs = {ss_name.str(), node_op_name};
+    prev_cs = node_op_args;
   }
   print_line(true);
   indent(ss, indent_size) << "}";
@@ -404,7 +547,7 @@ CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
 CommentedString argStringHelper(EVTModel::Node* node, int64_t indent_size) {
   NVF_ERROR(node != nullptr);
   if (node->inputs.empty()) {
-    if (node->argument == nullptr) {
+    if (node->arguments.empty()) {
       std::stringstream ss;
       indent(ss, indent_size) << "{}";
       return {ss.str(), node->name};
@@ -452,8 +595,17 @@ std::string EVTModel::toString() const {
       }
       ss << ")";
     }
-    if (node_up->argument != nullptr) {
-      ss << "[" << node_up->argument->toString() << "]";
+    if (!node_up->arguments.empty()) {
+      ss << "[";
+      bool first = true;
+      for (const auto& [k, v] : node_up->arguments) {
+        if (!first) {
+          ss << ", ";
+        }
+        first = false;
+        ss << k << "=" << v;
+      }
+      ss << "]";
     }
     ss << "\n";
   }

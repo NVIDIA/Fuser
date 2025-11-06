@@ -212,7 +212,13 @@ NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
     }
 
     auto def = tv->definition();
-    if (def == nullptr) {
+    // A block quantization is plumbed down to a runtime function.
+    // The runtime function handles predication so skip this for the
+    // block scales. That's because the inner dimension of that tv is not
+    // mapped to any ID of the input or sibling output.
+    if (def == nullptr ||
+        (tv->definition()->isA<BlockQuantizationOp>() &&
+         tv == tv->definition()->as<BlockQuantizationOp>()->blockScales())) {
       continue;
     }
 

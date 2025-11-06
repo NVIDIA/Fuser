@@ -205,6 +205,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/compute_at.cpp
   ${NVFUSER_SRCS_DIR}/compute_at_map.cpp
   ${NVFUSER_SRCS_DIR}/contiguity.cpp
+  ${NVFUSER_SRCS_DIR}/cutlass/block_scaling.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/codegen.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/evt.cpp
   ${NVFUSER_SRCS_DIR}/cutlass/gemm.cpp
@@ -301,12 +302,14 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/kernel_ir_dispatch.cpp
   ${NVFUSER_SRCS_DIR}/logical_domain_map.cpp
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/allocation_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/ipc_handle.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
@@ -964,6 +967,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_meta.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
@@ -1197,7 +1201,6 @@ if(BUILD_TEST)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
-    ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
@@ -1205,6 +1208,11 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
+  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+    list(APPEND MATMUL_TEST_SRCS
+      ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
+    )
+  endif()
   add_test(test_matmul "${MATMUL_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_matmul)
 
@@ -1403,6 +1411,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
   ${NVFUSER_ROOT}/runtime/block_layout.cu
+  ${NVFUSER_ROOT}/runtime/block_quantization_kernels.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/casts.cu
   ${NVFUSER_ROOT}/runtime/cluster.cu

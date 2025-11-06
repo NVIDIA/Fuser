@@ -5,6 +5,8 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <iterator>
+
 #include <cuda_profiler_api.h>
 
 #include <fusion.h>
@@ -13,6 +15,7 @@
 #include <host_ir/host_ir.h>
 #include <ir/all_nodes.h>
 #include <multidevice/communication.h>
+#include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
@@ -196,7 +199,7 @@ TEST_P(AGMatmulTest, CollectiveBasedPipeline) {
           IsA<kir::ForLoop>(),
           IsA<kir::ForLoop>()));
 
-  auto for_loop = container.topLevelExprs().at(4)->as<kir::ForLoop>();
+  auto* for_loop = container.topLevelExprs().back()->as<kir::ForLoop>();
   if (insert_resharding_after) {
     EXPECT_THAT(
         for_loop->body().exprs(),

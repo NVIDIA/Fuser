@@ -92,6 +92,7 @@ enum class DebugDumpOption {
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
   Communication, //! Print multi-GPU communications posted
+  CompileParams, //! Print NVRTC compile parameters
   EndOfOption //! Placeholder for counting the number of elements
 };
 

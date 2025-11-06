@@ -1936,7 +1936,7 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
     NVF_ERROR(
         !main_loop->body().empty(),
         "Circular buffer sync insertion: empty main loop.");
-    const std::vector<Expr*>& exprs = main_loop->body().exprs();
+    const std::list<Expr*>& exprs = main_loop->body().exprs();
     // Note: This pass explicitly assumes that WAR sync has been
     //  inserted so would need to be updated if we re-order the
     //  passes. Cleanups suggested in [Circular Buffer Sync]
@@ -1953,15 +1953,15 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
 
     // Find the last circular buffer load in the main loop, and insert
     // cp.async.commit after it.
-    std::vector<Expr*>::const_iterator last_circular_buffer_load = exprs.end();
+    auto last_circular_buffer_load = exprs.end();
     for (auto it = exprs.begin(); it != exprs.end(); ++it) {
       if (IsCircularBufferLoadLoop::check(*it, loads)) {
         last_circular_buffer_load = it;
       }
     }
     NVF_ERROR(last_circular_buffer_load != exprs.end());
-    std::vector<Expr*>::const_iterator commit_it = main_loop->body().insert(
-        last_circular_buffer_load + 1, cp_async_commit);
+    std::list<Expr*>::const_iterator commit_it = main_loop->body().insert(
+        std::next(last_circular_buffer_load), cp_async_commit);
 
     if (prefetch_distance == 0) {
       // If there is no prefetch, we must wait immediately after the commit

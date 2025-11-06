@@ -5,10 +5,15 @@
 import os
 import pytest
 import torch
-import nvfuser
-from nvfuser import FusionDefinition, CommunicatorBackend
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+import nvfuser_direct as nvfuser
+from nvfuser_direct import FusionDefinition, CommunicatorBackend
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import BENCHMARK_CONFIG, clear_l2_cache
+
+# Run command:
+# export NVFUSER_BUILD_WITH_UCC=1
+# pip install --no-build-isolation -e python -v
+# mpirun -np 1 pytest benchmarks/python/benchmark_overlap.py --with-mpi
 
 
 class CUDAEventTimer:
@@ -81,55 +86,11 @@ def benchmark_cuda_events_pedantic(
     )
 
 
-class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    """Fusion definition for overlapping all-gather with matrix multiplication.
-
-    This fusion implements a matrix multiplication operation with overlapping
-    all-gather communication, using stream parallelism for the outermost dimension.
-    """
-
-    def __init__(self, m, k, n, s, num_devices, communication_backend, dtype):
-        super().__init__(
-            use_multidevice_executor=True, backend_type=communication_backend
-        )
-        self.m = m
-        self.k = k
-        self.n = n
-        self.s = s
-        self._num_devices = num_devices
-        self.dtype = dtype
-
-    def definition(self) -> None:
-        m, k, n, s, d = self.m, self.k, self.n, self.s, self._num_devices
-        self.x = self.define_tensor(
-            shape=[s, d, m // (s * d), k],
-            contiguity=True,
-            dtype=torch_dtype_to_nvfuser_dtype(self.dtype),
-        )
-        self.weight = self.define_tensor(
-            shape=[n, k],
-            contiguity=True,
-            dtype=torch_dtype_to_nvfuser_dtype(self.dtype),
-        )
-        self.bias = self.define_tensor(
-            shape=[n], contiguity=True, dtype=torch_dtype_to_nvfuser_dtype(self.dtype)
-        )
-        self.out = self.ops.linear(self.x, self.weight, self.bias)
-        self.add_output(self.out)
-
-    def multidevice_schedule(self):
-        mesh = nvfuser.DeviceMesh(range(self._num_devices))
-        for tv in [self.x, self.weight, self.bias, self.out]:
-            self.sched._set_device_mesh(tv, mesh)
-        self.sched.parallelize(self.x, 1, nvfuser.ParallelType.mesh_x)
-        self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
-
-
 class MultideviceSettings:
     """Settings and utilities for multi-device execution."""
 
     def __init__(self):
-        self._communicator = nvfuser.Communicator.instance()
+        self._communicator = nvfuser.multidevice.Communicator.instance()
         torch.manual_seed(0)
 
     @property
@@ -153,7 +114,7 @@ class MultideviceSettings:
         return self._communicator.local_rank()
 
     def shard_tensor(
-        self, t: torch.Tensor, dim: int, mesh: nvfuser.DeviceMesh
+        self, t: torch.Tensor, dim: int, mesh: nvfuser.multidevice.DeviceMesh
     ) -> torch.Tensor:
         assert t.is_cpu, (
             "This is not strictly required but it's a general good practice "
@@ -201,7 +162,38 @@ def test_overlap_allgather_matmul_stream_outermost(
         dtype: Data type for computation
         validate_output: Whether to validate output against reference
     """
-    nvfuser.FusionCache.reset()
+
+    def fusion_definition(fd, m, k, n, s, d) -> None:
+        """Fusion definition for overlapping all-gather with matrix multiplication.
+
+        This fusion implements a matrix multiplication operation with overlapping
+        all-gather communication, using stream parallelism for the outermost dimension.
+        """
+        x = fd.define_tensor(
+            shape=[s, d, m // (s * d), k],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+        )
+        weight = fd.define_tensor(
+            shape=[n, k],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+        )
+        bias = fd.define_tensor(
+            shape=[n], contiguity=True, dtype=torch_dtype_to_nvfuser_dtype(dtype)
+        )
+        out = fd.ops.linear(x, weight, bias)
+        fd.add_output(out)
+        return x, weight, bias, out
+
+    def multidevice_schedule(fd, tensors, num_devices):
+        mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
+        for tv in tensors:
+            tv.set_device_mesh(mesh)
+
+        x, weight, bias, out = tensors
+        x.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+        out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     d = multidevice_settings.size
     assert m % (s * d) == 0
@@ -213,17 +205,24 @@ def test_overlap_allgather_matmul_stream_outermost(
         s, d, m // (s * d), k, dtype=dtype, device="cpu"
     )
     x = multidevice_settings.shard_tensor(
-        x_unsharded, 1, nvfuser.DeviceMesh(range(multidevice_settings.size))
+        x_unsharded, 1, nvfuser.multidevice.DeviceMesh(range(multidevice_settings.size))
     )
     weight = torch.testing.make_tensor(n, k, dtype=dtype, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=dtype, device="cuda")
     inputs = [x, weight, bias]
 
     # Create fusion definition
-    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type, dtype)
+    with FusionDefinition() as fd:
+        tensors = fusion_definition(fd, m, k, n, s, d)
+        multidevice_schedule(fd, tensors, d)
+
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    params.use_allocation_cache = True
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     if validate_output:
-        outputs, _ = fd.execute([inputs])
+        outputs = multidevice_executor.run(inputs)
         out = outputs[0].cpu()
         assert out.dtype == dtype
         assert out.shape == torch.Size([s, d, m // (s * d), n])
@@ -231,7 +230,7 @@ def test_overlap_allgather_matmul_stream_outermost(
         torch.testing.assert_close(out, out_ref, rtol=float("inf"), atol=1e-1)
 
     def benchmark_fn(*args):
-        outputs, _ = fd.execute(args)
+        outputs = multidevice_executor.run(inputs)
         return outputs[0]
 
     benchmark_cuda_events_pedantic(
