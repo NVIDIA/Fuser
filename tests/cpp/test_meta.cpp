@@ -281,10 +281,11 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [4, 8], mat2: [k, n] = [8, 6], output: [g, m, n] = [3, 4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [m, k] = [128, 128], mat2: [k, n] = [128, 128]
+  // output: [g, m, n] = [4, 128, 128]
+  auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -294,10 +295,11 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {2, 4, 8}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -352,10 +354,11 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [g, m, k] = [3, 4, 8], mat2: [k, n] = [8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({3, 4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [g, m, k] = [4, 128, 128], mat2: [k, n] = [128, 128]
+  // output: [m, n] = [128, 128]
+  auto mat1 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -365,10 +368,11 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor3D({3, 4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor3D({4, 128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -423,10 +427,11 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [4, 8], mat2: [g, k, n] = [3, 8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({3, 8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [m, k] = [128, 128], mat2: [g, k, n] = [4, 128, 128]
+  // output: [m, n] = [128, 128]
+  auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -436,10 +441,11 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor3D({3, 8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor3D({4, 128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {1, 3, 4}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
