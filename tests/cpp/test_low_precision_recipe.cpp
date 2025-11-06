@@ -237,7 +237,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
       t->merge(-2);
     }
 
-    // split by 4 (or 8).
+    // split by 4 (or 2, 8).
     // I -> I/4, 4
     t->split(-1, vectorization_factor);
     // I//4, 4 -> I/4, 1, 4
@@ -346,7 +346,8 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
         quantization_results.quantized_tensor,
         quantization_results.block_scales,
         t_out}) {
-    // (m, n) -> (m, n/4, 4) (or (m, n/8, 8) if bfloat16)
+    // We split by 4 as an example, but can also be 2 or 8(fp16/bf16 on;y)
+    // (m, n) -> (m, n/4, 4)
     // (m, n/4, 4) -> (m, n/128, 32, 4)
     t->split(-1, vectorization_factor); // V
     t->split(-2, 32); // BDx

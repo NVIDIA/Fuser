@@ -570,7 +570,7 @@ class ExprValidator : public OptOutDispatch {
             ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
              (input_dtype == DataType::BFloat16 ||
               input_dtype == DataType::Half)),
-        "Thegroup dimension must be  2/4 (FP32) or 2/4/8 "
+        "The group dimension must be  2/4 (FP32) or 2/4/8 "
         "(BF16). Found: ",
         inner_extent,
         ". Expr: ",

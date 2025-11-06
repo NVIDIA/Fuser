@@ -9,6 +9,8 @@
 namespace nvf {
 namespace bq {
 
+// This helper function finds the max of NUM_ELEMENTS (2, 4, or 8) values
+// using the same number of threads.
 template <int NUM_ELEMENTS>
 __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
   // The mask 0xffffffff indicates all 32 threads in the warp are participating.
@@ -61,7 +63,8 @@ __device__ void block_quantize_to_nvfp4(
           (is_half_or_bfloat &&
            (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
             ITEMS_PER_THREAD == 2)),
-      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
+      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
+      "or __half "
       "type");
 
   // Number of threads involved in computing one block scaling factor
@@ -87,9 +90,9 @@ __device__ void block_quantize_to_nvfp4(
     local_max = fmax(local_max, fabsf(vec_in[i]));
   }
 
-  // Compute the max accross 4 threads (float) or 2 threads (bf16/fp16)
-  // This assumes each thread has already computed is local max of 4 (fp32) or
-  // 8 (bf16/fp16) elements.
+  // Compute the max accross  16/ITEMS_PER_THREAD threads
+  // This assumes each thread has already computed is local max of 2, 4 (fp32)
+  // or 2,4, 8 (bf16/fp16) elements.
   constexpr int NUM_ELEMENTS = 16 / ITEMS_PER_THREAD;
   reduceAcrossThreads<NUM_ELEMENTS>(local_max);
   float block_max = local_max;
