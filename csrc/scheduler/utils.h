@@ -681,10 +681,12 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // Update the vector of ids_to_transform as progressing through the
 // `transform_exprs`. We'll always insert the result of split in the
 // location of the input, and insert the merge result in the position of the
-// inner dimension.
+// inner dimension. Optionally accepts a callback after each transform is
+// applied for analysis of the expr nodes.
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
-    const std::vector<Expr*>& transform_exprs);
+    const std::vector<Expr*>& transform_exprs,
+    std::optional<std::function<void(Expr*)>> post_transform = std::nullopt);
 
 // Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
