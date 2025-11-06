@@ -350,15 +350,15 @@ std::vector<PolymorphicValue> kir::EncodeTensorMapTiled::evaluate(
     }
   }
 
-  // for (auto box_dim_val : box_dim) {
-  //   NVF_ERROR(
-  //       box_dim_val != 0 && box_dim_val <= 256,
-  //       "boxDim array, which specifies number of elements to be traversed "
-  //       "along each of the tensorRank dimensions, must be non-zero and less "
-  //       "than or equal to 256.",
-  //       " box_dim_val = ",
-  //       box_dim_val);
-  // }
+  for (auto box_dim_val : box_dim) {
+    NVF_ERROR(
+        box_dim_val != 0 && box_dim_val <= 256,
+        "boxDim array, which specifies number of elements to be traversed "
+        "along each of the tensorRank dimensions, must be non-zero and less "
+        "than or equal to 256.",
+        " box_dim_val = ",
+        box_dim_val);
+  }
   if (interleave == CU_TENSOR_MAP_INTERLEAVE_NONE) {
     NVF_ERROR(
         (box_dim.at(0) * elem_size) % 16 == 0,
