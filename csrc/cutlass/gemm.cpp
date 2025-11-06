@@ -32,10 +32,17 @@ namespace {
 // dimension is the same as the inner allocation dimension. Otherwise it is
 // ColumnMajor
 std::string mapLayoutToCutlass(const TensorView* tv) {
+  const std::vector<IterDomain*> nored_logical =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_CUTLASS_REJECT_IF(
-      tv->getLogicalDomain().empty(),
-      "Zero-dimensional tensors cannot be inputs");
-  return tv->getMaybeAllocationDomain().back() == tv->getLogicalDomain().back()
+      nored_logical.size() != 2,
+      tv->toString(),
+      " has dimension ",
+      nored_logical.size(),
+      " but only dimension 2 tensors are supported");
+  const std::vector<IterDomain*> nored_alloc =
+      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
+  return nored_alloc.back() == nored_logical.back()
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
 }
@@ -87,9 +94,9 @@ class CutlassCodeGenerator {
         pattern_.b->dtype());
 
     NVF_CUTLASS_REJECT_IF(
-        pattern_.a->isFusionInput(), "A must be a fusion input");
+        !pattern_.a->isFusionInput(), "A must be a fusion input");
     NVF_CUTLASS_REJECT_IF(
-        pattern_.b->isFusionInput(), "B must be a fusion input");
+        !pattern_.b->isFusionInput(), "B must be a fusion input");
 
     NVF_CUTLASS_REJECT_IF(
         pattern_.a_scale == nullptr, "Could not find A scale factors");
@@ -97,10 +104,10 @@ class CutlassCodeGenerator {
         pattern_.b_scale == nullptr, "Could not find B scale factors");
 
     NVF_CUTLASS_REJECT_IF(
-        pattern_.a_scale->isFusionInput(),
+        !pattern_.a_scale->isFusionInput(),
         "Scale factors for A must be a fusion input");
     NVF_CUTLASS_REJECT_IF(
-        pattern_.b_scale->isFusionInput(),
+        !pattern_.b_scale->isFusionInput(),
         "Scale factors for B must be a fusioninput");
 
     // Validate that the inputs and scale factors are all contiguous
@@ -181,6 +188,8 @@ namespace {
 using namespace cute;
 )";
     genParams();
+
+    genGemmConfigClass();
   }
 
   //! Here we put all the CutlassParams into the KernelTraits struct in the
@@ -209,6 +218,153 @@ struct KernelTraits {
 
     code_ += R"(
 };
+)";
+  }
+
+  void genGemmConfigClass() {
+    code_ += R"(
+// Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
+// Defines all the types, layouts, and configurations needed for the CUTLASS
+// kernel
+struct Fp4GemmSm100 {
+)";
+    genMatrixDescription(pattern_.a, "A", /*is_nvfp4=*/true);
+    genMatrixDescription(pattern_.b, "B", /*is_nvfp4=*/true);
+
+    // TODO: support bias here as C
+    genMatrixDescription(nullptr, "C", /*is_nvfp4=*/false);
+
+    genMatrixDescription(main_output_, "D", /*is_nvfp4=*/false);
+
+    // Sets up basic
+    genBasicConfig();
+
+    code_ += R"(
+};
+)";
+  }
+
+  //! Define
+  //!   - ElementA
+  //!   - LayoutATag
+  //!   - AlignmentA
+  //! where "A" == tv_name. If is_nvfp4 is true, then we use
+  //! cutlass::nv_float4_t<> to pack the nvfuser DataType, as is required for
+  //! operands to cutlass block scaled GEMM.
+  void genMatrixDescription(
+      TensorView* tv,
+      const std::string& tv_name,
+      bool is_nvfp4) {
+    // TODO: alignment of each gmem tensor should be recorded in CutlassParams
+    // and used here instead.
+
+    // set dtype to void for null tensors. This is used to represent missing
+    // bias
+    std::string dtype = "void";
+    std::string alignment = tv == nullptr
+        ? "128"
+        : "128 / cutlass::sizeof_bits<Element" + tv_name + ">::value";
+    if (tv != nullptr) {
+      dtype = is_nvfp4 ? "cutlass::nv_float4_t<cutlass::float_e2m1_t>"
+                       : dtypeToCutlass(tv->dtype());
+    }
+    code_ += std::format(
+        R"(
+  using Element{0} = {1};
+  using Layout{0}Tag = {2};
+  static constexpr int Alignment{0} = {3};
+
+    )",
+        tv_name,
+        dtype,
+        mapLayoutToCutlass(tv),
+        alignment);
+  }
+
+  void genBasicConfig() {
+    code_ += R"(
+  // Kernel functional config
+  using ElementAccumulator = float;
+  using ArchTag = cutlass::arch::Sm100;
+  using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
+
+  // Kernel Perf config
+  using MmaTileShape = typename KernelTraits::MmaTileShape;
+  using ClusterShape = typename KernelTraits::ClusterShape;
+  using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
+
+  // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
+  static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
+  using TmemWarpShape_MN =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_tmem_warps<Is2SmMma, MmaTileShape>());
+  // Compute the actual epilogue tile that will be auto-selected by the builder
+  using EpilogueTileShape =
+      decltype(cutlass::epilogue::collective::detail::
+                   sm100_dense_compute_tile_shape_or_override<
+                       OperatorClass,
+                       PerSmTileShape_MNK,
+                       cutlass::epilogue::collective::EpilogueTileAuto,
+                       TmemWarpShape_MN,
+                       ElementC,
+                       LayoutCTag,
+                       ElementD,
+                       LayoutDTag,
+                       /*IsPerColScaleSupported=*/false>());
+
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag,
+          AlignmentC,
+          ElementD,
+          LayoutDTag,
+          AlignmentD,
+          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          EVTOp>::CollectiveOp;
+
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          ElementA,
+          LayoutATag,
+          AlignmentA,
+          ElementB,
+          LayoutBTag,
+          AlignmentB,
+          ElementAccumulator,
+          MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
+
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      Shape<int, int, int, int>,
+      CollectiveMainloop,
+      CollectiveEpilogue,
+      void>;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+  using StrideA = typename Gemm::GemmKernel::StrideA;
+  using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
+  using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using LayoutB = decltype(cute::make_layout(make_shape(0, 0, 0), StrideB{}));
+  using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
+  using StrideC = typename Gemm::GemmKernel::StrideC;
+  using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+  using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
 )";
   }
 
@@ -296,146 +452,8 @@ std::string generateNvfp4ScaledMmKernel(
     }
   }
 
-  std::string code =
-      R"(
-#include "cutlass/cutlass.h"
-#include "cutlass/epilogue/collective/collective_builder.hpp"
-#include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
-#include "cutlass/gemm/collective/collective_builder.hpp"
-#include "cutlass/gemm/device/gemm_universal_adapter.h"
-#include "cutlass/gemm/kernel/gemm_universal.hpp"
-#include "cutlass/numeric_conversion.h"
-#include "cutlass/util/packed_stride.hpp"
+  std::string code;
 
-#define NVF_THROW(msg) throw std::runtime_error(msg);
-#define NVF_ERROR(cond, msg)                                      \
-  if (!(cond)) {                                                  \
-    NVF_THROW("Condition " #cond " failed: " + std::string(msg)); \
-  }
-
-#define NVFUSER_CUDA_RT_SAFE_CALL(x)               \
-  do {                                             \
-    cudaError_t _result = x;                       \
-    NVF_ERROR(                                     \
-        _result == cudaSuccess,                    \
-        std::string("CUDA error: ") +              \
-        std::string(cudaGetErrorName(_result)) +   \
-        std::string(" failed with error ") +       \
-        std::string(cudaGetErrorString(_result))); \
-  } while (0)
-
-// This is a surrogate for a CUDA at::Tensor
-struct TensorArg {
-  void* data_ptr;
-  int64_t dim;
-  int64_t* sizes;
-  int64_t* strides=nullptr;
-};
-
-namespace {
-using namespace cute;
-
-// Kernel configuration traits for different output data types
-// Defines tile shapes and cluster configurations.
-struct KernelTraits {
-)";
-  code += std::format(
-      R"(
-  using MmaTileShape = Shape<_{}, _{}, _{}>;
-  using ClusterShape = Shape<_{}, _{}, _{}>;
-  using PerSmTileShape_MNK = Shape<_{}, _{}, _{}>;
-)",
-      params.mma_tile.m,
-      params.mma_tile.n,
-      params.mma_tile.k,
-      params.cluster_shape.m,
-      params.cluster_shape.n,
-      params.cluster_shape.k,
-      params.per_sm_tile.m,
-      params.per_sm_tile.n,
-      params.per_sm_tile.k);
-
-  code += R"(
-};
-
-// Main GEMM configuration for NVFP4 scaled matrix multiplication on SM100+
-// Defines all the types, layouts, and configurations needed for the CUTLASS
-// kernel
-struct Fp4GemmSm100 {
-  // A matrix configuration
-)";
-  NVF_ERROR_EQ(
-      a->dtype(),
-      DataType::Float4_e2m1fn,
-      "Only float_e2m1_t is supported so far");
-  code += "  using ElementA = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  code += "  using LayoutATag = " + mapLayoutToCutlass(a) + ";\n";
-  // TODO: check alignment of A and save in cutlass_params.supported_vec_sizes
-  // as is done for Ampere
-  code += R"(
-  static constexpr int AlignmentA = 32;
-
-  // B matrix configuration
-)";
-  NVF_ERROR_EQ(
-      b->dtype(),
-      DataType::Float4_e2m1fn,
-      "Only float_e2m1_t is supported so far");
-  code += "  using ElementB = cutlass::nv_float4_t<cutlass::float_e2m1_t>;\n";
-  code += "  using LayoutBTag = " + mapLayoutToCutlass(b) + ";\n";
-  // TODO: check alignment of B and save in cutlass_params.supported_vec_sizes
-  // as is done for Ampere
-  code += R"(
-  static constexpr int AlignmentB = 32;
-
-  // C/D matrix configuration
-)";
-  code += "  using ElementD = " + output_dtype + ";\n";
-  // This should be void unless there is a bias
-  code += "  using ElementC = void;\n";
-
-  NVF_ERROR(
-      !main_output->hasAllocation(),
-      "Cutlass executor doesn't yet support transposed output");
-  code += "  using LayoutDTag = " + mapLayoutToCutlass(main_output) + ";\n";
-  // TODO: C is
-  code += "  using LayoutCTag = cutlass::layout::RowMajor;\n";
-
-  code += R"(
-  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
-  // Avoid division by zero in case ElementC is void
-  static constexpr int AlignmentC = 128 / std::max(cutlass::sizeof_bits<ElementC>::value, 1);
-
-  // Kernel functional config
-  using ElementAccumulator = float;
-  using ArchTag = cutlass::arch::Sm100;
-  using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
-
-  // Kernel Perf config
-  using MmaTileShape = typename KernelTraits::MmaTileShape;
-  using ClusterShape = typename KernelTraits::ClusterShape;
-  using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
-
-  // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
-  static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
-  using TmemWarpShape_MN =
-      decltype(cutlass::epilogue::collective::detail::
-                   sm100_tmem_warps<Is2SmMma, MmaTileShape>());
-  // Compute the actual epilogue tile that will be auto-selected by the builder
-  using EpilogueTileShape =
-      decltype(cutlass::epilogue::collective::detail::
-                   sm100_dense_compute_tile_shape_or_override<
-                       OperatorClass,
-                       PerSmTileShape_MNK,
-                       cutlass::epilogue::collective::EpilogueTileAuto,
-                       TmemWarpShape_MN,
-                       ElementC,
-                       LayoutCTag,
-                       ElementD,
-                       LayoutDTag,
-                       /*IsPerColScaleSupported=*/false>());
-
-)";
   if (has_evt) {
     const EVTModel& evt_model = model_opt.getData();
     code += "  using EVTOp =\n" +

@@ -73,7 +73,6 @@ class EVTConverter : OptInDispatch {
     } else if (tv->isFusionOutput()) {
       index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
     } else {
-      // TODO: We should check this condition before generating code
       NVF_CUTLASS_REJECT(
           "Cannot get pointer for TV ",
           tv->toString(),
