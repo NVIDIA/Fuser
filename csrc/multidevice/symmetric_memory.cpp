@@ -17,7 +17,8 @@ namespace nvfuser {
 // the maximum of multicast minimum and recommended granularities.
 int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
-    size_t requested_size_bytes) {
+    size_t requested_size_bytes,
+    bool get_recommended_granularity) {
   size_t alloc_granularity = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
       &alloc_granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
@@ -34,15 +35,17 @@ int64_t getGranularityForSymmetricMemory(
 
   NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
       &mcast_min_granularity, &mcast_prop, CU_MULTICAST_GRANULARITY_MINIMUM));
-  NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
-      &mcast_rec_granularity,
-      &mcast_prop,
-      CU_MULTICAST_GRANULARITY_RECOMMENDED));
+  if (get_recommended_granularity) {
+    NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
+        &mcast_rec_granularity,
+        &mcast_prop,
+        CU_MULTICAST_GRANULARITY_RECOMMENDED));
+  }
 
-  size_t mcast_granularity =
-      std::max(mcast_min_granularity, mcast_rec_granularity);
+  size_t granularity =
+      get_recommended_granularity ? mcast_rec_granularity : mcast_min_granularity;
 
-  return std::max(alloc_granularity, mcast_granularity);
+  return std::max(alloc_granularity, granularity);
 #else
   return alloc_granularity;
 #endif

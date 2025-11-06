@@ -629,47 +629,28 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
   prop.location.id = static_cast<int>(local_rank);
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  // Get allocation granularity
-  size_t granularity = 0;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
-      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
-
-  // Calculate sizes - each rank has a shard
+  // Get size and base pointer
   size_t bytes_per_rank =
       static_cast<size_t>(in_tensor.numel() * in_tensor.element_size());
-
-  // Align allocation size to granularity
-  size_t aligned_size =
-      ((bytes_per_rank + granularity - 1) / granularity) * granularity;
-
-  // Get the base pointer of the input tensor's symmetric allocation
   void* local_ptr = in_tensor.data_ptr();
-  CUdeviceptr local_cuda_ptr = reinterpret_cast<CUdeviceptr>(local_ptr);
 
-  // Get the actual mapped range to determine the correct allocation size
+  // Get the actual mapped range and base ptr for some checks
   CUdeviceptr actual_base_ptr = 0;
   size_t actual_mapped_size = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
       &actual_base_ptr,
       &actual_mapped_size,
-      local_cuda_ptr));
-  
+      (CUdeviceptr)(local_ptr)));
   NVF_CHECK(
-      actual_base_ptr == local_cuda_ptr,
+      (void*)actual_base_ptr == local_ptr,
       "Tensor data pointer is not at the base of the allocation. ",
       "This suggests the tensor is a view or has been manipulated, ",
       "which is not supported for DistributedTensorContiguousAliasing.");
-
-  // Debug: Print size discrepancy
-  std::cerr << "Rank " << rank << " size comparison:" << std::endl;
-  std::cerr << "  bytes_per_rank = " << bytes_per_rank << std::endl;
-  std::cerr << "  calculated aligned_size = " << aligned_size << std::endl;
-  std::cerr << "  actual_mapped_size = " << actual_mapped_size << std::endl;
-  std::cerr << "  granularity = " << granularity << std::endl;
-
-  // Use the actual mapped size for all subsequent operations to ensure
-  // consistency across all ranks
-  aligned_size = actual_mapped_size;
+  NVF_CHECK(
+      actual_mapped_size == bytes_per_rank,
+      "Tensor data pointer is not mapped to the full size of the allocation. ",
+      "This suggests the tensor is a view or has been manipulated, ",
+      "which is not supported by cuMemMap.");
 
   // Retrieve the allocation handle from the symmetric memory tensor
   CUmemGenericAllocationHandle local_alloc_handle = 0;
@@ -742,8 +723,13 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
     all_alloc_handles[peer_rank] = peer_alloc_handle;
   }
 
+  // Get allocation granularity
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+
   // Create one contiguous virtual address range for all allocations
-  size_t total_size = aligned_size * num_devices;
+  size_t total_size = bytes_per_rank * num_devices;
   CUdeviceptr base_ptr = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
       &base_ptr,
@@ -756,8 +742,8 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
   // space
   for (int64_t i = 0; i < num_devices; ++i) {
     NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-        base_ptr + i * aligned_size,
-        aligned_size,
+        base_ptr + i * bytes_per_rank,
+        bytes_per_rank,
         /*offset=*/0,
         all_alloc_handles[i],
         /*flags=*/0));
@@ -765,13 +751,13 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
 
   // Set memory access permissions (read-only for all allocations)
   for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
-    CUdeviceptr peer_offset_ptr = base_ptr + (peer_rank * aligned_size);
+    CUdeviceptr peer_offset_ptr = base_ptr + (peer_rank * bytes_per_rank);
     CUmemAccessDesc peer_access_desc{};
     peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     peer_access_desc.location.id = static_cast<int>(local_rank);
     peer_access_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
     NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(
-        peer_offset_ptr, aligned_size, &peer_access_desc, /*count=*/1));
+        peer_offset_ptr, bytes_per_rank, &peer_access_desc, /*count=*/1));
   }
 
   // Create the unsharded tensor view - concatenate all shards along the first
@@ -788,8 +774,8 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
         // Cleanup lambda: unmap memory and free virtual address space
         for (int64_t i = 0; i < num_devices; ++i) {
           CUdeviceptr offset_ptr =
-              reinterpret_cast<CUdeviceptr>(ptr) + (i * aligned_size);
-          cuMemUnmap(offset_ptr, aligned_size);
+              reinterpret_cast<CUdeviceptr>(ptr) + (i * bytes_per_rank);
+          cuMemUnmap(offset_ptr, bytes_per_rank);
         }
         cuMemAddressFree(reinterpret_cast<CUdeviceptr>(ptr), total_size);
 
@@ -808,9 +794,6 @@ ContiguousAliasingHandle::ContiguousAliasingHandle(
         for (int fd : pid_fds) {
           close(fd);
         }
-        
-        // in_tensor_keep_alive goes out of scope here, its deleter will
-        // clean up the local allocation normally
       },
       at::TensorOptions().dtype(in_tensor.dtype()).device("cuda:0")); // to avoid c10 throwing
 }

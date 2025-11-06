@@ -448,7 +448,7 @@ TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
   const int64_t communicator_size = communicator_->size();
   const int64_t my_device_index = communicator_->deviceId();
 
-  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152 / sizeof(float)};
+  std::vector<int64_t> unsharded_sizes = {communicator_size, 2097152};
   std::vector<int64_t> sharded_sizes = {1, unsharded_sizes[1]};
 
   // Create a host IR container

@@ -40,6 +40,7 @@ NVF_API std::string isSymmetricAllocationValid(at::Tensor tensor);
 
 int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
-    size_t requested_size_bytes);
+    size_t requested_size_bytes,
+    bool get_recommended_granularity = false);
 
 } // namespace nvfuser
