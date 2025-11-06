@@ -3388,4 +3388,97 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_has_circular_buffer_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(TMATest, MultipleLoadsOnSameAxis) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({2048});
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // 256 elelmenst per axis per tma load
+  // multiple loads on the same tensor should shared the same mbarrier
+  tv0_smem->split(0, 256);
+  tv0_smem->axis(1)->parallelize(ParallelType::Bulk);
+
+  tv1->split(0, 256);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({2048}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, MultipleLoadsOnSameAxisCircularBuffered) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({2048});
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // 256 elelmenst per axis per tma load
+  // multiple loads on the same tensor should shared the same mbarrier
+  tv0_smem->split(0, 128);
+  tv0_smem->axis(1)->parallelize(ParallelType::Bulk);
+
+  tv1->split(0, 128);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  tv0_smem->inlineAt(1);
+
+  tv0_smem->circularBuffer(1, 1, WarpSpecialized(ParallelType::TIDy));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({2048}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, MultipleLoadsOnSameAxis2) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({2048});
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // 256 elelmenst per axis per tma load
+  // multiple loads on the same tensor should shared the same mbarrier
+  // [I] -> [I/256/2, 2, 256]
+  for (auto tv : {tv0_smem, tv1}) {
+    tv->split(0, 128);
+    tv->split(0, 2);
+  }
+  tv0_smem->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0_smem->inlineAt(1);
+
+  tv0_smem->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({2048}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

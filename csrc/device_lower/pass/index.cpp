@@ -1671,19 +1671,13 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
-    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
-
+    TensorView* tv_mbarrier = GpuLower::current()->nonCircularBufferMBarrier();
+    kir::TensorIndex* tv_idx_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        tv_mbarrier, IrBuilder::create<Val>(0, DataType::Index));
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(tv_idx_mbarrier);
     // gmem indexing and expect_bytes for mbarrier
-    auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
+    auto [in, _] = Index::getCpAsyncBulkGmemIndex(
         ldst, mbarrier_index, for_loops_, rotated_loop_);
-
-    // arrive and expect_tx mbarrier
-    Val* state = IrBuilder::create<Val>(DataType::UInt64);
-    pushBack(IrBuilder::create<kir::Allocate>(
-        state, MemoryType::Local, ldst->container()->oneVal()));
-    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
-        state, mbarrier_index, expect_bytes));
 
     // indexing ldst op
     Val* out = lowerDstIndex(
@@ -1694,8 +1688,6 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     pushBack(new_ldst);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
-    // wait mbarrier
-    pushBack(IrBuilder::create<kir::MBarrierWait>(mbarrier_index, state));
   }
 }
 

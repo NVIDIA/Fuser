@@ -36,4 +36,7 @@ std::vector<Expr*> insertRawThreadSynchronization(
 //! the buffer before a previous async expression has finished reading it.
 std::vector<Expr*> insertWarAsyncWait(const std::vector<Expr*>& exprs);
 
+std::vector<Expr*> insertRawForNonCircularBufferedTmaLoads(
+    const std::vector<Expr*>& exprs);
+
 } // namespace nvfuser

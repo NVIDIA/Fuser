@@ -252,6 +252,14 @@ class GpuLower : public NonCopyable {
     return tmem_info_;
   }
 
+  const std::vector<Expr*>& nonCircularBufferTmaLoadExprs() const {
+    return non_circular_buffer_tma_load_exprs_;
+  }
+
+  std::vector<Expr*>& nonCircularBufferTmaLoadExprs() {
+    return non_circular_buffer_tma_load_exprs_;
+  }
+
   const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
     return dec_inc_register_usage;
   }
@@ -316,6 +324,16 @@ class GpuLower : public NonCopyable {
   //! Set the cluster reduction mbarrier tensor
   void setClusterReductionMBarrier(TensorView* mbarrier) {
     cluster_reduction_mbarrier_tensor_ = mbarrier;
+  }
+
+  //! Get the non-circular buffer mbarrier tensor
+  TensorView* nonCircularBufferMBarrier() const {
+    return non_circular_buffer_mbarrier_tensor_;
+  }
+
+  //! Set the non-circular buffer mbarrier tensor
+  void setNonCircularBufferMBarrier(TensorView* mbarrier) {
+    non_circular_buffer_mbarrier_tensor_ = mbarrier;
   }
 
   //! Define an alias for consumer as producer.
@@ -434,6 +452,11 @@ class GpuLower : public NonCopyable {
   // The shared cluster reduction mbarrier tensor allocated during allocation
   // pass
   TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
+
+  // The shared non-circular buffer mbarrier tensor(s) allocated during
+  // allocation pass for non-circular buffered TMA loads
+  TensorView* non_circular_buffer_mbarrier_tensor_ = nullptr;
+  std::vector<Expr*> non_circular_buffer_tma_load_exprs_;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

@@ -395,5 +395,8 @@ bool isCopyOnly(Expr* expr);
 // on it.
 bool isCopyOnly(Val* val);
 
+// Calculate the size in bytes of an allocation
+Val* allocSizeBytes(kir::Allocate* alloc);
+
 } // namespace lower_utils
 } // namespace nvfuser

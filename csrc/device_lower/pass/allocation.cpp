@@ -9,6 +9,7 @@
 
 #include <ranges>
 #include <unordered_set>
+#include "ir/internal_nodes.h"
 
 #include <bfs.h>
 #include <device_lower/lower2device.h>
@@ -1231,26 +1232,20 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
-  // Insert cluster reduction mbarrier allocation and initialization at the
-  // beginning of the kernel for the first top-level expression
-  void insertClusterReductionMBarrier(Expr* expr) {
-    int64_t cluster_reduction_count =
-        GpuLower::current()->clusterReductionCount();
-
-    // mbarrier for cluster reduction
-    // create and allocate a memory barrier
-    TensorView* all_mbarriers =
-        TensorViewBuilder()
-            .shape(std::vector<int64_t>{cluster_reduction_count})
-            .dtype(DataType::UInt64)
-            .contiguity(true)
-            .build();
+  // Insert multiple mbarriers allocation and initialization before expr
+  TensorView* insertMBarriersBeforeExpr(Expr* expr, int64_t mbarrier_count) {
+    // create and allocate multiple mbarriers
+    TensorView* all_mbarriers = TensorViewBuilder()
+                                    .shape(std::vector<int64_t>{mbarrier_count})
+                                    .dtype(DataType::UInt64)
+                                    .contiguity(true)
+                                    .build();
     all_mbarriers->setMemoryType(MemoryType::Shared);
     kir::Allocate* mbarrier_alloc =
         IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
     registerInsertBefore(expr, mbarrier_alloc, nullptr);
 
-    if (cluster_reduction_count == 1) {
+    if (mbarrier_count == 1) {
       // For single mbarrier, use TensorView directly without loop
       auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
           all_mbarriers,
@@ -1262,7 +1257,7 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertBefore(expr, pred_mbarrier_init, nullptr);
     } else {
       // For multiple mbarriers, create a for loop using the utility function
-      auto fl = ir_utils::createRangeLoop(cluster_reduction_count);
+      auto fl = ir_utils::createRangeLoop(mbarrier_count);
       kir::TensorIndex* indexed_mbarrier =
           IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
 
@@ -1277,14 +1272,7 @@ class AllocationInserter : public kir::ExprMutator {
 
       registerInsertBefore(expr, fl, nullptr);
     }
-
-    // Store the mbarrier in GpuLower for later use in cluster reduction ops
-    GpuLower::current()->setClusterReductionMBarrier(all_mbarriers);
-
-    // Insert clusterSync after mbarrier initialization to ensure mbarrier is
-    // visible to other CTAs
-    auto cluster_sync = IrBuilder::create<kir::ClusterSync>();
-    registerInsertBefore(expr, cluster_sync, nullptr);
+    return all_mbarriers;
   }
 
   void dispatch(Expr* expr) override {
@@ -1422,9 +1410,30 @@ class AllocationInserter : public kir::ExprMutator {
       // order
       if (alloc_expr != nullptr) {
         if (allocation.buffer->getMemoryType() == MemoryType::Shared) {
+          std::cout << "alloc_expr: " << alloc_expr->toString() << std::endl;
+          std::cout << "out_tv: " << out_tv->toString() << std::endl;
           // Shared allocations go at the begining of scope
           NVF_ERROR(!exprs_.empty());
           registerInsertBefore(exprs_[0], alloc_expr, nullptr);
+          // if (!out_tv->isCircularBuffered() &&
+          //     ir_utils::isCpAsyncBulkLoad(expr)) {
+          //   Val* state = IrBuilder::create<Val>(DataType::UInt64);
+          //   auto state_expr = IrBuilder::create<kir::Allocate>(
+          //       state, MemoryType::Local, out_tv->container()->oneVal());
+
+          //   TensorView* all_mbarriers =
+          //       GpuLower::current()->nonCircularBufferMBarrier();
+          //   auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+          //       all_mbarriers, IrBuilder::create<Val>(0, DataType::Index));
+          //   Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
+          //     DataType::UInt32, alloc_expr->size());
+          //   auto mbarrier_arrive_tx_expr =
+          //       IrBuilder::create<kir::MBarrierArriveExpectTx>(
+          //           state, mbarrier, expected_bytes);
+          //   registerInsertBefore(exprs_[0], state_expr, nullptr);
+          //   registerInsertBefore(exprs_[0], mbarrier_arrive_tx_expr,
+          //   nullptr);
+          // }
         } else {
           NVF_ERROR(allocation.alloc_place_before != nullptr);
           Scope* scope = allocation.alloc_for_loop == nullptr
@@ -1465,21 +1474,8 @@ class AllocationInserter : public kir::ExprMutator {
       }
     }
 
-    // Allocate mbarrier for cp.async.bulk, for non-circular buffered cases by
-    // lowering a single cp.async.bulk as:
-    //    alloc mbarrier
-    //    init mbarrier
-    //    block_sync
-    //    cp.async.bulk
-    //    inval mbarrier
-    //    block_sync
-    //
-    // * The circular buffer case is handled in handle(kir::ForLoop* fl) and the
-    // circular buffering pass.
-    // * Assume that the tma load is in ComputeWarp if it is not circular
-    // buffered.
-    if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
-        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
+    // Allocate mbarrier for blackwell mma
+    if (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell()) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
@@ -1675,11 +1671,87 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    auto first_expr = exprs.at(0);
+
     // insert cluster reduction mbarrier at top-level scope
-    if (GpuLower::current()->clusterReductionCount() >= 1) {
-      insertClusterReductionMBarrier(exprs.at(0));
+    if (GpuLower::current()->clusterReductionCount() > 0) {
+      auto all_mbarriers = insertMBarriersBeforeExpr(
+          first_expr, GpuLower::current()->clusterReductionCount());
+
+      // Store the mbarrier in GpuLower for later use in cluster reduction ops
+      GpuLower::current()->setClusterReductionMBarrier(all_mbarriers);
     }
+
+    // insert mbarrier for non-circular buffered tma load
+    int64_t block_mbarrier_count =
+        GpuLower::current()->nonCircularBufferTmaLoadExprs().size();
+    std::cout << "block_mbarrier_count: " << block_mbarrier_count << std::endl;
+    if (block_mbarrier_count > 0) {
+      auto all_mbarriers =
+          insertMBarriersBeforeExpr(first_expr, block_mbarrier_count);
+
+      // Store the mbarrier in GpuLower for later use in TMA loads
+      GpuLower::current()->setNonCircularBufferMBarrier(all_mbarriers);
+    }
+
+    // insert block or cluster sync after mbarrier initialization
+    // ensure mbarrier is visible to other threads or CTAs
+    if (GpuLower::current()->clusterReductionCount() > 0) {
+      auto cluster_sync = IrBuilder::create<kir::ClusterSync>();
+      registerInsertBefore(first_expr, cluster_sync, nullptr);
+    } else if (block_mbarrier_count > 0) {
+      auto block_sync = IrBuilder::create<kir::BlockSync>(false);
+      registerInsertBefore(first_expr, block_sync, nullptr);
+    }
+
     kir::ExprMutator::traverseAndInsert(exprs);
+
+    // // insert MBarrierArriveExpectTx
+    // // ExpectTx equals allocated shared memory size for each non-circular
+    // buffered TMA loaded tensor view for(int i=0; i<block_mbarrier_count; i++)
+    // {
+    //   Val* state = IrBuilder::create<Val>(DataType::UInt64);
+    //   auto kstate = IrBuilder::create<kir::Allocate>(state,
+    //   MemoryType::Local, GpuLower::current()->kernel()->oneVal());
+
+    //   TensorView* all_mbarriers =
+    //   GpuLower::current()->nonCircularBufferMBarrier(); auto mbarrier =
+    //   IrBuilder::create<kir::TensorIndex>(
+    //     all_mbarriers,
+    //     IrBuilder::create<Val>(i, DataType::Index));
+    //   Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    //   // Get the TMA load expression and compute expected bytes
+    //   auto tma_load_expr =
+    //   GpuLower::current()->nonCircularBufferTmaLoadExprs().at(i); auto* ldst
+    //   = dynamic_cast<LoadStoreOp*>(tma_load_expr); NVF_ERROR(ldst != nullptr,
+    //   "TMA load expression must be a LoadStoreOp"); auto* tv =
+    //   ldst->out()->as<TensorView>();
+
+    //   // Compute the total size: product of all allocation domain extents
+    //   Val* total_elements = tv->container()->oneVal();
+    //   for (const auto* id : tv->getMaybeAllocationDomain()) {
+    //     if (!id->isBroadcast() && !id->isReduction()) {
+    //       total_elements = SimplifyingIrBuilder::mulExpr(total_elements,
+    //       id->extent());
+    //     }
+    //   }
+
+    //   // Convert to bytes
+    //   Val* expect_bytes = SimplifyingIrBuilder::mulExpr(
+    //       total_elements,
+    //       IrBuilder::create<Val>(dataTypeSizeByte(tv->dtype()),
+    //       DataType::Index));
+    //   expect_bytes = SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32,
+    //   expect_bytes);
+
+    //   auto kmbarrier_arrive_tx =
+    //   IrBuilder::create<kir::MBarrierArriveExpectTx>(
+    //       state, mbarrier_index, expect_bytes);
+
+    //   registerInsertBefore(first_expr, kstate, nullptr);
+    //   registerInsertBefore(first_expr, kmbarrier_arrive_tx, nullptr);
+    // }
   }
 
  private:

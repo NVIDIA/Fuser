@@ -1535,16 +1535,6 @@ Val* alignExpr(Val* addr, int64_t alignment = 16) {
       SimplifyingIrBuilder::bitwiseNotExpr(n_minus_one));
 }
 
-Val* allocSizeBytes(kir::Allocate* alloc) {
-  const auto buffer_dtype = alloc->buffer()->dtype();
-  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
-  auto size = dtype_size == 1
-      ? alloc->size()
-      : SimplifyingIrBuilder::mulExpr(
-            alloc->size(), IrBuilder::create<Val>(dtype_size, DataType::Index));
-  return size;
-}
-
 //! Allocate differently-sized buffers using a single pass where we push
 //! allocations on a stack then pop them after their last read. This only does
 //! outer sharing: inner sharing is only valid for aliasing.
@@ -1779,7 +1769,7 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
       alloc->setAddress(FusionGuard::getCurFusion()->zeroVal());
     } else {
       auto top_alloc = alloc_stack_.back()->alloc_expr;
-      auto top_size = allocSizeBytes(top_alloc);
+      auto top_size = lower_utils::allocSizeBytes(top_alloc);
       auto unaligned_address =
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
       // Shared memory allocations must by 128B aligned for cpAsyncBulk

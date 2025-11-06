@@ -1520,9 +1520,19 @@ void validateReductions(Fusion* fusion) {
 
 //! Validate f split output domain is loaded with 1D TMA, the split must be
 //! divisible
-void validate1dTmaLoad(Fusion* fusion) {
+void validateAndCollectTmaExprs(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
-    if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
+    if (!tv->definition()) {
+      continue;
+    }
+    // collect non-circular buffered tma load exprs
+    if (ir_utils::isCpAsyncBulkLoad(tv->definition()) &&
+        !tv->isCircularBuffered()) {
+      GpuLower::current()->nonCircularBufferTmaLoadExprs().push_back(
+          tv->definition());
+    }
+    // Following checks for 1D TMA
+    if (!ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
     NVF_ERROR(

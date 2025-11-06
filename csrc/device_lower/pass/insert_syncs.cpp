@@ -1482,4 +1482,90 @@ std::vector<Expr*> insertWarAsyncWait(const std::vector<Expr*>& exprs) {
   return WarAsyncWaitInserter::insert(exprs);
 }
 
+// For a non-circular buffered TMA loads
+// insert arrive expect tx before the for-loop that contains the TMA loads
+// insert mabrrier wait after the for-loop that contains the TMA loads
+class NonCircularBufferedTmaWaitInserter : private kir::ExprMutator {
+ public:
+  static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {
+    NonCircularBufferedTmaWaitInserter inserter(exprs);
+    return inserter.exprs_;
+  }
+
+ private:
+  NonCircularBufferedTmaWaitInserter(const std::vector<Expr*>& exprs) {
+    kir::ExprMutator::traverseAndInsert(exprs);
+  }
+
+  std::unordered_map<TensorView*, Val*> tma_buffer_size_map_;
+
+  void dispatch(Expr* expr) override {
+    std::cout << "dispatching expr: " << expr->toString() << std::endl;
+    if (ir_utils::isCpAsyncBulkLoad(expr)) {
+      for (auto [k, v] : tma_buffer_size_map_) {
+        std::cout << "k: " << k->toString() << ", v: " << v->toString()
+                  << std::endl;
+      }
+      Val* state = IrBuilder::create<Val>(DataType::UInt64);
+      auto state_expr = IrBuilder::create<kir::Allocate>(
+          state, MemoryType::Local, GpuLower::current()->kernel()->oneVal());
+      TensorView* all_mbarriers =
+          GpuLower::current()->nonCircularBufferMBarrier();
+      auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+          all_mbarriers, IrBuilder::create<Val>(0, DataType::Index));
+      TensorView* tv = dynamic_cast<TensorView*>(expr->output(0));
+      NVF_ERROR(tma_buffer_size_map_.count(tv));
+      Val* expected_bytes = SimplifyingIrBuilder::maybeCastExpr(
+          DataType::UInt32, tma_buffer_size_map_[tv]);
+      auto mbarrier_arrive_tx_expr =
+          IrBuilder::create<kir::MBarrierArriveExpectTx>(
+              state, mbarrier, expected_bytes);
+      auto mbarrier_wait =
+          IrBuilder::create<kir::MBarrierWait>(mbarrier, state);
+      // Insert before the outermost for loop or top-level scope
+      // insert wait after the for-loop that contains the TMA loads
+      if (!for_loops_.empty()) {
+        registerInsertBefore(for_loops_[0], state_expr, nullptr);
+        registerInsertBefore(for_loops_[0], mbarrier_arrive_tx_expr, nullptr);
+        registerInsertAfter(for_loops_[0], mbarrier_wait, nullptr);
+      } else {
+        registerInsertBefore(
+            expr, state_expr, scope_.empty() ? nullptr : scope_.back());
+        registerInsertBefore(
+            expr,
+            mbarrier_arrive_tx_expr,
+            scope_.empty() ? nullptr : scope_.back());
+        registerInsertAfter(
+            expr, mbarrier_wait, scope_.empty() ? nullptr : scope_.back());
+      }
+    }
+    kir::ExprMutator::dispatch(expr);
+  }
+
+  void handle(kir::Allocate* allocate) override {
+    std::cout << "handling allocate: " << allocate->toString() << std::endl;
+    tma_buffer_size_map_[allocate->buffer()->as<TensorView>()] =
+        lower_utils::allocSizeBytes(allocate);
+  }
+
+  void handle(kir::ForLoop* fl) override {
+    for_loops_.push_back(fl);
+    scope_.push_back(&fl->body());
+    scope_exprs_.push_back(fl);
+    const auto& body_exprs = fl->body().exprs();
+    for (auto expr : body_exprs) {
+      dispatch(expr); // Recursively dispatch child expressions
+    }
+    scope_exprs_.pop_back();
+    scope_.pop_back();
+    for_loops_.pop_back();
+  }
+};
+
+std::vector<Expr*> insertRawForNonCircularBufferedTmaLoads(
+    const std::vector<Expr*>& exprs) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::insertNonCircularBufferedTmaWait");
+  return NonCircularBufferedTmaWaitInserter::insert(exprs);
+}
+
 } // namespace nvfuser

@@ -209,6 +209,19 @@ class IndexLowering : private OptOutConstDispatch {
 
   // Track mbarrier index assignment for cluster reductions
   int64_t current_cluster_index_ = 0;
+
+  // Track mbarrier index assignment for non-circular buffered TMA loads
+  int64_t current_non_circular_tma_index_ = 0;
+
+  // Track non-circular TMA loads that need arrive/wait wrapping
+  // Maps outermost for-loop -> list of (state_alloc, arrive, wait) to insert
+  struct TMAWrapper {
+    Expr* state_alloc_expr; // Allocate for state variable
+    Expr* arrive_expr; // MBarrierArriveExpectTx
+    Expr* wait_expr; // MBarrierWait
+  };
+  std::unordered_map<kir::ForLoop*, std::vector<TMAWrapper>>
+      non_circular_tma_wrappers_;
 };
 
 } // namespace nvfuser

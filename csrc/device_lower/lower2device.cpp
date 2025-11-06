@@ -223,6 +223,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"insertWarAsyncWait", insertWarAsyncWait},
+           {"insertRawForNonCircularBufferedTmaLoads",
+            insertRawForNonCircularBufferedTmaLoads},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"IndexLowering", IndexLowering::getIndexedExprs},
@@ -504,8 +506,8 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
-  validate1dTmaLoad(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validate1dTmaLoad");
+  validateAndCollectTmaExprs(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndCollectTmaExprs");
 
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);

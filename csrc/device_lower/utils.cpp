@@ -2219,6 +2219,16 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
+Val* allocSizeBytes(kir::Allocate* alloc) {
+  const auto buffer_dtype = alloc->buffer()->dtype();
+  const auto dtype_size = dataTypeSizeByte(buffer_dtype);
+  auto size = dtype_size == 1
+      ? alloc->size()
+      : SimplifyingIrBuilder::mulExpr(
+            alloc->size(), IrBuilder::create<Val>(dtype_size, DataType::Index));
+  return size;
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
