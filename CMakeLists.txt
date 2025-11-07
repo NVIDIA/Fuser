@@ -1440,6 +1440,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
   ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
   ${NVFUSER_ROOT}/runtime/grid_reduction.cu
+  ${NVFUSER_ROOT}/runtime/grid_dependency_control.cu
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
