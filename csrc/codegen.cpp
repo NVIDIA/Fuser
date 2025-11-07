@@ -1582,7 +1582,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         batch_id = id;
       } else {
         NVF_THROW(
-            "Invalid parallel type: ", id->toString(), " of ", aop->toString());
+            "Invalid parallel type: ", id->toString(), " of ", top->toString());
       }
     }
 
