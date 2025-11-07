@@ -14,6 +14,12 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 
+#include <array>
+#include <string>
+#include <tuple>
+#include <utility>
+#include <vector>
+
 namespace nvfuser {
 
 using MetaTest = NVFuserTest;
@@ -84,6 +90,88 @@ TEST_F(MetaTest, ScanColMajor) {
   EXPECT_EQ(meta_out.sizes(), real_out.sizes());
   EXPECT_EQ(meta_out.strides(), real_out.strides());
 }
+
+// Parameterized test for EmbeddingFwd with different memory layouts
+class EmbeddingFwdMetaTest
+    : public NVFuserTest,
+      public ::testing::WithParamInterface<std::tuple<bool, bool>> {
+  // Parameters: (input_is_row_major, weight_is_row_major)
+};
+
+TEST_P(EmbeddingFwdMetaTest, MemoryLayouts) {
+  auto [input_is_row_major, weight_is_row_major] = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Build embedding fusion with appropriate memory layout
+  TensorView* tv_input = input_is_row_major
+      ? makeContigConcreteTensor({2, 4}, DataType::Int32)
+      : makeConcreteTensor({2, 4}, DataType::Int32);
+  TensorView* tv_weight = weight_is_row_major
+      ? makeContigConcreteTensor({10, 8}, DataType::Float)
+      : makeConcreteTensor({10, 8}, DataType::Float);
+  fusion->addInput(tv_input);
+  fusion->addInput(tv_weight);
+
+  auto tv_out = embedding_fwd(
+      tv_input,
+      tv_weight,
+      /*padding_idx=*/nullptr,
+      /*max_norm=*/nullptr,
+      /*norm_type=*/nullptr,
+      /*scale_grad_by_freq=*/nullptr,
+      /*sparse=*/nullptr);
+  fusion->addOutput(tv_out);
+
+  // Create real inputs with specified memory layout
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor input = input_is_row_major
+      ? at::randint(0, 10, {2, 4}, options.dtype(at::kLong)).to(at::kInt)
+      : at::randint(0, 10, {4, 2}, options.dtype(at::kLong)).to(at::kInt).t();
+  at::Tensor weight = weight_is_row_major ? at::randn({10, 8}, options)
+                                          : at::randn({8, 10}, options).t();
+
+  // CUDA path via ExpressionEvaluator
+  ExpressionEvaluator ee_cuda;
+  ee_cuda.bind(fusion->inputs().at(0), input);
+  ee_cuda.bind(fusion->inputs().at(1), weight);
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Meta evaluation
+  ExpressionEvaluator ee_meta;
+  auto meta_input = at::empty_strided(
+      input.sizes(),
+      input.strides(),
+      options.device(at::kMeta).dtype(at::kInt));
+  auto meta_weight = at::empty_strided(
+      weight.sizes(), weight.strides(), options.device(at::kMeta));
+  ee_meta.bind(fusion->inputs().at(0), meta_input);
+  ee_meta.bind(fusion->inputs().at(1), meta_weight);
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Checks: tensor is meta, dtype/size/stride match
+  EXPECT_TRUE(meta_out.is_meta());
+  EXPECT_EQ(meta_out.scalar_type(), at::kFloat);
+  EXPECT_EQ(meta_out.sizes(), real_out.sizes());
+  EXPECT_EQ(meta_out.strides(), real_out.strides());
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    EmbeddingFwdMemoryFormats,
+    EmbeddingFwdMetaTest,
+    ::testing::Values(
+        std::make_tuple(true, true), // input: row-major, weight: row-major
+        std::make_tuple(true, false), // input: row-major, weight: col-major
+        std::make_tuple(false, true), // input: col-major, weight: row-major
+        std::make_tuple(false, false)), // input: col-major, weight: col-major
+    [](const testing::TestParamInfo<std::tuple<bool, bool>>& info) {
+      bool input_is_row_major = std::get<0>(info.param);
+      bool weight_is_row_major = std::get<1>(info.param);
+      return std::string("input_") +
+          (input_is_row_major ? "RowMajor" : "ColMajor") + "_weight_" +
+          (weight_is_row_major ? "RowMajor" : "ColMajor");
+    });
 
 // Parameterized tests for GroupedMmaOp with different memory formats
 enum class MemoryFormat2D { Contiguous, Transposed };
@@ -193,10 +281,11 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [4, 8], mat2: [k, n] = [8, 6], output: [g, m, n] = [3, 4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [m, k] = [128, 128], mat2: [k, n] = [128, 128]
+  // output: [g, m, n] = [4, 128, 128]
+  auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -206,10 +295,11 @@ TEST_P(MetaTestGroupedMma2D2D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {2, 4, 8}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -264,10 +354,11 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [g, m, k] = [3, 4, 8], mat2: [k, n] = [8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({3, 4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [g, m, k] = [4, 128, 128], mat2: [k, n] = [128, 128]
+  // output: [m, n] = [128, 128]
+  auto mat1 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -277,10 +368,11 @@ TEST_P(MetaTestGroupedMma3D2D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor3D({3, 4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor2D({8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor3D({4, 128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor2D({128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {2, 4, 6}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
@@ -335,10 +427,11 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [m, k] = [4, 8], mat2: [g, k, n] = [3, 8, 6], output: [m, n] = [4, 6]
-  auto mat1 = makeConcreteTensor({4, 8}, DataType::BFloat16);
-  auto mat2 = makeConcreteTensor({3, 8, 6}, DataType::BFloat16);
-  auto offsets = makeContigConcreteTensor({3}, DataType::Index);
+  // mat1: [m, k] = [128, 128], mat2: [g, k, n] = [4, 128, 128]
+  // output: [m, n] = [128, 128]
+  auto mat1 = makeConcreteTensor({128, 128}, DataType::BFloat16);
+  auto mat2 = makeConcreteTensor({4, 128, 128}, DataType::BFloat16);
+  auto offsets = makeContigConcreteTensor({4}, DataType::Index);
   fusion->addInput(mat1);
   fusion->addInput(mat2);
   fusion->addInput(offsets);
@@ -348,10 +441,11 @@ TEST_P(MetaTestGroupedMma2D3D, MemoryFormats) {
 
   // Create real inputs with specified memory formats
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor mat1_input = createTensor2D({4, 8}, mat1_format, options);
-  at::Tensor mat2_input = createTensor3D({3, 8, 6}, mat2_format, options);
+  at::Tensor mat1_input = createTensor2D({128, 128}, mat1_format, options);
+  at::Tensor mat2_input = createTensor3D({4, 128, 128}, mat2_format, options);
   at::Tensor offsets_input = at::tensor(
-      {1, 3, 4}, at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
+      {32, 64, 96, 128},
+      at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0));
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
