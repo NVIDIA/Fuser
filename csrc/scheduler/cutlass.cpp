@@ -72,7 +72,7 @@ bool CutlassScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   const cudaDeviceProp* device_prop = at::cuda::getCurrentDeviceProperties();
-  if (device_prop->major < 100) {
+  if (device_prop->major < 10) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
         "Cutlass scheduler only supports Blackwell (cc 10.0) and above but "
