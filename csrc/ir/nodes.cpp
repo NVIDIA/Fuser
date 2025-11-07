@@ -6526,8 +6526,13 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
-ParallelDim::ParallelDim(IrBuilderPasskey passkey, ParallelType ptype)
-    : Val(passkey, ValType::ParallelDim), parallel_type_(ptype) {}
+ParallelDim::ParallelDim(
+    IrBuilderPasskey passkey,
+    const std::string& label,
+    ParallelType ptype)
+    : Val(passkey, ValType::ParallelDim),
+      label_(label),
+      parallel_type_(ptype) {}
 
 ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
     : Val(src, ir_cloner), parallel_type_(src->parallelType()) {}
@@ -6540,6 +6545,7 @@ bool ParallelDim::sameAs(const Statement* other) const {
 }
 
 std::string ParallelDim::toString(int indent_size) const {
+  return label_;
   if (parallel_type_ != ParallelType::Derived) {
     std::stringstream ss;
     ss << parallel_type_;
@@ -6564,7 +6570,9 @@ void ParallelDim::setParallelType(ParallelType ptype) {
   parallel_type_ = ptype;
 }
 
-std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
+std::pair<ParallelDim*, ParallelDim*> ParallelDim::split(
+    const std::string& outer_label,
+    const std::string& inner_label) {
   NVF_CHECK(
       parallelType() == ParallelType::Derived ||
           isParallelTypeThread(parallelType()),
@@ -6572,9 +6580,9 @@ std::pair<ParallelDim*, ParallelDim*> ParallelDim::split() {
       parallelType());
 
   auto* outer = IrBuilder::createInContainer<ParallelDim>(
-      container(), ParallelType::Derived);
+      container(), outer_label, ParallelType::Derived);
   auto* inner = IrBuilder::createInContainer<ParallelDim>(
-      container(), ParallelType::Derived);
+      container(), inner_label, ParallelType::Derived);
 
   IrBuilder::createInContainer<ParallelDimSplit>(
       this->container(), outer, inner, this);

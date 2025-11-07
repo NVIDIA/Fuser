@@ -31,6 +31,7 @@ TEST_F(ParallelDimTest, Basic) {
   fusion->getParallelDim(ParallelType::ClusterIDy);
   fusion->getParallelDim(ParallelType::ClusterCtaIDy);
 
+  std::cout << fusion->parallelDimGraphMermaid();
   // Test that we can only create "real" parallel dims. Derived dims must be
   // created with ops like dim->split()
   EXPECT_ANY_THROW(fusion->getParallelDim(ParallelType::Derived););
@@ -56,11 +57,13 @@ TEST_F(ParallelDimTest, Binding) {
   tv1->axis(0)->setParallelDim(fusion->getParallelDim(ParallelType::BIDx));
   tv1->axis(2)->parallelize(ParallelType::TIDy);
 
-  auto [warp_id, lane_id] = fusion->getParallelDim(ParallelType::TIDx)->split();
+  auto [warp_id, lane_id] =
+      fusion->getParallelDim(ParallelType::TIDx)->split("WarpID", "LaneID");
 
   tv1->axis(-1)->setParallelDim(lane_id);
   tv1->axis(-2)->setParallelDim(warp_id);
 
+  std::cout << fusion->parallelDimGraphMermaid();
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({192, 768, 384}, options);

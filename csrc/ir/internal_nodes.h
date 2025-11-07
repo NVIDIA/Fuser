@@ -3443,11 +3443,17 @@ class ParallelDim : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
+  const std::string& label() const {
+    return label_;
+  }
+
   ParallelType parallelType() const {
     return parallel_type_;
   }
 
-  std::pair<ParallelDim*, ParallelDim*> split();
+  std::pair<ParallelDim*, ParallelDim*> split(
+      const std::string& outer_label,
+      const std::string& inner_label);
 
  protected:
   friend IrBuilder;
@@ -3455,11 +3461,13 @@ class ParallelDim : public Val {
 
   ParallelDim(
       IrBuilderPasskey passkey,
+      const std::string& label,
       ParallelType ptype = ParallelType::Derived);
 
   void setParallelType(ParallelType ptype);
 
  private:
+  const std::string label_;
   ParallelType parallel_type_ = ParallelType::Derived;
 };
 

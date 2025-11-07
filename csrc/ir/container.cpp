@@ -424,51 +424,71 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
 
       // Create a new node to represent "all threads in the cluster"
       auto* all_threads = IrBuilder::createInContainer<ParallelDim>(
-          this, ParallelType::Derived);
-      auto [didz, inner] = all_threads->split();
+          this, "GlobalThreads", ParallelType::Derived);
+      auto [didz, inner] = all_threads->split("DIDz", "DIDzInnerThreads");
       dim = didz;
       break;
     }
     case ParallelType::DIDy:
-      dim = split_inner(getParallelDim(ParallelType::DIDz))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::DIDz))
+                ->split("DIDy", "DIDyInnerThreads")
+                .first;
       break;
     case ParallelType::DIDx:
-      dim = split_inner(getParallelDim(ParallelType::DIDy))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::DIDy))
+                ->split("DIDx", "DeviceThreads")
+                .first;
       break;
     case ParallelType::BIDz:
       // The inner dimension after all of the DID splits represents "all threads
       // on this device"
-      dim = split_inner(getParallelDim(ParallelType::DIDx))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::DIDx))
+                ->split("BIDz", "BIDzInnerThreads")
+                .first;
       break;
     case ParallelType::BIDy:
-      dim = split_inner(getParallelDim(ParallelType::BIDz))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::BIDz))
+                ->split("BIDy", "BIDyInnerThreads")
+                .first;
       break;
     case ParallelType::BIDx:
-      dim = split_inner(getParallelDim(ParallelType::BIDy))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::BIDy))
+                ->split("BIDx", "CtaThreads")
+                .first;
       break;
     case ParallelType::ClusterIDz:
-      dim = getParallelDim(ParallelType::BIDz)->split().first;
+      dim = getParallelDim(ParallelType::BIDz)
+                ->split("ClusterIDz", "ClusterCtaIDz")
+                .first;
       break;
     case ParallelType::ClusterIDy:
-      dim = getParallelDim(ParallelType::BIDy)->split().first;
+      dim = getParallelDim(ParallelType::BIDy)
+                ->split("ClusterIDy", "ClusterCtaIDy")
+                .first;
       break;
     case ParallelType::ClusterIDx:
-      dim = getParallelDim(ParallelType::BIDx)->split().first;
+      dim = getParallelDim(ParallelType::BIDx)
+                ->split("ClusterIDx", "ClusterCtaIDz")
+                .first;
       break;
     case ParallelType::ClusterCtaIDz:
-      dim = split_inner(getParallelDim(ParallelType::BIDz));
+      dim = split_inner(getParallelDim(ParallelType::ClusterIDz));
       break;
     case ParallelType::ClusterCtaIDy:
-      dim = split_inner(getParallelDim(ParallelType::BIDy));
+      dim = split_inner(getParallelDim(ParallelType::ClusterIDy));
       break;
     case ParallelType::ClusterCtaIDx:
-      dim = split_inner(getParallelDim(ParallelType::BIDx));
+      dim = split_inner(getParallelDim(ParallelType::ClusterIDx));
       break;
     case ParallelType::TIDz:
-      dim = split_inner(getParallelDim(ParallelType::BIDx))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::BIDx))
+                ->split("TIDz", "TIDzInnerThreads")
+                .first;
       break;
     case ParallelType::TIDy:
-      dim = split_inner(getParallelDim(ParallelType::TIDz))->split().first;
+      dim = split_inner(getParallelDim(ParallelType::TIDz))
+                ->split("TIDy", "TIDx")
+                .first;
       break;
     case ParallelType::TIDx: {
       dim = split_inner(getParallelDim(ParallelType::TIDy));
@@ -484,7 +504,8 @@ ParallelDim* IrContainer::getParallelDim(ParallelType ptype) {
     case ParallelType::Serial: {
       // These ParallelTypes are not hierarchical. Each of them forms its own
       // connected component in the ParallelType graph
-      dim = IrBuilder::createInContainer<ParallelDim>(this);
+      dim = IrBuilder::createInContainer<ParallelDim>(
+          this, stringifyThread(ptype), ptype);
       break;
     }
     case ParallelType::Derived:
@@ -517,11 +538,6 @@ std::string IrContainer::parallelDimGraphMermaid() const {
   for (auto [ptype, pdim] : parallel_dim_map_) {
     named_dims.push_back(pdim);
   }
-  // Sort named_dims for deterministic printing
-  std::sort(named_dims.begin(), named_dims.end(), stmt_cmp);
-  for (ParallelDim* pdim : named_dims) {
-    ss << "  d" << pdim->name() << "[\"" << pdim->parallelType() << "\"];\n";
-  }
 
   // Now get all exprs connected to the named dims
   std::unordered_set<ParallelDim*> processed_dims;
@@ -552,6 +568,15 @@ std::string IrContainer::parallelDimGraphMermaid() const {
         }
       }
     }
+  }
+
+  // Sort processed_dims for deterministic printing
+  std::vector<ParallelDim*> sorted_dims(
+      processed_dims.begin(), processed_dims.end());
+  std::sort(sorted_dims.begin(), sorted_dims.end(), stmt_cmp);
+
+  for (ParallelDim* pdim : sorted_dims) {
+    ss << "  d" << pdim->name() << "[\"" << pdim->label() << "\"];\n";
   }
 
   std::vector<Expr*> sorted_exprs(
