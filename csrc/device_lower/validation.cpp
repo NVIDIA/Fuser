@@ -17,6 +17,7 @@
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -207,9 +208,53 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
+// For each expressions, update the frontier based on merge and
+// split operations. Removes non-contiguous merges from frontier.
+void traverseFrontierWithContiguityCheck(
+    std::deque<IterDomain*>& frontier,
+    Expr* expr) {
+  // expr is skipped if any of the inputs is missing.
+  if (auto merge = dynamic_cast<Merge*>(expr)) {
+    // Check if this merge is logically contiguous merge, that is,
+    // both of the two inputs are adjacent to each other
+    auto outer_it = std::ranges::find(frontier, merge->outer());
+    if (outer_it == frontier.end()) {
+      return;
+    }
+    auto inner_it = std::ranges::find(frontier, merge->inner());
+    if (inner_it == frontier.end()) {
+      return;
+    }
+    auto outer_pos = std::distance(frontier.begin(), outer_it);
+    auto inner_pos = std::distance(frontier.begin(), inner_it);
+
+    bool is_contig = outer_pos + 1 == inner_pos;
+    frontier.erase(inner_it);
+
+    // If it's contig, we can continue the analysis by proceeding to
+    // the output. If not, no further analysis is possible, so the
+    // two inputs are just removed from the frontier list
+    if (is_contig) {
+      frontier[outer_pos] = merge->out();
+    } else {
+      frontier.erase(frontier.begin() + outer_pos);
+    }
+  } else if (auto split = dynamic_cast<Split*>(expr)) {
+    auto in_it = std::ranges::find(frontier, split->in());
+    if (in_it == frontier.end()) {
+      return;
+    }
+    frontier.insert(in_it + 1, split->inner());
+    *in_it = split->outer();
+  } else {
+    NVF_ERROR(expr != nullptr);
+    NVF_THROW("Unexpected expression: ", expr->toString());
+  }
+}
+
 // Check if maybe_innermost_id is derived from base_id and corresponds to the
 // innermost subregion of base_id. The split/merge exprs between
-// based_id and id must not include any ID that is not produced from
+// base_id and id must not include any ID that is not produced from
 // base_id.
 bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   auto exprs =
@@ -219,40 +264,7 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   frontier.push_back(base_id);
 
   for (auto expr : exprs) {
-    // expr is skipped if any of the inputs is missing.
-    if (auto merge = dynamic_cast<Merge*>(expr)) {
-      // Check if this merge is logically contiguous merge, that is,
-      // both of the two inputs are adjacent to each other
-      auto outer_it = std::ranges::find(frontier, merge->outer());
-      if (outer_it == frontier.end()) {
-        continue;
-      }
-      auto inner_it = std::ranges::find(frontier, merge->inner());
-      if (inner_it == frontier.end()) {
-        continue;
-      }
-      auto outer_pos = std::distance(frontier.begin(), outer_it);
-      auto inner_pos = std::distance(frontier.begin(), inner_it);
-
-      bool is_contig = outer_pos + 1 == inner_pos;
-      frontier.erase(inner_it);
-
-      // If it's contig, we can continue the analysis by proceeding to
-      // the output. If not, no further analysis is possible, so the
-      // two inputs are just removed from the frontier list
-      if (is_contig) {
-        frontier[outer_pos] = merge->out();
-      } else {
-        frontier.erase(outer_it);
-      }
-    } else if (auto split = dynamic_cast<Split*>(expr)) {
-      auto in_it = std::ranges::find(frontier, split->in());
-      if (in_it == frontier.end()) {
-        continue;
-      }
-      frontier.insert(in_it + 1, split->inner());
-      *in_it = split->outer();
-    }
+    traverseFrontierWithContiguityCheck(frontier, expr);
   }
 
   // Once the traversal is done, if the target id located at the
@@ -415,6 +427,265 @@ class ExprValidator : public OptOutDispatch {
           " due to ",
           (*it)->toString());
     }
+  }
+
+  // The block quantization operator is implemented via a runtime function.
+  // This runtime function expects the inputs to be in local memory. The
+  // quantized output will also be in local memory, but the block scaling
+  // factors will be written out to global memory. The device runtime currently
+  // works on 4 elements per thread (8 for bf16/fp16) - this will be expanded
+  // later to support 2, 4, and 8 (only bf16/fp16) per thread. The runtime
+  // function is based on a parallelization scheme that expects TIDx and BIDx,
+  // and optionally TIDy and BIDy. 3D parallelization is not supported. Based
+  // on the above, we have the following basic validation checks:
+
+  // Input is in local memory.
+  // Block scaling factor is in global memory and
+  // quantized output is in local memory.
+  // The Group ID has an extent of 4/8 depending on the data
+  // type.
+  // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
+
+  // For this op, the indices for block scaling factor is partially computed
+  // in nvfuser's index computation. It is done do by linearizing the logical
+  // index of the quantized outputs and the extents of the allocation domain
+  // of the quantized output. This index is passed to the runtime function,
+  // where is it divided by 16 (blocksize) to compute the output index for block
+  // scaling factor. Because of this indexing scheme we have to put the
+  // following restrictions. Our aim for the following checks is to ensure that
+  // the group ID is contiguous and has unit stride, and then after the group
+  // ID, we have TIDx, such that (G -- extent of GID) * ThreadIdx.x + GID is
+  // contiguous. We have these restrictions because 4 threads (x) will be
+  // working on contiguous data in the input (actually #threads *
+  // #elements_per_thread == blocksize(16)) - so we conservatively want all
+  // threads(x) to be accessing contiguous data.
+
+  // We do so by checking that the group ID has unit stride.
+  // It should be derived from the innermost logical IDs via contiguous merges
+  // only.
+  // Next, we check that TIDx is the next inner-most ID, and if there is
+  // any other ID between TIDx and the group ID, then it must have an extent
+  // of 1.
+  // TIDx must also be derived from contiguous merges of the logical IDs.
+  // Any loop ID that is not TIDx, TIDy, BIDx, BIDy, or Group
+  // has an extent of 1. (we don't want the runtime kernel to be called multiple
+  // times by a thread).
+  void handle(BlockQuantizationOp* bqop) final {
+    auto inp_tv = bqop->input(0)->as<TensorView>();
+    auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
+    auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+
+    NVF_ERROR_EQ(
+        inp_tv->getMemoryType(),
+        MemoryType::Local,
+        "Input must be a local memory tensor. Found: ",
+        inp_tv->getMemoryType());
+
+    NVF_ERROR_EQ(
+        quantized_output->getMemoryType(),
+        MemoryType::Local,
+        "Quantized output must be a local memory tensor. Found: ",
+        quantized_output->getMemoryType());
+
+    NVF_ERROR_EQ(
+        block_scaling_factor->getMemoryType(),
+        MemoryType::Global,
+        "Block scaling factor must be a global memory tensor. Found: ",
+        block_scaling_factor->getMemoryType());
+
+    // Outputs have the same allocation domain
+    // as the logical domain - no allocation domain.
+    NVF_ERROR(
+        !quantized_output->hasAllocation(),
+        "Quantized output must not have an allocation domain.");
+
+    // TODO: Relax these for swizzled block scaling factor outputs
+    // When scaling will be swizzled we will need to allow these checks
+    // to be relaxed, but we will need to ensure that the swizzling
+    // allocation allowed is a fixed pattern:
+    // 2D logical and 5D allocation domain.
+    // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+    NVF_ERROR(
+        !block_scaling_factor->hasAllocation(),
+        "Block scaling factor must not have an allocation domain.");
+    NVF_ERROR(
+        std::all_of(
+            block_scaling_factor->getContiguity().begin(),
+            block_scaling_factor->getContiguity().end(),
+            [](std::optional<bool> c) { return c.value_or(true); }),
+        "Block scaling factor not contiguous");
+
+    IterDomain* grouped_id = nullptr;
+    IterDomain* thread_x = nullptr;
+    IterDomain* block_x = nullptr;
+    IterDomain* thread_z = nullptr;
+    IterDomain* block_z = nullptr;
+
+    for (const auto& loop_id : quantized_output->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        grouped_id = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::TIDx) {
+        thread_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDx) {
+        block_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::TIDz) {
+        thread_z = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDz) {
+        block_z = loop_id;
+      } else if (
+          loop_id->getParallelType() == ParallelType::Serial ||
+          loop_id->getParallelType() == ParallelType::Unswitch ||
+          loop_id->getParallelType() == ParallelType::Unroll) {
+        // Check this is ID has a constant extent and is 1
+        NVF_ERROR(
+            loop_id->extent()->isConstInt(),
+            "Expected constant extent for Serial/Unswitch/Unroll ID in "
+            "BlockQuantizationOp");
+        NVF_ERROR_EQ(
+            loop_id->extent()->evaluate().as<int64_t>(),
+            1,
+            "Expected non-TID/BID/Group ID to have extent of 1 for "
+            "BlockQuantizationOp: ",
+            bqop->toString());
+      }
+    }
+
+    NVF_ERROR(
+        grouped_id != nullptr,
+        "One of the output IDs must be grouped for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        thread_x != nullptr && block_x != nullptr,
+        "Need to have both TIDx and BIDx when using BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        !thread_z && !block_z,
+        "Parallelization along z axis is not supported for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto input_dtype = inp_tv->dtype();
+
+    NVF_ERROR(
+        (inner_extent == 4 && input_dtype == DataType::Float) ||
+            (inner_extent == 8 &&
+             (input_dtype == DataType::BFloat16 ||
+              input_dtype == DataType::Half)),
+        "The vectorized/grouped dimension must be  4 (FP32) or 8 "
+        "(BF16). Found: ",
+        inner_extent,
+        ". Expr: ",
+        bqop->toString());
+
+    //                   M    K
+    //                 │    │
+    //                 ▼    ▼
+    //              ┌────────────┐
+    //              │   merge    │
+    //              └─────┬──────┘
+    //                    │
+    //                    ▼
+    //                   M*K
+    //               ┌──────────┐
+    //               │  split   ┼──┐
+    //               └─┬────────┘  │
+    //                 ▼           ▼
+    //           (M*K)/4          4(G)
+    //           ┌────────┐
+    //           │ split  ┼────┐
+    //           └─┬──────┘    │
+    //             ▼           ▼
+    //         (M*K)/4        1(U)
+    //     ┌─────────┐
+    //     │  split  │
+    //   ┌─┼         ┼───┐
+    //   │ └─────────┘   │
+    //   ▼               ▼
+    // (M*K)/4/128      128(Tx)
+
+    // Next we check the following scheduling requirements for
+    // BlockQuantizationOp - the above figure is an example of a valid schedule.
+    // 1. The Group ID must be derived from the innermost logical IDs
+    // 2. TIDx must follow the Group ID in the schedule -- that is when derived
+    // from the logical domain, group ID must be inner-most, the next
+    // "inner-most" should be TIDx (unless there is an ID with a unit trip
+    // count)
+    // 3. All merges involved from logical domains to group and thread ID must
+    // combine contiguous IDs
+
+    auto transform_exprs = DependencyCheck::getAllExprsBetween(
+        {quantized_output->getLogicalDomain().begin(),
+         quantized_output->getLogicalDomain().end()},
+        {quantized_output->getLoopDomain().begin(),
+         quantized_output->getLoopDomain().end()});
+
+    std::vector<IterDomain*> ids_to_transform =
+        quantized_output->getLogicalDomain();
+
+    std::deque<IterDomain*> frontier(
+        quantized_output->getLogicalDomain().begin(),
+        quantized_output->getLogicalDomain().end());
+
+    // This will get the xforms from logical to loop and apply them on the
+    // logical domain. We will get a loop domain minus the reordering.
+    // This pass also removes all IDs from frontier that were derived using
+    // non-contiguous merges.
+    scheduler_utils::applyTransforms(
+        ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
+          traverseFrontierWithContiguityCheck(frontier, expr);
+        });
+
+    // The grouped ID must correspond to the innermost loop-like domain
+    NVF_ERROR(
+        ids_to_transform.back() == grouped_id,
+        "The grouped ID must correspond to the innermost of all splits "
+        "from logical domains to loop domains for BlockQuantizationOp. "
+        "TV: ",
+        quantized_output->toString());
+
+    // Iterate from the back to find TIDx, skipping group_id (last element)
+    // Ensure all IDs between group_id and TIDx have extent 1
+    bool found_tidx = false;
+    for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
+         ++it) {
+      if (*it == thread_x) {
+        found_tidx = true;
+        break;
+      }
+      // All non-TIDx IDs between Group ID and TIDx must have extent of 1
+      NVF_ERROR(
+          (*it)->extent()->isConstInt() &&
+              (*it)->extent()->evaluate().as<int64_t>() == 1,
+          "Expected IDs between Group ID and TIDx to have extent of 1 for "
+          "BlockQuantizationOp: ",
+          quantized_output->toString());
+    }
+
+    NVF_ERROR(
+        found_tidx,
+        "TIDx must follow the Group ID in the schedule for "
+        "BlockQuantizationOp: ",
+        quantized_output->toString());
+
+    // Check if grouped_id in frontier
+    auto grouped_it = std::ranges::find(frontier, grouped_id);
+    NVF_ERROR(
+        grouped_it != frontier.end(),
+        "All merge operations deriving the grouped ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
+    // Do the same for thread_x
+    auto threadx_it =
+        std::ranges::find(frontier.begin(), frontier.end(), thread_x);
+    NVF_ERROR(
+        threadx_it != frontier.end(),
+        "All merge operations deriving the TIDx ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
   }
 };
 
