@@ -23,6 +23,8 @@
 #include <scheduler/vectorize_helper.h>
 
 #include <ranges>
+#include "ir/internal_nodes.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -546,9 +548,24 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       (!flip_grid_binding && gdim_left > 65535)) {
     params->split_grid_y_dim = true;
   }
+  // TMA pointwise heuristics
+  // TODO: tune three tiling sizes for the best performance
+  if (break_point == 0 && isOptionEnabled(EnableOption::TmaPointwise)) {
+    params->tag = "TMA pointwise heuristics";
+    params->use_tma_load = true;
+    params->use_tma_store = false;
+    NVF_ERROR(params->unroll_factor_outer == 1);
+    NVF_ERROR(bdimy == 1);
+    params->tma_tile_inner =
+        bdimx * params->vectorization_factor * params->unroll_factor_inner;
+    params->lparams.bind(bdimx, ParallelType::TIDx);
+    params->is_1d_tma = (n_elems % params->tma_tile_inner == 0);
+    return params;
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Pointwise Stats ========\n"
+            << "type: " << params->tag << "\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_dtype_size_bit_for_vectorization: "
@@ -830,6 +847,92 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
   return true;
 }
 
+namespace {
+// schedule the reference tv
+// propagate transformation to non-tma tvs
+void scheduleTma(
+    Fusion* fusion,
+    TensorView* reference_tv,
+    const PointwiseParams* pparams,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  {
+    TransformPropagator propagator(reference_tv);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
+    spanning_tree.traverse(&propagator);
+  }
+
+  // collect all tma tvs and manual parallelize them
+  auto load_type = pparams->is_1d_tma ? LoadStoreOpType::CpAsyncBulk
+                                      : LoadStoreOpType::CpAsyncBulkTensorTile;
+  std::vector<TensorView*> tma_tvs;
+  for (const auto& p : cached_inputs) {
+    auto tma_tv = p.first;
+    tma_tv->definition()->as<LoadStoreOp>()->setOpType(load_type);
+    tma_tv->setMemoryType(MemoryType::Shared);
+    tma_tv->cacheAfter();
+    tma_tvs.push_back(tma_tv);
+    tma_tv->split(0, pparams->tma_tile_inner);
+    tma_tv->axis(0)->parallelize(ParallelType::BIDx);
+    if (pparams->is_1d_tma || pparams->tma_tile_inner <= 256) {
+      tma_tv->axis(1)->parallelize(ParallelType::Bulk);
+    } else {
+      tma_tv->split(1, 256);
+      tma_tv->axis(1)->parallelize(ParallelType::TIDx);
+      tma_tv->axis(2)->parallelize(ParallelType::Bulk);
+    }
+  }
+  std::vector<TensorView*> reg_tvs;
+  if (pparams->vectorize_smem_to_regs_load) {
+    for (auto tma_tv : tma_tvs) {
+      auto reg_tv = tma_tv->cacheAfter();
+      reg_tvs.push_back(reg_tv);
+    }
+  }
+
+  // [I] -> [I, TMA] -> [I, Serial, TIDx, Vectorization]
+  reference_tv->split(0, pparams->tma_tile_inner);
+  reference_tv->split(1, pparams->vectorization_factor);
+  reference_tv->split(1, pparams->lparams.bdimx());
+  reference_tv->axis(2)->parallelize(ParallelType::TIDx);
+  // [I, Serial, TIDx, Vectorization] -> [I, Unswitch, Serial, TIDx,
+  // Vectorization] unswitch_computation may increase register usage and
+  // decrease performance
+  int vect_pos = 3;
+  if (pparams->unswitch_computation) {
+    vect_pos++;
+    reference_tv->split(0, 1);
+    reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
+  }
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+
+  // propagate transformation and parallelize non-tma tvs
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // vectorize regs -> global
+  if (pparams->vectorization_factor > 1) {
+    for (auto [_, original] : cached_outputs) {
+      auto output_tv = fusion->outputs().at(original)->as<TensorView>();
+      output_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // vectorize shared -> regs
+  if (pparams->vectorize_smem_to_regs_load) {
+    for (auto reg_tv : reg_tvs) {
+      reg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  fusion->print();
+
+  inlineMost();
+}
+} // namespace
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
 // input/output caches)
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
@@ -1168,8 +1271,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // it from the inner most position to left most. Order as [rhs_i,
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
-
-    if (pparams->unroll_factor_inner == 1 &&
+    if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
+      return scheduleTma(
+          fusion, reference_tv, pparams, cached_inputs, cached_outputs);
+    } else if (
+        pparams->unroll_factor_inner == 1 &&
         pparams->vectorization_factor > 1) {
       // Vectorize
       reference_tv->split(0, pparams->vectorization_factor);
