@@ -109,7 +109,7 @@ class CutlassCodeGenerator {
         "Scale factors for A must be a fusion input");
     NVF_CUTLASS_REJECT_IF(
         !pattern_.b_scale->isFusionInput(),
-        "Scale factors for B must be a fusioninput");
+        "Scale factors for B must be a fusion input");
 
     // Validate that the inputs and scale factors are all contiguous
     for (TensorView* tv :
