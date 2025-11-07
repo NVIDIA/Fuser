@@ -223,9 +223,10 @@ class BackwardTraverseFromLogicalToAlloc {
 
 void validateAllocationSizesAndStrides(
     const std::vector<IterDomain*>& alloc_dom,
-    const std::vector<std::optional<bool>>& contiguity,
+    TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
   NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
       {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
@@ -269,7 +270,9 @@ void validateAllocationSizesAndStrides(
       NVF_CHECK_EQ(
           stride,
           expected_stride_if_contiguous,
-          "Stride mismatch with contiguity info. ",
+          "TensorView ",
+          tv->toString(),
+          "'s stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
           ": sizes: ",
@@ -288,7 +291,7 @@ void validateAllocationSizesAndStrides(
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
+inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
@@ -317,16 +320,36 @@ inferAndValidateAllocationSizesAndStrides(
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
-    } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
+      allocation_strides.push_back(1);
+      continue;
     }
-    allocation_strides.push_back(active_ids.at(id).second);
-  }
 
+    auto it = active_ids.find(id);
+    if (it != active_ids.end()) {
+      allocation_sizes.push_back(it->second.first);
+      allocation_strides.push_back(it->second.second);
+      continue;
+    }
+    // grouped matmul could introduce some IDs not in active_ids
+    // For those IDs, just push some dummy values
+    allocation_sizes.push_back(1);
+    allocation_strides.push_back(1);
+  }
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee) {
+  auto [allocation_sizes, allocation_strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ee);
+  const auto& alloc = tv->getMaybeAllocationDomain();
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
     validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+        alloc, tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
