@@ -141,10 +141,7 @@ class CutlassCodeGenerator {
   void gatherInfo() {
     findPattern();
 
-    {
-      EVTModel model = extractEVTModel(fusion_);
-      evt_model_ = std::make_unique<EVTModel>(std::move(model));
-    }
+    evt_model_ = std::make_unique<EVTModel>(extractEVTModel(fusion_));
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
