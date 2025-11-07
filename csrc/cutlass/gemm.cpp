@@ -200,7 +200,6 @@ using namespace cute;
     genArgumentsFunction();
 
     code_ += R"(
-
 } // namespace
 
 )";
