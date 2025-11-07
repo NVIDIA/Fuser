@@ -1574,12 +1574,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     for (auto id : sorted_loop_ids) {
       if (isParallelTypeThreadDim(id->getParallelType())) {
         sorted_parallel_types.set(id->getParallelType());
-      } else {
+      } else if (id->getParallelType() == ParallelType::Group) {
         NVF_ERROR(
             batch_id == nullptr,
             "Multiple batch IDs not supported: ",
             top->toString());
         batch_id = id;
+      } else {
+        NVF_THROW(
+            "Invalid parallel type: ", id->toString(), " of ", aop->toString());
       }
     }
 

@@ -120,7 +120,7 @@ __device__ void blockTopK(
     // This predicate is necessary when k == 1, where the output iter
     // domain is just a broadcast, so splitting off ITEMS_PER_THREAD
     // would still just yield another broadcast, for which we would
-    // not allocate anything for. Thus, the output buffer may look
+    // not allocate anything. Thus, the output buffer may look
     // like [b0(TIDx), b1(ITEMS_PER_THREAD)], meaning each thread only
     // has a buffer of a scalar value.
     if (thread_id * ITEMS_PER_THREAD + i < k) {
