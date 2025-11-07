@@ -18,6 +18,8 @@
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
+#include <ATen/cuda/CUDAContextLight.h>
+
 namespace nvfuser {
 
 // CutlassParams implementation
@@ -66,6 +68,18 @@ bool CutlassScheduler::canScheduleCompileTime(Fusion* fusion) {
   // TODO: Enable this scheduler by default once we are confident in the pattern
   // matching and heuristic
   if (!isOptionEnabled(EnableOption::CutlassScheduler)) {
+    return false;
+  }
+
+  const cudaDeviceProp* device_prop = at::cuda::getCurrentDeviceProperties();
+  if (device_prop->major < 100) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Cutlass scheduler only supports Blackwell (cc 10.0) and above but "
+        "current device is cc ",
+        device_prop->major,
+        ".",
+        device_prop->minor);
     return false;
   }
 
