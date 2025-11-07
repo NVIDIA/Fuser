@@ -912,6 +912,79 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto outputs = fec.runFusionWithInputs(inputs);
 }
 
+class BlockQuantizationToE4M3Test : public BlackwellBase {};
+
+TEST_F(BlockQuantizationToE4M3Test, BasicTest) {
+  auto data_hp_dtype = DataType::Float;
+  auto group_width = 4;
+
+  const int m = 1024;
+  const int n = 1024;
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  fusion_new_op->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = blockQuantize(t0, 32, DataType::Float8_e4m3fn);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(t_out);
+
+  auto vectorization_factor = group_width;
+
+  for (auto t :
+       {tv_data_hp,
+        t0,
+        quantization_results.quantized_tensor,
+        quantization_results.block_scales,
+        t_out}) {
+    // Merge all dims.
+    t->merge(-2);
+    if (t->getLoopDomain().size() >= 2) {
+      t->merge(-2);
+    }
+
+    // split by 4 (or 2, 8).
+    // I -> I/4, 4
+    t->split(-1, vectorization_factor);
+    // I//4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I//4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != tv_data_hp) {
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  // Execute the fusion
+  KernelExecutor ke;
+  ke.compile(fusion_new_op.get(), inputs);
+  auto outputs_new_op = ke.run(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Verify both outputs are 2D tensors
+  EXPECT_EQ(block_scales_output.dim(), 2);
+  EXPECT_EQ(quantized_tensor_output.dim(), 2);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,

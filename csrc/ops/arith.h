@@ -841,11 +841,11 @@ struct BlockQuantizationResults {
 // API for block quantization.
 // Currently We take FP32 or BF16/FP16 input and produce two outputs:
 // nvFP4 outputs and FP8 block scales.
-// We optionally take a block size as an input but currenlty just support 16.
-// TODO: Expose global scaling factor
+// We optionally take a block size as an input but currenlty just support 16 for
+// nvFP4 and 32 for mxFP8.
 NVF_API BlockQuantizationResults blockQuantize(
     TensorView* input,
-    int64_t block_size = 16,
+    int64_t block_size = 0,
     DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser

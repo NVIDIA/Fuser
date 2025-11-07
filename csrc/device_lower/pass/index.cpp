@@ -448,7 +448,8 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   auto* inner_id = bqop->in()->as<TensorView>()->getLogicalDomain().back();
   Val* is_divisible = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
-          inner_id->extent(), IrBuilder::create<Val>(16)),
+          inner_id->extent(),
+          IrBuilder::create<Val>(bqop->blockSize(), DataType::Index)),
       bqop->fusion()->zeroVal());
 
   NVFUSER_LOWER_VALIDATE(
@@ -457,7 +458,12 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(
-      out_scales, out_quantized, in, idx));
+      out_scales,
+      out_quantized,
+      in,
+      idx,
+      bqop->globalScale(),
+      bqop->blockSize()));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 

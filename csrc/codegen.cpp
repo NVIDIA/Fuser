@@ -1870,8 +1870,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // write out the block scaling factors in the runtime function.
     func_args.arg(genInline(bqop->attributeVal(0)));
 
-    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
-             << ";\n";
+    auto fn_call = output->getDataType() == DataType::Float4_e2m1fn
+        ? "bq::block_quantize_to_nvfp4"
+        : "bq::block_quantize_to_mxfp8";
+
+    indent() << genCall(fn_call, template_args, func_args) << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {

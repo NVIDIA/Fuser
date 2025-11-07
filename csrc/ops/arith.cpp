@@ -2639,13 +2639,21 @@ BlockQuantizationResults blockQuantize(
     int64_t block_size,
     DataType out_dtype) {
   NVF_CHECK(
-      block_size == 16,
-      "Currently only block size of 16 is supported, got ",
-      block_size);
+      out_dtype == DataType::Float4_e2m1fn ||
+          out_dtype == DataType::Float8_e4m3fn,
+      "Currently only output data type of Float4_e2m1fn or Float8_e4m3fn is "
+      "supported");
+
+  // The default block sizes for nvfp4 and mxfp8
+  auto block_size_ = (block_size == 0)
+      ? (out_dtype == DataType::Float4_e2m1fn ? 16 : 32)
+      : block_size;
 
   NVF_CHECK(
-      out_dtype == DataType::Float4_e2m1fn,
-      "Currently only output data type of Float4_e2m1fn is supported");
+      (block_size_ == 16 && out_dtype == DataType::Float4_e2m1fn) ||
+          (block_size_ == 32 && out_dtype == DataType::Float8_e4m3fn),
+      "Currently we only support block size of 16 for nvfp4 and 32 for mxfp8",
+      block_size_);
 
   // Validate input data type
   // We'll only support FP32 or BF16/FP16
@@ -2684,7 +2692,7 @@ BlockQuantizationResults blockQuantize(
               inp_id->start(),
               SimplifyingIrBuilder::divExpr(
                   inp_id->extent(),
-                  IrBuilder::create<Val>(block_size, DataType::Index)))
+                  IrBuilder::create<Val>(block_size_, DataType::Index)))
               .build());
 
     } else {
@@ -2699,15 +2707,25 @@ BlockQuantizationResults blockQuantize(
           TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
       out_dtype);
 
+  auto scaling_factor_dtype = out_dtype == DataType::Float4_e2m1fn
+      ? DataType::Float8_e4m3fn
+      : DataType::Float8_e8m0fnu;
+
   // Create block scaling factors
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           scales_out_domain,
           TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
-      DataType::Float8_e4m3fn);
+      scaling_factor_dtype);
 
   // Create the block quantization operation
-  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      /*logical_index=*/nullptr,
+      /*global_scale=*/nullptr,
+      block_size_);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }
