@@ -25,6 +25,7 @@
 #include <ranges>
 #include "ir/internal_nodes.h"
 #include "type.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -142,7 +143,7 @@ int64_t getUnrollFactor(
     int64_t break_point,
     int64_t total_blocks,
     int64_t vectorization_bits,
-    bool divisible_split,
+    bool fully_vectorized_non_divisible_split,
     std::vector<TensorView*> vectorizable_io_tvs) {
   // only consider vectorizable inputs,
   // needs to check if it's already in the list to avoid duplication since a tv
@@ -162,6 +163,9 @@ int64_t getUnrollFactor(
   // limit unroll factor when n_elems is small to ensure enough
   // blocks for thread level parallelism.
   int64_t n_elems_limited_unroll = getElementBasedUnrollFactor(total_blocks);
+  std::cout << "empirical_unroll: " << empirical_unroll << std::endl;
+  std::cout << "n_elems_limited_unroll: " << n_elems_limited_unroll
+            << std::endl;
 
   // Avoid unrolling when the unroll factor is constrained by `n_elems` and the
   // split is not divisible. Why? While unrolling increases instruction-level
@@ -169,7 +173,8 @@ int64_t getUnrollFactor(
   // non-divisible split further reduces the number of effective threads, which
   // negatively impacts TLP. Therefore, if the kernel lacks sufficient TLP,
   // unrolling should be avoided.
-  if (n_elems_limited_unroll < empirical_unroll && !divisible_split) {
+  if (n_elems_limited_unroll < empirical_unroll &&
+      fully_vectorized_non_divisible_split) {
     return 1;
   } else {
     return std::min(n_elems_limited_unroll, empirical_unroll);
@@ -518,12 +523,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool divisible_split = break_point > 0
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
+  int64_t vectorization_bits =
+      params->vectorization_factor * max_dtype_size_bit_for_vectorization;
   int64_t unroll_factor = getUnrollFactor(
       fusion,
       break_point,
       total_blocks,
-      params->vectorization_factor * max_dtype_size_bit_for_vectorization,
-      divisible_split,
+      vectorization_bits,
+      !divisible_split && vectorization_bits == kOneHundredTwentyEight,
       vectorizable_inputs_outputs_entry.get());
 
   if (is_outer_broadcast_dominated) {
@@ -556,10 +563,27 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     params->use_tma_store = false;
     NVF_ERROR(params->unroll_factor_outer == 1);
     NVF_ERROR(bdimy == 1);
-    params->tma_tile_inner =
-        bdimx * params->vectorization_factor * params->unroll_factor_inner;
+    int64_t bidx_vect = bdimx * params->vectorization_factor;
+    params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
     params->lparams.bind(bdimx, ParallelType::TIDx);
-    params->is_1d_tma = (n_elems % params->tma_tile_inner == 0);
+
+    if (n_elems % params->tma_tile_inner) {
+      params->unroll_factor_inner =
+          scheduler_utils::lastPow2(params->unroll_factor_inner);
+      params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
+    }
+
+    if (std::getenv("TILE") != nullptr) {
+      params->tma_tile_inner = std::atoi(std::getenv("TILE"));
+      params->unroll_factor_inner = ceilDiv(params->tma_tile_inner, bidx_vect);
+    }
+    if (n_elems % params->tma_tile_inner) {
+      params->is_1d_tma = false;
+      params->unswitch_computation = true;
+    } else {
+      params->is_1d_tma = true;
+      params->unswitch_computation = false;
+    }
     return params;
   }
 
@@ -928,8 +952,6 @@ void scheduleTma(
       reg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
     }
   }
-  fusion->print();
-
   inlineMost();
 }
 } // namespace
