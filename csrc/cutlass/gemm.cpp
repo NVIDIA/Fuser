@@ -201,7 +201,6 @@ using namespace cute;
 
     code_ += R"(
 } // namespace
-
 )";
     genRunKernel();
   }
