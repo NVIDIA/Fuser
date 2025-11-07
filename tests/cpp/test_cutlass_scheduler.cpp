@@ -640,6 +640,9 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
 
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
+
   // Test dimensions
   constexpr int64_t M = 4096, N = 4096, K = 4096;
 
