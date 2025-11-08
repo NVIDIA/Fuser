@@ -303,6 +303,11 @@ class ExprValidator : public OptOutDispatch {
         ir_utils::getTvInput(sop), ir_utils::getTvOutput(sop), sop->dim());
   }
 
+  void handle(TopKOp* top) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(top), ir_utils::getTvOutput(top), top->dim());
+  }
+
   static void validateGroupedOp(
       TensorView* inp_tv,
       TensorView* out_tv,
@@ -1683,8 +1688,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>() ||
-            def->isA<ScanOp>(),
+            def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
+            def->isA<BlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 
