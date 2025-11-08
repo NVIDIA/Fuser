@@ -687,7 +687,8 @@ class RunTimeChecker : private IterVisitor {
             ir_utils::getTvInput(topk)->getLogicalDomain()),
         {topk->dim()},
         dataTypeSizeByte(ir_utils::getTvInput(topk)->dtype()) +
-            dataTypeSizeByte(DataType::Int));
+            dataTypeSizeByte(DataType::Int),
+        /*support_batching=*/true);
 
     int64_t batch_size =
         ceilDiv(size_of_constrained_ids, max_threads_per_block_);
@@ -905,12 +906,6 @@ class HeuristicsBuilder : private IterVisitor {
         TensorDomain::noReductions(inp_tv->getLogicalDomain()),
         {topk->dim()},
         out_tv);
-
-    // TODO: Support batching
-    NVF_ERROR_EQ(
-        params_->getProducerParams(inp_tv, out_tv).batch_size,
-        1,
-        "TopKOp does not support batching");
   }
 
   // Make sure a given tensor has some heuristics parameters
@@ -1212,7 +1207,11 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // The heuristics parameter for the input is also used to schedule
     // the output so that both inputs and outputs have the same number
     // of items per thread
-    scheduleConstrainedTv(out_tv, {topk_dim}, params_for_input);
+    scheduleConstrainedTv(
+        out_tv,
+        {topk_dim},
+        params_for_input,
+        /*support_grouping=*/true);
   }
 
   void scheduleConstrainedTv(

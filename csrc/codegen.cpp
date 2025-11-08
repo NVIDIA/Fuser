@@ -1570,11 +1570,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // At this moment, we only support topk on thread parallelized
     // dimensions. No serial dimension is allowed either.
     ParallelTypeBitmap sorted_parallel_types;
+    IterDomain* batch_id = nullptr;
     for (auto id : sorted_loop_ids) {
-      NVF_ERROR(
-          isParallelTypeThreadDim(id->getParallelType()),
-          "TopK on non-thread dimension is not supported");
-      sorted_parallel_types.set(id->getParallelType());
+      if (isParallelTypeThreadDim(id->getParallelType())) {
+        sorted_parallel_types.set(id->getParallelType());
+      } else {
+        // Non TID-parallelized loop ID must be a batch ID, which
+        // should use Group unless its a broadcast
+        NVF_ERROR(
+            id->getParallelType() == ParallelType::Group || id->isBroadcast(),
+            "Invalid topk loop ID: ",
+            id->toString(),
+            " of ",
+            top->toString());
+        NVF_ERROR(
+            batch_id == nullptr,
+            "Multiple batch IDs not supported: ",
+            top->toString());
+        batch_id = id;
+      }
     }
 
     // TID parallel types must only be used for the sorted IDs with the static
@@ -1615,8 +1629,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: support ITEMS_PER_THREAD > 1
-    constexpr int items_per_thread = 1;
+    const int64_t items_per_thread =
+        batch_id != nullptr ? batch_id->extent()->evaluate().as<int64_t>() : 1;
 
     const auto input = top->in()->as<kir::TensorIndex>();
 
@@ -1627,32 +1641,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // First argument: top_values output array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_values))
-        .append(")");
+    func_args.arg("&").append(genInline(output_values));
 
     // Second argument: top_indices output array
-    func_args.arg("*(int64_t(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_indices))
-        .append(")");
+    func_args.arg("&").append(genInline(output_indices));
 
     // Third argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
-        .append(genInline(input))
-        .append(")");
+    func_args.arg("&").append(genInline(input));
 
     // Fourth argument: k value
     func_args.arg(genInline(top->k()));
