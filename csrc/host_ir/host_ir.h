@@ -481,6 +481,8 @@ class ShardByStream : public Expr {
 
 // Creates a ShardByStream without needing the output TensorView. Returns the
 // output TensorView.
+//
+// Should this be moved to csrc/ops? It's not a host IR expr but a wrapper.
 TensorView* shardByStream(TensorView* in, Val* stream_index);
 
 class ForLoop : public Expr {

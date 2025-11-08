@@ -3294,5 +3294,6 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     buildAllocationDomainFromLoopIds(tv);
   }
 }
+
 } // namespace scheduler_utils
 } // namespace nvfuser

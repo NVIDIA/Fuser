@@ -36,7 +36,7 @@ __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
 // A runtime function to compute quantized nvfp4 output (output) and fp8 block
 // scaling (block_scales) factors from fp32, fp16, bf16 inputs (input).
 // The function is templatized over input type T (float, __half, __bfloat).
-// This function assumes that for float, each thread is working on 2,4 or 8
+// This function assumes that for float, each thread is working on 2 or 4
 // elements (ITEMS_PER_THREAD). Thus n threads are working to quantize 16
 // elements, where n = 16 / ITEMS_PER_THREAD.
 template <
