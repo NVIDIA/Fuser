@@ -557,33 +557,53 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // TMA pointwise heuristics
   // TODO: tune three tiling sizes for the best performance
-  if (break_point == 0 && isOptionEnabled(EnableOption::TmaPointwise)) {
+  if (isOptionEnabled(EnableOption::TmaPointwise)) {
     params->tag = "TMA pointwise heuristics";
     params->use_tma_load = true;
     params->use_tma_store = false;
-    NVF_ERROR(params->unroll_factor_outer == 1);
-    NVF_ERROR(bdimy == 1);
-    int64_t bidx_vect = bdimx * params->vectorization_factor;
-    params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
-    params->lparams.bind(bdimx, ParallelType::TIDx);
-
-    if (n_elems % params->tma_tile_inner) {
-      params->unroll_factor_inner =
-          scheduler_utils::lastPow2(params->unroll_factor_inner);
+    if (break_point == 0) {
+      NVF_ERROR(params->unroll_factor_outer == 1);
+      NVF_ERROR(bdimy == 1);
+      int64_t bidx_vect = bdimx * params->vectorization_factor;
       params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
+      params->lparams.bind(bdimx, ParallelType::TIDx);
+
+      if (n_elems % params->tma_tile_inner) {
+        params->unroll_factor_inner =
+            scheduler_utils::lastPow2(params->unroll_factor_inner);
+        params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
+      }
+
+      if (std::getenv("TILE") != nullptr) {
+        params->tma_tile_inner = std::atoi(std::getenv("TILE"));
+        params->unroll_factor_inner =
+            ceilDiv(params->tma_tile_inner, bidx_vect);
+      }
+      if (n_elems % params->tma_tile_inner) {
+        params->is_1d_tma = false;
+        params->unswitch_computation = true;
+      } else {
+        params->is_1d_tma = true;
+        params->unswitch_computation = false;
+      }
+    } else {
+      // inner dim: serial, bdimx, vectorization, <= 256
+      // TMA tile
+      params->tma_tile_inner = 256;
+      params->lparams.bindUnsafe(32, ParallelType::TIDx);
+      params->vectorization_factor = (int64_t)kOneHundredTwentyEight /
+          max_dtype_size_bit_for_vectorization;
+      params->tma_tile_outer =
+          std::min(ceilDiv(n_elems, params->tma_tile_inner), (int64_t)32);
+
+      // thread tile
+
+      params->unroll_factor_outer = 8;
+
+      // block tile
+      params->lparams.bindUnsafe(4, ParallelType::TIDy);
     }
 
-    if (std::getenv("TILE") != nullptr) {
-      params->tma_tile_inner = std::atoi(std::getenv("TILE"));
-      params->unroll_factor_inner = ceilDiv(params->tma_tile_inner, bidx_vect);
-    }
-    if (n_elems % params->tma_tile_inner) {
-      params->is_1d_tma = false;
-      params->unswitch_computation = true;
-    } else {
-      params->is_1d_tma = true;
-      params->unswitch_computation = false;
-    }
     return params;
   }
 
@@ -874,7 +894,7 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
 namespace {
 // schedule the reference tv
 // propagate transformation to non-tma tvs
-void scheduleTma(
+void scheduleTmaRhsOnly(
     Fusion* fusion,
     TensorView* reference_tv,
     const PointwiseParams* pparams,
@@ -929,6 +949,166 @@ void scheduleTma(
     reference_tv->axis(1)->parallelize(ParallelType::Unswitch);
   }
   reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+
+  // propagate transformation and parallelize non-tma tvs
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // vectorize regs -> global
+  if (pparams->vectorization_factor > 1) {
+    for (auto [_, original] : cached_outputs) {
+      auto output_tv = fusion->outputs().at(original)->as<TensorView>();
+      output_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // vectorize shared -> regs
+  if (pparams->vectorize_smem_to_regs_load) {
+    for (auto reg_tv : reg_tvs) {
+      reg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  inlineMost();
+}
+
+// struct TileMN {
+//   int64_t m;
+//   int64_t n;
+// };
+// TileMN tma_tile = {pparams->tma_tile_outer, pparams->tma_tile_inner};
+// TileMN blk_tile = {pparams->lparams.bdimy(), pparams->lparams.bdimx()};
+// TileMN tid_tile = {
+//     pparams->unroll_factor_outer, pparams->vectorization_factor};
+
+// // [O, I] -> [O/m, m, I/n, n]
+// tv->split(0, tma_tile.m);
+// tv->split(-1, tma_tile.n);
+
+// // propagate tma tiles to all tvs
+// TransformPropagator tma_propagator(tv);
+// MaxLogicalDomainInfoSpanningTree(tv).traverse(&tma_propagator);
+
+// // [O/m, m, I/n, n] -> [O/m, m/u, u, I/n, n/v, v]
+// tv->split(1, tid_tile.m);
+// tv->split(-1, tid_tile.n);
+// // [O/m, m/u, u, I/n, n/v, v] -> [O/m, m/u/y, y, u, I/n, n/v/x, x, v]
+// tv->split(1, blk_tile.m);
+// tv->split(-2, blk_tile.n);
+// // reorder to [O/m, I/n, m/u/y, n/v/x, y, x, u, v]
+// tv->reorder({{1, 2}, {2, 4}, {3, 6}, {4, 1}, {5, 3}, {6, 5}});
+// tv->axis(0)->parallelize(ParallelType::BIDy);
+// tv->axis(1)->parallelize(ParallelType::BIDx);
+// tv->axis(4)->parallelize(ParallelType::TIDy);
+// tv->axis(5)->parallelize(ParallelType::TIDx);
+// std::cout << "tv: " << tv->toString() << std::endl;
+
+// // collect all tma tvs and manual parallelize them
+// std::vector<TensorView*> tma_tvs;
+// for (const auto& p : cached_inputs) {
+//   auto tma_tv = p.first;
+//   tma_tv->definition()->as<LoadStoreOp>()->setOpType(
+//       LoadStoreOpType::CpAsyncBulkTensorTile);
+//   tma_tv->setMemoryType(MemoryType::Shared);
+//   tma_tv->cacheAfter();
+//   tma_tvs.push_back(tma_tv);
+//   // [O/m, m, I/n, n] -> [O/m, I/n, m, n]
+//   tma_tv->reorder({{1, 2}});
+//   tma_tv->axis(0)->parallelize(ParallelType::BIDy);
+//   tma_tv->axis(1)->parallelize(ParallelType::BIDx);
+//   tma_tv->axis(2)->parallelize(ParallelType::Bulk);
+//   tma_tv->axis(3)->parallelize(ParallelType::Bulk);
+// }
+
+// // propagate transformation and parallelize non-tma tvs
+// std::vector<TensorView*> non_tma_tvs =
+//     ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+// for (auto tv : non_tma_tvs) {
+//   std::cout << "non_tma_tv: " << tv->toString() << std::endl;
+// }
+// TransformPropagator propagator(tv);
+// SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+// MaxLogicalDomainInfoSpanningTree(tv, &selector).traverse(&propagator);
+
+void scheduleTma2DSchedule(
+    Fusion* fusion,
+    TensorView* reference_tv,
+    const PointwiseParams* pparams,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  {
+    TransformPropagator propagator(reference_tv);
+    MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
+    spanning_tree.traverse(&propagator);
+  }
+
+  struct TileMN {
+    int64_t m;
+    int64_t n;
+  };
+  TileMN tma_tile = {pparams->tma_tile_outer, pparams->tma_tile_inner};
+  TileMN blk_tile = {pparams->lparams.bdimy(), pparams->lparams.bdimx()};
+  TileMN tid_tile = {
+      pparams->unroll_factor_outer, pparams->vectorization_factor};
+
+  std::vector<TensorView*> tma_tvs;
+  for (const auto& p : cached_inputs) {
+    auto tma_tv = p.first;
+    tma_tv->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+    tma_tv->setMemoryType(MemoryType::Shared);
+    tma_tv->cacheAfter();
+    tma_tvs.push_back(tma_tv);
+    //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [OImn, m, n]
+    if (tma_tv->nDims() > 1) {
+      tma_tv->split(1, tma_tile.n);
+      tma_tv->split(0, tma_tile.m);
+      tma_tv->reorder({{1, 2}});
+      tma_tv->merge(0);
+      tma_tv->axis(0)->parallelize(ParallelType::BIDx);
+      tma_tv->axis(1)->parallelize(ParallelType::Bulk);
+      tma_tv->axis(2)->parallelize(ParallelType::Bulk);
+    } else {
+      // [I] -> [I, TMA]
+      tma_tv->split(0, tma_tile.n);
+      tma_tv->axis(1)->parallelize(ParallelType::Bulk);
+    }
+  }
+  std::vector<TensorView*> reg_tvs;
+  if (pparams->vectorize_smem_to_regs_load) {
+    for (auto tma_tv : tma_tvs) {
+      auto reg_tv = tma_tv->cacheAfter();
+      reg_tvs.push_back(reg_tv);
+    }
+  }
+
+  //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [OImn, m, n]
+  reference_tv->split(1, tma_tile.n);
+  reference_tv->split(0, tma_tile.m);
+  reference_tv->reorder({{1, 2}});
+  reference_tv->merge(0);
+
+  // [OImn, m, n] -> [OImn, m/u, u, n/v, v] -> [OImn, m/u, n/v, u, v]
+  reference_tv->split(2, tid_tile.n);
+  reference_tv->split(1, tid_tile.m);
+  reference_tv->reorder({{2, 3}});
+
+  // [OImn, m/u, n/v, u, v] -> [OImn, m/u/y, y, n/v/x, x, u, v] -> [OImn, uvyx,
+  // y, x, u, v]
+  reference_tv->split(2, blk_tile.n);
+  reference_tv->split(1, blk_tile.m);
+  reference_tv->reorder({{2, 3}});
+  reference_tv->merge(1);
+
+  // [OImn, uvyx, y, x, u, v]
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(2)->parallelize(ParallelType::TIDy);
+  reference_tv->axis(3)->parallelize(ParallelType::TIDx);
+  reference_tv->axis(4)->parallelize(ParallelType::Serial);
+  int vect_pos = 5;
 
   // propagate transformation and parallelize non-tma tvs
   std::vector<TensorView*> non_tma_tvs =
@@ -1151,8 +1331,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
-    // vectorization without unroll
-    if (pparams->unroll_factor_outer == 1 &&
+    if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
+      return scheduleTma2DSchedule(
+          fusion, reference_tv, pparams, cached_inputs, cached_outputs);
+    } else if (
+        pparams->unroll_factor_outer == 1 &&
         pparams->unroll_factor_inner == 1 &&
         pparams->vectorization_factor > 1) {
       reference_tv->split(1, pparams->vectorization_factor);
@@ -1294,7 +1477,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
     if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
-      return scheduleTma(
+      return scheduleTmaRhsOnly(
           fusion, reference_tv, pparams, cached_inputs, cached_outputs);
     } else if (
         pparams->unroll_factor_inner == 1 &&
