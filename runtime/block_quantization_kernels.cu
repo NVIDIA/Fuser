@@ -9,53 +9,36 @@
 namespace nvf {
 namespace bq {
 
-// This helper function is templatized of over types float, __half, and
-// __bfloat. This assumes that for float, each thread was working on 4 elements.
-// Thus 4 threads were working to find the max of 16 elements, and hence we need
-// two steps to find the maximum. If the type is __bfloat or __half, then we
-// only need a single step to find the maximum of 16 elements as each thread was
-// working on 8 elements and 2 threads are required to compute the max of 16
-// elements.
-// This function assumes for float each thread has already computed the max of 4
-// elements (8 elements for the other 2 data types) and the block size is 16, so
-// we have 4 threads (2 for bf16/fp16) participating in the reduction.
-// TODO: For FP32 support the cases where each thread works on 2 or 4 elements.
-// TODO: For bf16/fp16 support the cases where each thread works on 2,4, or 8
-// elements.
-template <typename T>
+// This helper function finds the max of NUM_ELEMENTS (2, 4, or 8) values
+// using the same number of threads.
+template <int NUM_ELEMENTS>
 __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
   // The mask 0xffffffff indicates all 32 threads in the warp are participating.
   unsigned int mask = 0xffffffff;
 
-  // --- Reduction Step 1 ---
-  // Exchange and compare with thread 2 lanes away within the quad.
-  // e.g., thread 0 exchanges with 2; thread 1 with 3.
-  // The XOR pattern naturally keeps the operation within each quad.
-  if (std::is_same<T, float>::value) {
+  // Perform reduction across threads in log2(NUM_ELEMENTS) stages
+  // The reduction happens by progressively halving the distance between
+  // threads that exchange values using XOR shuffle.
+  // For NUM_ELEMENTS=8 (e.g., ITEMS_PER_THREAD=2): 3 stages (XOR with 4, 2, 1)
+  // For NUM_ELEMENTS=4 (e.g., ITEMS_PER_THREAD=4): 2 stages (XOR with 2, 1)
+  // For NUM_ELEMENTS=2 (e.g., ITEMS_PER_THREAD=8): 1 stage (XOR with 1)
+#pragma unroll
+  for (int offset = NUM_ELEMENTS / 2; offset > 0; offset /= 2) {
     per_thread_computed_max = fmax(
         per_thread_computed_max,
-        __shfl_xor_sync(mask, per_thread_computed_max, 2));
+        __shfl_xor_sync(mask, per_thread_computed_max, offset));
   }
 
-  // --- Reduction Step 2 ---
-  // Exchange and compare with thread 1 lane away.
-  // e.g., thread 0 exchanges with 1; thread 2 with 3.
-  per_thread_computed_max = fmax(
-      per_thread_computed_max,
-      __shfl_xor_sync(mask, per_thread_computed_max, 1));
-
-  // At this point, all threads in a quad hold the maximum value for that
-  // quad(pair of 2 threads).
+  // At this point, all threads involved hold the maximum value for the
+  // (quantization) block.
 }
 
 // A runtime function to compute quantized nvfp4 output (output) and fp8 block
 // scaling (block_scales) factors from fp32, fp16, bf16 inputs (input).
 // The function is templatized over input type T (float, __half, __bfloat).
-// This function assumes that for float, each thread is working on 4 elements.
-// Thus 4 threads are working to quantize 16 elements. If the type is __bfloat
-// or
-// __half, then 2 threads are working to quantize 16 elements as each thread
-// is working on 8 elements.
+// This function assumes that for float, each thread is working on 2 or 4
+// elements (ITEMS_PER_THREAD). Thus n threads are working to quantize 16
+// elements, where n = 16 / ITEMS_PER_THREAD.
 template <
     int ITEMS_PER_THREAD,
     typename T,
@@ -76,9 +59,12 @@ __device__ void block_quantize_to_nvfp4(
       "Input type must be float, __half or __bfloat");
 
   static_assert(
-      (is_float && ITEMS_PER_THREAD == 4) ||
-          (is_half_or_bfloat && ITEMS_PER_THREAD == 8),
-      "ITEMS_PER_THREAD must be 4 for float type or 8 for __bfloat or __half "
+      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
+          (is_half_or_bfloat &&
+           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
+            ITEMS_PER_THREAD == 2)),
+      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
+      "or __half "
       "type");
 
   // Number of threads involved in computing one block scaling factor
@@ -104,10 +90,11 @@ __device__ void block_quantize_to_nvfp4(
     local_max = fmax(local_max, fabsf(vec_in[i]));
   }
 
-  // Compute the max accross 4 threads (float) or 2 threads (bf16/fp16)
-  // This assumes each thread has already computed is local max of 4 (fp32) or
-  // 8 (bf16/fp16) elements.
-  reduceAcrossThreads<T>(local_max);
+  // Compute the max accross  16/ITEMS_PER_THREAD threads
+  // This assumes each thread has already computed is local max of 2, 4 (fp32)
+  // or 2,4, 8 (bf16/fp16) elements.
+  constexpr int NUM_ELEMENTS = 16 / ITEMS_PER_THREAD;
+  reduceAcrossThreads<NUM_ELEMENTS>(local_max);
   float block_max = local_max;
 
   // This division should be replaced with a multiplication

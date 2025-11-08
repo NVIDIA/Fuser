@@ -1816,8 +1816,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const BlockQuantizationOp* bqop) final {
     // This operator is plumbed down to a runtime function call.
     // One of the assumptions is that the device runtime expects
-    // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
-    // the input tv scheduler to have the inner dimension grouped by 4/8.
+    // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t group_size = 1;
 
@@ -1838,15 +1839,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
       NVF_ERROR(
-          group_size == 8,
-          "Group size should be 8 for "
+          group_size == 8 || group_size == 4 || group_size == 2,
+          "Group size should be 2, 4 or 8 for "
           "BlockQuantizationOp: ",
           bqop->toString());
 
     } else {
       NVF_ERROR(
-          group_size == 4,
-          "Group size should be 4 for "
+          group_size == 4 || group_size == 2,
+          "Group size should be 2 or 4 for "
           "BlockQuantizationOp: ",
           bqop->toString());
     }
