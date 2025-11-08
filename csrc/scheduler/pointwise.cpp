@@ -589,19 +589,21 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     } else {
       // inner dim: serial, bdimx, vectorization, <= 256
       // TMA tile
-      params->tma_tile_inner = 256;
-      params->lparams.bindUnsafe(32, ParallelType::TIDx);
-      params->vectorization_factor = (int64_t)kOneHundredTwentyEight /
+      int64_t elem_per_cta = bdimx * bdimy * params->unroll_factor_outer *
+          params->vectorization_factor * params->unroll_factor_inner;
+      elem_per_cta /= 2;
+      bdimx = 16;
+      int64_t vect_factor = (int64_t)kOneHundredTwentyEight /
           max_dtype_size_bit_for_vectorization;
-      params->tma_tile_outer =
-          std::min(ceilDiv(n_elems, params->tma_tile_inner), (int64_t)32);
 
-      // thread tile
+      params->lparams.bindUnsafe(bdimx, ParallelType::TIDx);
+      params->vectorization_factor = vect_factor;
+      params->tma_tile_inner = vect_factor * bdimx;
 
-      params->unroll_factor_outer = 8;
-
+      params->tma_tile_outer = ceilDiv(elem_per_cta, params->tma_tile_inner);
       // block tile
-      params->lparams.bindUnsafe(4, ParallelType::TIDy);
+      params->lparams.bindUnsafe(
+          128 / params->lparams.bdimx(), ParallelType::TIDy);
     }
 
     return params;
@@ -1091,24 +1093,21 @@ void scheduleTma2DSchedule(
   reference_tv->reorder({{1, 2}});
   reference_tv->merge(0);
 
-  // [OImn, m, n] -> [OImn, m/u, u, n/v, v] -> [OImn, m/u, n/v, u, v]
+  // [OImn, m, n] -> [OImn, m, n/v/x, x, v]
   reference_tv->split(2, tid_tile.n);
-  reference_tv->split(1, tid_tile.m);
-  reference_tv->reorder({{2, 3}});
-
-  // [OImn, m/u, n/v, u, v] -> [OImn, m/u/y, y, n/v/x, x, u, v] -> [OImn, uvyx,
-  // y, x, u, v]
   reference_tv->split(2, blk_tile.n);
+
+  // [OImn, m, n/v/x, x, v] ->[OImn, m/y, y, n/v/x, x, v]
   reference_tv->split(1, blk_tile.m);
+  // [OImn, m/y, y, n/v/x, x, v] -> [OImn, mnyxv, y, x, v]
   reference_tv->reorder({{2, 3}});
   reference_tv->merge(1);
 
-  // [OImn, uvyx, y, x, u, v]
+  // [OImn, mnyxv, y, x, v]
   reference_tv->axis(0)->parallelize(ParallelType::BIDx);
   reference_tv->axis(2)->parallelize(ParallelType::TIDy);
   reference_tv->axis(3)->parallelize(ParallelType::TIDx);
-  reference_tv->axis(4)->parallelize(ParallelType::Serial);
-  int vect_pos = 5;
+  int vect_pos = 4;
 
   // propagate transformation and parallelize non-tma tvs
   std::vector<TensorView*> non_tma_tvs =
