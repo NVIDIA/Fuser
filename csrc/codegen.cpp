@@ -1574,15 +1574,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     for (auto id : sorted_loop_ids) {
       if (isParallelTypeThreadDim(id->getParallelType())) {
         sorted_parallel_types.set(id->getParallelType());
-      } else if (id->getParallelType() == ParallelType::Group) {
+      } else {
+        // Non TID-parallelized loop ID must be a batch ID, which
+        // should use Group unless its a broadcast
+        NVF_ERROR(
+            id->getParallelType() == ParallelType::Group || id->isBroadcast(),
+            "Invalid topk loop ID: ",
+            id->toString(),
+            " of ",
+            top->toString());
         NVF_ERROR(
             batch_id == nullptr,
             "Multiple batch IDs not supported: ",
             top->toString());
         batch_id = id;
-      } else {
-        NVF_THROW(
-            "Invalid parallel type: ", id->toString(), " of ", top->toString());
       }
     }
 
