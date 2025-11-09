@@ -21,7 +21,13 @@ namespace nvfuser {
 using testing::_;
 using testing::ElementsAre;
 
-using ProgrammaticDependentLaunchTest = NVFuserTest;
+class ProgrammaticDependentLaunchTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
+};
 
 TEST_F(ProgrammaticDependentLaunchTest, Basic) {
   std::shared_ptr<Fusion> fusion_ptr = std::make_shared<Fusion>();

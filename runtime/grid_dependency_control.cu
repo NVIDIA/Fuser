@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-namespace pdl {
+
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
+
+namespace pdl {
 
 // Issuing the launch_dependents instruction hints a dependent kernel to launch
 // before the primary kernel is finished. This is a performance optimization.
@@ -24,5 +26,6 @@ __device__ inline void waitForPriorGrid() {
   asm volatile("griddepcontrol.wait;");
 }
 
-#endif // Arch 90
 } // namespace pdl
+
+#endif // (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
