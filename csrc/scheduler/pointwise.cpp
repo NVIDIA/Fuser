@@ -1057,27 +1057,26 @@ void scheduleTma2DSchedule(
       pparams->unroll_factor_outer, pparams->vectorization_factor};
 
   std::vector<TensorView*> tma_tvs;
+  std::vector<TensorView*> ldg_tvs;
   for (const auto& p : cached_inputs) {
+    if (p.first->nDims() == 1) {
+      ldg_tvs.push_back(p.first);
+      continue;
+    }
     auto tma_tv = p.first;
     tma_tv->definition()->as<LoadStoreOp>()->setOpType(
         LoadStoreOpType::CpAsyncBulkTensorTile);
     tma_tv->setMemoryType(MemoryType::Shared);
     tma_tv->cacheAfter();
     tma_tvs.push_back(tma_tv);
-    //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [OImn, m, n]
-    if (tma_tv->nDims() > 1) {
-      tma_tv->split(1, tma_tile.n);
-      tma_tv->split(0, tma_tile.m);
-      tma_tv->reorder({{1, 2}});
-      tma_tv->merge(0);
-      tma_tv->axis(0)->parallelize(ParallelType::BIDx);
-      tma_tv->axis(1)->parallelize(ParallelType::Bulk);
-      tma_tv->axis(2)->parallelize(ParallelType::Bulk);
-    } else {
-      // [I] -> [I, TMA]
-      tma_tv->split(0, tma_tile.n);
-      tma_tv->axis(1)->parallelize(ParallelType::Bulk);
-    }
+    //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [O/m, I/n, m, n]
+    tma_tv->split(1, tma_tile.n);
+    tma_tv->split(0, tma_tile.m);
+    tma_tv->reorder({{1, 2}});
+    tma_tv->axis(0)->parallelize(ParallelType::BIDy);
+    tma_tv->axis(1)->parallelize(ParallelType::BIDx);
+    tma_tv->axis(2)->parallelize(ParallelType::Bulk);
+    tma_tv->axis(3)->parallelize(ParallelType::Bulk);
   }
   std::vector<TensorView*> reg_tvs;
   if (pparams->vectorize_smem_to_regs_load) {
@@ -1087,27 +1086,27 @@ void scheduleTma2DSchedule(
     }
   }
 
-  //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [OImn, m, n]
+  //[O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n]
   reference_tv->split(1, tma_tile.n);
   reference_tv->split(0, tma_tile.m);
   reference_tv->reorder({{1, 2}});
-  reference_tv->merge(0);
 
-  // [OImn, m, n] -> [OImn, m, n/v/x, x, v]
-  reference_tv->split(2, tid_tile.n);
-  reference_tv->split(2, blk_tile.n);
+  // [O/m, I/n, m, n] -> [O/m, I/n, m, n/v/x, x, v]
+  reference_tv->split(3, tid_tile.n);
+  reference_tv->split(3, blk_tile.n);
 
-  // [OImn, m, n/v/x, x, v] ->[OImn, m/y, y, n/v/x, x, v]
-  reference_tv->split(1, blk_tile.m);
-  // [OImn, m/y, y, n/v/x, x, v] -> [OImn, mnyxv, y, x, v]
-  reference_tv->reorder({{2, 3}});
-  reference_tv->merge(1);
+  // [O/m, I/n, m, n/v/x, x, v] ->[O/m, I/n, m/y, y, n/v/x, x, v]
+  reference_tv->split(2, blk_tile.m);
+  // [O/m, I/n, m/y, y, n/v/x, x, v] -> [O/m, I/n, mnyxv, y, x, v]
+  reference_tv->reorder({{3, 4}});
+  reference_tv->merge(2);
 
-  // [OImn, mnyxv, y, x, v]
-  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
-  reference_tv->axis(2)->parallelize(ParallelType::TIDy);
-  reference_tv->axis(3)->parallelize(ParallelType::TIDx);
-  int vect_pos = 4;
+  // [O/m, I/n, mnyxv, y, x, v]
+  reference_tv->axis(0)->parallelize(ParallelType::BIDy);
+  reference_tv->axis(1)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(3)->parallelize(ParallelType::TIDy);
+  reference_tv->axis(4)->parallelize(ParallelType::TIDx);
+  int vect_pos = 5;
 
   // propagate transformation and parallelize non-tma tvs
   std::vector<TensorView*> non_tma_tvs =
@@ -1131,7 +1130,15 @@ void scheduleTma2DSchedule(
       reg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
     }
   }
-  inlineMost();
+  // ininle all except ldg_tvs
+  std::vector<TensorView*> non_ldg_tvs =
+      ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
+  inlineMost(non_ldg_tvs);
+  for (auto ldg_tv : ldg_tvs) {
+    // [I/n, n/v/x, x, v]
+    inlineSelectedAt({ldg_tv}, ldg_tv, 1);
+    ldg_tv->axis(vect_pos - 2)->parallelize(ParallelType::Vectorize);
+  }
 }
 } // namespace
 // TODO: Inline intermediate operations (avoid inlining unrolled/vectorized
