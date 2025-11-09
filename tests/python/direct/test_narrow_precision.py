@@ -151,7 +151,7 @@ def test_scaled_mm(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 def test_nv_block_quantization(nvfuser_direct_test):
-    x = torch.ones((1024, 1024), dtype=torch.float32, device="cuda")
+    x = torch.rand((1024, 1024), dtype=torch.float32, device="cuda")
     x_global_scale = torch.ones((), dtype=torch.float32, device="cuda")
 
     # x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
