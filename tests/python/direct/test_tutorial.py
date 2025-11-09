@@ -1487,6 +1487,85 @@ def test_tutorial_tma_bank_conflict_free_transpose(nvfuser_direct_test):
     assert outputs[0].equal(t0.t())
 
 
+def test_tutorial_compute_heuristics_and_schedule():
+    """
+    Demonstrate explicit scheduling: compute_heuristics, modify, then schedule.
+    This shows how to customize automatically computed heuristics.
+    """
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.exp(t2)
+        fd.add_output(t3)
+
+        # Step 1: Compute heuristics for pointwise scheduler
+        heuristic_params = schedule.compute_heuristics(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
+
+        before_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+"""
+        assert str(heuristic_params) == before_modification
+
+        # Step 2: Modify the computed heuristics
+        # Example: Adjust vectorization and unroll factors
+        heuristic_params.vectorization_factor = 1
+        heuristic_params.unroll_factor_inner = 2
+
+        after_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 2
+====================================
+"""
+        assert str(heuristic_params) == after_modification
+
+        # Step 3: Apply the schedule using modified heuristics
+        schedule.schedule(fd.fusion, SchedulerType.pointwise, heuristic_params)
+
+    schedule_fusion_math = """Inputs:
+  T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}]
+  T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}]
+Outputs:
+  T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+
+%kernel_math {
+T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   = Set( T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}], cache_op=Streaming )
+T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 )
+   = Set( T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}], cache_op=Streaming )
+T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 )
+   = T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   + T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 );
+T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 )
+   = expf(T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 ));
+T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+   = Set( T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 ), cache_op=Streaming )
+} // %kernel_math \n\n"""
+    assert fd.fusion.print_math() == schedule_fusion_math
+
+    # Execute with the modified heuristic params
+    nvf_out = fd.manual_execute(inputs, heuristic_params)
+    eager_out = torch.exp(inputs[0] + inputs[1])
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
 def test_tutorial_pointwise_auto_scheduler():
     """
     Implement a simple pointwise kernel with automatic scheduling.
