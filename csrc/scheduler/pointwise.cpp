@@ -24,6 +24,7 @@
 
 #include <ranges>
 #include "ir/internal_nodes.h"
+#include "ir/utils.h"
 #include "type.h"
 #include "utils.h"
 
@@ -561,6 +562,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     params->tag = "TMA pointwise heuristics";
     params->use_tma_load = true;
     params->use_tma_store = false;
+    if (std::getenv("TMA_STORE") != nullptr) {
+      params->use_tma_store = std::atoi(std::getenv("TMA_STORE")) != 0;
+    }
     if (break_point == 0) {
       NVF_ERROR(params->unroll_factor_outer == 1);
       NVF_ERROR(bdimy == 1);
@@ -1046,6 +1050,9 @@ void scheduleTma2DSchedule(
     MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
     spanning_tree.traverse(&propagator);
   }
+  if (reference_tv->isFusionOutput()) {
+    reference_tv = ir_utils::getSoleProducerTv(reference_tv);
+  }
 
   struct TileMN {
     int64_t m;
@@ -1078,9 +1085,31 @@ void scheduleTma2DSchedule(
     tma_tv->axis(2)->parallelize(ParallelType::Bulk);
     tma_tv->axis(3)->parallelize(ParallelType::Bulk);
   }
+  if (pparams->use_tma_store) {
+    for (auto [_, original] : cached_outputs) {
+      auto output_tv = fusion->outputs().at(original)->as<TensorView>();
+      auto output_smem_tv =
+          output_tv->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+      output_smem_tv->setMemoryType(MemoryType::Shared);
+      tma_tvs.push_back(output_tv);
+      // [O, I] -> [O/m, m, I/n, n] -> [O/m, I/n, m, n] -> [O/m, I/n, m, n]
+      output_tv->split(1, tma_tile.n);
+      output_tv->split(0, tma_tile.m);
+      output_tv->reorder({{1, 2}});
+      output_tv->axis(0)->parallelize(ParallelType::BIDy);
+      output_tv->axis(1)->parallelize(ParallelType::BIDx);
+      output_tv->axis(2)->parallelize(ParallelType::Bulk);
+      output_tv->axis(3)->parallelize(ParallelType::Bulk);
+    }
+  }
+
+  // cache regs
   std::vector<TensorView*> reg_tvs;
   if (pparams->vectorize_smem_to_regs_load) {
     for (auto tma_tv : tma_tvs) {
+      if (tma_tv->isFusionOutput()) {
+        continue;
+      }
       auto reg_tv = tma_tv->cacheAfter();
       reg_tvs.push_back(reg_tv);
     }
@@ -1117,8 +1146,9 @@ void scheduleTma2DSchedule(
       .traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
+  fusion->print();
   // vectorize regs -> global
-  if (pparams->vectorization_factor > 1) {
+  if (pparams->vectorization_factor > 1 && !pparams->use_tma_store) {
     for (auto [_, original] : cached_outputs) {
       auto output_tv = fusion->outputs().at(original)->as<TensorView>();
       output_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);

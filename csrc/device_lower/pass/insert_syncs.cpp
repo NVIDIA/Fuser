@@ -1349,10 +1349,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
-    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
+    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size() &&
+        !(for_loop->body().exprs().size() < 1 ||
+          !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>())) {
       return handleComputeWarp(for_loop);
     }
-
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
       std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
