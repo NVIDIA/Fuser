@@ -567,6 +567,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
     if (break_point == 0 || params->unroll_factor_outer == 1) {
       NVF_ERROR(bdimy == 1);
+      // when has inner bcase, use larger inner unroll
+      if (break_point) {
+        params->unroll_factor_inner *= 2;
+      }
       int64_t bidx_vect = bdimx * params->vectorization_factor;
       params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
       params->lparams.bind(bdimx, ParallelType::TIDx);
