@@ -175,7 +175,7 @@ __device__ void block_quantize_to_mxfp8(
       "type");
 
   // Number of threads involved in computing one block scaling factor
-  constexpr int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
+  constexpr int THREADS_PER_SCALING_FACTOR = 32 / ITEMS_PER_THREAD;
 
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
   vec_in.set(0.0f);
@@ -200,7 +200,7 @@ __device__ void block_quantize_to_mxfp8(
   // Compute the max accross  16/ITEMS_PER_THREAD threads
   // This assumes each thread has already computed is local max of 2, 4 (fp32)
   // or 2,4, 8 (bf16/fp16) elements.
-  constexpr int NUM_ELEMENTS = 16 / ITEMS_PER_THREAD;
+  constexpr int NUM_ELEMENTS = 32 / ITEMS_PER_THREAD;
   reduceAcrossThreads<NUM_ELEMENTS>(local_max);
   float block_max = local_max;
 

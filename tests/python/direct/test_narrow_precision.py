@@ -24,6 +24,37 @@ from python.direct_utils import (
 
 import pytest
 
+import transformer_engine.pytorch as te
+import transformer_engine_torch as tex
+from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Quantizer
+
+
+def quantize_to_mxfp8_e4m3(tensor: torch.Tensor) -> te.tensor.mxfp8_tensor.MXFP8Tensor:
+    """
+    Quantize a Float32 tensor to MXFP8 E4M3 format using block scaling.
+
+    Args:
+        tensor: Input Float32 tensor to quantize
+
+    Returns:
+        MXFP8Tensor containing quantized data and scaling factors
+
+    Note: You can access the components separately:
+        - quantized_tensor._rowwise_data: quantized FP8 values (uint8)
+        - quantized_tensor._rowwise_scale_inv: inverse scale factors (uint8)
+    """
+    # Create MXFP8 quantizer for E4M3 format
+    quantizer = MXFP8Quantizer(
+        fp8_dtype=tex.DType.kFloat8E4M3,
+        rowwise=True,  # Enable rowwise scaling
+        columnwise=False,  # Disable columnwise scaling for this example
+    )
+
+    # Perform quantization
+    quantized_tensor = quantizer(tensor)
+
+    return quantized_tensor
+
 
 def nvfp4_quantize(x):
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
@@ -114,6 +145,81 @@ def test_scaled_mm(
         * alpha
     )
     torch.testing.assert_close(outputs[0], ref_outputs, rtol=1e-1, atol=1e-2)
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+def test_nv_block_quantization(nvfuser_direct_test):
+    x = torch.ones((1024, 1024), dtype=torch.float32, device="cuda")
+    x_global_scale = torch.ones((), dtype=torch.float32, device="cuda")
+
+    # x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
+    results = quantize_to_mxfp8_e4m3(x)
+    x_u8 = results._rowwise_data
+    x_scale = results._rowwise_scale_inv
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(x_tv, 32, DataType.Float8_e4m3fn)
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x])
+
+    # # Move tensor from GPU to CPU and get raw data as uint8
+    o0_cpu = o[0].cpu()  # Move to CPU
+    o1_cpu = o[1].cpu()  # Move to CPU
+    o0_uint8 = o0_cpu.view(torch.uint8)  # Reinterpret bytes as uint8
+    o1_uint8 = o1_cpu.view(torch.uint8)  # Reinterpret bytes as uint8
+
+    # Move reference tensors to CPU and convert to uint8 for comparison
+    x_u8_cpu = x_u8.cpu()  # Move x_u8 to CPU
+    x_scale_cpu = x_scale.cpu()  # Move x_scale to CPU
+    x_u8_uint8 = x_u8_cpu.view(torch.uint8)  # Reinterpret x_u8 bytes as uint8
+    x_scale_uint8 = x_scale_cpu.view(torch.uint8)  # Reinterpret x_scale bytes as uint8
+
+    print("\n--- Comparison Results ---")
+    print(f"o[0] (nvfuser quantized values) shape: {o0_uint8.shape}")
+    print(f"x_u8 (reference quantized values) shape: {x_u8_uint8.shape}")
+    print(f"o[1] (nvfuser scales) shape: {o1_uint8.shape}")
+    print(f"x_scale (reference scales) shape: {x_scale_uint8.shape}")
+
+    # Compare first 20 bytes of quantized values (o[0] vs x_u8)
+    print("\n--- Quantized Values Comparison (first 20 bytes) ---")
+    print(f"nvfuser o[0]: {[hex(x.item()) for x in o0_uint8.flatten()[:20]]}")
+    print(f"reference x_u8: {[hex(x.item()) for x in x_u8_uint8.flatten()[:20]]}")
+
+    # Compare first 20 bytes of scales (o[1] vs x_scale)
+    print("\n--- Scale Values Comparison (first 20 bytes) ---")
+    print(f"nvfuser o[1]: {[hex(x.item()) for x in o1_uint8.flatten()[:20]]}")
+    print(f"reference x_scale: {[hex(x.item()) for x in x_scale_uint8.flatten()[:20]]}")
+
+    # Check if quantized values match
+    if o0_uint8.flatten().size() == x_u8_uint8.flatten().size():
+        values_match = torch.equal(o0_uint8.flatten(), x_u8_uint8.flatten())
+        print(f"Quantized values match: {values_match}")
+        if not values_match:
+            diff_count = (o0_uint8.flatten() != x_u8_uint8.flatten()).sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+    else:
+        print(
+            f"Quantized values have different sizes after flattening: {o0_uint8.flatten().size()} vs {x_u8_uint8.flatten().size()}"
+        )
+
+    # Check if scale values match
+    if o1_uint8.flatten().size() == x_scale_uint8.flatten().size():
+        scales_match = torch.equal(o1_uint8.flatten(), x_scale_uint8.flatten())
+        print(f"Scale values match: {scales_match}")
+        if not scales_match:
+            diff_count = (o1_uint8.flatten() != x_scale_uint8.flatten()).sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+    else:
+        print(
+            f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
+        )
 
 
 @pytest.mark.skipif(
