@@ -305,7 +305,12 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(WaitForPriorGridOp* wop) final {
-    // Only the dependent grid requires a special cudaLaunchAttribute.
+    // Only the dependent grid requires a special cudaLaunchAttribute. It
+    // signals the CUDA driver to launch the dependent kernel once all CTAs in
+    // the primary kernel have issued LaunchDependentGridOp.
+    //
+    // Reference:
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#api-description
     summary_.enable_programmatic_dependent_launch = true;
   }
 
