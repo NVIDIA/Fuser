@@ -457,6 +457,8 @@ void bindHeuristicParams(py::module& nvfuser) {
   mma_macro_arch.value("turing", MmaMacroEncode::Arch::Turing);
   mma_macro_arch.value("ampere", MmaMacroEncode::Arch::Ampere);
   mma_macro_arch.value("hopper", MmaMacroEncode::Arch::Hopper);
+  mma_macro_arch.value("blackwell_1cta", MmaMacroEncode::Arch::Blackwell1CTA);
+  mma_macro_arch.value("blackwell_2cta", MmaMacroEncode::Arch::Blackwell2CTA);
 
   py::class_<MmaMacroEncode> mma_macro_encode(
       nvfuser, "MmaMacroEncode", py::module_local());
