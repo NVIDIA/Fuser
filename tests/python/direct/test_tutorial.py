@@ -1539,6 +1539,27 @@ unroll_factor_inner: 2
         # Step 3: Apply the schedule using modified heuristics
         schedule.schedule(fd.fusion, SchedulerType.pointwise, heuristic_params)
 
+    schedule_fusion_math = """Inputs:
+  T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}]
+  T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}]
+Outputs:
+  T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+
+%kernel_math {
+T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   = Set( T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}], cache_op=Streaming )
+T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 )
+   = Set( T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}], cache_op=Streaming )
+T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 )
+   = T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   + T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 );
+T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 )
+   = expf(T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 ));
+T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+   = Set( T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 ), cache_op=Streaming )
+} // %kernel_math \n\n"""
+    assert fd.fusion.print_math() == schedule_fusion_math
+
     # Execute with the modified heuristic params
     nvf_out = fd.manual_execute(inputs, heuristic_params)
     eager_out = torch.exp(inputs[0] + inputs[1])
