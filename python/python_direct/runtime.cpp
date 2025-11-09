@@ -188,6 +188,12 @@ str
     The fusion intermediate representation (IR) as a string.
 )")
       .def(
+          "print",
+          [](Fusion& f) { f.print(std::cout); },
+          R"(
+Print the fusion, including transforms, to stdout.
+)")
+      .def(
           "print_kernel",
           [](Fusion& f, const CompileParams& compile_params) {
             // Send debug messages to stringstream
