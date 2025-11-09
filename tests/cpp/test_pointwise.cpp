@@ -1912,7 +1912,7 @@ INSTANTIATE_TEST_SUITE_P(
       return "dim0_" + std::to_string(dim0) + "_" + dtype_str;
     });
 
-TEST_F(PointwiseTmaAutoSchedulerTest, MultiWaveAuto2D) {
+TEST_F(PointwiseTmaAutoSchedulerTest, OuterBcast) {
   int64_t dim0 = 16384;
   int64_t dim1 = 32768;
   DataType dtype = DataType::BFloat16;
@@ -1933,6 +1933,31 @@ TEST_F(PointwiseTmaAutoSchedulerTest, MultiWaveAuto2D) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim1}, options);
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(PointwiseTmaAutoSchedulerTest, InnerBcast) {
+  int64_t dim0 = 16384;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::BFloat16;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto tv3 = add(tv0, tv2);
+  tv3 = maybeCastOp(dtype, tv3);
+  fusion->addOutput(tv3);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
