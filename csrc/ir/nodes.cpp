@@ -4821,7 +4821,16 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
 
-  auto matmul_out = at::matmul(a, b);
+  at::Tensor matmul_out;
+  // aten::dot does not support meta device. Matmul lowers to dot for 1D @ 1D.
+  const bool uses_dot = (a.dim() == 1 && b.dim() == 1);
+  if (uses_dot && (a.is_meta() || b.is_meta())) {
+    const auto out_scalar_type = at::result_type(a, b);
+    auto out_opts = a.options().dtype(out_scalar_type).device(at::kMeta);
+    matmul_out = at::empty({}, out_opts);
+  } else {
+    matmul_out = at::matmul(a, b);
+  }
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {

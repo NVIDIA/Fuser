@@ -488,4 +488,49 @@ INSTANTIATE_TEST_SUITE_P(
           "_Mat2" + memoryFormat3DToString(std::get<1>(info.param));
     });
 
+// Test for MatmulOp with 1D @ 1D (dot product) on meta device
+// This tests the special case where aten::dot does not support meta device
+TEST_F(MetaTest, Matmul1D) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Build 1D @ 1D matmul fusion (dot product)
+  auto tv_a = makeContigConcreteTensor({128}, DataType::Float);
+  auto tv_b = makeContigConcreteTensor({128}, DataType::Float);
+  fusion->addInput(tv_a);
+  fusion->addInput(tv_b);
+
+  auto tv_out = matmul(tv_a, tv_b);
+  fusion->addOutput(tv_out);
+
+  // Create real inputs
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor a_input = at::randn({128}, options);
+  at::Tensor b_input = at::randn({128}, options);
+
+  // CUDA path via ExpressionEvaluator
+  ExpressionEvaluator ee_cuda;
+  ee_cuda.bind(fusion->inputs().at(0), a_input);
+  ee_cuda.bind(fusion->inputs().at(1), b_input);
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Meta evaluation - this is where the special handling for 1D @ 1D kicks in
+  ExpressionEvaluator ee_meta;
+  auto meta_a = at::empty_strided(
+      a_input.sizes(), a_input.strides(), options.device(at::kMeta));
+  auto meta_b = at::empty_strided(
+      b_input.sizes(), b_input.strides(), options.device(at::kMeta));
+  ee_meta.bind(fusion->inputs().at(0), meta_a);
+  ee_meta.bind(fusion->inputs().at(1), meta_b);
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Checks: tensor is meta, dtype/size/stride match
+  // For 1D @ 1D, the output should be a scalar (0-dimensional tensor)
+  EXPECT_TRUE(meta_out.is_meta());
+  EXPECT_EQ(meta_out.scalar_type(), at::kFloat);
+  EXPECT_EQ(meta_out.dim(), 0); // scalar output
+  EXPECT_EQ(meta_out.sizes(), real_out.sizes());
+  EXPECT_EQ(meta_out.strides(), real_out.strides());
+}
+
 } // namespace nvfuser
