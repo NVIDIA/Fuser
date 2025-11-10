@@ -1281,6 +1281,10 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
       executor_cache.runFusionWithInputs({sharded_input})[0].as<at::Tensor>();
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_TRUE(runtime->isSegmented());
+  if (d > 1) {
+    EXPECT_TRUE(runtime->isSegmented());
+  } else {
+    EXPECT_FALSE(runtime->isSegmented());
+  }
 }
 } // namespace nvfuser
