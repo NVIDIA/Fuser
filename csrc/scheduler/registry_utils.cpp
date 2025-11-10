@@ -1193,9 +1193,10 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     }
     // Collect only rfactor product ids. These are IDs that have been
     // transformed from root IDs and need consistent replay behavior.
-    // Device split can be safely ignored as its transformation was already
-    // checked and propagation in pre-segment pass. When reaching here, all
-    // the exising reshape transformations are compatible with device splits.
+    // Device splits can be safely ignored because their transformations were
+    // already validated and propagated during the pre-segmentation pass.
+    // At this point, all existing reshape transformations are guaranteed to be
+    // compatible with device splits.
     std::vector<IterDomain*> ids;
     for (Val* val : *val_group) {
       auto id = val->as<IterDomain>();
