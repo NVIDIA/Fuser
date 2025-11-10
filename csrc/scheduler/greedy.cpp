@@ -481,21 +481,12 @@ class CompileTimeChecker : private IterVisitor {
   }
 
   void handle(TopKOp* topk) override {
-    // Due to the current limitations of TopKOp codegen, all of the
-    // TIDx threads participate, which means the TID parallelized iter
-    // domain of this TopKOp must have an extent that is no less
-    // than any other TID parallelized iter domains.
-    needs_all_tid_participation_ = true;
-
     auto in_tv = ir_utils::getTvInput(topk);
     auto out_tv = ir_utils::getTvOutput(topk);
 
     // Like ScatterOp, the input defines the scheduling, so check the
     // input logical domain
-    checkDomainConstraints(
-        in_tv->getLogicalDomain(),
-        {topk->dim()},
-        /*require_exact_constrained_ids=*/true);
+    checkDomainConstraints(in_tv->getLogicalDomain(), {topk->dim()});
 
     // Only static dim supported for now.
     auto topk_id = out_tv->getLogicalDomain().at(topk->dim());
@@ -622,7 +613,8 @@ class CompileTimeChecker : private IterVisitor {
 
   ValGroups all_constrained_domain_;
 
-  // True if all threads need to participate without predicates
+  // True if all threads need to participate without predicates. This
+  // was previously used for ops like TopKOp.
   bool needs_all_tid_participation_ = false;
   bool has_largest_constrained_size_ = true;
   int64_t largest_constrained_size_ = -1;
@@ -695,7 +687,8 @@ class RunTimeChecker : private IterVisitor {
             ir_utils::getTvInput(topk)->getLogicalDomain()),
         {topk->dim()},
         dataTypeSizeByte(ir_utils::getTvInput(topk)->dtype()) +
-            dataTypeSizeByte(DataType::Int));
+            dataTypeSizeByte(DataType::Int),
+        /*support_batching=*/true);
 
     int64_t batch_size =
         ceilDiv(size_of_constrained_ids, max_threads_per_block_);
@@ -913,12 +906,6 @@ class HeuristicsBuilder : private IterVisitor {
         TensorDomain::noReductions(inp_tv->getLogicalDomain()),
         {topk->dim()},
         out_tv);
-
-    // TODO: Support batching
-    NVF_ERROR_EQ(
-        params_->getProducerParams(inp_tv, out_tv).batch_size,
-        1,
-        "TopKOp does not support batching");
   }
 
   // Make sure a given tensor has some heuristics parameters
@@ -1220,7 +1207,11 @@ class ConstrainedOpScheduler : public OptOutDispatch {
     // The heuristics parameter for the input is also used to schedule
     // the output so that both inputs and outputs have the same number
     // of items per thread
-    scheduleConstrainedTv(out_tv, {topk_dim}, params_for_input);
+    scheduleConstrainedTv(
+        out_tv,
+        {topk_dim},
+        params_for_input,
+        /*support_grouping=*/true);
   }
 
   void scheduleConstrainedTv(

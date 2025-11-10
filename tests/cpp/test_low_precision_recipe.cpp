@@ -176,11 +176,13 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
-class BlockQuantizationTest : public BlackwellBase,
-                              public ::testing::WithParamInterface<DataType> {};
+class BlockQuantizationTest
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<std::tuple<DataType, int64_t>> {};
 
 TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
-  auto data_hp_dtype = GetParam();
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto group_width = std::get<1>(GetParam());
 
   // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -221,7 +223,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(t_out);
 
-  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
+  auto vectorization_factor = group_width;
 
   for (auto t :
        {tv_data_hp,
@@ -235,7 +237,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
       t->merge(-2);
     }
 
-    // split by 4 (or 8).
+    // split by 4 (or 2, 8).
     // I -> I/4, 4
     t->split(-1, vectorization_factor);
     // I//4, 4 -> I/4, 1, 4
@@ -289,7 +291,8 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
 }
 
 TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
-  auto data_hp_dtype = GetParam();
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto group_width = std::get<1>(GetParam());
 
   // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -335,7 +338,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
 
   t0->setMemoryType(MemoryType::Local);
 
-  auto vectorization_factor = data_hp_dtype == DataType::Float ? 4 : 8;
+  auto vectorization_factor = group_width;
 
   for (auto t :
        {tv_data_hp,
@@ -343,7 +346,8 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
         quantization_results.quantized_tensor,
         quantization_results.block_scales,
         t_out}) {
-    // (m, n) -> (m, n/4, 4) (or (m, n/8, 8) if bfloat16)
+    // We split by 4 as an example, but can also be 2 or 8(fp16/bf16 on;y)
+    // (m, n) -> (m, n/4, 4)
     // (m, n/4, 4) -> (m, n/128, 32, 4)
     t->split(-1, vectorization_factor); // V
     t->split(-2, 32); // BDx
@@ -403,6 +407,286 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   // Basic shape checks
   EXPECT_EQ(block_scales_output.dim(), 2);
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
+}
+
+class BlockQuantizationValidationTest : public BlackwellBase {
+ protected:
+  struct FusionSetup {
+    std::unique_ptr<Fusion> fusion;
+    TensorView* tv_data_hp;
+    TensorView* t0;
+    TensorView* quantized_tensor;
+    TensorView* block_scales;
+    TensorView* t_out;
+  };
+
+  // Helper function to create a fusion with blockQuantize and apply scheduling
+  FusionSetup createBlockQuantizeFusion(int64_t dim = 2) {
+    FusionSetup setup;
+    setup.fusion = std::make_unique<Fusion>();
+    FusionGuard fg(setup.fusion.get());
+
+    setup.tv_data_hp = makeContigTensor(dim, DataType::Float);
+    setup.fusion->addInput(setup.tv_data_hp);
+
+    setup.t0 = set(setup.tv_data_hp);
+    auto quantization_results = blockQuantize(setup.t0);
+    setup.quantized_tensor = quantization_results.quantized_tensor;
+    setup.block_scales = quantization_results.block_scales;
+    setup.t_out = set(setup.quantized_tensor);
+
+    setup.fusion->addOutput(setup.block_scales);
+    setup.fusion->addOutput(setup.t_out);
+
+    return setup;
+  }
+
+  // Helper to apply common merge and split operations
+  // This is limited for the tests with 2D tv inputs.
+  void applyMergeAndSplit(
+      TensorView* t,
+      int64_t split_factor,
+      int64_t inner_split = 1,
+      int64_t thread_split = 128) {
+    // Merge all dims
+    // (I0, I1) -> (I0*I1) == (I)
+    t->merge(-2);
+
+    // Apply splits: I -> I/split_factor, split_factor
+    t->split(-1, split_factor);
+    // I/split_factor, split_factor -> I/split_factor/inner_split, inner_split,
+    // split_factor
+    t->split(-2, inner_split);
+    // I/split_factor/inner_split, inner_split, split_factor  ->
+    // I/split_factor/inner_split/thread_split, thread_split, inner_split,
+    // split_factor
+    t->split(-3, thread_split);
+  }
+};
+
+// Input is in global memory - not valid
+TEST_F(BlockQuantizationValidationTest, InputMustBeInLocalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(t_out);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Input must be a local memory tensor")));
+}
+
+// Quantized output is written to global memory - not valid
+TEST_F(BlockQuantizationValidationTest, QuantizedOutputMustBeInLocalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(quantization_results.quantized_tensor);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Quantized output must be a local memory tensor")));
+}
+
+// Block scaling factor is written to local memory - not valid
+TEST_F(
+    BlockQuantizationValidationTest,
+    BlockScalingFactorMustBeInGlobalMemory) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto tv_block_scales = set(quantization_results.block_scales);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_block_scales);
+  fusion->addOutput(tv_quantized_out);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block scaling factor must be a global memory tensor")));
+}
+
+// Group ID must be the innermost of all splits from logical domains to loop
+// domains
+TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(
+        t, /*split_factor=*/128, /*inner_split=*/1, /*thread_split=*/4);
+
+    if (t != setup.tv_data_hp) {
+      // Mark outer ID as Group for quantized outputs (should fail)
+      // instead of innermost ID
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-3)->parallelize(ParallelType::Group);
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+        t->axis(-3)->parallelize(ParallelType::TIDx);
+      }
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "The grouped ID must correspond to the innermost of all splits from "
+          "logical domains to loop domains for BlockQuantizationOp")));
+}
+
+// We do not allow IDs of types serial, unroll, unswitch to have extent > 1
+// We do not want the runtime kernel which implement block quantization to be
+// called multiple times in a kernel as yet
+TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    // There will be a non-parallelized ID with a trip count of 2
+    applyMergeAndSplit(t, /*split_factor=*/4, /*inner_split=*/2);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Expected non-TID/BID/Group ID to have extent of 1 for "
+          "BlockQuantizationOp")));
+}
+
+// The runtime kernel for block quantization expects TIDx to access contiguous
+// memory locations - just 16, but to be safe we enforce all memory locations of
+// TIDx are contiguous. To enforce this, TIDx must be the second innermost ID
+// after Group ID. By that we mean if we derive this ID from the logical domain,
+// there should be no other IDs between Group ID and TIDx except for IDs with
+// extent of 1.
+TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
+  auto setup = createBlockQuantizeFusion();
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    applyMergeAndSplit(t, /*split_factor=*/4);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      // TIDx is "outer" compared to BIDx causing a failure
+      t->axis(-3)->parallelize(ParallelType::BIDx);
+      t->axis(-4)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Expected IDs between Group ID and TIDx to have extent of 1 for "
+          "BlockQuantizationOp:")));
+}
+
+// When running validation checks we traverse from loop to logical domain
+// and vice-versa. During this traversal, when we encounter a merge operation,
+// we find all input IDs to the merge (traced back to the logical domain of the
+// quantized output). The input IDs in the logical domain need to be contiguous.
+TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
+  auto setup = createBlockQuantizeFusion(/*dim=*/3);
+  FusionGuard fg(setup.fusion.get());
+
+  std::vector<TensorView*> tensors = {
+      setup.tv_data_hp,
+      setup.t0,
+      setup.quantized_tensor,
+      setup.block_scales,
+      setup.t_out};
+
+  for (auto t : tensors) {
+    // Merge first two dims instead of last two
+    // This will cause a failure as the merged IDs are not contiguous
+    t->reorder({{0, 1}, {1, 0}}); // (i0, i1, i2) -> (i1, i0, i2)
+    t->merge(1);
+
+    // split I1 by 4
+    t->split(-1, 4);
+    // I/4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I/4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != setup.tv_data_hp) {
+      if (t == setup.block_scales || t == setup.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+      t->axis(-5)->parallelize(ParallelType::BIDy);
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(setup.fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "All merge operations deriving the grouped ID must combine "
+          "contiguous "
+          "IDs from the logical domain for BlockQuantizationOp")));
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
@@ -556,7 +840,19 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ,
     BlockQuantizationTest,
-    ::testing::Values(DataType::BFloat16, DataType::Float, DataType::Half),
-    testing::PrintToStringParamName());
+    ::testing::Values(
+        std::make_tuple(DataType::Float, 2),
+        std::make_tuple(DataType::Float, 4),
+        std::make_tuple(DataType::BFloat16, 2),
+        std::make_tuple(DataType::BFloat16, 4),
+        std::make_tuple(DataType::BFloat16, 8),
+        std::make_tuple(DataType::Half, 2),
+        std::make_tuple(DataType::Half, 4),
+        std::make_tuple(DataType::Half, 8)),
+    [](const testing::TestParamInfo<std::tuple<DataType, int64_t>>& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "_GroupWidth" << std::get<1>(info.param);
+      return os.str();
+    });
 
 } // namespace nvfuser
