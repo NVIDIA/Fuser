@@ -1684,7 +1684,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
             def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>() ||
-            def->isA<ScanOp>(),
+            def->isA<ScanOp>() || def->isA<ScaleByMaxOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

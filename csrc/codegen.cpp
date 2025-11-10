@@ -1877,6 +1877,52 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(fn_call, template_args, func_args) << ";\n";
   }
 
+  void handle(const ScaleByMaxOp* sop) final {
+    auto output = sop->out()->as<kir::TensorIndex>()->view();
+    int64_t group_size = 1;
+
+    const auto& loop_domain = output->getLoopDomain();
+    for (auto* domain : loop_domain) {
+      auto parallel_type = domain->getParallelType();
+      if (parallel_type == ParallelType::Group) {
+        if (domain->extent()->isConstInt()) {
+          group_size = domain->extent()->evaluate().as<int64_t>();
+        }
+      }
+    }
+
+    auto input_dtype = sop->in()->as<kir::TensorIndex>()->view()->getDataType();
+
+    if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
+      NVF_ERROR(
+          group_size == 8 || group_size == 4 || group_size == 2,
+          "Group size should be 2, 4 or 8 for "
+          "BlockQuantizationOp: ",
+          sop->toString());
+
+    } else {
+      NVF_ERROR(
+          group_size == 4 || group_size == 2,
+          "Group size should be 2 or 4 for "
+          "BlockQuantizationOp: ",
+          sop->toString());
+    }
+
+    ArgumentBuilder template_args;
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Function arguments
+    ArgumentBuilder func_args;
+
+    // First argument: input data array
+    // Second argument: output
+    func_args.arg(genInline(sop->in()->as<kir::TensorIndex>()->view()));
+    func_args.arg(genInline(output));
+
+    indent() << genCall("bq::max_scale_float4", template_args, func_args)
+             << ";\n";
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "

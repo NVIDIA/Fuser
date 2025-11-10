@@ -147,6 +147,8 @@ struct KernelSummary {
 
   bool has_block_quantize_op = false;
 
+  bool has_scale_by_max_op = false;
+
   //! Do we have any topk op?
   bool has_topk = false;
 

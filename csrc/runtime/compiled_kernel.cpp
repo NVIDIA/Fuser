@@ -1067,7 +1067,8 @@ std::string _getStructuredCode(
     bool has_scan = false,
     bool has_block_layout = false,
     bool has_cluster_reduction = false,
-    bool has_block_quantize_op = false) {
+    bool has_block_quantize_op = false,
+    bool has_scale_by_max_op = false) {
   // generating cuda code;
   std::string code = "";
 
@@ -1112,7 +1113,7 @@ std::string _getStructuredCode(
     code += nvfuser_resources::block_layout_cu;
   }
 
-  if (has_block_quantize_op) {
+  if (has_block_quantize_op || has_scale_by_max_op) {
     code += nvfuser_resources::block_quantization_kernels_cu;
   }
 
@@ -1465,7 +1466,8 @@ std::string CompiledKernel::getStructuredCode() const {
       kernel()->summary().has_scan,
       kernel()->summary().has_preprocess_grouped_matmul_input_sf,
       kernel()->summary().has_cluster_reduction,
-      kernel()->summary().has_block_quantize_op);
+      kernel()->summary().has_block_quantize_op,
+      kernel()->summary().has_scale_by_max_op);
 }
 
 std::string CompiledKernel::disassembledKernelSASS() const {

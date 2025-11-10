@@ -848,4 +848,6 @@ NVF_API BlockQuantizationResults blockQuantize(
     int64_t block_size = 0,
     DataType out_dtype = DataType::Float4_e2m1fn);
 
+NVF_API TensorView* scaleByMax(TensorView* input);
+
 } // namespace nvfuser

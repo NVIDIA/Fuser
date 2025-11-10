@@ -3428,4 +3428,31 @@ class BlockQuantizationOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class ScaleByMaxOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  ScaleByMaxOp(IrBuilderPasskey, Val* output, Val* input);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  Val* out() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  const char* getOpString() const override {
+    return "ScaleByMaxOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser

@@ -2730,4 +2730,10 @@ BlockQuantizationResults blockQuantize(
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }
 
+NVF_API TensorView* scaleByMax(TensorView* input) {
+  TensorView* output = ops::newOutputTV({input}, input->getDataType().value());
+  IrBuilder::create<ScaleByMaxOp>(output, input);
+  return output;
+}
+
 } // namespace nvfuser

@@ -467,6 +467,13 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 
+void IndexLowering::handle(const ScaleByMaxOp* sop) {
+  const auto in = lowerSrcIndex(sop->in(), sop->out());
+  const auto out = lowerDstIndex(sop->out());
+  pushBack(IrBuilder::create<ScaleByMaxOp>(out, in));
+  GpuLower::current()->propagateExprInfo(sop, back());
+}
+
 void IndexLowering::handle(const SelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;

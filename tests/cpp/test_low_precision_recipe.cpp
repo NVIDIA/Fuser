@@ -985,6 +985,59 @@ TEST_F(BlockQuantizationToE4M3Test, BasicTest) {
   EXPECT_EQ(quantized_tensor_output.dim(), 2);
 }
 
+class ScaleByMaxTest : public NVFuserTest {};
+
+TEST_F(ScaleByMaxTest, BasicTest) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  int vectorization_factor = 4;
+
+  auto tv_in = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_in);
+
+  auto t0 = set(tv_in);
+  auto t1 = scaleByMax(t0);
+  auto tv_out = set(t1);
+
+  fusion->addOutput(tv_out);
+
+  for (auto t : {tv_in, t0, t1, tv_out}) {
+    // Merge all dims.
+    t->merge(-2);
+
+    // split by 4 (or 2, 8).
+    // I -> I/4, 4
+    t->split(-1, vectorization_factor);
+    // I//4, 4 -> I/4, 1, 4
+    t->split(-2, 1);
+    // I//4, 1, 4 -> I/512, 128, 1, 4
+    t->split(-3, 128);
+
+    if (t != tv_in) {
+      if (t == t1) {
+        t->axis(-1)->parallelize(ParallelType::Group);
+      } else {
+        t->axis(-1)->parallelize(ParallelType::Vectorize);
+      }
+      t->axis(-3)->parallelize(ParallelType::TIDx);
+      t->axis(-4)->parallelize(ParallelType::BIDx);
+    }
+  }
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)));
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), inputs);
+  auto outputs = ke.run(inputs);
+
+  auto output_tensor = outputs[0].as<at::Tensor>();
+
+  // Verify output is a 2D tensor
+  EXPECT_EQ(output_tensor.dim(), 2);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,

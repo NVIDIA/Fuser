@@ -129,6 +129,7 @@ bool isTvOp(const Expr* expr) {
           ScanOp,
           PreprocessGroupedMatmulInputSf,
           BlockQuantizationOp,
+          ScaleByMaxOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,

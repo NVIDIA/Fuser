@@ -6498,4 +6498,31 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
+ScaleByMaxOp::ScaleByMaxOp(IrBuilderPasskey passkey, Val* output, Val* input)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+}
+
+std::string ScaleByMaxOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = scale_by_max(" << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string ScaleByMaxOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "ScaleByMaxOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> ScaleByMaxOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("ScaleByMaxOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScaleByMaxOp)
+
 } // namespace nvfuser

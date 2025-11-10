@@ -316,6 +316,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_block_quantize_op = true;
   }
 
+  void handle(ScaleByMaxOp* sop) final {
+    summary_.has_scale_by_max_op = true;
+  }
+
   void handle(ScanOp* scan) final {
     summary_.has_scan = true;
   }
