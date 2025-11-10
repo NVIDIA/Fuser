@@ -1298,6 +1298,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
   }
 
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<Val*> original_inputs;
   // If we're going to unroll, make a cache of the inputs
   for (auto [input_idx, input] : enumerate(fusion->inputs())) {
     auto tv = dynamic_cast<TensorView*>(input);
@@ -1359,7 +1360,17 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
         /*cached_uses=*/cached_uses);
 
     cached_inputs.emplace_back(cached_tv, input_idx);
+    original_inputs.push_back(tv);
   }
+
+  if (!original_inputs.empty()) {
+    // Add wait for prior grid before getting the cached inputs
+    TensorView* grid_wait = wait_for_prior_grid(original_inputs);
+    for (auto [cached_input_tv, _] : cached_inputs) {
+      cached_input_tv->addDependency(grid_wait);
+    }
+  }
+
   return cached_inputs;
 }
 
