@@ -1677,19 +1677,13 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
         norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
 
         mean_cast = fd.ops.cast(t0, dtype=DataType.Float)
-        sum0 = fd.ops.sum(mean_cast, dims=[-1])
-        # NOTE Manually broadcast because fusion definition cannot access
-        # hidden reduction tensor view.
-        bcast_sum0 = fd.ops.broadcast(sum0, [False, True])
+        bcast_sum0 = fd.ops.sum(mean_cast, dims=[-1], keepdim=True)
         mean = fd.ops.div(bcast_sum0, norm_const)
 
         var_cast = fd.ops.cast(t0, dtype=DataType.Float)
         diff = fd.ops.sub(var_cast, mean)
         diff_sq = fd.ops.mul(diff, diff)
-        sum1 = fd.ops.sum(diff_sq, dims=[-1])
-        # NOTE Manually broadcast because fusion definition cannot access
-        # hidden reduction tensor view.
-        bcast_sum1 = fd.ops.broadcast(sum1, [False, True])
+        bcast_sum1 = fd.ops.sum(diff_sq, dims=[-1], keepdim=True)
         var = fd.ops.div(bcast_sum1, norm_const)
 
         t0_cast = fd.ops.cast(t0, dtype=DataType.Float)
@@ -1700,9 +1694,9 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
         t0_norm_cast = fd.ops.cast(t0_norm, dtype=DataType.BFloat16)
         fd.add_output(t0_norm_cast)
 
-        return t0, mean, t0_norm, sum0, sum1
+        return t0, mean, t0_norm
 
-    def _schedule_func(fd: FusionDefinition, t0, mean, t0_norm, sum0, sum1):
+    def _schedule_func(fd: FusionDefinition, t0, mean, t0_norm):
         """Schedule the layer norm fusion."""
         # create cache tensors
         cache_after_t0 = t0.cache_after()
@@ -1710,31 +1704,42 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
 
         cache_before_t0_norm = t0_norm.cache_before()
         cache_tvs = [cache_after_t0, cache_before_t0_norm]
-        print("cache input:\t", cache_after_t0)
-        print("cache output:\t", cache_before_t0_norm)
+        if verbose_:
+            print("cache input:\t", cache_after_t0)
+            print("cache output:\t", cache_before_t0_norm)
 
         # Schedule Reference Tensor
         reference_tv = mean
         reference_tv.split(-1, 256 * 4)
         reference_tv.split(-1, 4)
         fd.sched.transform_like(reference_tv)
-        print("scheduled reference tensor:\n", reference_tv)
+        if verbose_:
+            print("scheduled reference tensor:\n", reference_tv)
 
         # Add rfactor TensorViews
-        reduction_tvs = [sum0, sum1]
+        all_tvs = filter(lambda v: v.is_tensor(), fd.fusion.vals())
+        reduction_tvs = list(
+            filter(
+                lambda tv: any(id.is_reduction() for id in tv.get_logical_domain()),
+                all_tvs,
+            )
+        )
+        assert len(reduction_tvs) == 2
         rfactor_tvs = [tv.rfactor([-1]) for tv in reduction_tvs]
 
         # Add common parallelization
         reference_tv.axis(0).parallelize(ParallelType.grid_x)
         reference_tv.axis(-2).parallelize(ParallelType.block_x)
         fd.sched.parallelize_like(reference_tv)
-        print("parallelized reference tensor:\n", reference_tv)
+        if verbose_:
+            print("parallelized reference tensor:\n", reference_tv)
 
         # Vectorize input load and output store
         cache_after_t0.axis(-1).parallelize(ParallelType.vectorize)
         t0_norm.axis(-1).parallelize(ParallelType.vectorize)
-        print("vectorized input load:\n", cache_after_t0)
-        print("vectorized output store:\n", t0_norm)
+        if verbose_:
+            print("vectorized input load:\n", cache_after_t0)
+            print("vectorized output store:\n", t0_norm)
 
         # Add computeAt; inline_most automatically skips vectorized iterDomains
         fd.sched.inline_most()
@@ -1748,8 +1753,8 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     print("\n\n===================== Schedule Layer Norm =========================")
 
     with FusionDefinition() as fd:
-        t0, mean, t0_norm, sum0, sum1 = _definition_func(fd, inputs, tensor_size)
-        _schedule_func(fd, t0, mean, t0_norm, sum0, sum1)
+        t0, mean, t0_norm = _definition_func(fd, inputs, tensor_size)
+        _schedule_func(fd, t0, mean, t0_norm)
 
     with PythonProfiler(auto_scheduled=False) as prof:
         nvf_out = fd.manual_execute(inputs)
