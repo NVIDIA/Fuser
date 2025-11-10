@@ -1694,24 +1694,26 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
         t0_norm_cast = fd.ops.cast(t0_norm, dtype=DataType.BFloat16)
         fd.add_output(t0_norm_cast)
 
-        return mean, t0_norm
-
-    def _schedule_func(fd: FusionDefinition, mean, t0_norm):
+    def _schedule_func(fd: FusionDefinition):
         """Schedule the layer norm fusion."""
         tv_inputs = list(filter(lambda v: v.is_tensor(), fd.fusion.inputs()))
         assert len(tv_inputs) == 1
+
+        tv_outputs = list(filter(lambda v: v.is_tensor(), fd.fusion.outputs()))
+        assert len(tv_outputs) == 1
+
         # create cache tensors
         cache_after_t0 = tv_inputs[0].cache_after()
         cache_after_t0.set_memory_type(MemoryType.shared)
 
-        cache_before_t0_norm = t0_norm.cache_before()
+        cache_before_t0_norm = tv_outputs[0].cache_before()
         cache_tvs = [cache_after_t0, cache_before_t0_norm]
         if verbose_:
             print("cache input:\t", cache_after_t0)
             print("cache output:\t", cache_before_t0_norm)
 
         # Schedule Reference Tensor
-        reference_tv = mean
+        reference_tv = tv_outputs[0]
         reference_tv.split(-1, 256 * 4)
         reference_tv.split(-1, 4)
         fd.sched.transform_like(reference_tv)
@@ -1738,10 +1740,10 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
 
         # Vectorize input load and output store
         cache_after_t0.axis(-1).parallelize(ParallelType.vectorize)
-        t0_norm.axis(-1).parallelize(ParallelType.vectorize)
+        tv_outputs[0].axis(-1).parallelize(ParallelType.vectorize)
         if verbose_:
             print("vectorized input load:\n", cache_after_t0)
-            print("vectorized output store:\n", t0_norm)
+            print("vectorized output store:\n", tv_outputs[0])
 
         # Add computeAt; inline_most automatically skips vectorized iterDomains
         fd.sched.inline_most()
@@ -1755,8 +1757,8 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     print("\n\n===================== Schedule Layer Norm =========================")
 
     with FusionDefinition() as fd:
-        mean, t0_norm = _definition_func(fd, inputs, tensor_size)
-        _schedule_func(fd, mean, t0_norm)
+        _definition_func(fd, inputs, tensor_size)
+        _schedule_func(fd)
 
     with PythonProfiler(auto_scheduled=False) as prof:
         nvf_out = fd.manual_execute(inputs)
