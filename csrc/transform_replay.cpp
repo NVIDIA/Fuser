@@ -297,31 +297,29 @@ void TransformReplay::selfReplay(
   ReplaySelf replay(loop, axis_map);
 
   // Replay loop.
-  if (loop != self->logical()) {
-    std::vector<IterDomain*> new_loop;
-    if (ignore_reductions) {
-      for (auto* id : new_self->logical()) {
-        if (id->isReduction()) {
-          new_loop.push_back(id);
-        }
+  std::vector<IterDomain*> new_loop;
+  if (ignore_reductions) {
+    for (auto* id : new_self->logical()) {
+      if (id->isReduction()) {
+        new_loop.push_back(id);
       }
     }
-
-    for (IterDomain* loop_id : loop) {
-      if (ignore_reductions && loop_id->isReduction()) {
-        continue;
-      }
-      auto it = replay.getReplay().find(loop_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          loop_id);
-      it->second->parallelize(loop_id->getParallelType());
-      new_loop.push_back(it->second);
-    }
-
-    new_self->setLoopDomain(new_loop);
   }
+
+  for (IterDomain* loop_id : loop) {
+    if (ignore_reductions && loop_id->isReduction()) {
+      continue;
+    }
+    auto it = replay.getReplay().find(loop_id);
+    NVF_ERROR(
+        it != replay.getReplay().end(),
+        "failed to replay IterDomain: ",
+        loop_id);
+    it->second->parallelize(loop_id->getParallelType());
+    new_loop.push_back(it->second);
+  }
+
+  new_self->setLoopDomain(new_loop);
 
   // Replay allocation.
   if (self->hasAllocation()) {
