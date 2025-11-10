@@ -29,6 +29,7 @@ class HostIrIntegrationTest : public NVFuserTest {
  protected:
   HostIrIntegrationTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
   }
 };
 
@@ -199,8 +200,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  const std::vector<Expr*>& exprs =
-      runtime->getHostIrContainer().topLevelExprs();
+  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
 
   EXPECT_THAT(exprs, Contains(IsA<Deallocate>()).Times(2));
 
@@ -262,10 +262,9 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  const std::vector<Expr*>& hicExprs =
-      runtime->getHostIrContainer().topLevelExprs();
+  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(0));
+  EXPECT_THAT(exprs, Contains(IsA<Deallocate>()).Times(0));
 
   EXPECT_EQ(out_tensors.size(), 2);
   EXPECT_TRUE(std::all_of(

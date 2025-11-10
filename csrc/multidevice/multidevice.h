@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <vector>
+
 #include <c10/core/Device.h>
 
 namespace nvfuser {

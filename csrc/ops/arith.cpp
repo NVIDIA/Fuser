@@ -2528,47 +2528,58 @@ TopKResult topk(
       "TopKOp expects int64_t input for k but got ",
       k->dtype());
 
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(inp_domain.size());
+  TensorView* out_values = nullptr;
+  TensorView* out_indices = nullptr;
 
-  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-    // TODO: nvfuser enumerate implementation is not correct, it should return
-    // signed ints instead.
-    if (index != (size_t)dim) {
-      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
-      continue;
+  // Create a root-to-logical resize for the topk dimension. The root
+  // dimension just inherits the same properties as the producer
+  // dimension. It's resized to generate a logical iter domain of
+  // extent K by slicing the root iter domain by [0:k].
+  //
+  // The first output generated when i == 0 is the value output. The
+  // second is the index output.
+  for (const int i : arange(2)) {
+    std::vector<IterDomain*> values_root;
+    values_root.reserve(inp_domain.size());
+    std::vector<IterDomain*> values_logical;
+    values_logical.reserve(inp_domain.size());
+
+    for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+      auto root_id = inp_domain_ptr->cloneWithoutRFactor();
+      values_root.push_back(root_id);
+      if (index != (size_t)dim) {
+        // Root and logical are the same for non topk dim
+        values_logical.push_back(root_id);
+        continue;
+      }
+
+      auto logical_id = IterDomain::resize(
+          root_id,
+          inp->fusion()->zeroVal(DataType::Index),
+          SimplifyingIrBuilder::subExpr(k, root_id->extent()),
+          /*mark_as_rfactor=*/true);
+
+      values_logical.push_back(logical_id);
     }
 
-    // Handling top k dimension, since the output extent is k.
-    ExpressionEvaluator ee;
-    PolymorphicValue ext = ee.evaluate(k);
-
-    IterType iter_type;
-    if (ext.hasValue()) {
-      iter_type =
-          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    auto dtype = i == 0 ? inp->dtype() : DataType::Int;
+    auto out_tv = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            values_root,
+            values_logical,
+            values_logical,
+            TensorDomain::getContiguityFilledWith(values_logical, true)),
+        dtype);
+    if (i == 0) {
+      out_values = out_tv;
     } else {
-      iter_type =
-          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+      out_indices = out_tv;
     }
-    out_domain.push_back(
-        IterDomainBuilder(
-            inp->fusion()->zeroVal(),
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
-            .iter_type(iter_type)
-            .build());
   }
-
-  TensorView* out_values = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  Val* out_indices = ops::newValLike(out_values, DataType::Int);
 
   IrBuilder::create<TopKOp>(
       out_values, out_indices, inp, k, dim, largest, sorted);
-  return TopKResult(
-      out_values->as<TensorView>(), out_indices->as<TensorView>());
+  return TopKResult(out_values, out_indices);
 }
 
 TensorView* scan(
@@ -2618,6 +2629,87 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       dim,
       BinaryOpType::Add,
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+}
+
+// Currently this node gets lowered to a runtime function, which expects the
+// inputs in registers and writes out the quantized values to registers and
+// block scales to global memory.
+BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    int64_t block_size,
+    DataType out_dtype) {
+  NVF_CHECK(
+      block_size == 16,
+      "Currently only block size of 16 is supported, got ",
+      block_size);
+
+  NVF_CHECK(
+      out_dtype == DataType::Float4_e2m1fn,
+      "Currently only output data type of Float4_e2m1fn is supported");
+
+  // Validate input data type
+  // We'll only support FP32 or BF16/FP16
+  NVF_CHECK(
+      input->getDataType().value() == DataType::Float ||
+          input->getDataType().value() == DataType::BFloat16 ||
+          input->getDataType().value() == DataType::Half,
+      "Block quantization expects floating point input but got ",
+      input->getDataType().value());
+
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  // Validate input tensor is not zero-dimensional
+  NVF_CHECK(
+      !inp_domain.empty(),
+      "Block quantization does not support zero-dimensional tensors");
+
+  // Create output domain for quantized tensor (same shape as input)
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  // Create output domain for block scales
+  // We'll clone the outer domains but divide the
+  // extent of the inner domain by 16. (block_size).
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      out_dtype);
+
+  // Create block scaling factors
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          scales_out_domain,
+          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+      DataType::Float8_e4m3fn);
+
+  // Create the block quantization operation
+  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
 }
 
 } // namespace nvfuser

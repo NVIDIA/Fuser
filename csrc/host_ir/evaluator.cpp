@@ -24,6 +24,7 @@
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -349,13 +350,11 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    auto count = buffer.numel() * buffer.element_size();
     if (communication->type() == P2PCommunicationType::RECV) {
-      get_zcopy::recvPost(
-          p2p_ipc_handle,
-          buffer.numel() * buffer.element_size(),
-          current_stream);
+      recvPost(p2p_ipc_handle, count, current_stream);
     } else {
-      get_zcopy::sendPost(p2p_ipc_handle, current_stream);
+      sendPost(p2p_ipc_handle, count, current_stream);
     }
   } else {
     validateSizesAndStrides(
@@ -373,11 +372,13 @@ void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
   auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
-      const auto current_stream = static_cast<CUstream>(
-          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
-      get_zcopy::sendWait(ipc_handles, current_stream);
+      sendWait(ipc_handles, current_stream);
+    } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
+      recvWait(ipc_handles, current_stream);
     }
   } else {
     auto i = works_.find(communication);

@@ -12,12 +12,20 @@
 namespace nvfuser {
 
 class Fusion;
+class Val;
 
 class CutlassParams;
+class ScaledMmaOp;
 
 namespace cutlass_codegen {
 
-bool hasNvfp4ScaledMmPattern(Fusion* fusion);
+ScaledMmaOp* findScaledMmaOp(Fusion* fusion);
+
+//! Simply finds the position of a Val in fusion->inputs().
+int64_t fusionInputPosition(Fusion* fusion, Val* v);
+
+//! Simply finds the position of a Val in fusion->outputs().
+int64_t fusionOutputPosition(Fusion* fusion, Val* v);
 
 std::string generateNvfp4ScaledMmKernel(
     Fusion* fusion,

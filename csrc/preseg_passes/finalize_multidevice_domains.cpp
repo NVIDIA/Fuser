@@ -13,8 +13,10 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <linked_hash_map.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/utils.h>
 #include <scheduler/utils.h>
+#include <type.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -62,10 +64,10 @@ bool isLoopStreamParallelized(const TensorView* tv) {
       [](IterDomain* id) { return id->isStream(); });
 }
 
-// Splits the allocation domain of a TensorView if it is device or stream
-// parallelized Device parallelization is always propagated to the allocation
-// domain Stream parallelization is propagated to the allocation domain if it is
-// allocated inside a for loop.
+// Splits the allocation domain of a TensorView when it has device or stream
+// parallelization. Device parallelization always propagates to the allocation
+// domain. Stream parallelization propagates only if the tensor is allocated
+// inside a for loop.
 void shardAllocation(TensorView* tv) {
   if (!isLoopStreamParallelized(tv) && !tv->hasDeviceMesh()) {
     // This is required for tests such as `LayoutOpTest.SchedulerKernel` The
@@ -73,50 +75,15 @@ void shardAllocation(TensorView* tv) {
     // currently cause errors when setting allocation domain.
     return;
   }
-  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (const auto&& [id, contiguity] :
-       zip(tv->getMaybeAllocationDomain(), tv->getContiguity())) {
-    allocation_to_contiguity.pushBack(id, contiguity);
+
+  std::unordered_set<ParallelType> parallel_types(
+      kParallelTypeDIDs.begin(), kParallelTypeDIDs.end());
+  if (shouldParallelizeAllocationOnStream(tv)) {
+    parallel_types.insert(ParallelType::Stream);
   }
-
-  // Allocation domain should be a permutation of logical domain at this point.
-  auto loop_stream_device_view =
-      tv->getLoopDomain() | std::views::filter([](IterDomain* id) {
-        return id->isStream() || id->isDeviceDim();
-      });
-  std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
-      {tv->getMaybeAllocationDomain().begin(),
-       tv->getMaybeAllocationDomain().end()},
-      {loop_stream_device_view.begin(), loop_stream_device_view.end()});
-
-  for (auto* expr : transform_exprs) {
-    auto* split = dynamic_cast<Split*>(expr);
-    NVF_ERROR(
-        split != nullptr,
-        "Expected all transform exprs to be a split between allocation and "
-        "loop domain during sharding propagation.");
-    if (split->outer()->isStream() &&
-        !shouldParallelizeAllocationOnStream(tv)) {
-      continue;
-    }
-    const auto [contiguity, split_i] =
-        allocation_to_contiguity.erase(split->in());
-    auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity);
-    allocation_to_contiguity.insert(split_i, split->outer(), outer_contiguity);
-    allocation_to_contiguity.insert(split_i, split->inner(), inner_contiguity);
-  }
-
-  std::vector<IterDomain*> new_allocation_domain;
-  std::vector<std::optional<bool>> new_contiguity;
-  new_allocation_domain.reserve(allocation_to_contiguity.size());
-  new_contiguity.reserve(allocation_to_contiguity.size());
-
-  for (auto&& [id, contiguity] : allocation_to_contiguity) {
-    new_allocation_domain.push_back(id);
-    new_contiguity.push_back(contiguity);
-  }
-  tv->setAllocationDomain(new_allocation_domain, new_contiguity);
+  shardAllocationAsLoop(tv, parallel_types);
 }
+
 } // namespace
 
 void FinalizeMultideviceDomainsPass::runPass(Fusion* fusion) {

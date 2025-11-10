@@ -440,6 +440,43 @@ TEST_F(GreedySchedulerTest, TopKPad) {
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
+// Mostly the same fusion as TopKPad but the result of the padding
+// is bigger than the input of the topk op. Since the overall
+// blockDim.x is determined by the largest size of the constraint
+// extent, it becomes larger than the extent of TopK iter domain,
+// and thus it would have been rejected by the greedy scheduler if
+// the requirement of
+// CompileTimeChecker::needs_all_tid_participation_ were not lifted.
+TEST_F(GreedySchedulerTest, TopKWithPartialTidParticipation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {4, 8};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = add(tv0, fusion.oneVal(DataType::Int));
+  auto k_val = IrBuilder::create<Val>(7L, DataType::Int);
+  auto topk_result = topk(tv1, k_val, 1, /*largest=*/true, /*sorted=*/true);
+  auto tv_indices = topk_result.indices;
+  auto tv_indices_padded =
+      pad(tv_indices,
+          {fusion.oneVal(DataType::Int), fusion.zeroVal(DataType::Int)});
+  fusion.addOutput(tv_indices_padded);
+
+  at::Tensor t0 = at::randint(
+      -100,
+      100,
+      shape,
+      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0));
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
 // Extracted from test_moe.py
 // clang-format off
 /*
@@ -900,6 +937,29 @@ TEST_P(GreedySchedulerTestConstraintSize, ArgsortArgsort) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_P(GreedySchedulerTestConstraintSize, TopKLargeConstrainedIDs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {10, size};
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = topk(tv0, fusion.oneVal(DataType::Int), 1).values;
+  auto tv2 = add(tv1, fusion.oneVal());
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+
   EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 

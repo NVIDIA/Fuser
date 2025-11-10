@@ -162,15 +162,28 @@ void TensorView::inlineAt(
 
   pos = nvfuser::wrapDim(pos, nDims() + 1);
 
+  const auto requested_pos = pos;
+
   int64_t max_inline_pos = (int64_t)calc->getMaxPosAll(this, best_effort);
 
   if (best_effort) {
     pos = std::min<int64_t>(max_inline_pos, pos);
   }
 
+  const auto before_broadcast_adjustment = pos;
+
   // hoist inner most broadcast
   while (pos > 0 && axis(pos - 1)->isBroadcast()) {
     pos--;
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+    debug() << "Inlining position of " << toString() << ": " << pos
+            << " (requested: " << requested_pos
+            << ", best effort: " << (best_effort ? "yes" : "no")
+            << ", max inline pos: " << max_inline_pos
+            << ", without broadcast adjustment: " << before_broadcast_adjustment
+            << ")\n";
   }
 
   NVF_ERROR(

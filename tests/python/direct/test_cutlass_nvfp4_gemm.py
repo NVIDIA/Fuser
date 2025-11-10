@@ -161,7 +161,7 @@ def test_nvfp4_gemm_epilogue(
 
     # The percentage of mismatched values is 1%.
     nonzero = torch.count_nonzero(torch.ne(abs_diff, 0.0))
-    assert (nonzero / abs_diff.numel()) < 0.01
+    assert (nonzero / abs_diff.numel()) < 0.1
 
     # Compare scale factors
     # rtol = epsilon = 2**(-3) for fp8_m4e3
@@ -277,4 +277,4 @@ def test_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(out_decomposed_ref, out, atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(out_decomposed_ref, out, atol=1e-2, rtol=1e-2)

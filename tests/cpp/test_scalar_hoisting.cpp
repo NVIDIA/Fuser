@@ -69,17 +69,24 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   for (auto top_level_loop :
        ir_utils::filterByType<kir::ForLoop>(kernel->topLevelExprs())) {
     auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop = dynamic_cast<kir::ForLoop*>(
-               innermost_loop->body().exprs().at(0))) {
+    while (true) {
+      if (innermost_loop->body().empty()) {
+        break;
+      }
+      auto* first_expr_loop =
+          dynamic_cast<kir::ForLoop*>(innermost_loop->body().front());
+      if (first_expr_loop == nullptr) {
+        break;
+      }
       innermost_loop = first_expr_loop;
     }
     const auto& exprs = innermost_loop->body().exprs();
     NVF_CHECK(!exprs.empty(), "No expression found");
     NVF_CHECK(
-        exprs.at(0)->isA<kir::Allocate>(),
+        exprs.front()->isA<kir::Allocate>(),
         "Invalid expression: ",
-        exprs.at(0)->toString());
-    auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
+        exprs.front()->toString());
+    auto hoisted_index = exprs.front()->as<kir::Allocate>()->buffer();
     NVF_CHECK(
         hoisted_index->dtype() == DataType::Index,
         "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
@@ -88,7 +95,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
     for (auto expr : exprs) {
       if (expr->isA<kir::IfThenElse>()) {
         pred = expr->as<kir::IfThenElse>()->predicate();
-        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().exprs().at(0);
+        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().front();
         auto out_ti = arith_expr->outputs()[0]->as<kir::TensorIndex>();
         if (out_ti->view()->name() == 1) {
           // Ref: T1[*, hoisted_index] = T0[*, hoisted_index * T0.stride];

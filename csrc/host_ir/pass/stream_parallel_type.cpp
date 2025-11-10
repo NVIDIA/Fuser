@@ -6,15 +6,19 @@
  */
 // clang-format on
 
+#include <host_ir/pass/stream_parallel_type.h>
+
+#include <list>
+
 #include <host_ir/container.h>
 #include <host_ir/lower.h>
-#include <host_ir/pass/stream_parallel_type.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
@@ -73,7 +77,7 @@ bool areIdsMapped(const IdModel& id_model, IterDomain* id1, IterDomain* id2) {
 
 // Determines if a stream-parallel for-loop can be merged with the previous one
 bool canMergeWithPreviousForLoop(
-    const std::vector<Expr*>& new_top_level_exprs,
+    const std::list<Expr*>& new_top_level_exprs,
     IterDomain* stream_axis,
     const IdModel& id_model) {
   return !new_top_level_exprs.empty() &&
@@ -184,10 +188,10 @@ struct TensorSlicingCache {
 };
 
 // Step 1: Group expressions into stream-parallel regions
-std::vector<Expr*> groupStreamParallelRegions(
-    const std::vector<Expr*>& top_level_exprs,
+std::list<Expr*> groupStreamParallelRegions(
+    const std::list<Expr*>& top_level_exprs,
     const IdModel& id_model) {
-  std::vector<Expr*> new_top_level_exprs;
+  std::list<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
     // Skip expressions with no outputs
@@ -248,10 +252,10 @@ std::vector<Expr*> groupStreamParallelRegions(
 }
 
 // Helper function to add allocations for tensors that need them
-std::vector<Expr*> addTensorAllocations(
-    std::vector<Expr*> top_level_exprs,
+std::list<Expr*> addTensorAllocations(
+    std::list<Expr*> top_level_exprs,
     const IdModel& id_model) {
-  std::vector<Expr*> new_top_level_exprs;
+  std::list<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
     if (expr->isA<kir::ForLoop>()) {
@@ -276,8 +280,8 @@ std::vector<Expr*> addTensorAllocations(
 }
 
 // Step 3: Process for-loop bodies by slicing tensors
-std::vector<Expr*> processForLoopBodies(
-    std::vector<Expr*> top_level_exprs,
+std::list<Expr*> processForLoopBodies(
+    std::list<Expr*> top_level_exprs,
     const IdModel& id_model,
     const CommunicatorBackend& communicator_backend) {
   TensorSlicingCache tensor_slicing_cache;
@@ -289,6 +293,7 @@ std::vector<Expr*> processForLoopBodies(
 
     auto* for_loop = expr->as<kir::ForLoop>();
     std::vector<Expr*> new_loop_body;
+    std::vector<Expr*> new_loop_body_epilogue;
 
     // Lambda to process a tensor in a for-loop body
     auto processTensor = [&](Expr*& expr, TensorView* tensor, Val* index) {
@@ -389,7 +394,7 @@ std::vector<Expr*> processForLoopBodies(
         auto recv_peer = tensor_index;
         auto* is_sending_to_self =
             IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
-        auto if_then_else =
+        auto if_sending_to_self =
             IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
 
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
@@ -402,8 +407,8 @@ std::vector<Expr*> processForLoopBodies(
         auto* local_copy = IrBuilder::create<LoadStoreOp>(
             LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
 
-        if_then_else->thenBody().push_back(slicing_input);
-        if_then_else->thenBody().push_back(local_copy);
+        if_sending_to_self->thenBody().push_back(slicing_input);
+        if_sending_to_self->thenBody().push_back(local_copy);
 
         auto recv = IrBuilder::create<P2PCommunication>(
             P2PCommunicationType::RECV,
@@ -423,22 +428,34 @@ std::vector<Expr*> processForLoopBodies(
           auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
           auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
 
-          if_then_else->elseBody().push_back(start_coalescing);
-          if_then_else->elseBody().push_back(recv);
-          if_then_else->elseBody().push_back(send);
-          if_then_else->elseBody().push_back(end_coalescing);
-          if_then_else->elseBody().push_back(wait);
+          if_sending_to_self->elseBody().push_back(start_coalescing);
+          if_sending_to_self->elseBody().push_back(recv);
+          if_sending_to_self->elseBody().push_back(send);
+          if_sending_to_self->elseBody().push_back(end_coalescing);
+          if_sending_to_self->elseBody().push_back(wait);
         } else if (communicator_backend == CommunicatorBackend::kCuda) {
           auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
               std::vector<P2PCommunication*>({recv, send}));
           auto wait_send = IrBuilder::create<hir::Wait>(send);
           auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
-          if_then_else->elseBody().push_back(share_mem_handles);
-          if_then_else->elseBody().push_back(send);
-          if_then_else->elseBody().push_back(recv);
-          if_then_else->elseBody().push_back(wait_send);
-          if_then_else->elseBody().push_back(wait_recv);
+          if_sending_to_self->elseBody().push_back(share_mem_handles);
+          if (getP2pProtocol() == P2pProtocol::Put) {
+            if_sending_to_self->elseBody().push_back(recv);
+            if_sending_to_self->elseBody().push_back(send);
+          } else if (getP2pProtocol() == P2pProtocol::Get) {
+            if_sending_to_self->elseBody().push_back(send);
+            if_sending_to_self->elseBody().push_back(recv);
+          } else {
+            NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
+          }
+          if_sending_to_self->elseBody().push_back(wait_recv);
+          // Defer the wait on send to the loop epilogue under the same
+          // predicate
+          auto* deferred_wait_if = IrBuilder::create<kir::IfThenElse>(
+              if_sending_to_self->input(0)->as<kir::Predicate>());
+          deferred_wait_if->elseBody().push_back(wait_send);
+          new_loop_body_epilogue.push_back(deferred_wait_if);
         } else {
           NVF_THROW(
               "Unsupported communicator backend for lowering stream parallel "
@@ -447,7 +464,7 @@ std::vector<Expr*> processForLoopBodies(
         }
 
         new_loop_body.push_back(slicing_output);
-        new_loop_body.push_back(if_then_else);
+        new_loop_body.push_back(if_sending_to_self);
       } else {
         // Process inputs and outputs normally
         for (auto* input :
@@ -462,6 +479,10 @@ std::vector<Expr*> processForLoopBodies(
       }
     }
 
+    for (auto* expr : new_loop_body_epilogue) {
+      new_loop_body.push_back(expr);
+    }
+
     for_loop->body().clear();
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
@@ -472,8 +493,8 @@ std::vector<Expr*> processForLoopBodies(
 }
 
 // Step 4: Add stream management and synchronization
-std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
-  std::vector<Expr*> new_top_level_exprs;
+std::list<Expr*> addStreamManagement(std::list<Expr*> top_level_exprs) {
+  std::list<Expr*> new_top_level_exprs;
 
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
@@ -588,7 +609,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
   id_model.buildBroadcastGraph();
 
   // Step 1: Group expressions into stream-parallel regions
-  std::vector<Expr*> top_level_exprs =
+  std::list<Expr*> top_level_exprs =
       groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them
