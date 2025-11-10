@@ -1221,13 +1221,6 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
             })) {
           continue;
         }
-        // skip device splits as they are processed by PropagateShardingsPass
-        // in the pre-segment pass.
-        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
-              return isValidDeviceSplit(expr);
-            })) {
-          continue;
-        }
         if (!common_use_group.has_value()) {
           common_use_group = use_group;
         } else if (common_use_group.value() != use_group) {
