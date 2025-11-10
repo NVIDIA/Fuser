@@ -131,96 +131,10 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
       new_input->setDeviceMesh(output->getDeviceMesh());
       propagateDeviceAndStream(
-          output, new_input, allParallelTypes(), PropagateDirection::kBackward);
-    }
-  }
-}
-
-void insertReshardingSetsAfter(Fusion* fusion) {
-  // Remove this after we refactor this as a pre-segmenter pass.
-  FusionGuard fg(fusion);
-  // Iterate backwards over fusion expressions. Reshard after will
-  // replace expressions that occur downstream from the current expression.
-  // This will ensure we don't process an expression that has been deleted.
-  auto exprs = fusion->exprs();
-  for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
-    Expr* expr = *it;
-    if (!isResharding(expr)) {
-      continue;
-    }
-
-    if (isLowerableToCommunication(expr)) {
-      continue;
-    }
-
-    if (whereToReshard(expr) != ReshardPosition::kAfter) {
-      continue;
-    }
-
-    if (!expr->output(0)->isA<TensorView>()) {
-      continue;
-    }
-    auto* output = expr->output(0)->as<TensorView>();
-
-    std::unordered_set<TensorView*> inputs;
-    for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
-        inputs.insert(input);
-      }
-    }
-
-    // Insert resharding set after the expr and update
-    // output of expr to match input's sharding.
-    // input [expr] output [set] new_output
-    if (!inputs.empty()) {
-      TensorView* input = *inputs.begin();
-      TensorView* new_output = set(output);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      // Update shardings new_output takes output's sharding,
-      // output takes input's sharding
-      shardAllLike(output, {new_output}, deviceAndStreamParallelTypes());
-
-      // Consider a reshard case:
-      //
-      //   input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
-      //
-      // This is decomposed into:
-      //
-      //   input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
-      //   new_output [i0, DIDx(i1)]
-      //
-      // ParallelType::Serial is required here so the output is sharded as
-      // [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)] when sharding using
-      // input as the reference.
-      shardAllLike(input, {output}, allParallelTypes());
-
-      // The previous sharding propagation may have overwritten the stream
-      // parallelization. We need to propagate it back.
-      //
-      // Consider a reshard case typical of GEMM+AG (when AG occurs after GEMM):
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1]
-      //
-      // This is decomposed into:
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [i0, DIDx(i1)] -> set ->
-      //   new_output [Stream(i0), i1
-      //
-      // After sharding using input as the reference, the output is sharded as
-      // [i0, i1]. We need to propagate the stream parallelization back to the
-      // output, in order to obtain:
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
-      //   new_output [Stream(i0), i1]
-      // WAR (https://github.com/NVIDIA/Fuser/pull/5205#issuecomment-3324173092)
-      // this pass might incorrectly overwrite output's DIDx parallelization,
-      // which should be avoided. This case shows up if the fusion lowers to a
-      // p2p ring pipeline and the option "reshard_after" is enabled. The proper
-      // fix should be to make parallelizeAllLike smarter and skip the
-      // propagation over a DID parallelization type. We leave this as is as a
-      // temporary solution, as the bug is catched by an assertion.
-      scheduler_utils::parallelizeAllLike(
-          new_output, {output}, {ParallelType::Stream});
+          output,
+          new_input,
+          deviceAndStreamParallelTypes(),
+          PropagateDirection::kBackward);
     }
   }
 }
@@ -274,6 +188,75 @@ void canonicalizeLoopDomain(TensorView* tv) {
 
   auto new_loop = std::views::keys(loop);
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
+}
+
+void unshard(TensorView* tv) {
+  tv->setDeviceMesh(DeviceMesh());
+  std::for_each(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      [](IterDomain* id) { id->parallelize(ParallelType::Serial); });
+  canonicalizeLoopDomain(tv);
+}
+
+void insertReshardingSetsAfter(Fusion* fusion) {
+  // Remove this after we refactor this as a pre-segmenter pass.
+  FusionGuard fg(fusion);
+  // Iterate backwards over fusion expressions. Reshard after will
+  // replace expressions that occur downstream from the current expression.
+  // This will ensure we don't process an expression that has been deleted.
+  auto exprs = fusion->exprs();
+  for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
+    Expr* expr = *it;
+    if (!isResharding(expr)) {
+      continue;
+    }
+
+    if (isLowerableToCommunication(expr)) {
+      continue;
+    }
+
+    if (whereToReshard(expr) != ReshardPosition::kAfter) {
+      continue;
+    }
+
+    if (!expr->output(0)->isA<TensorView>()) {
+      continue;
+    }
+    auto* output = expr->output(0)->as<TensorView>();
+
+    std::unordered_set<TensorView*> inputs;
+    for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      if (haveDifferentShardings(input, output, deviceParallelTypes())) {
+        inputs.insert(input);
+      }
+    }
+
+    // Insert resharding set after the expr and update
+    // output of expr to match input's sharding.
+    // input [expr] output [set] new_output
+    if (!inputs.empty()) {
+      TensorView* input = *inputs.begin();
+      TensorView* new_output = set(output);
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+      // Update shardings new_output takes output's sharding,
+      // output takes input's sharding
+      propagateDeviceAndStream(
+          output,
+          new_output,
+          deviceAndStreamParallelTypes(),
+          PropagateDirection::kForward);
+
+      unshard(output);
+      propagateDeviceAndStream(
+          input, output, deviceParallelTypes(), PropagateDirection::kForward);
+      propagateDeviceAndStream(
+          new_output,
+          output,
+          {ParallelType::Stream},
+          PropagateDirection::kBackward);
+    }
+  }
 }
 
 void decomposeRowParallelLinearWithBias(Fusion* fusion) {
