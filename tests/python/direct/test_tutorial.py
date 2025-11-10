@@ -1694,12 +1694,14 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
         t0_norm_cast = fd.ops.cast(t0_norm, dtype=DataType.BFloat16)
         fd.add_output(t0_norm_cast)
 
-        return t0, mean, t0_norm
+        return mean, t0_norm
 
-    def _schedule_func(fd: FusionDefinition, t0, mean, t0_norm):
+    def _schedule_func(fd: FusionDefinition, mean, t0_norm):
         """Schedule the layer norm fusion."""
+        tv_inputs = list(filter(lambda v: v.is_tensor(), fd.fusion.inputs()))
+        assert len(tv_inputs) == 1
         # create cache tensors
-        cache_after_t0 = t0.cache_after()
+        cache_after_t0 = tv_inputs[0].cache_after()
         cache_after_t0.set_memory_type(MemoryType.shared)
 
         cache_before_t0_norm = t0_norm.cache_before()
@@ -1753,8 +1755,8 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     print("\n\n===================== Schedule Layer Norm =========================")
 
     with FusionDefinition() as fd:
-        t0, mean, t0_norm = _definition_func(fd, inputs, tensor_size)
-        _schedule_func(fd, t0, mean, t0_norm)
+        mean, t0_norm = _definition_func(fd, inputs, tensor_size)
+        _schedule_func(fd, mean, t0_norm)
 
     with PythonProfiler(auto_scheduled=False) as prof:
         nvf_out = fd.manual_execute(inputs)
