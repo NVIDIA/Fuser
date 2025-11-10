@@ -8,6 +8,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir/printer.h>
 #include <multidevice/utils.h>
@@ -1240,8 +1241,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       }
       // move inputs to consumers of inputs
       auto consumer_tvs = ir_utils::consumerTvsOf(tv);
-      vectorized_tvs.insert(
-          vectorized_tvs.end(), consumer_tvs.begin(), consumer_tvs.end());
+      std::copy_if(
+          consumer_tvs.begin(),
+          consumer_tvs.end(),
+          std::back_inserter(vectorized_tvs),
+          [](auto tv) { return !ir_utils::isScheduleOp(tv); });
     }
     // Vectorize all casts
     if (pparams->vectorize_casts) {
