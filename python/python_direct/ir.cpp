@@ -133,6 +133,17 @@ void bindInternalBaseNodes(py::module& nvfuser) {
           [](IterDomain* self) { return self->toString(/*indent_size=*/0); },
           "Convert the IterDomain to a string representation.")
       .def(
+          "is_reduction",
+          &IterDomain::isReduction,
+          R"(
+Check if this domain is a reduction domain.
+
+Returns
+-------
+bool
+    True if the domain is a reduction domain, False otherwise.
+)")
+      .def(
           "extent",
           &IterDomain::extent,
           R"(
