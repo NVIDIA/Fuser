@@ -384,7 +384,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Indicates whether the fusion is outer broadcast dominated or not.
   bool is_outer_broadcast_dominated = false;
-  bool prefer_tma = isOptionEnabled(EnableOption::TmaPointwise);
+  // There should be a tuned cut-off point for parallelism to enable TMA.
+  bool is_enough_parallelism =
+      n_elems * 2 > device_multiprocessor_count * kThreadX;
+  bool prefer_tma =
+      isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -397,7 +401,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
 
     // If there isn't very much parallelism available, just use 1D scheduler
-    if (prefer_tma || n_elems * 2 > device_multiprocessor_count * kThreadX) {
+    if (is_enough_parallelism) {
       int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
       int64_t threads_per_warp =
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
@@ -560,7 +564,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // TMA pointwise heuristics
   // TODO: tune three tiling sizes for the best performance
-  if (prefer_tma) {
+  // general TMA requires align at 16 Bytes, here we use 16 elements.
+  int64_t tma_element_to_split = break_point ? right_elem_count : n_elems;
+  if (prefer_tma && tma_element_to_split % 16 == 0) {
     params->tag = "TMA pointwise heuristics";
     params->use_tma_load = true;
     params->use_tma_store = false;
@@ -570,7 +576,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // if (break_point == 0 || (bdimy == 1 && params->unroll_factor_outer == 1))
     // {
     if (break_point == 0) {
-      int64_t element_to_split = break_point ? right_elem_count : n_elems;
       // if ((break_point == 0 || params->unroll_factor_outer == 1) && bdimy ==
       // 1) {
       NVF_ERROR(bdimy == 1);
@@ -583,7 +588,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->tma_tile_inner = bdimx_vect * params->unroll_factor_inner;
       params->lparams.bind(bdimx, ParallelType::TIDx);
 
-      if (element_to_split % params->tma_tile_inner) {
+      if (tma_element_to_split % params->tma_tile_inner) {
         params->unroll_factor_inner =
             scheduler_utils::lastPow2(params->unroll_factor_inner);
         params->tma_tile_inner = bdimx_vect * params->unroll_factor_inner;
@@ -594,7 +599,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         params->unroll_factor_inner =
             ceilDiv(params->tma_tile_inner, bdimx_vect);
       }
-      if (element_to_split % params->tma_tile_inner != 0) {
+      if (tma_element_to_split % params->tma_tile_inner != 0) {
         params->is_1d_tma = false;
         params->unswitch_computation = true;
       } else {
