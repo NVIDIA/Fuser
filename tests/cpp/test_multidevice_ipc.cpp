@@ -1191,7 +1191,7 @@ TEST_F(IpcTest, SymmetricTensor_ContiguousView) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Create symmetric tensor
-  SymmetricTensor sym_tensor({64, 128}, at::ScalarType::Float);
+  SymmetricTensor sym_tensor({2, 262144}, at::ScalarType::Float); // 2Mb tensor
 
   // Write rank-specific pattern to local tensor
   const at::Tensor& local_tensor = sym_tensor.localTensor();
@@ -1214,27 +1214,28 @@ TEST_F(IpcTest, SymmetricTensor_ContiguousView) {
   // Create contiguous view of all ranks
   at::Tensor contiguous_view = createContiguousView(sym_tensor);
 
-  // Validate shape: [world_size, 64, 128]
+  // Validate shape: [world_size, 2, 262144]
   EXPECT_EQ(contiguous_view.dim(), 3);
   EXPECT_EQ(contiguous_view.size(0), world_size);
-  EXPECT_EQ(contiguous_view.size(1), 64);
-  EXPECT_EQ(contiguous_view.size(2), 128);
+  EXPECT_EQ(contiguous_view.size(1), 2);
+  EXPECT_EQ(contiguous_view.size(2), 262144);
 
-  // Validation: copy and check per-rank slice individually
+  // Validation: copy and check each per-rank slice from host buffer.
   const int64_t slice_elems = contiguous_view.size(1) * contiguous_view.size(2);
+  const int64_t total_elems = world_size * slice_elems;
+  std::vector<float> all_data(total_elems);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      all_data.data(),
+      contiguous_view.data_ptr(),
+      total_elems * sizeof(float),
+      cudaMemcpyDeviceToHost));
+
   for (int64_t r = 0; r < world_size; ++r) {
-    std::vector<float> data(slice_elems);
-    // Select the slice for rank r
-    at::Tensor slice = contiguous_view[r];
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        data.data(),
-        slice.data_ptr(),
-        slice_elems * sizeof(float),
-        cudaMemcpyDeviceToHost));
     for (int64_t i = 0; i < slice_elems; ++i) {
       float expected = static_cast<float>(r + 100);
-      ASSERT_EQ(data[i], expected)
-          << "Rank " << rank << " view checking slice for rank " << r << " at offset " << i 
+      size_t idx = r * slice_elems + i;
+      ASSERT_EQ(all_data[idx], expected)
+          << "Rank " << rank << " view checking slice for rank " << r << " at offset " << i
           << " did not match expected value";
     }
   }

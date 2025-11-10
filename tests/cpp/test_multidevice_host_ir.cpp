@@ -458,6 +458,7 @@ TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
   // Create input and output TensorViews
   TensorView* input_tv = makeContigConcreteTensor(sharded_sizes);
   input_tv->setMemoryType(MemoryType::Symmetric);
+  input_tv->axis(0)->parallelize(ParallelType::DIDx);
 
   TensorView* output_tv = makeContigConcreteTensor(unsharded_sizes);
   output_tv->setMemoryType(MemoryType::Symmetric);

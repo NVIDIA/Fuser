@@ -220,23 +220,23 @@ class MulticastHandleForAllgather : public SymmetricMemoryHandle {
   std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
 };
 
-// ContiguousAliasingHandle creates a contiguous virtual address mapping
-// across all ranks for a sharded symmetric memory tensor
-// This enables all ranks to access each other's data in a contiguous address space
-class ContiguousAliasingHandle : public SymmetricMemoryHandle {
+// SymmetricMemoryHandle for DistributedTensorContiguousAliasing
+// Creates a contiguous view across all ranks from a sharded symmetric tensor
+class ContiguousViewHandle : public SymmetricMemoryHandle {
  public:
-  ContiguousAliasingHandle(
+  ContiguousViewHandle(
       at::Tensor buffer,
       hir::DistributedTensorContiguousAliasing* expr);
 
-  ~ContiguousAliasingHandle() override = default;
+  ~ContiguousViewHandle() override = default;
 
-  // Returns the contiguous tensor that provides access to all ranks' data
+  // Returns the contiguous tensor with DIDx dimension removed if size 1
   at::Tensor tensor() const {
     return tensor_;
   }
 
  private:
+  std::unique_ptr<SymmetricTensor> sym_tensor_;
   at::Tensor tensor_;
 };
 

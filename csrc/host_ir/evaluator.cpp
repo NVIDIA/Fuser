@@ -25,6 +25,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/symmetric_memory.h>
+#include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -813,13 +814,15 @@ void HostIrEvaluator::handle(DistributedTensorContiguousAliasing* unshard) {
   // Get the sharded input tensor
   at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
 
-  // Get or create the ContiguousAliasingHandle from the cache
-  ContiguousAliasingHandle* handle =
-      static_cast<ContiguousAliasingHandle*>(
-          multicast_handle_cache_.get({in_tensor, unshard}));
+  // Get or create ContiguousViewHandle from the cache
+  ContiguousViewHandle* handle = static_cast<ContiguousViewHandle*>(
+      multicast_handle_cache_.get({in_tensor, unshard}));
 
+  NVF_ERROR(in_tv->axis(0)->isDeviceDim(), "Tv must be sharded on outermost dimension", in_tv);
+  NVF_ERROR(handle->tensor().size(1) == 1, "Contiguous view must have size 1 on sharded dimension");
+  at::Tensor contiguous_tensor = handle->tensor().squeeze(1);
   // Bind the unsharded tensor to the output
-  expr_evaluator_.bind(out_tv, handle->tensor());
+  expr_evaluator_.bind(out_tv, contiguous_tensor);
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

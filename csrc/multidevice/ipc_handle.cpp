@@ -261,14 +261,13 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   if (auto* dtca =
           dynamic_cast<hir::DistributedTensorContiguousAliasing*>(key.expr)) {
     // DistributedTensorContiguousAliasing
-    handle = std::make_unique<ContiguousAliasingHandle>(key.buffer, dtca);
+    handle = std::make_unique<ContiguousViewHandle>(key.buffer, dtca);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
       handle = std::make_unique<MulticastHandleForBroadcast>(comm, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
-      handle =
-          std::make_unique<MulticastHandleForAllgather>(comm, key.buffer);
+      handle = std::make_unique<MulticastHandleForAllgather>(comm, key.buffer);
     } else {
       NVF_ERROR(
           false,
@@ -284,22 +283,23 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   return inserted.first->second.get();
 }
 
-ContiguousAliasingHandle::ContiguousAliasingHandle(
+ContiguousViewHandle::ContiguousViewHandle(
     at::Tensor in_tensor,
     hir::DistributedTensorContiguousAliasing* unshard) {
-  // Validate that input has symmetric memory
-  std::string validation_error = isSymmetricAllocationValid(in_tensor);
-  NVF_CHECK(
-      validation_error.empty(),
-      "Input tensor must be allocated with symmetric memory. Error: ",
-      validation_error);
-
   // Create SymmetricTensor from the input tensor
+  // Validation happens automatically in SymmetricTensor constructor
   std::string tag = "unshard_" + std::to_string(unshard->name());
-  SymmetricTensor sym_tensor(in_tensor, tag);
+  sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor, tag);
 
   // Create contiguous view across all ranks
-  tensor_ = createContiguousView(sym_tensor);
+  at::Tensor contiguous = createContiguousView(*sym_tensor_);
+
+  // Remove the DIDx dimension (outermost) if it has size 1
+  if (contiguous.size(0) == 1) {
+    contiguous = contiguous.squeeze(0);
+  }
+
+  tensor_ = contiguous;
 }
 
 } // namespace nvfuser
