@@ -10,6 +10,12 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
+#include <multidevice/symmetric_tensor.h>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace nvfuser {
 
@@ -17,17 +23,17 @@ namespace hir {
 class DistributedTensorContiguousAliasing;
 } // namespace hir
 
+// Semaphore values for P2P communication synchronization
 enum class IpcSemaphore : cuuint32_t { kReady, kInUse };
 
-// The class IpcHandle represents a cuda buffer that can be exported/imported to
-// remote devices. It comes with a semaphore that is allocated on the buffer's
-// device.
+// Basic IPC handle for legacy P2P communication using cudaIpc* APIs
+// This class is kept for backward compatibility with non-VMM setups
 class IpcHandle {
  public:
   NVF_API IpcHandle(at::Tensor tensor);
   NVF_API ~IpcHandle();
 
-  // This constructor is used when importing a remote Ipc Handle
+  // Constructor for importing a remote IPC handle
   NVF_API IpcHandle(std::vector<uint8_t> data);
 
   void* ptr() const {
@@ -40,20 +46,19 @@ class IpcHandle {
 
  private:
   void* ptr_;
-  // a cudaIpcMemHandle always points to the base address of the allocated
-  // buffer. Therefore we need to store the offset separately
+  // cudaIpcMemHandle always points to base address of the allocated buffer
+  // Therefore we need to store the offset separately
   void* base_address_ = nullptr;
   int64_t offset_from_base_address_ = 0;
   cudaIpcMemHandle_t ipc_handle_ = {};
   cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
   IpcSemaphore* semaphore_ = nullptr;
   int64_t rank_;
-  // we keep a reference of the tensor to prevent the cuda buffer to be freed
-  // before the IpcHandle gets destroyed
+  // Keep a reference to prevent buffer from being freed
   at::Tensor tensor_;
 };
 
-// This class wraps two IpcHandles involved in a P2P Communication
+// Wraps two IpcHandles involved in a P2P communication
 class P2pIpcHandle {
  public:
   P2pIpcHandle(
@@ -74,8 +79,7 @@ class P2pIpcHandle {
   std::unique_ptr<IpcHandle> peer_;
 };
 
-namespace {
-
+// Helper structs for tensor hashing and equality
 struct TensorHash {
   std::size_t operator()(const at::Tensor& tensor) const {
     auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
@@ -93,25 +97,20 @@ struct TensorEqual {
   }
 };
 
-} // namespace
-
-// IpcHandleCache manages and cache the IpcHandles.
-// Caching is done on the runtime values of (peer, tensor) and the
-// P2PCommunication* pointer.
+// Manages and caches IpcHandles for P2P communications
+// Caching is based on (peer, tensor) runtime values and P2PCommunication* pointer
 class IpcHandleCache {
  public:
   IpcHandleCache(const ExpressionEvaluator& expr_evaluator)
       : expr_evaluator_(expr_evaluator) {}
   ~IpcHandleCache() = default;
 
-  // Create IpcHandles, import and export them, and populate the cache. This
-  // method must be called priori to calling get. In many case, the handles need
-  // to be exported by batch (thus the function taking a vector of
-  // P2PCommunication*) to improve performance and to avoid creating deadlocks
-  // when imports and exports order differ accross ranks.
+  // Create IpcHandles, import and export them, and populate the cache
+  // Must be called before calling get(). Handles are exchanged in batch
+  // to improve performance and avoid deadlocks when import/export orders differ
   void exchangeHandles(const std::vector<P2PCommunication*>& communications);
 
-  // Retrieves a cached item and throws if not present
+  // Retrieves a cached item (throws if not present)
   const P2pIpcHandle& get(P2PCommunication* communication) const {
     auto it = find(communication);
     NVF_ERROR(
@@ -166,78 +165,21 @@ class IpcHandleCache {
       handles_;
 };
 
-// UnicastHandle allows a single rank (exporter) to share its buffer with
-// multiple other ranks (importers) using IPC handles.
-class UnicastHandle {
- public:
-  // Exporter constructor: creates an IPC handle for the tensor and exports it
-  // to the store
-  NVF_API UnicastHandle(
-      at::Tensor tensor,
-      int64_t exporter_rank,
-      const std::string& store_key_prefix);
-
-  // Importer constructor: imports an IPC handle from the store
-  NVF_API UnicastHandle(
-      int64_t exporter_rank,
-      const std::string& store_key_prefix);
-
-  NVF_API ~UnicastHandle();
-
-  void* ptr() const {
-    return ptr_;
-  }
-
- private:
-  void* ptr_ = nullptr;
-  // VMM-related members (importer only)
-  size_t size_ = 0;
-  CUmemGenericAllocationHandle mem_handle_ = 0;
-  // Keep a reference to the tensor to prevent the cuda buffer from being freed
-  // before the UnicastHandle gets destroyed. Only set for exporter.
-  at::Tensor tensor_;
-  // File descriptors for cleanup (importer only)
-  int pid_fd_ = -1;
-  int peer_fd_ = -1;
-};
-
-// MulticastHandle creates and shares a multicast object across all ranks,
-// and maps an address to that multicast object.
-class MulticastHandle {
- public:
-  // Creates a multicast object for the given tensor and shares it across all
-  // ranks. Bind the multicast object to the tensor. The tensor must be
-  // allocated with symmetric memory.
-  MulticastHandle(
-      at::Tensor tensor,
-      int64_t exporter_rank,
-      const std::string& store_key_prefix);
-
-  ~MulticastHandle();
-
-  void* multicast_ptr() const {
-    return mc_ptr_;
-  }
-
- private:
-  CUmemGenericAllocationHandle mcast_handle_{};
-  CUdevice cu_dev_{};
-  void* mc_ptr_{nullptr};
-  int64_t size_{0};
-  at::Tensor tensor_;
-};
-
 // Base class for symmetric memory handles used in collective communications
+// Symmetric memory handles enable efficient multi-device operations using
+// CUDA VMM and NVLS multicast primitives
 class SymmetricMemoryHandle {
  public:
   virtual ~SymmetricMemoryHandle() = default;
 };
 
+// SymmetricMemoryHandle for broadcast operations using NVLS multicast
+// Provides efficient one-to-many communication with hardware acceleration
 class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
  public:
   MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
 
-  // Constructor for use when creating multiple broadcasts (e.g., for allgather)
+  // Constructor for creating multiple broadcasts (e.g., for allgather)
   MulticastHandleForBroadcast(
       at::Tensor buffer,
       int64_t root,
@@ -245,26 +187,21 @@ class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
 
   ~MulticastHandleForBroadcast() = default;
 
-  void* buffer_multicast_ptr() const {
-    return buffer_multicast_handle_->multicast_ptr();
-  }
+  void* buffer_multicast_ptr() const;
 
-  void* semaphore_multicast_ptr() const {
-    return semaphore_multicast_handle_->multicast_ptr();
-  }
+  void* semaphore_multicast_ptr() const;
 
-  void* semaphore_unicast_ptr(int64_t rank) const {
-    return semaphore_handles_[rank]->ptr();
-  }
+  void* semaphore_unicast_ptr(int64_t rank) const;
 
  private:
-  std::unique_ptr<MulticastHandle> buffer_multicast_handle_;
-  std::unique_ptr<MulticastHandle> semaphore_multicast_handle_;
-  // Per-rank semaphores: each rank exports its own semaphore using
-  // UnicastHandle
-  std::vector<std::unique_ptr<UnicastHandle>> semaphore_handles_;
+  // Buffer symmetric tensor with multicast support
+  std::unique_ptr<SymmetricTensor> buffer_sym_tensor_;
+  // Semaphore symmetric tensor with multicast support
+  std::unique_ptr<SymmetricTensor> semaphore_sym_tensor_;
 };
 
+// SymmetricMemoryHandle for allgather operations using NVLS multicast
+// Allgather is implemented as world_size broadcasts, each rank acting as root once
 class MulticastHandleForAllgather : public SymmetricMemoryHandle {
  public:
   MulticastHandleForAllgather(Communication* communication, at::Tensor buffer);
@@ -272,35 +209,27 @@ class MulticastHandleForAllgather : public SymmetricMemoryHandle {
   ~MulticastHandleForAllgather() override = default;
 
   // Accessors for a specific root rank's handles
-  void* buffer_multicast_ptr(int64_t root_rank) const {
-    return broadcast_handles_[root_rank]->buffer_multicast_ptr();
-  }
+  void* buffer_multicast_ptr(int64_t root_rank) const;
 
-  void* semaphore_multicast_ptr(int64_t root_rank) const {
-    return broadcast_handles_[root_rank]->semaphore_multicast_ptr();
-  }
+  void* semaphore_multicast_ptr(int64_t root_rank) const;
 
-  void* semaphore_unicast_ptr(int64_t root_rank, int64_t rank) const {
-    return broadcast_handles_[root_rank]->semaphore_unicast_ptr(rank);
-  }
+  void* semaphore_unicast_ptr(int64_t root_rank, int64_t rank) const;
 
  private:
-  // Allgather is world_size broadcasts, each broadcasting a different slice
   // One MulticastHandleForBroadcast per rank (each rank acts as root once)
   std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
 };
 
-// ContiguousAliasingHandle performs IPC handle exchange and creates a
-// contiguous virtual address mapping across all ranks for a sharded symmetric
-// memory tensor. This enables all ranks to access each other's data in a
-// contiguous address space using CUDA VMM (Virtual Memory Management) APIs.
+// ContiguousAliasingHandle creates a contiguous virtual address mapping
+// across all ranks for a sharded symmetric memory tensor
+// This enables all ranks to access each other's data in a contiguous address space
 class ContiguousAliasingHandle : public SymmetricMemoryHandle {
  public:
   ContiguousAliasingHandle(
       at::Tensor buffer,
       hir::DistributedTensorContiguousAliasing* expr);
 
-  ~ContiguousAliasingHandle() override;
+  ~ContiguousAliasingHandle() override = default;
 
   // Returns the contiguous tensor that provides access to all ranks' data
   at::Tensor tensor() const {
@@ -309,9 +238,10 @@ class ContiguousAliasingHandle : public SymmetricMemoryHandle {
 
  private:
   at::Tensor tensor_;
-  // VMM cleanup data captured in tensor deleter
 };
 
+// Cache for symmetric memory handles keyed by (buffer tensor, expr)
+// Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {
  public:
   SymmetricMemoryHandleCache() = default;
@@ -332,6 +262,8 @@ class SymmetricMemoryHandleCache {
     };
   };
 
+  // Get or create a symmetric memory handle for the given key
+  // Creates the handle on first access and caches it for future use
   SymmetricMemoryHandle* get(KeyType key);
 
  private:

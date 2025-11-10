@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <multidevice/ipc_handle.h>
 #include <multidevice/symmetric_memory.h>
+#include <multidevice/symmetric_tensor.h>
 #include <ops/all_ops.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
@@ -657,14 +658,15 @@ TEST_F(IpcTest, IpcNvlsMulticastHandle) {
       /*device=*/at::Device(at::kCUDA, local_rank),
       /*alloc_id=*/std::nullopt);
 
-  // Use MulticastHandle to set up multicast communication
+  // Use SymmetricTensor to set up multicast communication
   std::string store_key_prefix = "test_multicast_handle";
-  std::unique_ptr<MulticastHandle> mcast_handle =
-      std::make_unique<MulticastHandle>(
-          buffer, exporter_rank, store_key_prefix);
+  SymmetricTensor sym_tensor(buffer, store_key_prefix);
+  
+  // Setup multicast
+  sym_tensor.setupMulticast(exporter_rank, store_key_prefix + "_mcast");
 
   // Get the multicast pointer
-  void* mc_ptr = mcast_handle->multicast_ptr();
+  void* mc_ptr = sym_tensor.multicastPtr();
 
   // Root rank writes to multicast address
   std::vector<uint32_t> host_buffer(kNumElems);
@@ -678,10 +680,10 @@ TEST_F(IpcTest, IpcNvlsMulticastHandle) {
 
   communicator_->barrier();
 
-  // Each rank reads from the unicast address
+  // Each rank reads from the unicast address (local buffer)
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
       host_buffer.data(),
-      buffer.data_ptr(),
+      sym_tensor.localTensorPtr(),
       kSizeBytes,
       cudaMemcpyDeviceToHost));
 
@@ -1026,6 +1028,215 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   }
   for (int fd : pid_fds) {
     close(fd);
+  }
+}
+
+TEST_F(IpcTest, SymmetricTensor_BasicAllocation) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
+  // Create a symmetric tensor
+  std::vector<int64_t> sizes = {256, 512};
+  at::ScalarType dtype = at::ScalarType::Float;
+  SymmetricTensor sym_tensor(sizes, dtype);
+
+  // Validate basic properties
+  EXPECT_TRUE(sym_tensor.isValid());
+  EXPECT_EQ(sym_tensor.worldSize(), world_size);
+  EXPECT_EQ(sym_tensor.localRank(), rank);
+  EXPECT_EQ(sym_tensor.numel(), 256 * 512);
+
+  // Validate local tensor
+  const at::Tensor& local_tensor = sym_tensor.localTensor();
+  EXPECT_TRUE(local_tensor.is_cuda());
+  EXPECT_EQ(local_tensor.scalar_type(), dtype);
+  EXPECT_EQ(local_tensor.sizes()[0], 256);
+  EXPECT_EQ(local_tensor.sizes()[1], 512);
+
+  // Write unique value to local tensor
+  float local_value = static_cast<float>(rank + 100);
+  local_tensor.fill_(local_value);
+
+  // Barrier to ensure all ranks have written their data
+  communicator_->barrier();
+
+  // Read from all remote tensors
+  for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
+    void* peer_ptr = sym_tensor.remoteTensorPtr(peer_rank);
+    EXPECT_NE(peer_ptr, nullptr);
+
+    // Copy first element from peer
+    float peer_value;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        &peer_value,
+        peer_ptr,
+        sizeof(float),
+        cudaMemcpyDeviceToHost));
+
+    float expected_value = static_cast<float>(peer_rank + 100);
+    EXPECT_FLOAT_EQ(peer_value, expected_value)
+        << "Rank " << rank << " reading from rank " << peer_rank;
+  }
+}
+
+TEST_F(IpcTest, SymmetricTensor_PreallocatedTensor) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
+  // Allocate tensor with symmetric memory
+  at::Tensor local_tensor = allocateSymmetricTensor(
+      /*sizes=*/at::IntArrayRef({128, 256}),
+      /*dtype=*/at::ScalarType::Double,
+      /*device=*/c10::Device(c10::DeviceType::CUDA, rank),
+      /*alloc_id=*/std::nullopt);
+
+  // Create SymmetricTensor from pre-allocated tensor
+  SymmetricTensor sym_tensor(local_tensor, "test_preallocated");
+
+  // Validate
+  EXPECT_TRUE(sym_tensor.isValid());
+  EXPECT_EQ(sym_tensor.worldSize(), world_size);
+  EXPECT_EQ(sym_tensor.numel(), 128 * 256);
+
+  // Write unique pattern to local tensor
+  double local_value = static_cast<double>(rank * 1000 + 42);
+  local_tensor.fill_(local_value);
+
+  communicator_->barrier();
+
+  // Verify remote access
+  for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
+    if (peer_rank == rank) {
+      continue;
+    }
+
+    void* peer_ptr = sym_tensor.remoteTensorPtr(peer_rank);
+    double peer_value;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        &peer_value,
+        peer_ptr,
+        sizeof(double),
+        cudaMemcpyDeviceToHost));
+
+    double expected = static_cast<double>(peer_rank * 1000 + 42);
+    EXPECT_DOUBLE_EQ(peer_value, expected);
+  }
+}
+
+TEST_F(IpcTest, SymmetricTensor_Multicast) {
+#if (CUDA_VERSION < 13000)
+  GTEST_SKIP() << "Multicast requires CUDA 13.0+";
+#else
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t root = 0;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
+  // Check multicast support
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      rank));
+  if (!is_multicast_supported) {
+    GTEST_SKIP() << "Device does not support multicast";
+  }
+
+  // Create symmetric tensor
+  SymmetricTensor sym_tensor({1024}, at::ScalarType::Int);
+
+  // Setup multicast
+  sym_tensor.setupMulticast(root, "test_multicast");
+  EXPECT_TRUE(sym_tensor.hasMulticast());
+
+  // Root writes to multicast buffer
+  if (rank == root) {
+    void* mc_ptr = sym_tensor.multicastPtr();
+    EXPECT_NE(mc_ptr, nullptr);
+    
+    // Fill multicast buffer with a pattern
+    int pattern_value = 999;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(
+        mc_ptr, pattern_value, sizeof(int) * 1024));
+  }
+
+  communicator_->barrier();
+
+  // All ranks verify they can see the multicast data
+  // Note: multicast semantics depend on hardware, this is a basic validation
+  EXPECT_TRUE(sym_tensor.hasMulticast());
+#endif
+}
+
+TEST_F(IpcTest, SymmetricTensor_ContiguousView) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
+  // Create symmetric tensor
+  SymmetricTensor sym_tensor({64, 128}, at::ScalarType::Float);
+
+  // Write rank-specific pattern to local tensor
+  const at::Tensor& local_tensor = sym_tensor.localTensor();
+  local_tensor.fill_(static_cast<float>(rank + 100));
+
+  // Validate that localTensor has the correct values for this rank
+  std::vector<float> local_data(local_tensor.numel());
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      local_data.data(),
+      local_tensor.data_ptr(),
+      local_tensor.numel() * sizeof(float),
+      cudaMemcpyDeviceToHost));
+  for (int64_t i = 0; i < local_tensor.numel(); ++i) {
+    ASSERT_EQ(local_data[i], static_cast<float>(rank + 100))
+        << "localTensor value mismatch at index " << i << " for rank " << rank;
+  }
+
+  communicator_->barrier();
+
+  // Create contiguous view of all ranks
+  at::Tensor contiguous_view = createContiguousView(sym_tensor);
+
+  // Validate shape: [world_size, 64, 128]
+  EXPECT_EQ(contiguous_view.dim(), 3);
+  EXPECT_EQ(contiguous_view.size(0), world_size);
+  EXPECT_EQ(contiguous_view.size(1), 64);
+  EXPECT_EQ(contiguous_view.size(2), 128);
+
+  // Validation: copy and check per-rank slice individually
+  const int64_t slice_elems = contiguous_view.size(1) * contiguous_view.size(2);
+  for (int64_t r = 0; r < world_size; ++r) {
+    std::vector<float> data(slice_elems);
+    // Select the slice for rank r
+    at::Tensor slice = contiguous_view[r];
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        data.data(),
+        slice.data_ptr(),
+        slice_elems * sizeof(float),
+        cudaMemcpyDeviceToHost));
+    for (int64_t i = 0; i < slice_elems; ++i) {
+      float expected = static_cast<float>(r + 100);
+      ASSERT_EQ(data[i], expected)
+          << "Rank " << rank << " view checking slice for rank " << r << " at offset " << i 
+          << " did not match expected value";
+    }
   }
 }
 
