@@ -69,7 +69,8 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
   NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
   NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
 
-  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] = aten_out_meta;
+  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] =
+      aten_out_meta;
   EXPECT_EQ(attn.sizes(), attn_meta.sizes());
   EXPECT_EQ(log_sumexp.sizes(), log_sumexp_meta.sizes());
   EXPECT_EQ(attn.strides(), attn_meta.strides());
@@ -945,10 +946,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       ee.evaluate(executor_cache.fusion()->outputs().at(1))
           .as<at::Tensor>()
           .squeeze(0),
-      ee.evaluate(executor_cache.fusion()->outputs().at(2))
-          .as<at::Tensor>(),
-      ee.evaluate(executor_cache.fusion()->outputs().at(3))
-          .as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -1156,10 +1155,8 @@ TEST_F(SDPATest, ComputeAt) {
       ee.evaluate(executor_cache.fusion()->outputs().at(1))
           .as<at::Tensor>()
           .squeeze(0),
-      ee.evaluate(executor_cache.fusion()->outputs().at(2))
-          .as<at::Tensor>(),
-      ee.evaluate(executor_cache.fusion()->outputs().at(3))
-          .as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
