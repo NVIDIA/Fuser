@@ -21,6 +21,7 @@ from nvfuser_direct import (
     CompileParams,
     KernelExecutor,
     SchedulerType,
+    PythonProfiler,
 )
 from nvfuser_direct import idm, schedule
 
@@ -1487,6 +1488,85 @@ def test_tutorial_tma_bank_conflict_free_transpose(nvfuser_direct_test):
     assert outputs[0].equal(t0.t())
 
 
+def test_tutorial_compute_heuristics_and_schedule():
+    """
+    Demonstrate explicit scheduling: compute_heuristics, modify, then schedule.
+    This shows how to customize automatically computed heuristics.
+    """
+    inputs = [
+        torch.randn(4, 4, device="cuda"),
+        torch.randn(4, 4, device="cuda"),
+    ]
+
+    with FusionDefinition() as fd:
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.add(t0, t1)
+        t3 = fd.ops.exp(t2)
+        fd.add_output(t3)
+
+        # Step 1: Compute heuristics for pointwise scheduler
+        heuristic_params = schedule.compute_heuristics(
+            fd.fusion, SchedulerType.pointwise, inputs
+        )
+
+        before_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 1
+====================================
+"""
+        assert str(heuristic_params) == before_modification
+
+        # Step 2: Modify the computed heuristics
+        # Example: Adjust vectorization and unroll factors
+        heuristic_params.vectorization_factor = 1
+        heuristic_params.unroll_factor_inner = 2
+
+        after_modification = """
+===== Pointwise Parameters ========
+Tag: Pointwise heuristics Pointwise Characteristics:
+ Gridx: 1 BlckY: 1 BlckX: 128
+vectorization_factor: 1
+unroll_factor_outer: 1
+unroll_factor_inner: 2
+====================================
+"""
+        assert str(heuristic_params) == after_modification
+
+        # Step 3: Apply the schedule using modified heuristics
+        schedule.schedule(fd.fusion, SchedulerType.pointwise, heuristic_params)
+
+    schedule_fusion_math = """Inputs:
+  T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}]
+  T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}]
+Outputs:
+  T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+
+%kernel_math {
+T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   = Set( T0_g_float[iS61{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iS62{1}, iS60{2}, iS58{128}], cache_op=Streaming )
+T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 )
+   = Set( T1_g_float[iS47{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iS48{1}, iS46{2}, iS44{128}], cache_op=Streaming )
+T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 )
+   = T4_l_float[iblockIdx.x54{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS55{1}, iS53{2}, ithreadIdx.x51{128}] ca_pos( 2 )
+   + T5_l_float[iblockIdx.x40{( ceilDiv(( ceilDiv(( i3 * i4 ), 128) ), 2) )}, iUS41{1}, iS39{2}, ithreadIdx.x37{128}] ca_pos( 2 );
+T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 )
+   = expf(T2_l_float[iblockIdx.x33{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS34{1}, iS32{2}, ithreadIdx.x30{128}] ca_pos( 4 ) produce_pos( 2 ));
+T3_g_float[iblockIdx.x19{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS20{1}, iS18{2}, ithreadIdx.x16{128}] ca_pos( 2 ) produce_pos( 4 )
+   = Set( T6_l_float[iblockIdx.x26{( ceilDiv(( ceilDiv(( i0 * i1 ), 128) ), 2) )}, iUS27{1}, iS25{2}, ithreadIdx.x23{128}] ca_pos( 4 ) produce_pos( 4 ), cache_op=Streaming )
+} // %kernel_math \n\n"""
+    assert fd.fusion.print_math() == schedule_fusion_math
+
+    # Execute with the modified heuristic params
+    nvf_out = fd.manual_execute(inputs, heuristic_params)
+    eager_out = torch.exp(inputs[0] + inputs[1])
+    torch.testing.assert_close(eager_out, nvf_out[0])
+
+
 def test_tutorial_pointwise_auto_scheduler():
     """
     Implement a simple pointwise kernel with automatic scheduling.
@@ -1585,3 +1665,135 @@ def test_tutorial_inner_persistent_auto_scheduler():
     var, mean = torch.var_mean(inputs[0], dim=-1, correction=0, keepdim=True)
     eager_out = (inputs[0] - mean) / torch.sqrt(var + 1e-6)
     torch.testing.assert_close(eager_out, nvf_out[0])
+
+
+def test_tutorial_scheduling_layer_norm_with_profiling():
+    """Test and profile layer norm fusion with manual scheduling."""
+
+    def _definition_func(fd: FusionDefinition, inputs, tensor_size):
+        """Define the layer norm fusion operations."""
+        t0 = fd.from_pytorch(inputs[0])
+        s0 = fd.define_scalar(1e-6, dtype=DataType.Double)
+        norm_const = fd.define_scalar(tensor_size, dtype=DataType.Int)
+
+        mean_cast = fd.ops.cast(t0, dtype=DataType.Float)
+        bcast_sum0 = fd.ops.sum(mean_cast, dims=[-1], keepdim=True)
+        mean = fd.ops.div(bcast_sum0, norm_const)
+
+        var_cast = fd.ops.cast(t0, dtype=DataType.Float)
+        diff = fd.ops.sub(var_cast, mean)
+        diff_sq = fd.ops.mul(diff, diff)
+        bcast_sum1 = fd.ops.sum(diff_sq, dims=[-1], keepdim=True)
+        var = fd.ops.div(bcast_sum1, norm_const)
+
+        t0_cast = fd.ops.cast(t0, dtype=DataType.Float)
+        t0_diff = fd.ops.sub(t0_cast, mean)
+        var_eps = fd.ops.sqrt(fd.ops.add(var, s0))
+        t0_norm = fd.ops.div(t0_diff, var_eps)
+
+        t0_norm_cast = fd.ops.cast(t0_norm, dtype=DataType.BFloat16)
+        fd.add_output(t0_norm_cast)
+
+    def _schedule_func(fd: FusionDefinition):
+        """Schedule the layer norm fusion."""
+        tv_inputs = list(filter(lambda v: v.is_tensor(), fd.fusion.inputs()))
+        assert len(tv_inputs) == 1
+
+        tv_outputs = list(filter(lambda v: v.is_tensor(), fd.fusion.outputs()))
+        assert len(tv_outputs) == 1
+
+        # create cache tensors
+        cache_after_t0 = tv_inputs[0].cache_after()
+        cache_after_t0.set_memory_type(MemoryType.shared)
+
+        cache_before_t0_norm = tv_outputs[0].cache_before()
+        cache_tvs = [cache_after_t0, cache_before_t0_norm]
+        if verbose_:
+            print("cache input:\t", cache_after_t0)
+            print("cache output:\t", cache_before_t0_norm)
+
+        # Schedule Reference Tensor
+        reference_tv = tv_outputs[0]
+        reference_tv.split(-1, 256 * 4)
+        reference_tv.split(-1, 4)
+        fd.sched.transform_like(reference_tv)
+        if verbose_:
+            print("scheduled reference tensor:\n", reference_tv)
+
+        # Add rfactor TensorViews
+        all_tvs = filter(lambda v: v.is_tensor(), fd.fusion.vals())
+        reduction_tvs = list(
+            filter(
+                lambda tv: any(id.is_reduction() for id in tv.get_logical_domain()),
+                all_tvs,
+            )
+        )
+        assert len(reduction_tvs) == 2
+        rfactor_tvs = [tv.rfactor([-1]) for tv in reduction_tvs]
+
+        # Add common parallelization
+        reference_tv.axis(0).parallelize(ParallelType.grid_x)
+        reference_tv.axis(-2).parallelize(ParallelType.block_x)
+        fd.sched.parallelize_like(reference_tv)
+        if verbose_:
+            print("parallelized reference tensor:\n", reference_tv)
+
+        # Vectorize input load and output store
+        cache_after_t0.axis(-1).parallelize(ParallelType.vectorize)
+        tv_outputs[0].axis(-1).parallelize(ParallelType.vectorize)
+        if verbose_:
+            print("vectorized input load:\n", cache_after_t0)
+            print("vectorized output store:\n", tv_outputs[0])
+
+        # Add computeAt; inline_most automatically skips vectorized iterDomains
+        fd.sched.inline_most()
+
+    batch_size = 1024
+    tensor_size = 4096
+    inputs = [
+        torch.randn(batch_size, tensor_size, dtype=torch.bfloat16, device="cuda"),
+    ]
+
+    print("\n\n===================== Schedule Layer Norm =========================")
+
+    with FusionDefinition() as fd:
+        _definition_func(fd, inputs, tensor_size)
+        _schedule_func(fd)
+
+    with PythonProfiler(auto_scheduled=False) as prof:
+        nvf_out = fd.manual_execute(inputs)
+
+    torch_out = torch.nn.functional.layer_norm(
+        inputs[0], normalized_shape=inputs[0].shape[1:]
+    )
+    print("==================================================================")
+
+    # Change rtol and atol for fp16 dtype
+    results_match = torch.allclose(nvf_out[0], torch_out, rtol=1e-2, atol=1e-2)
+    assert results_match, "Nvfuser and PyTorch results do not match!"
+
+    print("====================== Profile Kernel =============================")
+    assert len(prof.profile.kernel_profiles) == 1
+    kp = prof.profile.kernel_profiles[0]
+
+    basic_information = f"Name: {kp.name}, Schedule: {kp.scheduler}, \
+    Segment id: {kp.segment_id}, Device: {kp.device}, Stream: {kp.stream}"
+    print(basic_information)
+
+    kernel_information = f"Compile time: {kp.compile_time_ms:.2f} ms, \
+    Grid: {kp.grid_str}, Block: {kp.block_str}, Registers: {kp.registers}"
+    print(kernel_information)
+
+    runtime_information = f"Input size: {kp.input_bytes} bytes, \
+    Output size: {kp.output_bytes} bytes, Time: {kp.time_ms:2f} ms"
+    print(runtime_information)
+
+    bandwidth_information = f"Effective Bandwidth: {kp.effective_bandwidth_gbs:.2f} GB/s, \
+    Peak Bandwidth: {kp.percentage_peak_bandwidth:2f}%"
+    print(bandwidth_information)
+    print("===================================================================")
+
+    # Validate profiler captured kernel info
+    assert prof.profile.fusion_id >= 0
+    assert len(prof.profile.kernel_profiles) > 0
+    assert prof.profile.kernel_profiles[0].scheduler == "user"
