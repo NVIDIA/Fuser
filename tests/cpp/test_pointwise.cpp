@@ -1891,31 +1891,9 @@ TEST_P(PointwiseTmaAutoSchedulerTest, MultiWaveAuto1D) {
   testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    PointwiseTmaAutoSchedulerTest,
-    ::testing::Combine(
-        ::testing::ValuesIn([] {
-          std::vector<int64_t> vals(
-              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
-          // Add some irregular numbers
-          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
-          return vals;
-        }()), // dim0
-        ::testing::Values(DataType::BFloat16, DataType::Float) // dtype
-        ),
-    [](const testing::TestParamInfo<TMAAutoSchedulerTestParams>& info) {
-      int64_t dim0 = std::get<0>(info.param);
-      DataType dtype = std::get<1>(info.param);
-      std::string dtype_str =
-          (dtype == DataType::BFloat16) ? "BFloat16" : "Float32";
-      return "dim0_" + std::to_string(dim0) + "_" + dtype_str;
-    });
-
-TEST_F(PointwiseTmaAutoSchedulerTest, OuterBcast) {
+TEST_P(PointwiseTmaAutoSchedulerTest, MultiWaveAuto2dOuterBcast) {
   int64_t dim0 = 16384;
-  int64_t dim1 = 32768;
-  DataType dtype = DataType::BFloat16;
+  auto [dim1, dtype] = GetParam();
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1937,7 +1915,28 @@ TEST_F(PointwiseTmaAutoSchedulerTest, OuterBcast) {
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTmaAutoSchedulerTest, InnerBcast) {
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PointwiseTmaAutoSchedulerTest,
+    ::testing::Combine(
+        ::testing::ValuesIn([] {
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }()), // inner dim
+        ::testing::Values(DataType::BFloat16, DataType::Float) // dtype
+        ),
+    [](const testing::TestParamInfo<TMAAutoSchedulerTestParams>& info) {
+      int64_t dim0 = std::get<0>(info.param);
+      DataType dtype = std::get<1>(info.param);
+      std::string dtype_str =
+          (dtype == DataType::BFloat16) ? "BFloat16" : "Float32";
+      return "dim0_" + std::to_string(dim0) + "_" + dtype_str;
+    });
+
+TEST_F(NVFuserTest, InnerBcast) {
   int64_t dim0 = 16384;
   int64_t dim1 = 32768;
   DataType dtype = DataType::BFloat16;
@@ -1960,5 +1959,37 @@ TEST_F(PointwiseTmaAutoSchedulerTest, InnerBcast) {
   auto t1 = at::randn({dim0}, options);
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, InnerOuterBcast) {
+  int64_t dim0 = 16384;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::BFloat16;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  auto tv2 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = broadcast(tv2, {true, false});
+  tv3 = maybeCastOp(DataType::Float, tv3);
+  tv4 = maybeCastOp(DataType::Float, tv4);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto tv5 = add(tv0, tv3);
+  auto tv6 = add(tv5, tv4);
+  tv6 = maybeCastOp(dtype, tv6);
+  fusion->addOutput(tv6);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto t2 = at::randn({dim1}, options);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1, t2});
+  testValidate(fusion, cg_results.outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

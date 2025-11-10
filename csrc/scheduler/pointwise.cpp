@@ -565,28 +565,34 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     if (std::getenv("TMA_STORE") != nullptr) {
       params->use_tma_store = std::atoi(std::getenv("TMA_STORE")) != 0;
     }
-    if (break_point == 0 || params->unroll_factor_outer == 1) {
+    // if (break_point == 0 || (bdimy == 1 && params->unroll_factor_outer == 1))
+    // {
+    if (break_point == 0) {
+      int64_t element_to_split = break_point ? right_elem_count : n_elems;
+      // if ((break_point == 0 || params->unroll_factor_outer == 1) && bdimy ==
+      // 1) {
       NVF_ERROR(bdimy == 1);
-      // when has inner bcase, use larger inner unroll
-      if (break_point) {
-        params->unroll_factor_inner *= 2;
-      }
-      int64_t bidx_vect = bdimx * params->vectorization_factor;
-      params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
+      int64_t bdimx_vect = bdimx * params->vectorization_factor;
+      // when has inner bcase, use larger inner unroll, about
+      // if (break_point && right_elem_count / bdimx_vect >= 2 *
+      // params->unroll_factor_inner) {
+      //   params->unroll_factor_inner *= 2;
+      // }
+      params->tma_tile_inner = bdimx_vect * params->unroll_factor_inner;
       params->lparams.bind(bdimx, ParallelType::TIDx);
 
-      if (n_elems % params->tma_tile_inner) {
+      if (element_to_split % params->tma_tile_inner) {
         params->unroll_factor_inner =
             scheduler_utils::lastPow2(params->unroll_factor_inner);
-        params->tma_tile_inner = bidx_vect * params->unroll_factor_inner;
+        params->tma_tile_inner = bdimx_vect * params->unroll_factor_inner;
       }
 
       if (std::getenv("TILE") != nullptr) {
         params->tma_tile_inner = std::atoi(std::getenv("TILE"));
         params->unroll_factor_inner =
-            ceilDiv(params->tma_tile_inner, bidx_vect);
+            ceilDiv(params->tma_tile_inner, bdimx_vect);
       }
-      if (n_elems % params->tma_tile_inner) {
+      if (element_to_split % params->tma_tile_inner != 0) {
         params->is_1d_tma = false;
         params->unswitch_computation = true;
       } else {
@@ -598,8 +604,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       // TMA tile
       int64_t elem_per_cta = bdimx * bdimy * params->unroll_factor_outer *
           params->vectorization_factor * params->unroll_factor_inner;
-      elem_per_cta /= 2;
-      bdimx = 16;
+      bdimx = std::min((int64_t)32, bdimx);
       int64_t vect_factor = (int64_t)kOneHundredTwentyEight /
           max_dtype_size_bit_for_vectorization;
 
@@ -612,13 +617,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->lparams.bindUnsafe(
           128 / params->lparams.bdimx(), ParallelType::TIDy);
     }
-
-    return params;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Pointwise Stats ========\n"
             << "type: " << params->tag << "\n"
+            << "is_1d_tma: " << params->is_1d_tma << "\n"
+            << "tma_tile_inner: " << params->tma_tile_inner << "\n"
+            << "tma_tile_outer: " << params->tma_tile_outer << "\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
             << "max_dtype_size_bit_for_vectorization: "
@@ -982,8 +988,6 @@ void scheduleTma1DTile(
       .traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
-  fusion->print();
-
   // vectorize regs -> global
   if (pparams->vectorization_factor > 1) {
     for (auto [_, original] : cached_outputs) {
@@ -1128,9 +1132,18 @@ void scheduleTma2DTile(
       ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
   inlineMost(non_ldg_tvs);
   for (auto ldg_tv : ldg_tvs) {
+    std::cout << "ldg_tv: " << ldg_tv->toString() << std::endl;
     // outer bcast: [I/n, n/v/x, x, v]
+    // inner bcast: [O/m, m/y, y]
     inlineSelectedAt({ldg_tv}, ldg_tv, 1);
-    ldg_tv->axis(vect_pos - 2)->parallelize(ParallelType::Vectorize);
+    if (std::any_of(
+            ldg_tv->getLoopDomain().begin(),
+            ldg_tv->getLoopDomain().end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::TIDx;
+            })) {
+      ldg_tv->axis(vect_pos - 2)->parallelize(ParallelType::Vectorize);
+    }
   }
 }
 } // namespace
@@ -1331,7 +1344,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
     if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
-      return pparams->unroll_factor_outer > 1
+      return pparams->tma_tile_outer > 1
           ? scheduleTma2DTile(
                 fusion, reference_tv, pparams, cached_inputs, cached_outputs)
           : scheduleTma1DTile(
