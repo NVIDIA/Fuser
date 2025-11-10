@@ -384,6 +384,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Indicates whether the fusion is outer broadcast dominated or not.
   bool is_outer_broadcast_dominated = false;
+  boo try_tma = isOptionEnabled(EnableOption::TmaPointwise);
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -443,7 +444,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
-        if (cur_transfer_size_bit >= min_total_transfer_bit ||
+        if (!try_tma || cur_transfer_size_bit >= min_total_transfer_bit ||
             cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
           continue;
         }
