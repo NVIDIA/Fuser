@@ -384,7 +384,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Indicates whether the fusion is outer broadcast dominated or not.
   bool is_outer_broadcast_dominated = false;
-  boo try_tma = isOptionEnabled(EnableOption::TmaPointwise);
+  bool prefer_tma = isOptionEnabled(EnableOption::TmaPointwise);
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -397,7 +397,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     }
 
     // If there isn't very much parallelism available, just use 1D scheduler
-    if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
+    if (prefer_tma || n_elems * 2 > device_multiprocessor_count * kThreadX) {
       int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
       int64_t threads_per_warp =
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
@@ -444,8 +444,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
-        if (!try_tma || cur_transfer_size_bit >= min_total_transfer_bit ||
-            cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
+        if (cur_transfer_size_bit >= min_total_transfer_bit ||
+            (cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9 &&
+             !prefer_tma)) {
           continue;
         }
 
@@ -559,7 +560,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
   // TMA pointwise heuristics
   // TODO: tune three tiling sizes for the best performance
-  if (isOptionEnabled(EnableOption::TmaPointwise)) {
+  if (prefer_tma) {
     params->tag = "TMA pointwise heuristics";
     params->use_tma_load = true;
     params->use_tma_store = false;
@@ -603,20 +604,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     } else {
       // inner dim: serial, bdimx, vectorization, <= 256
       // TMA tile
-      int64_t elem_per_cta = bdimx * bdimy * params->unroll_factor_outer *
-          params->vectorization_factor * params->unroll_factor_inner;
       bdimx = std::min((int64_t)32, bdimx);
-      int64_t vect_factor = (int64_t)kOneHundredTwentyEight /
-          max_dtype_size_bit_for_vectorization;
-
+      bdimy = 128 / bdimx;
       params->lparams.bindUnsafe(bdimx, ParallelType::TIDx);
-      params->vectorization_factor = vect_factor;
-      params->tma_tile_inner = vect_factor * bdimx;
-
-      params->tma_tile_outer = ceilDiv(elem_per_cta, params->tma_tile_inner);
-      // block tile
-      params->lparams.bindUnsafe(
-          128 / params->lparams.bdimx(), ParallelType::TIDy);
+      params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
+      params->tma_tile_inner =
+          bdimx * params->unroll_factor_inner * params->vectorization_factor;
+      params->tma_tile_outer =
+          bdimy * params->unroll_factor_outer * params->vectorization_factor;
     }
   }
 
@@ -1344,7 +1339,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
     reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
 
-    if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
+    if (pparams->use_tma_load) {
       return pparams->tma_tile_outer > 1
           ? scheduleTma2DTile(
                 fusion, reference_tv, pparams, cached_inputs, cached_outputs)
@@ -1492,7 +1487,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     // it from the inner most position to left most. Order as [rhs_i,
     // unmerged...]
     reference_tv->reorder({{-1, 0}});
-    if (pparams->use_tma_load && isOptionEnabled(EnableOption::TmaPointwise)) {
+    if (pparams->use_tma_load) {
       return scheduleTma1DTile(
           fusion, reference_tv, pparams, cached_inputs, cached_outputs);
     } else if (
