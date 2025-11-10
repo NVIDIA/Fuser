@@ -5001,7 +5001,7 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   const auto meta_u64 =
       at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
   auto rng_state = at::empty({2}, meta_u64); // philox_seed/rng_state
-  auto rng_offset = at::empty({}, meta_u64); // philox_offset (0-dim)
+  auto rng_offset = at::empty({}, meta_u64);
   return std::make_tuple(
       query,
       logsumexp,
