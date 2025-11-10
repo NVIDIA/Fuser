@@ -318,14 +318,12 @@ inferAllocationSizesAndStrides(
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
-    auto it = active_ids.find(id);
-    NVF_ERROR(it != active_ids.end(), "Allocation domain is not complete");
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {
-      allocation_sizes.push_back(it->second.first);
+      allocation_sizes.push_back(active_ids.at(id).first);
     }
-    allocation_strides.push_back(it->second.second);
+    allocation_strides.push_back(active_ids.at(id).second);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
