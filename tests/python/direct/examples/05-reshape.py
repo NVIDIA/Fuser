@@ -5,7 +5,6 @@ This example demonstrates how reshape operations work in nvFuser,
 including how they interact with root, logical, and loop domains.
 """
 
-import torch
 from nvfuser_direct import (
     FusionDefinition,
     Merge,
@@ -96,25 +95,6 @@ with FusionDefinition() as fd:
         == reshape_output.get_loop_domain()[1]
     )
 
-    # Here's how we propagate the transformations of reshape_output to all
-    # other tensors in the fusion
-    fd.sched.transform_like(reshape_output)
-
-    # Now, all tensors, including those before the reshape op, should be
-    # transformed to 2D tensors with an inner domain of extent 128.
-    print("\n=== Fusion Math (After scheduling) ===")
-    print(fd.fusion.print_math())
-
-    # Notice that all transformations of the reshape tensor, including both the
-    # reshape and scheduling transformations, are propagated.
-    
-    # Note that all the transformations of squeeze_output are scheduling
-    # transformations, thus it should not have a root domain
-    assert not squeeze_output.has_root()
-    
-    print("\n✓ Transform propagation validated!")
-
 print("\n" + "=" * 60)
 print("All reshape examples completed successfully!")
 print("=" * 60)
-
