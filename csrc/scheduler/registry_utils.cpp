@@ -1221,14 +1221,12 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     // compatible. Otherwise, error will be raised in propagate_shardings pass.
     // Now, we need to check if all the reshapes are compatible with each other.
     // clang-format on
-    std::vector<IterDomain*> ids;
-    for (Val* val : *val_group) {
-      auto id = val->as<IterDomain>();
-      if (id->isRFactorProduct()) {
-        ids.push_back(id);
-      }
-    }
-    if (ids.size() < 2) {
+    if (std::count_if(
+            val_group->vector().begin(),
+            val_group->vector().end(),
+            [](Val* val) {
+              return val->as<IterDomain>()->isRFactorProduct();
+            }) < 2) {
       continue;
     }
     // The usages of this val group should be in the same expr
@@ -1252,7 +1250,8 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
       // skipping reshape splits.
       // clang-format off
       // Take MultiDeviceTest.MultipleIncompatibleReshapes for example:
-      // id: iS15{96}rf is mapped to two use groups:
+      // val_group: { iS15{96}rf; iS9{96}rf; iS5{96}; iS2{96} }
+      // is mapped to two use groups:
       // group-1: { Outer split: iS15{96}rf by factor 4 -> iS16{4}rf, iS17{24}rf }
       // group-2: { Outer split: iS9{96}rf by factor 2 -> iS10{2}rf, iS11{48}rf,
       //           Outer split: iS5{96} by factor 2 -> ideviceIdx.x36{2}, iS37{48},
