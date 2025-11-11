@@ -19,7 +19,6 @@
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <linked_hash_map.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <statement_guard.h>
