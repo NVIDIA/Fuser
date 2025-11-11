@@ -508,6 +508,19 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           logical_reorder_map));
   params->vectorization_factor = vectorization_factor;
 
+  // Check if fusion has BlockQuantizationOp
+  auto fusion_has_block_quantization =
+      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
+
+  // The runtime function implementing block quantization op needs
+  // at least 2 elements per thread to work.
+  if (fusion_has_block_quantization && params->vectorization_factor < 2) {
+    NVF_THROW(
+        "Unable to schedule a fusion iwth BlockQuantization since we were not "
+        "able to "
+        "vectorize by at least a factor of 2 ");
+  }
+
   // get unroll factor:
 
   int64_t total_blocks = break_point > 0
@@ -523,10 +536,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
-
-  // Check if fusion has BlockQuantizationOp
-  auto fusion_has_block_quantization =
-      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
 
   // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
   // function which implements quantization assumes no unrolling
@@ -1240,17 +1249,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     unswitch_pos = 2;
   }
 
+  // We first vectorize the the quantized outputs of the block quantization ops.
+  // We then convert the vectorized ID to group ID.
+  // We do so as the runtime function for block quantization expects 2/4/8
+  // elements per thread.
   auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
   std::vector<TensorView*> nvfp4_quantized_outputs = {};
   for (auto bq_op : bq_ops) {
     nvfp4_quantized_outputs.push_back(
         bq_op->quantizedOutput()->as<TensorView>());
-  }
-
-  if (bq_ops.size() > 0 && pparams->vectorization_factor < 2) {
-    NVF_THROW(
-        "Unable to schedule BlockQuantization since we were not able to "
-        "vectorize the reference tensor");
   }
 
   TransformPropagator propagator(reference_tv);
@@ -1305,14 +1312,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       if (!should_vectorize_reference_tv) {
         vectorize_id->parallelize(ParallelType::Serial);
       }
-    }
-  }
 
-  // Change vectorized IDs to group IDs for quantized outputs
-  for (auto quantized_output : nvfp4_quantized_outputs) {
-    for (auto id : quantized_output->getLoopDomain()) {
-      if (id->getParallelType() == ParallelType::Vectorize) {
-        id->parallelize(ParallelType::Group);
+      // Change vectorized IDs to group IDs for quantized outputs
+      for (auto quantized_output : nvfp4_quantized_outputs) {
+        for (auto id : quantized_output->getLoopDomain()) {
+          if (id->getParallelType() == ParallelType::Vectorize) {
+            id->parallelize(ParallelType::Group);
+          }
+        }
       }
     }
   }
