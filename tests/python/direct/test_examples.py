@@ -16,7 +16,7 @@ def test_pointwise():
     torch.testing.assert_close(y, x.relu())
 
 
-def test_symoblic_reshape():
+def test_symbolic_reshape():
     with FusionDefinition() as fd:
         x = fd.define_tensor([-1, -1], dtype=DataType.Float)
         x = fd.ops.reshape(x, [-1])
