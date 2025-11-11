@@ -387,10 +387,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // There should be a tuned cut-off point for parallelism to enable TMA.
   bool is_enough_parallelism =
       n_elems * 2 > device_multiprocessor_count * kThreadX;
-  // bool prefer_tma =
-  //     isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
+  bool prefer_tma =
+      isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
   // tmp enable TmaPointwise for CI testing
-  bool prefer_tma = is_enough_parallelism;
+  prefer_tma = is_enough_parallelism;
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -451,8 +451,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         //  Continue if this break point doesn't save at least 10% of 1D
         //  scheduling or isn't better than previous break_points found.
         if (cur_transfer_size_bit >= min_total_transfer_bit ||
-            (cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9 &&
-             !prefer_tma)) {
+            cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9 ||
+            (prefer_tma && cur_transfer_size_bit > transfer_size_1d_bit)) {
           continue;
         }
 
@@ -611,14 +611,18 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     } else {
       // inner dim: serial, bdimx, vectorization, <= 256
       // TMA tile
+      constexpr int64_t max_tma_tile_size = 256;
       bdimx = std::min((int64_t)32, bdimx);
       bdimy = 128 / bdimx;
       params->lparams.bindUnsafe(bdimx, ParallelType::TIDx);
       params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
-      params->tma_tile_inner =
-          bdimx * params->unroll_factor_inner * params->vectorization_factor;
-      params->tma_tile_outer =
-          bdimy * params->unroll_factor_outer * params->vectorization_factor;
+      int64_t elem_per_thread = bdimx * bdimy * params->unroll_factor_outer *
+          params->unroll_factor_inner * params->vectorization_factor;
+      params->tma_tile_inner = std::min(
+          max_tma_tile_size,
+          bdimx * params->unroll_factor_inner * params->vectorization_factor);
+      params->tma_tile_outer = elem_per_thread / params->tma_tile_inner;
+      NVF_ERROR(params->tma_tile_outer <= max_tma_tile_size);
     }
   }
 
