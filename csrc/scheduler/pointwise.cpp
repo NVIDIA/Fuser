@@ -516,7 +516,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // at least 2 elements per thread to work.
   if (fusion_has_block_quantization && params->vectorization_factor < 2) {
     NVF_THROW(
-        "Unable to schedule a fusion iwth BlockQuantization since we were not "
+        "Unable to schedule a fusion with BlockQuantization since we were not "
         "able to "
         "vectorize by at least a factor of 2 ");
   }
