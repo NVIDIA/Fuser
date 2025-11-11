@@ -1231,29 +1231,44 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     if (ids.size() < 2) {
       continue;
     }
-    // For IDs in the same val group, their usages should be in the same expr
-    // group. Resize ops are skipped since they are not propagated during
-    // replay.
+    // The usages of this val group should be in the same expr
+    // group.
     std::optional<ExprGroup> common_use_group;
-    for (auto id : ids) {
-      if (!permissive_resize_graph.hasUses(
-              permissive_resize_graph.toGroup(id))) {
+    if (!permissive_resize_graph.hasUses(val_group)) {
+      continue;
+    }
+    const auto& use_groups = permissive_resize_graph.getUses(val_group);
+    for (const auto& use_group : use_groups) {
+      // skip resize as they are not propagated during replay.
+      if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return expr->isA<Resize>();
+          })) {
         continue;
       }
-      const auto& use_groups =
-          permissive_resize_graph.getUses(permissive_resize_graph.toGroup(id));
-      for (const auto& use_group : use_groups) {
-        // skip resize as they are not propagated during replay.
-        if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
-              return expr->isA<Resize>();
-            })) {
-          continue;
-        }
-        if (!common_use_group.has_value()) {
-          common_use_group = use_group;
-        } else if (common_use_group.value() != use_group) {
-          return true;
-        }
+      // Skip device splits since they are already handled by
+      // PropagateShardingsPass during the pre-segment pass. Device splits are
+      // grouped with reshape splits when they share the same split factor. We
+      // can only skip the group if all uses are device splits, to avoid
+      // skipping reshape splits.
+      // clang-format off
+      // Take MultiDeviceTest.MultipleIncompatibleReshapes for example:
+      // id: iS15{96}rf is mapped to two use groups:
+      // group-1: { Outer split: iS15{96}rf by factor 4 -> iS16{4}rf, iS17{24}rf }
+      // group-2: { Outer split: iS9{96}rf by factor 2 -> iS10{2}rf, iS11{48}rf,
+      //           Outer split: iS5{96} by factor 2 -> ideviceIdx.x36{2}, iS37{48},
+      //           Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48} }
+      // we can't skip group-2 since it contains a reshape split. This reshape split
+      // is incompatible with that in group-1
+      // clang-format on
+      if (std::all_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return isValidDeviceSplit(expr);
+          })) {
+        continue;
+      }
+      if (!common_use_group.has_value()) {
+        common_use_group = use_group;
+      } else if (common_use_group.value() != use_group) {
+        return true;
       }
     }
   }
