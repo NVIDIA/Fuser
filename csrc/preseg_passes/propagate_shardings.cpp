@@ -11,6 +11,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/propagation.h>
 #include <multidevice/utils.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <scheduler/utils.h>
@@ -146,7 +147,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         }
         std::unordered_set<ParallelType> selected_parallel_types =
             getParallelTypesToPropagate(target);
-        propagateDeviceAndStream(
+        shardLoopLike(
             /*ref=*/ref_input,
             /*tv=*/target,
             selected_parallel_types,
@@ -179,7 +180,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       }
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate(target);
-      propagateDeviceAndStream(
+      shardLoopLike(
           /*ref=*/ref_output,
           /*tv=*/target,
           selected_parallel_types,

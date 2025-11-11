@@ -109,10 +109,4 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
 
-// Propagates the given device/stream ids from ref to target.
-void propagateDeviceAndStream(
-    const TensorView* ref,
-    TensorView* tv,
-    const std::unordered_set<ParallelType>& selected_parallel_types,
-    PropagateDirection direction);
 } // namespace nvfuser
