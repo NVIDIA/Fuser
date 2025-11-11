@@ -25,6 +25,7 @@
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
@@ -1801,13 +1802,14 @@ void validate1dTmaLoad(Fusion* fusion) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    int64_t tma_axis = -1;
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        tv->axis(tma_axis)->getParallelType() == ParallelType::Bulk,
         "Expect TMA load of inner-most dimension, but got: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(tma_axis)});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
@@ -1817,6 +1819,23 @@ void validate1dTmaLoad(Fusion* fusion) {
             split->toString());
       }
     }
+    // size must be divisible by 16 bytes
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+    Val* tma_bytes = SimplifyingIrBuilder::mulExpr(
+        tv->axis(tma_axis)->extent(), dataTypeSizeByte(tv->dtype()));
+    Val* tma_bytes_is_multiple_of_16 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            tma_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        fusion->zeroVal());
+    NVFUSER_LOWER_VALIDATE(
+        tma_bytes_is_multiple_of_16,
+        "Expect 1dTMA load of inner-most dimension to be divisible by 16 "
+        "bytes, "
+        "but got: ",
+        tma_bytes->toInlineString(),
+        " bytes, ",
+        " tv:",
+        tv->toString());
   }
 }
 

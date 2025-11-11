@@ -3388,4 +3388,35 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_has_circular_buffer_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// The 32-bit operand size specifies the amount of memory to be prefetched in
+// terms of number of bytes. size must be a multiple of 16. If the value is not
+// a multiple of 16, then the behavior is undefined
+TEST_F(TMATest, CpAsyncBulk1dIllegalSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  constexpr int dim0 = 33;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  EXPECT_THAT(
+      [&]() { ke.run({at_tv0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Expect 1dTMA load of inner-most dimension to "
+                               "be divisible by 16 bytes")));
+}
+
 } // namespace nvfuser

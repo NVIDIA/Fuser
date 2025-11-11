@@ -166,26 +166,42 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     // inputs, making TMA loading beneficial. If not, shared memory persistent
     // buffers cannot use TMA since their producers are not inputs.
     if (buffer_params.project_to_input) {
-      auto rparams = makeRParams();
-      rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+      // TMA load requires size to be multiple of 16 bytes (128 bits).
+      // In inner-outer scheduler, only shared memmory pereistent buffers are
+      // TMA loaded and tma load size equals to the buffer size.
+      if (std::all_of(
+              buffer_params.smem_persistent_buffers.begin(),
+              buffer_params.smem_persistent_buffers.end(),
+              [&runtime_info, &persistent_buffer_info](TensorView* buffer) {
+                int64_t buffer_size_regs_bit =
+                    scheduler_utils::getPersistentBufferSizeBitOfTensor(
+                        buffer, runtime_info, persistent_buffer_info);
+                return buffer_size_regs_bit % 128 == 0;
+              })) {
+        auto rparams = makeRParams();
+        rparams->smem_persistent_buffers =
+            buffer_params.smem_persistent_buffers;
 
-      inner_outer_tma_warp_specialized::getHeuristics(
-          rparams.get(),
-          properties.total_iteration_numel,
-          properties.total_reduction_numel,
-          buffer_params.regs_buffer_size_bit,
-          buffer_params.circular_buffered_smem_size_bit,
-          buffer_params.non_circular_buffered_smem_size_bit,
-          max_outer_reduction_dtype_size_bit,
-          vectorize_factor,
-          threads_per_block_min,
-          threads_per_block_max,
-          buffer_params.project_to_input,
-          runtime_info.getIndexType());
+        inner_outer_tma_warp_specialized::getHeuristics(
+            rparams.get(),
+            properties.total_iteration_numel,
+            properties.total_reduction_numel,
+            buffer_params.regs_buffer_size_bit,
+            buffer_params.circular_buffered_smem_size_bit,
+            buffer_params.non_circular_buffered_smem_size_bit,
+            max_outer_reduction_dtype_size_bit,
+            vectorize_factor,
+            threads_per_block_min,
+            threads_per_block_max,
+            buffer_params.project_to_input,
+            runtime_info.getIndexType());
 
-      // If warp specialized is enabled, or the heuristic is successful, return
-      if (user_enforced_warp_specialization || rparams->is_good_ws_heuristic) {
-        return rparams;
+        // If warp specialized is enabled, or the heuristic is successful,
+        // return
+        if (user_enforced_warp_specialization ||
+            rparams->is_good_ws_heuristic) {
+          return rparams;
+        }
       }
     }
   }
