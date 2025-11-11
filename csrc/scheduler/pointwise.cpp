@@ -381,16 +381,30 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
     dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
   }
-
+  // [  FAILED  ] PointwiseTest.Issue1567VectorizeAllocationDomain
+  // [  FAILED  ] PointwiseTest.Issue1567VectorizationFactorAnalysisCase0
+  // [  FAILED  ] PointwiseTest.Issue1567VectorizationFactorAnalysisCase1
+  // [  FAILED  ] PointwiseTest.Issue1567VectorizationFactorAnalysisCase2
+  // [  FAILED  ] PointwiseTest.VIssue1567ectorizationFactorAnalysisCase3
+  // [  FAILED  ] PointwiseTest.VectorizeWithExpandedBroadcast
   // Indicates whether the fusion is outer broadcast dominated or not.
   bool is_outer_broadcast_dominated = false;
   // There should be a tuned cut-off point for parallelism to enable TMA.
   bool is_enough_parallelism =
       n_elems * 2 > device_multiprocessor_count * kThreadX;
-  bool prefer_tma =
-      isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
+  bool has_reshape = !ir_utils::getReshapeOps(fusion).empty();
+  bool has_non_contiguous_input =
+      scheduler_utils::hasNonContiguousInput(fusion);
+  bool has_allocation_domain =
+      scheduler_utils::InputOrOutputHasAllocationDomain(fusion);
+  std::cout << "has_reshape: " << has_reshape << std::endl;
+  std::cout << "has_non_contiguous_input: " << has_non_contiguous_input
+            << std::endl;
+  std::cout << "is_enough_parallelism: " << is_enough_parallelism << std::endl;
+  bool prefer_tma = is_enough_parallelism && !has_reshape &&
+      !has_non_contiguous_input && !has_allocation_domain;
   // tmp enable TmaPointwise for CI testing
-  prefer_tma = is_enough_parallelism;
+  prefer_tma = prefer_tma && isOptionEnabled(EnableOption::TmaPointwise);
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
@@ -927,7 +941,7 @@ void scheduleTma1DTile(
     MaxLogicalDomainInfoSpanningTree spanning_tree(reference_tv);
     spanning_tree.traverse(&propagator);
   }
-
+  int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
   int opos = 0;
   int ipos = pparams->break_point == 0 ? 0 : 1;
   std::cout << "ipos: " << ipos << ", opos: " << opos << std::endl;
@@ -938,7 +952,7 @@ void scheduleTma1DTile(
   std::vector<TensorView*> tma_tvs;
   std::vector<TensorView*> ldg_tvs;
   for (const auto& p : cached_inputs) {
-    if (p.first->nDims() == 1 && ipos != opos) {
+    if (scheduler_utils::nLogicalDims(p.first) < n_valid_dims) {
       ldg_tvs.push_back(p.first);
       continue;
     }
@@ -1012,6 +1026,19 @@ void scheduleTma1DTile(
   std::vector<TensorView*> non_ldg_tvs =
       ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
   inlineMost(non_ldg_tvs);
+  for (auto ldg_tv : ldg_tvs) {
+    std::cout << "ldg_tv: " << ldg_tv->toString() << std::endl;
+    // [I/n, n/v/x, x, v]
+    inlineSelectedAt({ldg_tv}, ldg_tv, 1);
+    if (std::any_of(
+            ldg_tv->getLoopDomain().begin(),
+            ldg_tv->getLoopDomain().end(),
+            [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::TIDx;
+            })) {
+      ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
 }
 
 void scheduleTma2DTile(
@@ -1028,7 +1055,7 @@ void scheduleTma2DTile(
   if (reference_tv->isFusionOutput()) {
     reference_tv = ir_utils::getSoleProducerTv(reference_tv);
   }
-
+  int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
   struct TileMN {
     int64_t m;
     int64_t n;
@@ -1041,7 +1068,7 @@ void scheduleTma2DTile(
   std::vector<TensorView*> tma_tvs;
   std::vector<TensorView*> ldg_tvs;
   for (const auto& p : cached_inputs) {
-    if (p.first->nDims() == 1) {
+    if (scheduler_utils::nLogicalDims(p.first) < n_valid_dims) {
       ldg_tvs.push_back(p.first);
       continue;
     }

@@ -880,6 +880,10 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // For shared memory tensor, replay loop domain transformations to allocation
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
+
+bool hasNonContiguousInput(Fusion* fusion);
+
+bool InputOrOutputHasAllocationDomain(Fusion* fusion);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

@@ -3289,5 +3289,44 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
+bool hasNonContiguousInput(Fusion* fusion) {
+  const auto& input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  for (auto tv : input_tvs) {
+    for (auto contiguous_domain : tv->domain()->contiguity()) {
+      if (contiguous_domain.has_value() && !contiguous_domain.value()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool InputOrOutputHasAllocationDomain(Fusion* fusion) {
+  const auto& inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  for (auto tv : inputs) {
+    if (tv->hasAllocation()) {
+      return true;
+    }
+  }
+  const auto& outputs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  for (auto tv : outputs) {
+    if (tv->hasAllocation()) {
+      return true;
+    }
+  }
+  return false;
+}
+// bool isBroadcastOrConsumedByBroadcast(TensorView* tv) {
+//   if (tv->hasBroadcast()) {
+//     return true;
+//   }
+//   const auto& all_consumers = DependencyCheck::getAllDependentVals({tv});
+//   for (auto tv : all_consumers) {
+//     if (tv->definition()->isA<BroadcastOp>()) {
+//       return true;
+//     }
+//   }
+//   return false;
+// }
 } // namespace scheduler_utils
 } // namespace nvfuser
