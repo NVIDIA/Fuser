@@ -387,8 +387,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // There should be a tuned cut-off point for parallelism to enable TMA.
   bool is_enough_parallelism =
       n_elems * 2 > device_multiprocessor_count * kThreadX;
-  bool prefer_tma =
-      isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
+  // bool prefer_tma =
+  //     isOptionEnabled(EnableOption::TmaPointwise) && is_enough_parallelism;
+  // tmp enable TmaPointwise for CI testing
+  bool prefer_tma = is_enough_parallelism;
   { // Figure out break point position. Empty scope, consider moving to a
     // separate function.
     //
