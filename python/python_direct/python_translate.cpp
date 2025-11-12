@@ -580,7 +580,8 @@ class PythonTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isOneOf<ReshapeOp, ExpandOp, FullOp>()) {
+        NVF_ERROR_EQ(e->outputs().size(), 1);
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
