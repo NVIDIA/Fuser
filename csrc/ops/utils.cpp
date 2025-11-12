@@ -315,22 +315,6 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   return mapping;
 }
 
-namespace {
-ParallelType promoteParallelType(ParallelType a, ParallelType b) {
-  if (a == b) {
-    return a;
-  }
-  NVF_ERROR(
-      a == ParallelType::Serial || b == ParallelType::Serial,
-      "Doesn't know how to resolve ",
-      a,
-      " and ",
-      b,
-      " at this moment.");
-  return a == ParallelType::Serial ? b : a;
-}
-} // namespace
-
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -350,7 +334,6 @@ IterDomain* newOutputIterDomain(
   Val* extent_val = nullptr;
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
-  auto parallel_type = ParallelType::Serial;
   std::optional<IterType> iter_type = std::nullopt;
 
   for (auto id : input_ids) {
@@ -365,7 +348,6 @@ IterDomain* newOutputIterDomain(
             isParallelTypeDeviceDim(id->getParallelType()),
         id->getParallelType(),
         " is not expected when building ops.");
-    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
 
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
@@ -422,7 +404,6 @@ IterDomain* newOutputIterDomain(
         IterDomainBuilder(
             IrBuilder::create<Val>(start_offset, DataType::Index), extent_val)
             .stop_offset(IrBuilder::create<Val>(stop_offset, DataType::Index))
-            .parallel_type(parallel_type)
             .iter_type(iter_type.value())
             .build();
   } else {
@@ -430,7 +411,6 @@ IterDomain* newOutputIterDomain(
                      FusionGuard::getCurFusion()->zeroVal(),
                      FusionGuard::getCurFusion()->oneVal())
                      .expanded_extent(expanded_extent_val)
-                     .parallel_type(parallel_type)
                      .iter_type(IterType::Broadcast)
                      .build();
   }

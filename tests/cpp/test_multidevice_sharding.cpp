@@ -304,15 +304,14 @@ TEST_F(MultiDeviceTest, Issue2758) {
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
   TensorView* in = makeContigTensor(3);
-  in->setDeviceMesh(mesh);
-  in->axis(0)->parallelize(ParallelType::DIDx);
-
   // ReduceScatter
   TensorView* reduce_scattered = sum(in, {0});
-  reduce_scattered->axis(1)->parallelize(ParallelType::DIDx);
-
   // Add the size of dimension 1 of `in`, which is num_devices.
   TensorView* out = add(reduce_scattered, shape(in)[1]);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+  reduce_scattered->axis(1)->parallelize(ParallelType::DIDx);
 
   fusion->addInput(in);
   fusion->addOutput(out);
@@ -326,8 +325,7 @@ TEST_F(MultiDeviceTest, Issue2758) {
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   at::Tensor expected_out_tensor =
-      shardTensor(unsharded_in_tensor.sum(0), reduce_scattered) +
-      in_tensor.size(1);
+      shardTensor(unsharded_in_tensor.sum(0), 0, mesh) + in_tensor.size(1);
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
@@ -471,13 +469,14 @@ TEST_P(MultiDeviceBroadcastTest, NotExpanded) {
                        .contiguity({std::nullopt, true})
                        .shape({1, -1})
                        .build();
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
   in->setDeviceMesh(mesh);
   if (parallelizes_broadcast) {
     in->axis(0)->parallelize(ParallelType::DIDx);
   }
-  TensorView* out = set(in);
-  fusion->addInput(in);
-  fusion->addOutput(out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
