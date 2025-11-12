@@ -135,7 +135,7 @@ void canonicalizeLoopDomain(TensorView* tv) {
   tv->setLoopDomain({new_loop.begin(), new_loop.end()});
 }
 
-void unparallelize(TensorView* tv) {
+void unshard(TensorView* tv) {
   tv->setDeviceMesh(DeviceMesh());
   for (IterDomain* id : tv->getLoopDomain()) {
     id->parallelize(ParallelType::Serial);
@@ -180,6 +180,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       }
     }
 
+    // Reshard each input of expr to match output if necessary.
     for (auto input : inputs) {
       TensorView* new_input = set(input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
@@ -245,7 +246,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
-    unparallelize(output);
+    unshard(output);
 
     shardLoopLike(
         /*ref=*/resharding_input,
