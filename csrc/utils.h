@@ -968,16 +968,4 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   };
 };
 
-// Compute contiguity of a tensor based on its sizes and strides, with the
-// following rules:
-// - Broadcast dimensions have None contiguity
-// - Non-broadcast dimensions' contiguity is either True or False:
-//   - True if the stride is 1 for inner most dimension, or if the stride is
-//     the same as the stride of the next non-broadcast dimension multiplied by
-//     the size of the next non-broadcast dimension
-//   - False otherwise
-NVF_API std::vector<std::optional<bool>> computeContiguity(
-    const std::vector<int64_t>& sizes,
-    const std::vector<int64_t>& strides);
-
 } // namespace nvfuser
