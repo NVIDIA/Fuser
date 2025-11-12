@@ -628,17 +628,13 @@ class Llama4MoE(nn.Module):
         # Split into gate and up projections
         gate_proj_w, up_proj_w = moe.experts.gate_up_proj.chunk(2, dim=2)
 
-        new_moe.routed_experts.gate_proj.weight.data.copy_(
-            gate_proj_w.transpose(-1, -2)
-        )
-        new_moe.routed_experts.up_proj.weight.data.copy_(up_proj_w.transpose(-1, -2))
+        new_moe.routed_experts.gate_proj.weight.data.copy_(gate_proj_w)
+        new_moe.routed_experts.up_proj.weight.data.copy_(up_proj_w)
 
         # Handle down_proj
         # HF format: (groups, intermediate_size, hidden_size)
         # Our format: (groups, hidden, intermediate_size)
-        new_moe.routed_experts.down_proj.weight.data.copy_(
-            moe.experts.down_proj.transpose(-1, -2)
-        )
+        new_moe.routed_experts.down_proj.weight.data.copy_(moe.experts.down_proj)
 
         return new_moe
 
