@@ -13,8 +13,10 @@
 
 namespace nvfuser {
 
-// Returns the minimum between the allocation granularity and, when available,
-// the maximum of multicast minimum and recommended granularities.
+// Returns the allocation granularity for symmetric memory.
+// Optionally considers multicast granularity if device supports it.
+// get_recommended_granularity: if true, uses recommended (larger) multicast granularity
+//                               if false (default), uses minimum multicast granularity
 int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes,
@@ -24,29 +26,45 @@ int64_t getGranularityForSymmetricMemory(
       &alloc_granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
 
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
-  size_t mcast_min_granularity = 0;
-  size_t mcast_rec_granularity = 0;
+  // Check if device supports multicast before querying multicast granularity
+  int is_multicast_supported = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      prop.location.id));
+  
+  if (is_multicast_supported == 0) {
+    // Device doesn't support multicast, use regular allocation granularity
+    return alloc_granularity;
+  }
 
+  // Device supports multicast, query multicast granularity
   CUmulticastObjectProp mcast_prop{};
   mcast_prop.flags = 0;
   mcast_prop.handleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
   mcast_prop.numDevices = Communicator::getInstance().size();
-  mcast_prop.size = requested_size_bytes; // is it needed?
+  mcast_prop.size = requested_size_bytes;
 
+  size_t mcast_min_granularity = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
       &mcast_min_granularity, &mcast_prop, CU_MULTICAST_GRANULARITY_MINIMUM));
+
+  size_t granularity = mcast_min_granularity;
+
+  // Optionally get recommended granularity (typically larger, better performance)
   if (get_recommended_granularity) {
+    size_t mcast_rec_granularity = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
         &mcast_rec_granularity,
         &mcast_prop,
         CU_MULTICAST_GRANULARITY_RECOMMENDED));
+    granularity = mcast_rec_granularity;
   }
-
-  size_t granularity =
-      get_recommended_granularity ? mcast_rec_granularity : mcast_min_granularity;
 
   return std::max(alloc_granularity, granularity);
 #else
+  (void)requested_size_bytes;
+  (void)get_recommended_granularity;
   return alloc_granularity;
 #endif
 }
