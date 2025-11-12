@@ -880,6 +880,25 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // For shared memory tensor, replay loop domain transformations to allocation
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
+
+// TMA pointwise scheduler uses 2D tensor domain and 2D TMA tile.
+// This function returns the size of the inner TMA domain.
+//
+// Parameters:
+//   total_element: Total number of elements in the tensor.
+//   target_inner_tma_domain_size: Target size of the inner TMA domain (default:
+//   512).
+//     Allows further splitting the TMA domain to create TMA tile/box dimensions
+//     of size 256 while maintaining multiple iterations in this dimension. If
+//     only 1 box/tile exists in this dimension, it will be collapsed into its
+//     neighboring box/tile dimension, which contradicts our 2D tile assumption.
+//     In this case, the collapsed two dimensions must be equal to or smaller
+//     than 256.
+//   min_dtype_bytes: Ensures 16-byte box size and alignment.
+int64_t getInnerTmaDomainSize(
+    int64_t total_element,
+    int64_t target_inner_tma_domain_size = 512,
+    int64_t min_dtype_bytes = 1);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
