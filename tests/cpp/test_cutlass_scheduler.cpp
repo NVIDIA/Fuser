@@ -435,7 +435,7 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(CutlassExecutorTest, Nvfp4Matmul_PointwiseEpilogue) {
+TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   // Skip if not on SM100 or above
   if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
       at::cuda::getCurrentDeviceProperties()->major > 11) {
@@ -458,12 +458,13 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_PointwiseEpilogue) {
   TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   TensorView* alpha = makeContigTensor(0, DataType::Float);
 
-  fusion->addInput(b);
   fusion->addInput(a);
+  fusion->addInput(b);
   fusion->addInput(a_sf);
-  fusion->addInput(alpha);
   fusion->addInput(b_sf);
+  fusion->addInput(alpha);
 
+  // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
       a,
       b,
@@ -500,7 +501,7 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_PointwiseEpilogue) {
   // Create scalar tensors
   at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
 
-  std::vector<c10::IValue> inputs{at_b, at_a, at_a_sf, at_alpha, at_b_sf};
+  std::vector<c10::IValue> inputs{at_a, at_b, at_a_sf, at_b_sf, at_alpha};
 
   CutlassParams params;
 
