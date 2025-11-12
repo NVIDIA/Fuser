@@ -1570,11 +1570,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // At this moment, we only support topk on thread parallelized
     // dimensions. No serial dimension is allowed either.
     ParallelTypeBitmap sorted_parallel_types;
+    IterDomain* batch_id = nullptr;
     for (auto id : sorted_loop_ids) {
-      NVF_ERROR(
-          isParallelTypeThreadDim(id->getParallelType()),
-          "TopK on non-thread dimension is not supported");
-      sorted_parallel_types.set(id->getParallelType());
+      if (isParallelTypeThreadDim(id->getParallelType())) {
+        sorted_parallel_types.set(id->getParallelType());
+      } else {
+        // Non TID-parallelized loop ID must be a batch ID, which
+        // should use Group unless its a broadcast
+        NVF_ERROR(
+            id->getParallelType() == ParallelType::Group || id->isBroadcast(),
+            "Invalid topk loop ID: ",
+            id->toString(),
+            " of ",
+            top->toString());
+        NVF_ERROR(
+            batch_id == nullptr,
+            "Multiple batch IDs not supported: ",
+            top->toString());
+        batch_id = id;
+      }
     }
 
     // TID parallel types must only be used for the sorted IDs with the static
@@ -1615,8 +1629,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: support ITEMS_PER_THREAD > 1
-    constexpr int items_per_thread = 1;
+    const int64_t items_per_thread =
+        batch_id != nullptr ? batch_id->extent()->evaluate().as<int64_t>() : 1;
 
     const auto input = top->in()->as<kir::TensorIndex>();
 
@@ -1627,32 +1641,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // First argument: top_values output array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_values))
-        .append(")");
+    func_args.arg("&").append(genInline(output_values));
 
     // Second argument: top_indices output array
-    func_args.arg("*(int64_t(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_indices))
-        .append(")");
+    func_args.arg("&").append(genInline(output_indices));
 
     // Third argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
-        .append(genInline(input))
-        .append(")");
+    func_args.arg("&").append(genInline(input));
 
     // Fourth argument: k value
     func_args.arg(genInline(top->k()));
@@ -1816,8 +1811,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   void handle(const BlockQuantizationOp* bqop) final {
     // This operator is plumbed down to a runtime function call.
     // One of the assumptions is that the device runtime expects
-    // 4 consecutive inputs (8 for FB16) per thread. We achieve this by having
-    // the input tv scheduler to have the inner dimension grouped by 4/8.
+    // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
     int64_t group_size = 1;
 
@@ -1838,15 +1834,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
       NVF_ERROR(
-          group_size == 8,
-          "Group size should be 8 for "
+          group_size == 8 || group_size == 4 || group_size == 2,
+          "Group size should be 2, 4 or 8 for "
           "BlockQuantizationOp: ",
           bqop->toString());
 
     } else {
       NVF_ERROR(
-          group_size == 4,
-          "Group size should be 4 for "
+          group_size == 4 || group_size == 2,
+          "Group size should be 2 or 4 for "
           "BlockQuantizationOp: ",
           bqop->toString());
     }
