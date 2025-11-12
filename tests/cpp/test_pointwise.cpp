@@ -1997,7 +1997,7 @@ TEST_F(NVFuserTest, InnerOuterBcast) {
 }
 
 using TmaOneDimTensorTestParams =
-    std::tuple<int64_t, bool>; // <dim0, use_tma_store>
+    std::tuple<int64_t, int64_t, bool>; // <dim0, ndims, use_tma_store>
 
 class TmaOneDimTensorTest
     : public NVFuserFixtureParamTest<TmaOneDimTensorTestParams> {
@@ -2013,11 +2013,24 @@ class TmaOneDimTensorTest
   std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
 };
 TEST_P(TmaOneDimTensorTest, OneDimTensor) {
-  auto [dim0, use_tma_store] = GetParam();
+  auto [dim0, ndims, use_tma_store] = GetParam();
+  // test [dim0], [dim0, 2], [dim0, 2, 4], ..., [dim0, 2, 4, ..., 2^ndims-1]
+  std::vector<int64_t> element_at_each_dim(ndims);
+  element_at_each_dim[0] = dim0;
+  int64_t element_count = dim0;
+  for (int64_t i = 1; i < ndims; i++) {
+    int64_t dim_i = 1 << i;
+    element_at_each_dim[i] = dim_i;
+    element_count *= dim_i;
+  }
+  for (int64_t i = 0; i < ndims; i++) {
+    std::cout << "element_at_each_dim[" << i << "]: " << element_at_each_dim[i]
+              << std::endl;
+  }
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
-  auto tv0 = makeContigTensor(1);
+  auto tv0 = makeContigTensor(ndims);
   fusion.addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion.addOutput(tv1);
@@ -2042,40 +2055,60 @@ TEST_P(TmaOneDimTensorTest, OneDimTensor) {
     tv1_regs = tv1->cacheBefore();
   }
 
-  // TMA domain
-  int64_t D1 = scheduler_utils::factor_muliply_16_near_256(dim0);
-  int64_t D0 = dim0 / D1;
-  if (D1 <= 16) {
-    GTEST_SKIP() << "TMA domain size is too small, skipping test, D1: " << D1;
-    return;
+  TensorView* reference = tv1;
+  // step-1, create TMA domain, merge all domains into one, then split into 2
+  // TMA domains. Requirement: all domains are contiguious, TMA domain split is
+  // divisible. [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
+  for (int64_t i = 0; i < ndims - 1; i++) {
+    reference->merge(0);
   }
-  //   T1_s_float[iblockIdx.x7{( ceilDiv(( ceilDiv(i0, 32) ), 16) )}, iB8{16},
-  //   iblockIdx.y5{1}, iB6{32}]
-  //  logical domain : (iS1{i0})
-  //  contiguity: t
-  //   Split: iS1{i0} by factor 32 -> iS3{( ceilDiv(i0, 32) )}, iS4{32}
-  //   Split: iS3{( ceilDiv(i0, 32) )} by factor 16 -> iblockIdx.x7{( ceilDiv((
-  //   ceilDiv(i0, 32) ), 16) )}, iB8{16} Split: iS4{32} by factor 32 ->
-  //   iblockIdx.y5{1}, iB6{32}
-  //  loop domain : (iblockIdx.x7{( ceilDiv(( ceilDiv(i0, 32) ), 16) )},
-  //  iB8{16}, iblockIdx.y5{1}, iB6{32})
-  // TMA tile size: we can't use D1 directly as the inner tile dimension (ti).
-  // Using D1 would make two bulk domains physically contiguous, causing them to
-  // be treated as a single box domain. TMA box dimensions are limited to 256
-  // elements per dimension, so we need to split D1 further to stay within this
-  // constraint.
+  std::cout << "reference: " << reference->toString() << std::endl;
+
+  int64_t D1 = scheduler_utils::factor_muliply_16_near_256(element_count);
+  int64_t D0 = element_count / D1;
+  // if (D1 <= 16 || D0 <= 16) {
+  //   GTEST_SKIP() << "TMA domain size is too small, skipping test, D1: " <<
+  //   D1; return;
+  // }
+  reference->split(0, D1);
+
+  // step-2/3, define 2D box/tile (use dense tile, box is tile)
+  // select an IterDomain in the TMA domain, then inner split that IterDomain by
+  // the box size of that dimension. Require D1/ti > 1, otherwise to and ti will
+  // be considered as one single dimension of the box.
+  // [D0, D1] -> [D0/to, to, D1/ti, ti]
   int64_t tma_tile_size = 4096;
   int64_t ti = std::min(256L, D1 / 2),
           to = std::min(256L, std::min(tma_tile_size / ti, D0));
   ti = scheduler_utils::lastPow2(ti);
   to = scheduler_utils::lastPow2(to);
-  int64_t actual_tma_tile_bytes = to * ti * dataTypeSizeBit(DataType::Float);
-  if (actual_tma_tile_bytes % 128) {
+  int64_t actual_tma_tile_bytes =
+      to * ti * dataTypeSizeBit(DataType::Float) / 8;
+  if (actual_tma_tile_bytes % 16) {
     GTEST_SKIP() << "TMA box bytes should be divisible by 16 bytes, got "
                  << actual_tma_tile_bytes << " bytes.";
     return;
   }
+  reference->split(0, to);
+  reference->split(2, ti);
 
+  // check grid dimension
+  auto pto = ParallelType::BIDy;
+  auto pti = ParallelType::BIDx;
+  int64_t gdim_y = ceilDiv(D0, to);
+  if (gdim_y > 65535) {
+    std::swap(pto, pti);
+  }
+  std::cout << "reference: " << reference->toString() << std::endl;
+  std::cout << "element_count: " << element_count << ", gdim_y: " << gdim_y
+            << ", D0: " << D0 << ", D1: " << D1 << ", pto: " << pto
+            << ", pti: " << pti << " to: " << to << ", ti: " << ti << std::endl;
+
+  // propagate transformation
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Further schedle of non-TMA tensors
   int64_t vect_factor = 1;
   while (ti % (vect_factor * 2) == 0) {
     vect_factor *= 2;
@@ -2087,33 +2120,15 @@ TEST_P(TmaOneDimTensorTest, OneDimTensor) {
   int64_t tidx = std::min(32L, ti / vect_factor),
           tidy = std::min(128L / tidx, to);
 
-  TensorView* reference = tv1;
-  // step-1, create TMA domain, we will schedule with 2D tile
-  // IterDomain expressions between the global tensor's allocation domain and
-  // the TMA domain must be a view, for example, we can not merge discontiguous
-  // IterDomains, and we can not have indivisible splits either.
-  // [I0] -> [D0, D1]
-  reference->split(0, D1);
-  // step-2/3, define box (use dense tile, box is tile)
-  // select an IterDomain in the TMA domain, then inner split that IterDomain by
-  // the box size of that dimension
-  // [D0, D1] -> [D0/to, to, D1/ti, ti]
-  reference->split(0, to);
-  reference->split(2, ti);
-
-  // propagate transformation
-  TransformPropagatorWithCheck propagator(reference);
-  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
-
   // Parallelize TMA tensors
   std::vector<TensorView*> tma_tvs = {tv0_smem};
   if (use_tma_store) {
     tma_tvs.push_back(tv1);
   }
   for (auto tv : tma_tvs) {
-    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(0)->parallelize(pto);
     tv->axis(1)->parallelize(ParallelType::Bulk);
-    tv->axis(2)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(pti);
     tv->axis(3)->parallelize(ParallelType::Bulk);
   }
 
@@ -2129,18 +2144,15 @@ TEST_P(TmaOneDimTensorTest, OneDimTensor) {
 
   // only schedule tma tile [Do, Di, to, ti]
   for (auto tv : compute_tvs) {
-    std::cout << "tv: " << tv->toString() << std::endl;
     // [D0/to, to, D1/ti, ti] -> [D0/to, to/y, y, D1/ti, ti/v/x, x, v]
     tv->split(3, vect_factor);
     tv->split(3, tidx);
     tv->split(1, tidy);
-    std::cout << "tv: " << tv->toString() << std::endl;
     // Parallelize
-    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(0)->parallelize(pto);
     tv->axis(2)->parallelize(ParallelType::TIDy);
-    tv->axis(3)->parallelize(ParallelType::BIDx);
+    tv->axis(3)->parallelize(pti);
     tv->axis(5)->parallelize(ParallelType::TIDx);
-    std::cout << "tv: " << tv->toString() << std::endl;
     // Vectorize smem -> regs and regs -> smem or gmem
     if (tv == tv0_regs) {
       tv->axis(6)->parallelize(ParallelType::Vectorize);
@@ -2150,7 +2162,7 @@ TEST_P(TmaOneDimTensorTest, OneDimTensor) {
   inlineMost();
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto t0 = at::randn({dim0}, options);
+  auto t0 = at::randn(element_at_each_dim, options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -2167,13 +2179,15 @@ INSTANTIATE_TEST_SUITE_P(
           // Add some irregular numbers
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
-        }()), // inner dim
+        }()), // dim0
+        ::testing::Values(1, 2, 3), // ndims
         ::testing::Values(true, false) // use_tma_store
         ),
     [](const testing::TestParamInfo<TmaOneDimTensorTestParams>& info) {
       int64_t dim0 = std::get<0>(info.param);
-      bool use_tma_store = std::get<1>(info.param);
-      return "dim0_" + std::to_string(dim0) + "_use_tma_store_" +
-          std::to_string(use_tma_store);
+      int64_t ndims = std::get<1>(info.param);
+      bool use_tma_store = std::get<2>(info.param);
+      return "dim0_" + std::to_string(dim0) + "_ndim_" + std::to_string(ndims) +
+          "_use_tma_store_" + std::to_string(use_tma_store);
     });
 } // namespace nvfuser

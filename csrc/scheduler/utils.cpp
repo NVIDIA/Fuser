@@ -3332,7 +3332,7 @@ bool InputOrOutputHasAllocationDomain(Fusion* fusion) {
 int64_t factor_muliply_16_near_256(int64_t a) {
   NVF_ERROR(a > 0, "Input must be positive, got: ", a);
 
-  constexpr int64_t target = 256;
+  constexpr int64_t target = 512;
 
   // Fast path: if 256 divides a, return immediately
   if (a % target == 0) {
@@ -3340,8 +3340,8 @@ int64_t factor_muliply_16_near_256(int64_t a) {
   }
 
   // General path: search for closest factor that is divisible by 16
-  int64_t best_factor = 16; // Start with 16 as minimum valid factor
-  int64_t best_diff = std::abs(16 - target); // diff between 16 and 256
+  int64_t best_factor = 1;
+  int64_t best_diff = std::abs(best_factor - target);
 
   int64_t limit = static_cast<int64_t>(std::sqrt(static_cast<double>(a)));
   // Iterate by multiples of 16 for efficiency
