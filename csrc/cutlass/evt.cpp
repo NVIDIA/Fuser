@@ -102,12 +102,12 @@ class EVTConverter : OptInDispatch {
       }
       // Check that input is contiguous
       const std::vector<std::optional<bool>>& contig = inp->getContiguity();
-      NVF_ERROR(
-          std::all_of(
+      NVF_CUTLASS_REJECT_IF(
+          std::any_of(
               contig.begin(),
               contig.end(),
               [](const std::optional<bool>& c) {
-                return !c.has_value() || c.value();
+                return c.has_value() && !c.value();
               }),
           "Expected all inputs to ScaledMmaOp to be contiguous but found ",
           inp->toString());
@@ -169,6 +169,7 @@ class EVTConverter : OptInDispatch {
   }
 
   EVTModel::Node* makeBetaBiasNode() {
+    // This function should only be called if bias is present.
     NVF_ERROR(bias_ != nullptr);
 
     // Make a node to load the bias
@@ -200,13 +201,8 @@ class EVTConverter : OptInDispatch {
     // If there is a bias, then alpha*acc should be Float so that we avoid
     // down-casting until after adding it. Otherwise, we should go ahead and
     // cast to mma_out_'s dtype now.
-    if (bias_ == nullptr) {
-      EVTModel::Node* alpha_acc_node = makeAlphaAccNode(mma_out_->dtype());
-      val_nodes_.emplace(mma_out_, alpha_acc_node);
-      return;
-    }
-
-    EVTModel::Node* mma_out_node = makeAlphaAccNode(DataType::Float);
+    EVTModel::Node* mma_out_node = makeAlphaAccNode(
+        bias_ == nullptr ? mma_out_->dtype() : DataType::Float);
 
     if (EVTModel::Node* beta_bias_node = makeBetaBiasNode()) {
       mma_out_node = makeBinaryOpNode(
