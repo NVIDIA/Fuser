@@ -735,17 +735,12 @@ class PythonTranslator : public OptInConstDispatch {
       return;
     }
 
-    // DataType::Index does not exist in python_frontend, so convert to
-    // DataType::Int
-    DataType scalar_dtype =
-        (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
-
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
         "fd.define_scalar",
         std::make_tuple(v->value()),
         argument_names,
-        std::make_tuple(scalar_dtype),
+        std::make_tuple(v->dtype()),
         {v});
   }
 
@@ -852,20 +847,12 @@ class PythonTranslator : public OptInConstDispatch {
   void handleCastOp(const UnaryOp* uop) {
     NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
     visited_vals_.insert(uop->out());
-
-    // DataType::Index does not exist in python_frontend, so convert to
-    // DataType::Int
-    DataType scalar_dtype = uop->out()->dtype();
-    if (scalar_dtype == DataType::Index) {
-      scalar_dtype = DataType::Int;
-    }
-
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
         "fd.ops.cast",
         std::make_tuple(uop->in()),
         argument_names,
-        std::make_tuple(scalar_dtype),
+        std::make_tuple(uop->out()->dtype()),
         {uop->out()});
   }
 
