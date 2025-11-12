@@ -318,22 +318,20 @@ inferAllocationSizesAndStrides(
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
+    auto it = active_ids.find(id);
+    NVF_ERROR(
+        it != active_ids.end(),
+        "Allocation domain of tensor ",
+        tv->toString(),
+        " is not complete. Missing ID: ",
+        id->toString());
+    auto [size, stride] = it->second;
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
-      allocation_strides.push_back(1);
-      continue;
+    } else {
+      allocation_sizes.push_back(size);
     }
-
-    auto it = active_ids.find(id);
-    if (it != active_ids.end()) {
-      allocation_sizes.push_back(it->second.first);
-      allocation_strides.push_back(it->second.second);
-      continue;
-    }
-    // grouped matmul could introduce some IDs not in active_ids
-    // For those IDs, just push some dummy values
-    allocation_sizes.push_back(1);
-    allocation_strides.push_back(1);
+    allocation_strides.push_back(stride);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
