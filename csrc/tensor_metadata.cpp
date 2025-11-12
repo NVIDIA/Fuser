@@ -222,10 +222,10 @@ class BackwardTraverseFromLogicalToAlloc {
 };
 
 void validateAllocationSizesAndStrides(
-    const std::vector<IterDomain*>& alloc_dom,
     TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
+  const std::vector<IterDomain*>& alloc_dom = tv->getMaybeAllocationDomain();
   const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
   NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
@@ -343,11 +343,9 @@ inferAndValidateAllocationSizesAndStrides(
     ExpressionEvaluator ee) {
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
-  const auto& alloc = tv->getMaybeAllocationDomain();
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {
-    validateAllocationSizesAndStrides(
-        alloc, tv, allocation_sizes, allocation_strides);
+    validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
