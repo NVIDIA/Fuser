@@ -261,13 +261,6 @@ class EVTConverter : OptInDispatch {
   void run() {
     findMma();
 
-    // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha_ == nullptr && (beta_ == nullptr || bias_ == nullptr)) {
-      // No epilogue
-      val_nodes_.emplace(
-          mma_out_, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-    }
-
     makeMmaOutNode();
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
