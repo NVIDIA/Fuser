@@ -732,10 +732,12 @@ TEST_F(TMAIndexingTest, Load1DTensorWith2DTMA) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  // [O, I] -> [0/1024, 1024] -> [0/1024, 1024/32, 32]-> [0/1024/16, 16,
+  // 1024/32, 32]
   for (auto tv : {tv1, tv2}) {
-    tv->split(0, 1024);
+    tv->split(0, 32);
     tv->split(1, 32);
-    tv->split(0, 4);
+    tv->split(0, 16);
     tv->axis(0)->parallelize(ParallelType::BIDx);
     tv->axis(2)->parallelize(ParallelType::BIDy);
   }

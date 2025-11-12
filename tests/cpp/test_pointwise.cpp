@@ -1995,4 +1995,185 @@ TEST_F(NVFuserTest, InnerOuterBcast) {
       scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1, t2});
   testValidate(fusion, cg_results.outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
+
+using TmaOneDimTensorTestParams =
+    std::tuple<int64_t, bool>; // <dim0, use_tma_store>
+
+class TmaOneDimTensorTest
+    : public NVFuserFixtureParamTest<TmaOneDimTensorTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TmaOneDimTensorTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(TmaOneDimTensorTest, OneDimTensor) {
+  auto [dim0, use_tma_store] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion.addOutput(tv1);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers
+  auto tv0_regs = tv0_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv1_smem = nullptr;
+  TensorView* tv1_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv1_smem = tv1->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv1_smem->setMemoryType(MemoryType::Shared);
+    tv1_regs = tv1_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv1_regs = tv1->cacheBefore();
+  }
+
+  // TMA domain
+  int64_t D1 = scheduler_utils::factor_muliply_16_near_256(dim0);
+  int64_t D0 = dim0 / D1;
+  if (D1 <= 16) {
+    GTEST_SKIP() << "TMA domain size is too small, skipping test, D1: " << D1;
+    return;
+  }
+  //   T1_s_float[iblockIdx.x7{( ceilDiv(( ceilDiv(i0, 32) ), 16) )}, iB8{16},
+  //   iblockIdx.y5{1}, iB6{32}]
+  //  logical domain : (iS1{i0})
+  //  contiguity: t
+  //   Split: iS1{i0} by factor 32 -> iS3{( ceilDiv(i0, 32) )}, iS4{32}
+  //   Split: iS3{( ceilDiv(i0, 32) )} by factor 16 -> iblockIdx.x7{( ceilDiv((
+  //   ceilDiv(i0, 32) ), 16) )}, iB8{16} Split: iS4{32} by factor 32 ->
+  //   iblockIdx.y5{1}, iB6{32}
+  //  loop domain : (iblockIdx.x7{( ceilDiv(( ceilDiv(i0, 32) ), 16) )},
+  //  iB8{16}, iblockIdx.y5{1}, iB6{32})
+  // TMA tile size: we can't use D1 directly as the inner tile dimension (ti).
+  // Using D1 would make two bulk domains physically contiguous, causing them to
+  // be treated as a single box domain. TMA box dimensions are limited to 256
+  // elements per dimension, so we need to split D1 further to stay within this
+  // constraint.
+  int64_t tma_tile_size = 4096;
+  int64_t ti = std::min(256L, D1 / 2),
+          to = std::min(256L, std::min(tma_tile_size / ti, D0));
+  ti = scheduler_utils::lastPow2(ti);
+  to = scheduler_utils::lastPow2(to);
+  int64_t actual_tma_tile_bytes = to * ti * dataTypeSizeBit(DataType::Float);
+  if (actual_tma_tile_bytes % 128) {
+    GTEST_SKIP() << "TMA box bytes should be divisible by 16 bytes, got "
+                 << actual_tma_tile_bytes << " bytes.";
+    return;
+  }
+
+  int64_t vect_factor = 1;
+  while (ti % (vect_factor * 2) == 0) {
+    vect_factor *= 2;
+    if (vect_factor == 4) {
+      break;
+    }
+  }
+  // block tile size
+  int64_t tidx = std::min(32L, ti / vect_factor),
+          tidy = std::min(128L / tidx, to);
+
+  TensorView* reference = tv1;
+  // step-1, create TMA domain, we will schedule with 2D tile
+  // IterDomain expressions between the global tensor's allocation domain and
+  // the TMA domain must be a view, for example, we can not merge discontiguous
+  // IterDomains, and we can not have indivisible splits either.
+  // [I0] -> [D0, D1]
+  reference->split(0, D1);
+  // step-2/3, define box (use dense tile, box is tile)
+  // select an IterDomain in the TMA domain, then inner split that IterDomain by
+  // the box size of that dimension
+  // [D0, D1] -> [D0/to, to, D1/ti, ti]
+  reference->split(0, to);
+  reference->split(2, ti);
+
+  // propagate transformation
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Parallelize TMA tensors
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv1);
+  }
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // Schedule all non-tma tensors
+  std::vector<TensorView*> compute_tvs = {tv0_regs, tv1_regs};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv1_smem);
+  } else {
+    compute_tvs.push_back(tv1);
+  }
+
+  // only schedule tma tile [Do, Di, to, ti]
+  for (auto tv : compute_tvs) {
+    std::cout << "tv: " << tv->toString() << std::endl;
+    // [D0/to, to, D1/ti, ti] -> [D0/to, to/y, y, D1/ti, ti/v/x, x, v]
+    tv->split(3, vect_factor);
+    tv->split(3, tidx);
+    tv->split(1, tidy);
+    std::cout << "tv: " << tv->toString() << std::endl;
+    // Parallelize
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(ParallelType::BIDx);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    std::cout << "tv: " << tv->toString() << std::endl;
+    // Vectorize smem -> regs and regs -> smem or gmem
+    if (tv == tv0_regs) {
+      tv->axis(6)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // Inline most tensors
+  inlineMost();
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto out_tensors = ke.run({t0});
+  testValidate(&fusion, out_tensors, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaOneDimTensorTest,
+    ::testing::Combine(
+        ::testing::ValuesIn([] {
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }()), // inner dim
+        ::testing::Values(true, false) // use_tma_store
+        ),
+    [](const testing::TestParamInfo<TmaOneDimTensorTestParams>& info) {
+      int64_t dim0 = std::get<0>(info.param);
+      bool use_tma_store = std::get<1>(info.param);
+      return "dim0_" + std::to_string(dim0) + "_use_tma_store_" +
+          std::to_string(use_tma_store);
+    });
 } // namespace nvfuser

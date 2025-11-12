@@ -884,6 +884,20 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 bool hasNonContiguousInput(Fusion* fusion);
 
 bool InputOrOutputHasAllocationDomain(Fusion* fusion);
+
+/**
+ * @brief Return a factor of 'a' that is closest to 256.
+ *
+ * Fast path:
+ *   - If 256 divides 'a', return 256 immediately.
+ * Slow path:
+ *   - Otherwise, iterate all factors up to sqrt(a)
+ *     and pick the one closest to 256.
+ *
+ * @param a A positive integer (> 0)
+ * @return int A factor of 'a' closest to 256
+ */
+int64_t factor_muliply_16_near_256(int64_t a);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
