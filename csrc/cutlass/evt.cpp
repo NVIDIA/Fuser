@@ -169,8 +169,9 @@ class EVTConverter : OptInDispatch {
   }
 
   EVTModel::Node* makeBetaBiasNode() {
-    // This function should only be called if bias is present.
-    NVF_ERROR(bias_ != nullptr);
+    if (bias_ == nullptr) {
+      return nullptr;
+    }
 
     // Make a node to load the bias
     EVTModel::Node* beta_bias_node = model_.makeNode(
