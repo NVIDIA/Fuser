@@ -471,9 +471,10 @@ class PythonTranslator : public OptInConstDispatch {
 
   // The new shape for view operation can be dynamic. Check that all dynamic
   // scalar dependencies are handled before the ReshapeOp.
-  bool checkViewShapeDependency(const ReshapeOp* vop) {
+  bool checkDynamicShapeDependency(const Expr* op) {
+    NVF_ERROR_EQ(op->outputs().size(), 1);
     const std::vector<IterDomain*>& logical_out_domain =
-        vop->out()->as<TensorView>()->domain()->logical();
+        op->output(0)->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
     std::transform(
         logical_out_domain.begin(),
@@ -546,7 +547,8 @@ class PythonTranslator : public OptInConstDispatch {
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
     // short-circuit: Found a view operation without all its shape dependencies.
-    if (e->isA<ReshapeOp>() && !checkViewShapeDependency(e->as<ReshapeOp>())) {
+    if (e->isOneOf<ReshapeOp, ExpandOp, FullOp>() &&
+        !checkDynamicShapeDependency(e)) {
       return false;
     }
     return std::all_of(
@@ -781,7 +783,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ReshapeOp and ExpandOp handlers
+  // Used with ReshapeOp, ExpandOp, and FullOp handlers
   std::vector<Val*> getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
