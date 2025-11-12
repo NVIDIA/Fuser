@@ -19,6 +19,7 @@ from python.direct_utils import (
     linear_to_swizzled_128_4,
     round_up,
     activation_scale_to_nvfp4,
+    to_fp4,
 )
 
 import pytest
@@ -98,9 +99,9 @@ def test_scaled_mm(
         )
         fd.add_output(out)
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
-    ref_o = (
+    ref_outputs = (
         torch._scaled_mm(
             mat1,
             mat2.t(),
@@ -112,7 +113,7 @@ def test_scaled_mm(
         )
         * alpha
     )
-    assert o[0].allclose(ref_o, 1e-2, 1e-2)
+    torch.testing.assert_close(outputs[0], ref_outputs, rtol=1e-1, atol=1e-2)
 
 
 @pytest.mark.skipif(
@@ -247,7 +248,7 @@ def test_cutlass_nvfp4_grouped_mm(
         blockscale_offsets,
     ]
 
-    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
@@ -273,4 +274,45 @@ def test_cutlass_nvfp4_grouped_mm(
             * mat2_gs[i]
         )
 
-    assert torch.allclose(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(o_decomposed_ref, outputs[0], atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.skipif(
+    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+)
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float])
+def test_fp4_vectorization(
+    nvfuser_direct_test,
+    dtype,
+):
+    inputs = [
+        torch.ones(4, 8, dtype=dtype, device="cuda"),
+        torch.ones(4, dtype=dtype, device="cuda"),
+    ]
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.cast(T0, DataType.Float)
+        cast_T1 = fd.ops.cast(T1, DataType.Float)
+        broadcast_T1 = fd.ops.broadcast(cast_T1, [False, True])
+        T3 = fd.ops.div(T2, broadcast_T1)
+        T4 = fd.ops.cast(T3, DataType.Float4_e2m1fn)
+        T5 = fd.ops.reshape(T4, [32])
+        fd.add_output(T5)
+
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+
+    ref_outputs = to_fp4(inputs[0].to(torch.float) / inputs[1].unsqueeze(-1)).reshape(
+        -1
+    )
+
+    torch.testing.assert_close(
+        outputs[0].view(dtype=torch.uint8),
+        ref_outputs.view(dtype=torch.uint8),
+        rtol=1e-1,
+        atol=1e-2,
+    )

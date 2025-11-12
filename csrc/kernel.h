@@ -145,6 +145,8 @@ struct KernelSummary {
   //! Do we have any preprocess op?
   bool has_preprocess_grouped_matmul_input_sf = false;
 
+  bool has_block_quantize_op = false;
+
   //! Do we have any topk op?
   bool has_topk = false;
 

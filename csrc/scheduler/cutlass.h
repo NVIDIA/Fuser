@@ -19,8 +19,13 @@ namespace nvfuser {
 // Heuristic parameters for CUTLASS scheduling
 class NVF_API CutlassParams : public HeuristicParams {
  public:
+  // If mma_tile.m is 256, we will do 2SM
   GemmTile mma_tile = {256, 256, 256};
-  // If this is smaller than mma_tile, then we are doing 2sm mma
+
+  // This is the tile of output elements handled in the epilogue for each SM,
+  // but it is not the "epilogue tile" used for pipelining stores. If this is
+  // smaller than mma_tile (i.e. mma_tile.m==256 and per_sm_tile.m==128) then we
+  // are doing 2sm mma.
   GemmTile per_sm_tile = {128, 256, 256};
 
   // Shape of the cluster in CTAs, order is M, N, 1
@@ -48,40 +53,28 @@ class NVF_API CutlassParams : public HeuristicParams {
   std::unique_ptr<HeuristicParams> clone() const override;
 };
 
-// CUTLASS scheduler entry point
 class CutlassScheduler : public SchedulerEntry {
  public:
-  // Check if the fusion can be scheduled at compile time
   bool canScheduleCompileTime(Fusion* fusion) override;
 
-  // Check if the fusion can be scheduled at runtime
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  // Compute heuristics for the fusion
+  //! Compute heuristics for the fusion using nvMatmulHeuristics, if available.
+  //! Otherwise a static config is used.
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  // Schedule the fusion
+  //! For the Cutlass scheduler, schedule() actually does nothing
   void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
   constexpr static SchedulerType schedulerType() {
     return SchedulerType::Cutlass;
   }
-
- private:
-  // Check if the fusion contains supported matmul patterns
-  bool hasSupportedMatmulPattern(Fusion* fusion);
-
-  // Check if the epilogue is supported by CUTLASS
-  bool hasSupportedEpilogue(Fusion* fusion);
-
-  // Find the matmul operation in the fusion
-  TensorView* findMatmulOutput(Fusion* fusion);
 };
 
 } // namespace nvfuser

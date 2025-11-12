@@ -6,9 +6,12 @@
  */
 // clang-format on
 
+#include <host_ir/pass/stream_parallel_type.h>
+
+#include <list>
+
 #include <host_ir/container.h>
 #include <host_ir/lower.h>
-#include <host_ir/pass/stream_parallel_type.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -74,7 +77,7 @@ bool areIdsMapped(const IdModel& id_model, IterDomain* id1, IterDomain* id2) {
 
 // Determines if a stream-parallel for-loop can be merged with the previous one
 bool canMergeWithPreviousForLoop(
-    const std::vector<Expr*>& new_top_level_exprs,
+    const std::list<Expr*>& new_top_level_exprs,
     IterDomain* stream_axis,
     const IdModel& id_model) {
   return !new_top_level_exprs.empty() &&
@@ -185,10 +188,10 @@ struct TensorSlicingCache {
 };
 
 // Step 1: Group expressions into stream-parallel regions
-std::vector<Expr*> groupStreamParallelRegions(
-    const std::vector<Expr*>& top_level_exprs,
+std::list<Expr*> groupStreamParallelRegions(
+    const std::list<Expr*>& top_level_exprs,
     const IdModel& id_model) {
-  std::vector<Expr*> new_top_level_exprs;
+  std::list<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
     // Skip expressions with no outputs
@@ -249,10 +252,10 @@ std::vector<Expr*> groupStreamParallelRegions(
 }
 
 // Helper function to add allocations for tensors that need them
-std::vector<Expr*> addTensorAllocations(
-    std::vector<Expr*> top_level_exprs,
+std::list<Expr*> addTensorAllocations(
+    std::list<Expr*> top_level_exprs,
     const IdModel& id_model) {
-  std::vector<Expr*> new_top_level_exprs;
+  std::list<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
     if (expr->isA<kir::ForLoop>()) {
@@ -277,8 +280,8 @@ std::vector<Expr*> addTensorAllocations(
 }
 
 // Step 3: Process for-loop bodies by slicing tensors
-std::vector<Expr*> processForLoopBodies(
-    std::vector<Expr*> top_level_exprs,
+std::list<Expr*> processForLoopBodies(
+    std::list<Expr*> top_level_exprs,
     const IdModel& id_model,
     const CommunicatorBackend& communicator_backend) {
   TensorSlicingCache tensor_slicing_cache;
@@ -490,8 +493,8 @@ std::vector<Expr*> processForLoopBodies(
 }
 
 // Step 4: Add stream management and synchronization
-std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
-  std::vector<Expr*> new_top_level_exprs;
+std::list<Expr*> addStreamManagement(std::list<Expr*> top_level_exprs) {
+  std::list<Expr*> new_top_level_exprs;
 
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
@@ -606,7 +609,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
   id_model.buildBroadcastGraph();
 
   // Step 1: Group expressions into stream-parallel regions
-  std::vector<Expr*> top_level_exprs =
+  std::list<Expr*> top_level_exprs =
       groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them

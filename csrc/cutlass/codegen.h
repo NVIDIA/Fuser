@@ -27,14 +27,6 @@ NVF_API std::string generateCode(Fusion* fusion, const CutlassParams& params);
 //! https://docs.nvidia.com/cutlass/media/docs/cpp/fundamental_types.html#numeric-types
 std::string dtypeToCutlass(const DataType& dtype);
 
-//! Gets the numerical position of v in inputs of fusion. Throws an exception if
-//! v is not a fusion input
-int64_t fusionInputPosition(Fusion* fusion, Val* v);
-
-//! Gets the numerical position of v in outputs of fusion. Throws an exception
-//! if v is not a fusion output
-int64_t fusionOutputPosition(Fusion* fusion, Val* v);
-
 } // namespace cutlass_codegen
 
 } // namespace nvfuser

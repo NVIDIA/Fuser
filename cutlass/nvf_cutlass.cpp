@@ -67,19 +67,21 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
       "Expected FP32 for alpha scalar.")
 
   // Check alignment requirements
-  constexpr int64_t alignment = 32;
-  NVF_CHECK(
-      k % alignment == 0,
+  constexpr int64_t kAlignment = 32;
+  NVF_CHECK_EQ(
+      k % kAlignment,
+      0,
       "The K dimension",
       k,
       "is not divisible by ",
-      alignment)
-  NVF_CHECK(
-      n % alignment == 0,
+      kAlignment)
+  NVF_CHECK_EQ(
+      n % kAlignment,
+      0,
       "The N dimension",
       n,
       "is not divisible by ",
-      alignment)
+      kAlignment)
 
   // Calculate rounded dimensions for scale matrix validation
   int64_t rounded_m = roundUp(m, 128);

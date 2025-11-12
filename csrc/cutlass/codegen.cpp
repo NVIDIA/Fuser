@@ -41,7 +41,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
       // size is represented separately, and here we assume we're using nvfp.
       // TODO: if block scaling is tied to element type in nvFuser in the future
       // we can update this mapping
-      return "cutlass::nv_float4_t<float_e2m1_t>";
+      return "cutlass::float_e2m1_t";
     default:
       NVF_THROW(
           "nvFuser DataType ",
@@ -50,27 +50,9 @@ std::string dtypeToCutlass(const DataType& dtype) {
   }
 }
 
-int64_t fusionInputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionInput());
-  return static_cast<int64_t>(
-      std::find(fusion->inputs().begin(), fusion->inputs().end(), v) -
-      fusion->inputs().begin());
-}
-
-int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
-  NVF_ERROR(v->isFusionOutput());
-  return static_cast<int64_t>(
-      std::find(fusion->outputs().begin(), fusion->outputs().end(), v) -
-      fusion->outputs().begin());
-}
-
 std::string generateCode(Fusion* fusion, const CutlassParams& params) {
   // TODO: match patterns and dispatch to different generators here
-  if (findScaledMmaOp(fusion) != nullptr) {
-    return generateNvfp4ScaledMmKernel(fusion, params);
-  } else {
-    NVF_THROW("Unsupported Fusion pattern for CUTLASS executor");
-  }
+  return generateNvfp4ScaledMmKernel(fusion, params);
 }
 
 } // namespace cutlass_codegen
