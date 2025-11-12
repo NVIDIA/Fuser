@@ -7,36 +7,40 @@
 // clang-format on
 #pragma once
 
+#include <list>
+
 #include <fusion.h>
 #include <host_ir/host_ir.h>
+#include <ir/internal_nodes.h>
 #include <runtime/executor.h>
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 // HostIrContainer is used to represent a host program.
-// 1) It inherits from Fusion, so that (Host) IRs can be resgistered to it.
-// 2) It holds a vector of Host Expressions `top_level_exprs_` that represent
-// the host program. For now, this vector is manually managed. Moreover, because
-// we use a vector as data structure, top_level_exprs_ can only represent linear
-// Host programs. Later, we it should support non-linear program having a DAG
-// structure.
+// 1) It inherits from Fusion, so that (Host) IRs can be registered to it.
+// 2) It holds a list of Host Expressions `top_level_` that represent
+// the host program.
 class HostIrContainer final : public Fusion {
  public:
   HostIrContainer() = default;
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
 
-  //! Print to an output stream
+  // Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  void resetTopLevelExprs(std::vector<Expr*> exprs) {
-    top_level_exprs_ = std::move(exprs);
+  const Scope& topLevel() const;
+  const Scope::ExprList& topLevelExprs() const {
+    return topLevel().exprs();
   }
-  const std::vector<Expr*>& topLevelExprs() const;
-  void pushBackTopLevelExprs(Expr* expr);
-  void insertExprAfter(int64_t index, Expr* expr);
+
+  // Appends `expr` and returns the iterator pointing to `expr`.
+  Scope::Iterator pushBackTopLevelExprs(Expr* expr);
+  void insertExprBefore(Scope::Iterator position, Expr* expr);
+  // Only used for MultiDeviceExecutor. While convenient, it should generally
+  // be avoided because it implicitly modifies `top_level_`, making the
+  // code harder to reason about.
+  void resetTopLevelExprs(std::list<Expr*> exprs);
 
   void addKernelExecutor(std::unique_ptr<KernelExecutor> ke);
   bool hasKernelExecutor(int64_t group_id) const;
@@ -45,8 +49,7 @@ class HostIrContainer final : public Fusion {
   Stream* getDefaultStream();
 
  private:
-  // Consider using a linkedlist so insertion is faster.
-  std::vector<Expr*> top_level_exprs_;
+  Scope top_level_{nullptr};
 
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.
@@ -55,6 +58,4 @@ class HostIrContainer final : public Fusion {
   Stream* default_stream_ = nullptr;
 };
 
-} // namespace hir
-
-} // namespace nvfuser
+} // namespace nvfuser::hir

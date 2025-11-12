@@ -25,6 +25,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
@@ -2266,7 +2267,8 @@ void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
 
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
-    const std::vector<Expr*>& transform_exprs) {
+    const std::vector<Expr*>& transform_exprs,
+    std::optional<std::function<void(Expr*)>> post_transform) {
   for (auto* expr : transform_exprs) {
     if (Split* split = dynamic_cast<Split*>(expr)) {
       applySplitTransform(split, ids_to_transform);
@@ -2277,6 +2279,9 @@ void applyTransforms(
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
+    }
+    if (post_transform) {
+      (*post_transform)(expr);
     }
   }
 }
@@ -3283,5 +3288,6 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     buildAllocationDomainFromLoopIds(tv);
   }
 }
+
 } // namespace scheduler_utils
 } // namespace nvfuser

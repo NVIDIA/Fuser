@@ -152,6 +152,9 @@ bool isTensorScalarFillOp(const Expr* expr);
 NVF_API std::vector<Expr*> flattenScopedExprs(
     const std::vector<Expr*>& loop_nests);
 
+NVF_API std::vector<Expr*> flattenScopedExprs(
+    const Scope::ExprList& loop_nests);
+
 //! Returns all swizzle ops between the set of iterdomains
 //!  in `from` and `to`.
 std::vector<Expr*> getAllSwizzlesBetween(

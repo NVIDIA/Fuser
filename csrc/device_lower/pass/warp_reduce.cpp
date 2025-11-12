@@ -74,7 +74,8 @@ class EliminateDeadBroadcastAndAllocate {
     findDeadTvs();
   }
 
-  void findLiveTvs(const std::vector<Expr*>& exprs) {
+  template <class ExprContainer>
+  void findLiveTvs(const ExprContainer& exprs) {
     for (auto expr : exprs) {
       if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
         findLiveTvs(for_loop->body().exprs());

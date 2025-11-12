@@ -293,6 +293,10 @@ void TransformReplay::selfReplay(
         new_id,
         " do not match for self replay.");
     axis_map[id] = new_id;
+
+    // Logical domain may have device or stream parallel types which should be
+    // replayed.
+    new_id->parallelize(id->getParallelType());
   }
 
   // We create one ReplaySelf instance to replay loop and allocation. This way,

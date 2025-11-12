@@ -7,11 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <ir/interface_nodes.h>
+#include <list>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
+#include <ir/interface_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
@@ -2318,39 +2319,36 @@ class LinearOp : public Expr {
   }
 };
 
-/*
-SDPA node with same functionality at::_scaled_dot_product_flash_attention
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-query_seq_len = scalar(int)
-key_seq_len = scalar(int)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
-debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
-setting `return_debug_mask=False` when invoking flash attention)
+// SDPA node with same functionality at::_scaled_dot_product_flash_attention
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// query_seq_len = scalar(int)
+// key_seq_len = scalar(int)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
+// setting `return_debug_mask=False` when invoking flash attention)
 
-Note: For older versions, torch returns CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// Note: For older versions, torch returns CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch returns philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-scale = scalar(double)
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// scale = scalar(double)
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -2427,58 +2425,48 @@ class SdpaFwdOp : public Expr {
 
 class Scope {
  public:
+  using ExprList = std::list<Expr*>;
+  using Iterator = ExprList::const_iterator;
+
   explicit Scope(Expr* owner) : owner_(owner) {}
 
   std::string toString(int indent_size = 0) const;
 
-  const std::vector<Expr*>& exprs() const {
+  const ExprList& exprs() const {
     return exprs_;
+  }
+
+  // Used only by MultiDeviceExecutor. Should generally be avoided in favor of
+  // other modifying methods.
+  ExprList& mutableExprs() {
+    return exprs_;
+  }
+
+  Expr* front() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the front of an empty Scope");
+    return exprs_.front();
+  }
+
+  Expr* back() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the back of an empty Scope");
+    return exprs_.back();
   }
 
   bool empty() const {
     return exprs_.empty();
   }
 
-  auto size() const {
-    return exprs_.size();
+  int64_t size() const {
+    return std::ssize(exprs_);
   }
 
-  auto& at(size_t i) {
-    return exprs_.at(i);
+  Iterator insert(Iterator pos, Expr* expr);
+
+  Iterator push_back(Expr* e) {
+    return insert(exprs_.end(), e);
   }
-
-  auto& at(size_t i) const {
-    return exprs_.at(i);
-  }
-
-  auto& operator[](size_t i) {
-    return at(i);
-  }
-
-  auto& operator[](size_t i) const {
-    return at(i);
-  }
-
-  // Insert expr before expression at pos
-  std::vector<Expr*>::iterator insert(size_t pos, Expr* expr);
-
-  // Insert expr before ref
-  std::vector<Expr*>::iterator insert_before(Expr* ref, Expr* expr);
-
-  // Insert expr after ref
-  std::vector<Expr*>::iterator insert_after(Expr* ref, Expr* expr);
-
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
-  }
-
-  // Erase expr at pos
-  void erase(size_t pos);
-
-  // Erase expr ref
-  void erase(Expr* ref);
-
-  bool contains(Expr* expr) const;
 
   void clear();
 
@@ -2486,62 +2474,53 @@ class Scope {
     return owner_;
   }
 
-  bool operator==(const Scope&) const {
-    NVF_THROW("Should not reach here");
-  }
-
-  // Insert expr before pos
-  std::vector<Expr*>::iterator insert(
-      std::vector<Expr*>::const_iterator pos,
-      Expr* expr);
+  // The following methods perform linear searches over exprs_. Use them only
+  // when necessary, as they do not scale well with large scopes.
+  Iterator insert_before(Expr* ref, Expr* expr);
+  Iterator insert_after(Expr* ref, Expr* expr);
+  void erase(Expr* ref);
+  bool contains(Expr* expr) const;
 
  private:
-  // Erase expr at pos
-  void erase(std::vector<Expr*>::const_iterator pos);
+  void erase(Iterator pos);
 
- private:
-  std::vector<Expr*> exprs_;
+  ExprList exprs_;
 
   //! Owner exprssion of this scope, e.g., IfThenElse
   Expr* owner_ = nullptr;
 };
 
-// ForLoop moved to kernel_ir.{h,cpp} as kir::ForLoop
+// SDPA bwd node with same functionality
+// at::_scaled_dot_product_flash_attention_backward
+// grad_query = [N, H, L, E]
+// grad_key = [N, H, S, E]
+// grad_value = [N, H, S, Ev]
 
-/*
-SDPA bwd node with same functionality
-at::_scaled_dot_product_flash_attention_backward
-grad_query = [N, H, L, E]
-grad_key = [N, H, S, E]
-grad_value = [N, H, S, Ev]
+// grad_output = [N, H, L, Ev]
+// query = [N, H, L, E]
+// key = [N, H, S, E]
+// value = [N, H, S, Ev]
+// output = [N, H, L, Ev]
+// logsumexp = [N, H, L]
+// dropout_p = scalar(double)
+// is_causal = scalar(bool)
+// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// scale = scalar(double)
 
-grad_output = [N, H, L, Ev]
-query = [N, H, L, E]
-key = [N, H, S, E]
-value = [N, H, S, Ev]
-output = [N, H, L, Ev]
-logsumexp = [N, H, L]
-dropout_p = scalar(double)
-is_causal = scalar(bool)
-philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
-scalar(double)
+// Note: For older versions, torch accepts CPU scalar tensors for philox_seed
+// and philox_offset. For torch 2.7.0 and above, torch accepts philox_seed ->
+// rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
+// state contains both seed and offset.
 
-Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
-(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
-contains both seed and offset.
+// N = number of sequences / batch size
+// H = num of heads
+// L = query sequence length / target sequence length
+// S = key/value sequence length / src sequence length
+// E = query/key embd dimension
+// Ev = value embd dimension
 
-N = number of sequences / batch size
-H = num of heads
-L = query sequence length / target sequence length
-S = key/value sequence length / src sequence length
-E = query/key embd dimension
-Ev = value embd dimension
-
-For flash attention, E = Ev
-*/
-
+// For flash attention, E = Ev
 class SdpaBwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -3397,6 +3376,69 @@ class PreprocessGroupedMatmulInputSf : public Expr {
   BlockScalingFactorLayout layout() const {
     return attribute<BlockScalingFactorLayout>(0);
   }
+};
+
+class BlockQuantizationOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // This op takes in a high precision input(input)
+  // and returns the quantized output(output) along with the block scaling
+  // factors (output_scales). It can also take as an optional input the global
+  // scaling factor and block size (though we currently only support 16).
+  // logical_index is used for internal implemtation. This op is currently
+  // implemented via a runtime function. During index computation, we compute
+  // the index of the output_scales and pass it to the runtime function.
+  BlockQuantizationOp(
+      IrBuilderPasskey,
+      Val* output_scales,
+      Val* output,
+      Val* input,
+      Val* logical_index = nullptr,
+      Val* global_scale = nullptr,
+      int64_t block_size = 16);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  Val* blockScales() const {
+    return output(1);
+  }
+
+  Val* quantizedOutput() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t blockSize() const {
+    return attribute<int64_t>(1);
+  }
+
+  bool hasGlobalScale() const {
+    if (inputs().size() > 1) {
+      return true;
+    }
+    return false;
+  }
+
+  Val* globalScale() const {
+    if (hasGlobalScale()) {
+      return input(1);
+    }
+    return nullptr;
+  }
+
+  const char* getOpString() const override {
+    return "BlockQuantizationOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
 };
 
 } // namespace nvfuser

@@ -1339,7 +1339,7 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
       alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp, BlockQuantizationOp>();
 }
 
 bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
