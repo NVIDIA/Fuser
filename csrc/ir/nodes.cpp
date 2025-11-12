@@ -3535,6 +3535,11 @@ bool TensorDomain::sameDefinition(const Val* other) const {
   if (logical_domain_.size() != other_td->logical_domain_.size()) {
     return false;
   }
+  if (allocation_domain_.size() != other_td->allocation_domain_.size()) {
+    return false;
+  }
+
+  /*
   for (auto&& [id, other_id] :
        zip(logical_domain_, other_td->logical_domain_)) {
     if (!id->sameDefinition(other_id)) {
@@ -3543,14 +3548,42 @@ bool TensorDomain::sameDefinition(const Val* other) const {
   }
 
   // Check stride order
-  if (allocation_domain_.size() != other_td->allocation_domain_.size()) {
-    return false;
-  }
   for (auto&& [id, other_id] :
        zip(allocation_domain_, other_td->allocation_domain_)) {
     if (!id->sameDefinition(other_id)) {
       return false;
     }
+  }
+  */
+
+  // Check shape by converting logical domain to an integer vector
+  std::vector<int64_t> this_shape;
+  std::transform(
+      logical_domain_.begin(),
+      logical_domain_.end(),
+      std::back_inserter(this_shape),
+      [](IterDomain* id) {
+        return (id->getMaybeExpandedExtent()->isConstScalar())
+            ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
+            : -1;
+      });
+  std::vector<int64_t> other_shape;
+  std::transform(
+      other_td->logical_domain_.begin(),
+      other_td->logical_domain_.end(),
+      std::back_inserter(other_shape),
+      [](IterDomain* id) {
+        return (id->getMaybeExpandedExtent()->isConstScalar())
+            ? id->getMaybeExpandedExtent()->evaluate().as<int64_t>()
+            : -1;
+      });
+  if (this_shape != other_shape) {
+    return false;
+  }
+
+  // Check stride order
+  if (strideOrder() != other_td->strideOrder()) {
+    return false;
   }
 
   // Check contiguity

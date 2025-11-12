@@ -220,10 +220,13 @@ bool Val::sameDefinition(const Val* other_val) const {
     return value_ == other_val->value_;
   }
   NVF_ERROR(!value_.hasValue());
+
   // Expr::sameAs return false if either definition is non-deterministic.
+  /*
   if (!definition_->sameDefinition(other_val->definition_)) {
     return false;
   }
+  */
   return true;
 }
 
@@ -436,10 +439,13 @@ bool Expr::sameDefinition(const Expr* other) const {
   if (name() != other->name()) {
     return false;
   }
-  // Only check the input argument definitions to avoid infinite recursion
-  // because Val::sameDefinition will check the definition.
   for (const auto i : arange(inputs().size())) {
     if (!input(i)->sameDefinition(other->input(i))) {
+      return false;
+    }
+  }
+  for (const auto i : arange(outputs().size())) {
+    if (!output(i)->sameDefinition(other->output(i))) {
       return false;
     }
   }

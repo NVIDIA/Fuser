@@ -68,16 +68,20 @@ bool checkAliasInfo(
 } // namespace
 
 bool Fusion::sameDefinition(const Fusion& other) const {
+  // Check if the inputs are the same
   if (inputs().size() != other.inputs().size()) {
     return false;
   }
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->sameDefinition(other_input)) {
+      return false;
+    }
+  }
+
+  // Check if the outputs are the same
   if (outputs().size() != other.outputs().size()) {
     return false;
   }
-
-  // Call sameDefinition on each output traverses the entire Fusion DAG.
-  // First the output is checked, then the output definition, and on to the
-  // definition's inputs. This repeats until fusion inputs are reached.
   const auto& this_output_aliases = getOutputAliases();
   const auto& other_output_aliases = other.getOutputAliases();
   for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
@@ -91,6 +95,17 @@ bool Fusion::sameDefinition(const Fusion& other) const {
     }
   }
 
+  // Check if the expressions are the same
+  std::vector<Expr*> this_exprs = exprs();
+  std::vector<Expr*> other_exprs = other.exprs();
+  if (this_exprs.size() != other_exprs.size()) {
+    return false;
+  }
+  for (auto&& [expr, other_expr] : zip(this_exprs, other_exprs)) {
+    if (!expr->sameDefinition(other_expr)) {
+      return false;
+    }
+  }
   return true;
 }
 
