@@ -61,7 +61,7 @@ class PointwiseParams : public HeuristicParams {
   bool use_tma_store = false;
 
   // Used to crate a 2D TMA domain to work with 2D TMA tile.
-  int64_t tma_domain_inner = -1;
+  int64_t tma_domain_size_inner = -1;
 
   // Using 2D TMA tile
   int64_t tma_tile_outer = -1;

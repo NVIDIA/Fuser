@@ -3292,9 +3292,11 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size,
-    int64_t min_dtype_bytes) {
-  constexpr int64_t align_bytes = 16;
-  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+    int64_t min_dtype_bits) {
+  // Factor 2 ensures there are at least 2 boxes in inner dimension to
+  // avoid collapsing the two dimensions into one.
+  constexpr int64_t align_bits = 128;
+  const int64_t min_size = 2 * align_bits / min_dtype_bits;
 
   // Fast path: if the total elements are evenly divisible by the target size,
   // return the target size immediately.

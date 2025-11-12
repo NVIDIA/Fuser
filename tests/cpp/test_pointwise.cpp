@@ -1438,7 +1438,8 @@ TEST_F(
 }
 
 using Tma2dTileTestParams =
-    std::tuple<int64_t, int64_t, bool>; // <dim0, ndims, use_tma_store>
+    std::tuple<int64_t, int64_t, bool, bool>; // <dim0, ndims, use_tma_store,
+                                              // auto_schedule>
 
 class Tma2dTileTest : public NVFuserFixtureParamTest<Tma2dTileTestParams> {
  protected:
@@ -1455,7 +1456,7 @@ class Tma2dTileTest : public NVFuserFixtureParamTest<Tma2dTileTestParams> {
 TEST_P(Tma2dTileTest, NoBroadcast) {
   auto dtype = DataType::Float;
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
-  auto [dim0, ndims, use_tma_store] = GetParam();
+  auto [dim0, ndims, use_tma_store, auto_schedule] = GetParam();
   // test [dim0], [dim0, 2], [dim0, 2, 4]
   std::vector<int64_t> element_at_each_dim(ndims);
   element_at_each_dim[0] = dim0;
@@ -1479,6 +1480,17 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   fusion.addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(element_at_each_dim, options);
+
+  if (auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto out_tensors = executor_cache.runFusionWithInputs({t0});
+    testValidate(
+        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+    return;
+  }
 
   // Create TMA loads from inputs to shared memory
   auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
@@ -1604,9 +1616,6 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   // Inline most tensors for better performance.
   inlineMost();
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto t0 = at::randn(element_at_each_dim, options);
-
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto out_tensors = ke.run({t0});
@@ -1615,22 +1624,34 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     Tma2dTileTest,
-    ::testing::Combine(
-        ::testing::ValuesIn([] {
-          std::vector<int64_t> vals(
-              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
-          // Add some irregular numbers
-          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
-          return vals;
-        }()), // dim0
-        ::testing::Values(1, 2, 3), // ndims
-        ::testing::Values(true, false) // use_tma_store
-        ),
+    ::testing::ValuesIn([] {
+      // Generate dim0 values
+      std::vector<int64_t> dim0_vals(
+          Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+      // Add some irregular numbers
+      dim0_vals.insert(
+          dim0_vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+
+      std::vector<Tma2dTileTestParams> params;
+      for (auto dim0 : dim0_vals) {
+        for (auto ndims : {1, 2, 3}) {
+          // When auto_schedule=true, use_tma_store is ignored, so only test one
+          // value
+          params.emplace_back(dim0, ndims, false, true);
+          // When auto_schedule=false, test both use_tma_store values
+          params.emplace_back(dim0, ndims, true, false);
+          params.emplace_back(dim0, ndims, false, false);
+        }
+      }
+      return params;
+    }()),
     [](const testing::TestParamInfo<Tma2dTileTestParams>& info) {
       int64_t dim0 = std::get<0>(info.param);
       int64_t ndims = std::get<1>(info.param);
       bool use_tma_store = std::get<2>(info.param);
+      bool auto_schedule = std::get<3>(info.param);
       return "dim0_" + std::to_string(dim0) + "_ndim_" + std::to_string(ndims) +
-          "_use_tma_store_" + std::to_string(use_tma_store);
+          "_use_tma_store_" + std::to_string(use_tma_store) +
+          "_auto_schedule_" + std::to_string(auto_schedule);
     });
 } // namespace nvfuser

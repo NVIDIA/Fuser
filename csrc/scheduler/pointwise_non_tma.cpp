@@ -14,6 +14,7 @@
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/mark_aliases.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -174,134 +175,28 @@ int64_t getUnrollFactor(
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
-
+    HeuristicDataCache* data_cache,
+    const pointwise_utils::FusionRuntimeProperties& init_data) {
   // Incase any buffer is of type DataType::Index
-  const auto index_type = runtime_info.getIndexType();
+  const auto index_type = init_data.index_type;
+
+  TensorView* largest_out = init_data.largest_out;
+  const auto device_multiprocessor_count =
+      init_data.device_multiprocessor_count;
+  bool has_reshapes = init_data.has_reshapes;
+  const auto& ref_loop = init_data.ref_loop;
+  const auto& elem_counts = init_data.elem_counts;
+  int64_t n_elems = init_data.n_elems;
+
   auto params = std::make_unique<PointwiseParams>();
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
 
-  auto domain_map_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
-          data_cache, [fusion]() {
-            return std::make_unique<scheduler_tools::PointwiseDomainMap>(
-                fusion);
-          });
-  const auto& domain_map = dynamic_cast<scheduler_tools::PointwiseDomainMap&>(
-      domain_map_entry.get());
-
-  auto largest_out_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ReferenceTensors>(
-          data_cache, [&domain_map]() {
-            std::vector<TensorView*> data{domain_map.findReferenceTensor()};
-            return std::make_unique<std::vector<TensorView*>>(std::move(data));
-          });
-  TensorView* largest_out = largest_out_entry.get()[0];
-
-  NVF_ERROR(largest_out != nullptr);
-
-  const auto device_multiprocessor_count = static_cast<int64_t>(
-      at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
-
-  bool has_reshapes = !ir_utils::getReshapeOps(fusion).empty();
-
-  auto logical_reorder_map_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
-          data_cache, [largest_out, has_reshapes]() {
-            // NOTE: reorder_map is only applied for fusion without view
-            // op yet.
-            if (has_reshapes) {
-              return std::make_unique<std::unordered_map<int64_t, int64_t>>();
-            }
-            return std::make_unique<std::unordered_map<int64_t, int64_t>>(
-                scheduler_utils::reorderLogicalAsAllocationMap(largest_out));
-          });
-  std::unordered_map<int64_t, int64_t> loop_reorder_map;
-  if (!has_reshapes) {
-    loop_reorder_map = scheduler_utils::reorderLoopAsAllocationMap(largest_out);
-  }
-
-  const std::unordered_map<int64_t, int64_t>& logical_reorder_map =
-      logical_reorder_map_entry.get();
-
-  std::vector<IterDomain*> ref_loop = largest_out->getLoopDomain();
-  // reorder of root to align with logical map should always help with indexing,
-  // even when vectorization isn't used.
-  if (!loop_reorder_map.empty()) {
-    ref_loop = TensorDomain::orderedAs(ref_loop, loop_reorder_map);
-  }
-  // We always cacheBefore output at the beginning of the scheduling. And after
-  // cacheBefore, the reference tensor will have all reduction IDs removed.
-  ref_loop = TensorDomain::noDevices(TensorDomain::noReductions(ref_loop));
-
-  std::vector<int64_t> elem_counts;
-  elem_counts.reserve(ref_loop.size());
-  int64_t n_elems = 1;
-  for (IterDomain* ref_id : ref_loop) {
-    auto extent_pvalue =
-        runtime_info.expressionEvaluator().evaluate(ref_id->extent());
-    NVF_ERROR(
-        extent_pvalue.hasValue(),
-        "Error inferring size for pointwise scheduler: ",
-        ref_id->extent()->toInlineString());
-    auto extent = extent_pvalue.as<int64_t>();
-    elem_counts.push_back(extent);
-    n_elems *= extent;
-  }
-
-  // If zero dimensional or zero size, return default parameters
-  if (std::ranges::empty(
-          largest_out->getLoopDomain() | TensorDomain::kNoReductions |
-          TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices) ||
-      n_elems == 0) {
-    auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
-        HeuristicCompileTime::VectorizableInputsAndOutputs>(data_cache, []() {
-      return std::make_unique<std::vector<TensorView*>>();
-    });
-    vectorizable_inputs_outputs_entry.get();
-
-    auto broadcast_info = HeuristicDataCacheEntry<
-        HeuristicCompileTime::BroadcastMultiples>(data_cache, []() {
-      return std::make_unique<scheduler_utils::BroadcastMultipleInformation>();
-    });
-    broadcast_info.get();
-
-    vectorize_helper::getVectorizationFactor(
-        runtime_info, largest_out, data_cache, 0);
-
-    // All cache entries that are expected to be generated in the pointwise
-    // scheduler by registry.cpp::HeuristicDataCache::validate() must be created
-    // before hitting this return.
-    auto pwise_params = std::make_unique<PointwiseParams>();
-    pwise_params->tag = "Pointwise heuristics";
-    pwise_params->cparams.index_type = index_type;
-    return pwise_params;
-  }
-
-  // Find all vectorizable inputs/outputs
-  auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
-      HeuristicCompileTime::VectorizableInputsAndOutputs>(
-      data_cache, [&largest_out]() {
-        return std::make_unique<std::vector<TensorView*>>(
-            scheduler_utils::getInputsOutputsWithInnerDim(
-                largest_out, true, true));
-      });
-
-  int64_t max_dtype_size_bit_for_vectorization = 0;
-  for (auto inp : vectorizable_inputs_outputs_entry.get()) {
-    max_dtype_size_bit_for_vectorization = std::max(
-        max_dtype_size_bit_for_vectorization,
-        dataTypeSizeBit(inp->getDataType().value(), index_type));
-  }
-  // If max_dtype_size_bit_for_vectorization is 0, it means there
-  // is no vectorizable input/output. For this case, we set it to 8
-  // as a default value to prevent having a too large vectorization factor.
-  // TODO: run a benchmark and see if there is a better default value.
-  if (max_dtype_size_bit_for_vectorization == 0) {
-    max_dtype_size_bit_for_vectorization = 8;
-  }
+  // Use vectorizable inputs/outputs and dtype sizes from init_data
+  const auto& vectorizable_inputs_outputs =
+      init_data.vectorizable_inputs_outputs;
+  int64_t max_dtype_size_bit_for_vectorization =
+      init_data.max_dtype_size_bit_for_vectorization;
 
   constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   auto max_vect_factor = ceilDiv(
@@ -311,7 +206,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       // vectorize as it could start consuming a lot of registers.
       std::max(
           (scheduler_utils::lastPow2(
-               (int64_t)vectorizable_inputs_outputs_entry.get().size()) >>
+               (int64_t)vectorizable_inputs_outputs.size()) >>
            2),
           (int64_t)1));
   // Don't vectorize at the cost of getting a full wave on the GPU
@@ -486,12 +381,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // NOTE: This is not a perfect solution, as sub-byte data types doesn't
   // necessarily need vectorization, but rather just consecutive elements being
   // handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(
-          vectorizable_inputs_outputs_entry.get(), [](TensorView* inp) {
-            return dataTypeSizeBit(inp->getDataType().value()) < 8;
-          })) {
+  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
+        return dataTypeSizeBit(inp->getDataType().value()) < 8;
+      })) {
     vectorization_factor = std::max(2l, max_vect_factor);
   }
+  std::unordered_map<int64_t, int64_t> logical_reorder_map =
+      pointwise_utils::getLogicalReorderMap(
+          largest_out, has_reshapes, data_cache);
   vectorization_factor = std::min(
       vectorization_factor,
       vectorize_helper::getVectorizationFactor(
@@ -517,7 +414,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       total_blocks,
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
-      vectorizable_inputs_outputs_entry.get());
+      vectorizable_inputs_outputs);
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
@@ -578,196 +475,38 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   FusionGuard fg(fusion);
 
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-
-  // Cache inputs
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
-
-  // Cache and fork outputs
-  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
-
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  refineCachePolicy(fusion);
-
-  std::vector<TensorView*> input_tvs;
-  {
-    auto filtered_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-    // Remove hanging tensor views
-    for (auto tv : filtered_tvs) {
-      if (tv->uses().empty()) {
-        continue;
-      }
-      input_tvs.push_back(tv);
-    }
-  }
-  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-
-  int64_t max_dims = 0;
-  for (auto inp : input_tvs) {
-    max_dims = std::max(scheduler_utils::nLogicalDims(inp), max_dims);
-  }
-
-  for (auto out : output_tvs) {
-    max_dims = std::max(scheduler_utils::nLogicalDims(out), max_dims);
-  }
-
-  // If everything is zero dim tensors, just return.
-  if (max_dims == 0) {
+  auto schedule_info_opt =
+      pointwise_utils::commonSchedule(fusion, pparams->break_point);
+  if (!schedule_info_opt.has_value()) {
+    // Zero-dimensional tensors, nothing to schedule
     return;
   }
+  auto& schedule_info = schedule_info_opt.value();
 
-  TensorView* reference_tv = pointwise_utils::getReferenceTensor(fusion);
-  NVF_ERROR(
-      reference_tv != nullptr,
-      "Could not find a fully broadcasted output to reference schedule on.");
-  std::vector<IterDomain*> ref_orig_loop = reference_tv->getLoopDomain();
-
-  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
-
-  int64_t num_device_dims = numDeviceDims(reference_tv);
-  int64_t device_aware_break_point = pparams->break_point + num_device_dims;
-
-  // Positions of rhs and lhs after merging all dimensions.
-  int64_t rhs_i = -1;
-  int64_t lhs_i = -1;
-
-  if (!ir_utils::getReshapeOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
-    // Propagate reshape transforms through the graph, expecially the reference.
-    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
-
-    // Reorder reference_tv after propagating the view operation. This will
-    // reorder for better merging.
-    reference_tv->reorder(
-        scheduler_utils::domainReorderAsLogicalMap(reference_tv));
-    // Reorder so that DeviceDims are in front
-    reorderParallelizedToFront(reference_tv);
-
-    // Break point is relative to logical domain, find the loop domain ID's in
-    // the left/right side, we really need the values in domain, but easiest way
-    // to do this is with Dependency check which will grab all intermediate
-    // values too.
-    auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {ref_orig_loop.begin() + num_device_dims,
-         ref_orig_loop.begin() + device_aware_break_point},
-        {reference_tv->getLoopDomain().begin() + num_device_dims,
-         reference_tv->getLoopDomain().end()});
-
-    std::unordered_set<Val*> lhs_all_vals_set(
-        lhs_all_vals.begin(), lhs_all_vals.end());
-
-    auto rhs_all_vals = DependencyCheck::getAllValsBetween(
-        {ref_orig_loop.begin() + device_aware_break_point, ref_orig_loop.end()},
-        {reference_tv->getLoopDomain().begin() + num_device_dims,
-         reference_tv->getLoopDomain().end()});
-
-    std::unordered_set<Val*> rhs_all_vals_set(
-        rhs_all_vals.begin(), rhs_all_vals.end());
-
-    // Make sure lhs and rhs groups are disjoint.
-    for (auto lhs_val : lhs_all_vals) {
-      if (rhs_all_vals_set.count(lhs_val) != 0) {
-        std::ostringstream os;
-        IrTransformPrinter printer(os);
-        printer.printTransforms(reference_tv);
-        NVF_THROW(
-            "Error in pointwise scheduler. LHS and RHS of the 2D scheduler are "
-            "not disjoint. ",
-            lhs_val->toString(),
-            " belongs to both. device_aware_break_point = ",
-            device_aware_break_point,
-            ". reference_tv = ",
-            reference_tv->toString(),
-            " and its transforms are:\n",
-            os.str());
-      }
-    }
-    NVF_ERROR(
-        !rhs_all_vals.empty(),
-        "Expecting at least one dimension in the RHS of the pointwise "
-        "scheduler.");
-
-    // Merge rhs, then lhs.
-    IterDomain* rhs_id = nullptr;
-    IterDomain* lhs_id = nullptr;
-    for (int64_t pos = reference_tv->nDims() - 1; pos >= 0; pos--) {
-      // Merge from right to left
-      auto id = reference_tv->axis(pos);
-      if (lhs_all_vals_set.count(id) > 0) {
-        if (lhs_id == nullptr) {
-          lhs_id = id;
-          lhs_i = pos;
-        } else {
-          reference_tv->merge(pos, lhs_i);
-          lhs_i = pos;
-          if (rhs_i > lhs_i) {
-            rhs_i--;
-          }
-        }
-      } else if (rhs_all_vals_set.count(id) > 0) {
-        if (rhs_id == nullptr) {
-          rhs_id = id;
-          rhs_i = pos;
-        } else {
-          reference_tv->merge(pos, rhs_i);
-          rhs_i = pos;
-          if (lhs_i > rhs_i) {
-            lhs_i--;
-          }
-        }
-      }
-    }
-    // Find the iter domains that should be in the lhs, and rhs.
-  } else {
-    // Don't need to worry about view transformations, just merge reference tv
-    // as we normally would.
-
-    std::unordered_map<int64_t, int64_t> loop_reorder_map =
-        scheduler_utils::reorderLoopAsAllocationMap(reference_tv);
-    if (!loop_reorder_map.empty()) {
-      reference_tv->reorder(loop_reorder_map);
-    }
-    reorderParallelizedToFront(reference_tv);
-
-    // Merge right side of break point
-    for (int64_t i = reference_tv->nDims(); i > device_aware_break_point; i--) {
-      auto axis_i = i - 1;
-      if (rhs_i == -1) {
-        rhs_i = axis_i;
-      } else {
-        reference_tv->merge(axis_i, rhs_i);
-        rhs_i = axis_i;
-      }
-    }
-    if (rhs_i >= 0) {
-      // If there's an rhs
-      reference_tv->reorder({{rhs_i, -1}});
-    }
-
-    // Merge left side of break point
-    for (int64_t i = device_aware_break_point; i > num_device_dims; i--) {
-      auto axis_i = i - 1;
-      if (lhs_i == -1) {
-        lhs_i = axis_i;
-      } else {
-        reference_tv->merge(axis_i, lhs_i);
-        lhs_i = axis_i;
-      }
-    }
-  }
+  auto& cached_inputs = schedule_info.cached_inputs;
+  auto& cached_outputs = schedule_info.cached_outputs;
+  TensorView* reference_tv = schedule_info.reference_tv;
 
   int64_t unswitch_pos = 0;
   IterDomain* vectorize_id = nullptr;
   if (pparams->break_point) {
     // 2D parallelization scheme
+    // After commonSchedule merging, lhs and rhs are at known positions
+    // rhs is at the last position, lhs is the second-to-last after device dims
+    int64_t num_device_dims = 0;
+    for (auto id : reference_tv->getLoopDomain()) {
+      if (id->isDeviceDim()) {
+        num_device_dims++;
+      }
+    }
+    int64_t lhs_i = num_device_dims;
+    int64_t rhs_i = reference_tv->nDims() - 1;
     NVF_ERROR(rhs_i >= 0 && lhs_i >= 0);
 
     // Right (inner merged) dimension is at inner most position, left (outer
     // merged) dimension is at lhs_i. Order as [lhs_i, rhs_i, unmerged...]
-    reference_tv->reorder({{lhs_i, 0}, {-1, 1}});
+    reference_tv->reorder(
+        std::unordered_map<int64_t, int64_t>{{lhs_i, 0}, {rhs_i, 1}});
 
     // vectorization without unroll
     if (pparams->unroll_factor_outer == 1 &&
@@ -904,7 +643,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       }
     }
   } else {
-    // 1D Scheduler
+    // 1D Scheduler (break_point == 0)
+    // After commonSchedule, all dimensions are merged into one at the last
+    // position
+    int64_t rhs_i = reference_tv->nDims() - 1;
+    int64_t lhs_i = -1;
     NVF_ERROR(rhs_i >= 0 && lhs_i == -1);
 
     // right hand side exists and is the only axis we care to schedule, move
@@ -1027,8 +770,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     inner_most_tensors.erase(cached_input);
   }
   for (const auto& [cached_output, output_idx] : cached_outputs) {
-    auto output = fusion->outputs()[output_idx]->as<TensorView>();
-    inner_most_tensors.erase(output);
+    auto output = dynamic_cast<TensorView*>(fusion->outputs()[output_idx]);
+    if (output) {
+      inner_most_tensors.erase(output);
+    }
   }
   // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler
   // doesn't use ParallelType::Unroll, we need to exclude consumer of fusion

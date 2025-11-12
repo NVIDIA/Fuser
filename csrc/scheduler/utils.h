@@ -894,11 +894,11 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //     neighboring box/tile dimension, which contradicts our 2D tile assumption.
 //     In this case, the collapsed two dimensions must be equal to or smaller
 //     than 256.
-//   min_dtype_bytes: Ensures 16-byte box size and alignment.
+//   min_dtype_bits: Ensures 128-bit box size and alignment.
 int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size = 512,
-    int64_t min_dtype_bytes = 1);
+    int64_t min_dtype_bits = 1);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

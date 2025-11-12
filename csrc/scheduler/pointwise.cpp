@@ -12,10 +12,13 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_non_tma.h>
 #include <scheduler/pointwise_tma.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
 #include <ranges>
+#include "type.h"
 
 namespace nvfuser {
 
@@ -270,20 +273,53 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   return true;
 }
+namespace {
+bool canUseTma(const pointwise_utils::FusionRuntimeProperties& init_data) {
+  // function-condition-1, TMA requires size divisible by 16 bytes (128 bits)
+  int64_t total_elem_count = init_data.n_elems;
+  int64_t min_input_dtype_bits = init_data.min_dtype_size_bit_for_vectorization;
+  int64_t total_bits = total_elem_count * min_input_dtype_bits;
+  if (total_bits % 128 != 0) {
+    return false;
+  }
+  // function-condition-2, We only do 2D TMA, requires at least 2 boxes in
+  // inner dimension each with 16 bytes.
+  if (total_bits <= 2 * 128) {
+    return false;
+  }
+  // performance-condition-1, input size is too small
+  // performance-condition-2, Innner TMA domain size is too small
 
+  return true;
+}
+} // namespace
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
-  bool use_tma = false;
+
+  // Get common initialization data
+  auto init_data_opt = pointwise_utils::getPointwiseInitializationData(
+      fusion, runtime_info, data_cache);
+
+  // If zero dimensional or zero size, return default parameters
+  if (!init_data_opt.has_value()) {
+    auto pwise_params = std::make_unique<PointwiseParams>();
+    pwise_params->tag = "Pointwise heuristics";
+    pwise_params->cparams.index_type = runtime_info.getIndexType();
+    return pwise_params;
+  }
+
+  bool use_tma = canUseTma(init_data_opt.value()) &&
+      isOptionEnabled(EnableOption::TmaPointwise);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
-    pparams =
-        pointwise_tma::getPointwiseHeuristics(fusion, runtime_info, data_cache);
+    pparams = pointwise_tma::getPointwiseHeuristics(
+        fusion, runtime_info, data_cache, init_data_opt.value());
   } else {
     pparams = pointwise_non_tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, init_data_opt.value());
   }
   NVF_ERROR(pparams != nullptr);
   return pparams;
