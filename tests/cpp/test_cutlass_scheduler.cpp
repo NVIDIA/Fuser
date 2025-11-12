@@ -513,156 +513,6 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
-  // Skip if not on SM100 or above
-  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
-      at::cuda::getCurrentDeviceProperties()->major > 11) {
-    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
-  }
-
-  if (!std::getenv("CUTLASS_PATH")) {
-    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
-                 << "order to run this test";
-  }
-
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
-  TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
-  // B has K inner
-  b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
-  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
-  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
-  TensorView* alpha = makeContigTensor(0, DataType::Float);
-  TensorView* beta = makeContigTensor(0, DataType::Float);
-  TensorView* bias = makeContigTensor(2, DataType::BFloat16);
-
-  fusion->addInput(a);
-  fusion->addInput(b);
-  fusion->addInput(a_sf);
-  fusion->addInput(b_sf);
-  fusion->addInput(bias);
-  fusion->addInput(alpha);
-  fusion->addInput(beta);
-
-  // TODO: support more output dtypes, specifically nvfp4
-  auto smm = scaled_mm(
-      a,
-      b,
-      a_sf,
-      b_sf,
-      alpha,
-      bias,
-      beta,
-      // NOTE: We support DataType::Float output in the Cutlass executor, but
-      // we use BFloat16 here in order to compare fairly against our
-      // precompiled kernels which only support Half and BFloat16
-      /*dtype=*/DataType::BFloat16);
-
-  TensorView* out_tv = relu(smm.tv);
-
-  fusion->addOutput(out_tv);
-
-  // Note that K is the actual problem size independent of data type, not the
-  // packed size.
-  constexpr int64_t M = 8192, N = 8192, K = 8192;
-
-  // Create actual tensor data for inputs
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-
-  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
-  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
-
-  at::Tensor at_a = qa.elts;
-  at::Tensor at_b = qb.elts.t();
-
-  at::Tensor at_a_sf = qa.block_scale;
-  at::Tensor at_b_sf = qb.block_scale;
-
-  at::Tensor at_bias = at::randn({M, N}, options.dtype(at::kBFloat16));
-
-  // Create scalar tensors
-  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
-  at::Tensor at_beta = at::randn({}, options);
-
-  std::vector<c10::IValue> inputs{
-      at_a, at_b, at_a_sf, at_b_sf, at_bias, at_alpha, at_beta};
-
-  CutlassParams params;
-
-  params.mma_tile = {128, 256, 256};
-  params.per_sm_tile = {64, 256, 256};
-
-  CutlassExecutor ce;
-  ce.compile(fusion.get(), params);
-
-  KernelArgumentHolder outputs = ce.run(inputs);
-
-  // The pre-compiled kernels do not support beta or bias, so instead, I'll
-  // create a separate fusion that computes those separately in order to create
-  // a reference.
-  {
-    auto ref_fusion = std::make_unique<Fusion>();
-    FusionGuard fg(ref_fusion.get());
-
-    TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
-    TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
-    // B has K inner
-    b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
-    TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
-    TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
-    TensorView* alpha = makeContigTensor(0, DataType::Float);
-    TensorView* beta = makeContigTensor(0, DataType::Float);
-    TensorView* bias = makeContigTensor(2, DataType::BFloat16);
-
-    ref_fusion->addInput(a);
-    ref_fusion->addInput(b);
-    ref_fusion->addInput(a_sf);
-    ref_fusion->addInput(b_sf);
-    ref_fusion->addInput(bias);
-    ref_fusion->addInput(alpha);
-    ref_fusion->addInput(beta);
-
-    // TODO: support more output dtypes, specifically nvfp4
-    auto smm = scaled_mm(
-        a,
-        b,
-        a_sf,
-        b_sf,
-        alpha,
-        /*bias=*/nullptr,
-        /*beta=*/nullptr,
-        /*dtype=*/DataType::BFloat16);
-
-    TensorView* beta_bias = mul(beta, bias);
-    TensorView* lincomb = add(smm.tv, beta_bias);
-
-    TensorView* out_tv = relu(lincomb);
-
-    ref_fusion->addOutput(out_tv);
-
-    ExpressionEvaluator expr_eval;
-
-    ASSERT_EQ(ref_fusion->inputs().size(), inputs.size());
-    for (auto [val, at_tens] : zip(ref_fusion->inputs(), inputs)) {
-      expr_eval.bind(val, at_tens.toTensor());
-    }
-
-    PolymorphicValue out_pv = expr_eval.evaluate(out_tv);
-
-    ASSERT_TRUE(out_pv.is<at::Tensor>());
-
-    testValidate(
-        fusion.get(),
-        outputs,
-        inputs,
-        {out_pv.as<at::Tensor>()},
-        __LINE__,
-        __FILE__);
-  }
-}
-
 // Test findBlockScaledOutputs pattern matching
 TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
@@ -842,6 +692,153 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
       /*rtol=*/0.001,
       /*atol=*/0.001));
 #endif
+}
+
+TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
+  // Skip if not on SM100 or above
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
+      at::cuda::getCurrentDeviceProperties()->major > 11) {
+    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
+  // B has K inner
+  b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(0, DataType::Float);
+  TensorView* beta = makeContigTensor(0, DataType::Float);
+  TensorView* bias = makeContigTensor(2, DataType::BFloat16);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(bias);
+  fusion->addInput(alpha);
+  fusion->addInput(beta);
+
+  // TODO: support more output dtypes, specifically nvfp4
+  auto smm = scaled_mm(
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
+      bias,
+      beta,
+      // NOTE: We support DataType::Float output in the Cutlass executor, but
+      // we use BFloat16 here in order to compare fairly against our
+      // precompiled kernels which only support Half and BFloat16
+      /*dtype=*/DataType::BFloat16);
+
+  TensorView* out_tv = relu(smm.tv);
+
+  fusion->addOutput(out_tv);
+
+  // Note that K is the actual problem size independent of data type, not the
+  // packed size.
+  constexpr int64_t M = 8192, N = 8192, K = 8192;
+
+  // Create actual tensor data for inputs
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+
+  at::Tensor at_a = qa.elts;
+  at::Tensor at_b = qb.elts.t();
+
+  at::Tensor at_a_sf = qa.block_scale;
+  at::Tensor at_b_sf = qb.block_scale;
+
+  at::Tensor at_bias = at::randn({M, N}, options.dtype(at::kBFloat16));
+
+  // Create scalar tensors
+  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+  at::Tensor at_beta = at::randn({}, options);
+
+  std::vector<c10::IValue> inputs{
+      at_a, at_b, at_a_sf, at_b_sf, at_bias, at_alpha, at_beta};
+
+  CutlassParams params;
+
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
+
+  KernelArgumentHolder outputs = ce.run(inputs);
+
+  // The pre-compiled kernels do not support beta or bias, so instead, I'll
+  // create a separate fusion that computes those separately in order to create
+  // a reference.
+  {
+    auto ref_fusion = std::make_unique<Fusion>();
+    FusionGuard fg(ref_fusion.get());
+
+    TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+    TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
+    // B has K inner
+    b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+    TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+    TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+    TensorView* alpha = makeContigTensor(0, DataType::Float);
+    TensorView* beta = makeContigTensor(0, DataType::Float);
+    TensorView* bias = makeContigTensor(2, DataType::BFloat16);
+
+    ref_fusion->addInput(a);
+    ref_fusion->addInput(b);
+    ref_fusion->addInput(a_sf);
+    ref_fusion->addInput(b_sf);
+    ref_fusion->addInput(bias);
+    ref_fusion->addInput(alpha);
+    ref_fusion->addInput(beta);
+
+    // TODO: support more output dtypes, specifically nvfp4
+    auto smm = scaled_mm(
+        a,
+        b,
+        a_sf,
+        b_sf,
+        alpha,
+        /*bias=*/nullptr,
+        /*beta=*/nullptr,
+        /*dtype=*/DataType::BFloat16);
+
+    TensorView* beta_bias = mul(beta, bias);
+    TensorView* lincomb = add(smm.tv, beta_bias);
+
+    TensorView* out_tv = relu(lincomb);
+
+    ref_fusion->addOutput(out_tv);
+
+    ExpressionEvaluator expr_eval;
+
+    ASSERT_EQ(ref_fusion->inputs().size(), inputs.size());
+    for (auto [val, at_tens] : zip(ref_fusion->inputs(), inputs)) {
+      expr_eval.bind(val, at_tens.toTensor());
+    }
+
+    PolymorphicValue out_pv = expr_eval.evaluate(out_tv);
+
+    ASSERT_TRUE(out_pv.is<at::Tensor>());
+
+    testValidate(
+        fusion.get(),
+        outputs,
+        inputs,
+        {out_pv.as<at::Tensor>()},
+        __LINE__,
+        __FILE__);
+  }
 }
 
 } // namespace nvfuser
