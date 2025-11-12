@@ -3289,5 +3289,64 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
+int64_t getInnerTmaDomainSize(
+    int64_t total_element,
+    int64_t target_inner_tma_domain_size,
+    int64_t min_dtype_bytes) {
+  constexpr int64_t align_bytes = 16;
+  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+
+  // Fast path: if the total elements are evenly divisible by the target size,
+  // return the target size immediately.
+  if (total_element % target_inner_tma_domain_size == 0) {
+    return target_inner_tma_domain_size;
+  }
+
+  // Initialize to 1. Returning 1 signals that no suitable divisor was found
+  // and the configuration is not suitable for TMA.
+  int64_t best_divisible_size = 1;
+  int64_t best_diff =
+      std::abs(best_divisible_size - target_inner_tma_domain_size);
+
+  // Lambda to update the best candidate if it is closer to the target size.
+  // The candidate must be less than total_element to ensure a valid 2D split.
+  auto update_best = [&](int64_t candidate) {
+    if (candidate >= total_element) {
+      return;
+    }
+    int64_t diff = std::abs(candidate - target_inner_tma_domain_size);
+    if (diff < best_diff) {
+      best_divisible_size = candidate;
+      best_diff = diff;
+    }
+  };
+
+  // Iterate through divisor pairs up to sqrt(total_element). For each divisor
+  // i, we get a complementary divisor total_element/i. Both are checked as
+  // candidates if they meet the minimum size requirement.
+  int64_t limit =
+      static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
+
+  // Handle edge case where min_size > sqrt(total_element). In this case, check
+  // all divisors by iterating with a smaller step and filtering by min_size.
+  int64_t step = (min_size > limit) ? 1 : min_size;
+
+  for (int64_t i = step; i <= limit; i += step) {
+    if (total_element % i == 0) {
+      int64_t f1 = i;
+      int64_t f2 = total_element / i;
+
+      if (f1 % min_size == 0) {
+        update_best(f1);
+      }
+
+      if (f2 % min_size == 0) {
+        update_best(f2);
+      }
+    }
+  }
+  return best_divisible_size;
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser
