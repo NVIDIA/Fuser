@@ -29,7 +29,12 @@ class HostIrContainer final : public Fusion {
   // Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  const Scope& topLevel() const;
+  const Scope& topLevel() const {
+    return top_level_;
+  }
+  Scope& topLevel() {
+    return top_level_;
+  }
   const Scope::ExprList& topLevelExprs() const {
     return topLevel().exprs();
   }

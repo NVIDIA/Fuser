@@ -36,10 +36,6 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   return os;
 }
 
-const Scope& HostIrContainer::topLevel() const {
-  return top_level_;
-}
-
 void HostIrContainer::resetTopLevelExprs(std::list<Expr*> exprs) {
   top_level_.mutableExprs() = std::move(exprs);
 }

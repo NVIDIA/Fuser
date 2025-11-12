@@ -17,6 +17,74 @@
 
 namespace nvfuser {
 
+namespace hir {
+// FIXME: rename to LoopInfo?
+// FIXME: can this be nested in LoopNest?
+struct Frame {
+  ForLoop* loop;
+  Scope* parent_scope;
+  Scope::Iterator parent_insertion_point;
+
+  friend std::ostream& operator<<(std::ostream& os, const Frame& frame);
+};
+
+class LoopNest {
+ private:
+ public:
+  LoopNest(Scope& top_level) : top_level_(top_level) {}
+
+  int64_t size() const {
+    return std::ssize(frames_);
+  }
+
+  bool empty() const {
+    return frames_.empty();
+  }
+
+  void closeLoop() {
+    NVF_ERROR(!empty());
+    frames_.pop_back();
+  }
+
+  Frame& innermost() {
+    NVF_ERROR(!empty());
+    return frames_.back();
+  }
+
+  Scope& innermostScope() {
+    return empty() ? top_level_ : innermost().loop->body();
+  }
+
+  ForLoop* openLoop(IterDomain* id) {
+    Scope& parent_scope = innermostScope();
+    auto* for_loop = ForLoop::createFromIterDomain(id);
+    frames_.push_back(
+        {for_loop, &parent_scope, parent_scope.push_back(for_loop)});
+    return for_loop;
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest);
+
+ private:
+  std::vector<Frame> frames_;
+  Scope& top_level_;
+};
+
+std::ostream& operator<<(std::ostream& os, const Frame& frame) {
+  os << frame.loop->toInlineString();
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
+  os << "LoopNest:" << std::endl;
+  for (const auto& frame : loop_nest.frames_) {
+    indent(os, 1) << frame << frame.loop->toString() << std::endl;
+  }
+  return os;
+}
+
+} // namespace hir
+
 namespace {
 // Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
 // or nullptr if not found.  This is different from `getShardedIterDomain(tv,
@@ -47,6 +115,7 @@ void lowerSegment(
     const AliasInfoMap& aliases,
     const LaunchParams& launch_params,
     hir::HostIrContainer& hic,
+    hir::LoopNest& loop_nest,
     IrCloner& ir_cloner) {
   switch (group.schedulerType()) {
     case SchedulerType::Communication: {
@@ -70,11 +139,12 @@ void lowerSegment(
         if (tv->getDeviceMesh().has(device_id)) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-          hic.pushBackTopLevelExprs(allocate);
+          // FIXME: allocation may have to go to the top level.
+          loop_nest.innermostScope().push_back(allocate);
         }
-        hic.pushBackTopLevelExprs(communication);
+        loop_nest.innermostScope().push_back(communication);
         auto wait = IrBuilder::create<hir::Wait>(communication);
-        hic.pushBackTopLevelExprs(wait);
+        loop_nest.innermostScope().push_back(wait);
       }
       break;
     }
@@ -109,13 +179,13 @@ void lowerSegment(
       IterDomain* stream_id = findStreamIterDomain(outs);
       if (stream_id == nullptr) {
         for (Expr* e : exprs) {
-          hic.pushBackTopLevelExprs(e);
+          loop_nest.innermostScope().push_back(e);
         }
         break;
       }
 
-      auto* for_loop = hir::ForLoop::createFromIterDomain(stream_id);
-      auto top_level_insertion_point = hic.pushBackTopLevelExprs(for_loop);
+      auto [for_loop, parent_scope, parent_insertion_point] =
+          loop_nest.innermost();
 
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
@@ -134,9 +204,12 @@ void lowerSegment(
           if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
-            hic.insertExprBefore(top_level_insertion_point, allocate);
+            parent_scope->insert(parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
             // `out` should be allocated outside the loop.
+            //
+            // I use try_emplace here so shardByStream is called only when `out`
+            // is missing.
             auto [i, inserted] = replacement_map.try_emplace(
                 out, hir::shardByStream(out, for_loop->index()));
             NVF_ERROR(inserted);
@@ -187,7 +260,7 @@ void lowerSegment(
         auto* tv = out->as<TensorView>();
         auto* allocate =
             IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-        hic.pushBackTopLevelExprs(allocate);
+        loop_nest.innermostScope().push_back(allocate);
       }
 
       // Add the LaunchKernel instruction.
@@ -203,10 +276,56 @@ void lowerSegment(
           ins,
           outs,
           cache_id);
-      hic.pushBackTopLevelExprs(launch_kernel);
+      loop_nest.innermostScope().push_back(launch_kernel);
     }
   } // switch
 } // lowerSegment
+
+// Finds the TensorView in the group whose loop domain has the most parallel
+// types and returns its loop domain.
+const std::vector<IterDomain*>& findReferenceLoopDomain(
+    const SegmentedGroup& group) {
+  TensorView* reference_tv = nullptr;
+  int max_parallel_count = -1;
+  for (auto* expr : group.exprs()) {
+    for (auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      auto loop_domain = tv->getLoopDomain();
+      int parallel_count = 0;
+      for (auto* id : loop_domain) {
+        if (id->isParallelized()) {
+          parallel_count++;
+        }
+      }
+      if (parallel_count > max_parallel_count) {
+        max_parallel_count = parallel_count;
+        reference_tv = tv;
+      }
+    }
+  }
+  NVF_ERROR(reference_tv != nullptr);
+  return reference_tv->getLoopDomain();
+}
+
+int64_t computeInlinePosition(
+    const std::vector<IterDomain*>& prev_ref_loop,
+    const std::vector<IterDomain*>& curr_ref_loop,
+    const IdModel& id_model) {
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  int64_t inline_position = 0;
+  for (auto [prev_id, curr_id] : zip(prev_ref_loop, curr_ref_loop)) {
+    if (prev_id->getParallelType() != curr_id->getParallelType()) {
+      break;
+    }
+
+    if (!exact_graph.disjointValSets().strictAreMapped(prev_id, curr_id)) {
+      break;
+    }
+
+    inline_position++;
+  }
+
+  return inline_position;
+}
 } // namespace
 
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
@@ -227,14 +346,42 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
+  hir::LoopNest loop_nest(hic->topLevel());
+
+  IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
+  id_model.buildExactGraph();
+
+  std::vector<IterDomain*> prev_ref_loop;
   for (SegmentedGroup* group :
        prepareRuntimeOrder(segmented_fusion).group_run_order) {
+    // Compute the inline position.
+    const std::vector<IterDomain*>& curr_ref_loop =
+        findReferenceLoopDomain(*group);
+    // Compute the inline position based on parallel type and ID mapping.
+
+    const int64_t inline_position =
+        computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
+
+    while (loop_nest.size() > inline_position) {
+      loop_nest.closeLoop();
+    }
+    while (loop_nest.size() < std::ssize(curr_ref_loop) &&
+           curr_ref_loop.at(loop_nest.size())->isStream()) {
+      auto* stream_id = ir_cloner.clone(curr_ref_loop.at(loop_nest.size()));
+      loop_nest.openLoop(stream_id);
+    }
+
+    // FIXME: consider making HostIrLowering a class so `hic` and
+    // `segmented_fusion` can be made global.
     lowerSegment(
         *group,
         segmented_fusion.completeFusion()->getOutputAliases(),
         launch_params_per_segment.at(group->groupId()),
         *hic,
+        loop_nest,
         ir_cloner);
+
+    prev_ref_loop = std::move(curr_ref_loop);
   }
 
   hir_pass::InsertDeallocations().runPass(hic.get());
