@@ -135,10 +135,16 @@ class EVTConverter : OptInDispatch {
         "Output global scale factor not supported for EVT translation");
   }
 
-  void makeAlphaNode() {
+  // Provide DataType::Float if there is additional fusion required
+  EVTModel::Node* makeAlphaAccNode(DataType dtype) {
+    EVTModel::Node* acc_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
     if (alpha_ == nullptr) {
-      return;
+      // TODO: handle casting to dtype when neither alpha or bias is given and
+      // there is no epilogue. i.e. simple GEMM
+      return acc_node;
     }
+
     NVF_CUTLASS_REJECT_IF(
         alpha_->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");
@@ -147,21 +153,71 @@ class EVTConverter : OptInDispatch {
         "Only Float alpha is supported for EVT translation");
     // Broadcast alpha to the same dimensions as the accumulator
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
-        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+        dtypeToCutlass(alpha_->dtype()) + ">");
     alpha_bcast_node->arguments.emplace_back(
         "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
     val_nodes_.emplace(alpha_, alpha_bcast_node);
 
-    EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+    return makeBinaryOpNode(
         BinaryOpType::Mul,
         /*in_type=*/DataType::Float,
         // NOTE: CUTLASS does not have explicit cast EVT nodes.
-        /*out_type=*/mma_out_->dtype(),
+        /*out_type=*/dtype,
         /*lhs_node=*/alpha_bcast_node,
-        /*rhs_node=*/
-        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+        /*rhs_node=*/acc_node);
+  }
 
-    val_nodes_.emplace(mma_out_, alpha_acc_node);
+  EVTModel::Node* makeBetaBiasNode() {
+    NVF_ERROR(bias_ != nullptr);
+
+    // Make a node to load the bias
+    EVTModel::Node* beta_bias_node = model_.makeNode(
+        "cutlass::epilogue::fusion::Sm90SrcFetch<" +
+        dtypeToCutlass(bias_->dtype()) + ">");
+
+    if (beta_ != nullptr) {
+      EVTModel::Node* beta_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+          dtypeToCutlass(beta_->dtype()) + ">");
+      beta_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(beta_) + "}");
+      // Note: this casts beta and bias to float then multiplies and outputs
+      // float, since we will always be adding it straight to alpha*acc
+      // anyway
+      beta_bias_node = makeBinaryOpNode(
+          BinaryOpType::Mul,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/DataType::Float,
+          /*lhs_node=*/beta_bcast_node,
+          /*rhs_node=*/beta_bias_node);
+    }
+
+    return beta_bias_node;
+  }
+
+  void makeMmaOutNode() {
+    // If there is a bias, then alpha*acc should be Float so that we avoid
+    // down-casting until after adding it. Otherwise, we should go ahead and
+    // cast to mma_out_'s dtype now.
+    if (bias_ == nullptr) {
+      EVTModel::Node* alpha_acc_node = makeAlphaAccNode(mma_out_->dtype());
+      val_nodes_.emplace(mma_out_, alpha_acc_node);
+      return;
+    }
+
+    EVTModel::Node* mma_out_node = makeAlphaAccNode(DataType::Float);
+
+    if (EVTModel::Node* beta_bias_node = makeBetaBiasNode()) {
+      mma_out_node = makeBinaryOpNode(
+          BinaryOpType::Add,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/mma_out_->dtype(),
+          /*lhs_node=*/mma_out_node,
+          /*rhs_node=*/beta_bias_node);
+    }
+
+    val_nodes_.emplace(mma_out_, mma_out_node);
   }
 
   // Detect block scaled outputs. Any output that is block scaled will
@@ -212,40 +268,7 @@ class EVTConverter : OptInDispatch {
           mma_out_, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
     }
 
-    makeAlphaNode();
-
-    if (bias_ != nullptr) {
-      // Make a node to load the bias
-      EVTModel::Node* bias_node = model_.makeNode(
-          "cutlass::epilogue::fusion::Sm90SrcFetch<" +
-          dtypeToCutlass(bias_->dtype()) + ">");
-      if (beta_ != nullptr) {
-        EVTModel::Node* beta_bcast_node = model_.makeNode(
-            "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
-            dtypeToCutlass(beta_->dtype()) + ">");
-        beta_bcast_node->arguments.emplace_back(
-            "scalar_ptrs", "{" + getPointerCode(beta_) + "}");
-        // Note: this casts beta and bias to float then multiplies and outputs
-        // float, since we will always be adding it straight to alpha*acc
-        // anyway
-        bias_node = makeBinaryOpNode(
-            BinaryOpType::Mul,
-            /*in_type=*/DataType::Float,
-            /*out_type=*/DataType::Float,
-            /*lhs_node=*/beta_bcast_node,
-            /*rhs_node=*/bias_node);
-      }
-
-      EVTModel::Node* mma_out_node = val_nodes_.at(mma_out_);
-      mma_out_node = makeBinaryOpNode(
-          BinaryOpType::Add,
-          /*in_type=*/DataType::Float,
-          /*out_type=*/mma_out_->dtype(),
-          /*lhs_node=*/mma_out_node,
-          /*rhs_node=*/bias_node);
-
-      val_nodes_[mma_out_] = mma_out_node;
-    }
+    makeMmaOutNode();
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
