@@ -244,8 +244,7 @@ struct Fp4GemmSm100 {
     genMatrixDescription(pattern_.a, "A", /*is_nvfp4=*/true);
     genMatrixDescription(pattern_.b, "B", /*is_nvfp4=*/true);
 
-    // TODO: support bias here as C
-    genMatrixDescription(nullptr, "C", /*is_nvfp4=*/false);
+    genMatrixDescription(pattern_.bias, "C", /*is_nvfp4=*/false);
 
     genMatrixDescription(main_output_, "D", /*is_nvfp4=*/false);
 
@@ -424,12 +423,7 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
   using ElementB = typename T::Gemm::ElementB;
   using ElementSFA = cutlass::float_ue4m3_t;
   using ElementSFB = cutlass::float_ue4m3_t;
-)";
-    if (pattern_.bias != nullptr) {
-      code_ += "  using ElementC = " + dtypeToCutlass(pattern_.bias->dtype()) +
-          ";\n";
-    }
-    code_ += R"(
+  using ElementC = typename T::Gemm::ElementC;
   using ElementD = typename T::Gemm::ElementD;
   using ElementCompute = float;
   using StrideA = typename T::StrideA;
@@ -493,7 +487,7 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       bias.data_ptr,";
+      code_ += "       static_cast<ElementC*>(bias.data_ptr),";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }

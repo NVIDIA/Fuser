@@ -552,8 +552,8 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
       a_sf,
       b_sf,
       alpha,
-      beta,
       bias,
+      beta,
       // NOTE: We support DataType::Float output in the Cutlass executor, but
       // we use BFloat16 here in order to compare fairly against our
       // precompiled kernels which only support Half and BFloat16
@@ -630,8 +630,8 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
         a_sf,
         b_sf,
         alpha,
-        /*beta=*/nullptr,
         /*bias=*/nullptr,
+        /*beta=*/nullptr,
         /*dtype=*/DataType::BFloat16);
 
     TensorView* beta_bias = mul(beta, bias);
