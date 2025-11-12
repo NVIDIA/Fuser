@@ -568,19 +568,23 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "FOR " << index()->toString() << " from "
-                          << start()->toString() << " to " << stop()->toString()
-                          << ":\n"
+                          << start()->toInlineString() << " to "
+                          << stop()->toInlineString() << ":" << std::endl
                           << body().toString(indent_size + 1);
   return ss.str();
 }
 
 std::string ForLoop::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toInlineString() << " from "
+                          << start()->toInlineString() << " to "
+                          << stop()->toInlineString();
+  return ss.str();
 }
 
-/*static*/ ForLoop* ForLoop::createFromIterDomain(
-    Val* index,
-    IterDomain* iter_domain) {
+/*static*/ ForLoop* ForLoop::createFromIterDomain(IterDomain* iter_domain) {
+  FusionGuard fg(iter_domain->fusion());
+  auto* index = IrBuilder::create<Val>(DataType::Index);
   return IrBuilder::create<ForLoop>(
       index, iter_domain->start(), iter_domain->stop());
 }
