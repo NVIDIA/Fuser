@@ -409,7 +409,7 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(fusion_->outputs())) {
     // no need to check for self.
-    // If this is the block scaling factor ouptut of a BlockQuantizationOp,
+    // If this is the block scaling factor output of a BlockQuantizationOp,
     // then we skip the check as we only consider the quantized output of the
     // BlockQuantizationOp when looking for a reference tensor. This is because
     // the two outputs of block quantization op are not symmetrical and the
