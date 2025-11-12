@@ -31,13 +31,6 @@ class NVF_API CutlassParams : public HeuristicParams {
   // Shape of the cluster in CTAs, order is M, N, 1
   GemmTile cluster_shape = {4, 4, 1};
 
-  // The epilogue will be tiled at this size. This determines the size of smem
-  // buffers for epilogue processing
-  GemmTile epilogue_tile = {64, 64, 1};
-
-  // Circular buffering of epilogue tile loads will use this number of stages
-  int64_t epilogue_stages = 4;
-
   CutlassParams() : HeuristicParams(SchedulerType::Cutlass) {
     // This is not used for code generation, but FusionKernelRuntime expects it
     // to be set.
