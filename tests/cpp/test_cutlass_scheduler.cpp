@@ -464,7 +464,6 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_PointwiseEpilogue) {
   fusion->addInput(alpha);
   fusion->addInput(b_sf);
 
-  // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
       a,
       b,

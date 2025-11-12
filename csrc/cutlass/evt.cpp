@@ -522,14 +522,15 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
 //     { ... }  // args for input N
 //   }
 CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
+  std::stringstream ss;
   if (node->name == "cutlass::epilogue::fusion::Sm90Compute") {
     // Sm90Compute does not require arguments
     // TODO: We should probably not represent Sm90Compute's template parameters
     // as nodes in the EVT
-    return {"{}", node->name};
+    indent(ss, indent_size) << "{}";
+    return {ss.str(), node->name};
   }
 
-  std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
   CommentedString prev_cs;
   const auto print_line = [&](bool last) {

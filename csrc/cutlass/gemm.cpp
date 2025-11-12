@@ -310,9 +310,6 @@ struct Fp4GemmSm100 {
   using MmaTileShape = typename KernelTraits::MmaTileShape;
   using ClusterShape = typename KernelTraits::ClusterShape;
   using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
-  using EpilogueTileShape_MNK = typename KernelTraits::EpilogueTileShape_MNK;
-  using EpilogueScheduleType = typename KernelTraits::EpilogueScheduleType;
-  using EpilogueTileShape = Shape<_64, _64>;
 
   // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
   static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
