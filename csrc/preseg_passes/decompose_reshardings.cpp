@@ -199,9 +199,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
   // Iterate backwards over fusion expressions. Reshard after will
   // replace expressions that occur downstream from the current expression.
   // This will ensure we don't process an expression that has been deleted.
-  auto exprs = fusion->exprs();
-  for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
-    Expr* expr = *it;
+  for (Expr* expr : fusion->exprs() | std::views::reverse) {
     if (!isResharding(expr)) {
       continue;
     }
@@ -219,62 +217,67 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     }
     auto* output = expr->output(0)->as<TensorView>();
 
-    std::unordered_set<TensorView*> inputs;
+    TensorView* resharding_input = nullptr;
     for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, deviceParallelTypes())) {
-        inputs.insert(input);
+        NVF_CHECK(
+            resharding_input == nullptr,
+            "Expected at most one input with different sharding than output "
+            "for expression: ",
+            expr);
+        resharding_input = input;
       }
+    }
+
+    if (resharding_input == nullptr) {
+      continue;
     }
 
     // Insert resharding set after the expr and update
     // output of expr to match input's sharding.
-    // input [expr] output [set] new_output
-    if (!inputs.empty()) {
-      TensorView* input = *inputs.begin();
-      TensorView* new_output = set(output);
-      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
-      // Update shardings new_output takes output's sharding,
-      // output takes input's sharding
-      shardLoopLike(
-          /*ref=*/output,
-          /*target=*/new_output,
-          deviceAndStreamParallelTypes(),
-          PropagateDirection::kForward);
+    TensorView* new_output = set(output);
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+    // Update shardings new_output takes output's sharding,
+    // output takes input's sharding
+    shardLoopLike(
+        /*ref=*/output,
+        /*target=*/new_output,
+        deviceAndStreamParallelTypes(),
+        PropagateDirection::kForward);
 
-      unparallelize(output);
+    unparallelize(output);
 
-      shardLoopLike(
-          /*ref=*/input,
-          /*target=*/output,
-          deviceAndStreamParallelTypes(),
-          PropagateDirection::kForward);
+    shardLoopLike(
+        /*ref=*/resharding_input,
+        /*target=*/output,
+        deviceAndStreamParallelTypes(),
+        PropagateDirection::kForward);
 
-      // The previous sharding propagation may have overwritten the stream
-      // parallelization. We need to propagate it back.
-      //
-      // Consider a reshard case typical of GEMM+AG (when AG occurs after GEMM):
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1]
-      //
-      // This is decomposed into:
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [i0, DIDx(i1)] -> set ->
-      //   new_output [Stream(i0), i1
-      //
-      // After sharding using input as the reference, the output is sharded as
-      // [i0, i1]. We need to propagate the stream parallelization back to the
-      // output, in order to obtain:
-      //
-      //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
-      //   new_output [Stream(i0), i1]
-      // Note: This is only the case for MultiDeviceExecutor.
-      // `PropagateShardingsPass` allows parallelizing inputs on Stream.
-      shardLoopLike(
-          /*ref=*/new_output,
-          /*target=*/output,
-          {ParallelType::Stream},
-          PropagateDirection::kBackward);
-    }
+    // The previous sharding propagation may have overwritten the stream
+    // parallelization. We need to propagate it back.
+    //
+    // Consider a reshard case typical of GEMM+AG (when AG occurs after GEMM):
+    //
+    //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), i1]
+    //
+    // This is decomposed into:
+    //
+    //   input [i0, DIDx(i1)] -> op -> output [i0, DIDx(i1)] -> set ->
+    //   new_output [Stream(i0), i1
+    //
+    // After sharding using input as the reference, the output is sharded as
+    // [i0, i1]. We need to propagate the stream parallelization back to the
+    // output, in order to obtain:
+    //
+    //   input [i0, DIDx(i1)] -> op -> output [Stream(i0), DIDx(i1)] -> set ->
+    //   new_output [Stream(i0), i1]
+    // Note: This is only the case for MultiDeviceExecutor.
+    // `PropagateShardingsPass` allows parallelizing inputs on Stream.
+    shardLoopLike(
+        /*ref=*/new_output,
+        /*target=*/output,
+        {ParallelType::Stream},
+        PropagateDirection::kBackward);
   }
 }
 
