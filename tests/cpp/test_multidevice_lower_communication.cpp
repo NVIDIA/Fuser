@@ -800,6 +800,20 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
 
   at::Tensor out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
 
+  if (!at::allclose(out_tensor, unsharded_tensor)) {
+    std::cout << "[Rank " << communicator_->deviceId() << "] "
+              << "First 10 elements of out_tensor: "
+              << out_tensor.flatten().slice(0, 0, 10) << std::endl;
+    std::cout << "[Rank " << communicator_->deviceId() << "] "
+              << "First 10 elements of unsharded_tensor: "
+              << unsharded_tensor.flatten().slice(0, 0, 10) << std::endl;
+    std::cout << "[Rank " << communicator_->deviceId() << "] "
+              << "SECOND SLICE First 10 elements of out_tensor: "
+              << out_tensor.flatten().slice(0, kMsgSize, kMsgSize + 10) << std::endl;
+    std::cout << "[Rank " << communicator_->deviceId() << "] "
+              << "SECOND SLICE First 10 elements of unsharded_tensor: "
+              << unsharded_tensor.flatten().slice(0, kMsgSize, kMsgSize + 10) << std::endl;
+  }
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
 }
 

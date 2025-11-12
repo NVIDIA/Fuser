@@ -66,7 +66,20 @@ SymmetricTensor::SymmetricTensor(
   aligned_size_ =
       ((required_size + granularity_ - 1) / granularity_) * granularity_;
 
-  setupIpcHandles();
+  // Initialize local handle and pointer immediately (not lazy)
+  alloc_handles_.resize(world_size_);
+  remote_ptrs_.resize(world_size_);
+  
+  CUdeviceptr local_ptr = reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
+  
+  CUmemGenericAllocationHandle local_handle;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemRetainAllocationHandle(&local_handle, reinterpret_cast<void*>(local_ptr)));
+
+  alloc_handles_[local_rank_] = local_handle;
+  remote_ptrs_[local_rank_] = local_ptr;
+
+  // Remote IPC handles setup is lazy - will be initialized on first remote access
 }
 
 SymmetricTensor::~SymmetricTensor() {
@@ -83,6 +96,8 @@ SymmetricTensor::SymmetricTensor(SymmetricTensor&& other) noexcept
       local_rank_(other.local_rank_),
       granularity_(other.granularity_),
       aligned_size_(other.aligned_size_),
+      tag_(std::move(other.tag_)),
+      ipc_handles_setup_(other.ipc_handles_setup_),
       multicast_enabled_(other.multicast_enabled_),
       mcast_handle_(other.mcast_handle_),
       cu_dev_(other.cu_dev_),
@@ -92,6 +107,7 @@ SymmetricTensor::SymmetricTensor(SymmetricTensor&& other) noexcept
       peer_fd_(other.peer_fd_),
       moved_from_(false) {
   other.moved_from_ = true;
+  other.ipc_handles_setup_ = false;
   other.multicast_enabled_ = false;
   other.mcast_handle_ = 0;
   other.mc_ptr_ = nullptr;
@@ -111,6 +127,8 @@ SymmetricTensor& SymmetricTensor::operator=(SymmetricTensor&& other) noexcept {
     local_rank_ = other.local_rank_;
     granularity_ = other.granularity_;
     aligned_size_ = other.aligned_size_;
+    tag_ = std::move(other.tag_);
+    ipc_handles_setup_ = other.ipc_handles_setup_;
     multicast_enabled_ = other.multicast_enabled_;
     mcast_handle_ = other.mcast_handle_;
     cu_dev_ = other.cu_dev_;
@@ -120,6 +138,7 @@ SymmetricTensor& SymmetricTensor::operator=(SymmetricTensor&& other) noexcept {
     peer_fd_ = other.peer_fd_;
     moved_from_ = false;
     other.moved_from_ = true;
+    other.ipc_handles_setup_ = false;
     other.multicast_enabled_ = false;
     other.mcast_handle_ = 0;
     other.mc_ptr_ = nullptr;
@@ -159,27 +178,73 @@ void SymmetricTensor::initialize(
   aligned_size_ =
       ((required_size + granularity_ - 1) / granularity_) * granularity_;
 
-  setupIpcHandles();
-}
-
-void SymmetricTensor::setupIpcHandles() {
-  Communicator& comm = Communicator::getInstance();
-  auto store = comm.getTcpStore();
-
+  // Initialize local handle and pointer immediately (not lazy)
   alloc_handles_.resize(world_size_);
   remote_ptrs_.resize(world_size_);
-
-  // Get the allocation handle from the existing tensor's device pointer
-  // The tensor was allocated with allocateSymmetricTensor which uses VMM
-  CUdeviceptr local_ptr =
-      reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
   
+  CUdeviceptr local_ptr = reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
+  
+  // Validate VMM allocation properties
+  {
+    CUdeviceptr base_ptr = 0;
+    size_t va_size = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
+    NVF_CHECK(
+        local_ptr == base_ptr,
+        "VMM allocation error: expected ptr to be the base of the address range. "
+        "Got ptr=", reinterpret_cast<void*>(local_ptr),
+        " but base_ptr=", reinterpret_cast<void*>(base_ptr),
+        ". cuMemMap does not support suballocation mapping.");
+    NVF_CHECK(
+        va_size == aligned_size_,
+        "VMM allocation error: mapped region is not the full allocation. "
+        "Mapped va_size=", va_size,
+        ", but expected aligned_size_=", aligned_size_,
+        ".");
+  }
+
   CUmemGenericAllocationHandle local_handle;
   NVFUSER_CUDA_SAFE_CALL(
       cuMemRetainAllocationHandle(&local_handle, reinterpret_cast<void*>(local_ptr)));
 
   alloc_handles_[local_rank_] = local_handle;
   remote_ptrs_[local_rank_] = local_ptr;
+
+  // Remote IPC handles setup is lazy - will be initialized on first remote access
+}
+
+void SymmetricTensor::setupIpcHandles() const {
+  if (ipc_handles_setup_) {
+    return;
+  }
+
+  Communicator& comm = Communicator::getInstance();
+  auto store = comm.getTcpStore();
+
+  // Local handle and ptr are already set in constructor
+  // We only need to setup remote handles here
+  CUdeviceptr local_ptr = remote_ptrs_[local_rank_];
+  CUmemGenericAllocationHandle local_handle = alloc_handles_[local_rank_];
+
+  // Validate VMM allocation properties
+  {
+    CUdeviceptr base_ptr = 0;
+    size_t va_size = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
+    NVF_CHECK(
+        local_ptr == base_ptr,
+        "VMM allocation error: expected ptr to be the base of the address range. "
+        "Got ptr=", reinterpret_cast<void*>(local_ptr),
+        " but base_ptr=", reinterpret_cast<void*>(base_ptr),
+        ". cuMemMap does not support suballocation mapping.");
+    NVF_CHECK(
+        va_size == aligned_size_,
+        "VMM allocation error: mapped region is not the full allocation. "
+        "Mapped va_size=", va_size,
+        ", but expected aligned_size_=", aligned_size_,
+        ".");
+  }
+
 
   // Export local handle to shareable file descriptor
   int shared_fd;
@@ -345,6 +410,9 @@ void SymmetricTensor::setupIpcHandles() {
 
   // Barrier to ensure all ranks have completed IPC setup
   comm.barrier();
+
+  // Mark as setup (must be last to ensure atomicity)
+  ipc_handles_setup_ = true;
 }
 
 void SymmetricTensor::cleanup() {
@@ -374,25 +442,32 @@ void SymmetricTensor::cleanup() {
   }
 #endif
 
-  // Unmap remote pointers (but not local, which is managed by the tensor)
-  for (int64_t rank = 0; rank < world_size_; ++rank) {
-    if (rank == local_rank_) {
-      continue;
+  // Clean up remote IPC handles if they were setup
+  if (ipc_handles_setup_) {
+    // Unmap remote pointers (but not local, which is managed by the tensor)
+    for (int64_t rank = 0; rank < world_size_; ++rank) {
+      if (rank == local_rank_) {
+        continue;
+      }
+      if (remote_ptrs_[rank] != 0) {
+        NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(remote_ptrs_[rank], aligned_size_));
+        NVFUSER_CUDA_SAFE_CALL(
+            cuMemAddressFree(remote_ptrs_[rank], aligned_size_));
+      }
     }
-    if (remote_ptrs_[rank] != 0) {
-      NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(remote_ptrs_[rank], aligned_size_));
-      NVFUSER_CUDA_SAFE_CALL(
-          cuMemAddressFree(remote_ptrs_[rank], aligned_size_));
+
+    // Release remote allocation handles (imported)
+    for (int64_t rank = 0; rank < world_size_; ++rank) {
+      if (rank != local_rank_ && alloc_handles_[rank] != 0) {
+        NVFUSER_CUDA_SAFE_CALL(cuMemRelease(alloc_handles_[rank]));
+      }
     }
   }
 
-  // Release allocation handles
-  // The local handle is retained, so we release it
-  // Peer handles are imported, so we release them too
-  for (auto handle : alloc_handles_) {
-    if (handle != 0) {
-      NVFUSER_CUDA_SAFE_CALL(cuMemRelease(handle));
-    }
+  // Always release local handle (retained in constructor)
+  if (alloc_handles_.size() > static_cast<size_t>(local_rank_) &&
+      alloc_handles_[local_rank_] != 0) {
+    NVFUSER_CUDA_SAFE_CALL(cuMemRelease(alloc_handles_[local_rank_]));
   }
 }
 
@@ -409,6 +484,9 @@ at::Tensor SymmetricTensor::remoteTensor(int64_t rank) const {
   if (rank == local_rank_) {
     return local_tensor_;
   }
+
+  // Ensure IPC handles are setup before accessing remote memory
+  setupIpcHandles();
 
   // Create a tensor view from the remote pointer
   auto options = at::TensorOptions()
@@ -436,6 +514,9 @@ void* SymmetricTensor::remoteTensorPtr(int64_t rank) const {
     return local_tensor_.data_ptr();
   }
 
+  // Ensure IPC handles are setup before accessing remote memory
+  setupIpcHandles();
+
   return reinterpret_cast<void*>(remote_ptrs_[rank]);
 }
 
@@ -460,12 +541,7 @@ bool SymmetricTensor::isValid() const {
   if (!local_tensor_.defined()) {
     return false;
   }
-  if (alloc_handles_.size() != static_cast<size_t>(world_size_)) {
-    return false;
-  }
-  if (remote_ptrs_.size() != static_cast<size_t>(world_size_)) {
-    return false;
-  }
+  // Don't check alloc_handles_ and remote_ptrs_ since they're lazily initialized
   return true;
 }
 
@@ -480,8 +556,15 @@ void SymmetricTensor::setupMulticast(
     int64_t exporter_rank,
     const std::string& store_key_prefix) {
 #if (CUDA_VERSION >= 13000)
-  NVF_CHECK(!multicast_enabled_, "Multicast already setup");
+  // Check if multicast is already enabled (init-once)
+  if (multicast_enabled_) {
+    return;
+  }
+
   NVF_CHECK(isValid(), "SymmetricTensor must be valid before setup multicast");
+
+  // // Ensure IPC handles are setup before setting up multicast
+  // setupIpcHandles();
 
   Communicator& comm = Communicator::getInstance();
   const int64_t my_rank = comm.deviceId();
@@ -508,6 +591,7 @@ void SymmetricTensor::setupMulticast(
 
   int shared_handle;
   auto store = comm.getTcpStore();
+  NVF_CHECK(store != nullptr, "TCP store is null");
   pid_t root_pid;
 
   // Exporter creates and exports multicast handle
@@ -518,15 +602,16 @@ void SymmetricTensor::setupMulticast(
 
     prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
 
+    root_pid = getpid();
+
     std::vector<uint8_t> fd_bytes(
         reinterpret_cast<const uint8_t*>(&shared_handle),
         reinterpret_cast<const uint8_t*>(&shared_handle) + sizeof(int));
-    store->set(store_key_prefix + "_fd", fd_bytes);
-    
-    root_pid = getpid();
     std::vector<uint8_t> pid_bytes(
         reinterpret_cast<const uint8_t*>(&root_pid),
         reinterpret_cast<const uint8_t*>(&root_pid) + sizeof(pid_t));
+
+    store->set(store_key_prefix + "_fd", fd_bytes);
     store->set(store_key_prefix + "_pid", pid_bytes);
   }
 
@@ -562,11 +647,20 @@ void SymmetricTensor::setupMulticast(
   NVFUSER_CUDA_SAFE_CALL(cuMulticastAddDevice(mcast_handle_, cu_dev_));
 
   // Bind local memory to multicast
+  // Compute memOffset from the base of the allocation handle
+  CUdeviceptr local_ptr = remote_ptrs_[local_rank_];
+  CUdeviceptr alloc_base_ptr = 0;
+  size_t alloc_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
+      &alloc_base_ptr, &alloc_size, local_ptr));
+  
+  size_t mem_offset = static_cast<size_t>(local_ptr - alloc_base_ptr);
+  
   NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
       mcast_handle_,
       /*mcOffset=*/0,
       alloc_handles_[local_rank_],
-      /*memOffset=*/0,
+      /*memOffset=*/mem_offset,
       aligned_size_,
       /*flags=*/0));
 

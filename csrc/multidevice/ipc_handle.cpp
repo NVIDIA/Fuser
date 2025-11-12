@@ -190,6 +190,9 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
   semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(
       semaphore, store_key_prefix + "_semaphore");
 
+  // Setup (unicast) IPC handles for the semaphore
+  semaphore_sym_tensor_->setupIpcHandles();
+
   // Setup multicast for the semaphore
   semaphore_sym_tensor_->setupMulticast(
       root, store_key_prefix + "_semaphore_mcast");

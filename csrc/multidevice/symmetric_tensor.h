@@ -145,6 +145,9 @@ class SymmetricTensor {
     return aligned_size_;
   }
 
+  // Setup IPC handles and remote mappings (lazy, called once on first remote access)
+  void setupIpcHandles() const;
+
   // Setup NVLS multicast for efficient broadcast operations
   // Must be called after construction. Requires CUDA 13.0+
   // param exporter_rank: Rank that exports the multicast handle
@@ -168,6 +171,7 @@ class SymmetricTensor {
 
   // Get allocation handle for a specific rank (for internal use)
   CUmemGenericAllocationHandle getAllocHandle(int64_t rank) const {
+    setupIpcHandles();
     NVF_CHECK(
         rank >= 0 && rank < world_size_,
         "Rank out of range");
@@ -181,8 +185,6 @@ class SymmetricTensor {
       at::ScalarType dtype,
       std::optional<uint64_t> alloc_id);
 
-  // Setup IPC handles and remote mappings
-  void setupIpcHandles();
 
   // Clean up IPC handles and remote mappings
   void cleanup();
@@ -190,11 +192,11 @@ class SymmetricTensor {
   // Local tensor (owned by this rank)
   at::Tensor local_tensor_;
 
-  // VMM allocation handles for each rank
-  std::vector<CUmemGenericAllocationHandle> alloc_handles_;
+  // VMM allocation handles for each rank (lazily initialized)
+  mutable std::vector<CUmemGenericAllocationHandle> alloc_handles_;
 
-  // Remote virtual addresses for each rank's buffer
-  std::vector<CUdeviceptr> remote_ptrs_;
+  // Remote virtual addresses for each rank's buffer (lazily initialized)
+  mutable std::vector<CUdeviceptr> remote_ptrs_;
 
   // World size (total number of ranks)
   int64_t world_size_;
@@ -210,6 +212,9 @@ class SymmetricTensor {
 
   // Unique tag for this instance
   std::string tag_;
+
+  // Lazy initialization flags
+  mutable bool ipc_handles_setup_ = false;
 
   // Multicast support (CUDA 13.0+)
   bool multicast_enabled_ = false;
