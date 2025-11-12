@@ -469,9 +469,16 @@ class PythonTranslator : public OptInConstDispatch {
   PythonTranslator(std::ostream& os, Fusion* fusion)
       : printer_(os), fusion_(fusion) {}
 
-  // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ReshapeOp.
+  // The output TensorView shape can be dynamic for operations like ReshapeOp.
+  // Check that all dynamic scalar dependencies are handled first before
+  // handling the expression.
   bool checkDynamicShapeDependency(const Expr* op) {
+    // short-circuit: Only check operations with dynamic shapes encoded in the
+    // output TensorView.
+    if (!op->isOneOf<ReshapeOp, ExpandOp, FullOp>()) {
+      return true;
+    }
+
     NVF_ERROR_EQ(op->outputs().size(), 1);
     const std::vector<IterDomain*>& logical_out_domain =
         op->output(0)->as<TensorView>()->domain()->logical();
@@ -546,9 +553,9 @@ class PythonTranslator : public OptInConstDispatch {
 
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
-    // short-circuit: Found a view operation without all its shape dependencies.
-    if (e->isOneOf<ReshapeOp, ExpandOp, FullOp>() &&
-        !checkDynamicShapeDependency(e)) {
+    // short-circuit: Found an operation without all its dynamic shape
+    // dependencies.
+    if (!checkDynamicShapeDependency(e)) {
       return false;
     }
     return std::all_of(
