@@ -2716,84 +2716,68 @@ IterDomain::IterDomain(const IterDomain* src, IrCloner* ir_cloner)
 
 NVFUSER_DEFINE_CLONE(IterDomain)
 
-bool IterDomain::sameAs(const Statement* other) const {
-  if (other == this) {
+namespace {
+
+// The sameIterDomain helper function defines the common checks between sameAs
+// and sameDefinition. Here are the data fields of checked in the function:
+//   * parallel_type_
+//   * iter_type_
+//   * is_rfactor_domain_
+//   * is_padded_dimension_
+//   * padded_to_size_
+//
+// Do not take is_rfactor_domain_ into account. IterDomains are considered the
+// same if they are rfactor or not.
+//
+// TODO: Consider managing them as attributes
+bool sameIterDomain(const IterDomain* this_id, const Statement* other) {
+  if (other == this_id) {
     return true;
   }
-
   if (!other->isA<IterDomain>()) {
     return false;
   }
-
   const auto* other_id = other->as<IterDomain>();
+  return this_id->getParallelType() == other_id->getParallelType() &&
+      this_id->getIterType() == other_id->getIterType() &&
+      this_id->hasPaddingToMultipleOfWarp() ==
+      other_id->hasPaddingToMultipleOfWarp() &&
+      this_id->isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
+      this_id->getMaybeSizeAfterPadding() ==
+      other_id->getMaybeSizeAfterPadding();
+}
 
-  // Here're the data fields of IterDomain:
-  // start_
-  // extent_
-  // expanded_extent_
-  // stop_offset_
-  // parallel_type_
-  // iter_type_
-  // is_rfactor_domain_
-  // is_padded_dimension_
-  // padded_to_size_
+} // namespace
 
-  // Do not take is_rfactor_domain_ into account. IterDomain's are
-  // considered the same if they are rfactor or not.
+bool IterDomain::sameAs(const Statement* other) const {
+  if (!sameIterDomain(this, other)) {
+    return false;
+  }
 
-  // TODO: Consider managing them as attributes
-
+  // start_, extent_, expanded_extent_, stop_offset_ are checked using sameAs.
+  const auto* other_id = other->as<IterDomain>();
   return start()->sameAs(other_id->start()) &&
       extent()->sameAs(other_id->extent()) &&
       hasExpandedExtent() == other_id->hasExpandedExtent() &&
       (!hasExpandedExtent() ||
        expandedExtent()->sameAs(other_id->expandedExtent())) &&
-      stopOffset()->sameAs(other_id->stopOffset()) &&
-      getParallelType() == other_id->getParallelType() &&
-      getIterType() == other_id->getIterType() &&
-      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
+      stopOffset()->sameAs(other_id->stopOffset());
 }
 
 bool IterDomain::sameDefinition(const Val* other) const {
-  if (other == this) {
-    return true;
-  }
-
-  if (!other->isA<IterDomain>()) {
+  if (!sameIterDomain(this, other)) {
     return false;
   }
 
+  // start_, extent_, expanded_extent_, stop_offset_ are checked using
+  // sameDefinition.
   const auto* other_id = other->as<IterDomain>();
-
-  // Here're the data fields of IterDomain:
-  // start_
-  // extent_
-  // expanded_extent_
-  // stop_offset_
-  // parallel_type_
-  // iter_type_
-  // is_rfactor_domain_
-  // is_padded_dimension_
-  // padded_to_size_
-
-  // Do not take is_rfactor_domain_ into account. IterDomain's are
-  // considered the same if they are rfactor or not.
-
-  // TODO: Consider managing them as attributes
-
   return start()->sameDefinition(other_id->start()) &&
       extent()->sameDefinition(other_id->extent()) &&
       hasExpandedExtent() == other_id->hasExpandedExtent() &&
       (!hasExpandedExtent() ||
        expandedExtent()->sameDefinition(other_id->expandedExtent())) &&
-      stopOffset()->sameDefinition(other_id->stopOffset()) &&
-      getParallelType() == other_id->getParallelType() &&
-      getIterType() == other_id->getIterType() &&
-      hasPaddingToMultipleOfWarp() == other_id->hasPaddingToMultipleOfWarp() &&
-      isClusteredBlockDim() == other_id->isClusteredBlockDim() &&
-      getMaybeSizeAfterPadding() == other_id->getMaybeSizeAfterPadding();
+      stopOffset()->sameDefinition(other_id->stopOffset());
 }
 
 std::string IterDomain::toString(int indent_size) const {
