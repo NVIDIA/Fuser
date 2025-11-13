@@ -949,30 +949,40 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // output TV that got the rfactor call is force replayed towards the other two
 
   if (this != tv) {
-    auto logical = tv->getLogicalDomain();
-    auto this_logical = getLogicalDomain();
+    const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+    const std::vector<IterDomain*>& this_logical = getLogicalDomain();
 
     // construct a trivial logical domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : arange(logical.size())) {
-      id_map[this_logical[i]] = logical[i];
+    for (auto&& [this_id, id] : zip(this_logical, logical)) {
+      id_map[this_id] = id;
     }
 
     // replay on the target tv
-    ReplayTransformations replay(getLoopDomain(), id_map);
+    ReplayTransformations replay(tv->getLoopDomain(), id_map);
 
     // construct the new tensor domain
-    std::vector<IterDomain*> new_id;
-    for (auto id : getLoopDomain()) {
+    std::vector<IterDomain*> new_loop;
+    for (IterDomain* id : getLoopDomain()) {
       NVF_ERROR(
           replay.getReplay().count(id), "Multi-output reduction replay failed");
-      new_id.push_back(replay.getReplay().at(id));
+      new_loop.push_back(replay.getReplay().at(id));
     }
 
     std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
-    // replace tensor domain of target tv
-    tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getLogicalDomain(), new_id, new_contig));
+
+    if (!tv->hasAllocation()) {
+      tv->setDomain(IrBuilder::create<TensorDomain>(
+          tv->getLogicalDomain(), new_loop, new_contig));
+    } else {
+      // Replay allocation
+      std::vector<IterDomain*> new_allocation;
+      for (IterDomain* id : tv->getAllocationDomain()) {
+        new_allocation.push_back(replay.getReplay().at(id));
+      }
+      tv->setDomain(IrBuilder::create<TensorDomain>(
+          tv->getLogicalDomain(), new_loop, new_allocation, new_contig));
+    }
   }
 
   // Split tensor view into 2 parts
@@ -1036,7 +1046,7 @@ std::vector<TensorView*> TensorView::rFactor(
   std::vector<TensorView*> rf_tvs(tvs.size());
 
   // Make sure this gets rfactored last so everybody gets
-  //  replayed correctly
+  // replayed correctly
   for (const auto i : arange(tvs.size())) {
     if (this != tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
@@ -1372,50 +1382,39 @@ void TensorView::clearReductionIterDomains() {
   NVF_ERROR(
       !domain()->hasRoot(),
       "should not call clearReductionIterDomains on rfactor tv");
+  const std::vector<std::optional<bool>>& contiguity = getContiguity();
+  const std::vector<IterDomain*>& allocation = getMaybeAllocationDomain();
 
-  NVF_ERROR(
-      getLoopDomain() == getLogicalDomain(),
-      "should not call clearReductionIterDomains on already transformed "
-      "TensorDomains");
+  std::vector<IterDomain*> new_logical =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_loop =
+      TensorDomain::noReductions(getLoopDomain());
+  std::vector<IterDomain*> new_allocation =
+      TensorDomain::noReductions(allocation);
 
-  const std::vector<IterDomain*>& logical = getLogicalDomain();
-  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+  std::vector<std::optional<bool>> new_contiguity;
+  new_contiguity.reserve(contiguity.size());
 
-  NVF_ERROR(
-      std::is_permutation(
-          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
-      "should not call clearReductionIterDomains on transformed allocation "
-      "domain");
-
-  std::vector<IterDomain*> new_logical;
-  std::vector<IterDomain*> new_alloc;
-  std::vector<std::optional<bool>> new_contig;
-  for (const auto i : arange(logical.size())) {
-    auto root_i = logical.at(i);
-    if (!root_i->isReduction()) {
-      new_logical.push_back(root_i);
-    }
-    // contig flag is specified for on allocation domain
-    auto alloc_i = alloc.at(i);
-    if (!alloc_i->isReduction()) {
-      new_alloc.push_back(alloc_i);
-      new_contig.push_back(domain()->contiguity().at(i));
+  // Fill new_contig, ignoring reduction ids
+  for (auto&& [alloc_id, contig_value] : zip(allocation, contiguity)) {
+    if (!alloc_id->isReduction()) {
+      new_contiguity.push_back(contig_value);
     }
   }
 
-  if (new_alloc == new_logical) {
+  if (new_allocation == new_logical) {
     // if new allocation domain is identical to new logical domain, we don't
     // need to specify allocation domain
     setDomain(IrBuilder::createInContainer<TensorDomain>(
-        container(), new_logical, new_contig));
+        container(), new_logical, new_loop, new_contiguity));
   } else {
     setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
         std::vector<IterDomain*>(),
         new_logical,
-        new_alloc,
-        new_logical,
-        new_contig));
+        new_allocation,
+        new_loop,
+        new_contiguity));
   }
 }
 
