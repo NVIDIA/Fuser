@@ -54,6 +54,8 @@ void lowerSegment(
           group.exprs().size(),
           1,
           "Communication segments must contain only one Expr.");
+      // If a value is already cloned, IrCloner::clone returns the cloned value
+      // without cloning the value again.
       Expr* e = ir_cloner.clone(group.exprs().front());
 
       for (auto* c : convertSingleOpToCommunication(e, device_id)) {
