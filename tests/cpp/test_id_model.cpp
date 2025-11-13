@@ -3219,4 +3219,52 @@ TEST_F(IdModelTest, LoopPromotionIncludeOnlyLoopIds) {
   }
 }
 
+TEST_F(IdModelTest, PermissiveResizeGraph) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{24});
+  auto tv3 = reshape(tv1, {24}, {2, 3, 4});
+  auto tv4 = reshape(tv2, {12}, {2, 2, 3});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion);
+  const auto& eg = id_model.buildExactGraph();
+  const auto& prg = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+
+  // in exact graph, tv1 and tv2 are not mapped
+  EXPECT_FALSE(
+      eg.disjointValSets().strictAreMapped(tv1->axis(0), tv2->axis(0)));
+  // in permissive resize graph, tv0, tv1 and tv2 are mapped
+  EXPECT_TRUE(
+      prg.disjointValSets().strictAreMapped(tv1->axis(0), tv2->axis(0)));
+  EXPECT_TRUE(
+      prg.disjointValSets().strictAreMapped(tv1->axis(0), tv0->axis(0)));
+  // The first split of the two reshapes are mapped but the second split is not
+  // due to the different split factors
+  std::vector<Expr*> r1_exprs = StmtSort::getExprsTo(
+      {tv3->getLogicalDomain().begin(), tv3->getLogicalDomain().end()});
+  std::vector<Expr*> r2_exprs = StmtSort::getExprsTo(
+      {tv4->getLogicalDomain().begin(), tv4->getLogicalDomain().end()});
+  EXPECT_EQ(r1_exprs.size(), r2_exprs.size());
+  EXPECT_TRUE(prg.disjointExprSets().strictAreMapped(r1_exprs[0], r2_exprs[0]));
+  EXPECT_FALSE(
+      prg.disjointExprSets().strictAreMapped(r1_exprs[1], r2_exprs[1]));
+  // resize graph propagates mappings through transformations based on
+  // operation equivalence (same split factor), not extent equivalence. The
+  // resize operations at the root create a chain reaction where all subsequent
+  // transformations with matching parameters get their outputs mapped together,
+  // regardless of actual extent values.
+  auto id1 = r1_exprs[0]->as<Split>()->inner(); // 24 split by 2 -> 12
+  auto id2 = r2_exprs[0]->as<Split>()->inner(); // 12 split by 2 -> 6
+  EXPECT_TRUE(prg.disjointValSets().strictAreMapped(id1, id2));
+}
 } // namespace nvfuser

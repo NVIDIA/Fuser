@@ -7,6 +7,7 @@
 // clang-format on
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
@@ -1164,6 +1165,105 @@ bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
       if (inp_groups_i.hasIntersect(out_groups_j)) {
         return true;
       }
+    }
+  }
+
+  return false;
+}
+
+// Detects incompatible reshape patterns using PERMISSIVE_RESIZE graph.
+// Returns true if IDs are mapped together (same ValGroup) but have
+// different transformations (different ExprGroups). This indicates the reshape
+// operations cannot be replayed and the fusion must be segmented.
+// See test IncompatibleReshapesDifferentDisjointSetsMultiSteps
+// It has:  slice(tv[36], 0, 24)->tv[24]->reshape([2,3,4]) and
+//          slice(tv[36], 12, 36)->tv[24]->reshape([2,2,6])
+// Both slices produce tv[24] which map together, but reshape differently.
+bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+  for (const ValGroup& val_group :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    // Check for consistency if there are at least 2 IDs
+    if (val_group->size() < 2) {
+      continue;
+    }
+
+    // Quick return if there is no or less than 2 use groups.
+    if (!permissive_resize_graph.hasUses(val_group)) {
+      continue;
+    }
+    const auto& use_groups = permissive_resize_graph.getUses(val_group);
+    if (use_groups.size() < 2) {
+      continue;
+    }
+
+    // Check if there are multiple use groups after filtering out resize-only
+    // and device-split-only groups. Multiple groups indicate incompatible
+    // reshapes.
+    bool found_use_group = false;
+    for (const auto& use_group : use_groups) {
+      // skip resize as they are not propagated during replay.
+      if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return expr->isA<Resize>();
+          })) {
+        continue;
+      }
+      // Device splits can be safely ignored because their transformations were
+      // already validated and propagated during the pre-segmentation pass.
+      // At this point, all existing reshape transformations are guaranteed to
+      // be compatible with device splits.
+
+      // clang-format off
+      // Take MultiDeviceTest.MultipleCompatibleReshapes for example:
+      // T0 has a device split of 2:
+      // T0_g___bfloat[ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48}]
+      //  logical domain : (bS0{1}, iS1{2048}, iS2{96})
+      //   Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48}
+      //  loop domain : (ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48})
+      // T2 has a reshape split of 24:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      // In propagate_shardings pass, the device split is replayed to T2:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      //   Outer split: iS10{24}rf by factor 2 -> ideviceIdx.x38{2}, iS39{12}
+      //  loop domain : (ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf)
+      // T2 now contains both device split and reshape split, and they are
+      // compatible. Otherwise, error will be raised in propagate_shardings pass.
+      // Now, we need to check if all the reshapes are compatible with each other.
+      // clang-format on
+
+      // We can only skip the group if all uses are device splits, to avoid
+      // skipping reshape splits.
+      // clang-format off
+      // Take MultiDeviceTest.MultipleIncompatibleReshapes for example:
+      // val_group: { iS15{96}rf; iS9{96}rf; iS5{96}; iS2{96} }
+      // is mapped to two use groups:
+      // group-1: { Outer split: iS15{96}rf by factor 4 -> iS16{4}rf, iS17{24}rf }
+      // group-2: { Outer split: iS9{96}rf by factor 2 -> iS10{2}rf, iS11{48}rf,
+      //           Outer split: iS5{96} by factor 2 -> ideviceIdx.x36{2}, iS37{48},
+      //           Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48} }
+      // we can't skip group-2 since it contains a reshape split. This reshape split
+      // is incompatible with that in group-1
+      // clang-format on
+      if (std::all_of(use_group->begin(), use_group->end(), [](Expr* expr) {
+            return isValidDeviceSplit(expr);
+          })) {
+        continue;
+      }
+      // use_groups are guaranteed to contain only unique entries, so if we
+      // find a second use group, it must be different from the first.
+      if (found_use_group) {
+        return true;
+      }
+      found_use_group = true;
     }
   }
 
