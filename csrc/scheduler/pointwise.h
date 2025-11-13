@@ -161,12 +161,11 @@ class HeuristicDataCache;
 class PointWiseScheduler : public SchedulerEntry {
  public:
   bool canScheduleCompileTime(Fusion* fusion) override;
+
   bool canScheduleRunTime(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
-      HeuristicDataCache* data_cache = nullptr) override {
-    return true;
-  }
+      HeuristicDataCache* data_cache = nullptr) override;
 
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,

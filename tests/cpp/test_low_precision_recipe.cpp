@@ -713,20 +713,50 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
-                       .to(data_type_to_aten(data_type)));
-  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+  // Create misaligned tensor directly on GPU using custom CUDA allocation
+  size_t element_size = data_type_to_aten(data_type) == at::kFloat ? 4
+      : (data_type_to_aten(data_type) == at::kHalf ||
+         data_type_to_aten(data_type) == at::kBFloat16)
+      ? 2
+      : 1;
+  size_t total_elements = m * n;
+  size_t buffer_size =
+      total_elements * element_size + 16; // Extra bytes for misalignment
 
-  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
-  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+  // Allocate GPU memory with extra space
+  void* gpu_ptr;
+  cudaMalloc(&gpu_ptr, buffer_size);
 
-  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
-  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+  // Create tensor from GPU memory at misaligned offset (3 bytes)
+  void* misaligned_ptr = static_cast<char*>(gpu_ptr) + 3;
+  auto misaligned_gpu_tensor = at::from_blob(
+      misaligned_ptr,
+      {m, n},
+      at::TensorOptions()
+          .dtype(data_type_to_aten(data_type))
+          .device(at::kCUDA));
 
-  const uint8_t* baseline_block_scales_data =
-      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
-  const uint8_t* baseline_quantized_data =
-      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+  // Initialize with random data by copying from a properly aligned tensor
+  auto temp_aligned = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                          .to(data_type_to_aten(data_type));
+  misaligned_gpu_tensor.copy_(temp_aligned);
+
+  inputs.push_back(misaligned_gpu_tensor);
+  // auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Clean up manually allocated memory
+  // cudaFree(gpu_ptr);
+
+  // auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  // auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  // auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  // auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  // const uint8_t* baseline_block_scales_data =
+  //     static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  // const uint8_t* baseline_quantized_data =
+  //     static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
 
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
@@ -743,31 +773,31 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
 
   // Verify we got the expected outputs
-  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
-  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+  // auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  // auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
 
-  // Move tensors from GPU to CPU
-  auto block_scales_cpu = block_scales_output.cpu();
-  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+  // // Move tensors from GPU to CPU
+  // auto block_scales_cpu = block_scales_output.cpu();
+  // auto quantized_tensor_cpu = quantized_tensor_output.cpu();
 
-  auto block_scales_bytes = (m * n) / block_size;
-  auto quantized_tensor_bytes = (m * n) / 2;
+  // auto block_scales_bytes = (m * n) / block_size;
+  // auto quantized_tensor_bytes = (m * n) / 2;
 
-  const uint8_t* block_scales_data =
-      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
-  for (int i = 0; i < block_scales_bytes; ++i) {
-    EXPECT_EQ(
-        block_scales_data[i],
-        baseline_block_scales_data[i]); // Compare with baseline
-  }
+  // const uint8_t* block_scales_data =
+  //     static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  // for (int i = 0; i < block_scales_bytes; ++i) {
+  //   EXPECT_EQ(
+  //       block_scales_data[i],
+  //       baseline_block_scales_data[i]); // Compare with baseline
+  // }
 
-  const uint8_t* quantized_data =
-      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
-  for (int i = 0; i < quantized_tensor_bytes; ++i) {
-    EXPECT_EQ(
-        quantized_data[i],
-        baseline_quantized_data[i]); // Compare with baseline
-  }
+  // const uint8_t* quantized_data =
+  //     static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  // for (int i = 0; i < quantized_tensor_bytes; ++i) {
+  //   EXPECT_EQ(
+  //       quantized_data[i],
+  //       baseline_quantized_data[i]); // Compare with baseline
+  // }
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {

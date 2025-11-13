@@ -508,19 +508,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           logical_reorder_map));
   params->vectorization_factor = vectorization_factor;
 
-  // Check if fusion has BlockQuantizationOp
-  auto fusion_has_block_quantization =
-      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
-
-  // The runtime function implementing block quantization op needs
-  // at least 2 elements per thread to work.
-  if (fusion_has_block_quantization && params->vectorization_factor < 2) {
-    NVF_THROW(
-        "Unable to schedule a fusion with BlockQuantization since we were not "
-        "able to "
-        "vectorize by at least a factor of 2 ");
-  }
-
   // get unroll factor:
 
   int64_t total_blocks = break_point > 0
@@ -539,6 +526,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
   // function which implements quantization assumes no unrolling
+  // Check if fusion has BlockQuantizationOp
+  auto fusion_has_block_quantization =
+      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
+
   if (fusion_has_block_quantization && unroll_factor > 1) {
     unroll_factor = 1;
   }
@@ -1383,6 +1374,42 @@ void PointWiseScheduler::schedule(
       "Incorrect parameters sent to PointWiseScheduler::schedule",
       params);
   schedulePointwise(fusion, pparams);
+}
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  // Check if the fusion has a Block Quantization Op
+  // If so, ensure that the vectorization factor is at least 2
+  // and that the grid y dimension is not split.
+  // These are requirements of the current implementation of the
+  // Block Quantization Op runtime function.
+  auto has_block_quant_op =
+      !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty();
+  if (has_block_quant_op) {
+    auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
+    NVF_ERROR(pparams != nullptr);
+    if (pparams->vectorization_factor < 2) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op requires vectorization factor to be at least "
+          "2.");
+      return false;
+    }
+
+    if (pparams->split_grid_y_dim) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op is not supported when splitting grid y "
+          "dimension. This is because this will create a serial ID with an "
+          "extent > 1. The runtime function implementing block quantization "
+          "will currently not be able to handle that.");
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace nvfuser
