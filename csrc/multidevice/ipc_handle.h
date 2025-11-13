@@ -12,6 +12,7 @@
 #include <expr_evaluator.h>
 #include <host_ir/host_ir.h>
 #include <multidevice/symmetric_tensor.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 

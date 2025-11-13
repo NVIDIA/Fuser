@@ -8,31 +8,21 @@
 #pragma once
 
 #include <ATen/core/Tensor.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <c10/core/Device.h>
-#include <c10/core/ScalarType.h>
 #include <cuda.h>
-#include <exceptions.h>
 
-#include <optional>
-#include <string>
-#include <vector>
 
 namespace nvfuser {
 
-// Forward declarations
-class Communicator;
-
-// SymmetricTensor represents a distributed tensor with symmetric memory
-// allocation across multiple devices. Each rank has local and remote views
-// of all device buffers via CUDA Virtual Memory Management (VMM).
+// SymmetricTensor wraps a local symmetric memory allocation and enables:
+// - Remote access to other ranks' buffers via CUDA VMM
+// - NVLS multicast for efficient broadcasts
+// - Contiguous view creation across all ranks
 //
-// Key properties:
-// - All ranks can directly access any other rank's buffer via remote pointers
-// - Supports NVLS multicast
+// Design: Decouples local allocation from IPC handle exchange for better
+// interoperability and support for pre-allocated user buffers
 class SymmetricTensor {
  public:
-  // Wrap pre-allocated symmetric tensor (must use allocateSymmetricTensor)
+  // Wrap pre-allocated symmetric tensor (must use allocate())
   explicit SymmetricTensor(const at::Tensor& local_tensor);
 
   ~SymmetricTensor();
@@ -40,21 +30,30 @@ class SymmetricTensor {
   SymmetricTensor(const SymmetricTensor&) = delete;
   SymmetricTensor& operator=(const SymmetricTensor&) = delete;
 
+  // Local allocation (decoupled from IPC setup for flexibility)
+  static at::Tensor allocate(
+      at::IntArrayRef sizes,
+      at::ScalarType dtype,
+      at::Device device);
+
+  // Validate local tensor is symmetric memory compatible
+  static std::string validate(at::Tensor tensor);
+
   const at::Tensor& localTensor() const {
     return local_tensor_;
   }
 
-  // Setup remote IPC handles (lazy, init-once per tag)
-  // tag: unique coordination key (must be same on all ranks)
+  // Setup remote access (lazy, init-once)
   void setupRemoteHandles(const std::string& tag = "") const;
-  
   at::Tensor remoteTensor(int64_t rank) const;
 
-  // Setup NVLS multicast (CUDA 13.0+, init-once)
-  // tag: unique coordination key (must be same on all ranks)
+  // Setup multicast (CUDA 13.0+, init-once)
   void setupMulticast(int64_t exporter_rank, const std::string& tag = "");
-  
   void* multicastPtr() const;
+
+  // Setup contiguous view (lazy, init-once)
+  void setupContiguousView(const std::string& tag = "");
+  at::Tensor getContiguousView() const;
 
   size_t granularity() const {
     return granularity_;
@@ -85,36 +84,9 @@ class SymmetricTensor {
   int exporter_rank_{-1};
   int pid_fd_{-1};
   int peer_fd_{-1};
+  mutable bool is_contiguous_view_setup_ = false;
+  mutable at::Tensor contiguous_view_;
 };
-
-// Create contiguous view of all ranks: [rank0, rank1, ..., rankN]
-// tag: unique coordination key for IPC setup (must be same on all ranks)
-at::Tensor createContiguousView(
-    const SymmetricTensor& sym_tensor,
-    const std::string& tag);
-
-// Locally allocate a symmetric CUDA tensor using VMM
-NVF_API at::Tensor allocateSymmetricTensor(
-    at::IntArrayRef sizes,
-    at::ScalarType dtype,
-    at::Device device);
-
-// Validate that the local allocation is compatible with Symmetric memory backend 
-// Returns empty string if valid, error string otherwise
-NVF_API std::string isSymmetricAllocationValid(at::Tensor tensor);
-
-// Helper functions for serializing data to bytes for TCP store
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
 
 } // namespace nvfuser
 

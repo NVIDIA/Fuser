@@ -158,8 +158,8 @@ SymMemForBroadcast::SymMemForBroadcast(
   // Setup multicast for the buffer
   buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
 
-  // Create a symmetric memory tensor for the semaphore (single int32 element)
-  at::Tensor semaphore = allocateSymmetricTensor(
+  // Create semaphore tensor
+  at::Tensor semaphore = SymmetricTensor::allocate(
       /*sizes=*/at::IntArrayRef({1}),
       /*dtype=*/at::ScalarType::Int,
       /*device=*/buffer.device());
@@ -278,9 +278,9 @@ SymMemForContiguousView::SymMemForContiguousView(
     hir::SymmetricContiguousView* unshard) {
   std::string tag = "unshard_" + std::to_string(unshard->name());
   sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
+  sym_tensor_->setupContiguousView(tag);
 
-  // Create contiguous view across all ranks
-  at::Tensor contiguous = createContiguousView(*sym_tensor_, tag);
+  at::Tensor contiguous = sym_tensor_->getContiguousView();
 
   // Remove the DIDx dimension (outermost) if it has size 1
   if (contiguous.size(0) == 1) {

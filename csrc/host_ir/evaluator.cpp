@@ -618,7 +618,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   at::Tensor tensor;
   if (tv->getMemoryType() == MemoryType::Symmetric) {
     NVF_ERROR(isTvContiguous(tv), "Symmetric memory must be contiguous");
-    tensor = allocateSymmetricTensor(
+    tensor = SymmetricTensor::allocate(
         info.shape_info.logical_sizes, info.type, device);
   } else {
     tensor = at::native::empty_strided_cuda(

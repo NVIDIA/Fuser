@@ -478,7 +478,7 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
   auto options = at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // Allocate input with symmetric memory
   at::Tensor input_tensor =
-      allocateSymmetricTensor(sharded_sizes, at::kFloat, options.device());
+      SymmetricTensor::allocate(sharded_sizes, at::kFloat, options.device());
 
   // Fill each rank's shard with a unique pattern (rank * 1000 + element_index)
   input_tensor.copy_(

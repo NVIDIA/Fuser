@@ -1250,7 +1250,7 @@ TEST_F(AllocationTest, SymmetricMemory) {
   EXPECT_EQ(output.dtype(), at::kFloat);
 
   // Validate symmetric memory properties
-  auto validation_error = isSymmetricAllocationValid(output);
+  auto validation_error = SymmetricTensor::validate(output);
   EXPECT_TRUE(validation_error.empty()) << validation_error;
 }
 
