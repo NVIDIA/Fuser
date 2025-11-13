@@ -483,6 +483,44 @@ class ShardByStream : public Expr {
 // Should this be moved to csrc/ops? It's not a host IR expr but a wrapper.
 TensorView* shardByStream(TensorView* in, Val* stream_index);
 
+// SymmetricContiguousView takes a sharded TensorView with
+// symmetric memory type (where the outermost dimension is parallelized with
+// DIDx) and produces an unsharded TensorView. At runtime, it performs IPC
+// handle exchange and creates a contiguous virtual address mapping across all
+// ranks, similar to the VMM multi-rank contiguous mapping pattern. This
+// effectively "unshards" the tensor by making all ranks' data visible in a
+// contiguous address space.
+class SymmetricContiguousView : public Expr {
+ public:
+  using Expr::Expr;
+  SymmetricContiguousView(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in);
+
+  SymmetricContiguousView(const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView& operator=(const SymmetricContiguousView& other) =
+      delete;
+  SymmetricContiguousView(SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView& operator=(SymmetricContiguousView&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SymmetricContiguousView";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return outputs().at(0)->as<TensorView>();
+  }
+};
+
 class ForLoop : public Expr {
  public:
   using Expr::Expr;
