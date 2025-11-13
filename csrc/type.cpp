@@ -829,6 +829,8 @@ static const char* memory_type2string(MemoryType t) {
       return "global";
     case MemoryType::Tensor:
       return "tensor";
+    case MemoryType::Symmetric:
+      return "symmetric";
   }
   std::unreachable();
 }
