@@ -11,22 +11,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
-} // namespace
-
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()),
       rank_(Communicator::getInstance().deviceId()),
