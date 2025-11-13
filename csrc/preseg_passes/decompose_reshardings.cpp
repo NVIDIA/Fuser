@@ -246,6 +246,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
         deviceAndStreamParallelTypes(),
         PropagateDirection::kForward);
 
+    // Remove existing shardings from output so we can shard it like
+    // input. `shardLoopLike` does not overwrite existing shardings.
     unshard(output);
 
     shardLoopLike(
@@ -274,6 +276,9 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     //   new_output [Stream(i0), i1]
     // Note: This is only the case for MultiDeviceExecutor.
     // `PropagateShardingsPass` allows parallelizing inputs on Stream.
+    // In the above example, after `PropagateShardingsPass`, we should have:
+    //   input [Stream(i0), DIDx(i1)] -> op -> output [Stream(i0), i1]
+    // Then, output when sharded like input above will be stream parallelized.
     shardLoopLike(
         /*ref=*/new_output,
         /*target=*/output,
