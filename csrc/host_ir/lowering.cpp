@@ -235,7 +235,8 @@ void lowerSegment(
           ke.compiledKernel()->compileParams(),
           cloned_ins,
           cloned_outs,
-          cache_id);
+          cache_id,
+          ke.compiledKernel().get());
       hic.pushBackTopLevelExprs(launch_kernel);
     }
   } // switch

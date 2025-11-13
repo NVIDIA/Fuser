@@ -64,7 +64,8 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
         CompileParams(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
-        cache_id);
+        cache_id,
+        hic->getKernelExecutor(0).compiledKernel().get());
 
     hic->addInput(in);
     hic->addOutput(out);
@@ -235,7 +236,8 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
           CompileParams(),
           std::vector<Val*>{x, y},
           std::vector<Val*>{x},
-          cache_id);
+          cache_id,
+          hic->getKernelExecutor(0).compiledKernel().get());
       for_loop->body().push_back(launch_kernel);
     }
 
@@ -304,7 +306,8 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         CompileParams(),
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
-        cache_id);
+        cache_id,
+        hic->getKernelExecutor(0).compiledKernel().get());
     for_loop->body().push_back(launch_kernel);
 
     hic->pushBackTopLevelExprs(allocate_out);

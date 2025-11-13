@@ -26,6 +26,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/compiled_kernel.h>
 #include <transform_replay.h>
 #include <utils.h>
 
@@ -136,8 +137,10 @@ LaunchKernel::LaunchKernel(
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
-    Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    Val* cache_id,
+    nvfuser::CompiledKernel* compiled_kernel)
+    : Expr(passkey, inputs, outputs, {}),
+      compiled_kernel_(compiled_kernel) {
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
