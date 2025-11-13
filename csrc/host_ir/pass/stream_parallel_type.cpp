@@ -193,7 +193,7 @@ std::list<Expr*> groupStreamParallelRegions(
     const IdModel& id_model) {
   std::list<Expr*> new_top_level_exprs;
 
-  for (auto* expr : top_level_exprs) {
+  for (Expr* expr : top_level_exprs) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
       new_top_level_exprs.push_back(expr);
