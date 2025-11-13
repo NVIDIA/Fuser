@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <format>
+#include <ranges>
 #include <string>
 
 namespace nvfuser {
@@ -33,17 +34,20 @@ namespace {
 // dimension is the same as the inner allocation dimension. Otherwise it is
 // ColumnMajor
 std::string mapLayoutToCutlass(const TensorView* tv) {
-  const std::vector<IterDomain*> nored_logical =
-      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto nored_logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  const size_t ndims = std::ranges::distance(nored_logical);
+
   NVF_CUTLASS_REJECT_IF(
-      nored_logical.size() != 2,
+      ndims != 2,
       tv->toString(),
       " has dimension ",
-      nored_logical.size(),
+      ndims,
       " but only dimension 2 tensors are supported");
-  const std::vector<IterDomain*> nored_alloc =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  return nored_alloc.back() == nored_logical.back()
+
+  auto nored_alloc =
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions;
+  return *std::ranges::rbegin(nored_logical) ==
+          *std::ranges::rbegin(nored_alloc)
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
 }
