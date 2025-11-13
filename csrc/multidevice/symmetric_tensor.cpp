@@ -20,20 +20,23 @@ namespace nvfuser {
 namespace {
 
 // Returns the allocation granularity for symmetric memory.
-// Optionally considers multicast granularity if device supports it.
-// get_recommended_granularity: if true, uses recommended (larger) multicast
-// granularity
-//                               if false (default), uses minimum multicast
-//                               granularity
+// - query_mcast_granularity: if true, considers multicast granularity
+// - query_mcast_recommended_granularity: if true, uses recommended (larger)
+// multicast granularity
 int64_t getGranularityForSymmetricMemory(
     const CUmemAllocationProp& prop,
     size_t requested_size_bytes,
-    bool get_recommended_granularity = false) {
+    bool query_mcast_granularity = true,
+    bool query_mcast_recommended_granularity = false) {
   size_t alloc_granularity = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
       &alloc_granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
 
 #if (CUDA_VERSION >= NVF_MIN_CUDA_FOR_MCAST)
+  if (!query_mcast_granularity) {
+    return alloc_granularity;
+  }
+
   // Check if device supports multicast before querying multicast granularity
   int is_multicast_supported = 0;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
@@ -42,7 +45,6 @@ int64_t getGranularityForSymmetricMemory(
       prop.location.id));
 
   if (is_multicast_supported == 0) {
-    // Device doesn't support multicast, use regular allocation granularity
     return alloc_granularity;
   }
 
@@ -59,9 +61,7 @@ int64_t getGranularityForSymmetricMemory(
 
   size_t granularity = mcast_min_granularity;
 
-  // Optionally get recommended granularity (typically larger, better
-  // performance)
-  if (get_recommended_granularity) {
+  if (query_mcast_recommended_granularity) {
     size_t mcast_rec_granularity = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
         &mcast_rec_granularity,
@@ -73,7 +73,8 @@ int64_t getGranularityForSymmetricMemory(
   return std::max(alloc_granularity, granularity);
 #else
   (void)requested_size_bytes;
-  (void)get_recommended_granularity;
+  (void)query_mcast_granularity;
+  (void)query_mcast_recommended_granularity;
   return alloc_granularity;
 #endif
 }
@@ -218,10 +219,8 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
   prop.location.id = static_cast<int>(comm.local_rank());
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
-      &granularity_, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
-
   size_t required_size = local_tensor.numel() * local_tensor.element_size();
+  granularity_ = getGranularityForSymmetricMemory(prop, required_size);
   aligned_size_ =
       ((required_size + granularity_ - 1) / granularity_) * granularity_;
 
