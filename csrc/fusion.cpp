@@ -325,7 +325,9 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 
     if (replacement->getValType().value() == ValType::TensorView) {
       replacement->setIsFusionOutput(true);
-      replacement->as<TensorView>()->setMemoryType(MemoryType::Global); //TODO: may need a patch to support symmetric memory type
+      replacement->as<TensorView>()->setMemoryType(
+          MemoryType::Global); // TODO: may need a patch to support symmetric
+                               // memory type
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);

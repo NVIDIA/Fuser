@@ -598,7 +598,7 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   // 2. All ranks share their allocation handles via IPC
   // 3. Each rank creates a single contiguous virtual address range that maps
   //    all allocations (local + all remote ranks)
-  
+
   if (communicator_->size() == 1) {
     GTEST_SKIP() << "Skipping test for single device";
   }
@@ -649,7 +649,8 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   // Align allocation size to granularity
   size_t aligned_size =
       ((kBytesPerRank + granularity - 1) / granularity) * granularity;
-  ASSERT_EQ(aligned_size % sizeof(int64_t), 0) << "aligned_size is not aligned to sizeof(int64_t)";
+  ASSERT_EQ(aligned_size % sizeof(int64_t), 0)
+      << "aligned_size is not aligned to sizeof(int64_t)";
   size_t aligned_number_of_elements_per_rank = aligned_size / sizeof(int64_t);
 
   // Create local allocation handle
@@ -681,7 +682,7 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   std::vector<CUmemGenericAllocationHandle> all_alloc_handles(num_devices);
   std::vector<int> peer_fds;
   std::vector<int> pid_fds;
-  
+
   all_alloc_handles[rank] = local_alloc_handle;
 
   for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
@@ -689,8 +690,8 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
       continue; // Skip self
     }
 
-    int peer_shared_fd = fromBytes<int>(
-        store->get("vmm_multi_fd_" + std::to_string(peer_rank)));
+    int peer_shared_fd =
+        fromBytes<int>(store->get("vmm_multi_fd_" + std::to_string(peer_rank)));
     pid_t peer_pid = fromBytes<pid_t>(
         store->get("vmm_multi_pid_" + std::to_string(peer_rank)));
 
@@ -710,7 +711,7 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
         &peer_alloc_handle,
         (void*)((uint64_t)peer_fd),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
-    
+
     all_alloc_handles[peer_rank] = peer_alloc_handle;
   }
 
@@ -729,16 +730,23 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   for (int64_t i = 0; i < num_devices; ++i) {
     CUdeviceptr offset_ptr = base_ptr + (i * aligned_size);
     NVFUSER_CUDA_SAFE_CALL(cuMemMap(
-        offset_ptr, aligned_size, /*offset=*/0, all_alloc_handles[i], /*flags=*/0));
+        offset_ptr,
+        aligned_size,
+        /*offset=*/0,
+        all_alloc_handles[i],
+        /*flags=*/0));
   }
 
-  // Set memory access permissions for local allocation (read-write) and remote allocations (read-only)
+  // Set memory access permissions for local allocation (read-write) and remote
+  // allocations (read-only)
   for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
     CUdeviceptr peer_offset_ptr = base_ptr + (peer_rank * aligned_size);
     CUmemAccessDesc peer_access_desc{};
     peer_access_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     peer_access_desc.location.id = static_cast<int>(local_rank);
-    peer_access_desc.flags = (peer_rank == rank) ? CU_MEM_ACCESS_FLAGS_PROT_READWRITE : CU_MEM_ACCESS_FLAGS_PROT_READ;
+    peer_access_desc.flags = (peer_rank == rank)
+        ? CU_MEM_ACCESS_FLAGS_PROT_READWRITE
+        : CU_MEM_ACCESS_FLAGS_PROT_READ;
     NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(
         peer_offset_ptr, aligned_size, &peer_access_desc, /*count=*/1));
   }
@@ -760,7 +768,8 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
   communicator_->barrier();
 
   // Read back the entire contiguous buffer containing all ranks' data
-  std::vector<int64_t> full_readback_data(aligned_number_of_elements_per_rank * num_devices);
+  std::vector<int64_t> full_readback_data(
+      aligned_number_of_elements_per_rank * num_devices);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
       full_readback_data.data(),
       reinterpret_cast<void*>(base_ptr),

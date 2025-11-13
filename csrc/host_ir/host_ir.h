@@ -498,14 +498,11 @@ class SymmetricContiguousView : public Expr {
       TensorView* out,
       TensorView* in);
 
-  SymmetricContiguousView(
-      const SymmetricContiguousView& other) = delete;
-  SymmetricContiguousView& operator=(
-      const SymmetricContiguousView& other) = delete;
-  SymmetricContiguousView(
-      SymmetricContiguousView&& other) = delete;
-  SymmetricContiguousView& operator=(
-      SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView(const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView& operator=(const SymmetricContiguousView& other) =
+      delete;
+  SymmetricContiguousView(SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView& operator=(SymmetricContiguousView&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 

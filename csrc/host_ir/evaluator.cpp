@@ -799,8 +799,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
 }
 
 void HostIrEvaluator::handle(SymmetricContiguousView* unshard) {
-  FUSER_PERF_SCOPE(
-      "HostIrEvaluator::handle(SymmetricContiguousView)");
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(SymmetricContiguousView)");
 
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -817,8 +816,13 @@ void HostIrEvaluator::handle(SymmetricContiguousView* unshard) {
   SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
       multicast_handle_cache_.get({in_tensor, unshard}));
 
-  NVF_ERROR(in_tv->axis(0)->isDeviceDim(), "Tv must be sharded on outermost dimension", in_tv);
-  NVF_ERROR(handle->tensor().size(1) == 1, "Contiguous view must have size 1 on sharded dimension");
+  NVF_ERROR(
+      in_tv->axis(0)->isDeviceDim(),
+      "Tv must be sharded on outermost dimension",
+      in_tv);
+  NVF_ERROR(
+      handle->tensor().size(1) == 1,
+      "Contiguous view must have size 1 on sharded dimension");
   at::Tensor contiguous_tensor = handle->tensor().squeeze(1);
   // Bind the unsharded tensor to the output
   expr_evaluator_.bind(out_tv, contiguous_tensor);

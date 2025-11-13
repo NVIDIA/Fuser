@@ -475,7 +475,8 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
   // Execute the host program
   HostIrEvaluator hie(std::move(hic), communicator_);
 
-  auto options = at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
+  auto options =
+      at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // Allocate input with symmetric memory
   at::Tensor input_tensor =
       SymmetricTensor::allocate(sharded_sizes, at::kFloat, options.device());
@@ -490,7 +491,6 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
   // Verify the output
   at::Tensor output_tensor = outputs.back().as<at::Tensor>();
   EXPECT_EQ(output_tensor.sizes(), at::IntArrayRef(unsharded_sizes));
-
 
   at::Tensor local_output_tensor = at::empty(unsharded_sizes, options);
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(

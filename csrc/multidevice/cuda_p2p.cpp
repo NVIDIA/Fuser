@@ -140,8 +140,8 @@ void postAllgatherWithCudaBackend(
   const int64_t my_device_index = communicator.deviceId();
   const int64_t world_size = communicator.size();
 
-  // Step 1: Each rank signals it's ready by writing kInProgress to its own semaphore
-  // for every root
+  // Step 1: Each rank signals it's ready by writing kInProgress to its own
+  // semaphore for every root
   std::vector<CUstreamBatchMemOpParams> write_ready_ops(world_size - 1);
   int write_op_idx = 0;
   for (int64_t rank = 0; rank < world_size; ++rank) {
@@ -246,7 +246,8 @@ void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
       break;
     }
     case P2pProtocol::Put: {
-      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kInProgress);
+      WriteValue32ToLocalAndPeer(
+          stream, ipc_handles, IpcSemaphore::kInProgress);
       break;
     }
     default:
@@ -276,7 +277,8 @@ void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
   switch (protocol) {
     case P2pProtocol::Get:
       // signal to self and peer that transfer is in progress
-      WriteValue32ToLocalAndPeer(stream, ipc_handles, IpcSemaphore::kInProgress);
+      WriteValue32ToLocalAndPeer(
+          stream, ipc_handles, IpcSemaphore::kInProgress);
       break;
     case P2pProtocol::Put: {
       // wait for receiver to be ready

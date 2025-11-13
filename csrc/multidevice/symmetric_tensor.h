@@ -10,7 +10,6 @@
 #include <ATen/core/Tensor.h>
 #include <cuda.h>
 
-
 namespace nvfuser {
 
 // SymmetricTensor wraps a local symmetric memory allocation and enables:
@@ -62,8 +61,10 @@ class SymmetricTensor {
   size_t alignedSize() const {
     return aligned_size_;
   }
-  
-  CUmemGenericAllocationHandle getAllocHandle(int64_t rank, const std::string& tag) const {
+
+  CUmemGenericAllocationHandle getAllocHandle(
+      int64_t rank,
+      const std::string& tag) const {
     setupRemoteHandles(tag);
     return alloc_handles_[rank];
   }
@@ -89,4 +90,3 @@ class SymmetricTensor {
 };
 
 } // namespace nvfuser
-

@@ -479,17 +479,14 @@ SymmetricContiguousView::SymmetricContiguousView(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
 
-std::string SymmetricContiguousView::toString(
-    int indent_size) const {
+std::string SymmetricContiguousView::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size)
-      << out()->toString() << " = SymmetricContiguousView("
-      << in()->toString() << ")" << std::endl;
+  indent(ss, indent_size) << out()->toString() << " = SymmetricContiguousView("
+                          << in()->toString() << ")" << std::endl;
   return ss.str();
 }
 
-std::string SymmetricContiguousView::toInlineString(
-    int indent_size) const {
+std::string SymmetricContiguousView::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 

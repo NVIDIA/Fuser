@@ -626,9 +626,9 @@ TEST_F(CUDACommunicationTest, Allgather) {
               (rank_idx + 1) * repetition);
     }
     EXPECT_TRUE(at::allclose(outputs.back().as<at::Tensor>(), ref))
-        << "Rank " << communicator_->deviceId() << " failed at repetition " << repetition
-        << " with output tensor " << outputs.back().as<at::Tensor>() << " and ref " << ref;
-
+        << "Rank " << communicator_->deviceId() << " failed at repetition "
+        << repetition << " with output tensor "
+        << outputs.back().as<at::Tensor>() << " and ref " << ref;
   }
 }
 

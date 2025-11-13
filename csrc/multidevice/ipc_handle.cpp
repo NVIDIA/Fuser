@@ -152,9 +152,8 @@ SymMemForBroadcast::SymMemForBroadcast(
   std::string store_key_prefix = "nvls_export_mcast_handle_" + name_suffix;
 
   // Create symmetric tensor for the buffer
-  buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(
-      buffer);
-  
+  buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
+
   // Setup multicast for the buffer
   buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
 
@@ -173,8 +172,7 @@ SymMemForBroadcast::SymMemForBroadcast(
       cudaMemcpyHostToDevice));
 
   // Create symmetric tensor for the semaphore
-  semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(
-      semaphore);
+  semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphore);
 
   // Setup (unicast) IPC handles for the semaphore
   semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
@@ -233,9 +231,8 @@ void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {
   return broadcast_handles_[root_rank]->semaphoreMulticastPtr();
 }
 
-void* SymMemForAllgather::semaphoreUnicastPtr(
-    int64_t root_rank,
-    int64_t rank) const {
+void* SymMemForAllgather::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
+    const {
   return broadcast_handles_[root_rank]->semaphoreUnicastPtr(rank);
 }
 
@@ -248,8 +245,7 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (auto* dtca =
-          dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+  if (auto* dtca = dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
     // SymmetricContiguousView
     handle = std::make_unique<SymMemForContiguousView>(key.buffer, dtca);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {

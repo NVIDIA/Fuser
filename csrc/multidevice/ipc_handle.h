@@ -96,7 +96,8 @@ struct TensorEqual {
 };
 
 // Manages and caches IpcHandles for P2P communications
-// Caching is based on (peer, tensor) runtime values and P2PCommunication* pointer
+// Caching is based on (peer, tensor) runtime values and P2PCommunication*
+// pointer
 class IpcHandleCache {
  public:
   IpcHandleCache(const ExpressionEvaluator& expr_evaluator)
@@ -200,7 +201,8 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
 };
 
 // SymmetricMemoryHandle for allgather operations using NVLS multicast
-// Allgather is implemented as world_size broadcasts, each rank acting as root once
+// Allgather is implemented as world_size broadcasts, each rank acting as root
+// once
 class SymMemForAllgather : public SymmetricMemoryHandle {
  public:
   SymMemForAllgather(Communication* communication, at::Tensor buffer);

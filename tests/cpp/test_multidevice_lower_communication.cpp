@@ -771,7 +771,6 @@ INSTANTIATE_TEST_SUITE_P(
 class LowerCollectiveCudaTest : public MultiDeviceTest {};
 
 TEST_F(LowerCollectiveCudaTest, Allgather) {
-
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
 
   auto fusion = std::make_unique<Fusion>();
@@ -796,7 +795,8 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = CommunicatorBackend::kCuda;
   params.executor.use_allocation_cache = true;
-  MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance(), params);
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
 
   at::Tensor out_tensor;
   for (int i = 0; i < 10; ++i) {
@@ -807,7 +807,6 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
 }
 
 TEST_F(LowerCollectiveCudaTest, Broadcast) {
-
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
 
   auto fusion = std::make_unique<Fusion>();
@@ -828,15 +827,16 @@ TEST_F(LowerCollectiveCudaTest, Broadcast) {
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = CommunicatorBackend::kCuda;
   params.executor.use_allocation_cache = true;
-  MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance(), params);
-
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
 
   at::Tensor unsharded_tensor =
       at::randn({num_devices, kMsgSize}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
-  at::Tensor out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  at::Tensor out_tensor =
+      executor.runWithInput({in_tensor})[0].as<at::Tensor>();
 
   EXPECT_TRUE(
       at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));

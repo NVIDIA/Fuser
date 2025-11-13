@@ -38,7 +38,6 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
   float local_value = static_cast<float>(rank + 100);
   local_tensor.fill_(local_value);
 
-
   sym_tensor.setupRemoteHandles();
 
   // Read from all remote tensors
@@ -49,10 +48,7 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
     // Copy first element from peer
     float peer_value;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        &peer_value,
-        peer_ptr,
-        sizeof(float),
-        cudaMemcpyDeviceToHost));
+        &peer_value, peer_ptr, sizeof(float), cudaMemcpyDeviceToHost));
 
     float expected_value = static_cast<float>(peer_rank + 100);
     EXPECT_FLOAT_EQ(peer_value, expected_value)
@@ -96,10 +92,7 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
     void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
     double peer_value;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        &peer_value,
-        peer_ptr,
-        sizeof(double),
-        cudaMemcpyDeviceToHost));
+        &peer_value, peer_ptr, sizeof(double), cudaMemcpyDeviceToHost));
 
     double expected = static_cast<double>(peer_rank * 1000 + 42);
     EXPECT_DOUBLE_EQ(peer_value, expected);
@@ -121,9 +114,7 @@ TEST_F(SymmetricTensorTest, Multicast) {
   // Check multicast support
   int is_multicast_supported;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
-      &is_multicast_supported,
-      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
-      rank));
+      &is_multicast_supported, CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED, rank));
   if (!is_multicast_supported) {
     GTEST_SKIP() << "Device does not support multicast";
   }
@@ -144,12 +135,12 @@ TEST_F(SymmetricTensorTest, Multicast) {
   if (rank == root) {
     void* mc_ptr = sym_tensor.multicastPtr();
     EXPECT_NE(mc_ptr, nullptr);
-    
+
     // Prepare pattern data
     for (int64_t i = 0; i < kNumElems; ++i) {
       host_data[i] = static_cast<int>(i * 7 + 13);
     }
-    
+
     // Write to multicast buffer
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         mc_ptr,
@@ -235,11 +226,10 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
       float expected = static_cast<float>(r + 100);
       size_t idx = r * slice_elems + i;
       ASSERT_EQ(all_data[idx], expected)
-          << "Rank " << rank << " view checking slice for rank " << r << " at offset " << i
-          << " did not match expected value";
+          << "Rank " << rank << " view checking slice for rank " << r
+          << " at offset " << i << " did not match expected value";
     }
   }
 }
 
 } // namespace nvfuser
-
