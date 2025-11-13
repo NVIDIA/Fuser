@@ -249,7 +249,6 @@ std::vector<int64_t> getTensorViewBuilderSizes(
 }
 
 const char* dtypeToPyString(PrimDataType t) {
-  // Use Int64 for DataType::Index
   switch (t) {
     case DataType::Bool:
       return "DataType.Bool";
