@@ -829,7 +829,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       continue;
     }
 
-    if (id->isDeviceDim()) {
+    // FIXME: should this be isParallelized?
+    if (id->isDeviceDim() || id->isStream()) {
       symbolic_sizes.push_back(id->container()->oneVal());
     } else {
       symbolic_sizes.push_back(id->getMaybeExpandedExtent());
