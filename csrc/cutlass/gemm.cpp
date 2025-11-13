@@ -117,15 +117,16 @@ class CutlassCodeGenerator {
       if (tv == nullptr) {
         continue;
       }
-      for (const auto& c : tv->getContiguity()) {
-        if (c.has_value()) {
-          NVF_CUTLASS_REJECT_IF(
-              c.value() != true,
-              "We require input TensorView ",
-              tv->toString(),
-              " to be fully contiguous for the Cutlass executor.");
-        }
-      }
+      const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
+      const bool is_tv_contiguous =
+          std::all_of(contiguity.begin(), contiguity.end(), [](auto c) {
+            return c.value_or(true);
+          });
+      NVF_CUTLASS_REJECT_IF(
+          !is_tv_contiguous,
+          "We require input TensorView ",
+          tv->toString(),
+          " to be fully contiguous for the Cutlass executor.");
     }
 
     NVF_CUTLASS_REJECT_IF(
