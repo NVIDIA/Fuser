@@ -7,10 +7,10 @@
 // clang-format on
 #include <cassert>
 
-#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/CUDAStream.h>
-#include <ATen/cuda/CUDAGraphsUtils.cuh>
 
 #include <cutlass/arch/arch.h>
 #include <cutlass/epilogue/collective/collective_builder.hpp>
@@ -218,10 +218,14 @@ void run_group_mm(
   using LayoutD = LayoutC;
 
   // Alignment constraints
-  static constexpr int AlignmentA = 128 / cutlass::sizeof_bits<ElementA>::value;
-  static constexpr int AlignmentB = 128 / cutlass::sizeof_bits<ElementB>::value;
-  static constexpr int AlignmentC = 128 / cutlass::sizeof_bits<ElementC>::value;
-  static constexpr int AlignmentD = 128 / cutlass::sizeof_bits<ElementD>::value;
+  static constexpr int kAlignmentA =
+      128 / cutlass::sizeof_bits<ElementA>::value;
+  static constexpr int kAlignmentB =
+      128 / cutlass::sizeof_bits<ElementB>::value;
+  static constexpr int kAlignmentC =
+      128 / cutlass::sizeof_bits<ElementC>::value;
+  static constexpr int kAlignmentD =
+      128 / cutlass::sizeof_bits<ElementD>::value;
 
   // Architecture definitions
   using ArchTag = cutlass::arch::Sm100;
@@ -247,10 +251,10 @@ void run_group_mm(
           ElementAccumulator,
           ElementC,
           LayoutC*,
-          AlignmentC,
+          kAlignmentC,
           ElementD,
           LayoutC*,
-          AlignmentD,
+          kAlignmentD,
           typename SingleSmKernelTraits::EpilogueSchedule>::CollectiveOp;
 
   using CollectiveMainloop =
@@ -259,10 +263,10 @@ void run_group_mm(
           MainloopOperatorClass,
           ElementA,
           LayoutA*,
-          AlignmentA,
+          kAlignmentA,
           ElementB,
           LayoutB*,
-          AlignmentB,
+          kAlignmentB,
           ElementAccumulator,
           MmaTileShape,
           ClusterShape,
@@ -422,17 +426,23 @@ void validateInputsGroupMm(
           b.scalar_type() == at::ScalarType::Half,
       "Expected BFloat16 or Half for Operand B.")
 
-  if (at::cuda::currentStreamCaptureStatus() == at::cuda::CaptureStatus::None) {
+#ifndef NDEBUG
+  if (c10::cuda::currentStreamCaptureStatusMayInitCtx() ==
+      c10::cuda::CaptureStatus::None) {
     const int64_t m = a.size(0);
     const int64_t g = expert_offsets.size(0);
+    // This validation requires an expensive synchronization and therefore is
+    // only enabled in debug mode. See #5470.
+    at::Tensor expert_offsets_cpu = expert_offsets.cpu();
     int64_t prev_offset = 0;
-    for (int64_t i = 0; i < g; ++i) {
-      const auto expert_offset = expert_offsets[i].item<int64_t>();
+    for (int64_t i = 0; i < g; i++) {
+      const auto expert_offset = expert_offsets_cpu[i].item<int64_t>();
       NVF_CHECK_LE(expert_offset, m);
       NVF_CHECK_LE(prev_offset, expert_offset);
       prev_offset = expert_offset;
     }
   }
+#endif
 
   NVF_CHECK_EQ(ab_strides.dtype(), at::kLong);
   NVF_CHECK_EQ(c_strides.dtype(), at::kLong);
@@ -444,6 +454,35 @@ void validateInputsGroupMm(
   // Check contiguity
   NVF_CHECK(a.is_contiguous(), "Expected contiguous tensor for Operand A.")
   NVF_CHECK(b.is_contiguous(), "Expected contiguous tensor for Operand B.")
+
+  // Check dimensions
+  NVF_CHECK_EQ(a.dim(), 2, "Expected Operand A to be a 2D tensor.");
+  NVF_CHECK_EQ(b.dim(), 3, "Expected Operand B to be a 3D tensor.");
+
+  // Alignment constraints
+  static constexpr int kAlignment =
+      128 / cutlass::sizeof_bits<cutlass::bfloat16_t>::value;
+  NVF_CHECK_EQ(
+      a.size(-1) % kAlignment,
+      0,
+      "The inner dimension ",
+      a.size(-1),
+      " of Operand A is not a multiple of ",
+      kAlignment)
+  NVF_CHECK_EQ(
+      b.size(-1) % kAlignment,
+      0,
+      "The inner dimension ",
+      b.size(-1),
+      " of Operand B is not a multiple of ",
+      kAlignment)
+  NVF_CHECK_EQ(
+      b.size(-2) % kAlignment,
+      0,
+      "The inner dimension ",
+      b.size(-2),
+      " of the output tensor is not a multiple of ",
+      kAlignment)
 
   // Check shapes
   NVF_CHECK_EQ(problem_sizes.dim(), 2);

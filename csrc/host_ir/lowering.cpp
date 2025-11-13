@@ -8,6 +8,7 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
+#include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
@@ -74,7 +75,7 @@ void lowerSegment(
           group.exprs().size(),
           1,
           "Communication segments must contain only one Expr.");
-      Expr* e = group.exprs().at(0);
+      Expr* e = group.exprs().front();
       Expr* e_clone = ir_cloner.clone(e);
       recomputeOutputTvs(e, ir_cloner);
 
@@ -95,22 +96,27 @@ void lowerSegment(
         auto wait = IrBuilder::create<hir::Wait>(communication);
         hic.pushBackTopLevelExprs(wait);
       }
-    } break;
+      break;
+    }
     case SchedulerType::ExprEval: {
       // Pseudocode:
       // clang-format off
       // ```
       // clone all expressions and store the copies to a list
+      //
       // if no expressions are stream parallelized:
       //   append the list to the top level
       //   return
-      // for each non-input TensorView:
-      //   if it needs an out-of-loop allocation:
-      //     create an Allocate and append it to the top level
+      //
       // create a new, empty for loop
       // for each cloned expression:
-      //   for each input or output TensorView of that expression:
-      //     shard it by stream if it's allocated outside the loop
+      //   for each input TensorView of that expression:
+      //     if it's allocated outside the loop:
+      //       shard it by stream
+      //   for each output TensorView of that expression:
+      //     if it needs to be allocated outside the loop:
+      //       create an Allocate before the for loop
+      //       shard it by stream
       //   add the cloned expression to the loop body with the maybe-sharded inputs and outputs
       // ```
       // clang-format on
@@ -132,63 +138,61 @@ void lowerSegment(
         for (Expr* e : cloned_exprs) {
           hic.pushBackTopLevelExprs(e);
         }
-      } else {
-        for (Expr* e : cloned_exprs) {
-          for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-            if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
-              auto* allocate =
-                  IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
-              hic.pushBackTopLevelExprs(allocate);
-            }
-          }
-        }
-
-        auto* stream_index = IrBuilder::create<Val>(DataType::Index);
-        auto* for_loop =
-            hir::ForLoop::createFromIterDomain(stream_index, stream_id);
-        hic.pushBackTopLevelExprs(for_loop);
-
-        std::unordered_map<Val*, Val*> replacement_map;
-        for (Expr* e : cloned_exprs) {
-          for (auto ins_or_out :
-               {ir_utils::filterByType<TensorView>(e->inputs()),
-                ir_utils::filterByType<TensorView>(e->outputs())}) {
-            for (auto* tv : ins_or_out) {
-              if (replacement_map.count(tv) > 0) {
-                continue;
-              }
-              if (findStreamIterDomain(tv) != nullptr &&
-                  getShardedIterDomain(tv, ParallelType::Stream) == nullptr) {
-                // Loop is stream parallelized but allocation is not.
-                TensorView* sharded_tv = hir::shardByStream(tv, stream_index);
-                for_loop->body().push_back(sharded_tv->definition());
-                replacement_map[tv] = sharded_tv;
-              }
-            }
-          }
-
-          std::vector<Val*> new_inputs;
-          std::transform(
-              e->inputs().begin(),
-              e->inputs().end(),
-              std::back_inserter(new_inputs),
-              [&replacement_map](Val* input) {
-                return getOrDefault(replacement_map, input, input);
-              });
-          std::vector<Val*> new_outputs;
-          std::transform(
-              e->outputs().begin(),
-              e->outputs().end(),
-              std::back_inserter(new_outputs),
-              [&replacement_map](Val* output) {
-                return getOrDefault(replacement_map, output, output);
-              });
-          Expr* new_e = e->newObjectFunc()(
-              e->container(), new_inputs, new_outputs, e->attributes());
-          for_loop->body().push_back(new_e);
-        }
+        break;
       }
-    } break;
+
+      auto* for_loop = hir::ForLoop::createFromIterDomain(stream_id);
+      auto top_level_insertion_point = hic.pushBackTopLevelExprs(for_loop);
+
+      std::unordered_map<Val*, Val*> replacement_map;
+      for (Expr* e : cloned_exprs) {
+        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+          if (findStreamIterDomain(in) != nullptr &&
+              getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
+            auto [i, inserted] = replacement_map.try_emplace(
+                in, hir::shardByStream(in, for_loop->index()));
+            if (inserted) {
+              for_loop->body().push_back(i->second->definition());
+            }
+          }
+        }
+
+        for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+          if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
+            auto* allocate =
+                IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            hic.insertExprBefore(top_level_insertion_point, allocate);
+            // Loop is stream parallelized but allocation is not. Therefore,
+            // `out` should be allocated outside the loop.
+            auto [i, inserted] = replacement_map.try_emplace(
+                out, hir::shardByStream(out, for_loop->index()));
+            NVF_ERROR(inserted);
+            for_loop->body().push_back(i->second->definition());
+          }
+        }
+
+        std::vector<Val*> new_inputs;
+        std::transform(
+            e->inputs().begin(),
+            e->inputs().end(),
+            std::back_inserter(new_inputs),
+            [&replacement_map](Val* input) {
+              return getOrDefault(replacement_map, input, input);
+            });
+        std::vector<Val*> new_outputs;
+        std::transform(
+            e->outputs().begin(),
+            e->outputs().end(),
+            std::back_inserter(new_outputs),
+            [&replacement_map](Val* output) {
+              return getOrDefault(replacement_map, output, output);
+            });
+        Expr* new_e = e->newObjectFunc()(
+            e->container(), new_inputs, new_outputs, e->attributes());
+        for_loop->body().push_back(new_e);
+      }
+      break;
+    }
     default: {
       const int group_id = group.groupId();
 
@@ -233,8 +237,8 @@ void lowerSegment(
           cache_id);
       hic.pushBackTopLevelExprs(launch_kernel);
     }
-  }
-}
+  } // switch
+} // lowerSegment
 } // namespace
 
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(

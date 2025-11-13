@@ -6,6 +6,13 @@
  */
 // clang-format on
 #include <codegen.h>
+
+#include <array>
+#include <cmath>
+#include <ranges>
+#include <sstream>
+#include <vector>
+
 #include <device_lower/utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
@@ -16,12 +23,6 @@
 #include <scheduler/reduction_utils.h>
 #include <type.h>
 #include <utils.h>
-
-#include <array>
-#include <cmath>
-#include <sstream>
-#include <typeindex>
-#include <vector>
 
 namespace nvfuser {
 namespace codegen {
@@ -471,9 +472,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           auto space_type = kernel_summary.largest_smem_data_type;
           indent() << "nvfuser_index_t block_size = "
                       "blockDim.x*blockDim.y*blockDim.z;\n";
-          indent() << space_type << " *shared_mem_var = "
-                   << "static_cast<" << space_type << "*>("
-                   << "shared_mem);\n";
+          indent() << space_type << " *shared_mem_var = " << "static_cast<"
+                   << space_type << "*>(" << "shared_mem);\n";
           indent() << space_type
                    << " *shared_mem_avg = shared_mem_var + block_size;\n";
           indent() << space_type
@@ -542,7 +542,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Cannot just use ConstIrVisitor::handle as it expects a vector of
   // const Expr*, whereas most of the IR API returns a vector of
   // non-const Expr*.
-  void handle(const std::vector<Expr*>& exprs) {
+  template <std::ranges::input_range R>
+  void handle(const R& exprs) {
     for (Expr* expr : exprs) {
       kir::ConstIrVisitor::dispatch(expr);
     }
@@ -1356,9 +1357,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       case BinaryOpType::Add:
         if (sop->in()->dtype() == DataType::Int) {
           // atomicAdd does not provide an overload for int64_t
-          code_ << "atomicAdd("
-                << "reinterpret_cast<unsigned long long*>(&" << dst << "), "
-                << "static_cast<unsigned long long>(" << src << "));\n";
+          code_ << "atomicAdd(" << "reinterpret_cast<unsigned long long*>(&"
+                << dst << "), " << "static_cast<unsigned long long>(" << src
+                << "));\n";
         } else {
           code_ << "atomicAdd(" << "&" << dst << ", " << src << ");\n";
         }
@@ -1569,11 +1570,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // At this moment, we only support topk on thread parallelized
     // dimensions. No serial dimension is allowed either.
     ParallelTypeBitmap sorted_parallel_types;
+    IterDomain* batch_id = nullptr;
     for (auto id : sorted_loop_ids) {
-      NVF_ERROR(
-          isParallelTypeThreadDim(id->getParallelType()),
-          "TopK on non-thread dimension is not supported");
-      sorted_parallel_types.set(id->getParallelType());
+      if (isParallelTypeThreadDim(id->getParallelType())) {
+        sorted_parallel_types.set(id->getParallelType());
+      } else {
+        // Non TID-parallelized loop ID must be a batch ID, which
+        // should use Group unless its a broadcast
+        NVF_ERROR(
+            id->getParallelType() == ParallelType::Group || id->isBroadcast(),
+            "Invalid topk loop ID: ",
+            id->toString(),
+            " of ",
+            top->toString());
+        NVF_ERROR(
+            batch_id == nullptr,
+            "Multiple batch IDs not supported: ",
+            top->toString());
+        batch_id = id;
+      }
     }
 
     // TID parallel types must only be used for the sorted IDs with the static
@@ -1614,8 +1629,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    // TODO: support ITEMS_PER_THREAD > 1
-    constexpr int items_per_thread = 1;
+    const int64_t items_per_thread =
+        batch_id != nullptr ? batch_id->extent()->evaluate().as<int64_t>() : 1;
 
     const auto input = top->in()->as<kir::TensorIndex>();
 
@@ -1626,32 +1641,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
 
     // First argument: top_values output array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_values))
-        .append(")");
+    func_args.arg("&").append(genInline(output_values));
 
     // Second argument: top_indices output array
-    func_args.arg("*(int64_t(*)[")
-        .append(items_per_thread)
-        .append("])")
-        .append("(&")
-        .append(genInline(output_indices))
-        .append(")");
+    func_args.arg("&").append(genInline(output_indices));
 
     // Third argument: input data array
-    func_args.arg("*(")
-        .append(input->dtype())
-        .append("(*)[")
-        .append(std::to_string(items_per_thread))
-        .append("])")
-        .append("(&")
-        .append(genInline(input))
-        .append(")");
+    func_args.arg("&").append(genInline(input));
 
     // Fourth argument: k value
     func_args.arg(genInline(top->k()));
@@ -1800,8 +1796,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // This is slightly different from getReductionOp
     std::stringstream lambda;
     lambda << "[](const " << native_type_str << "& a, const " << native_type_str
-           << "& b) "
-           << "{ return "
+           << "& b) " << "{ return "
            << genBinaryOp(scan->opType(), input->dtype(), "a", "b") << "; }";
     func_args.arg(lambda.str());
 
@@ -1809,6 +1804,69 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genComputeBlockDim());
 
     indent() << genCall("scan::blockScan", template_args, func_args) << ";\n";
+  }
+
+  // Special handling of BlockQuantizationOp to call the runtime function.
+  // TODO: add support for global scaling factor
+  void handle(const BlockQuantizationOp* bqop) final {
+    // This operator is plumbed down to a runtime function call.
+    // One of the assumptions is that the device runtime expects
+    // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
+    auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    int64_t group_size = 1;
+
+    // Get the loop domain of the TensorView output and check for group
+    // parallel types. This assumes that both parallel types aren't present.
+    const auto& loop_domain = output->getLoopDomain();
+    for (auto* domain : loop_domain) {
+      auto parallel_type = domain->getParallelType();
+      if (parallel_type == ParallelType::Group) {
+        if (domain->extent()->isConstInt()) {
+          group_size = domain->extent()->evaluate().as<int64_t>();
+        }
+      }
+    }
+
+    auto input_dtype =
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
+
+    if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
+      NVF_ERROR(
+          group_size == 8 || group_size == 4 || group_size == 2,
+          "Group size should be 2, 4 or 8 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+
+    } else {
+      NVF_ERROR(
+          group_size == 4 || group_size == 2,
+          "Group size should be 2 or 4 for "
+          "BlockQuantizationOp: ",
+          bqop->toString());
+    }
+
+    ArgumentBuilder template_args;
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Function arguments
+    ArgumentBuilder func_args;
+
+    // First argument: input data array
+    // Second argument: quantized output
+    // Third argument: block scale output
+    func_args.arg(genInline(bqop->input(0)->as<kir::TensorIndex>()->view()));
+    func_args.arg(genInline(output));
+    func_args.arg(
+        genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
+
+    // Fourth argument: This holds the linearized index that will be used to
+    // write out the block scaling factors in the runtime function.
+    func_args.arg(genInline(bqop->attributeVal(0)));
+
+    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
+             << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
@@ -2140,8 +2198,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "#pragma unroll\n";
     indent() << "for (int i = 0; i < " << ldst->groupSize() << "; ++i) {\n";
     indent() << kTab << genVariableName(out_ti->view()) << "[("
-             << genInline(out_ti->index()) << ") + i]"
-             << " = " << gen(ldst->in()) << ";\n";
+             << genInline(out_ti->index()) << ") + i]" << " = "
+             << gen(ldst->in()) << ";\n";
     indent() << "}\n";
   }
 
@@ -2248,8 +2306,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const bool has_grid_reduce = domain->hasGridReduction();
 
     if (!has_block_reduce && !has_grid_reduce) {
-      indent() << "welfordCombine ("
-               << "\n";
+      indent() << "welfordCombine (" << "\n";
       indent() << kTab << gen(out_avg) << ",\n";
       indent() << kTab << gen(out_var) << ",\n";
       indent() << kTab << gen(out_N) << ",\n";
@@ -4183,8 +4240,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                       // actual argument value like T0[i * 4 + j].
                       << (as_utility ? prefix + std::to_string(counter)
                                      : gen(register_))
-                      << "[" << i << "]"
-                      << ")";
+                      << "[" << i << "]" << ")";
                 }
               } else {
                 (*asm_target) << "\"" << constraint << "\"(";

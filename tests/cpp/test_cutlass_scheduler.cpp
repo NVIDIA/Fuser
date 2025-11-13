@@ -13,7 +13,10 @@
 #include <c10/cuda/CUDAStream.h>
 #include <gtest/gtest.h>
 
+#include <cutlass/block_scaling.h>
+#include <cutlass/evt.h>
 #include <fusion.h>
+#include <nvf_cutlass.h>
 #include <ops/all_ops.h>
 #include <runtime/cutlass_compiled_kernel.h>
 #include <runtime/cutlass_executor.h>
@@ -28,6 +31,99 @@
 namespace nvfuser {
 
 using CutlassExecutorTest = NVFuserTest;
+
+struct QuantizedTensorView {
+  TensorView* elts;
+  TensorView* block_scale;
+};
+
+QuantizedTensorView quantizeTv(
+    TensorView* unquantized,
+    TensorView* global_scale_factor,
+    int64_t block_size,
+    DataType quantized_dtype,
+    DataType block_scale_dtype,
+    double quantized_max_norm,
+    double block_scale_min,
+    double block_scale_max,
+    bool clamp_before_casts) {
+  TensorView* reshaped =
+      reshape(unquantized, [block_size](auto& x) { x.split(-1, block_size); });
+
+  TensorView* mag = abs(reshaped);
+  TensorView* block_max = max(mag, {-1});
+  TensorView* block_sf = div(
+      block_max, IrBuilder::create<Val>(quantized_max_norm, DataType::Float));
+
+  if (global_scale_factor != nullptr) {
+    block_sf = div(block_sf, global_scale_factor);
+  }
+  if (clamp_before_casts) {
+    block_sf = clamp(
+        block_sf,
+        IrBuilder::create<Val>(block_scale_min, DataType::Float),
+        IrBuilder::create<Val>(block_scale_max, DataType::Float));
+  }
+  TensorView* block_sf_cast = castOp(DataType::Float8_e4m3fn, block_sf);
+  TensorView* block_sf_fp32 = castOp(DataType::Float, block_sf_cast);
+
+  if (global_scale_factor != nullptr) {
+    block_sf_fp32 = mul(global_scale_factor, block_sf_fp32);
+  }
+  TensorView* unsqueezed = unsqueeze(block_sf_fp32, -1);
+  TensorView* scaled = div(reshaped, unsqueezed);
+
+  if (clamp_before_casts) {
+    scaled = clamp(
+        scaled,
+        IrBuilder::create<Val>(-quantized_max_norm, DataType::Float),
+        IrBuilder::create<Val>(quantized_max_norm, DataType::Float));
+  }
+
+  TensorView* casted = castOp(DataType::Float4_e2m1fn, scaled);
+  TensorView* quantized = reshape(casted, [](auto& x) { x.merge(-2); });
+
+  return {.elts = quantized, .block_scale = block_sf_cast};
+}
+
+QuantizedTensorView quantizeTvNvfp4(
+    TensorView* unquantized,
+    TensorView* global_scale_factor = nullptr) {
+  // max = (2 – 2^(–M)) * 2^(2^(E-1))  (no nans for fp4)
+  constexpr double F4E2M1_MAX = 6.0;
+  // eps = 2^(1-M-E)
+  constexpr double F8E4M3_EPS = 0.015625;
+  constexpr double F8E4M3_MAX = 448.0;
+  return quantizeTv(
+      unquantized,
+      global_scale_factor,
+      /*block_size=*/16,
+      /*quantized_dtype=*/DataType::Float4_e2m1fn,
+      /*block_scale_factor_dtype=*/DataType::Float8_e4m3fn,
+      /*quantized_max_norm=*/F4E2M1_MAX,
+      /*block_scale_min=*/F8E4M3_EPS,
+      /*block_scale_max=*/F8E4M3_MAX,
+      /*clamp_before_casts=*/true);
+}
+
+QuantizedTensorView quantizeTvMxfp8(
+    TensorView* unquantized,
+    TensorView* global_scale_factor = nullptr) {
+  // eps = 2^(1-M-E)
+  constexpr double F8E4M3_EPS = 0.015625;
+  // https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html
+  constexpr double F8E4M3_MAX = 448.0;
+  return quantizeTv(
+      unquantized,
+      global_scale_factor,
+      /*block_size=*/32,
+      /*quantized_dtype=*/DataType::Float4_e2m1fn,
+      /*block_scale_factor_dtype=*/DataType::Float8_e4m3fn,
+      /*quantized_max_norm=*/F8E4M3_MAX,
+      /*block_scale_min=*/F8E4M3_EPS,
+      /*block_scale_max=*/F8E4M3_MAX,
+      /*clamp_before_casts=*/false);
+}
 
 struct QuantizedTensor {
   at::Tensor elts;
@@ -222,6 +318,39 @@ QuantizedTensor quantizeNvfp4(const at::Tensor x) {
   return {x_u8, x_scale, x_global_scale};
 }
 
+//! Convert FP4 into FP32
+at::Tensor e2m1ToFp32(const at::Tensor& int4_value) {
+  NVF_ERROR_EQ(int4_value.dtype(), at::kByte);
+  const at::Tensor signBit = int4_value & 0b1000;
+  const at::Tensor index = int4_value & 0b0111;
+
+  // Map the 8 possible non-negative values of e2m1 to corresponding positive
+  // fp32 value
+  const at::Tensor kE2M1ToFloatArray = at::tensor(
+      {0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f},
+      int4_value.options().dtype(at::kFloat));
+
+  const at::Tensor abs_float_result =
+      at::take(kE2M1ToFloatArray, index.to(at::kLong));
+  return at::where(signBit != 0, -abs_float_result, abs_float_result);
+}
+
+//! Unpack float4_e2m1fn_x2 into two separate fp32 values
+at::Tensor unpackFp4Bytes(const at::Tensor& a) {
+  NVF_ERROR_EQ(a.dtype(), at::kFloat4_e2m1fn_x2);
+  int64_t m = a.size(0);
+  int64_t n = a.size(1);
+  const at::Tensor a_byte = a.view(at::kByte);
+  const at::Tensor a_flat = a_byte.flatten();
+  const at::Tensor upper_half_byte =
+      at::bitwise_right_shift(a_byte & 0b11110000, 4);
+  const at::Tensor lower_half_byte = a_byte & 0b00001111;
+  const at::Tensor upper_half_float = e2m1ToFp32(upper_half_byte);
+  const at::Tensor lower_half_float = e2m1ToFp32(lower_half_byte);
+  return at::stack({lower_half_float, upper_half_float}, /*dim=*/-1)
+      .reshape({m, n * 2});
+}
+
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
 TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   // Skip if not on SM100 or above
@@ -368,6 +497,184 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   KernelArgumentHolder outputs = ce.run(inputs);
 
   testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
+}
+
+// Test findBlockScaledOutputs pattern matching
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithoutGlobalScale) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto input = makeContigTensor(2, DataType::Float);
+  fusion->addInput(input);
+
+  auto unquantized_output = exp(input);
+
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(unquantized_output, /*global_scale_factor=*/nullptr);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  // Test pattern matching
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  ASSERT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
+  EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
+  EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
+  EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
+  EXPECT_EQ(patterns[0].block_size, 16);
+}
+
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_WithGlobalScale) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto input = makeContigTensor(2, DataType::Float);
+  auto per_tensor_scale = makeContigTensor(0, DataType::Float);
+  fusion->addInput(input);
+  fusion->addInput(per_tensor_scale);
+
+  TensorView* unquantized_output = exp(input);
+
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(unquantized_output, per_tensor_scale);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  // Test pattern matching
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  ASSERT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
+  EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
+  EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
+  EXPECT_EQ(patterns[0].global_scale_factor, per_tensor_scale);
+  EXPECT_EQ(patterns[0].block_size, 16);
+}
+
+TEST_F(CutlassExecutorTest, FindBlockScaledOutputs_MXFP8) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto input = makeContigTensor(2, DataType::Float);
+  fusion->addInput(input);
+
+  TensorView* unquantized_output = exp(input);
+
+  const QuantizedTensorView qtv =
+      quantizeTvMxfp8(unquantized_output, /*global_scale_factor=*/nullptr);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  // Test pattern matching for FP8 output (MXFP8)
+  auto patterns = cutlass_codegen::findBlockScaledOutputs(fusion.get());
+
+  ASSERT_EQ(patterns.size(), 1);
+  EXPECT_EQ(patterns[0].quantized_output, qtv.elts);
+  EXPECT_EQ(patterns[0].unquantized_output, unquantized_output);
+  EXPECT_EQ(patterns[0].block_scale_factors, qtv.block_scale);
+  EXPECT_EQ(patterns[0].global_scale_factor, nullptr);
+  EXPECT_EQ(patterns[0].block_size, 32);
+}
+
+// Test GEMM + ReLU with nvfp4 block-scaled inputs and output
+TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
+  // Skip if not on SM100 or above
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
+      at::cuda::getCurrentDeviceProperties()->major > 11) {
+    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Input tensors: nvfp4 block-scaled A and B matrices
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(2, DataType::Float4_e2m1fn);
+  // B has K inner for optimal memory access
+  b->setAllocationDomain({b->axis(1), b->axis(0)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(0, DataType::Float);
+  TensorView* global_normconst = makeContigTensor(0, DataType::Float);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(alpha);
+  fusion->addInput(global_normconst);
+
+  // Perform block-scaled matmul
+  auto smm = scaled_mm(
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
+      /*bias=*/nullptr,
+      /*beta=*/nullptr,
+      /*dtype=*/DataType::Float);
+
+  const QuantizedTensorView qtv = quantizeTvNvfp4(smm.tv, global_normconst);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  // Test dimensions
+  constexpr int64_t M = 4096, N = 4096, K = 4096;
+
+  // Create test data
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+
+  at::Tensor at_a = qa.elts;
+  at::Tensor at_b = qb.elts.t();
+  at::Tensor at_a_sf = qa.block_scale;
+  at::Tensor at_b_sf = qb.block_scale;
+
+  // Compute alpha to combine global scales
+  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
+
+  std::vector<c10::IValue> inputs{
+      at_a, at_b, at_a_sf, at_b_sf, at_alpha, at_global_normconst};
+
+  // Compile and run
+  CutlassParams params;
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
+
+  KernelArgumentHolder outputs = ce.run(inputs);
+
+  EXPECT_EQ(outputs.size(), 2);
+
+#if NVFUSER_ENABLE_CUTLASS
+  std::pair<torch::Tensor, torch::Tensor> aot_result =
+      cutlass_kernels::nvfp4_scaled_mm_blockscale(
+          at_a, at_b.t(), at_a_sf, at_b_sf, at_alpha, at_global_normconst);
+
+  EXPECT_TRUE(at::allclose(
+      outputs[0].as<at::Tensor>().to(at::kFloat),
+      aot_result.second.to(at::kFloat),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
+  EXPECT_TRUE(at::allclose(
+      unpackFp4Bytes(outputs[1].as<at::Tensor>()),
+      unpackFp4Bytes(aot_result.first),
+      /*rtol=*/0.001,
+      /*atol=*/0.001));
+#endif
 }
 
 } // namespace nvfuser

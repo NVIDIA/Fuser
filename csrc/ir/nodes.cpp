@@ -13,6 +13,7 @@
 #include <string>
 
 #include <ATen/cuda/CUDAContextLight.h>
+#include <c10/cuda/CUDAGraphsC10Utils.h>
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
@@ -4820,7 +4821,16 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
 
-  auto matmul_out = at::matmul(a, b);
+  at::Tensor matmul_out;
+  // aten::dot does not support meta device. Matmul lowers to dot for 1D @ 1D.
+  const bool uses_dot = (a.dim() == 1 && b.dim() == 1);
+  if (uses_dot && (a.is_meta() || b.is_meta())) {
+    const auto out_scalar_type = at::result_type(a, b);
+    auto out_opts = a.options().dtype(out_scalar_type).device(at::kMeta);
+    matmul_out = at::empty({}, out_opts);
+  } else {
+    matmul_out = at::matmul(a, b);
+  }
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
@@ -4995,6 +5005,14 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   int seqlen_q = sizes[2];
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  // Produce defined meta tensors for philox outputs so downstream segments
+  // can bind metadata and types correctly.
+  const auto meta_u64 =
+      at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
+  // philox_seed/rng_state, see note:
+  // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
+  auto rng_state = at::empty({2}, meta_u64);
+  auto rng_offset = at::empty({}, meta_u64);
   return std::make_tuple(
       query,
       logsumexp,
@@ -5002,8 +5020,8 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
       at::Tensor(),
       c10::SymInt(seqlen_q),
       c10::SymInt(seqlen_q),
-      at::Tensor(),
-      at::Tensor(),
+      rng_state,
+      rng_offset,
       at::Tensor());
 }
 
@@ -5118,13 +5136,11 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-std::vector<Expr*>::iterator Scope::insert(
-    std::vector<Expr*>::const_iterator pos,
-    Expr* expr) {
+Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5138,7 +5154,7 @@ std::vector<Expr*>::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   return insert(it, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5147,15 +5163,11 @@ std::vector<Expr*>::iterator Scope::insert_after(Expr* ref, Expr* expr) {
       " after the reference: ",
       ref,
       " however the reference was not found in this scope.");
-  return insert(it + 1, expr);
+  auto insert_pos = std::next(it);
+  return insert(insert_pos, expr);
 }
 
-std::vector<Expr*>::iterator Scope::insert(size_t pos, Expr* expr) {
-  const auto it = exprs_.begin() + (std::ptrdiff_t)pos;
-  return insert(it, expr);
-}
-
-void Scope::erase(std::vector<Expr*>::const_iterator pos) {
+void Scope::erase(Iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
@@ -5166,10 +5178,6 @@ void Scope::erase(Expr* ref) {
   if (it != exprs_.end()) {
     erase(it);
   }
-}
-
-void Scope::erase(size_t pos) {
-  erase(exprs_.begin() + (std::ptrdiff_t)pos);
 }
 
 bool Scope::contains(Expr* expr) const {
@@ -5429,6 +5437,21 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
     max_norm = inputs.at(idx).as<double>();
   }
 
+  // Meta-safe path: when either input or weight is a Meta tensor, avoid
+  // calling into ATen embedding (which dispatches to index_select) and
+  // instead synthesize the output shape and strides directly on Meta.
+  if (input.is_meta() || weight.is_meta()) {
+    std::vector<int64_t> out_sizes;
+    out_sizes.reserve(input.dim() + 1);
+    for (int64_t d = 0; d < input.dim(); ++d) {
+      out_sizes.push_back(input.size(d));
+    }
+    out_sizes.push_back(weight.size(1));
+    auto out = at::empty(
+        out_sizes, at::TensorOptions().device(at::kMeta).dtype(weight.dtype()));
+    return {out};
+  }
+
   namespace F = torch::nn::functional;
   return {F::embedding(
       input,
@@ -5681,6 +5704,43 @@ std::string GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  // Meta-device fast path outside of torch version guard
+  if (inputs.size() >= 3 && inputs[0].is<at::Tensor>() &&
+      inputs[1].is<at::Tensor>() && inputs[2].is<at::Tensor>()) {
+    const auto& mat1_meta = inputs[0].as<at::Tensor>();
+    const auto& mat2_meta = inputs[1].as<at::Tensor>();
+    const auto& offsets_meta = inputs[2].as<at::Tensor>();
+    if (mat1_meta.is_meta() || mat2_meta.is_meta() || offsets_meta.is_meta()) {
+      const int64_t num_groups = offsets_meta.numel();
+      std::vector<int64_t> result_sizes;
+      if (mat1_meta.dim() == 2 && mat2_meta.dim() == 2) {
+        result_sizes = {num_groups, mat1_meta.size(0), mat2_meta.size(-1)};
+      } else if (mat1_meta.dim() == 3 && mat2_meta.dim() == 2) {
+        result_sizes = {mat1_meta.size(1), mat2_meta.size(-1)};
+      } else if (mat1_meta.dim() == 2 && mat2_meta.dim() == 3) {
+        result_sizes = {mat1_meta.size(0), mat2_meta.size(-1)};
+      } else {
+        NVF_THROW(
+            "Expect ranks to be <2, 2>, <3, 2> or <2, 3>. Got: mat1 = ",
+            mat1_meta.sizes(),
+            " and mat2 = ",
+            mat2_meta.sizes());
+      }
+
+      auto options = mat1_meta.options()
+                         .device(c10::Device(c10::kMeta))
+                         .dtype(data_type_to_aten(out()->dtype()));
+      at::Tensor result = at::empty(result_sizes, options);
+
+      if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+          rfactor_did_idx != -1) {
+        result = result.unsqueeze(rfactor_did_idx);
+      }
+
+      return {result};
+    }
+  }
+
   NVF_ERROR(
       inputs[0].is<at::Tensor>(),
       "GroupedMmaOp expects tensor input at position 0 but got ",
@@ -5832,6 +5892,12 @@ std::vector<PolymorphicValue> GroupedMmaOp::evaluate(
     NVF_ERROR(!bias.defined(), "bias is not supported yet");
 
     // Compute numbers of tokens per group from offsets.
+    NVF_CHECK_EQ(
+        c10::cuda::currentStreamCaptureStatusMayInitCtx(),
+        c10::cuda::CaptureStatus::None,
+        "GroupedMmaOp's fallback implementation below doesn't support CUDA "
+        "graph capturing. The shapes of individual matmuls depend on "
+        "`offsets`, which is data dependent.");
     at::Tensor offsets_cpu = offsets.cpu();
     NVF_ERROR_EQ(offsets_cpu.dtype(), at::kInt);
     const int* data_ptr = offsets_cpu.data_ptr<int>();
@@ -6188,7 +6254,17 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   auto input = inputs.at(0).as<at::Tensor>();
 
-  NVF_ERROR(inputs.size() == 1);
+  NVF_ERROR_EQ(inputs.size(), 1);
+
+  // Meta-safe path: when input is a Meta tensor, avoid invoking ATen ops that
+  // may not have Meta kernels (e.g., cummin). Instead, synthesize an output
+  // tensor on Meta with the correct shape/strides and dtype.
+  if (input.is_meta()) {
+    const at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+    auto out_meta = at::empty(
+        input.sizes(), at::TensorOptions().device(at::kMeta).dtype(out_dtype));
+    return {out_meta};
+  }
 
   at::Tensor out_t;
   switch (opType()) {
@@ -6403,5 +6479,53 @@ std::vector<PolymorphicValue> PreprocessGroupedMatmulInputSf::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(PreprocessGroupedMatmulInputSf)
+
+// Details:
+// Currently output_scales is the first input in the constructor even though
+// it's the second output. This is because if it's the second output then we hit
+// a bug in indexing. The stack trace can be seen here:
+// https://gist.github.com/protonu/dc35024c1291625b2b7ce87baa39e2ae
+// This happens when creating UnswitchPredicate, probably in the call to
+// TensorIndexer::getPredicates. The incorrect predicate_domains for the tv
+// in the call to getPredicateDomains.
+BlockQuantizationOp::BlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input,
+    Val* logical_index,
+    Val* global_scale,
+    int64_t block_size)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(output_scales);
+  addInput(input);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addAttribute(logical_index);
+  addDataAttribute(block_size);
+}
+
+std::string BlockQuantizationOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
+                          << quantizedOutput()->toString() << ")\n"
+                          << " = block_quantize(" << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string BlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "BlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("BlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
 } // namespace nvfuser

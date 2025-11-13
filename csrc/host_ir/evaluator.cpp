@@ -22,8 +22,10 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <options.h>
@@ -33,7 +35,6 @@
 #include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/heuristic.h>
 #include <tensor_metadata.h>
-
 namespace nvfuser::hir {
 
 HostIrEvaluator::HostIrEvaluator(

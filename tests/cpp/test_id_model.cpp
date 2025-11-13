@@ -3181,4 +3181,90 @@ TEST_F(IdModelTest, ScatterLoopMapping) {
   }
 }
 
+// This test validates no promotion analysis is done for IDs that are
+// not part of logical-loop traversal paths. This is not strictly
+// required but is a WAR for special ops like
+// PreprocessGroupedMatmulInputSf. See also issue #5391.
+TEST_F(IdModelTest, LoopPromotionIncludeOnlyLoopIds) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  tv3->flatten();
+  tv3->split(0, 128);
+  TransformPropagatorWithCheck propagator(tv3);
+  MaxLogicalDomainInfoSpanningTree(tv3).traverse(&propagator);
+
+  AbstractTensor tv3_alloc(tv3->getLogicalDomain());
+  tv3_alloc.flatten();
+  tv3_alloc.split(0, 4);
+  tv3->setAllocationDomain(tv3_alloc.as<IterDomain*>(), true);
+
+  inlineMost();
+
+  IdModel id_model(&fusion);
+  const auto& loop_graph = id_model.buildLoopGraph();
+  for (auto tv3_alloc : tv3->getAllocationDomain()) {
+    EXPECT_FALSE(
+        id_model.loopPromotionMap().contains(loop_graph.toGroup(tv3_alloc)));
+  }
+}
+
+TEST_F(IdModelTest, PermissiveResizeGraph) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{24});
+  auto tv3 = reshape(tv1, {24}, {2, 3, 4});
+  auto tv4 = reshape(tv2, {12}, {2, 2, 3});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion);
+  const auto& eg = id_model.buildExactGraph();
+  const auto& prg = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+
+  // in exact graph, tv1 and tv2 are not mapped
+  EXPECT_FALSE(
+      eg.disjointValSets().strictAreMapped(tv1->axis(0), tv2->axis(0)));
+  // in permissive resize graph, tv0, tv1 and tv2 are mapped
+  EXPECT_TRUE(
+      prg.disjointValSets().strictAreMapped(tv1->axis(0), tv2->axis(0)));
+  EXPECT_TRUE(
+      prg.disjointValSets().strictAreMapped(tv1->axis(0), tv0->axis(0)));
+  // The first split of the two reshapes are mapped but the second split is not
+  // due to the different split factors
+  std::vector<Expr*> r1_exprs = StmtSort::getExprsTo(
+      {tv3->getLogicalDomain().begin(), tv3->getLogicalDomain().end()});
+  std::vector<Expr*> r2_exprs = StmtSort::getExprsTo(
+      {tv4->getLogicalDomain().begin(), tv4->getLogicalDomain().end()});
+  EXPECT_EQ(r1_exprs.size(), r2_exprs.size());
+  EXPECT_TRUE(prg.disjointExprSets().strictAreMapped(r1_exprs[0], r2_exprs[0]));
+  EXPECT_FALSE(
+      prg.disjointExprSets().strictAreMapped(r1_exprs[1], r2_exprs[1]));
+  // resize graph propagates mappings through transformations based on
+  // operation equivalence (same split factor), not extent equivalence. The
+  // resize operations at the root create a chain reaction where all subsequent
+  // transformations with matching parameters get their outputs mapped together,
+  // regardless of actual extent values.
+  auto id1 = r1_exprs[0]->as<Split>()->inner(); // 24 split by 2 -> 12
+  auto id2 = r2_exprs[0]->as<Split>()->inner(); // 12 split by 2 -> 6
+  EXPECT_TRUE(prg.disjointValSets().strictAreMapped(id1, id2));
+}
 } // namespace nvfuser

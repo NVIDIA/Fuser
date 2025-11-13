@@ -323,6 +323,52 @@ def test_broadcast_mixing(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
+def test_dynamic_bcast_in_dim(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition) -> None:
+        tv0 = fd.define_tensor(
+            shape=[1, -1], contiguity=[None, True], dtype=DataType.Float, is_cpu=False
+        )
+        c4 = fd.define_scalar(None, dtype=DataType.Int)
+        c5 = fd.define_scalar(None, dtype=DataType.Int)
+        tv1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
+        )
+        tv3 = fd.ops.broadcast_in_dim(tv0, (c4, c5), (0, 1))
+        tv4 = fd.ops.add(tv3, tv1)
+        fd.add_output(tv4)
+
+    t0 = torch.randn([1, 10], dtype=torch.float32, device="cuda:0")
+    c4 = 5
+    c5 = 10
+    t1 = torch.randn([5, 10], dtype=torch.float32, device="cuda:0")
+    inputs = [t0, c4, c5, t1]
+    out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, validate_results=True
+    )
+
+
+def test_dynamic_full(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition) -> None:
+        c4 = fd.define_scalar(None, dtype=DataType.Int)
+        c5 = fd.define_scalar(None, dtype=DataType.Int)
+        c6 = fd.define_scalar(None, dtype=DataType.Float)
+        tv1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
+        )
+        tv3 = fd.ops.full((c4, c5), c6, DataType.Float)
+        tv4 = fd.ops.add(tv3, tv1)
+        fd.add_output(tv4)
+
+    c4 = 5
+    c5 = 10
+    c6 = 2.5
+    t1 = torch.randn([5, 10], dtype=torch.float32, device="cuda:0")
+    inputs = [c4, c5, c6, t1]
+    out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, validate_results=True
+    )
+
+
 def test_tensor_ndim(nvfuser_direct_test):
     shape = [2 for i in range(12)]
     new_shape = shape[:9]
@@ -885,7 +931,7 @@ def test_slice(nvfuser_direct_test):
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     for out in nvf_out:
-        nvfuser_direct_test.assertTrue(out.allclose(x[:, 1:, 2:]))
+        torch.testing.assert_close(out, x[:, 1:, 2:])
 
 
 def test_iota(nvfuser_direct_test):

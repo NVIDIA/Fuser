@@ -7,6 +7,7 @@
 // clang-format on
 #include <bindings.h>
 #include <multidevice/communicator.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/scheduler_types.h>
 #include <type.h>
 
@@ -23,6 +24,7 @@ void bindEnums(py::module& nvfuser) {
       .value("Int", DataType::Int)
       .value("Int32", DataType::Int32)
       .value("UInt64", DataType::UInt64)
+      .value("Index", DataType::Index)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
@@ -93,6 +95,33 @@ void bindEnums(py::module& nvfuser) {
       .value("broadcast", IdMappingMode::BROADCAST)
       .value("permissive", IdMappingMode::PERMISSIVE)
       .value("loop", IdMappingMode::LOOP);
+
+  py::enum_<MatmulParams::TilingStrategy> tiling_strategy(
+      nvfuser, "MatmulTilingStrategy", py::module_local());
+  tiling_strategy.value(
+      "one_tile_per_cta", MatmulParams::TilingStrategy::OneTilePerCTA);
+  tiling_strategy.value(
+      "distribute_tiles_across_sms",
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs);
+  tiling_strategy.value(
+      "distribute_stages_across_sms",
+      MatmulParams::TilingStrategy::DistributeStagesAcrossSMs);
+
+  py::enum_<MatmulParams::BufferingLoopLevel> buffering_loop_level(
+      nvfuser, "MatmulBufferingLoopLevel", py::module_local());
+  buffering_loop_level.value(
+      "cta_tiles", MatmulParams::BufferingLoopLevel::CTATiles);
+  buffering_loop_level.value(
+      "warp_tiles", MatmulParams::BufferingLoopLevel::WarpTiles);
+
+  py::enum_<MatmulParams::CircularBufferingStrategy>
+      circular_buffering_strategy(
+          nvfuser, "MatmulCircularBufferingStrategy", py::module_local());
+  circular_buffering_strategy.value(
+      "pipelined", MatmulParams::CircularBufferingStrategy::Pipelined);
+  circular_buffering_strategy.value(
+      "warp_specialized",
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized);
 }
 
 } // namespace nvfuser::python
