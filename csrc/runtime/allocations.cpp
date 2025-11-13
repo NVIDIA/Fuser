@@ -829,12 +829,21 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       continue;
     }
 
-    // FIXME: should this be isParallelized?
-    if (id->isDeviceDim() || id->isStream()) {
-      symbolic_sizes.push_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    }
+    symbolic_sizes.push_back([&]() {
+      if (id->isDeviceDim()) {
+        return id->container()->oneVal();
+      }
+
+      if (id->isStream()) {
+        // Hack for MultiDeviceExecutor.
+        if (std::ranges::find(tv->getLogicalDomain(), id) ==
+            tv->getLogicalDomain().end()) {
+          return id->container()->oneVal();
+        }
+      }
+      return id->getMaybeExpandedExtent();
+    }());
+
     if (id->hasExpandedExtent()) {
       NVF_ERROR(
           id->isBroadcast(),
