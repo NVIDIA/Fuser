@@ -10,24 +10,21 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
+#include <host_ir/host_ir.h>
 #include <multidevice/symmetric_tensor.h>
-
-#include <memory>
-#include <string>
-#include <unordered_map>
-#include <vector>
 
 namespace nvfuser {
 
 namespace hir {
-class DistributedTensorContiguousAliasing;
+class SymmetricContiguousView;
 } // namespace hir
 
 // Semaphore values for P2P communication synchronization
-enum class IpcSemaphore : cuuint32_t { kReady, kInUse };
+enum class IpcSemaphore : cuuint32_t { kIdle, kInProgress };
 
 // Basic IPC handle for legacy P2P communication using cudaIpc* APIs
 // This class is kept for backward compatibility with non-VMM setups
+// TODO: Remove this class in the future and use SymmetricTensor instead
 class IpcHandle {
  public:
   NVF_API IpcHandle(at::Tensor tensor);
@@ -166,6 +163,7 @@ class IpcHandleCache {
 };
 
 // Base class for symmetric memory handles used in collective communications
+// Backed by a SymmetricTensor object
 // Symmetric memory handles enable efficient multi-device operations using
 // CUDA VMM and NVLS multicast primitives
 class SymmetricMemoryHandle {
@@ -175,23 +173,23 @@ class SymmetricMemoryHandle {
 
 // SymmetricMemoryHandle for broadcast operations using NVLS multicast
 // Provides efficient one-to-many communication with hardware acceleration
-class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
+class SymMemForBroadcast : public SymmetricMemoryHandle {
  public:
-  MulticastHandleForBroadcast(Communication* communication, at::Tensor buffer);
+  SymMemForBroadcast(Communication* communication, at::Tensor buffer);
 
   // Constructor for creating multiple broadcasts (e.g., for allgather)
-  MulticastHandleForBroadcast(
+  SymMemForBroadcast(
       at::Tensor buffer,
       int64_t root,
       const std::string& name_suffix);
 
-  ~MulticastHandleForBroadcast() = default;
+  ~SymMemForBroadcast() = default;
 
-  void* buffer_multicast_ptr() const;
+  void* bufferMulticastPtr() const;
 
-  void* semaphore_multicast_ptr() const;
+  void* semaphoreMulticastPtr() const;
 
-  void* semaphore_unicast_ptr(int64_t rank) const;
+  void* semaphoreUnicastPtr(int64_t rank) const;
 
  private:
   // Buffer symmetric tensor with multicast support
@@ -202,33 +200,33 @@ class MulticastHandleForBroadcast : public SymmetricMemoryHandle {
 
 // SymmetricMemoryHandle for allgather operations using NVLS multicast
 // Allgather is implemented as world_size broadcasts, each rank acting as root once
-class MulticastHandleForAllgather : public SymmetricMemoryHandle {
+class SymMemForAllgather : public SymmetricMemoryHandle {
  public:
-  MulticastHandleForAllgather(Communication* communication, at::Tensor buffer);
+  SymMemForAllgather(Communication* communication, at::Tensor buffer);
 
-  ~MulticastHandleForAllgather() override = default;
+  ~SymMemForAllgather() override = default;
 
   // Accessors for a specific root rank's handles
-  void* buffer_multicast_ptr(int64_t root_rank) const;
+  void* bufferMulticastPtr(int64_t root_rank) const;
 
-  void* semaphore_multicast_ptr(int64_t root_rank) const;
+  void* semaphoreMulticastPtr(int64_t root_rank) const;
 
-  void* semaphore_unicast_ptr(int64_t root_rank, int64_t rank) const;
+  void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
 
  private:
-  // One MulticastHandleForBroadcast per rank (each rank acts as root once)
-  std::vector<std::unique_ptr<MulticastHandleForBroadcast>> broadcast_handles_;
+  // One SymMemForBroadcast per rank (each rank acts as root once)
+  std::vector<std::unique_ptr<SymMemForBroadcast>> broadcast_handles_;
 };
 
-// SymmetricMemoryHandle for DistributedTensorContiguousAliasing
+// SymmetricMemoryHandle for SymmetricContiguousView
 // Creates a contiguous view across all ranks from a sharded symmetric tensor
-class ContiguousViewHandle : public SymmetricMemoryHandle {
+class SymMemForContiguousView : public SymmetricMemoryHandle {
  public:
-  ContiguousViewHandle(
+  SymMemForContiguousView(
       at::Tensor buffer,
-      hir::DistributedTensorContiguousAliasing* expr);
+      hir::SymmetricContiguousView* expr);
 
-  ~ContiguousViewHandle() override = default;
+  ~SymMemForContiguousView() override = default;
 
   // Returns the contiguous tensor with DIDx dimension removed if size 1
   at::Tensor tensor() const {

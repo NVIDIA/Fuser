@@ -175,7 +175,7 @@ class Val;
   f(ShardByStream);                   \
   f(Deallocate);                      \
   f(ForLoop);                         \
-  f(DistributedTensorContiguousAliasing);
+  f(SymmetricContiguousView);
 
 // Forward declarations for all Val and Expr types
 

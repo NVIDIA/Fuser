@@ -6,10 +6,8 @@
  */
 // clang-format on
 #include <cuda_utils.h>
-#include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
-#include <multidevice/symmetric_tensor.h>
 
 namespace nvfuser {
 
@@ -46,7 +44,7 @@ IpcHandle::IpcHandle(at::Tensor tensor)
       sizeof(IpcSemaphore) == sizeof(int),
       "IpcSemaphore must be same size as int");
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(
-      (void*)semaphore_, (int)IpcSemaphore::kReady, sizeof(IpcSemaphore)));
+      (void*)semaphore_, (int)IpcSemaphore::kIdle, sizeof(IpcSemaphore)));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaIpcGetMemHandle(&semaphore_ipc_handle_, semaphore_));
 }
@@ -123,6 +121,7 @@ void IpcHandleCache::exchangeHandles(
         tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = getTcpStoreKey(communication, my_rank);
+    // TODO: use multiSet
     store->set(key, toBytes(*buffer_handle));
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
   }
@@ -132,6 +131,8 @@ void IpcHandleCache::exchangeHandles(
     const int64_t peer =
         expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
     std::string key = getTcpStoreKey(communication, peer);
+    // TCP store get is blocking until a timeout
+    // TODO: use multiGet
     auto peer_ipc_handle = std::make_unique<IpcHandle>(store->get(key));
     store->deleteKey(key);
     auto& local_ipc_handle = local_ipc_handles.at(communication);
@@ -145,20 +146,22 @@ void IpcHandleCache::exchangeHandles(
   if (non_cached_communications.empty()) {
     return;
   }
-  // Barrier is needed to ensure all ranks have received the memhandles
-  // and keys are deleted from the store before the next call to exchangeHandles
+  // a barrier is needed here to ensure all ranks have received the
+  // memhandles and the keys are deleted from the store before the next call to
+  // exchangeHandles, otherwise there is a correctness issue
+  // TODO: precisely select what ranks need to wait on that barrier.
   communicator->barrier();
 }
 
-MulticastHandleForBroadcast::MulticastHandleForBroadcast(
+SymMemForBroadcast::SymMemForBroadcast(
     Communication* communication,
     at::Tensor buffer)
-    : MulticastHandleForBroadcast(
+    : SymMemForBroadcast(
           buffer,
           communication->root(),
           "for_Communication" + communication->name()) {}
 
-MulticastHandleForBroadcast::MulticastHandleForBroadcast(
+SymMemForBroadcast::SymMemForBroadcast(
     at::Tensor buffer,
     int64_t root,
     const std::string& name_suffix) {
@@ -178,8 +181,8 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
       /*device=*/buffer.device(),
       /*alloc_id=*/std::nullopt);
 
-  // Initialize the semaphore to kReady
-  IpcSemaphore init_value = IpcSemaphore::kReady;
+  // Initialize the semaphore to kIdle
+  IpcSemaphore init_value = IpcSemaphore::kIdle;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
       semaphore.data_ptr(),
       &init_value,
@@ -198,26 +201,26 @@ MulticastHandleForBroadcast::MulticastHandleForBroadcast(
       root, store_key_prefix + "_semaphore_mcast");
 }
 
-void* MulticastHandleForBroadcast::buffer_multicast_ptr() const {
+void* SymMemForBroadcast::bufferMulticastPtr() const {
   return buffer_sym_tensor_->multicastPtr();
 }
 
-void* MulticastHandleForBroadcast::semaphore_multicast_ptr() const {
+void* SymMemForBroadcast::semaphoreMulticastPtr() const {
   return semaphore_sym_tensor_->multicastPtr();
 }
 
-void* MulticastHandleForBroadcast::semaphore_unicast_ptr(int64_t rank) const {
+void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
   return semaphore_sym_tensor_->remoteTensorPtr(rank);
 }
 
-MulticastHandleForAllgather::MulticastHandleForAllgather(
+SymMemForAllgather::SymMemForAllgather(
     Communication* communication,
     at::Tensor buffer) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t world_size = communicator.size();
 
   // Allgather is world_size broadcasts, each broadcasting a different slice
-  // of the output buffer. Create one MulticastHandleForBroadcast per rank.
+  // of the output buffer. Create one SymMemForBroadcast per rank.
   broadcast_handles_.reserve(world_size);
 
   for (int64_t root_rank = 0; root_rank < world_size; ++root_rank) {
@@ -232,24 +235,24 @@ MulticastHandleForAllgather::MulticastHandleForAllgather(
     std::string name_suffix =
         communication->name() + "_allgather_root" + std::to_string(root_rank);
 
-    // Create MulticastHandleForBroadcast for this slice
-    broadcast_handles_.push_back(std::make_unique<MulticastHandleForBroadcast>(
+    // Create SymMemForBroadcast for this slice
+    broadcast_handles_.push_back(std::make_unique<SymMemForBroadcast>(
         sliced_buffer, root_rank, name_suffix));
   }
 }
 
-void* MulticastHandleForAllgather::buffer_multicast_ptr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->buffer_multicast_ptr();
+void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
+  return broadcast_handles_[root_rank]->bufferMulticastPtr();
 }
 
-void* MulticastHandleForAllgather::semaphore_multicast_ptr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->semaphore_multicast_ptr();
+void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {
+  return broadcast_handles_[root_rank]->semaphoreMulticastPtr();
 }
 
-void* MulticastHandleForAllgather::semaphore_unicast_ptr(
+void* SymMemForAllgather::semaphoreUnicastPtr(
     int64_t root_rank,
     int64_t rank) const {
-  return broadcast_handles_[root_rank]->semaphore_unicast_ptr(rank);
+  return broadcast_handles_[root_rank]->semaphoreUnicastPtr(rank);
 }
 
 SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
@@ -262,15 +265,15 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
   if (auto* dtca =
-          dynamic_cast<hir::DistributedTensorContiguousAliasing*>(key.expr)) {
-    // DistributedTensorContiguousAliasing
-    handle = std::make_unique<ContiguousViewHandle>(key.buffer, dtca);
+          dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+    // SymmetricContiguousView
+    handle = std::make_unique<SymMemForContiguousView>(key.buffer, dtca);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
-      handle = std::make_unique<MulticastHandleForBroadcast>(comm, key.buffer);
+      handle = std::make_unique<SymMemForBroadcast>(comm, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
-      handle = std::make_unique<MulticastHandleForAllgather>(comm, key.buffer);
+      handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
     } else {
       NVF_ERROR(
           false,
@@ -286,9 +289,9 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   return inserted.first->second.get();
 }
 
-ContiguousViewHandle::ContiguousViewHandle(
+SymMemForContiguousView::SymMemForContiguousView(
     at::Tensor in_tensor,
-    hir::DistributedTensorContiguousAliasing* unshard) {
+    hir::SymmetricContiguousView* unshard) {
   // Create SymmetricTensor from the input tensor
   // Validation happens automatically in SymmetricTensor constructor
   std::string tag = "unshard_" + std::to_string(unshard->name());

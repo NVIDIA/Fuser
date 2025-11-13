@@ -464,7 +464,7 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   return out;
 }
 
-DistributedTensorContiguousAliasing::DistributedTensorContiguousAliasing(
+SymmetricContiguousView::SymmetricContiguousView(
     IrBuilderPasskey passkey,
     TensorView* out,
     TensorView* in)
@@ -477,18 +477,18 @@ DistributedTensorContiguousAliasing::DistributedTensorContiguousAliasing(
       in->getMemoryType());
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(DistributedTensorContiguousAliasing)
+NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
 
-std::string DistributedTensorContiguousAliasing::toString(
+std::string SymmetricContiguousView::toString(
     int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size)
-      << out()->toString() << " = DistributedTensorContiguousAliasing("
+      << out()->toString() << " = SymmetricContiguousView("
       << in()->toString() << ")" << std::endl;
   return ss.str();
 }
 
-std::string DistributedTensorContiguousAliasing::toInlineString(
+std::string SymmetricContiguousView::toInlineString(
     int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }

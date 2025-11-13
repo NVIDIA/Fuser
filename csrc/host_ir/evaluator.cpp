@@ -798,14 +798,14 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   expr_evaluator_.bind(out_tv, out_tensor);
 }
 
-void HostIrEvaluator::handle(DistributedTensorContiguousAliasing* unshard) {
+void HostIrEvaluator::handle(SymmetricContiguousView* unshard) {
   FUSER_PERF_SCOPE(
-      "HostIrEvaluator::handle(DistributedTensorContiguousAliasing)");
+      "HostIrEvaluator::handle(SymmetricContiguousView)");
 
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided for "
-      "DistributedTensorContiguousAliasing");
+      "SymmetricContiguousView");
 
   auto* in_tv = unshard->in();
   auto* out_tv = unshard->out();
@@ -813,8 +813,8 @@ void HostIrEvaluator::handle(DistributedTensorContiguousAliasing* unshard) {
   // Get the sharded input tensor
   at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
 
-  // Get or create ContiguousViewHandle from the cache
-  ContiguousViewHandle* handle = static_cast<ContiguousViewHandle*>(
+  // Get or create SymMemForContiguousView from the cache
+  SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
       multicast_handle_cache_.get({in_tensor, unshard}));
 
   NVF_ERROR(in_tv->axis(0)->isDeviceDim(), "Tv must be sharded on outermost dimension", in_tv);

@@ -483,36 +483,36 @@ class ShardByStream : public Expr {
 // output TensorView.
 TensorView* shardByStream(TensorView* in, Val* stream_index);
 
-// DistributedTensorContiguousAliasing takes a sharded TensorView with
+// SymmetricContiguousView takes a sharded TensorView with
 // symmetric memory type (where the outermost dimension is parallelized with
 // DIDx) and produces an unsharded TensorView. At runtime, it performs IPC
 // handle exchange and creates a contiguous virtual address mapping across all
 // ranks, similar to the VMM multi-rank contiguous mapping pattern. This
 // effectively "unshards" the tensor by making all ranks' data visible in a
 // contiguous address space.
-class DistributedTensorContiguousAliasing : public Expr {
+class SymmetricContiguousView : public Expr {
  public:
   using Expr::Expr;
-  DistributedTensorContiguousAliasing(
+  SymmetricContiguousView(
       IrBuilderPasskey passkey,
       TensorView* out,
       TensorView* in);
 
-  DistributedTensorContiguousAliasing(
-      const DistributedTensorContiguousAliasing& other) = delete;
-  DistributedTensorContiguousAliasing& operator=(
-      const DistributedTensorContiguousAliasing& other) = delete;
-  DistributedTensorContiguousAliasing(
-      DistributedTensorContiguousAliasing&& other) = delete;
-  DistributedTensorContiguousAliasing& operator=(
-      DistributedTensorContiguousAliasing&& other) = delete;
+  SymmetricContiguousView(
+      const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView& operator=(
+      const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView(
+      SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView& operator=(
+      SymmetricContiguousView&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
-    return "hir::DistributedTensorContiguousAliasing";
+    return "hir::SymmetricContiguousView";
   }
 
   TensorView* in() const {

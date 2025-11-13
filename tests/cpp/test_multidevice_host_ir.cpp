@@ -440,7 +440,7 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   }
 }
 
-TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
+TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
   if (communicator_->size() < 2) {
     GTEST_SKIP() << "Test requires at least 2 devices";
   }
@@ -463,9 +463,9 @@ TEST_F(MultiDeviceHostIrTest, DistributedTensorContiguousAliasing) {
   TensorView* output_tv = makeContigConcreteTensor(unsharded_sizes);
   output_tv->setMemoryType(MemoryType::Symmetric);
 
-  // Create the DistributedTensorContiguousAliasing operation
+  // Create the SymmetricContiguousView operation
   auto* aliasing_op =
-      IrBuilder::create<DistributedTensorContiguousAliasing>(output_tv, input_tv);
+      IrBuilder::create<SymmetricContiguousView>(output_tv, input_tv);
 
   // Set up the host program
   hic->addInput(input_tv);
