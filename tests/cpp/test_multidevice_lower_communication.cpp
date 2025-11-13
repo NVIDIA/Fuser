@@ -769,4 +769,78 @@ INSTANTIATE_TEST_SUITE_P(
       return ss.str();
     }));
 
+class LowerCollectiveCudaTest : public MultiDeviceTest {};
+
+TEST_F(LowerCollectiveCudaTest, Allgather) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor out_tensor;
+  for (int i = 0; i < 10; ++i) {
+    out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  }
+
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
+}
+
+TEST_F(LowerCollectiveCudaTest, Broadcast) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr DeviceIdxType kRoot = 0;
+  in->setDeviceMesh({kRoot});
+  out->setDeviceMesh(mesh);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  const auto device_id = communicator_->deviceId();
+  at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
+
+  at::Tensor out_tensor =
+      executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(
+      at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
+}
+
 } // namespace nvfuser
