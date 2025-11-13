@@ -188,26 +188,35 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 }
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
+  FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)");
   // Phase 1: Direct kernel launch without KernelExecutor::run
   // This decouples LaunchKernel from the KernelExecutor runtime overhead
 
   // Build input arguments
   KernelArgumentHolder args;
+  {
+  FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::cache_id");
   PolymorphicValue cache_id =
       expr_evaluator_.evaluate(launch_kernel->cacheId());
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
+  }
+
+  KernelArgumentHolder outputs;
+  {
+
+  FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::in_out");
   for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
 
   // All output buffers are known already
-  KernelArgumentHolder outputs;
   for (Val* output : launch_kernel->outputs()) {
     if (expr_evaluator_.isKnown(output)) {
       outputs.push(getKnownConcreteValue(output));
     }
+  }
   }
 
   NVF_ERROR_EQ(
@@ -221,8 +230,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   NVF_ERROR(compiled_kernel != nullptr, "CompiledKernel is null");
   NVF_ERROR(compiled_kernel->lowered(), "Kernel is not lowered");
 
-  // Lazy initialization: compute launch parameters on first execution
+  auto& entry_data = launch_kernel->getExecutorEntryData();
+
+  // Lazy initialization: compute launch parameters and args on first execution
   if (!launch_kernel->isInitialized()) {
+    FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::initialize");
     // Get the KernelExecutor to initialize the entry
     // We still use initializeExecutorEntry from KernelExecutor for Phase 1
     KernelExecutor& executor = container_->getKernelExecutor(launch_kernel->groupId());
@@ -238,36 +250,49 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         compiled_kernel->kernel()->indexType());
 
     // Copy the computed data into LaunchKernel's storage
-    auto& entry_data = launch_kernel->getExecutorEntryData();
     entry_data.computed_launch_params = temp_entry.launch_params;
     entry_data.inputs = std::move(temp_entry.inputs);
     entry_data.outputs = std::move(temp_entry.outputs);
     entry_data.output_aliased_to_input = std::move(temp_entry.output_aliased_to_input);
     // Phase 1: Skip intermediates
 
+    // Now compute and cache the kernel arguments
+    temp_entry.inputs = entry_data.inputs;
+    temp_entry.outputs = entry_data.outputs;
+    temp_entry.output_aliased_to_input = entry_data.output_aliased_to_input;
+    temp_entry.launch_params = entry_data.computed_launch_params;
+
+    // Add outputs to args
+    args.push(outputs);
+
+    // Compute the kernel arguments structure once
+    executor.computeArgs(temp_entry, args);
+
+    // Cache the computed args
+    entry_data.args = std::move(temp_entry.args);
+    entry_data.arg_ptrs = std::move(temp_entry.arg_ptrs);
+
     launch_kernel->markInitialized();
+  } else {
+    FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::cached");
+    // Args are already cached, just add outputs to args for this invocation
+    args.push(outputs);
+
+    // Recompute args if needed (tensor pointers may have changed)
+    // TODO: Optimize to only update tensor pointers, not rebuild entire structure
+    KernelExecutor& executor = container_->getKernelExecutor(launch_kernel->groupId());
+    KernelExecutorEntry temp_entry;
+    temp_entry.inputs = entry_data.inputs;
+    temp_entry.outputs = entry_data.outputs;
+    temp_entry.output_aliased_to_input = entry_data.output_aliased_to_input;
+    temp_entry.launch_params = entry_data.computed_launch_params;
+
+    executor.computeArgs(temp_entry, args);
+
+    // Update cached args with new tensor pointers
+    entry_data.args = std::move(temp_entry.args);
+    entry_data.arg_ptrs = std::move(temp_entry.arg_ptrs);
   }
-
-  auto& entry_data = launch_kernel->getExecutorEntryData();
-
-  // Compute kernel arguments (similar to KernelExecutor::computeArgs)
-  // For Phase 1, we delegate this to the executor's computeArgs
-  KernelExecutor& executor = container_->getKernelExecutor(launch_kernel->groupId());
-  KernelExecutorEntry temp_entry_for_args;
-  temp_entry_for_args.inputs = entry_data.inputs;
-  temp_entry_for_args.outputs = entry_data.outputs;
-  temp_entry_for_args.output_aliased_to_input = entry_data.output_aliased_to_input;
-  temp_entry_for_args.launch_params = entry_data.computed_launch_params;
-
-  // Add outputs to args
-  args.push(outputs);
-
-  // Compute the kernel arguments
-  executor.computeArgs(temp_entry_for_args, args);
-
-  // Copy back the computed args
-  entry_data.args = std::move(temp_entry_for_args.args);
-  entry_data.arg_ptrs = std::move(temp_entry_for_args.arg_ptrs);
 
   // Launch the kernel directly
   c10::DeviceGuard dg(compiled_kernel->device());
