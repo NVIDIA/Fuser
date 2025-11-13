@@ -8,6 +8,7 @@
 
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
+#include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
@@ -140,9 +141,7 @@ void lowerSegment(
         break;
       }
 
-      auto* stream_index = IrBuilder::create<Val>(DataType::Index);
-      auto* for_loop =
-          hir::ForLoop::createFromIterDomain(stream_index, stream_id);
+      auto* for_loop = hir::ForLoop::createFromIterDomain(stream_id);
       auto top_level_insertion_point = hic.pushBackTopLevelExprs(for_loop);
 
       std::unordered_map<Val*, Val*> replacement_map;
@@ -151,7 +150,7 @@ void lowerSegment(
           if (findStreamIterDomain(in) != nullptr &&
               getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
             auto [i, inserted] = replacement_map.try_emplace(
-                in, hir::shardByStream(in, stream_index));
+                in, hir::shardByStream(in, for_loop->index()));
             if (inserted) {
               for_loop->body().push_back(i->second->definition());
             }
@@ -166,7 +165,7 @@ void lowerSegment(
             // Loop is stream parallelized but allocation is not. Therefore,
             // `out` should be allocated outside the loop.
             auto [i, inserted] = replacement_map.try_emplace(
-                out, hir::shardByStream(out, stream_index));
+                out, hir::shardByStream(out, for_loop->index()));
             NVF_ERROR(inserted);
             for_loop->body().push_back(i->second->definition());
           }
