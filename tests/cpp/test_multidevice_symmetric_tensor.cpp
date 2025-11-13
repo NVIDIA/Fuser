@@ -7,7 +7,6 @@
 // clang-format on
 #include <cuda.h>
 #include <multidevice/symmetric_tensor.h>
-#include <multidevice/symmetric_memory.h>
 #include <tests/cpp/multidevice.h>
 
 namespace nvfuser {

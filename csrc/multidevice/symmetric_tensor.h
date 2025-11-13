@@ -240,5 +240,17 @@ class SymmetricTensor {
 // \return Tensor with contiguous view of all ranks' buffers
 at::Tensor createContiguousView(const SymmetricTensor& sym_tensor);
 
+// Allocate a symmetric CUDA tensor with the given size, dtype and device.
+// Only contiguous strides are currently supported.
+NVF_API at::Tensor allocateSymmetricTensor(
+    at::IntArrayRef sizes,
+    at::ScalarType dtype,
+    at::Device device,
+    std::optional<uint64_t> alloc_id);
+
+// Validate that the provided tensor is backed by symmetric CUDA memory.
+// Returns "" if valid; otherwise an error description.
+NVF_API std::string isSymmetricAllocationValid(at::Tensor tensor);
+
 } // namespace nvfuser
 

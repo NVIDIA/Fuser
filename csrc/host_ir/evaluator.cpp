@@ -24,7 +24,6 @@
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
-#include <multidevice/symmetric_memory.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <options.h>

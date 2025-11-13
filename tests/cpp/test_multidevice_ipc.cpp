@@ -12,7 +12,7 @@
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
 #include <multidevice/ipc_handle.h>
-#include <multidevice/symmetric_memory.h>
+#include <multidevice/symmetric_tensor.h>
 #include <ops/all_ops.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>

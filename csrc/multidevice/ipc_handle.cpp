@@ -9,7 +9,7 @@
 #include <host_ir/host_ir.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
-#include <multidevice/symmetric_memory.h>
+#include <multidevice/symmetric_tensor.h>
 
 namespace nvfuser {
 

@@ -8,7 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
-#include <multidevice/symmetric_memory.h>
+#include <multidevice/symmetric_tensor.h>
 
 namespace nvfuser {
 
