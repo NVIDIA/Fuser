@@ -770,6 +770,59 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   }
 }
 
+class BlockQuantizationCanScheduleTests : public BlackwellBase {};
+
+TEST_F(
+    BlockQuantizationCanScheduleTests,
+    CanRuntimeScheduleFailFromNoVectorization) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = blockQuantize(t0);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(t_out);
+
+  // Create misaligned tensor directly on GPU using custom CUDA allocation
+  size_t element_size = 4;
+  int m = 1024;
+  int n = 1024;
+
+  size_t total_elements = m * n;
+  size_t buffer_size =
+      total_elements * element_size + 16; // Extra bytes for misalignment
+
+  // Allocate GPU memory with extra space
+  void* gpu_ptr;
+  cudaMalloc(&gpu_ptr, buffer_size);
+
+  // Create tensor from GPU memory at offset of 4 bytes
+  void* misaligned_ptr = static_cast<char*>(gpu_ptr) + 4;
+  auto misaligned_gpu_tensor = at::from_blob(
+      misaligned_ptr,
+      {m, n},
+      at::TensorOptions()
+          .dtype(data_type_to_aten(DataType::Float))
+          .device(at::kCUDA));
+
+  auto good_input = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat));
+
+  // Expect failure as the input tensor can't be vectorized
+  // and we need vectorization > 2
+  SchedulerRuntimeInfo runtime_info(fusion.get(), {misaligned_gpu_tensor});
+  ASSERT_FALSE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info));
+
+  SchedulerRuntimeInfo runtime_info_new(fusion.get(), {good_input});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info_new));
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
