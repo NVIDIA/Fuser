@@ -100,7 +100,6 @@ TEST_P(SgLangMoETest, ComputeProblemSizes) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -145,7 +144,6 @@ TEST_P(SgLangMoETest, ComputeExpertOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
   } else {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
@@ -208,7 +206,6 @@ TEST_P(SgLangMoETest, ComputeExpertBlockScaleOffsets) {
     auto outputs = ke.run({t0});
     testValidate(&fusion, outputs, {t0}, {t2, t6}, __LINE__, __FILE__);
   } else {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
     testValidate(
@@ -268,7 +265,6 @@ TEST_P(SgLangMoETest, ComputeArgSort) {
     ke.compile(&fusion, {t0});
     outputs = ke.run({t0});
   } else {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     outputs = executor_cache.runFusionWithInputs({t0});
     EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
