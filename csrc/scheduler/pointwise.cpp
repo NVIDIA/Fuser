@@ -1276,7 +1276,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     unswitch_pos = 2;
   }
 
-  // We first vectorize the the quantized outputs of the block quantization ops.
+  // We first vectorize the quantized outputs of the block quantization ops.
   // We then convert the vectorized ID to group ID.
   // We do so as the runtime function for block quantization expects 2/4/8
   // elements per thread.
