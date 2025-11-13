@@ -34,6 +34,8 @@ class TensorInitVal : public OptOutDispatch {
 
   void handle(ScanOp* sop) final;
 
+  void handle(TopKOp* top) final;
+
   void registerInitVal(TensorView* tv, Val* val);
 
  private:

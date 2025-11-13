@@ -7,10 +7,12 @@
 // clang-format on
 #pragma once
 
-namespace nvfuser {
+#include <unordered_set>
 
-class IterDomain;
-class TensorView;
+#include <ir/interface_nodes.h>
+#include <type.h>
+
+namespace nvfuser {
 
 // Return true if the TensorView is contiguous. This function is more
 // permissive than torch.Tensor.is_contiguous because it allows expanded
@@ -31,5 +33,12 @@ IterDomain* projectShardedAllocationToLogical(
 IterDomain* projectLogicalToShardedAllocation(
     TensorView* tv,
     IterDomain* logical_id);
+
+// Propagate sharding for the given parallel types from loop domain to
+// allocation domain, refining contiguity as needed so allocation aliases the
+// original storage layout.
+void shardAllocationAsLoop(
+    TensorView* tv,
+    const std::unordered_set<ParallelType>& parallel_types);
 
 } // namespace nvfuser

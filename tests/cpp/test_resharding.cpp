@@ -131,6 +131,7 @@ TEST_F(ReshardingTest, Set_SameMesh_SameParallelType) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = set(in);
+  out->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_FALSE(isResharding(out->definition()));
 }

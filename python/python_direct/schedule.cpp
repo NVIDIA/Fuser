@@ -242,6 +242,46 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
         )");
 
   schedule.def(
+      "compute_heuristics",
+      [](Fusion* fusion,
+         SchedulerType scheduler_type,
+         const py::iterable& inputs) {
+        auto args = from_pyiterable(inputs);
+        SchedulerRuntimeInfo runtime_info(fusion, args);
+        NVF_ERROR(
+            Schedule::canSchedule(scheduler_type, fusion, runtime_info),
+            "Could not schedule fusion with the SchedulerType: ",
+            scheduler_type);
+        auto scheduler_instance =
+            SchedulerEntry::makeSchedulerInstance(scheduler_type);
+        return scheduler_instance->computeHeuristics(fusion, runtime_info);
+      },
+      py::arg("fusion"),
+      py::arg("scheduler_type"),
+      py::arg("inputs"),
+      R"(
+          Compute the heuristics for the specified scheduler type.
+
+          Parameters
+          ----------
+          fusion : Fusion
+              The fusion to compute heuristics for.
+          scheduler_type : SchedulerType
+              The type of scheduler to compute heuristics for.
+          inputs : iterable
+              The input tensors/values for the fusion.
+
+          Returns
+          -------
+          HeuristicParams
+              The heuristics for the given fusion.
+
+          Notes
+          -----
+          This function will raise an error if the scheduler cannot schedule the fusion.
+        )");
+
+  schedule.def(
       "schedule",
       [](Fusion* fusion,
          SchedulerType scheduler_type,
@@ -273,6 +313,35 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
           Notes
           -----
           This function will raise an error if the scheduler cannot schedule the fusion.
+        )");
+
+  schedule.def(
+      "schedule",
+      [](Fusion* fusion,
+         SchedulerType scheduler_type,
+         const HeuristicParams* heuristic_params) {
+        auto scheduler_instance =
+            SchedulerEntry::makeSchedulerInstance(scheduler_type);
+        scheduler_instance->schedule(fusion, heuristic_params);
+      },
+      py::arg("fusion"),
+      py::arg("scheduler_type"),
+      py::arg("heuristic_params"),
+      R"(
+          Schedule the fusion with the specified scheduler type.
+
+          Parameters
+          ----------
+          fusion : Fusion
+              The fusion to schedule.
+          scheduler_type : SchedulerType
+              The type of scheduler to use.
+          heuristic_params : HeuristicParams
+              The heuristics for the scheduled fusion.
+
+          Returns
+          -------
+          None
         )");
 }
 
