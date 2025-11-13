@@ -84,7 +84,14 @@ struct KernelExecutorEntry {
 
 class GpuLower;
 
+namespace hir {
+class HostIrEvaluator;
+}
+
 class KernelExecutor : public ExecutorAbstract {
+  // Friend declaration for Phase 1 host IR evaluator access
+  friend class hir::HostIrEvaluator;
+
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API KernelExecutor(

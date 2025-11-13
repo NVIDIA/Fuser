@@ -288,9 +288,10 @@ void lowerSegment(
           group_id,
           launch_params,
           ke.compiledKernel()->compileParams(),
-          ins,
-          outs,
-          cache_id);
+          cloned_ins,
+          cloned_outs,
+          cache_id,
+          ke.compiledKernel().get());
       loop_nest.innermostScope().push_back(launch_kernel);
     }
   } // switch

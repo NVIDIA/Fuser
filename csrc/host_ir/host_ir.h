@@ -13,6 +13,12 @@
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
 
+// Forward declarations
+namespace nvfuser {
+struct GlobalBufferInfo;
+class CompiledKernel;
+}
+
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
 namespace nvfuser::hir {
@@ -116,7 +122,8 @@ class LaunchKernel : public Expr {
       const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
-      Val* cache_id);
+      Val* cache_id,
+      nvfuser::CompiledKernel* compiled_kernel);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -150,6 +157,45 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  nvfuser::CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
+  }
+
+  // Phase 1: Lazy initialization support - these are populated on first run
+  // Returns true if the executor entry has been initialized
+  bool isInitialized() const {
+    return executor_entry_init_;
+  }
+
+  // Mutable storage for lazy-initialized executor entry data
+  // These will be computed on first execution to avoid dependency on
+  // KernelExecutor::run during runtime
+  struct ExecutorEntryData {
+    LaunchParams computed_launch_params;
+    std::vector<nvfuser::GlobalBufferInfo> inputs;
+    std::vector<nvfuser::GlobalBufferInfo> outputs;
+    std::vector<int> output_aliased_to_input;
+    // Phase 1: Skipping intermediates
+    std::vector<std::vector<std::byte>> args;
+    std::vector<void*> arg_ptrs;
+  };
+
+  ExecutorEntryData& getExecutorEntryData() const {
+    return executor_entry_data_;
+  }
+
+  void markInitialized() const {
+    executor_entry_init_ = true;
+  }
+
+ private:
+  // Pointer to the compiled kernel - owned by KernelExecutor in HostIrContainer
+  nvfuser::CompiledKernel* compiled_kernel_ = nullptr;
+
+  // Mutable members for lazy initialization
+  mutable bool executor_entry_init_ = false;
+  mutable ExecutorEntryData executor_entry_data_;
 };
 
 class Deallocate : public Expr {
