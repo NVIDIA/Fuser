@@ -25,10 +25,10 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
   // Create a symmetric tensor
   std::vector<int64_t> sizes = {256, 512};
   at::ScalarType dtype = at::ScalarType::Float;
-  SymmetricTensor sym_tensor(sizes, dtype);
+  at::Tensor local_tensor = allocateSymmetricTensor(sizes, dtype, communicator_->device());
+  SymmetricTensor sym_tensor(local_tensor);
 
   // Validate local tensor
-  const at::Tensor& local_tensor = sym_tensor.localTensor();
   EXPECT_TRUE(local_tensor.is_cuda());
   EXPECT_EQ(local_tensor.scalar_type(), dtype);
   EXPECT_EQ(local_tensor.numel(), 256 * 512);
@@ -39,8 +39,8 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
   float local_value = static_cast<float>(rank + 100);
   local_tensor.fill_(local_value);
 
-  // Barrier to ensure all ranks have written their data
-  communicator_->barrier();
+
+  sym_tensor.setupRemoteHandles();
 
   // Read from all remote tensors
   for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
@@ -74,11 +74,10 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
   at::Tensor local_tensor = allocateSymmetricTensor(
       /*sizes=*/at::IntArrayRef({128, 256}),
       /*dtype=*/at::ScalarType::Double,
-      /*device=*/c10::Device(c10::DeviceType::CUDA, rank),
-      /*alloc_id=*/std::nullopt);
+      /*device=*/c10::Device(c10::DeviceType::CUDA, rank));
 
   // Create SymmetricTensor from pre-allocated tensor
-  SymmetricTensor sym_tensor(local_tensor, "test_preallocated");
+  SymmetricTensor sym_tensor(local_tensor);
 
   // Validate
   EXPECT_EQ(sym_tensor.localTensor().numel(), 128 * 256);
@@ -87,7 +86,7 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
   double local_value = static_cast<double>(rank * 1000 + 42);
   local_tensor.fill_(local_value);
 
-  communicator_->barrier();
+  sym_tensor.setupRemoteHandles();
 
   // Verify remote access
   for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
@@ -132,10 +131,14 @@ TEST_F(SymmetricTensorTest, Multicast) {
 
   // Create symmetric tensor (2MB to meet granularity requirements)
   constexpr int64_t kNumElems = 524288; // 2MB / 4 bytes
-  SymmetricTensor sym_tensor({kNumElems}, at::ScalarType::Int);
+  at::Tensor local_tensor = allocateSymmetricTensor(
+      /*sizes=*/at::IntArrayRef({kNumElems}),
+      /*dtype=*/at::ScalarType::Int,
+      /*device=*/c10::Device(c10::DeviceType::CUDA, rank));
+  SymmetricTensor sym_tensor(local_tensor);
 
   // Setup multicast
-  sym_tensor.setupMulticast(root, "test_multicast");
+  sym_tensor.setupMulticast(root);
 
   // Root writes data to multicast buffer
   std::vector<int> host_data(kNumElems);
@@ -185,10 +188,13 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Create symmetric tensor
-  SymmetricTensor sym_tensor({2, 262144}, at::ScalarType::Float); // 2MB tensor
+  at::Tensor local_tensor = allocateSymmetricTensor(
+      /*sizes=*/at::IntArrayRef({2, 262144}),
+      /*dtype=*/at::ScalarType::Float,
+      /*device=*/c10::Device(c10::DeviceType::CUDA, rank));
+  SymmetricTensor sym_tensor(local_tensor);
 
   // Write rank-specific pattern to local tensor
-  const at::Tensor& local_tensor = sym_tensor.localTensor();
   local_tensor.fill_(static_cast<float>(rank + 100));
 
   // Validate that localTensor has the correct values for this rank
@@ -206,7 +212,7 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   communicator_->barrier();
 
   // Create contiguous view of all ranks
-  at::Tensor contiguous_view = createContiguousView(sym_tensor);
+  at::Tensor contiguous_view = createContiguousView(sym_tensor, "");
 
   // Validate shape: [world_size, 2, 262144]
   EXPECT_EQ(contiguous_view.dim(), 3);

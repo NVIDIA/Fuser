@@ -11,22 +11,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
-} // namespace
-
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()),
       rank_(Communicator::getInstance().deviceId()),
@@ -169,7 +153,7 @@ SymMemForBroadcast::SymMemForBroadcast(
 
   // Create symmetric tensor for the buffer
   buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(
-      buffer, store_key_prefix + "_buffer");
+      buffer);
   
   // Setup multicast for the buffer
   buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
@@ -178,8 +162,7 @@ SymMemForBroadcast::SymMemForBroadcast(
   at::Tensor semaphore = allocateSymmetricTensor(
       /*sizes=*/at::IntArrayRef({1}),
       /*dtype=*/at::ScalarType::Int,
-      /*device=*/buffer.device(),
-      /*alloc_id=*/std::nullopt);
+      /*device=*/buffer.device());
 
   // Initialize the semaphore to kIdle
   IpcSemaphore init_value = IpcSemaphore::kIdle;
@@ -191,10 +174,10 @@ SymMemForBroadcast::SymMemForBroadcast(
 
   // Create symmetric tensor for the semaphore
   semaphore_sym_tensor_ = std::make_unique<SymmetricTensor>(
-      semaphore, store_key_prefix + "_semaphore");
+      semaphore);
 
   // Setup (unicast) IPC handles for the semaphore
-  semaphore_sym_tensor_->setupIpcHandles();
+  semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 
   // Setup multicast for the semaphore
   semaphore_sym_tensor_->setupMulticast(
@@ -210,6 +193,7 @@ void* SymMemForBroadcast::semaphoreMulticastPtr() const {
 }
 
 void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
+  // Use a fixed tag for semaphore remote access
   return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
@@ -292,13 +276,11 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
 SymMemForContiguousView::SymMemForContiguousView(
     at::Tensor in_tensor,
     hir::SymmetricContiguousView* unshard) {
-  // Create SymmetricTensor from the input tensor
-  // Validation happens automatically in SymmetricTensor constructor
   std::string tag = "unshard_" + std::to_string(unshard->name());
-  sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor, tag);
+  sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
 
   // Create contiguous view across all ranks
-  at::Tensor contiguous = createContiguousView(*sym_tensor_);
+  at::Tensor contiguous = createContiguousView(*sym_tensor_, tag);
 
   // Remove the DIDx dimension (outermost) if it has size 1
   if (contiguous.size(0) == 1) {
