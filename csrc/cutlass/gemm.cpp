@@ -48,22 +48,14 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
       : "cutlass::layout::ColumnMajor";
 }
 
-template <typename T>
-T* findOp(Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  const auto smmas = ir_utils::filterByType<T>(exprs.begin(), exprs.end());
-  if (smmas.size() != 1) {
-    return nullptr;
-  }
-  return *smmas.begin();
-}
-
 class CutlassCodeGenerator {
  public:
-  static std::string generate(Fusion* fusion, const CutlassParams& params) {
+  static CutlassGeneratedCode generate(
+      Fusion* fusion,
+      const CutlassParams& params) {
     CutlassCodeGenerator gen(fusion, params);
     gen.run();
-    return gen.code_;
+    return {gen.code_, gen.num_temp_tensors_};
   }
 
   static std::string getRejectReason(Fusion* fusion) {
@@ -122,10 +114,10 @@ class CutlassCodeGenerator {
         "Scale factors for B must be a fusion input");
 
     NVF_CUTLASS_REJECT_IF(
-        pattern.a_scale->dtype() != DataType::Float8_e4m3fn,
+        pattern_.a_scale->dtype() != DataType::Float8_e4m3fn,
         "Expected A scale factors to be fp8");
     NVF_CUTLASS_REJECT_IF(
-        pattern.b_scale->dtype() != DataType::Float8_e4m3fn,
+        pattern_.b_scale->dtype() != DataType::Float8_e4m3fn,
         "Expected B scale factors to be fp8");
 
     // Validate that the inputs and scale factors are all contiguous
@@ -580,6 +572,10 @@ extern "C" void run_kernel(
 
   std::vector<BlockScaledOutputPattern> block_scaled_outputs_;
 
+  // We require one temp tensor for the CUTLASS workspace. For grouped gemm, we
+  // also need a temp tensor for each pointer array
+  int64_t num_temp_tensors_;
+
   std::string code_;
 };
 
@@ -615,7 +611,7 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
 }
 
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
-  if (auto smma = findOp<ScaledMmaOp>(fusion)) {
+  if (auto* smma = findOp<ScaledMmaOp>(fusion)) {
     NVF_CUTLASS_REJECT_IF(
         smma->outScale() != nullptr,
         "Output block scale factor not supported for EVT translation");
@@ -632,7 +628,7 @@ CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
         .beta = smma->beta(),
         .bias = smma->bias(),
         .is_grouped = false};
-  } else if (auto gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
+  } else if (auto* gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
     return {
         .mma = gmma,
         .a = gmma->matrix1(),
@@ -649,7 +645,7 @@ CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
   }
 }
 
-std::string generateNvfp4ScaledMmKernel(
+CutlassGeneratedCode generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   return CutlassCodeGenerator::generate(fusion, params);

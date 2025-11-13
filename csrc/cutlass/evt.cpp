@@ -29,11 +29,6 @@ namespace cutlass_codegen {
 
 namespace {
 
-//! Find the accumulator which is the direct output of the ScaledMmaOp
-TensorView* getAccTv(Fusion* fusion) {
-  return findPattern(fusion).mma->output(0)->as<TensorView>();
-}
-
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
 //! https://dx.doi.org/10.1145/3620666.3651369
@@ -47,7 +42,7 @@ class EVTConverter : OptInDispatch {
 
  private:
   EVTConverter(Fusion* fusion)
-      : fusion_(fusion), pattern_(findPattern(fusion)) {
+      : fusion_(fusion), pattern_(findCutlassMatmulPattern(fusion)) {
     validatePattern();
     NVF_ERROR_EQ(pattern_.mma->outputs().size(), 1);
     mma_out_ = pattern_.mma->output(0)->as<TensorView>();
@@ -267,8 +262,8 @@ class EVTConverter : OptInDispatch {
     // in the EVT for each of these
     NVF_CUTLASS_REJECT_IF(
         model_.getRootTensorView() == nullptr, "Could not set root TV");
-    for (Statement* stmt :
-         StmtSort::getStmtsBetween({getAccTv(fusion_)}, unquantized_outputs)) {
+    for (Statement* stmt : StmtSort::getStmtsBetween(
+             {pattern_.mma->output(0)}, unquantized_outputs)) {
       dispatch(stmt);
     }
     NVF_CUTLASS_REJECT_IF(
@@ -437,7 +432,7 @@ class EVTConverter : OptInDispatch {
 
  private:
   Fusion* fusion_;
-  MatmulPattern pattern_;
+  CutlassMatmulPattern pattern_;
   TensorView* mma_out_;
 
   EVTModel model_;
