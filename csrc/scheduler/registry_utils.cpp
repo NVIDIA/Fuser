@@ -1190,56 +1190,20 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     if (val_group->size() < 2) {
       continue;
     }
-    // Collect only rfactor product ids. These are IDs that have been
-    // transformed from root IDs and need consistent replay behavior.
-    // Device splits can be safely ignored because their transformations were
-    // already validated and propagated during the pre-segmentation pass.
-    // At this point, all existing reshape transformations are guaranteed to be
-    // compatible with device splits.
 
-    // clang-format off
-    // Take MultiDeviceTest.MultipleCompatibleReshapes for example:
-    // T0 has a device split of 2:
-    // T0_g___bfloat[ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48}]
-    //  logical domain : (bS0{1}, iS1{2048}, iS2{96})
-    //   Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48}
-    //  loop domain : (ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48})
-    // T2 has a reshape split of 24:
-    // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
-    //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
-    //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
-    //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
-    // In propagate_shardings pass, the device split is replayed to T2:
-    // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
-    //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
-    //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
-    //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
-    //   Outer split: iS10{24}rf by factor 2 -> ideviceIdx.x38{2}, iS39{12}
-    //  loop domain : (ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf)
-    // T2 now contains both device split and reshape split, and they are
-    // compatible. Otherwise, error will be raised in propagate_shardings pass.
-    // Now, we need to check if all the reshapes are compatible with each other.
-    // clang-format on
-    if (std::count_if(
-            val_group->vector().begin(),
-            val_group->vector().end(),
-            [](Val* val) {
-              // Check if this ID has any uses that are NOT device splits
-              // (i.e., reshape operations that need consistency checking)
-              return std::any_of(
-                  val->uses().begin(), val->uses().end(), [](Expr* use) {
-                    return !isValidDeviceSplit(use);
-                  });
-            }) < 2) {
-      continue;
-    }
-    // The usages of this val group should be in the same expr
-    // group.
-    bool found_use_group = false;
+    // Quick return if there is no or less than 2 use groups.
     if (!permissive_resize_graph.hasUses(val_group)) {
       continue;
     }
     const auto& use_groups = permissive_resize_graph.getUses(val_group);
+    if (use_groups.size() < 2) {
+      continue;
+    }
+
+    // Check if there are multiple use groups after filtering out resize-only
+    // and device-split-only groups. Multiple groups indicate incompatible
+    // reshapes.
+    bool found_use_group = false;
     for (const auto& use_group : use_groups) {
       // skip resize as they are not propagated during replay.
       if (std::any_of(use_group->begin(), use_group->end(), [](Expr* expr) {
@@ -1247,10 +1211,36 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
           })) {
         continue;
       }
-      // Skip device splits since they are already handled by
-      // PropagateShardingsPass during the pre-segment pass. Device splits are
-      // grouped with reshape splits when they share the same split factor. We
-      // can only skip the group if all uses are device splits, to avoid
+      // Device splits can be safely ignored because their transformations were
+      // already validated and propagated during the pre-segmentation pass.
+      // At this point, all existing reshape transformations are guaranteed to
+      // be compatible with device splits.
+
+      // clang-format off
+      // Take MultiDeviceTest.MultipleCompatibleReshapes for example:
+      // T0 has a device split of 2:
+      // T0_g___bfloat[ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48}]
+      //  logical domain : (bS0{1}, iS1{2048}, iS2{96})
+      //   Outer split: iS2{96} by factor 2 -> ideviceIdx.x34{2}, iS35{48}
+      //  loop domain : (ideviceIdx.x34{2}, bS0{1}, iS1{2048}, iS35{48})
+      // T2 has a reshape split of 24:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      // In propagate_shardings pass, the device split is replayed to T2:
+      // T2_l_float[ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf]
+      //  root domain : (bS6{1}, iS7{2048}, iS9{96}rf)
+      //   Outer split: iS9{96}rf by factor 24 -> iS10{24}rf, iS11{4}rf
+      //  logical domain : (bS6{1}, iS7{2048}, iS10{24}rf, iS11{4}rf)
+      //   Outer split: iS10{24}rf by factor 2 -> ideviceIdx.x38{2}, iS39{12}
+      //  loop domain : (ideviceIdx.x38{2}, bS6{1}, iS7{2048}, iS39{12}, iS11{4}rf)
+      // T2 now contains both device split and reshape split, and they are
+      // compatible. Otherwise, error will be raised in propagate_shardings pass.
+      // Now, we need to check if all the reshapes are compatible with each other.
+      // clang-format on
+
+      // We can only skip the group if all uses are device splits, to avoid
       // skipping reshape splits.
       // clang-format off
       // Take MultiDeviceTest.MultipleIncompatibleReshapes for example:
