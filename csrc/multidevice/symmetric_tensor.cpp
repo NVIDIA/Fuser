@@ -10,6 +10,7 @@
 #include <cuda_utils.h>
 #include <driver_api.h>
 #include <multidevice/communicator.h>
+#include <multidevice/utils.h>
 #include <sys/prctl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -293,16 +294,9 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
   std::string key_prefix =
       "sym_tensor_" + std::to_string(my_device_id_) + "_" + tag;
 
-  std::vector<uint8_t> fd_bytes(
-      reinterpret_cast<const uint8_t*>(&shared_fd),
-      reinterpret_cast<const uint8_t*>(&shared_fd) + sizeof(int));
   pid_t my_pid = getpid();
-  std::vector<uint8_t> pid_bytes(
-      reinterpret_cast<const uint8_t*>(&my_pid),
-      reinterpret_cast<const uint8_t*>(&my_pid) + sizeof(pid_t));
-
-  store->set(key_prefix + "_fd", fd_bytes);
-  store->set(key_prefix + "_pid", pid_bytes);
+  store->set(key_prefix + "_fd", toBytes(shared_fd));
+  store->set(key_prefix + "_pid", toBytes(my_pid));
 
   comm.barrier();
 
@@ -312,10 +306,8 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
     }
 
     std::string peer_key = "sym_tensor_" + std::to_string(peer) + "_" + tag;
-    auto fd_bytes = store->get(peer_key + "_fd");
-    auto pid_bytes = store->get(peer_key + "_pid");
-    int peer_fd = *reinterpret_cast<const int*>(fd_bytes.data());
-    pid_t peer_pid = *reinterpret_cast<const pid_t*>(pid_bytes.data());
+    int peer_fd = fromBytes<int>(store->get(peer_key + "_fd"));
+    pid_t peer_pid = fromBytes<pid_t>(store->get(peer_key + "_pid"));
 
     int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
     NVF_CHECK(pid_fd >= 0, "pidfd_open failed for rank ", peer);
@@ -481,24 +473,15 @@ void SymmetricTensor::setupMulticast(
     prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
     root_pid = getpid();
 
-    std::vector<uint8_t> fd_bytes(
-        reinterpret_cast<const uint8_t*>(&shared_handle),
-        reinterpret_cast<const uint8_t*>(&shared_handle) + sizeof(int));
-    std::vector<uint8_t> pid_bytes(
-        reinterpret_cast<const uint8_t*>(&root_pid),
-        reinterpret_cast<const uint8_t*>(&root_pid) + sizeof(pid_t));
-
-    store->set(tag + "_fd", fd_bytes);
-    store->set(tag + "_pid", pid_bytes);
+    store->set(tag + "_fd", toBytes(shared_handle));
+    store->set(tag + "_pid", toBytes(root_pid));
   }
 
   comm.barrier();
 
   if (my_rank != exporter_rank) {
-    auto fd_bytes = store->get(tag + "_fd");
-    shared_handle = *reinterpret_cast<const int*>(fd_bytes.data());
-    auto pid_bytes = store->get(tag + "_pid");
-    root_pid = *reinterpret_cast<const pid_t*>(pid_bytes.data());
+    shared_handle = fromBytes<int>(store->get(tag + "_fd"));
+    root_pid = fromBytes<pid_t>(store->get(tag + "_pid"));
 
     pid_fd_ = syscall(SYS_pidfd_open, root_pid, 0);
     NVF_CHECK(pid_fd_ >= 0, "pidfd_open failed");
