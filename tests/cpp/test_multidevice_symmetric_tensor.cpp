@@ -27,16 +27,11 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
   at::ScalarType dtype = at::ScalarType::Float;
   SymmetricTensor sym_tensor(sizes, dtype);
 
-  // Validate basic properties
-  EXPECT_TRUE(sym_tensor.isValid());
-  EXPECT_EQ(sym_tensor.worldSize(), world_size);
-  EXPECT_EQ(sym_tensor.localRank(), rank);
-  EXPECT_EQ(sym_tensor.numel(), 256 * 512);
-
   // Validate local tensor
   const at::Tensor& local_tensor = sym_tensor.localTensor();
   EXPECT_TRUE(local_tensor.is_cuda());
   EXPECT_EQ(local_tensor.scalar_type(), dtype);
+  EXPECT_EQ(local_tensor.numel(), 256 * 512);
   EXPECT_EQ(local_tensor.sizes()[0], 256);
   EXPECT_EQ(local_tensor.sizes()[1], 512);
 
@@ -49,7 +44,7 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
 
   // Read from all remote tensors
   for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
-    void* peer_ptr = sym_tensor.remoteTensorPtr(peer_rank);
+    void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
     EXPECT_NE(peer_ptr, nullptr);
 
     // Copy first element from peer
@@ -86,9 +81,7 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
   SymmetricTensor sym_tensor(local_tensor, "test_preallocated");
 
   // Validate
-  EXPECT_TRUE(sym_tensor.isValid());
-  EXPECT_EQ(sym_tensor.worldSize(), world_size);
-  EXPECT_EQ(sym_tensor.numel(), 128 * 256);
+  EXPECT_EQ(sym_tensor.localTensor().numel(), 128 * 256);
 
   // Write unique pattern to local tensor
   double local_value = static_cast<double>(rank * 1000 + 42);
@@ -102,7 +95,7 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
       continue;
     }
 
-    void* peer_ptr = sym_tensor.remoteTensorPtr(peer_rank);
+    void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
     double peer_value;
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
         &peer_value,
@@ -137,29 +130,48 @@ TEST_F(SymmetricTensorTest, Multicast) {
     GTEST_SKIP() << "Device does not support multicast";
   }
 
-  // Create symmetric tensor
-  SymmetricTensor sym_tensor({1024}, at::ScalarType::Int);
+  // Create symmetric tensor (2MB to meet granularity requirements)
+  constexpr int64_t kNumElems = 524288; // 2MB / 4 bytes
+  SymmetricTensor sym_tensor({kNumElems}, at::ScalarType::Int);
 
   // Setup multicast
   sym_tensor.setupMulticast(root, "test_multicast");
-  EXPECT_TRUE(sym_tensor.hasMulticast());
 
-  // Root writes to multicast buffer
+  // Root writes data to multicast buffer
+  std::vector<int> host_data(kNumElems);
   if (rank == root) {
     void* mc_ptr = sym_tensor.multicastPtr();
     EXPECT_NE(mc_ptr, nullptr);
     
-    // Fill multicast buffer with a pattern
-    int pattern_value = 999;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(
-        mc_ptr, pattern_value, sizeof(int) * 1024));
+    // Prepare pattern data
+    for (int64_t i = 0; i < kNumElems; ++i) {
+      host_data[i] = static_cast<int>(i * 7 + 13);
+    }
+    
+    // Write to multicast buffer
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        mc_ptr,
+        host_data.data(),
+        kNumElems * sizeof(int),
+        cudaMemcpyHostToDevice));
   }
 
   communicator_->barrier();
 
-  // All ranks verify they can see the multicast data
-  // Note: multicast semantics depend on hardware, this is a basic validation
-  EXPECT_TRUE(sym_tensor.hasMulticast());
+  // All ranks read from local tensor and validate
+  const at::Tensor& local = sym_tensor.localTensor();
+  std::vector<int> readback(kNumElems);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      readback.data(),
+      local.data_ptr(),
+      kNumElems * sizeof(int),
+      cudaMemcpyDeviceToHost));
+
+  for (int64_t i = 0; i < kNumElems; ++i) {
+    int expected = static_cast<int>(i * 7 + 13);
+    EXPECT_EQ(readback[i], expected)
+        << "Rank " << rank << " failed to read multicast data at index " << i;
+  }
 #endif
 }
 

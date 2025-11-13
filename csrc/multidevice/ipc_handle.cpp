@@ -210,7 +210,7 @@ void* SymMemForBroadcast::semaphoreMulticastPtr() const {
 }
 
 void* SymMemForBroadcast::semaphoreUnicastPtr(int64_t rank) const {
-  return semaphore_sym_tensor_->remoteTensorPtr(rank);
+  return semaphore_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
 SymMemForAllgather::SymMemForAllgather(

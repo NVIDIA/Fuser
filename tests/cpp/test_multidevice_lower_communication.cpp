@@ -798,7 +798,10 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
   params.executor.use_allocation_cache = true;
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance(), params);
 
-  at::Tensor out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  at::Tensor out_tensor;
+  for (int i = 0; i < 10; ++i) {
+    out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  }
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
 }
