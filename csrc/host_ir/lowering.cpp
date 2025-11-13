@@ -18,26 +18,6 @@
 namespace nvfuser {
 
 namespace {
-// Ideally, recomputation should be done automatically in TensorView's cloner.
-// But I'm hitting #4849 when trying that.
-void recomputeTv(const TensorView* tv, IrCloner& ir_cloner) {
-  for (Expr* e : StmtSort::getExprsTo(
-           {tv->getLoopDomain().begin(), tv->getLoopDomain().end()})) {
-    ir_cloner.clone(e);
-  }
-  for (IterDomain* id : tv->getLoopDomain()) {
-    for (Expr* e : StmtSort::getExprsTo({id->extent()})) {
-      ir_cloner.clone(e);
-    }
-  }
-}
-
-void recomputeOutputTvs(Expr* e, IrCloner& ir_cloner) {
-  for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-    recomputeTv(out, ir_cloner);
-  }
-}
-
 // Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
 // or nullptr if not found.  This is different from `getShardedIterDomain(tv,
 // ParallelType::Stream)`, which searches the allocation domain.  Consider
@@ -75,11 +55,11 @@ void lowerSegment(
           group.exprs().size(),
           1,
           "Communication segments must contain only one Expr.");
-      Expr* e = group.exprs().front();
-      Expr* e_clone = ir_cloner.clone(e);
-      recomputeOutputTvs(e, ir_cloner);
+      // If a value is already cloned, IrCloner::clone returns the cloned value
+      // without cloning the value again.
+      Expr* e = ir_cloner.clone(group.exprs().front());
 
-      for (auto* c : convertSingleOpToCommunication(e_clone, device_id)) {
+      for (auto* c : convertSingleOpToCommunication(e, device_id)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
@@ -102,14 +82,12 @@ void lowerSegment(
       // Pseudocode:
       // clang-format off
       // ```
-      // clone all expressions and store the copies to a list
-      //
       // if no expressions are stream parallelized:
       //   append the list to the top level
       //   return
       //
       // create a new, empty for loop
-      // for each cloned expression:
+      // for each expression in the segment:
       //   for each input TensorView of that expression:
       //     if it's allocated outside the loop:
       //       shard it by stream
@@ -117,25 +95,20 @@ void lowerSegment(
       //     if it needs to be allocated outside the loop:
       //       create an Allocate before the for loop
       //       shard it by stream
-      //   add the cloned expression to the loop body with the maybe-sharded inputs and outputs
+      //   add the expression to the loop body with the maybe-sharded inputs and outputs
       // ```
       // clang-format on
-      std::vector<Expr*> cloned_exprs;
-      cloned_exprs.reserve(group.exprs().size());
-      for (Expr* e : group.stablyOrderedExprs()) {
-        auto* e_clone = ir_cloner.clone(e);
-        recomputeOutputTvs(e, ir_cloner);
-        cloned_exprs.push_back(e_clone);
-      }
+      const std::vector<Expr*>& exprs =
+          ir_cloner.clone(group.stablyOrderedExprs());
 
-      std::vector<Val*> cloned_outs = ir_cloner.clone(group.outputs());
+      std::vector<Val*> outs = ir_cloner.clone(group.outputs());
       // All expressions in the group are expected to be stream parallelized in
       // the same way. So it's safe to find the stream IterDomain from any of
       // them.  Ideally, loop domains should be tied to expressions not
       // TensorViews.
-      IterDomain* stream_id = findStreamIterDomain(cloned_outs);
+      IterDomain* stream_id = findStreamIterDomain(outs);
       if (stream_id == nullptr) {
-        for (Expr* e : cloned_exprs) {
+        for (Expr* e : exprs) {
           hic.pushBackTopLevelExprs(e);
         }
         break;
@@ -145,7 +118,7 @@ void lowerSegment(
       auto top_level_insertion_point = hic.pushBackTopLevelExprs(for_loop);
 
       std::unordered_map<Val*, Val*> replacement_map;
-      for (Expr* e : cloned_exprs) {
+      for (Expr* e : exprs) {
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
           if (findStreamIterDomain(in) != nullptr &&
               getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
@@ -194,17 +167,11 @@ void lowerSegment(
       break;
     }
     default: {
-      const int group_id = group.groupId();
-
-      // Copy the input/output TensorViews to the container.
-      auto cloned_ins = ir_cloner.clone(group.inputs());
-      auto cloned_outs = ir_cloner.clone(group.outputs());
-      for (auto* out : ir_utils::filterByType<TensorView>(group.outputs())) {
-        recomputeTv(out, ir_cloner);
-      }
+      std::vector<Val*> ins = ir_cloner.clone(group.inputs());
+      std::vector<Val*> outs = ir_cloner.clone(group.outputs());
 
       // Allocate the output TensorViews.
-      for (auto* out : cloned_outs) {
+      for (auto* out : outs) {
         NVF_ERROR(
             out->isA<TensorView>(),
             "Output must be a TensorView but got ",
@@ -224,6 +191,7 @@ void lowerSegment(
       }
 
       // Add the LaunchKernel instruction.
+      const int group_id = group.groupId();
       KernelExecutor& ke = hic.getKernelExecutor(group_id);
       // Needed for KernelExecutor. Should be removed once #4927 is fixed.
       auto* cache_id =
@@ -232,8 +200,8 @@ void lowerSegment(
           group_id,
           launch_params,
           ke.compiledKernel()->compileParams(),
-          cloned_ins,
-          cloned_outs,
+          ins,
+          outs,
           cache_id);
       hic.pushBackTopLevelExprs(launch_kernel);
     }
@@ -246,16 +214,10 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
   auto hic = std::make_unique<hir::HostIrContainer>();
+  IrCloner ir_cloner =
+      Fusion::copy(segmented_fusion.completeFusion(), hic.get());
 
-  IrCloner ir_cloner(hic.get());
-  FusionGuard::setCurFusion(hic.get());
-
-  for (const Val* in : segmented_fusion.inputs()) {
-    hic->addInput(ir_cloner.clone(in));
-    if (auto* tv = in->as<TensorView>()) {
-      recomputeTv(tv, ir_cloner);
-    }
-  }
+  FusionGuard fg(hic.get());
 
   for (auto& executor : executors) {
     if (executor == nullptr) {
@@ -273,10 +235,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
         launch_params_per_segment.at(group->groupId()),
         *hic,
         ir_cloner);
-  }
-
-  for (const Val* out : segmented_fusion.outputs()) {
-    hic->addOutput(ir_cloner.clone(out));
   }
 
   hir_pass::InsertDeallocations().runPass(hic.get());
