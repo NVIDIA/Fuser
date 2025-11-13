@@ -22,9 +22,11 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/execution_utils.h>
+#include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -589,13 +591,20 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
-  at::Tensor tensor = at::native::empty_strided_cuda(
-      info.shape_info.logical_sizes,
-      info.shape_info.logical_strides,
-      info.type,
-      c10::nullopt,
-      device,
-      c10::nullopt);
+  at::Tensor tensor;
+  if (tv->getMemoryType() == MemoryType::Symmetric) {
+    NVF_ERROR(isTvContiguous(tv), "Symmetric memory must be contiguous");
+    tensor = SymmetricTensor::allocate(
+        info.shape_info.logical_sizes, info.type, device);
+  } else {
+    tensor = at::native::empty_strided_cuda(
+        info.shape_info.logical_sizes,
+        info.shape_info.logical_strides,
+        info.type,
+        c10::nullopt,
+        device,
+        c10::nullopt);
+  }
 
   // Cache the allocation if enabled
   if (params_.use_allocation_cache) {

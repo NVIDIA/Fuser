@@ -255,7 +255,9 @@ void Fusion::addInput(Val* input) {
 
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
-    tv->setMemoryType(MemoryType::Global);
+    if (tv->getMemoryType() != MemoryType::Symmetric) {
+      tv->setMemoryType(MemoryType::Global);
+    }
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
@@ -280,7 +282,10 @@ void Fusion::addOutputInternal(Val* output) {
       output->isA<TensorView>(),
       "Non-TensorView outputs are not supported at this point: ",
       output->toString());
-  output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  auto* tv = output->as<TensorView>();
+  if (tv->getMemoryType() != MemoryType::Symmetric) {
+    tv->setMemoryType(MemoryType::Global);
+  }
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
@@ -337,7 +342,9 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 
     if (replacement->getValType().value() == ValType::TensorView) {
       replacement->setIsFusionOutput(true);
-      replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
+      replacement->as<TensorView>()->setMemoryType(
+          MemoryType::Global); // TODO: may need a patch to support symmetric
+                               // memory type
     }
     if (output->getValType().value() == ValType::TensorView) {
       output->setIsFusionOutput(false);

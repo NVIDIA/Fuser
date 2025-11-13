@@ -722,7 +722,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
     ParallelType::DIDy,
     ParallelType::DIDz};
 
-enum class MemoryType { Local, Shared, Global, Tensor };
+enum class MemoryType { Local, Shared, Global, Tensor, Symmetric };
 
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
