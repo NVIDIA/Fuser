@@ -1184,7 +1184,6 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
   IdModel id_model(fusion);
   const auto& permissive_resize_graph = buildPermissiveResizeGraph(
       id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
-
   for (const ValGroup& val_group :
        permissive_resize_graph.disjointValSets().disjointSets()) {
     // Check for consistency if there are at least 2 IDs
@@ -1225,7 +1224,12 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
             val_group->vector().begin(),
             val_group->vector().end(),
             [](Val* val) {
-              return val->as<IterDomain>()->isRFactorProduct();
+              // Check if this ID has any uses that are NOT device splits
+              // (i.e., reshape operations that need consistency checking)
+              return std::any_of(
+                  val->uses().begin(), val->uses().end(), [](Expr* use) {
+                    return !isValidDeviceSplit(use);
+                  });
             }) < 2) {
       continue;
     }
