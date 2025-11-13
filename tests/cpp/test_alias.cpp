@@ -1670,9 +1670,12 @@ TEST_F(AliasTest, BroadcastInDimNoRedundantSet) {
   fusion->addInput(in);
   
   // Call broadcast with all dims marked as non-broadcast
-  // This should not introduce a Set operation
+  // This should not introduce a Set operation and return the input directly
   std::vector<bool> is_broadcast_dim = {false, false};
-  TensorView* out = broadcast(in, is_broadcast_dim);
+  TensorView* maybe_bcast = broadcast(in, is_broadcast_dim);
+  
+  // Add an operation to ensure we have something to test
+  TensorView* out = abs(maybe_bcast);
   
   fusion->addOutput(out);
 

@@ -707,20 +707,9 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(eager_out, nvf_out_exp[0])
         
         # Check that the broadcast_in_dim fusion doesn't have a redundant Set operation
-        # by comparing the IR string representations
-        bid_str = str(fd_bid)
-        exp_str = str(fd_exp)
-        
-        # Count tensor cast operations (not scalar casts)
-        bid_tensor_casts = bid_str.count("fd.ops.cast(t")
-        exp_tensor_casts = exp_str.count("fd.ops.cast(t")
-        
-        # They should have the same number of tensor casts
-        self.assertEqual(
-            bid_tensor_casts,
-            exp_tensor_casts,
-            f"broadcast_in_dim has {bid_tensor_casts} tensor casts but expand has {exp_tensor_casts}"
-        )
+        # by comparing the IR string representations - they should be identical since
+        # broadcast is a no-op in this case
+        self.assertEqual(str(fd_bid), str(fd_exp))
 
     # Testing a scenario where the broadcast is necessary to realize the output
     def test_tensor_shape_with_output_bcast(self):
