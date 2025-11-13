@@ -1231,7 +1231,7 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
     }
     // The usages of this val group should be in the same expr
     // group.
-    std::optional<ExprGroup> common_use_group;
+    bool found_use_group = false;
     if (!permissive_resize_graph.hasUses(val_group)) {
       continue;
     }
@@ -1264,11 +1264,12 @@ bool SchedulerTopologyChecker::hasIncompatibleTransforms(Fusion* fusion) {
           })) {
         continue;
       }
-      if (!common_use_group.has_value()) {
-        common_use_group = use_group;
-      } else if (common_use_group.value() != use_group) {
+      // use_groups are guaranteed to contain only unique entries, so if we
+      // find a second use group, it must be different from the first.
+      if (found_use_group) {
         return true;
       }
+      found_use_group = true;
     }
   }
 
