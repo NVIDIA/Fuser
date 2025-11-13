@@ -143,7 +143,7 @@ SymMemForBroadcast::SymMemForBroadcast(
     : SymMemForBroadcast(
           buffer,
           communication->root(),
-          "for_Communication" + communication->name()) {}
+          "for_Communication" + std::to_string(communication->name())) {}
 
 SymMemForBroadcast::SymMemForBroadcast(
     at::Tensor buffer,
@@ -214,8 +214,8 @@ SymMemForAllgather::SymMemForAllgather(
         /*start=*/root_rank * slice_size,
         /*end=*/(root_rank + 1) * slice_size);
     // Create unique name suffix for this broadcast
-    std::string name_suffix =
-        communication->name() + "_allgather_root" + std::to_string(root_rank);
+    std::string name_suffix = std::to_string(communication->name()) +
+        "_allgather_root" + std::to_string(root_rank);
 
     // Create SymMemForBroadcast for this slice
     broadcast_handles_.push_back(std::make_unique<SymMemForBroadcast>(
