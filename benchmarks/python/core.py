@@ -299,8 +299,9 @@ def run_benchmark(
         # For dynamic host latency benchmarking, return a particular input shape, and reset FusionCache if all inputs have been executed.
         global counter
         counter += 1
-        # Execute fd with the first inputs to avoid measuring first time overhead.
-        fd.execute(inputs[0])
+        # The current input is counter % len(inputs). Execute fd with next input
+        # to avoid measuring first time overhead but avoid cache hit with current input.
+        fd.execute(inputs[(counter + 1) % len(inputs)])
         return [inputs[counter % len(inputs)]], {"fd": fd}
 
     # Create an instance of NVFBenchmark
