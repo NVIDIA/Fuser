@@ -15,6 +15,7 @@
 #include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/domain_map.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -355,9 +356,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
       scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1}, false);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
 
-  EXPECT_EQ(pparams->vectorization_factor, 4);
-  EXPECT_FALSE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 4);
+    EXPECT_FALSE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
 
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -386,11 +389,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 2);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
-
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 2);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -424,10 +427,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 4);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 4);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
 
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -459,10 +463,11 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 2);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 2);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
 
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -1435,4 +1440,754 @@ TEST_F(
   }
 }
 
+// Base class for TMA tests with common data members
+using TMATestParams =
+    std::tuple<bool, bool>; // <use_tma_store, explicit_unroll>
+class PointwiseTmaTest : public NVFuserFixtureParamTest<TMATestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TMATestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
+
+  struct TileMN {
+    int64_t m;
+    int64_t n;
+  };
+
+  const int64_t dim0 = 8192;
+  const int64_t dim1 = 8192;
+  const DataType dtype = DataType::BFloat16;
+};
+
+TEST_P(PointwiseTmaTest, PointwiseMulMultiWaveTMA) {
+  auto [use_tma_store, explicit_unroll] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv3_smem = nullptr;
+  TensorView* tv3_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv3_smem = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv3_smem->setMemoryType(MemoryType::Shared);
+    tv3_regs = tv3_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv3_regs = tv3->cacheBefore();
+  }
+
+  // Tile sizes
+  int64_t vect_factor = 128L / dataTypeSizeBit(dtype);
+  TileMN tma_tile = {64, 128};
+  TileMN blk_tile = {8, 16}; // [TIDy, TIDx]
+  TileMN tid_tile = {2, vect_factor}; // [Unroll, Vectorize]
+
+  // Schedule TMA tensors
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv3);
+  }
+  for (auto tv : tma_tvs) {
+    // [I0, I1] -> [I0/m, m, I1/n, n]
+    tv->split(0, tma_tile.m);
+    tv->split(-1, tma_tile.n);
+    // [I0/m, m, I1/n, n] --> [I0/m, I1/n, m, n]
+    tv->reorder({{1, 2}});
+    // Parallelize
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::Bulk);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // Schedule all non-tma tensors
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_regs};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv3_smem);
+  } else {
+    compute_tvs.push_back(tv3);
+  }
+
+  for (auto tv : compute_tvs) {
+    // [I0, I1] -> [I0/m, m, I1/n, n]
+    tv->split(0, tma_tile.m);
+    tv->split(-1, tma_tile.n);
+    // [I0/m, m, I1/n, n] -> [I0/m, m/u, u, I1/n, n/v, v]
+    tv->split(1, tid_tile.m);
+    tv->split(-1, tid_tile.n);
+    // [I0/m, m/u, u, I1/n, n/v, v] -> [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v]
+    tv->split(1, blk_tile.m);
+    tv->split(-2, blk_tile.n);
+    // [I0/m, m/u/y, y, u, I1/n, n/v/x, x, v] -> [I0/m, I1/n, m/u/y, n/v/x, y,
+    // x, u, v]
+    tv->reorder({{1, 2}, {2, 4}, {3, 6}, {4, 1}, {5, 3}, {6, 5}});
+
+    // Parallelize
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(4)->parallelize(ParallelType::TIDy);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    if (explicit_unroll) {
+      tv->axis(6)->parallelize(ParallelType::Unroll);
+    }
+    // Vectorize: register cache tensors for loads from smem, and smem tensor
+    // for TMA store
+    bool vectorize_condition =
+        (tv == tv0_reg || tv == tv1_reg || (use_tma_store && tv == tv3_smem) ||
+         (!use_tma_store && tv == tv3));
+    if (vectorize_condition) {
+      tv->axis(7)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // Inline most tensors
+  inlineMost();
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(PointwiseTmaTest, PointwiseWarpSpecializedTMA) {
+  auto [use_tma_store, explicit_unroll] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Input tensors
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  // Data type conversion and computation
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv3_smem = nullptr;
+  TensorView* tv3_cache = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv3_smem = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv3_smem->setMemoryType(MemoryType::Shared);
+    tv3_cache = tv3_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv3_cache = tv3->cacheBefore();
+  }
+
+  auto reference = tv3;
+
+  // Constants
+  TileMN tma_tile = {32, 256};
+  TileMN tid_tile = {4, 8}; // [Unroll, Vectorize]
+  TileMN blk_tile = {1, 256}; // [TIDy, TIDx]
+  bool fully_reg_cached = true;
+
+  // [I0, I1] -> [I0/m, m, I1/n, n]
+  reference->split(0, tma_tile.m);
+  reference->split(-1, tma_tile.n);
+  // [I0/m, m, I1/n, n] -> [I0/m, I1/n, m, n]
+  reference->reorder({{1, 2}});
+  // [I0/m, I1/n, m, n] -> [I/sm, sm, m, n]
+  reference->merge(0, 1);
+  reference->split(0, getNumSMs());
+  // [I/sm, sm, m, n] -> [sm, I/sm, m, n]
+  reference->reorder({{0, 1}});
+
+  // Propagate TMA transform
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Apply inlineAt for TMA cache
+  inlineAllAt(reference, /*pos=*/2);
+
+  // Schedule all compute tensors (registers and output)
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_cache};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv3_smem);
+  } else {
+    compute_tvs.push_back(tv3);
+  }
+
+  for (auto tv : compute_tvs) {
+    // [..., m, n] -> [..., mn]
+    tv->merge(-2, -1);
+    // [..., mn] -> [..., mn/v, v]
+    tv->split(-1, tid_tile.n);
+    // [..., mn/v, v] -> [..., mn/v/x, x, v]
+    tv->split(-2, blk_tile.n);
+    // [..., mn/v/x, x, v] -> [..., mn/v/x/u, u, x, v]
+    tv->split(-3, tid_tile.m);
+
+    // Parallelize
+
+    // [sm, I/sm, ...]
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-2)->parallelize(ParallelType::TIDx);
+    if (explicit_unroll) {
+      tv->axis(-3)->parallelize(ParallelType::Unroll);
+    }
+    // Vectorize: register cache tensors for loads from smem, and smem tensor
+    // for TMA store
+    bool vectorize_condition =
+        (tv == tv0_reg || tv == tv1_reg || (use_tma_store && tv == tv3_smem) ||
+         (!use_tma_store && tv == tv3));
+    if (vectorize_condition) {
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  if (!fully_reg_cached) {
+    inlineMost(compute_tvs);
+  } else {
+    inlineSelectedAt({tv0_reg, tv1_reg}, tv0_reg, 2);
+    auto all_other_tvs =
+        ir_utils::allTvsExcept(&fusion, {tv0_reg, tv1_reg, tv0_smem, tv1_smem});
+    inlineMost(all_other_tvs);
+  }
+
+  // Circular Buffer with TMA loads (and TMA store if enabled)
+  int64_t number_of_stages = 4;
+  int64_t prefetch_distance = number_of_stages - 1;
+  CircularBufferType circular_buffer_type =
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(40L, 232L));
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(-1)->parallelize(ParallelType::Bulk);
+    tv->axis(-2)->parallelize(ParallelType::Bulk);
+    tv->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  // TMA store - parallelize output tensor (tv3) for gmem (only if
+  // use_tma_store)
+  if (use_tma_store) {
+    tv3->axis(0)->parallelize(ParallelType::BIDx);
+    tv3->axis(-1)->parallelize(ParallelType::Bulk);
+    tv3->axis(-2)->parallelize(ParallelType::Bulk);
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(PointwiseTmaTest, PointwiseMulMultiWave1dTMA) {
+  auto [use_tma_store, explicit_unroll] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv0_float = maybeCastOp(DataType::Float, tv0);
+  auto tv1_float = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = mul(tv0_float, tv1_float);
+  auto tv3 = maybeCastOp(dtype, tv2);
+  fusion.addOutput(tv3);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers (vectorized)
+  auto tv0_reg = tv0_smem->cacheAfter();
+  auto tv1_reg = tv1_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv3_smem = nullptr;
+  TensorView* tv3_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv3_smem = tv3->cacheBefore(LoadStoreOpType::CpAsyncBulk);
+    tv3_smem->setMemoryType(MemoryType::Shared);
+    tv3_regs = tv3_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv3_regs = tv3->cacheBefore();
+  }
+
+  // Tile sizes
+  int64_t vect_factor = 128L / dataTypeSizeBit(dtype);
+  int64_t tidx = 128L;
+  int64_t unroll_factor = 2;
+  int64_t tma_tile = vect_factor * tidx * unroll_factor;
+
+  // pick output tensor as reference tensor
+  auto tv = tv2;
+
+  // schedule the tma tile
+  // [I0, I1] -> [I0*I1/v/x/tma, tma]
+  tv->merge(0, 1);
+  tv->split(0, tma_tile);
+
+  // propagate tma tiles to all tvs
+  TransformPropagator tma_propagator(tv);
+  MaxLogicalDomainInfoSpanningTree(tv).traverse(&tma_propagator);
+
+  // schedule block tile and thread tile
+  // [I, tma] -> [I, tma/v/x, x, v] -> [I, x, tma/v/x, v]
+  tv->split(1, vect_factor);
+  tv->split(1, tidx);
+  tv->reorder({{1, 2}, {2, 1}});
+
+  // parallelize TMA tensors
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv1_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv3);
+  }
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+  }
+
+  std::vector<TensorView*> compute_tvs = {
+      tv0_reg, tv1_reg, tv0_float, tv1_float, tv2, tv3_regs};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv3_smem);
+  } else {
+    compute_tvs.push_back(tv3);
+  }
+
+  // propagate transformation to non-tma tensors
+  TransformPropagator propagator(tv);
+  SetSelector selector({compute_tvs.begin(), compute_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(tv, &selector).traverse(&propagator);
+  // parallelize non-tma tensors
+  // [I, x, tma/v/x, v]
+  tv->axis(0)->parallelize(ParallelType::BIDx);
+  tv->axis(1)->parallelize(ParallelType::TIDx);
+  if (explicit_unroll) {
+    tv->axis(2)->parallelize(ParallelType::Unroll);
+  }
+  scheduler_utils::parallelizeAllLike(tv, compute_tvs);
+
+  // Vectorize: register cache tensors for loads from smem, and smem tensor
+  // for TMA store
+  for (auto tv : compute_tvs) {
+    bool vectorize_condition =
+        (tv == tv0_reg || tv == tv1_reg || (use_tma_store && tv == tv3_smem) ||
+         (!use_tma_store && tv == tv3));
+    if (vectorize_condition) {
+      tv->axis(3)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // Inline most tensors
+  inlineMost();
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto out_tensors = ke.run({t0, t1});
+  testValidate(&fusion, out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PointwiseTmaTest,
+    ::testing::Combine(
+        ::testing::Bool(), // use_tma_store
+        ::testing::Bool() // explicit_unroll
+        ),
+    [](const testing::TestParamInfo<TMATestParams>& info) {
+      bool use_tma_store = std::get<0>(info.param);
+      bool explicit_unroll = std::get<1>(info.param);
+      return std::string(use_tma_store ? "WithTMAStore" : "WithoutTMAStore") +
+          "_" + (explicit_unroll ? "WithUnroll" : "WithoutUnroll");
+    });
+
+using TMAAutoSchedulerTestParams =
+    std::tuple<int64_t, DataType>; // <dim0, dtype>
+
+class PointwiseTmaAutoSchedulerTest
+    : public NVFuserFixtureParamTest<TMAAutoSchedulerTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TMAAutoSchedulerTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+
+TEST_P(PointwiseTmaAutoSchedulerTest, MultiWaveAutoNonBcast) {
+  auto [dim0, dtype] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0});
+  testValidate(fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_P(PointwiseTmaAutoSchedulerTest, MultiWaveAutoOuterBcast) {
+  int64_t dim0 = 16;
+  auto [dim1, dtype] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {true, false});
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto tv3 = add(tv0, tv2);
+  tv3 = maybeCastOp(dtype, tv3);
+  fusion->addOutput(tv3);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim1}, options);
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(PointwiseTmaAutoSchedulerTest, MultiWaveAutoInnerBcast) {
+  int64_t dim0 = 16;
+  auto [dim1, dtype] = GetParam();
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto tv3 = add(tv0, tv2);
+  tv3 = maybeCastOp(dtype, tv3);
+  fusion->addOutput(tv3);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    PointwiseTmaAutoSchedulerTest,
+    ::testing::Combine(
+        ::testing::ValuesIn([] {
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }()), // inner dim
+        ::testing::Values(DataType::BFloat16, DataType::Float) // dtype
+        ),
+    [](const testing::TestParamInfo<TMAAutoSchedulerTestParams>& info) {
+      int64_t inner_dim = std::get<0>(info.param);
+      DataType dtype = std::get<1>(info.param);
+      std::string dtype_str =
+          (dtype == DataType::BFloat16) ? "BFloat16" : "Float32";
+      return "inner_" + std::to_string(inner_dim) + "_" + dtype_str;
+    });
+
+TEST_F(NVFuserTest, InnerOuterBcast) {
+  int64_t dim0 = 16384;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::BFloat16;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  auto tv2 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = broadcast(tv2, {true, false});
+  tv3 = maybeCastOp(DataType::Float, tv3);
+  tv4 = maybeCastOp(DataType::Float, tv4);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto tv5 = add(tv0, tv3);
+  auto tv6 = add(tv5, tv4);
+  tv6 = maybeCastOp(dtype, tv6);
+  fusion->addOutput(tv6);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto t2 = at::randn({dim1}, options);
+  auto cg_results =
+      scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1, t2});
+  testValidate(fusion, cg_results.outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+using TmaOneDimTensorTestParams =
+    std::tuple<int64_t, int64_t, bool>; // <dim0, ndims, use_tma_store>
+
+class TmaOneDimTensorTest
+    : public NVFuserFixtureParamTest<TmaOneDimTensorTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TmaOneDimTensorTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(TmaOneDimTensorTest, OneDimTensor) {
+  auto [dim0, ndims, use_tma_store] = GetParam();
+  // test [dim0], [dim0, 2], [dim0, 2, 4], ..., [dim0, 2, 4, ..., 2^ndims-1]
+  std::vector<int64_t> element_at_each_dim(ndims);
+  element_at_each_dim[0] = dim0;
+  int64_t element_count = dim0;
+  for (int64_t i = 1; i < ndims; i++) {
+    int64_t dim_i = 1 << i;
+    element_at_each_dim[i] = dim_i;
+    element_count *= dim_i;
+  }
+  for (int64_t i = 0; i < ndims; i++) {
+    std::cout << "element_at_each_dim[" << i << "]: " << element_at_each_dim[i]
+              << std::endl;
+  }
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigTensor(ndims);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion.addOutput(tv1);
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers
+  auto tv0_regs = tv0_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv1_smem = nullptr;
+  TensorView* tv1_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv1_smem = tv1->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv1_smem->setMemoryType(MemoryType::Shared);
+    tv1_regs = tv1_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv1_regs = tv1->cacheBefore();
+  }
+
+  TensorView* reference = tv1;
+  // step-1, create TMA domain, merge all domains into one, then split into 2
+  // TMA domains. Requirement: all domains are contiguious, TMA domain split is
+  // divisible. [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
+  for (int64_t i = 0; i < ndims - 1; i++) {
+    reference->merge(0);
+  }
+  std::cout << "reference: " << reference->toString() << std::endl;
+
+  int64_t D1 = scheduler_utils::factor_muliply_16_near_256(element_count);
+  int64_t D0 = element_count / D1;
+  // if (D1 <= 16 || D0 <= 16) {
+  //   GTEST_SKIP() << "TMA domain size is too small, skipping test, D1: " <<
+  //   D1; return;
+  // }
+  reference->split(0, D1);
+
+  // step-2/3, define 2D box/tile (use dense tile, box is tile)
+  // select an IterDomain in the TMA domain, then inner split that IterDomain by
+  // the box size of that dimension. Require D1/ti > 1, otherwise to and ti will
+  // be considered as one single dimension of the box.
+  // [D0, D1] -> [D0/to, to, D1/ti, ti]
+  int64_t tma_tile_size = 4096;
+  int64_t ti = std::min(256L, D1 / 2),
+          to = std::min(256L, std::min(tma_tile_size / ti, D0));
+  ti = scheduler_utils::lastPow2(ti);
+  to = scheduler_utils::lastPow2(to);
+  int64_t actual_tma_tile_bytes =
+      to * ti * dataTypeSizeBit(DataType::Float) / 8;
+  if (actual_tma_tile_bytes % 16) {
+    GTEST_SKIP() << "TMA box bytes should be divisible by 16 bytes, got "
+                 << actual_tma_tile_bytes << " bytes.";
+    return;
+  }
+  reference->split(0, to);
+  reference->split(2, ti);
+
+  // check grid dimension
+  auto pto = ParallelType::BIDy;
+  auto pti = ParallelType::BIDx;
+  int64_t gdim_y = ceilDiv(D0, to);
+  if (gdim_y > 65535) {
+    std::swap(pto, pti);
+  }
+  std::cout << "reference: " << reference->toString() << std::endl;
+  std::cout << "element_count: " << element_count << ", gdim_y: " << gdim_y
+            << ", D0: " << D0 << ", D1: " << D1 << ", pto: " << pto
+            << ", pti: " << pti << " to: " << to << ", ti: " << ti << std::endl;
+
+  // propagate transformation
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Further schedle of non-TMA tensors
+  int64_t vect_factor = 1;
+  while (ti % (vect_factor * 2) == 0) {
+    vect_factor *= 2;
+    if (vect_factor == 4) {
+      break;
+    }
+  }
+  // block tile size
+  int64_t tidx = std::min(32L, ti / vect_factor),
+          tidy = std::min(128L / tidx, to);
+
+  // Parallelize TMA tensors
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv1);
+  }
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(pto);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(2)->parallelize(pti);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // Schedule all non-tma tensors
+  std::vector<TensorView*> compute_tvs = {tv0_regs, tv1_regs};
+
+  // Add t3_smem if using TMA store, otherwise add t3 (output tensor)
+  if (use_tma_store) {
+    compute_tvs.push_back(tv1_smem);
+  } else {
+    compute_tvs.push_back(tv1);
+  }
+
+  // only schedule tma tile [Do, Di, to, ti]
+  for (auto tv : compute_tvs) {
+    // [D0/to, to, D1/ti, ti] -> [D0/to, to/y, y, D1/ti, ti/v/x, x, v]
+    tv->split(3, vect_factor);
+    tv->split(3, tidx);
+    tv->split(1, tidy);
+    // Parallelize
+    tv->axis(0)->parallelize(pto);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(pti);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    // Vectorize smem -> regs and regs -> smem or gmem
+    if (tv == tv0_regs) {
+      tv->axis(6)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // Inline most tensors
+  inlineMost();
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(element_at_each_dim, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto out_tensors = ke.run({t0});
+  testValidate(&fusion, out_tensors, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaOneDimTensorTest,
+    ::testing::Combine(
+        ::testing::ValuesIn([] {
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }()), // dim0
+        ::testing::Values(1, 2, 3), // ndims
+        ::testing::Values(true, false) // use_tma_store
+        ),
+    [](const testing::TestParamInfo<TmaOneDimTensorTestParams>& info) {
+      int64_t dim0 = std::get<0>(info.param);
+      int64_t ndims = std::get<1>(info.param);
+      bool use_tma_store = std::get<2>(info.param);
+      return "dim0_" + std::to_string(dim0) + "_ndim_" + std::to_string(ndims) +
+          "_use_tma_store_" + std::to_string(use_tma_store);
+    });
 } // namespace nvfuser

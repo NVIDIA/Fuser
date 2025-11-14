@@ -3289,5 +3289,98 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
+bool hasNonContiguousInput(Fusion* fusion) {
+  const auto& input_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  for (auto tv : input_tvs) {
+    for (auto contiguous_domain : tv->domain()->contiguity()) {
+      if (contiguous_domain.has_value() && !contiguous_domain.value()) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+bool InputOrOutputHasAllocationDomain(Fusion* fusion) {
+  const auto& inputs = ir_utils::filterByType<TensorView>(fusion->inputs());
+  for (auto tv : inputs) {
+    if (tv->hasAllocation()) {
+      return true;
+    }
+  }
+  const auto& outputs = ir_utils::filterByType<TensorView>(fusion->outputs());
+  for (auto tv : outputs) {
+    if (tv->hasAllocation()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @brief Return a factor of 'a' that is closest to 256.
+ *
+ * Fast path:
+ *   - If 256 divides 'a', return 256 immediately.
+ * Slow path:
+ *   - Otherwise, iterate all factors up to sqrt(a)
+ *     and pick the one closest to 256.
+ *
+ * @param a A positive integer (> 0)
+ * @return int64_t A factor of 'a' closest to 256
+ */
+int64_t factor_muliply_16_near_256(int64_t a) {
+  NVF_ERROR(a > 0, "Input must be positive, got: ", a);
+
+  constexpr int64_t target = 512;
+
+  // Fast path: if 256 divides a, return immediately
+  if (a % target == 0) {
+    return target;
+  }
+
+  // General path: search for closest factor that is divisible by 16
+  int64_t best_factor = 1;
+  int64_t best_diff = std::abs(best_factor - target);
+
+  int64_t limit = static_cast<int64_t>(std::sqrt(static_cast<double>(a)));
+  // Iterate by multiples of 16 for efficiency
+  for (int64_t i = 16; i <= limit; i += 16) {
+    if (a % i == 0) {
+      int64_t f1 = i;
+      int64_t f2 = a / i;
+
+      // Compare i (always divisible by 16 in this loop)
+      int64_t diff1 = std::abs(f1 - target);
+      if (diff1 < best_diff || (diff1 == best_diff && f1 < best_factor)) {
+        best_factor = f1;
+        best_diff = diff1;
+      }
+
+      // Compare a / i (only if divisible by 16)
+      if (f2 % 16 == 0) {
+        int64_t diff2 = std::abs(f2 - target);
+        if (diff2 < best_diff || (diff2 == best_diff && f2 < best_factor)) {
+          best_factor = f2;
+          best_diff = diff2;
+        }
+      }
+    }
+  }
+  return best_factor;
+}
+
+// bool isBroadcastOrConsumedByBroadcast(TensorView* tv) {
+//   if (tv->hasBroadcast()) {
+//     return true;
+//   }
+//   const auto& all_consumers = DependencyCheck::getAllDependentVals({tv});
+//   for (auto tv : all_consumers) {
+//     if (tv->definition()->isA<BroadcastOp>()) {
+//       return true;
+//     }
+//   }
+//   return false;
+// }
 } // namespace scheduler_utils
 } // namespace nvfuser
