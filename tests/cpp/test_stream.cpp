@@ -139,11 +139,17 @@ TEST_F(StreamTest, TwoMatmuls) {
     // With NVFUSER_DUMP=host_ir, you'll see the host IR container like the
     // following:
     // clang-format off
-    // %HostIrContainer { (T0_g_float[iS0{i0}, iS1{i2}], T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}]) -> (T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]) :
-    //   FOR i18 from 0 to 3:
-    //     T2_g_float[istreamIdx9{3}, iS4{i0}, iS10{( ceilDiv(i4, 3) )}, rS6{i2}]
-    //        = matmul(T0_g_float[iS0{i0}, iS1{i2}],
-    //                 T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}])
+    // %HostIrContainer { (T0_g_float[istreamIdx12{3}, iS13{( ceilDiv(i0, 3) )}, iS1{i2}], T1_g_float[iS14{i2}, iS3{i4}], T2_g_float[iS15{i4}, iS5{i6}]) -> (T4_g_float[istreamIdx18{3}, iS19{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}]) :
+    //   T4_g_float[istreamIdx18{3}, iS19{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}] = ALLOCATE(buffer=T4_g_float[istreamIdx18{3}, iS19{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}], mem_type=global, size=( i0 * i6 ), zero_init=false, resets_to_zero=false)
+    //   FOR i99 from 0 to 3:
+    //     T5_l_float[istreamIdx22{3}, iS23{( ceilDiv(i0, 3) )}, iS21{i2}] = ShardByStream(T0_g_float[istreamIdx12{3}, iS13{( ceilDiv(i0, 3) )}, iS1{i2}], stream_index = i99)
+    //     T3_g_float[istreamIdx16{3}, iS17{( ceilDiv(i0, 3) )}, iS7{i4}, rS8{i2}]
+    //        = matmul(T5_l_float[istreamIdx22{3}, iS23{( ceilDiv(i0, 3) )}, iS21{i2}],
+    //                 T1_g_float[iS14{i2}, iS3{i4}])
+    //     T6_l_float[istreamIdx26{3}, iS27{( ceilDiv(i0, 3) )}, iS25{i6}] = ShardByStream(T4_g_float[istreamIdx18{3}, iS19{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}], stream_index = i99)
+    //     T6_l_float[istreamIdx26{3}, iS27{( ceilDiv(i0, 3) )}, iS25{i6}]
+    //        = matmul(T3_g_float[istreamIdx16{3}, iS17{( ceilDiv(i0, 3) )}, iS7{i4}, rS8{i2}],
+    //                 T2_g_float[iS15{i4}, iS5{i6}])
     // } // %HostIrContainer
     // clang-format on
     FusionExecutorCache executor_cache(std::move(fusion));

@@ -21,7 +21,12 @@ namespace {
 
 struct LoopInfo {
   hir::ForLoop* loop;
+
+  // The Scope that owns `loop`. It's one level outer than `loop`'s body scope.
   Scope* parent_scope;
+
+  // The iterator that points to `loop`. This way, we can insert instructions,
+  // e.g. Allocate, right before the loop.
   Scope::Iterator parent_insertion_point;
 };
 
@@ -161,11 +166,10 @@ void lowerSegment(
       // Pseudocode:
       // clang-format off
       // ```
-      // if no expressions are stream parallelized:
+      // if this segment isn't inside a loop:
       //   append the list to the top level
       //   return
       //
-      // create a new, empty for loop
       // for each expression in the segment:
       //   for each input TensorView of that expression:
       //     if it's allocated outside the loop:
@@ -338,16 +342,19 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
        prepareRuntimeOrder(segmented_fusion).group_run_order) {
     const std::vector<IterDomain*>& curr_ref_loop =
         findReferenceLoopDomain(*group);
-
     const int64_t inline_position =
         computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
-
     while (loop_nest.size() > inline_position) {
       loop_nest.closeLoop();
     }
-    while (loop_nest.size() < std::ssize(curr_ref_loop) &&
-           curr_ref_loop.at(loop_nest.size())->isStream()) {
-      auto* stream_id = ir_cloner.clone(curr_ref_loop.at(loop_nest.size()));
+
+    while (loop_nest.size() < std::ssize(curr_ref_loop)) {
+      IterDomain* ref_loop_id = curr_ref_loop.at(loop_nest.size());
+      if (!ref_loop_id->isStream()) {
+        break;
+      }
+
+      auto* stream_id = ir_cloner.clone(ref_loop_id);
       loop_nest.openLoop(stream_id);
     }
 
