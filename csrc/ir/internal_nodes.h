@@ -2427,6 +2427,7 @@ class SdpaFwdOp : public Expr {
 class Scope {
  public:
   using ExprList = std::list<Expr*>;
+  using Iterator = ExprList::const_iterator;
 
   explicit Scope(Expr* owner) : owner_(owner) {}
 
@@ -2436,10 +2437,22 @@ class Scope {
     return exprs_;
   }
 
+  // Used only by MultiDeviceExecutor. Should generally be avoided in favor of
+  // other modifying methods.
+  ExprList& mutableExprs() {
+    return exprs_;
+  }
+
   Expr* front() const {
     NVF_ERROR(
         !exprs_.empty(), "Attempting to access the front of an empty Scope");
     return exprs_.front();
+  }
+
+  Expr* back() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the back of an empty Scope");
+    return exprs_.back();
   }
 
   bool empty() const {
@@ -2450,10 +2463,10 @@ class Scope {
     return std::ssize(exprs_);
   }
 
-  ExprList::iterator insert(ExprList::const_iterator pos, Expr* expr);
+  Iterator insert(Iterator pos, Expr* expr);
 
-  void push_back(Expr* e) {
-    exprs_.push_back(e);
+  Iterator push_back(Expr* e) {
+    return insert(exprs_.end(), e);
   }
 
   void clear();
@@ -2464,13 +2477,13 @@ class Scope {
 
   // The following methods perform linear searches over exprs_. Use them only
   // when necessary, as they do not scale well with large scopes.
-  ExprList::iterator insert_before(Expr* ref, Expr* expr);
-  ExprList::iterator insert_after(Expr* ref, Expr* expr);
+  Iterator insert_before(Expr* ref, Expr* expr);
+  Iterator insert_after(Expr* ref, Expr* expr);
   void erase(Expr* ref);
   bool contains(Expr* expr) const;
 
  private:
-  void erase(ExprList::const_iterator pos);
+  void erase(Iterator pos);
 
   ExprList exprs_;
 

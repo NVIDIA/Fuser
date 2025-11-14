@@ -4834,7 +4834,16 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   const auto a = inputs.at(0).as<at::Tensor>();
   const auto b = inputs.at(1).as<at::Tensor>();
 
-  auto matmul_out = at::matmul(a, b);
+  at::Tensor matmul_out;
+  // aten::dot does not support meta device. Matmul lowers to dot for 1D @ 1D.
+  const bool uses_dot = (a.dim() == 1 && b.dim() == 1);
+  if (uses_dot && (a.is_meta() || b.is_meta())) {
+    const auto out_scalar_type = at::result_type(a, b);
+    auto out_opts = a.options().dtype(out_scalar_type).device(at::kMeta);
+    matmul_out = at::empty({}, out_opts);
+  } else {
+    matmul_out = at::matmul(a, b);
+  }
 
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
@@ -5009,6 +5018,14 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   int seqlen_q = sizes[2];
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
+  // Produce defined meta tensors for philox outputs so downstream segments
+  // can bind metadata and types correctly.
+  const auto meta_u64 =
+      at::TensorOptions().device(at::kMeta).dtype(at::kUInt64);
+  // philox_seed/rng_state, see note:
+  // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
+  auto rng_state = at::empty({2}, meta_u64);
+  auto rng_offset = at::empty({}, meta_u64);
   return std::make_tuple(
       query,
       logsumexp,
@@ -5016,8 +5033,8 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
       at::Tensor(),
       c10::SymInt(seqlen_q),
       c10::SymInt(seqlen_q),
-      at::Tensor(),
-      at::Tensor(),
+      rng_state,
+      rng_offset,
       at::Tensor());
 }
 
@@ -5132,13 +5149,11 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-Scope::ExprList::iterator Scope::insert(
-    ExprList::const_iterator pos,
-    Expr* expr) {
+Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
-Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5152,7 +5167,7 @@ Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   return insert(it, expr);
 }
 
-Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5165,7 +5180,7 @@ Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   return insert(insert_pos, expr);
 }
 
-void Scope::erase(ExprList::const_iterator pos) {
+void Scope::erase(Iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);

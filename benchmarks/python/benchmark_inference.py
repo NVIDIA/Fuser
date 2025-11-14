@@ -117,28 +117,61 @@ llama_4_Maverick_17B_128E_cfg_str = r""" {
 """
 
 
+# The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
+def _replace_with_custom_fn_if_matches_filter_with_name(
+    model,
+    replacement_fn: Callable[[torch.nn.Module, str], torch.nn.Module],
+    filter_fn: Callable[[torch.nn.Module, str], bool],
+    cur_fqn="",
+) -> None:
+    """
+    Recursively replaces each child module in `model` with the result of `replacement_fn(child)`
+
+    replacement_fn (Callable[[torch.nn.Module, str], torch.nn.Module]): The function to replace matching modules.
+    filter_fn (Callable[[torch.nn.Module, str], bool]): The function to filter matching modules.
+    cur_fqn (str): The current fully qualified name of the module.
+
+    Returns:
+        None
+    """
+    if filter_fn(model, cur_fqn[:-1]):
+        model = replacement_fn(model, cur_fqn[:-1])
+        return model
+    else:
+        named_children_list = list(model.named_children())
+        for name, child in named_children_list:
+            new_child = _replace_with_custom_fn_if_matches_filter_with_name(
+                child,
+                replacement_fn,
+                filter_fn,
+                f"{cur_fqn}{name}.",
+            )
+            if new_child is not child:
+                setattr(model, name, new_child)
+        return model
+
+
 def _replace_llama4_moe(model: nn.Module) -> None:
     """Replace Llama4TextMoe with Llama4MoE to use grouped gemm."""
-    # The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
-    named_children_list = list(model.named_children())
-    for name, child in named_children_list:
-        if isinstance(child, Llama4TextMoe):
-            new_child = Llama4MoE.from_llama4textmoe(child)
-            setattr(model, name, new_child)
+    _replace_with_custom_fn_if_matches_filter_with_name(
+        model,
+        lambda model, cur_fqn: Llama4MoE.from_transformers_llama4textmoe(model),
+        lambda model, cur_fqn: isinstance(model, Llama4TextMoe),
+    )
 
 
 def _quantize_llama4(model: nn.Module) -> None:
     """Replace linear and moe with nvfp4 inference version."""
-    named_children_list = list(model.named_children())
-    for name, child in named_children_list:
-        if isinstance(child, nn.Linear):
-            quantized_linear = NVFP4InferenceLinear.from_linear(child)
-            setattr(model, name, quantized_linear)
-        elif isinstance(child, GroupedLinear):
-            quantized_grouped_linear = NVFP4InferenceGroupedLinear.from_grouped_linear(
-                child
-            )
-            setattr(model, name, quantized_grouped_linear)
+    _replace_with_custom_fn_if_matches_filter_with_name(
+        model,
+        NVFP4InferenceLinear.from_linear,
+        lambda model, cur_fqn: isinstance(model, nn.Linear),
+    )
+    _replace_with_custom_fn_if_matches_filter_with_name(
+        model,
+        NVFP4InferenceGroupedLinear.from_grouped_linear,
+        lambda model, cur_fqn: isinstance(model, GroupedLinear),
+    )
 
 
 @contextmanager
@@ -678,6 +711,11 @@ Examples:
         action="store_true",
         help="let nvfuser take care of linear and matmul, note that this might fail with distributed run. See: https://github.com/NVIDIA/Fuser/issues/4507",
     )
+    parser.add_argument(
+        "--thunder-trace",
+        action="store_true",
+        help="Enable debug dump of thunder trace",
+    )
 
     parser.add_argument(
         "--save-results", action="store_true", help="Save results to JSON file"
@@ -731,6 +769,15 @@ def main():
 
     benchmark.run_benchmark()
     benchmark.print_results()
+
+    if args.thunder_trace and args.mode == "thunder":
+        backend = benchmark.model._backend
+        for subgraph_info in backend.subgraph_infos:
+            assert isinstance(subgraph_info.original_graph_module, torch.fx.GraphModule)
+            assert len(subgraph_info.thunder_compiled_fns)
+            for thunder_fn in subgraph_info.thunder_compiled_fns:
+                print(thunder.last_traces(thunder_fn)[-1])
+
     if args.save_results:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         filename = (

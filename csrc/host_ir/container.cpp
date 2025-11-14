@@ -36,20 +36,17 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   return os;
 }
 
-const std::list<Expr*>& HostIrContainer::topLevelExprs() const {
-  return top_level_exprs_;
+void HostIrContainer::resetTopLevelExprs(std::list<Expr*> exprs) {
+  top_level_.mutableExprs() = std::move(exprs);
 }
 
-void HostIrContainer::insertExprBefore(
-    std::list<Expr*>::const_iterator position,
-    Expr* expr) {
-  top_level_exprs_.insert(position, expr);
+void HostIrContainer::insertExprBefore(Scope::Iterator position, Expr* e) {
+  top_level_.insert(position, e);
 }
 
-std::list<Expr*>::const_iterator HostIrContainer::pushBackTopLevelExprs(
-    Expr* expr) {
-  assertInContainer(expr, "Cannot add expr, ");
-  return top_level_exprs_.insert(top_level_exprs_.end(), expr);
+Scope::Iterator HostIrContainer::pushBackTopLevelExprs(Expr* e) {
+  assertInContainer(e, "Cannot add expr, ");
+  return top_level_.push_back(e);
 }
 
 bool HostIrContainer::hasKernelExecutor(int64_t group_id) const {

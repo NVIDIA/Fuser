@@ -25,6 +25,7 @@
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
@@ -303,6 +304,11 @@ class ExprValidator : public OptOutDispatch {
         ir_utils::getTvInput(sop), ir_utils::getTvOutput(sop), sop->dim());
   }
 
+  void handle(TopKOp* top) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(top), ir_utils::getTvOutput(top), top->dim());
+  }
+
   static void validateGroupedOp(
       TensorView* inp_tv,
       TensorView* out_tv,
@@ -428,8 +434,7 @@ class ExprValidator : public OptOutDispatch {
   // This runtime function expects the inputs to be in local memory. The
   // quantized output will also be in local memory, but the block scaling
   // factors will be written out to global memory. The device runtime currently
-  // works on 4 elements per thread (8 for bf16/fp16) - this will be expanded
-  // later to support 2, 4, and 8 (only bf16/fp16) per thread. The runtime
+  // works on 2/4 elements per thread (also 8 for bf16/fp16). The runtime
   // function is based on a parallelization scheme that expects TIDx and BIDx,
   // and optionally TIDy and BIDy. 3D parallelization is not supported. Based
   // on the above, we have the following basic validation checks:
@@ -437,7 +442,7 @@ class ExprValidator : public OptOutDispatch {
   // Input is in local memory.
   // Block scaling factor is in global memory and
   // quantized output is in local memory.
-  // The Group ID has an extent of 4/8 depending on the data
+  // The Group ID has an extent of 2/4/8 depending on the data
   // type.
   // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
 
@@ -566,11 +571,12 @@ class ExprValidator : public OptOutDispatch {
     auto input_dtype = inp_tv->dtype();
 
     NVF_ERROR(
-        (inner_extent == 4 && input_dtype == DataType::Float) ||
-            (inner_extent == 8 &&
+        ((inner_extent == 4 || inner_extent == 2) &&
+         input_dtype == DataType::Float) ||
+            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
              (input_dtype == DataType::BFloat16 ||
               input_dtype == DataType::Half)),
-        "The vectorized/grouped dimension must be  4 (FP32) or 8 "
+        "The group dimension must be  2/4 (FP32) or 2/4/8 "
         "(BF16). Found: ",
         inner_extent,
         ". Expr: ",
@@ -1683,8 +1689,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
     NVF_CHECK(
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
-            def->isA<ArgsortOp>() || def->isA<BlockQuantizationOp>() ||
-            def->isA<ScanOp>(),
+            def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
+            def->isA<BlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 
@@ -1796,13 +1802,28 @@ void validate1dTmaLoad(Fusion* fusion) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    // ensure there is one and only one domain that is parallelized with
+    // ParallelType::Bulk
+    std::optional<int64_t> tma_axis = std::nullopt;
+    for (auto id_idx : arange(tv->nDims())) {
+      const auto id = tv->axis(id_idx);
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            !tma_axis.has_value(),
+            "Expect one and only one domain that is parallelized with "
+            "ParallelType::Bulk, but found multiple in: ",
+            tv->toString());
+        tma_axis = id_idx;
+      }
+    }
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
-        "Expect TMA load of inner-most dimension, but got: ",
+        tma_axis.has_value(),
+        "Expect one and only one domain that is parallelized with "
+        "ParallelType::Bulk, but found none in: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(tma_axis.value())});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
@@ -1812,6 +1833,23 @@ void validate1dTmaLoad(Fusion* fusion) {
             split->toString());
       }
     }
+    // size must be divisible by 16 bytes
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+    Val* tma_bytes = SimplifyingIrBuilder::mulExpr(
+        tv->axis(tma_axis.value())->extent(), dataTypeSizeByte(tv->dtype()));
+    Val* tma_bytes_is_multiple_of_16 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            tma_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        fusion->zeroVal());
+    NVFUSER_LOWER_VALIDATE(
+        tma_bytes_is_multiple_of_16,
+        "Expect 1dTMA load of inner-most dimension to be divisible by 16 "
+        "bytes, "
+        "but got: ",
+        tma_bytes->toInlineString(),
+        " bytes, ",
+        " tv:",
+        tv->toString());
   }
 }
 

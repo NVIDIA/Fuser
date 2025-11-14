@@ -366,4 +366,8 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const std::unordered_map<ValGroup, IterDomain*>& stale_map,
     ValGraph& new_graph);
 
+// Build a PERMISSIVE_RESIZE graph from the permissive graph.
+// This adds additional mappings for resize operations.
+ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph);
+
 } // namespace nvfuser
