@@ -821,6 +821,9 @@ TEST_F(
   SchedulerRuntimeInfo runtime_info_new(fusion.get(), {good_input});
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::PointWise, fusion.get(), runtime_info_new));
+
+  if (gpu_ptr)
+    cudaFree(gpu_ptr);
 }
 
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
