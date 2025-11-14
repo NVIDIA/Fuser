@@ -197,10 +197,16 @@ TensorView* scheduleReductionTV(
     if (rparams->cross_grid_inner_reduction) {
       outer_parallel(outer_i++, rparams->grid_dim_inner_reduction);
     }
-
-    reduction_tv->split(
-        outer_i++, rparams->batches_per_block_inner_reduction, false);
-
+    if (rparams->static_bdimx) {
+      // [R, TIDx, Vect]
+      reduction_tv->split(inner_reduce_axis, rparams->lparams.bdimx());
+      // [R, TIDx, Vect]
+      reduction_tv->axis(inner_reduce_axis + 1)
+          ->parallelize(rparams->block_dim_inner_reduction);
+    } else {
+      reduction_tv->split(
+          outer_i++, rparams->batches_per_block_inner_reduction, false);
+    }
     outer_unswitch(outer_i++);
 
     if (!rparams->vectorize_inner_reduction &&
@@ -210,13 +216,14 @@ TensorView* scheduleReductionTV(
 
     if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
       reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
-    } else {
+    } else if (!rparams->static_bdimx) {
       reduction_tv->axis(outer_i)->parallelize(
           rparams->block_dim_inner_reduction);
+      if (rparams->pad_inner_reduction_to_warp) {
+        reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+      }
     }
-    if (rparams->pad_inner_reduction_to_warp) {
-      reduction_tv->axis(outer_i)->padToMultipleOfWarp();
-    }
+
   } else {
     // Non-persistent format:
     // [Grid Split, Remainder, unswitch, unroll, thread dim, vectorize]
@@ -328,6 +335,7 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+
   const bool is_non_persistent_outer_reduction =
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =
