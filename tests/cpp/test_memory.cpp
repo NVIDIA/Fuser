@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <iterator>
 #include <regex>
+#include "ir/base_nodes.h"
 
 #include <debug.h>
 #include <fusion.h>
@@ -3388,4 +3389,37 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_has_circular_buffer_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// Can't use 2D TMA to load 1D tensor
+TEST_F(TMATest, NdTmaLoad1dTensor) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr int dim0 = 2 * 256;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigConcreteTensor({dim0});
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  fusion->addOutput(tv2);
+
+  tv1->split(0, 256);
+  tv1->axis(0)->parallelize(ParallelType::Bulk);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto options =
+      at::TensorOptions().dtype(at::ScalarType::Float).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  EXPECT_THAT(
+      [&]() { ke.run({t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "boxDim array, which specifies number of elements to be traversed "
+          "along each of the tensorRank dimensions, must be non-zero and less "
+          "than or equal to 256. box_dim_val = 512")));
+}
 } // namespace nvfuser
