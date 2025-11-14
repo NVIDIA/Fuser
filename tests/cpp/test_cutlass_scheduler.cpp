@@ -388,7 +388,6 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
   fusion->addInput(b_sf);
   fusion->addInput(alpha);
 
-  // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
       a,
       b,
@@ -464,7 +463,6 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   fusion->addInput(b_sf);
   fusion->addInput(alpha);
 
-  // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
       a,
       b,
@@ -727,7 +725,6 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
   fusion->addInput(alpha);
   fusion->addInput(beta);
 
-  // TODO: support more output dtypes, specifically nvfp4
   auto smm = scaled_mm(
       a,
       b,
@@ -802,7 +799,6 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
     ref_fusion->addInput(alpha);
     ref_fusion->addInput(beta);
 
-    // TODO: support more output dtypes, specifically nvfp4
     auto smm = scaled_mm(
         a,
         b,

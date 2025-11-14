@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <format>
+#include <ranges>
 #include <string>
 
 namespace nvfuser {
@@ -33,17 +34,20 @@ namespace {
 // dimension is the same as the inner allocation dimension. Otherwise it is
 // ColumnMajor
 std::string mapLayoutToCutlass(const TensorView* tv) {
-  const std::vector<IterDomain*> nored_logical =
-      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto nored_logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  const size_t ndims = std::ranges::distance(nored_logical);
+
   NVF_CUTLASS_REJECT_IF(
-      nored_logical.size() != 2,
+      ndims != 2,
       tv->toString(),
       " has dimension ",
-      nored_logical.size(),
+      ndims,
       " but only dimension 2 tensors are supported");
-  const std::vector<IterDomain*> nored_alloc =
-      TensorDomain::noReductions(tv->getMaybeAllocationDomain());
-  return nored_alloc.back() == nored_logical.back()
+
+  auto nored_alloc =
+      tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions;
+  return *std::ranges::rbegin(nored_logical) ==
+          *std::ranges::rbegin(nored_alloc)
       ? "cutlass::layout::RowMajor"
       : "cutlass::layout::ColumnMajor";
 }
@@ -126,15 +130,16 @@ class CutlassCodeGenerator {
       if (tv == nullptr) {
         continue;
       }
-      for (const auto& c : tv->getContiguity()) {
-        if (c.has_value()) {
-          NVF_CUTLASS_REJECT_IF(
-              c.value() != true,
-              "We require input TensorView ",
-              tv->toString(),
-              " to be fully contiguous for the Cutlass executor.");
-        }
-      }
+      const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
+      const bool is_tv_contiguous =
+          std::all_of(contiguity.begin(), contiguity.end(), [](auto c) {
+            return c.value_or(true);
+          });
+      NVF_CUTLASS_REJECT_IF(
+          !is_tv_contiguous,
+          "We require input TensorView ",
+          tv->toString(),
+          " to be fully contiguous for the Cutlass executor.");
     }
 
     NVF_CUTLASS_REJECT_IF(
@@ -496,7 +501,7 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       static_cast<ElementC*>(bias.data_ptr),";
+      code_ += "       static_cast<ElementC const*>(bias.data_ptr),";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }

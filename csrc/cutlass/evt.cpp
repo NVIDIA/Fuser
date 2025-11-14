@@ -82,7 +82,6 @@ class EVTConverter : OptInDispatch {
   void validatePattern() {
     auto check_input = [](TensorView* inp) {
       if (inp == nullptr) {
-        // Allow null
         return;
       }
       // Check that input is contiguous
@@ -91,9 +90,7 @@ class EVTConverter : OptInDispatch {
           std::any_of(
               contig.begin(),
               contig.end(),
-              [](const std::optional<bool>& c) {
-                return c.has_value() && !c.value();
-              }),
+              [](const std::optional<bool>& c) { return !c.value_or(true); }),
           "Expected all inputs to ScaledMmaOp to be contiguous but found ",
           inp->toString());
     };
@@ -104,16 +101,24 @@ class EVTConverter : OptInDispatch {
     // TODO: Grouped gemm entry validation
   }
 
-  // Provide DataType::Float if there is additional fusion required
+  // Creates a node to represent alpha*acc.
+  // Provide DataType::Float here if there is additional fusion required
   EVTModel::Node* makeAlphaAccNode(DataType dtype) {
     EVTModel::Node* acc_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
     if (pattern_.alpha == nullptr) {
-      // TODO: handle casting to dtype when neither alpha or bias is given and
-      // there is no epilogue. i.e. simple GEMM
+      if (dtype != DataType::Float) {
+        // handle casting to dtype when neither alpha or bias is given and there
+        // is no epilogue. i.e. simple GEMM. In this case we use the Identity op
+        // with specified output type to perform a cast
+        acc_node = makeUnaryOpNode(
+            UnaryOpType::Cast,
+            /*in_type=*/DataType::Float,
+            /*out_type=*/dtype,
+            acc_node);
+      }
       return acc_node;
     }
-
     NVF_CUTLASS_REJECT_IF(
         pattern_.alpha->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");
@@ -152,6 +157,7 @@ class EVTConverter : OptInDispatch {
         /*rhs_node=*/acc_node);
   }
 
+  // Create a node to represent beta*bias
   EVTModel::Node* makeBetaBiasNode() {
     if (pattern_.bias == nullptr) {
       return nullptr;
@@ -182,6 +188,8 @@ class EVTConverter : OptInDispatch {
     return beta_bias_node;
   }
 
+  // Make a node to represent alpha*acc + beta*bias with a final cast to the
+  // type of mma_out_
   void makeMmaOutNode() {
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
@@ -323,6 +331,45 @@ class EVTConverter : OptInDispatch {
     return visitor_node;
   }
 
+  EVTModel::Node* makeUnaryOpNode(
+      UnaryOpType op_type,
+      DataType in_type,
+      DataType out_type,
+      EVTModel::Node* in_node) {
+    // TODO: translate all of the supported UnaryOpTypes
+    std::string op_name;
+    switch (op_type) {
+      case UnaryOpType::Cast:
+        op_name = "epilogue::thread::Identity";
+        break;
+      case UnaryOpType::Relu:
+        op_name = "epilogue::thread::ReLU";
+        break;
+      default:
+        NVF_CUTLASS_REJECT("Unhandled unary op type: ", op_type);
+    }
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
+    // Compute type determines what precision the operation will take place in.
+    // The op is computed as (out_type)(op((compute_type)x))
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
+    // rounding mode
+    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
+    func_node->inputs.push_back(
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
+
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(in_node);
+
+    return visitor_node;
+  }
+
   using OptInDispatch::dispatch;
 
   void dispatch(Expr* expr) {
@@ -380,37 +427,13 @@ class EVTConverter : OptInDispatch {
   void handle(LoadStoreOp* uop) {}
 
   void handle(UnaryOp* uop) {
-    // TODO: translate all of the supported UnaryOpTypes
-    std::string op_name;
-    switch (uop->getUnaryOpType()) {
-      case UnaryOpType::Relu:
-        op_name = "epilogue::thread::ReLU";
-        break;
-      default:
-        NVF_CUTLASS_REJECT("Unhandled unary op type: ", uop->getUnaryOpType());
-    }
-    // This node and its inputs is essentially a function signature
-    EVTModel::Node* func_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
-    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
-    // Compute type determines what precision the operation will take place in.
-    // The op is computed as (out_type)(op((compute_type)x))
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
-    // rounding mode
-    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
-    func_node->inputs.push_back(
-        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
-
-    // We combine the signature with tree visitor node
-    EVTModel::Node* visitor_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
-    visitor_node->inputs.push_back(func_node);
-    visitor_node->inputs.push_back(getNodeFor(uop->in()));
-
-    val_nodes_.emplace(uop->out(), visitor_node);
+    val_nodes_.emplace(
+        uop->out(),
+        makeUnaryOpNode(
+            uop->getUnaryOpType(),
+            /*in_type=*/uop->in()->dtype(),
+            /*out_type=*/uop->out()->dtype(),
+            getNodeFor(uop->in())));
   }
 
   void handle(BinaryOp* bop) {
@@ -657,7 +680,6 @@ std::string EVTModel::toString() const {
   return ss.str();
 }
 
-// TODO: DataWrapperOpt belongs in scheduler_utils
 EVTModel extractEVTModel(Fusion* fusion) {
   return EVTConverter::convert(fusion);
 }
