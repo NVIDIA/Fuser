@@ -7,6 +7,8 @@
 // clang-format on
 #pragma once
 
+#include <iosfwd>
+
 #include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -14,6 +16,16 @@
 #include <visibility.h>
 
 namespace nvfuser {
+
+// Identifies which TensorView domain to inspect.
+enum class DomainType {
+  kRoot,
+  kLogical,
+  kLoop,
+  kAllocation,
+};
+
+std::ostream& operator<<(std::ostream& os, DomainType domain_type);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
@@ -90,13 +102,20 @@ void shardBetween(
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
-// Returns the IterDomain that's parallelized on `parallel_type`.  If it's not
-// found, returns nullptr. `parallel_type` decides which domain to look at.
-// ParallelType::Stream looks at the allocation domain and DIDs look at the loop
-// domain. Refer to the implementation for the reason.
+// Returns the IterDomain that's parallelized on `parallel_type` in the domain
+// of type `domain_type`.
+//
+// The allocation domain for multidevice TensorViews is set during
+// presegmentation, which happens after concretization. At that point fusion
+// inputs still lack allocation domains, so callers must explicitly choose
+// which domain to inspect. Use `domain_type` to pick loop vs. allocation (or
+// root/logical) depending on the information you need.
+// Returns the IterDomain that's parallelized on `parallel_type` within
+// `domain_type`. If it's not found, returns nullptr.
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
-    ParallelType parallel_type);
+    ParallelType parallel_type,
+    DomainType domain_type);
 
 // Reorders a TensorView's loop domain so that parallelized IterDomains are in
 // front, making the order most convenient for (inter-GPU and intra-GPU)

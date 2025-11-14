@@ -53,7 +53,11 @@ std::vector<int64_t> unshardedSizes(
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
   for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
-    IterDomain* sharded_id = getShardedIterDomain(tv, parallel_type);
+    const DomainType domain_type = parallel_type == ParallelType::Stream
+        ? DomainType::kAllocation
+        : DomainType::kLoop;
+    IterDomain* sharded_id =
+        getShardedIterDomain(tv, parallel_type, domain_type);
     if (sharded_id == nullptr) {
       continue;
     }
