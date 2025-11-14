@@ -5,10 +5,9 @@
 name: Claude Code PR Review
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
   cancel-in-progress: true
 
 run-name: Claude Code review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
@@ -17,7 +16,7 @@ jobs:
   claude-code-review:
     name: Run Claude Code Review
     # Skip if PR is in draft
-    if: github.event.pull_request.draft == false
+    # if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -28,8 +27,11 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
+          node-version: '20'
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -41,6 +43,52 @@ jobs:
           npm install -g @anthropic-ai/claude-code
           echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
 
+      - name: Install Claude Code Router
+        run: npm install -g @musistudio/claude-code-router@1.0.66
+
+      - name: Setup Claude Code Router config
+        run: |
+          mkdir -p $HOME/.claude-code-router
+          cat <<EOF > $HOME/.claude-code-router/config.json
+          {
+            "LOG": true,
+            "API_TIMEOUT_MS": 60000,
+            "NON_INTERACTIVE_MODE": true,
+            "Providers": [
+              {
+                "name": "anthropic",
+                "api_base_url": "\$ANTHROPIC_BASE_URL",
+                "api_key": "\$ANTHROPIC_API_KEY",
+                "models": [
+                  "\$ANTHROPIC_LLM_MODEL"
+                ],
+                "transformer": {
+                  "use": ["anthropic", "proxy-handler"]
+                }
+              }
+            ],
+            "Router": {
+              "default": "anthropic,\$ANTHROPIC_LLM_MODEL"
+            },
+            "transformers": [
+              {
+                "path": "$GITHUB_WORKSPACE/tools/proxy.js"
+              }
+            ]
+          }
+          EOF
+        shell: bash
+
+      - name: Start Claude Code Router background service
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ANTHROPIC_BASE_URL: ${{ secrets.ANTHROPIC_BASE_URL }}
+          ANTHROPIC_LLM_MODEL: ${{ secrets.ANTHROPIC_LLM_MODEL }}
+        run: |
+          nohup ccr start &
+          sleep 5  # Give it some time to start
+        shell: bash
+
       - name: Check Claude CLI availability
         run: |
           echo "PATH=$PATH"
@@ -50,7 +98,6 @@ jobs:
 
       - name: Run Claude Code via wrapper
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
