@@ -97,7 +97,6 @@ class EVTConverter : OptInDispatch {
 
     auto check_input = [](TensorView* inp) {
       if (inp == nullptr) {
-        // Allow null
         return;
       }
       // Check that input is contiguous
@@ -106,9 +105,7 @@ class EVTConverter : OptInDispatch {
           std::any_of(
               contig.begin(),
               contig.end(),
-              [](const std::optional<bool>& c) {
-                return c.has_value() && !c.value();
-              }),
+              [](const std::optional<bool>& c) { return !c.value_or(true); }),
           "Expected all inputs to ScaledMmaOp to be contiguous but found ",
           inp->toString());
     };
