@@ -175,7 +175,8 @@ class Val;
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
   f(Deallocate);                      \
-  f(ForLoop);
+  f(ForLoop);                         \
+  f(SymmetricContiguousView);
 
 // Forward declarations for all Val and Expr types
 

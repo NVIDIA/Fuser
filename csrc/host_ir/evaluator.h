@@ -114,6 +114,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(HirAliasSelect*) override;
   void handle(Deallocate*) override;
   void handle(ShardByStream*) override;
+  void handle(SymmetricContiguousView*) override;
   void unhandled(Statement*) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
@@ -137,6 +138,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
   IpcHandleCache ipc_handle_cache_;
+  SymmetricMemoryHandleCache multicast_handle_cache_;
   // Allocation cache
   std::unordered_map<kir::Allocate*, at::Tensor> allocation_cache_;
 };

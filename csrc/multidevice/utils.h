@@ -13,6 +13,9 @@
 #include <scheduler/utils.h>
 #include <visibility.h>
 
+#include <cstdint>
+#include <vector>
+
 namespace nvfuser {
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
@@ -108,5 +111,18 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
+
+// Helper functions for serializing data to bytes for TCP store
+template <typename T>
+std::vector<uint8_t> toBytes(const T& data) {
+  return std::vector<uint8_t>(
+      reinterpret_cast<const uint8_t*>(&data),
+      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
+}
+
+template <typename T>
+const T& fromBytes(const std::vector<uint8_t>& bytes) {
+  return *reinterpret_cast<const T*>(bytes.data());
+}
 
 } // namespace nvfuser

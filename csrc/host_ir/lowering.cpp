@@ -69,7 +69,7 @@ void lowerSegment(
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(device_id)) {
           auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           hic.pushBackTopLevelExprs(allocate);
         }
         hic.pushBackTopLevelExprs(communication);
@@ -186,7 +186,7 @@ void lowerSegment(
             alias);
         auto* tv = out->as<TensorView>();
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
         hic.pushBackTopLevelExprs(allocate);
       }
 
