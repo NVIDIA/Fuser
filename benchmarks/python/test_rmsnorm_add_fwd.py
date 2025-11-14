@@ -2,14 +2,22 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    with_executor,
+    DEFAULT_EXECUTORS,
+    check_module_available,
+)
 import torch
 from .global_params import FLOAT_DTYPES, BENCHMARK_CONFIG
 from .torch_ops import rmsnorm_add
-from flashinfer import fused_add_rmsnorm
 import itertools
 from random import sample
 from typing import List, Tuple
+
+if check_module_available("flashinfer"):
+    from flashinfer import fused_add_rmsnorm
 
 
 def generate_input_sizes_rmsnorm_add(dims: int = 2) -> List[Tuple]:
@@ -57,7 +65,19 @@ def flashinfer_rmsnorm_add_wrapper(inputs_list):
     return inputs, residual
 
 
-@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS + ["flashinfer"])
+@pytest.mark.parametrize(
+    "executor",
+    DEFAULT_EXECUTORS
+    + [
+        pytest.param(
+            "flashinfer",
+            marks=pytest.mark.skipif(
+                not check_module_available("flashinfer"),
+                reason="quack executor is not available on this device",
+            ),
+        )
+    ],
+)
 @pytest.mark.parametrize("size", generate_input_sizes_rmsnorm_add(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_persistent
