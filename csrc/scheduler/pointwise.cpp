@@ -521,8 +521,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
 
-  // Check if fusion has BlockQuantizationOp
-  // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
+  // Check if fusion has BlockQuantizationOp(s)
+  // Limit unroll factor for fusions with BlockQuantizationOp(s). The runtime
   // function which implements quantization assumes no unrolling
   auto has_block_quantization_ops =
       HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
@@ -541,10 +541,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       divisible_split,
       vectorizable_inputs_outputs_entry.get(),
       has_block_quantization_ops);
-
-  if (has_block_quantization_ops && unroll_factor > 1) {
-    unroll_factor = 1;
-  }
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
