@@ -11,6 +11,49 @@ from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, Tens
 
 
 @pytest.mark.mpi
+def test_row_parallel_linear_forward(multidevice_direct_test):
+    # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
+    h, s, t = 2, 3, 6
+    d = multidevice_direct_test.size
+    if (h * 4) % d != 0:
+        pytest.skip(
+            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+        )
+    assert t % s == 0
+
+    mesh = nvfuser.multidevice.DeviceMesh(range(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor(
+            shape=[-1, h * 4], contiguity=True, dtype=DataType.BFloat16
+        )
+        weight = fd.define_tensor(
+            shape=[h, h * 4], contiguity=True, dtype=DataType.BFloat16
+        )
+        out = fd.ops.linear(inp, weight)
+        fd.add_output(out)
+
+        for tv in (inp, weight):
+            tv.set_device_mesh(mesh)
+
+        inp.split(0, s, inner_split=False)
+        inp.axis(0).parallelize(nvfuser.ParallelType.stream)
+        inp.split(2, d, inner_split=False)
+        inp.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
+        weight.split(1, d, inner_split=False)
+        weight.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    inp_ref = torch.randint(-2, 3, (t, h * 4), dtype=torch.int32).to(torch.bfloat16)
+    weight_ref = torch.randint(-2, 3, (h, h * 4), dtype=torch.int32).to(torch.bfloat16)
+    out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
+
+    inp = (multidevice_direct_test.shard_tensor(inp_ref, -1, mesh),)
+    weight = (multidevice_direct_test.shard_tensor(weight_ref, -1, mesh),)
+    (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+    torch.testing.assert_close(out.cpu(), out_ref)
+
+
+@pytest.mark.mpi
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
