@@ -1789,7 +1789,6 @@ TEST_F(CombinedSchedulerTest, IllegalSizeToUseTMA) {
   auto dtype = DataType::BFloat16;
   constexpr auto dim0 = 1024;
   constexpr auto dim1 = 1023;
-  auto dim1 = 1023;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
