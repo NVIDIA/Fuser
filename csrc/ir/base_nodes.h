@@ -365,6 +365,8 @@ class NVF_API Val : public Statement {
   // math-only fusion definition.
   void addDependency(Val* dependency);
 
+  void addUse(Val* consumer);
+
   // Determine if value definition matches given expression type
   template <typename T>
   inline bool isDefinitionType() const;

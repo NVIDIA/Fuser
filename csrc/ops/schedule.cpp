@@ -36,6 +36,7 @@ TensorView* createBroadcastTv(TensorView* reference) {
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       reference->getDataType().value());
+  out->setMemoryType(MemoryType::Local);
   return out;
 }
 
@@ -65,6 +66,7 @@ TensorView* wait_for_prior_grid(std::vector<Val*> inputs) {
       "Expected at least one TensorView input.");
   TensorView* out =
       createBroadcastTv((*tensorview_input_iter)->as<TensorView>());
+  out->setMemoryType(MemoryType::Local);
   IrBuilder::create<WaitForPriorGridOp>(out, inputs);
   return out;
 }

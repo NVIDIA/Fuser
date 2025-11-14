@@ -11,6 +11,7 @@
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
@@ -1362,7 +1363,7 @@ void TensorView::setMemoryType(MemoryType mt) {
   memory_type_ = mt;
   if (isFusionInput() || isFusionOutput()) {
     NVF_ERROR(
-        mt == MemoryType::Global,
+        ir_utils::isScheduleOp(this) || mt == MemoryType::Global,
         "Tried to set an input or output to the fusion to a non-global memory "
         "type.");
   }

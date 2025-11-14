@@ -106,4 +106,85 @@ TEST_F(ProgrammaticDependentLaunchTest, Basic) {
   testValidate(presched_fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(ProgrammaticDependentLaunchTest, BasicBookends) {
+  std::shared_ptr<Fusion> fusion_ptr = std::make_shared<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  // Clone prescheduled fusion for validation
+  std::shared_ptr<Fusion> presched_fusion = std::make_shared<Fusion>(fusion);
+
+  // Cache the inputs and output
+  TensorView* tv0_cached = tv0->cacheAfter();
+  TensorView* tv1_cached = tv1->cacheAfter();
+  tv2->cacheBefore();
+
+  TensorView* grid_wait = wait_for_prior_grid({tv0, tv1});
+  tv0_cached->addDependency(grid_wait);
+  tv1_cached->addDependency(grid_wait);
+
+  TensorView* grid_launch = launch_dependent_grid({tv2});
+  fusion.addOutput(grid_launch);
+  grid_launch->setMemoryType(MemoryType::Local);
+
+  constexpr int tdx = 128;
+  constexpr int vectorize_factor = 4;
+  grid_launch->merge(0, 1);
+  grid_launch->split(-1, vectorize_factor);
+  grid_launch->split(-2, tdx);
+
+  TransformPropagatorWithCheck propagator(grid_launch);
+  MaxLogicalDomainInfoSpanningTree(grid_launch).traverse(&propagator);
+
+  // Parallelize the cached tensor
+  tv2->axis(-2)->parallelize(ParallelType::TIDx);
+  tv2->axis(-3)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  tv0_cached->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1_cached->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  inlineMost();
+
+  fusion.printMath();
+  fusion.printKernel();
+
+  at::Tensor t0 = at::randn({8, 512}).cuda();
+  at::Tensor t1 = at::randn({8, 512}).cuda();
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+
+  // Validate that the kernel is compiled with PDL support
+  const kir::KernelSummary& summary = ke.compiledKernel()->kernel()->summary();
+  EXPECT_TRUE(summary.enable_programmatic_dependent_launch);
+
+  // Validate that the kernel contains the expected PDL operations
+  const auto& kernel_exprs = ke.compiledKernel()->kernel()->exprs();
+  EXPECT_EQ(
+      std::count_if(
+          kernel_exprs.begin(),
+          kernel_exprs.end(),
+          [](const Expr* expr) { return expr->isA<LaunchDependentGridOp>(); }),
+      1);
+  EXPECT_EQ(
+      std::count_if(
+          kernel_exprs.begin(),
+          kernel_exprs.end(),
+          [](const Expr* expr) { return expr->isA<WaitForPriorGridOp>(); }),
+      1);
+
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(presched_fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

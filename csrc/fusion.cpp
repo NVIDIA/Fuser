@@ -640,6 +640,7 @@ void Fusion::resetTvUses() {
   // inputs as registered inputs will return nullptr as their definition.
   const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
   const auto used_exprs = StmtSort::getExprs(this);
+  std::cout << "used_exprs\t" << used_exprs.size() << std::endl;
 
   for (auto tv : all_tvs) {
     tv->setUses({});
