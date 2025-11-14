@@ -13,6 +13,8 @@
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
 
+#include <cuda.h>
+
 // Forward declarations
 namespace nvfuser {
 struct GlobalBufferInfo;
@@ -179,6 +181,20 @@ class LaunchKernel : public Expr {
     // Phase 1: Skipping intermediates
     std::vector<std::vector<std::byte>> args;
     std::vector<void*> arg_ptrs;
+
+    // Cached values to avoid repeated evaluations
+    std::optional<size_t> cached_cache_id;
+    bool cache_id_is_constant = false;
+
+    // Cached structure information for inputs/outputs
+    size_t num_inputs = 0;
+    size_t num_outputs = 0;
+    bool io_structure_cached = false;
+
+    // Cached launch configuration (computed once, reused for all launches)
+    CUlaunchConfig launch_config = {};
+    std::vector<CUlaunchAttribute> launch_attributes;
+    bool launch_config_cached = false;
   };
 
   ExecutorEntryData& getExecutorEntryData() const {

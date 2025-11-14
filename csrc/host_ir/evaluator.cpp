@@ -192,27 +192,54 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   // Phase 1: Direct kernel launch without KernelExecutor::run
   // This decouples LaunchKernel from the KernelExecutor runtime overhead
 
+  auto& entry_data = launch_kernel->getExecutorEntryData();
+
   // Build input arguments
   KernelArgumentHolder args;
+
+  // Cache and reuse cache_id evaluation
   {
   FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::cache_id");
-  PolymorphicValue cache_id =
-      expr_evaluator_.evaluate(launch_kernel->cacheId());
-  if (!cache_id.is<std::monostate>()) {
-    args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
+  if (entry_data.cache_id_is_constant && entry_data.cached_cache_id.has_value()) {
+    // Reuse cached cache_id
+    args.setCacheId(entry_data.cached_cache_id.value());
+  } else {
+    // Evaluate and potentially cache
+    PolymorphicValue cache_id =
+        expr_evaluator_.evaluate(launch_kernel->cacheId());
+    if (!cache_id.is<std::monostate>()) {
+      size_t cache_id_val = static_cast<size_t>(cache_id.as<int64_t>());
+      args.setCacheId(cache_id_val);
+      // Cache it for future calls
+      entry_data.cached_cache_id = cache_id_val;
+      entry_data.cache_id_is_constant = true;
+    }
   }
   }
 
   KernelArgumentHolder outputs;
   {
-
   FUSER_PERF_SCOPE("HIREval::handle(LaunchKernel)::in_out");
-  for (Val* input : launch_kernel->inputs()) {
+  const auto& inputs = launch_kernel->inputs();
+  const auto& outputs_vals = launch_kernel->outputs();
+
+  // Cache structure information on first run and pre-reserve space
+  if (!entry_data.io_structure_cached) {
+    entry_data.num_inputs = inputs.size();
+    entry_data.num_outputs = outputs_vals.size();
+    entry_data.io_structure_cached = true;
+  }
+
+  // Reserve space to avoid reallocations
+  args.reserve(entry_data.num_inputs);
+  outputs.reserve(entry_data.num_outputs);
+
+  for (Val* input : inputs) {
     args.push(getKnownConcreteValue(input));
   }
 
   // All output buffers are known already
-  for (Val* output : launch_kernel->outputs()) {
+  for (Val* output : outputs_vals) {
     if (expr_evaluator_.isKnown(output)) {
       outputs.push(getKnownConcreteValue(output));
     }
@@ -229,8 +256,6 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   CompiledKernel* compiled_kernel = launch_kernel->compiledKernel();
   NVF_ERROR(compiled_kernel != nullptr, "CompiledKernel is null");
   NVF_ERROR(compiled_kernel->lowered(), "Kernel is not lowered");
-
-  auto& entry_data = launch_kernel->getExecutorEntryData();
 
   // Lazy initialization: compute launch parameters and args on first execution
   if (!launch_kernel->isInitialized()) {
@@ -296,50 +321,54 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // Launch the kernel directly
   c10::DeviceGuard dg(compiled_kernel->device());
+
+  // Cache launch config and attributes on first execution
+  if (!entry_data.launch_config_cached) {
+    const auto& kernel_summary = compiled_kernel->kernel()->summary();
+
+    entry_data.launch_config.gridDimX = entry_data.computed_launch_params.gdimx();
+    entry_data.launch_config.gridDimY = entry_data.computed_launch_params.gdimy();
+    entry_data.launch_config.gridDimZ = entry_data.computed_launch_params.gdimz();
+    entry_data.launch_config.blockDimX = entry_data.computed_launch_params.bdimx();
+    entry_data.launch_config.blockDimY = entry_data.computed_launch_params.bdimy();
+    entry_data.launch_config.blockDimZ = entry_data.computed_launch_params.bdimz();
+    entry_data.launch_config.sharedMemBytes = entry_data.computed_launch_params.smem();
+
+    if (kernel_summary.has_cluster_reduction) {
+      CUlaunchAttribute attribute;
+      attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+      attribute.value.clusterDim.x = entry_data.computed_launch_params.gdimx();
+      attribute.value.clusterDim.y = 1;
+      attribute.value.clusterDim.z = 1;
+      entry_data.launch_attributes.push_back(attribute);
+    }
+
+    if (kernel_summary.has_cooperative_grid_reduction) {
+      CUlaunchAttribute attribute;
+      attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+      attribute.value.cooperative = 1;
+      entry_data.launch_attributes.push_back(attribute);
+    }
+
+    if (entry_data.launch_attributes.size() > 0) {
+      entry_data.launch_config.attrs = entry_data.launch_attributes.data();
+      entry_data.launch_config.numAttrs = (unsigned int)entry_data.launch_attributes.size();
+    } else {
+      entry_data.launch_config.attrs = nullptr;
+      entry_data.launch_config.numAttrs = 0;
+    }
+
+    entry_data.launch_config_cached = true;
+  }
+
+  // Update stream for this launch (stream can change between calls)
   auto stream = at::cuda::getCurrentCUDAStream();
-
-  const auto& kernel_summary = compiled_kernel->kernel()->summary();
-
-  CUlaunchConfig config = {};
-  config.gridDimX = entry_data.computed_launch_params.gdimx();
-  config.gridDimY = entry_data.computed_launch_params.gdimy();
-  config.gridDimZ = entry_data.computed_launch_params.gdimz();
-  config.blockDimX = entry_data.computed_launch_params.bdimx();
-  config.blockDimY = entry_data.computed_launch_params.bdimy();
-  config.blockDimZ = entry_data.computed_launch_params.bdimz();
-  config.sharedMemBytes = entry_data.computed_launch_params.smem();
-  config.hStream = stream;
-
-  std::vector<CUlaunchAttribute> launch_attributes;
-
-  if (kernel_summary.has_cluster_reduction) {
-    CUlaunchAttribute attribute;
-    attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-    attribute.value.clusterDim.x = entry_data.computed_launch_params.gdimx();
-    attribute.value.clusterDim.y = 1;
-    attribute.value.clusterDim.z = 1;
-    launch_attributes.push_back(attribute);
-  }
-
-  if (kernel_summary.has_cooperative_grid_reduction) {
-    CUlaunchAttribute attribute;
-    attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
-    attribute.value.cooperative = 1;
-    launch_attributes.push_back(attribute);
-  }
-
-  if (launch_attributes.size() > 0) {
-    config.attrs = launch_attributes.data();
-    config.numAttrs = (unsigned int)launch_attributes.size();
-  } else {
-    config.attrs = nullptr;
-    config.numAttrs = 0;
-  }
+  entry_data.launch_config.hStream = stream;
 
   // Launch the kernel
   if (!compiled_kernel->kernel()->topLevelExprs().empty()) {
     NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-        &config,
+        &entry_data.launch_config,
         compiled_kernel->cudaExecutable()->function,
         entry_data.arg_ptrs.data(),
         nullptr));
