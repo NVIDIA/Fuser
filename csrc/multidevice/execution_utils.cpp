@@ -66,8 +66,8 @@ std::vector<int64_t> unshardedSizes(
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
-        // Hack for MultiDeviceExecutor.  MultiDeviceExecutor looks for
-        // ParallelType::Stream only in logical domains and assumes a
+        // TODO(#5525): hack for MultiDeviceExecutor.  MultiDeviceExecutor looks
+        // for ParallelType::Stream only in logical domains and assumes a
         // stream-parallelized dimension is always fully allocated.  So we set
         // the multiplier to 1 when `sharded_id` is a logical IterDomain. This
         // will have to change when FusionExecutorCache requires a logical
