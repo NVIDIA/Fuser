@@ -167,7 +167,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     // buffers cannot use TMA since their producers are not inputs.
     if (buffer_params.project_to_input) {
       // TMA load requires size to be multiple of 16 bytes (128 bits).
-      // In inner-outer scheduler, only shared memmory pereistent buffers are
+      // In inner-outer scheduler, only shared memory persistent buffers are
       // TMA loaded and tma load size equals to the buffer size.
       if (std::all_of(
               buffer_params.smem_persistent_buffers.begin(),
