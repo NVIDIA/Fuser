@@ -52,11 +52,7 @@ std::string dtypeToCutlass(const DataType& dtype) {
 
 std::string generateCode(Fusion* fusion, const CutlassParams& params) {
   // TODO: match patterns and dispatch to different generators here
-  if (findScaledMmaOp(fusion) != nullptr) {
-    return generateNvfp4ScaledMmKernel(fusion, params);
-  } else {
-    NVF_THROW("Unsupported Fusion pattern for CUTLASS executor");
-  }
+  return generateNvfp4ScaledMmKernel(fusion, params);
 }
 
 } // namespace cutlass_codegen
