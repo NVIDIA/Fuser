@@ -65,20 +65,18 @@ class HostUnit : public Expr {
   std::unique_ptr<Fusion> fusion_;
 };
 
-/*
-  PostOnStream represents the host instruction of executing a HostUnit. Its I/O
-  represents in the host program the concrete I/O that will be bound at runtime
-  to the Fusion's I/O for compilation and execution. At runtime, PostOnStream
-  will compile and launch the kernel lowered from the HostUnit's embedded
-  Fusion.
-
-  Note: later PostOnStream will take a "Stream" argument
-
-  Note: later PostOnStream will also be able to launch network Communications
-
-  Note: later compilation and kernel launch will be separated and represented by
-  distinct Host IRs
-*/
+// PostOnStream represents the host instruction of executing a HostUnit. Its I/O
+// represents in the host program the concrete I/O that will be bound at runtime
+// to the Fusion's I/O for compilation and execution. At runtime, PostOnStream
+// will compile and launch the kernel lowered from the HostUnit's embedded
+// Fusion.
+//
+// Note: later PostOnStream will take a "Stream" argument
+//
+// Note: later PostOnStream will also be able to launch network Communications
+//
+// Note: later compilation and kernel launch will be separated and represented
+// by distinct Host IRs
 class PostOnStream : public Expr {
  public:
   using Expr::Expr;
@@ -498,7 +496,7 @@ class ForLoop : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  static ForLoop* createFromIterDomain(Val* index, IterDomain* iter_domain);
+  static ForLoop* createFromIterDomain(IterDomain* iter_domain);
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
