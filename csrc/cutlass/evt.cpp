@@ -164,6 +164,7 @@ class EVTConverter : OptInDispatch {
         /*rhs_node=*/acc_node);
   }
 
+  // Create a node to represent beta*bias
   EVTModel::Node* makeBetaBiasNode() {
     if (bias_ == nullptr) {
       return nullptr;
@@ -194,6 +195,8 @@ class EVTConverter : OptInDispatch {
     return beta_bias_node;
   }
 
+  // Make a node to represent alpha*acc + beta*bias with a final cast to the
+  // type of mma_out_
   void makeMmaOutNode() {
     // If there is a bias, then alpha*acc should be Float so that we avoid
     // down-casting until after adding it. Otherwise, we should go ahead and
@@ -663,7 +666,6 @@ std::string EVTModel::toString() const {
   return ss.str();
 }
 
-// TODO: DataWrapperOpt belongs in scheduler_utils
 EVTModel extractEVTModel(Fusion* fusion) {
   return EVTConverter::convert(fusion);
 }
