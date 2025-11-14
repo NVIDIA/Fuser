@@ -3293,6 +3293,9 @@ int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size,
     int64_t min_dtype_bytes) {
+  // We use TMA without interleave; the byte size of box-0 must be divisible by
+  // 16 bytes. Always use 2D tiles, which require at least 2 boxes in the inner
+  // dimension. Thus, the inner TMA domain size must be at least 2 * 16 bytes.
   constexpr int64_t align_bytes = 16;
   const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
 
