@@ -73,7 +73,7 @@ def flashinfer_rmsnorm_add_wrapper(inputs_list):
             "flashinfer",
             marks=pytest.mark.skipif(
                 not check_module_available("flashinfer"),
-                reason="quack executor is not available on this device",
+                reason="flashinfer executor is not available on this device",
             ),
         )
     ],
