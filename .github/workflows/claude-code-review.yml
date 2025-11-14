@@ -96,6 +96,9 @@ jobs:
           claude --version || true
           echo "npm prefix bin: $(npm config get prefix)/bin" || true
 
+      - name: Try simple Claude request (to be removed later)
+        run: claude -p 'hello!'
+
       - name: Run Claude Code via wrapper
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
