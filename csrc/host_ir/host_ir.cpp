@@ -272,7 +272,7 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
   NVF_ERROR(
       (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
       expr,
-      "must be a Communication, a P2PCommunication, or a EndCoalescing");
+      " must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)

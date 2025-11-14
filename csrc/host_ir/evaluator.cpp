@@ -768,7 +768,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  int64_t stream_index =
+  auto stream_index =
       expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
   at::Tensor out_tensor =
       in_tensor

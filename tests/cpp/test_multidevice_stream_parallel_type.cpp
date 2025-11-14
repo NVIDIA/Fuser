@@ -5,7 +5,6 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
@@ -21,7 +20,6 @@
 namespace nvfuser {
 
 using testing::ElementsAre;
-using testing::SizeIs;
 
 using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
 
