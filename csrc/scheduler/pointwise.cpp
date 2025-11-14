@@ -141,7 +141,11 @@ int64_t getUnrollFactor(
     int64_t total_blocks,
     int64_t vectorization_bits,
     bool divisible_split,
-    std::vector<TensorView*> vectorizable_io_tvs) {
+    std::vector<TensorView*> vectorizable_io_tvs,
+    bool has_block_quantization_ops) {
+  if (has_block_quantization_ops) {
+    return 1;
+  }
   // only consider vectorizable inputs,
   // needs to check if it's already in the list to avoid duplication since a tv
   // may be both input and output, e.g. NVFuserTest.FusionIssue2372_CUDA
@@ -516,17 +520,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool divisible_split = break_point > 0
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
-  int64_t unroll_factor = getUnrollFactor(
-      fusion,
-      break_point,
-      total_blocks,
-      params->vectorization_factor * max_dtype_size_bit_for_vectorization,
-      divisible_split,
-      vectorizable_inputs_outputs_entry.get());
 
+  // Check if fusion has BlockQuantizationOp
   // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
   // function which implements quantization assumes no unrolling
-  // Check if fusion has BlockQuantizationOp
   auto has_block_quantization_ops =
       HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
           data_cache,
@@ -535,6 +532,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
           })
           .get();
+
+  int64_t unroll_factor = getUnrollFactor(
+      fusion,
+      break_point,
+      total_blocks,
+      params->vectorization_factor * max_dtype_size_bit_for_vectorization,
+      divisible_split,
+      vectorizable_inputs_outputs_entry.get(),
+      has_block_quantization_ops);
 
   if (has_block_quantization_ops && unroll_factor > 1) {
     unroll_factor = 1;
