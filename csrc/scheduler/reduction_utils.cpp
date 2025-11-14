@@ -145,6 +145,29 @@ TensorView* scheduleReductionTV(
           ws_pt);
       inner_parallel_static(iter_axis, ws_pt, rparams->computation_warp_groups);
     }
+  } else if (rparams->cross_cluster_reduction) {
+    // [..., R, vectorize]
+    reduction_tv->split(
+        inner_reduce_axis, rparams->unroll_factor_inner_reduction);
+    // [..., Rremainder, TIDx,vectorize]
+    reduction_tv->split(inner_reduce_axis, rparams->lparams.bdimx());
+    // [..., PersistentBatch, Rremainder, TIDx, vectorize]
+    reduction_tv->split(
+        inner_reduce_axis, rparams->batches_per_block_inner_reduction, false);
+    // [..., PersistentBatch, BIDx, Unswitch, TIDx, vectorize]
+    reduction_tv->split(inner_reduce_axis + 2, 1, false);
+
+    // set parallelization types
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(rparams->grid_dim_inner_reduction);
+    reduction_tv->axis(inner_reduce_axis + 1)->setClusteredBlocks();
+    reduction_tv->axis(inner_reduce_axis + 2)
+        ->parallelize(ParallelType::Unswitch);
+    reduction_tv->axis(inner_reduce_axis + 3)
+        ->parallelize(rparams->block_dim_inner_reduction);
+    reduction_tv->axis(inner_reduce_axis + 4)
+        ->parallelize(ParallelType::Vectorize);
+
   } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
@@ -328,6 +351,7 @@ TensorView* scheduleReductionTV(
       }
     }
   }
+
   const bool is_non_persistent_outer_reduction =
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =

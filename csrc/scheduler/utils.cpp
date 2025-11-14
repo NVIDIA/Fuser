@@ -354,6 +354,10 @@ void parallelizeAllLike(
               reference_id->getMaybeSizeAfterPadding());
         }
       }
+      // propagate clustered blocks
+      if (reference_id->isClusteredBlockDim()) {
+        tv->axis(i)->setClusteredBlocks();
+      }
     }
   }
 }
@@ -3289,5 +3293,22 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
+// TODO: move getMaxActiveClusters to here
+// Given a cluster size starting from 16, if we can get at least 1 active
+// cluster, then we can use the given cluster size. Otherwise, reduce by half
+// and try again.
+int64_t getMaxClusterSize() {
+  // return 1 for pre-Hopper devices
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return 1;
+  }
+  int cluster_size = 16;
+  while (cluster_size > 1 &&
+         matmul_utils::getMaxActiveClusters(
+             MatmulParams::ClusterDims{cluster_size, 1}) < 1) {
+    cluster_size /= 2;
+  }
+  return cluster_size;
+}
 } // namespace scheduler_utils
 } // namespace nvfuser
