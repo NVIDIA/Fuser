@@ -18,7 +18,7 @@
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include "type.h"
+#include <type.h>
 
 namespace nvfuser {
 
