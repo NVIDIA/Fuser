@@ -15,7 +15,6 @@ namespace nvfuser {
 
 struct DataType;
 class Fusion;
-class Val;
 class CutlassParams;
 
 namespace cutlass_codegen {

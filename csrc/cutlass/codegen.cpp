@@ -8,13 +8,13 @@
 
 #include <cutlass/gemm.h>
 #include <exceptions.h>
-#include <fusion.h>
-#include <ir/base_nodes.h>
 #include <type.h>
 
 #include <string>
 
 namespace nvfuser {
+
+class Fusion;
 
 class CutlassParams;
 
