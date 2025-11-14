@@ -1437,6 +1437,13 @@ TEST_F(
   }
 }
 
+// Test scheduling pointwise kernel with 2D TMA tiles.
+// dim0: Varied input size in the outermost dimension. Ensure we reject cases
+//       that can't use TMA load, e.g., load size is not divisible by 16 bytes.
+// ndims: Test 1, 2, and 3 dimensions. Since we always use 2D tiles, we want to
+//        make sure we can handle cases with fewer than 2 dimensions and cases
+//        with more than 2 dimensions.
+// use_tma_store: Test with and without TMA store.
 using Tma2dTileTestParams =
     std::tuple<int64_t, int64_t, bool>; // <dim0, ndims, use_tma_store>
 
@@ -1453,6 +1460,10 @@ class Tma2dTileTest : public NVFuserFixtureParamTest<Tma2dTileTestParams> {
   std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
 };
 TEST_P(Tma2dTileTest, NoBroadcast) {
+  // This is a simple test with contiguous inputs, without broadcast, reshapes,
+  // allocation domains, etc. Test that 2D TMA tiles can be used to schedule
+  // inputs with different sizes and dimensions. Demonstrates how to use 2D TMA
+  // tiles and how to handle cases with and without TMA store.
   auto dtype = DataType::Float;
   int64_t dtype_bytes = dataTypeSizeByte(dtype);
   auto [dim0, ndims, use_tma_store] = GetParam();
@@ -1540,11 +1551,6 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   if (gdim_y > 65535) {
     std::swap(pto, pti);
   }
-  std::cout << "reference: " << reference->toString() << std::endl;
-  std::cout << "total_elem_count: " << total_elem_count
-            << ", gdim_y: " << gdim_y << ", D0: " << D0 << ", D1: " << D1
-            << ", pto: " << pto << ", pti: " << pti << " to: " << to
-            << ", ti: " << ti << std::endl;
 
   // Propagate the transformation to all tensors.
   TransformPropagatorWithCheck propagator(reference);
