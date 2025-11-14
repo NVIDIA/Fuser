@@ -1,0 +1,81 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+name: Claude Code PR Review
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+run-name: Claude Code review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  claude-code-review:
+    name: Run Claude Code Review
+    # Skip if PR is in draft
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    env:
+      CLAUDE_OUTPUT_DIR: artifacts/claude_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install Claude Code
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+
+      - name: Check Claude CLI availability
+        run: |
+          echo "PATH=$PATH"
+          which claude || echo "claude not found on PATH"
+          claude --version || true
+          echo "npm prefix bin: $(npm config get prefix)/bin" || true
+
+      - name: Run Claude Code via wrapper
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          python -m tools.pr_preflight_launcher
+      
+      - name: Print Claude error (if any)
+        if: always()
+        run: |
+          if [ -f "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt" ]; then
+            echo "===== Claude error.txt ====="
+            sed -n '1,200p' "${{ env.CLAUDE_OUTPUT_DIR }}/error.txt"
+          else
+            echo "No error.txt found in ${{ env.CLAUDE_OUTPUT_DIR }}"
+          fi
+
+      - name: Upload Claude review artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+          path: ${{ env.CLAUDE_OUTPUT_DIR }}/**
+
+      # TODO: Add step to post results to PR
+      # - name: Post results to PR
+      #   run: |
+      #     # Parse output and post to PR
