@@ -947,50 +947,35 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // scheduled the same but the user end cannot guarantee that. In order to
   // guarantee that the rFactor is defined meaningfully the scheduling of the
   // output TV that got the rfactor call is force replayed towards the other two
-
+  debug() << "Reference: " << domain()->toString(0, false) << std::endl;
+  debug() << "This: " << tv->domain()->toString(0, false) << std::endl;
   if (this != tv) {
-    const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-    const std::vector<IterDomain*>& this_logical = getLogicalDomain();
+    const std::vector<IterDomain*>& target_logical = tv->getLogicalDomain();
+    const std::vector<IterDomain*>& ref_logical = getLogicalDomain();
+    const std::vector<IterDomain*>& ref_loop = getLoopDomain();
 
     // construct a trivial logical domain map
-    std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (auto&& [this_id, id] : zip(this_logical, logical)) {
-      id_map[this_id] = id;
+    std::unordered_map<IterDomain*, IterDomain*> ref_to_target_map;
+    for (auto&& [ref_id, target_id] : zip(ref_logical, target_logical)) {
+      ref_to_target_map[ref_id] = target_id;
     }
 
     // replay on the target tv
-    ReplayTransformations replay(getLoopDomain(), id_map);
+    ReplayTransformations replay(ref_loop, ref_to_target_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_loop;
-    for (IterDomain* id : getLoopDomain()) {
+    for (IterDomain* loop_id : ref_loop) {
+      auto it = replay.getReplay().find(loop_id);
       NVF_ERROR(
-          replay.getReplay().count(id),
-          "Loop domain replay failed for multi-output reduction.");
-      new_loop.push_back(replay.getReplay().at(id));
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          loop_id);
+      it->second->parallelize(loop_id->getParallelType());
+      new_loop.push_back(it->second);
     }
-
-    std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
-
-    if (!tv->hasAllocation()) {
-      tv->setDomain(IrBuilder::create<TensorDomain>(
-          tv->getLogicalDomain(), new_loop, new_contig));
-    } else {
-      // Replay allocation
-      std::vector<IterDomain*> new_allocation;
-      for (IterDomain* id : getAllocationDomain()) {
-        NVF_ERROR(
-            replay.getReplay().count(id),
-            "Allocation domain replay failed for multi-output reduction.");
-        new_allocation.push_back(replay.getReplay().at(id));
-      }
-      tv->setDomain(IrBuilder::create<TensorDomain>(
-          std::vector<IterDomain*>(),
-          tv->getLogicalDomain(),
-          new_allocation,
-          new_loop,
-          new_contig));
-    }
+    tv->setLoopDomain(new_loop);
+    debug() << "Replayed: " << tv->domain()->toString(0, false) << std::endl;
   }
 
   // Split tensor view into 2 parts
