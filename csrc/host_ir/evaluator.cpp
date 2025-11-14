@@ -497,6 +497,9 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* weight = linear->inB()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
 
+  // FIXME: When LinearOp is called in a for loop, even if it's output is not
+  // pre-allocated, the second iteration will see isKnown true and skip the
+  // unhandled path.
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
     return;
@@ -753,7 +756,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  int64_t stream_index =
+  auto stream_index =
       expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
   at::Tensor out_tensor =
       in_tensor
