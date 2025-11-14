@@ -608,65 +608,9 @@ ExecutorCompileTimeEntry<EntryClass>::ExecutorCompileTimeEntry(
 }
 
 // Template instantiation
-template class ExecutorCompileTimeEntry<ParallelBindingIterDomains>;
-template class ExecutorCompileTimeEntry<ParallelIterExtentMap>;
 template class ExecutorCompileTimeEntry<VectorizedTensorValidation>;
 
 } // namespace caching
-
-std::vector<IterDomain*> getParallelBindingsIterDomains(
-    GpuLower* lower,
-    const std::vector<TensorView*>& used_tvs) {
-  std::vector<IterDomain*> parallel_ids;
-  for (auto tv : used_tvs) {
-    for (auto id : tv->getLoopDomain()) {
-      if (id->isThread()) {
-        if (id->isBroadcast()) {
-          // Want to keep the broadcast dimensions if they are not resolved
-          // TODO: piping down the parallel dimension map here would
-          //  be helpful
-          if (lower->info().caMap().getConcreteMappedID(
-                  id, IdMappingMode::LOOP) == id) {
-            parallel_ids.push_back(id);
-          }
-        } else {
-          // Non broadcast ids are directly added to the binding
-          //  ids.
-          parallel_ids.push_back(id);
-        }
-      }
-    }
-  }
-  return parallel_ids;
-}
-
-namespace {
-
-void insertParallelExtent(
-    IterDomain* binding_id,
-    const std::unique_ptr<ParallelExtentMap>& parallel_iter_extents_ptr) {
-  auto extent = binding_id->extent();
-  const auto it =
-      parallel_iter_extents_ptr->find(binding_id->getParallelType());
-  if (it != parallel_iter_extents_ptr->end()) {
-    it->second.push_back(extent);
-  } else {
-    parallel_iter_extents_ptr->operator[](binding_id->getParallelType()) = {
-        extent};
-  }
-}
-
-} // namespace
-
-std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
-    std::vector<IterDomain*>& parallel_binding_ids) {
-  auto parallel_iter_extents_ptr = std::make_unique<ParallelExtentMap>();
-  for (auto id : parallel_binding_ids) {
-    insertParallelExtent(id, parallel_iter_extents_ptr);
-  }
-
-  return parallel_iter_extents_ptr;
-}
 
 void validateIndexCasts(
     kir::Kernel* kernel,

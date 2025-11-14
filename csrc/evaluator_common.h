@@ -163,14 +163,6 @@ class PrecomputedValues {
       const std::vector<Val*>& values,
       const KernelArgumentHolder& args);
 
-  using ParallelExtentMap =
-      std::unordered_map<ParallelType, std::vector<const Val*>>;
-
-  //! Bind concrete values from launch constraints
-  void bindParallelExtents(
-      const ParallelExtentMap& parallel_extents,
-      const LaunchParams& launch_constraint);
-
   //! Bind the NamedScalars corresponding to the
   //!  concrete parallel dimension sizes after the
   //!  actual value has been resolved.
