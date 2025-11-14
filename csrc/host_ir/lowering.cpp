@@ -134,7 +134,8 @@ void lowerSegment(
         if (tv->getDeviceMesh().has(device_id)) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-          // FIXME: allocation may have to go to the top level.
+          // TODO: allocation may have to go to the top level. See how
+          // SchedulerType::ExprEval handles allocations.
           loop_nest.innermostScope().push_back(allocate);
         }
         loop_nest.innermostScope().push_back(communication);
