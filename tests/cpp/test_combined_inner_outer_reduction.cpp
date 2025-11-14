@@ -1787,7 +1787,8 @@ TEST_F(CombinedSchedulerTest, KernelReuseVectorizationError) {
 TEST_F(CombinedSchedulerTest, IllegalSizeToUseTMA) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto dtype = DataType::BFloat16;
-  auto dim0 = 1024;
+  constexpr auto dim0 = 1024;
+  constexpr auto dim1 = 1023;
   auto dim1 = 1023;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
