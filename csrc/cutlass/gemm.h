@@ -7,20 +7,24 @@
 // clang-format on
 #pragma once
 
+#include <cstdint>
 #include <exception>
 #include <string>
 
 namespace nvfuser {
 
+class Expr;
 class Fusion;
+class TensorView;
 class Val;
 class Expr;
 class TensorView;
 
 class CutlassParams;
-class ScaledMmaOp;
 
 namespace cutlass_codegen {
+
+struct CutlassGeneratedCode;
 
 //! Instead of using something like DataWrapperOpt, we will throw these
 //! exceptions whenever we fail to translate a Fusion
@@ -79,7 +83,7 @@ int64_t fusionInputPosition(Fusion* fusion, Val* v);
 //! if v is not a fusion output
 int64_t fusionOutputPosition(Fusion* fusion, Val* v);
 
-std::string generateNvfp4ScaledMmKernel(
+CutlassGeneratedCode generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params);
 

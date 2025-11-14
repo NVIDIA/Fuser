@@ -29,20 +29,6 @@ namespace cutlass_codegen {
 
 namespace {
 
-Expr* getGemmExpr(Fusion* fusion) {
-  auto scaled_mma_exprs = fusion->exprs() |
-      std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
-  const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
-  NVF_CUTLASS_REJECT_IF(num_exprs == 0, "No ScaledMmaOps detected");
-  NVF_CUTLASS_REJECT_IF(num_exprs != 1, "Found multiple ScaledMmaOps");
-  return scaled_mma_exprs.front();
-}
-
-//! Find the accumulator which is the direct output of the ScaledMmaOp
-TensorView* getAccTv(Fusion* fusion) {
-  return getGemmExpr(fusion)->output(0)->as<TensorView>();
-}
-
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
 //! https://dx.doi.org/10.1145/3620666.3651369
@@ -55,7 +41,12 @@ class EVTConverter : OptInDispatch {
   }
 
  private:
-  EVTConverter(Fusion* fusion) : fusion_(fusion) {}
+  EVTConverter(Fusion* fusion)
+      : fusion_(fusion), pattern_(findCutlassMatmulPattern(fusion)) {
+    validatePattern();
+    NVF_ERROR_EQ(pattern_.mma->outputs().size(), 1);
+    mma_out_ = pattern_.mma->output(0)->as<TensorView>();
+  }
 
   EVTModel& model() {
     return model_;
@@ -83,18 +74,12 @@ class EVTConverter : OptInDispatch {
         std::to_string(index) + ").data_ptr)";
   }
 
-  void findMma() {
-    mma_ = getGemmExpr(fusion_);
+  std::string getPointerArrayPointerCode(TensorView* tv) {
+    // TODO: track
+    return getPointerCode(tv);
+  }
 
-    auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma_);
-    NVF_CUTLASS_REJECT_IF(
-        scaled_mma == nullptr,
-        "Only ScaledMmaOp is currently supported for EVT translation");
-    mma_out_ = mma_->output(0)->as<TensorView>();
-    alpha_ = scaled_mma->alpha();
-    beta_ = scaled_mma->beta();
-    bias_ = scaled_mma->bias();
-
+  void validatePattern() {
     auto check_input = [](TensorView* inp) {
       if (inp == nullptr) {
         return;
@@ -109,27 +94,11 @@ class EVTConverter : OptInDispatch {
           "Expected all inputs to ScaledMmaOp to be contiguous but found ",
           inp->toString());
     };
-    check_input(alpha_);
-    check_input(beta_);
-    check_input(bias_);
+    check_input(pattern_.alpha);
+    check_input(pattern_.beta);
+    check_input(pattern_.bias);
 
-    // The default kernel uses EpilogueScheduleAuto, which in turn uses
-    // LinearCombination as the epilogue. That means an epilogue that looks like
-    // this is assumed:
-    //
-    //   alpha * acc + beta * bias
-    //
-    // The ScaledMmaOp node has tensor inputs corresponding to these arguments.
-    // If some of these are null, we can omit them when building our EVT.
-    // Otherwise, we replicate the default EVT defined here:
-    // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
-
-    NVF_CUTLASS_REJECT_IF(
-        scaled_mma->outScale() != nullptr,
-        "Output block scale factor not supported for EVT translation");
-    NVF_CUTLASS_REJECT_IF(
-        scaled_mma->outGamma() != nullptr,
-        "Output global scale factor not supported for EVT translation");
+    // TODO: Grouped gemm entry validation
   }
 
   // Creates a node to represent alpha*acc.
@@ -137,7 +106,7 @@ class EVTConverter : OptInDispatch {
   EVTModel::Node* makeAlphaAccNode(DataType dtype) {
     EVTModel::Node* acc_node =
         model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
-    if (alpha_ == nullptr) {
+    if (pattern_.alpha == nullptr) {
       if (dtype != DataType::Float) {
         // handle casting to dtype when neither alpha or bias is given and there
         // is no epilogue. i.e. simple GEMM. In this case we use the Identity op
@@ -151,18 +120,33 @@ class EVTConverter : OptInDispatch {
       return acc_node;
     }
     NVF_CUTLASS_REJECT_IF(
-        alpha_->nDims() != 0,
+        pattern_.alpha->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");
     NVF_CUTLASS_REJECT_IF(
-        alpha_->dtype() != DataType::Float,
+        pattern_.alpha->dtype() != DataType::Float,
         "Only Float alpha is supported for EVT translation");
-    // Broadcast alpha to the same dimensions as the accumulator
-    EVTModel::Node* alpha_bcast_node = model_.makeNode(
-        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
-        dtypeToCutlass(alpha_->dtype()) + ">");
-    alpha_bcast_node->arguments.emplace_back(
-        "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
-    val_nodes_.emplace(alpha_, alpha_bcast_node);
+
+    EVTModel::Node* alpha_bcast_node = nullptr;
+    if (pattern_.alpha->nDims() == 0) {
+      // Broadcast scalar alpha to the same dimensions as the accumulator
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
+    } else if (pattern_.alpha->nDims() == 1) {
+      NVF_CUTLASS_REJECT_IF(
+          !pattern_.is_grouped,
+          "Non-scalar alpha only supported for grouped GEMM");
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<float>");
+      alpha_bcast_node->arguments = {
+          {"scalars", "{}"},
+          {"scalar_ptrs", "{}"},
+          {"scalar_ptr_arrays",
+           "{" + getPointerArrayPointerCode(pattern_.alpha) + "}"},
+      };
+    }
+    val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
 
     return makeBinaryOpNode(
         BinaryOpType::Mul,
@@ -175,21 +159,21 @@ class EVTConverter : OptInDispatch {
 
   // Create a node to represent beta*bias
   EVTModel::Node* makeBetaBiasNode() {
-    if (bias_ == nullptr) {
+    if (pattern_.bias == nullptr) {
       return nullptr;
     }
 
     // Make a node to load the bias
     EVTModel::Node* beta_bias_node = model_.makeNode(
         "cutlass::epilogue::fusion::Sm90SrcFetch<" +
-        dtypeToCutlass(bias_->dtype()) + ">");
+        dtypeToCutlass(pattern_.bias->dtype()) + ">");
 
-    if (beta_ != nullptr) {
+    if (pattern_.beta != nullptr) {
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
-          dtypeToCutlass(beta_->dtype()) + ">");
+          dtypeToCutlass(pattern_.beta->dtype()) + ">");
       beta_bcast_node->arguments.emplace_back(
-          "scalar_ptrs", "{" + getPointerCode(beta_) + "}");
+          "scalar_ptrs", "{" + getPointerCode(pattern_.beta) + "}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -207,11 +191,22 @@ class EVTConverter : OptInDispatch {
   // Make a node to represent alpha*acc + beta*bias with a final cast to the
   // type of mma_out_
   void makeMmaOutNode() {
+    // The default kernel uses EpilogueScheduleAuto, which in turn uses
+    // LinearCombination as the epilogue. That means an epilogue that looks like
+    // this is assumed:
+    //
+    //   alpha * acc + beta * bias
+    //
+    // The ScaledMmaOp node has tensor inputs corresponding to these arguments.
+    // If some of these are null, we can omit them when building our EVT.
+    // Otherwise, we replicate the default EVT defined here:
+    // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
+    //
     // If there is a bias, then alpha*acc should be Float so that we avoid
     // down-casting until after adding it. Otherwise, we should go ahead and
     // cast to mma_out_'s dtype now.
     EVTModel::Node* mma_out_node = makeAlphaAccNode(
-        bias_ == nullptr ? mma_out_->dtype() : DataType::Float);
+        pattern_.bias == nullptr ? mma_out_->dtype() : DataType::Float);
 
     if (EVTModel::Node* beta_bias_node = makeBetaBiasNode()) {
       mma_out_node = makeBinaryOpNode(
@@ -264,8 +259,6 @@ class EVTConverter : OptInDispatch {
   }
 
   void run() {
-    findMma();
-
     makeMmaOutNode();
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
@@ -277,8 +270,8 @@ class EVTConverter : OptInDispatch {
     // in the EVT for each of these
     NVF_CUTLASS_REJECT_IF(
         model_.getRootTensorView() == nullptr, "Could not set root TV");
-    for (Statement* stmt :
-         StmtSort::getStmtsBetween({getAccTv(fusion_)}, unquantized_outputs)) {
+    for (Statement* stmt : StmtSort::getStmtsBetween(
+             {pattern_.mma->output(0)}, unquantized_outputs)) {
       dispatch(stmt);
     }
     NVF_CUTLASS_REJECT_IF(
@@ -462,10 +455,7 @@ class EVTConverter : OptInDispatch {
 
  private:
   Fusion* fusion_;
-  Expr* mma_;
-  TensorView* alpha_;
-  TensorView* beta_;
-  TensorView* bias_;
+  CutlassMatmulPattern pattern_;
   TensorView* mma_out_;
 
   EVTModel model_;

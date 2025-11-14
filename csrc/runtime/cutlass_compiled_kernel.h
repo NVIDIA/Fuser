@@ -63,8 +63,42 @@ class CutlassCompiledKernel : public CompiledKernelBase {
 
   bool compiled_ = false;
 
-  void* workspace_size_function_ = nullptr;
-  void* cuda_function_ = nullptr;
+  //! Note that this must match the expected type in the generated kernel
+  struct TensorArg {
+    void* data_ptr;
+    int64_t dim;
+    int64_t* sizes;
+    int64_t* strides = nullptr;
+  };
+
+  //! Running the jitted CUTLASS kernel is a four-step process:
+  //!   1) Query the size of temporary tensors needed using the dlsym'ed
+  //!   temp_sizes function
+  //!   2) Allocate those temporary tensors via ATen and place them in a vector
+  //!   3) Run the dlsym'ed init_kernel function to initialize the temporary
+  //!   tensors
+  //!   4) Run the kernel using the dlsym'ed run_kernel function
+
+  // This is set when generating the kernel
+  int64_t num_temp_tensors_ = 32;
+
+  //! Signature for the function for getting the workspace size
+  using TempTensorSizeFunc = void (*)(
+      /*out_tensor_sizes*/ int64_t*,
+      /*tensor_args*/ void*);
+  TempTensorSizeFunc temp_tensor_size_function_ = nullptr;
+
+  //! Signature for the function for getting the workspace size
+  using InitTempTensorsFunc = void (*)(/*data_ptrs*/ void*);
+  InitTempTensorsFunc init_temp_tensors_function_ = nullptr;
+
+  //! Signature for the function to run the kernel
+  using RunKernelFunc = void (*)(
+      const std::vector<TensorArg>&,
+      /*temp_tensors*/ uint8_t**,
+      cudaStream_t);
+  RunKernelFunc run_kernel_function_ = nullptr;
+
   void* shared_library_handle_ = nullptr;
 };
 

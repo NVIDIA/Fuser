@@ -54,10 +54,12 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
 
 class CutlassCodeGenerator {
  public:
-  static std::string generate(Fusion* fusion, const CutlassParams& params) {
+  static CutlassGeneratedCode generate(
+      Fusion* fusion,
+      const CutlassParams& params) {
     CutlassCodeGenerator gen(fusion, params);
     gen.run();
-    return gen.code_;
+    return {gen.code_, gen.num_temp_tensors_};
   }
 
   static std::string getRejectReason(Fusion* fusion) {
@@ -114,6 +116,13 @@ class CutlassCodeGenerator {
     NVF_CUTLASS_REJECT_IF(
         !pattern_.b_scale->isFusionInput(),
         "Scale factors for B must be a fusion input");
+
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.a_scale->dtype() != DataType::Float8_e4m3fn,
+        "Expected A scale factors to be fp8");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b_scale->dtype() != DataType::Float8_e4m3fn,
+        "Expected B scale factors to be fp8");
 
     // Validate that the inputs and scale factors are all contiguous
     for (TensorView* tv :
@@ -509,11 +518,18 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
     code_ += R"(
 
 // Calling code should pass a pointer to a vector of TensorArgs
-extern "C" size_t workspace_size(void* input_ptr) {
-  const std::vector<TensorArg>& inputs =
-      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
-  auto arguments = args_from_inputs(inputs);
-  return Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+extern "C" void temp_tensor_size(
+    int64_t* out_tensor_sizes,
+    const std::vector<TensorArg>& inputs) {
+  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
+  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+}
+
+extern "C" void init_temp_tensors(uint8_t** temp_tensors) {
+  // TODO: do stuff here other than workspace initialization
+  // The cutlass workspace _is_ a temporary tensor, but since it needs
+  // arguments to be built in order to initialize it, I currently left it in
+  // run_kernel to avoid needing to call args_from_inputs twice.
 }
 
 // Executes the FP4 scaled matrix multiplication using CUTLASS kernels
@@ -523,7 +539,7 @@ extern "C" size_t workspace_size(void* input_ptr) {
 // It handles the complete lifecycle from kernel initialization to execution.
 extern "C" void run_kernel(
     const std::vector<TensorArg>& inputs,
-    uint8_t* workspace_ptr,
+    uint8_t** temp_tensor_ptrs,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
@@ -534,6 +550,7 @@ extern "C" void run_kernel(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
+  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
   auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
@@ -559,6 +576,10 @@ extern "C" void run_kernel(
   std::unique_ptr<EVTModel> evt_model_ = nullptr;
 
   std::vector<BlockScaledOutputPattern> block_scaled_outputs_;
+
+  // We require one temp tensor for the CUTLASS workspace. For grouped gemm, we
+  // also need a temp tensor for each pointer array
+  int64_t num_temp_tensors_;
 
   std::string code_;
 };
@@ -595,7 +616,7 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
 }
 
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
-  if (auto smma = findOp<ScaledMmaOp>(fusion)) {
+  if (auto* smma = findOp<ScaledMmaOp>(fusion)) {
     NVF_CUTLASS_REJECT_IF(
         smma->outScale() != nullptr,
         "Output block scale factor not supported for EVT translation");
@@ -612,7 +633,7 @@ CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
         .beta = smma->beta(),
         .bias = smma->bias(),
         .is_grouped = false};
-  } else if (auto gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
+  } else if (auto* gmma = findOp<CutlassNvfp4GroupedMmaOp>(fusion)) {
     return {
         .mma = gmma,
         .a = gmma->matrix1(),
@@ -629,7 +650,7 @@ CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
   }
 }
 
-std::string generateNvfp4ScaledMmKernel(
+CutlassGeneratedCode generateNvfp4ScaledMmKernel(
     Fusion* fusion,
     const CutlassParams& params) {
   return CutlassCodeGenerator::generate(fusion, params);
