@@ -25,6 +25,7 @@
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
@@ -1801,13 +1802,28 @@ void validate1dTmaLoad(Fusion* fusion) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    // ensure there is one and only one domain that is parallelized with
+    // ParallelType::Bulk
+    std::optional<int64_t> tma_axis = std::nullopt;
+    for (auto id_idx : arange(tv->nDims())) {
+      const auto id = tv->axis(id_idx);
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            !tma_axis.has_value(),
+            "Expect one and only one domain that is parallelized with "
+            "ParallelType::Bulk, but found multiple in: ",
+            tv->toString());
+        tma_axis = id_idx;
+      }
+    }
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
-        "Expect TMA load of inner-most dimension, but got: ",
+        tma_axis.has_value(),
+        "Expect one and only one domain that is parallelized with "
+        "ParallelType::Bulk, but found none in: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(tma_axis.value())});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
@@ -1817,6 +1833,23 @@ void validate1dTmaLoad(Fusion* fusion) {
             split->toString());
       }
     }
+    // size must be divisible by 16 bytes
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+    Val* tma_bytes = SimplifyingIrBuilder::mulExpr(
+        tv->axis(tma_axis.value())->extent(), dataTypeSizeByte(tv->dtype()));
+    Val* tma_bytes_is_multiple_of_16 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            tma_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        fusion->zeroVal());
+    NVFUSER_LOWER_VALIDATE(
+        tma_bytes_is_multiple_of_16,
+        "Expect 1dTMA load of inner-most dimension to be divisible by 16 "
+        "bytes, "
+        "but got: ",
+        tma_bytes->toInlineString(),
+        " bytes, ",
+        " tv:",
+        tv->toString());
   }
 }
 
