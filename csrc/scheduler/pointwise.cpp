@@ -527,10 +527,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // Limit unroll factor for fusions with BlockQuantizationOp. The runtime
   // function which implements quantization assumes no unrolling
   // Check if fusion has BlockQuantizationOp
-  auto fusion_has_block_quantization =
-      ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).size() > 0;
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
 
-  if (fusion_has_block_quantization && unroll_factor > 1) {
+  if (has_block_quantization_ops && unroll_factor > 1) {
     unroll_factor = 1;
   }
 
@@ -861,9 +867,17 @@ bool PointWiseScheduler::canScheduleRunTime(
   // and that the grid y dimension is not split.
   // These are requirements of the current implementation of the
   // Block Quantization Op runtime function.
-  auto has_block_quant_op =
-      !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty();
-  if (has_block_quant_op) {
+
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
+
+  if (has_block_quantization_ops) {
     auto pparams = getPointwiseHeuristics(fusion, runtime_info, data_cache);
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
