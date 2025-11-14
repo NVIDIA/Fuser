@@ -30,7 +30,15 @@
 
 namespace nvfuser {
 
-using CutlassExecutorTest = NVFuserTest;
+class CutlassExecutorTest : public NVFuserTest {
+ public:
+  void SetUp() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::CutlassScheduler);
+  }
+
+ private:
+  EnableOptionsGuard eog_;
+};
 
 struct QuantizedTensorView {
   TensorView* elts;
@@ -393,6 +401,9 @@ TEST_F(CutlassExecutorTest, Nvfp4ScaledGemm_Executor) {
 
   fusion->addOutput(smm.tv);
 
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
+
   // Note that K is the actual problem size independent of data type, not the
   // packed size.
   constexpr int64_t M = 8192, N = 8192, K = 8192;
@@ -467,6 +478,9 @@ TEST_F(CutlassExecutorTest, Nvfp4MatmulReLU) {
   TensorView* out_tv = relu(smm.tv);
 
   fusion->addOutput(out_tv);
+
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
 
   // Note that K is the actual problem size independent of data type, not the
   // packed size.
@@ -628,6 +642,9 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGemmReLU) {
 
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
+
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
 
   // Test dimensions
   constexpr int64_t M = 4096, N = 4096, K = 4096;

@@ -481,3 +481,59 @@ def test_issue4729(multidevice_direct_test):
     torch.testing.assert_close(
         z.cpu(), torch.nn.functional.linear(x_ref * y_ref, w_ref)
     )
+
+
+@pytest.mark.mpi
+def test_sequence_parallel_linear(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    b, s, e = 2, 1024, 768
+    assert (
+        s % d == 0
+    ), f"Sequence length {s} must be divisible by the number of devices {d}"
+    assert e % d == 0, f"Hidden size {e} must be divisible by the number of devices {d}"
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor(shape=[-1, -1, -1], contiguity=True)  # [b, s // d, e]
+        weight = fd.define_tensor(shape=[-1, -1], contiguity=True)  # [e // d, e]
+        bias = fd.define_tensor(shape=[-1], contiguity=True)  # [e // d]
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight, bias = fd.fusion.inputs()
+        for t in [weight, bias]:
+            t.set_device_mesh(mesh)
+            t.split(0, d, inner_split=False)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        inp.set_device_mesh(mesh)
+        inp.split(1, d, inner_split=False)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    torch.cuda.set_device(multidevice_direct_test.local_rank)
+
+    unsharded_inp_tensor = torch.randn(b, s, e)
+    unsharded_weight_tensor = torch.randn(e, e)
+    unsharded_bias_tensor = torch.randn(e)
+    inp_tensor = multidevice_direct_test.shard_tensor(unsharded_inp_tensor, 1, mesh)
+    weight_tensor = multidevice_direct_test.shard_tensor(
+        unsharded_weight_tensor, 0, mesh
+    )
+    bias_tensor = multidevice_direct_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out_tensor,) = fd.execute([inp_tensor, weight_tensor, bias_tensor])
+
+    # [b, s, d*e]
+    unsharded_out_tensor = torch.nn.functional.linear(
+        unsharded_inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
+    )
+    expected_out_tensor = multidevice_direct_test.shard_tensor(
+        unsharded_out_tensor, -1, mesh
+    )
+
+    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1e-3, atol=1e-2)
