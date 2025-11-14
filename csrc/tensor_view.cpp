@@ -959,13 +959,14 @@ TensorView* TensorView::multiOutputRFactorHelper(
     }
 
     // replay on the target tv
-    ReplayTransformations replay(tv->getLoopDomain(), id_map);
+    ReplayTransformations replay(getLoopDomain(), id_map);
 
     // construct the new tensor domain
     std::vector<IterDomain*> new_loop;
     for (IterDomain* id : getLoopDomain()) {
       NVF_ERROR(
-          replay.getReplay().count(id), "Multi-output reduction replay failed");
+          replay.getReplay().count(id),
+          "Loop domain replay failed for multi-output reduction.");
       new_loop.push_back(replay.getReplay().at(id));
     }
 
@@ -977,11 +978,18 @@ TensorView* TensorView::multiOutputRFactorHelper(
     } else {
       // Replay allocation
       std::vector<IterDomain*> new_allocation;
-      for (IterDomain* id : tv->getAllocationDomain()) {
+      for (IterDomain* id : getAllocationDomain()) {
+        NVF_ERROR(
+            replay.getReplay().count(id),
+            "Allocation domain replay failed for multi-output reduction.");
         new_allocation.push_back(replay.getReplay().at(id));
       }
       tv->setDomain(IrBuilder::create<TensorDomain>(
-          tv->getLogicalDomain(), new_loop, new_allocation, new_contig));
+          std::vector<IterDomain*>(),
+          tv->getLogicalDomain(),
+          new_allocation,
+          new_loop,
+          new_contig));
     }
   }
 
