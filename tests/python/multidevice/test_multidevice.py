@@ -363,3 +363,32 @@ def test_inner_reduction(multidevice_direct_test):
     ref_out = sharded.sum(1)
     (out,) = fd.execute([sharded])
     assert torch.allclose(ref_out, out)
+
+
+@pytest.mark.mpi
+def test_insert_resharding_after(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor((-1, -1), contiguity=True)
+        out = fd.ops.relu(inp)
+        fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.split(0, d, inner_split=False)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        (out,) = fd.fusion.outputs()
+        out.set_device_mesh(mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    unsharded = torch.randn(d * 3, 5)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    (out,) = fd.execute([sharded])
+    torch.testing.assert_close(out.cpu(), unsharded.relu())

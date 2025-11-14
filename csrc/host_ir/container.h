@@ -29,7 +29,12 @@ class HostIrContainer final : public Fusion {
   // Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  const Scope& topLevel() const;
+  const Scope& topLevel() const {
+    return top_level_;
+  }
+  Scope& topLevel() {
+    return top_level_;
+  }
   const Scope::ExprList& topLevelExprs() const {
     return topLevel().exprs();
   }
@@ -49,7 +54,7 @@ class HostIrContainer final : public Fusion {
   Stream* getDefaultStream();
 
  private:
-  Scope top_level_{nullptr};
+  Scope top_level_{/*owner=*/nullptr};
 
   // Indexed by group ID. This way, parallel compilation can write to disjoint
   // locations without having to precompute a global index.
