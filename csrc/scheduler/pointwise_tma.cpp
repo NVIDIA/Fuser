@@ -9,7 +9,8 @@
 #include <scheduler/pointwise_tma.h>
 
 namespace nvfuser {
-namespace pointwise_tma {
+namespace pointwise {
+namespace tma {
 
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
@@ -29,5 +30,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   FusionGuard fg(fusion);
   NVF_THROW("Schedule pointwise using TMA");
 }
-} // namespace pointwise_tma
+} // namespace tma
+} // namespace pointwise
 } // namespace nvfuser

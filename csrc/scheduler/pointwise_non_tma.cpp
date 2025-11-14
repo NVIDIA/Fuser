@@ -20,7 +20,8 @@
 #include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
-namespace pointwise_non_tma {
+namespace pointwise {
+namespace non_tma {
 namespace {
 // constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 // Unused at the moment, commenting for clang tidy
@@ -1048,5 +1049,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
 }
-} // namespace pointwise_non_tma
+} // namespace non_tma
+} // namespace pointwise
 } // namespace nvfuser

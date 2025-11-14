@@ -11,12 +11,14 @@
 #include <scheduler/pointwise.h>
 
 namespace nvfuser {
-namespace pointwise_tma {
+namespace pointwise {
+namespace tma {
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache);
 
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams);
-} // namespace pointwise_tma
+} // namespace tma
+} // namespace pointwise
 } // namespace nvfuser

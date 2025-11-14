@@ -279,10 +279,10 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   bool use_tma = false;
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
-    pparams =
-        pointwise_tma::getPointwiseHeuristics(fusion, runtime_info, data_cache);
+    pparams = pointwise::tma::getPointwiseHeuristics(
+        fusion, runtime_info, data_cache);
   } else {
-    pparams = pointwise_non_tma::getPointwiseHeuristics(
+    pparams = pointwise::non_tma::getPointwiseHeuristics(
         fusion, runtime_info, data_cache);
   }
   NVF_ERROR(pparams != nullptr);
@@ -299,12 +299,12 @@ void PointWiseScheduler::schedule(
       "Incorrect parameters sent to PointWiseScheduler::schedule",
       params);
   if (pparams->use_tma_load) {
-    pointwise_tma::schedulePointwise(fusion, pparams);
+    pointwise::tma::schedulePointwise(fusion, pparams);
   } else {
     NVF_ERROR(
         !pparams->use_tma_store,
         "Use TMA store without use TMA load is not supported");
-    pointwise_non_tma::schedulePointwise(fusion, pparams);
+    pointwise::non_tma::schedulePointwise(fusion, pparams);
   }
 }
 
