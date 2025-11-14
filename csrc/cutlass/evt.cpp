@@ -144,7 +144,6 @@ class EVTConverter : OptInDispatch {
       // there is no epilogue. i.e. simple GEMM
       return acc_node;
     }
-
     NVF_CUTLASS_REJECT_IF(
         alpha_->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");

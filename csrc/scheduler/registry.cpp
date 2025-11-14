@@ -97,6 +97,15 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  // Resize scheduler allows incompatible reshapes
+  if (scheduler_type != SchedulerType::Resize &&
+      registry_utils::SchedulerTopologyChecker::hasIncompatibleTransforms(
+          fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has incompatible reshapes.");
+    return false;
+  }
+
   if (registry_utils::SchedulerTopologyChecker::
           rejectScheduleFusionGlobalBufferRequirement(fusion, scheduler_type)) {
     scheduler_debug_utils::canScheduleRejectReason(
