@@ -23,8 +23,6 @@ struct LoopInfo {
   hir::ForLoop* loop;
   Scope* parent_scope;
   Scope::Iterator parent_insertion_point;
-
-  friend std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info);
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
@@ -95,14 +93,29 @@ IterDomain* findStreamIterDomain(TensorView* tv) {
   return nullptr;
 }
 
-// Finds the stream IterDomain in the outputs of a segment.
-IterDomain* findStreamIterDomain(const std::vector<Val*>& outs) {
-  for (auto* out : ir_utils::filterByType<TensorView>(outs)) {
-    if (auto* stream_id = findStreamIterDomain(out)) {
-      return stream_id;
+// Finds the TensorView in the group whose loop domain has the most parallel
+// types and returns its loop domain.
+const std::vector<IterDomain*>& findReferenceLoopDomain(
+    const SegmentedGroup& group) {
+  TensorView* reference_tv = nullptr;
+  int max_parallel_count = -1;
+  for (auto* expr : group.exprs()) {
+    for (auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      auto loop_domain = tv->getLoopDomain();
+      int parallel_count = 0;
+      for (auto* id : loop_domain) {
+        if (id->isParallelized()) {
+          parallel_count++;
+        }
+      }
+      if (parallel_count > max_parallel_count) {
+        max_parallel_count = parallel_count;
+        reference_tv = tv;
+      }
     }
   }
-  return nullptr;
+  NVF_ERROR(reference_tv != nullptr);
+  return reference_tv->getLoopDomain();
 }
 
 void lowerSegment(
@@ -167,13 +180,11 @@ void lowerSegment(
       const std::vector<Expr*>& exprs =
           ir_cloner.clone(group.stablyOrderedExprs());
 
-      std::vector<Val*> outs = ir_cloner.clone(group.outputs());
       // All expressions in the group are expected to be stream parallelized in
       // the same way. So it's safe to find the stream IterDomain from any of
       // them.  Ideally, loop domains should be tied to expressions not
       // TensorViews.
-      IterDomain* stream_id = findStreamIterDomain(outs);
-      if (stream_id == nullptr) {
+      if (loop_nest.empty()) {
         for (Expr* e : exprs) {
           loop_nest.innermostScope().push_back(e);
         }
@@ -276,31 +287,6 @@ void lowerSegment(
     }
   } // switch
 } // lowerSegment
-
-// Finds the TensorView in the group whose loop domain has the most parallel
-// types and returns its loop domain.
-const std::vector<IterDomain*>& findReferenceLoopDomain(
-    const SegmentedGroup& group) {
-  TensorView* reference_tv = nullptr;
-  int max_parallel_count = -1;
-  for (auto* expr : group.exprs()) {
-    for (auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto loop_domain = tv->getLoopDomain();
-      int parallel_count = 0;
-      for (auto* id : loop_domain) {
-        if (id->isParallelized()) {
-          parallel_count++;
-        }
-      }
-      if (parallel_count > max_parallel_count) {
-        max_parallel_count = parallel_count;
-        reference_tv = tv;
-      }
-    }
-  }
-  NVF_ERROR(reference_tv != nullptr);
-  return reference_tv->getLoopDomain();
-}
 
 int64_t computeInlinePosition(
     const std::vector<IterDomain*>& prev_ref_loop,
