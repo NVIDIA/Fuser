@@ -71,49 +71,6 @@ struct CutlassMatmulPattern {
 //! that the accumulator is pattern.mma->output(0)
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion);
 
-const char* what() const noexcept override {
-  return message_.c_str();
-}
-
-private:
-const std::string message_;
-};
-
-#define NVF_CUTLASS_REJECT(msg, ...)                   \
-  throw ::nvfuser::cutlass_codegen::UnsupportedFusion( \
-      ::nvfuser::to_str(msg, ##__VA_ARGS__));
-
-//! Unlike NVF_ERROR, this throws UnsupportedFusion whenever the condition is
-//! TRUE
-#define NVF_CUTLASS_REJECT_IF(cond, msg, ...) \
-  if (cond) {                                 \
-    NVF_CUTLASS_REJECT(msg, ##__VA_ARGS__);   \
-  }
-
-//! Whether we are doing grouped GEMM or regular scaled GEMM, the default
-//! epilogue is alpha*acc + beta*bias. Each of alpha, beta, and bias are
-//! optional. For grouped GEMM, problem_sizes, expert_offsets, and
-//! scale_factor_offsets must all be non-null, whereas they must be null for
-//! non-grouped GEMM.
-struct CutlassMatmulPattern {
-  Expr* mma = nullptr;
-  TensorView* a = nullptr;
-  TensorView* b = nullptr;
-  TensorView* a_scale;
-  TensorView* b_scale;
-  TensorView* alpha = nullptr;
-  TensorView* beta = nullptr;
-  TensorView* bias = nullptr;
-  TensorView* problem_sizes = nullptr;
-  TensorView* expert_offsets = nullptr;
-  TensorView* scale_factor_offsets = nullptr;
-  bool is_grouped = false;
-};
-
-//! Detects supported matmul patterns and fills out a MatmulPattern struct. Note
-//! that the accumulator is pattern.mma->output(0)
-CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion);
-
 //! Gets the numerical position of v in inputs of fusion. Throws an exception if
 //! v is not a fusion input
 int64_t fusionInputPosition(Fusion* fusion, Val* v);
