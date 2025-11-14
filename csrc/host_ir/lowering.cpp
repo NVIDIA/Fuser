@@ -367,8 +367,8 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
       loop_nest.openLoop(stream_id);
     }
 
-    // FIXME: consider making HostIrLowering a class so `hic` and
-    // `segmented_fusion` can be made global.
+    // TODO(#5524): Consider making a class HostIrLowering so many parameters
+    // can be made class members instead of having to be passed around.
     lowerSegment(
         *group,
         segmented_fusion.completeFusion()->getOutputAliases(),

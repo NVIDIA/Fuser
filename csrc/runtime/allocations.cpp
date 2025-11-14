@@ -835,12 +835,13 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       }
 
       if (id->isStream()) {
-        // Hack for MultiDeviceExecutor.
+        // TODO(#5525): hack for MultiDeviceExecutor.
         if (std::ranges::find(tv->getLogicalDomain(), id) ==
             tv->getLogicalDomain().end()) {
           return id->container()->oneVal();
         }
       }
+
       return id->getMaybeExpandedExtent();
     }());
 
