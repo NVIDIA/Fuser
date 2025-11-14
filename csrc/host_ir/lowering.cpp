@@ -336,10 +336,8 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
   std::vector<IterDomain*> prev_ref_loop;
   for (SegmentedGroup* group :
        prepareRuntimeOrder(segmented_fusion).group_run_order) {
-    // Compute the inline position.
     const std::vector<IterDomain*>& curr_ref_loop =
         findReferenceLoopDomain(*group);
-    // Compute the inline position based on parallel type and ID mapping.
 
     const int64_t inline_position =
         computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
