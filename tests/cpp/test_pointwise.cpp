@@ -1517,9 +1517,7 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   // 2 TMA domains. Requirements: all domains must be contiguous and the TMA
   // domain split must be evenly divisible.
   // Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
-  for (int64_t i = 0; i < ndims - 1; i++) {
-    reference->merge(0);
-  }
+  reference->flatten();
 
   int64_t D1 = scheduler_utils::getInnerTmaDomainSize(
       total_elem_count, 512, dtype_bytes);
