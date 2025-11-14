@@ -2356,10 +2356,13 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
 }
 
 void propagateReshapeTransforms(Fusion* fusion) {
-  // Build IdModel with PERMISSIVE_RESIZE graph to properly handle
-  // reshape operations across slice boundaries. This ensures that
-  // compatible reshapes (e.g., reshape(24, {2,12}) and reshape(24, {2,2,6}))
-  // are treated consistently even when the input slices differ.
+  // Transform propagation is based on permissive mappings, so we must use a
+  // permissive-based graph here. Specifically, we use PERMISSIVE_RESIZE which
+  // extends PERMISSIVE by additionally mapping resize inputs to outputs (e.g.,
+  // mapping sliced dimensions back to their source). This is necessary to
+  // propagate transforms across slice boundaries - for example, when tv0[0:24]
+  // and tv0[12:36] are both reshaped, PERMISSIVE_RESIZE maps both slices back
+  // to tv0, allowing the reshapes to be recognized as equivalent operations.
   IdModel id_model(fusion);
   const auto permissive_resize_graph = buildPermissiveResizeGraph(
       id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
