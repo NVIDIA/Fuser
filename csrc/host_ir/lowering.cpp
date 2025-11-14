@@ -17,48 +17,51 @@
 
 namespace nvfuser {
 
-namespace hir {
-// FIXME: rename to LoopInfo?
-// FIXME: can this be nested in LoopNest?
-struct Frame {
-  ForLoop* loop;
+namespace {
+
+struct LoopInfo {
+  hir::ForLoop* loop;
   Scope* parent_scope;
   Scope::Iterator parent_insertion_point;
 
-  friend std::ostream& operator<<(std::ostream& os, const Frame& frame);
+  friend std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info);
 };
 
+std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
+  os << loop_info.loop->toInlineString();
+  return os;
+}
+
 class LoopNest {
- private:
  public:
   LoopNest(Scope& top_level) : top_level_(top_level) {}
 
   int64_t size() const {
-    return std::ssize(frames_);
+    return std::ssize(loop_infos_);
   }
 
   bool empty() const {
-    return frames_.empty();
+    return loop_infos_.empty();
   }
 
   void closeLoop() {
     NVF_ERROR(!empty());
-    frames_.pop_back();
+    loop_infos_.pop_back();
   }
 
-  Frame& innermost() {
+  const LoopInfo& innermost() const {
     NVF_ERROR(!empty());
-    return frames_.back();
+    return loop_infos_.back();
   }
 
-  Scope& innermostScope() {
+  Scope& innermostScope() const {
     return empty() ? top_level_ : innermost().loop->body();
   }
 
-  ForLoop* openLoop(IterDomain* id) {
+  hir::ForLoop* openLoop(IterDomain* id) {
     Scope& parent_scope = innermostScope();
-    auto* for_loop = ForLoop::createFromIterDomain(id);
-    frames_.push_back(
+    auto* for_loop = hir::ForLoop::createFromIterDomain(id);
+    loop_infos_.push_back(
         {for_loop, &parent_scope, parent_scope.push_back(for_loop)});
     return for_loop;
   }
@@ -66,26 +69,18 @@ class LoopNest {
   friend std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest);
 
  private:
-  std::vector<Frame> frames_;
+  std::vector<LoopInfo> loop_infos_;
   Scope& top_level_;
 };
 
-std::ostream& operator<<(std::ostream& os, const Frame& frame) {
-  os << frame.loop->toInlineString();
-  return os;
-}
-
 std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
   os << "LoopNest:" << std::endl;
-  for (const auto& frame : loop_nest.frames_) {
-    indent(os, 1) << frame << frame.loop->toString() << std::endl;
+  for (const auto& loop_info : loop_nest.loop_infos_) {
+    indent(os, 1) << loop_info << std::endl;
   }
   return os;
 }
 
-} // namespace hir
-
-namespace {
 // Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
 // or nullptr if not found.  This is different from `getShardedIterDomain(tv,
 // ParallelType::Stream)`, which searches the allocation domain.  Consider
@@ -115,7 +110,7 @@ void lowerSegment(
     const AliasInfoMap& aliases,
     const LaunchParams& launch_params,
     hir::HostIrContainer& hic,
-    hir::LoopNest& loop_nest,
+    LoopNest& loop_nest,
     IrCloner& ir_cloner) {
   switch (group.schedulerType()) {
     case SchedulerType::Communication: {
@@ -346,7 +341,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
   }
 
-  hir::LoopNest loop_nest(hic->topLevel());
+  LoopNest loop_nest(hic->topLevel());
 
   IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
   id_model.buildExactGraph();
