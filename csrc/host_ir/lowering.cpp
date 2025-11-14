@@ -14,6 +14,7 @@
 #include <host_ir/pass/insert_deallocations.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_abstract.h>
+#include <runtime/executor_params.h>
 
 namespace nvfuser {
 
@@ -105,178 +106,6 @@ IterDomain* findStreamIterDomain(const std::vector<Val*>& outs) {
   return nullptr;
 }
 
-void lowerSegment(
-    const SegmentedGroup& group,
-    const AliasInfoMap& aliases,
-    const LaunchParams& launch_params,
-    hir::HostIrContainer& hic,
-    LoopNest& loop_nest,
-    IrCloner& ir_cloner) {
-  switch (group.schedulerType()) {
-    case SchedulerType::Communication: {
-      auto device_id = Communicator::getInstance().deviceId();
-      NVF_ERROR_EQ(
-          group.exprs().size(),
-          1,
-          "Communication segments must contain only one Expr.");
-      // If a value is already cloned, IrCloner::clone returns the cloned value
-      // without cloning the value again.
-      Expr* e = ir_cloner.clone(group.exprs().front());
-
-      for (auto* c : convertSingleOpToCommunication(e, device_id)) {
-        NVF_ERROR(
-            c->isA<Communication>(),
-            "Exprs in a Communication group should be Communication: ",
-            c);
-        // Allocate the recv buffers of communications
-        auto* communication = c->as<Communication>();
-        TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(device_id)) {
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-          // TODO: allocation may have to go to the top level. See how
-          // SchedulerType::ExprEval handles allocations.
-          loop_nest.innermostScope().push_back(allocate);
-        }
-        loop_nest.innermostScope().push_back(communication);
-        auto wait = IrBuilder::create<hir::Wait>(communication);
-        loop_nest.innermostScope().push_back(wait);
-      }
-      break;
-    }
-    case SchedulerType::ExprEval: {
-      // Pseudocode:
-      // clang-format off
-      // ```
-      // if no expressions are stream parallelized:
-      //   append the list to the top level
-      //   return
-      //
-      // create a new, empty for loop
-      // for each expression in the segment:
-      //   for each input TensorView of that expression:
-      //     if it's allocated outside the loop:
-      //       shard it by stream
-      //   for each output TensorView of that expression:
-      //     if it needs to be allocated outside the loop:
-      //       create an Allocate before the for loop
-      //       shard it by stream
-      //   add the expression to the loop body with the maybe-sharded inputs and outputs
-      // ```
-      // clang-format on
-      const std::vector<Expr*>& exprs =
-          ir_cloner.clone(group.stablyOrderedExprs());
-
-      std::vector<Val*> outs = ir_cloner.clone(group.outputs());
-      // All expressions in the group are expected to be stream parallelized in
-      // the same way. So it's safe to find the stream IterDomain from any of
-      // them.  Ideally, loop domains should be tied to expressions not
-      // TensorViews.
-      IterDomain* stream_id = findStreamIterDomain(outs);
-      if (stream_id == nullptr) {
-        for (Expr* e : exprs) {
-          loop_nest.innermostScope().push_back(e);
-        }
-        break;
-      }
-
-      auto [for_loop, parent_scope, parent_insertion_point] =
-          loop_nest.innermost();
-
-      std::unordered_map<Val*, Val*> replacement_map;
-      for (Expr* e : exprs) {
-        for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (findStreamIterDomain(in) != nullptr &&
-              getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
-            auto [i, inserted] = replacement_map.try_emplace(
-                in, hir::shardByStream(in, for_loop->index()));
-            if (inserted) {
-              for_loop->body().push_back(i->second->definition());
-            }
-          }
-        }
-
-        for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-          if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
-            auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
-            parent_scope->insert(parent_insertion_point, allocate);
-            // Loop is stream parallelized but allocation is not. Therefore,
-            // `out` should be allocated outside the loop.
-            //
-            // I use try_emplace here so shardByStream is called only when `out`
-            // is missing.
-            auto [i, inserted] = replacement_map.try_emplace(
-                out, hir::shardByStream(out, for_loop->index()));
-            NVF_ERROR(inserted);
-            for_loop->body().push_back(i->second->definition());
-          }
-        }
-
-        std::vector<Val*> new_inputs;
-        std::transform(
-            e->inputs().begin(),
-            e->inputs().end(),
-            std::back_inserter(new_inputs),
-            [&replacement_map](Val* input) {
-              return getOrDefault(replacement_map, input, input);
-            });
-        std::vector<Val*> new_outputs;
-        std::transform(
-            e->outputs().begin(),
-            e->outputs().end(),
-            std::back_inserter(new_outputs),
-            [&replacement_map](Val* output) {
-              return getOrDefault(replacement_map, output, output);
-            });
-        Expr* new_e = e->newObjectFunc()(
-            e->container(), new_inputs, new_outputs, e->attributes());
-        for_loop->body().push_back(new_e);
-      }
-      break;
-    }
-    default: {
-      std::vector<Val*> ins = ir_cloner.clone(group.inputs());
-      std::vector<Val*> outs = ir_cloner.clone(group.outputs());
-
-      // Allocate the output TensorViews.
-      for (auto* out : outs) {
-        NVF_ERROR(
-            out->isA<TensorView>(),
-            "Output must be a TensorView but got ",
-            out);
-        const AliasInfo& alias = aliases.get(out);
-        NVF_ERROR_EQ(
-            alias.type,
-            AllocationType::New,
-            "Output ",
-            out->toString(),
-            " must not be an alias, got ",
-            alias);
-        auto* tv = out->as<TensorView>();
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-        loop_nest.innermostScope().push_back(allocate);
-      }
-
-      // Add the LaunchKernel instruction.
-      const int group_id = group.groupId();
-      KernelExecutor& ke = hic.getKernelExecutor(group_id);
-      // Needed for KernelExecutor. Should be removed once #4927 is fixed.
-      auto* cache_id =
-          IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-      auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-          group_id,
-          launch_params,
-          ke.compiledKernel()->compileParams(),
-          ins,
-          outs,
-          cache_id);
-      loop_nest.innermostScope().push_back(launch_kernel);
-    }
-  } // switch
-} // lowerSegment
-
 // Finds the TensorView in the group whose loop domain has the most parallel
 // types and returns its loop domain.
 const std::vector<IterDomain*>& findReferenceLoopDomain(
@@ -322,6 +151,240 @@ int64_t computeInlinePosition(
 
   return inline_position;
 }
+
+class HostIrLowering {
+ public:
+  HostIrLowering(
+      const SegmentedFusion& segmented_fusion,
+      const std::vector<LaunchParams>& launch_params_per_segment,
+      std::vector<std::unique_ptr<ExecutorAbstract>>& executors,
+      hir::HostIrContainer& hic)
+      : segmented_fusion_(segmented_fusion),
+        launch_params_per_segment_(launch_params_per_segment),
+        hic_(hic),
+        ir_cloner_(&hic),
+        loop_nest_(hic.topLevel()) {
+    ir_cloner_ = Fusion::copy(segmented_fusion.completeFusion(), &hic_);
+
+    for (auto& executor : executors) {
+      if (executor == nullptr) {
+        continue;
+      }
+      auto* ke = executor.release()->as<KernelExecutor>();
+      hic_.addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
+    }
+  }
+
+  void lower() {
+    FusionGuard fg(&hic_);
+
+    IdModel id_model(
+        segmented_fusion_.completeFusion(), /*build_graphs=*/false);
+    id_model.buildExactGraph();
+
+    std::vector<IterDomain*> prev_ref_loop;
+    for (SegmentedGroup* group :
+         prepareRuntimeOrder(segmented_fusion_).group_run_order) {
+      // Compute the inline position.
+      const std::vector<IterDomain*>& curr_ref_loop =
+          findReferenceLoopDomain(*group);
+      // Compute the inline position based on parallel type and ID mapping.
+
+      const int64_t inline_position =
+          computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
+
+      while (loop_nest_.size() > inline_position) {
+        loop_nest_.closeLoop();
+      }
+      while (loop_nest_.size() < std::ssize(curr_ref_loop) &&
+             curr_ref_loop.at(loop_nest_.size())->isStream()) {
+        auto* stream_id = ir_cloner_.clone(curr_ref_loop.at(loop_nest_.size()));
+        loop_nest_.openLoop(stream_id);
+      }
+
+      lowerSegment(*group, launch_params_per_segment_.at(group->groupId()));
+
+      prev_ref_loop = std::move(curr_ref_loop);
+    }
+  }
+
+  void lowerSegment(
+      const SegmentedGroup& group,
+      const LaunchParams& launch_params) {
+    switch (group.schedulerType()) {
+      case SchedulerType::Communication: {
+        auto device_id = Communicator::getInstance().deviceId();
+        NVF_ERROR_EQ(
+            group.exprs().size(),
+            1,
+            "Communication segments must contain only one Expr.");
+        // If a value is already cloned, IrCloner::clone returns the cloned
+        // value without cloning the value again.
+        Expr* e = ir_cloner_.clone(group.exprs().front());
+
+        for (auto* c : convertSingleOpToCommunication(e, device_id)) {
+          NVF_ERROR(
+              c->isA<Communication>(),
+              "Exprs in a Communication group should be Communication: ",
+              c);
+          // Allocate the recv buffers of communications
+          auto* communication = c->as<Communication>();
+          TensorView* tv = communication->out();
+          if (tv->getDeviceMesh().has(device_id)) {
+            auto* allocate =
+                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            // TODO: allocation may have to go to the top level. See how
+            // SchedulerType::ExprEval handles allocations.
+            loop_nest_.innermostScope().push_back(allocate);
+          }
+          loop_nest_.innermostScope().push_back(communication);
+          auto wait = IrBuilder::create<hir::Wait>(communication);
+          loop_nest_.innermostScope().push_back(wait);
+        }
+        break;
+      }
+      case SchedulerType::ExprEval: {
+        // Pseudocode:
+        // clang-format off
+      // ```
+      // if no expressions are stream parallelized:
+      //   append the list to the top level
+      //   return
+      //
+      // create a new, empty for loop
+      // for each expression in the segment:
+      //   for each input TensorView of that expression:
+      //     if it's allocated outside the loop:
+      //       shard it by stream
+      //   for each output TensorView of that expression:
+      //     if it needs to be allocated outside the loop:
+      //       create an Allocate before the for loop
+      //       shard it by stream
+      //   add the expression to the loop body with the maybe-sharded inputs and outputs
+      // ```
+        // clang-format on
+        const std::vector<Expr*>& exprs =
+            ir_cloner_.clone(group.stablyOrderedExprs());
+
+        std::vector<Val*> outs = ir_cloner_.clone(group.outputs());
+        // All expressions in the group are expected to be stream parallelized
+        // in the same way. So it's safe to find the stream IterDomain from any
+        // of them.  Ideally, loop domains should be tied to expressions not
+        // TensorViews.
+        IterDomain* stream_id = findStreamIterDomain(outs);
+        if (stream_id == nullptr) {
+          for (Expr* e : exprs) {
+            loop_nest_.innermostScope().push_back(e);
+          }
+          break;
+        }
+
+        auto [for_loop, parent_scope, parent_insertion_point] =
+            loop_nest_.innermost();
+
+        std::unordered_map<Val*, Val*> replacement_map;
+        for (Expr* e : exprs) {
+          for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+            if (findStreamIterDomain(in) != nullptr &&
+                getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
+              auto [i, inserted] = replacement_map.try_emplace(
+                  in, hir::shardByStream(in, for_loop->index()));
+              if (inserted) {
+                for_loop->body().push_back(i->second->definition());
+              }
+            }
+          }
+
+          for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+            if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
+              auto* allocate =
+                  IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+              parent_scope->insert(parent_insertion_point, allocate);
+              // Loop is stream parallelized but allocation is not. Therefore,
+              // `out` should be allocated outside the loop.
+              //
+              // I use try_emplace here so shardByStream is called only when
+              // `out` is missing.
+              auto [i, inserted] = replacement_map.try_emplace(
+                  out, hir::shardByStream(out, for_loop->index()));
+              NVF_ERROR(inserted);
+              for_loop->body().push_back(i->second->definition());
+            }
+          }
+
+          std::vector<Val*> new_inputs;
+          std::transform(
+              e->inputs().begin(),
+              e->inputs().end(),
+              std::back_inserter(new_inputs),
+              [&replacement_map](Val* input) {
+                return getOrDefault(replacement_map, input, input);
+              });
+          std::vector<Val*> new_outputs;
+          std::transform(
+              e->outputs().begin(),
+              e->outputs().end(),
+              std::back_inserter(new_outputs),
+              [&replacement_map](Val* output) {
+                return getOrDefault(replacement_map, output, output);
+              });
+          Expr* new_e = e->newObjectFunc()(
+              e->container(), new_inputs, new_outputs, e->attributes());
+          for_loop->body().push_back(new_e);
+        }
+        break;
+      }
+      default: {
+        std::vector<Val*> ins = ir_cloner_.clone(group.inputs());
+        std::vector<Val*> outs = ir_cloner_.clone(group.outputs());
+
+        // Allocate the output TensorViews.
+        for (auto* out : outs) {
+          NVF_ERROR(
+              out->isA<TensorView>(),
+              "Output must be a TensorView but got ",
+              out);
+          const AliasInfo& alias =
+              segmented_fusion_.completeFusion()->getOutputAliases().get(out);
+          NVF_ERROR_EQ(
+              alias.type,
+              AllocationType::New,
+              "Output ",
+              out->toString(),
+              " must not be an alias, got ",
+              alias);
+          auto* tv = out->as<TensorView>();
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          loop_nest_.innermostScope().push_back(allocate);
+        }
+
+        // Add the LaunchKernel instruction.
+        const int group_id = group.groupId();
+        KernelExecutor& ke = hic_.getKernelExecutor(group_id);
+        // Needed for KernelExecutor. Should be removed once #4927 is fixed.
+        auto* cache_id =
+            IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_id,
+            launch_params,
+            ke.compiledKernel()->compileParams(),
+            ins,
+            outs,
+            cache_id);
+        loop_nest_.innermostScope().push_back(launch_kernel);
+      }
+    } // switch
+  }
+
+ private:
+  const SegmentedFusion& segmented_fusion_;
+  const std::vector<LaunchParams>& launch_params_per_segment_;
+  hir::HostIrContainer& hic_;
+  IrCloner ir_cloner_;
+  LoopNest loop_nest_;
+};
+
 } // namespace
 
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
@@ -329,56 +392,9 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const std::vector<LaunchParams>& launch_params_per_segment,
     std::vector<std::unique_ptr<ExecutorAbstract>>& executors) {
   auto hic = std::make_unique<hir::HostIrContainer>();
-  IrCloner ir_cloner =
-      Fusion::copy(segmented_fusion.completeFusion(), hic.get());
 
-  FusionGuard fg(hic.get());
-
-  for (auto& executor : executors) {
-    if (executor == nullptr) {
-      continue;
-    }
-    auto* ke = executor.release()->as<KernelExecutor>();
-    hic->addKernelExecutor(std::unique_ptr<KernelExecutor>(ke));
-  }
-
-  LoopNest loop_nest(hic->topLevel());
-
-  IdModel id_model(segmented_fusion.completeFusion(), /*build_graphs=*/false);
-  id_model.buildExactGraph();
-
-  std::vector<IterDomain*> prev_ref_loop;
-  for (SegmentedGroup* group :
-       prepareRuntimeOrder(segmented_fusion).group_run_order) {
-    // Compute the inline position.
-    const std::vector<IterDomain*>& curr_ref_loop =
-        findReferenceLoopDomain(*group);
-    // Compute the inline position based on parallel type and ID mapping.
-
-    const int64_t inline_position =
-        computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
-
-    while (loop_nest.size() > inline_position) {
-      loop_nest.closeLoop();
-    }
-    while (loop_nest.size() < std::ssize(curr_ref_loop) &&
-           curr_ref_loop.at(loop_nest.size())->isStream()) {
-      auto* stream_id = ir_cloner.clone(curr_ref_loop.at(loop_nest.size()));
-      loop_nest.openLoop(stream_id);
-    }
-
-    // FIXME: consider making HostIrLowering a class so `hic` and
-    // `segmented_fusion` can be made global.
-    lowerSegment(
-        *group,
-        segmented_fusion.completeFusion()->getOutputAliases(),
-        launch_params_per_segment.at(group->groupId()),
-        *hic,
-        loop_nest,
-        ir_cloner);
-
-    prev_ref_loop = std::move(curr_ref_loop);
-  }
+  HostIrLowering(segmented_fusion, launch_params_per_segment, executors, *hic)
+      .lower();
 
   hir_pass::InsertDeallocations().runPass(hic.get());
 
