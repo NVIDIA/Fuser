@@ -492,7 +492,7 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       static_cast<ElementC*>(bias.data_ptr),";
+      code_ += "       static_cast<ElementC const*>(bias.data_ptr),";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
