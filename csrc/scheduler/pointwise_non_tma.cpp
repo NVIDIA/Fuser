@@ -138,12 +138,25 @@ int64_t getUnrollFactor(
     int64_t vectorization_bits,
     bool divisible_split,
     std::vector<TensorView*> vectorizable_io_tvs,
-    bool has_block_quantization_ops) {
+    HeuristicDataCache* data_cache) {
+  // Check if fusion has BlockQuantizationOp(s)
+  // Limit unroll factor for fusions with BlockQuantizationOp(s). The runtime
+  // function which implements quantization assumes no unrolling
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
+
   if (has_block_quantization_ops) {
     // Runtime function implementing Block Quantization Op requires unroll
     // factor to be 1
     return 1;
   }
+
   // only consider vectorizable inputs,
   // needs to check if it's already in the list to avoid duplication since a tv
   // may be both input and output, e.g. NVFuserTest.FusionIssue2372_CUDA
@@ -518,19 +531,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool divisible_split = break_point > 0
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
-
-  // Check if fusion has BlockQuantizationOp(s)
-  // Limit unroll factor for fusions with BlockQuantizationOp(s). The runtime
-  // function which implements quantization assumes no unrolling
-  auto has_block_quantization_ops =
-      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
-          data_cache,
-          [fusion]() {
-            return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
-          })
-          .get();
-
   int64_t unroll_factor = getUnrollFactor(
       fusion,
       break_point,
@@ -538,7 +538,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get(),
-      has_block_quantization_ops);
+      data_cache);
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
