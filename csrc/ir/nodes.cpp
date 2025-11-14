@@ -5136,13 +5136,11 @@ std::string Scope::toString(int indent_size) const {
   return ss.str();
 }
 
-Scope::ExprList::iterator Scope::insert(
-    ExprList::const_iterator pos,
-    Expr* expr) {
+Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
   return exprs_.insert(pos, expr);
 }
 
-Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5156,7 +5154,7 @@ Scope::ExprList::iterator Scope::insert_before(Expr* ref, Expr* expr) {
   return insert(it, expr);
 }
 
-Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
+Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
   const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
   NVF_ERROR(
       it != exprs_.end(),
@@ -5169,7 +5167,7 @@ Scope::ExprList::iterator Scope::insert_after(Expr* ref, Expr* expr) {
   return insert(insert_pos, expr);
 }
 
-void Scope::erase(ExprList::const_iterator pos) {
+void Scope::erase(Iterator pos) {
   // Remove the scope of the expr if this is the scope
   [[maybe_unused]] auto expr = *pos;
   exprs_.erase(pos);
