@@ -253,6 +253,7 @@ std::optional<DataType> Val::getDataType() const {
 // after inputs and outputs are registered with the Expr
 Expr::Expr(IrBuilderPasskey passkey) : Statement(passkey) {}
 
+// FIXME: Should this constructor copy the output_is_preallocated_ flag?
 Expr::Expr(const Expr* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner),
       attributes_(ir_cloner->clone(src->attributes_)),
@@ -270,12 +271,13 @@ Expr::Expr(
       outputs_(std::move(outputs)) {}
 
 Expr* Expr::shallowCopy() const {
-  auto result =
+  Expr* result =
       newObjectFunc()(ir_container_, inputs(), outputs(), attributes());
   if (container()->isA<kir::Kernel>()) {
     result->predicate_ = predicate_;
     result->write_predicate_ = write_predicate_;
   }
+  result->output_is_preallocated_ = output_is_preallocated_;
   return result;
 }
 
@@ -381,6 +383,11 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
   auto result = shallowCopy();
   result->setWritePredicate(predicate);
   return result;
+}
+
+Expr* Expr::withOutputPreallocated() {
+  output_is_preallocated_ = true;
+  return this;
 }
 
 std::vector<PolymorphicValue> Expr::evaluate(

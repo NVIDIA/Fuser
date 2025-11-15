@@ -200,12 +200,14 @@ void lowerSegment(
           }
         }
 
+        bool output_is_preallocated = false;
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
           if (getShardedIterDomain(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            output_is_preallocated = true;
             parent_scope->insert(parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
             // `out` should be allocated outside the loop.
@@ -237,6 +239,9 @@ void lowerSegment(
             });
         Expr* new_e = e->newObjectFunc()(
             e->container(), new_inputs, new_outputs, e->attributes());
+        if (output_is_preallocated) {
+          new_e = new_e->withOutputPreallocated();
+        }
         for_loop->body().push_back(new_e);
       }
       break;

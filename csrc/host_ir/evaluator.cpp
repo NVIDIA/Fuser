@@ -497,7 +497,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* weight = linear->inB()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
 
-  if (!expr_evaluator_.isKnown(out)) {
+  if (!linear->outputIsPreallocated()) {
     unhandled(linear);
     return;
   }
