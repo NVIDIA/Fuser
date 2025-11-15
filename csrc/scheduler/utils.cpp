@@ -3351,14 +3351,6 @@ int64_t getInnerTmaDomainSize(
       min_size,
       " = ",
       total_element % min_size);
-  NVF_ERROR(
-      target_inner_tma_domain_size % min_size == 0,
-      "target_inner_tma_domain_size must be divisible by min_size, but got ",
-      target_inner_tma_domain_size,
-      " % ",
-      min_size,
-      " = ",
-      target_inner_tma_domain_size % min_size);
   // Fast path: if the total elements are evenly divisible by the target size,
   // return the target size immediately.
   if (total_element % target_inner_tma_domain_size == 0) {
@@ -3398,8 +3390,12 @@ int64_t getInnerTmaDomainSize(
     if (total_element % i == 0) {
       int64_t f1 = i;
       int64_t f2 = total_element / i;
-      update_best(f1);
-      update_best(f2);
+      if (f1 % min_size == 0) {
+        update_best(f1);
+      }
+      if (f2 % min_size == 0) {
+        update_best(f2);
+      }
     }
   }
   return best_divisible_size;

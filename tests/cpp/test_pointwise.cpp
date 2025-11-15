@@ -1483,6 +1483,15 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
     return;
   }
 
+  const int64_t min_inner_dim = 2 * 16 / dtype_bytes;
+  if (total_elem_count % min_inner_dim != 0) {
+    GTEST_SKIP()
+        << "Total elements is not divisible by min_inner_dim, can't use TMA, "
+           "total_elem_count: "
+        << total_elem_count << ", min_inner_dim: " << min_inner_dim;
+    return;
+  }
+
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
