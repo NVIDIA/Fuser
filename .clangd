@@ -1,2 +1,6 @@
 CompileFlags:
     CompilationDatabase: python/build
+    Add:
+      - "-I/opt/pytorch/nvfuser/third_party/cutlass/include"
+      - "-I/opt/pytorch/nvfuser/third_party/cutlass/tools/library/include"
+      - "-I/opt/pytorch/nvfuser/third_party/cutlass/tools/util/include"
