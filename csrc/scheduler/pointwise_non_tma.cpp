@@ -380,10 +380,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       })) {
     vectorization_factor = std::max(2l, max_vect_factor);
   }
-  bool has_reshapes = prop.has_reshapes;
   std::unordered_map<int64_t, int64_t> logical_reorder_map =
       pointwise_utils::getLogicalReorderMap(
-          largest_out, has_reshapes, data_cache);
+          largest_out, prop.has_reshapes, data_cache);
   vectorization_factor = std::min(
       vectorization_factor,
       vectorize_helper::getVectorizationFactor(
@@ -479,7 +478,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   auto& schedule_info = schedule_info_opt.value();
 
   auto& cached_inputs = schedule_info.cached_inputs;
-  auto& cached_outputs = schedule_info.cached_outputs;
   TensorView* reference_tv = schedule_info.reference_tv;
 
   int64_t unswitch_pos = 0;
@@ -753,7 +751,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   for (const auto& [cached_input, input_idx] : cached_inputs) {
     inner_most_tensors.erase(cached_input);
   }
-  for (const auto& [cached_output, output_idx] : cached_outputs) {
+  for (const auto& [cached_output, output_idx] : schedule_info.cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     inner_most_tensors.erase(output);
   }
