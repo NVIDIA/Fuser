@@ -888,12 +888,22 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   total_element: Total number of elements in the tensor.
 //   target_inner_tma_domain_size: Target size of the inner TMA domain (default:
 //   512).
-//     Allows further splitting the TMA domain to create TMA tile/box dimensions
-//     of size 256 while maintaining multiple iterations in this dimension. If
-//     only 1 box/tile exists in this dimension, it will be collapsed into its
-//     neighboring box/tile dimension, which contradicts our 2D tile assumption.
-//     In this case, the collapsed two dimensions must be equal to or smaller
-//     than 256.
+//     Using 512 (instead of 256) allows further splitting of the TMA domain
+//     to create TMA tile/box dimensions with multiple iterations while avoiding
+//     dimension collapse. If only 1 box/tile exists in a dimension, it will be
+//     collapsed into its neighboring dimension, contradicting the 2D tile
+//     assumption. To handle this, the collapsed dimensions must not exceed 256.
+//
+//     Example with 256: Starting with flattened domain [I0] and inner TMA
+//     domain size of 256, we get [I0/256, 256]. After 2D tiling, this becomes:
+//       [I0/256/OuterTile, OuterSize, 256/InnerSize, InnerSize]
+//     If InnerSize is 256, the domain becomes [I0/256/OuterTile, OuterSize, 1,
+//     256]. The last 3 dimensions are then treated as a single TMA dimension.
+//
+//     Example with 512: Starting with [I0] and inner TMA domain size of 512,
+//     we get [I0/512, 512]. After 2D tiling with InnerSize=256, this becomes:
+//       [I0/512/OuterTile, OuterSize, 2, 256]
+//     This maintains a 2D tile structure.
 //   min_dtype_bytes: Ensures 16-byte box size and alignment.
 int64_t getInnerTmaDomainSize(
     int64_t total_element,

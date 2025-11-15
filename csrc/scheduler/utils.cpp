@@ -3337,12 +3337,28 @@ int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size,
     int64_t min_dtype_bytes) {
-  // We use TMA without interleave; the byte size of box-0 must be divisible by
-  // 16 bytes. Always use 2D tiles, which require at least 2 boxes in the inner
-  // dimension. Thus, the inner TMA domain size must be at least 2 * 16 bytes.
+  // We use TMA without interleave; the byte size of the inner most TMA tile
+  // must be divisible by 16 bytes. Always use 2D tiles, which require at least
+  // 2 boxes in the inner dimension. Thus, the inner TMA domain size must be at
+  // least 2 * 16 bytes.
   constexpr int64_t align_bytes = 16;
   const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
-
+  NVF_ERROR(
+      total_element % min_size == 0,
+      "total_element must be divisible by min_size, but got ",
+      total_element,
+      " % ",
+      min_size,
+      " = ",
+      total_element % min_size);
+  NVF_ERROR(
+      target_inner_tma_domain_size % min_size == 0,
+      "target_inner_tma_domain_size must be divisible by min_size, but got ",
+      target_inner_tma_domain_size,
+      " % ",
+      min_size,
+      " = ",
+      target_inner_tma_domain_size % min_size);
   // Fast path: if the total elements are evenly divisible by the target size,
   // return the target size immediately.
   if (total_element % target_inner_tma_domain_size == 0) {
@@ -3382,14 +3398,8 @@ int64_t getInnerTmaDomainSize(
     if (total_element % i == 0) {
       int64_t f1 = i;
       int64_t f2 = total_element / i;
-
-      if (f1 % min_size == 0) {
-        update_best(f1);
-      }
-
-      if (f2 % min_size == 0) {
-        update_best(f2);
-      }
+      update_best(f1);
+      update_best(f2);
     }
   }
   return best_divisible_size;
