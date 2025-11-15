@@ -71,10 +71,12 @@ struct CutlassMatmulPattern {
 //! that the accumulator is pattern.mma->output(0)
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion);
 
-//! Simply finds the position of a Val in fusion->inputs().
+//! Gets the numerical position of v in inputs of fusion. Throws an exception if
+//! v is not a fusion input
 int64_t fusionInputPosition(Fusion* fusion, Val* v);
 
-//! Simply finds the position of a Val in fusion->outputs().
+//! Gets the numerical position of v in outputs of fusion. Throws an exception
+//! if v is not a fusion output
 int64_t fusionOutputPosition(Fusion* fusion, Val* v);
 
 std::string generateNvfp4ScaledMmKernel(
