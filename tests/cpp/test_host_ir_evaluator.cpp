@@ -159,7 +159,8 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
 
     // By default, MatmulOp is computed by ExpressionEvaluator so it appears in
     // host IR.
-    auto* mm = IrBuilder::create<MatmulOp>(loop_out, in, loop_w);
+    auto* mm = IrBuilder::create<MatmulOp>(loop_out, in, loop_w)
+                   ->withOutputPreallocated();
     for_loop->body().push_back(mm);
 
     hic->pushBackTopLevelExprs(allocate_out);

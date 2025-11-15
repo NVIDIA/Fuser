@@ -343,7 +343,8 @@ TEST_F(
   TensorView* tvc_j = select(tvc, 0, j);
   TensorView* tvc_locally_reduced_j =
       select(tvc_locally_reduced, 0, stream_index);
-  auto* matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb);
+  auto* matmul = IrBuilder::create<MatmulOp>(tvc_locally_reduced_j, tva_j, tvb)
+                     ->withOutputPreallocated();
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
@@ -852,7 +853,8 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   TensorView* tvc_j = select(tvc, 0, j);
-  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb);
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_allgathered_j, tvb)
+                 ->withOutputPreallocated();
 
   // Slice and MatmulOp are present directly as Host IRs in the HostIrContainer.
   // It means that they are going to be executed at the host level (actually,
@@ -1179,8 +1181,8 @@ TEST_F(
   TensorView* tva_j_next_slice = select(tmp2, 0, i);
   TensorView* tvc_j = select(tmp3, 0, i);
 
-  auto* mm =
-      IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded)
+                 ->withOutputPreallocated();
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
@@ -1342,8 +1344,8 @@ TEST_F(
   TensorView* tva_j_next_slice = select(tmp2, 0, i);
   TensorView* tvc_j = select(tmp3, 0, i);
 
-  auto* mm =
-      IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded);
+  auto* mm = IrBuilder::create<MatmulOp>(tvc_j, tva_j_curr_slice, tvb_unsharded)
+                 ->withOutputPreallocated();
 
   // Setting the DeviceMesh of the communication's I/O is artificial but
   // required at this point
