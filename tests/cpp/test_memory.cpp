@@ -3419,4 +3419,136 @@ TEST_F(TMATest, CpAsyncBulk1dIllegalSize) {
                                "be divisible by 16 bytes")));
 }
 
+TEST_F(TMATest, OneDimTensor2dTile2x256Illegal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const DataType dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({4 * 256}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  for (auto tv : {tv1, tv2}) {
+    //[4*256] -> [4, 256]
+    tv->split(0, 256);
+    //[4, 256] -> [4, 1, 256]
+    tv->split(1, 256);
+    //[4, 1, 256] -> [2, 2, 1, 256]
+    tv->split(0, 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv == tv1) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+      tv->axis(3)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4 * 256}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
+  EXPECT_THAT(
+      [&]() { ke.run({t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "number of elements to be traversed along each of the tensorRank "
+          "dimensions, must be non-zero and less than or equal to 256")));
+}
+
+// global_dim=, 1024, global_strides=, , box_dim=, 512, element_strides=, 1,
+TEST_F(TMATest, TwoDimTensor2dTile2x256Illegal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const DataType dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({4, 256}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  for (auto tv : {tv1, tv2}) {
+    // [4, 256] -> [4*256]
+    tv->flatten();
+    //[4*256] -> [4, 256]
+    tv->split(0, 256);
+    //[4, 256] -> [4, 1, 256]
+    tv->split(1, 256);
+    //[4, 1, 256] -> [2, 2, 1, 256]
+    tv->split(0, 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv == tv1) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+      tv->axis(3)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 256}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
+  EXPECT_THAT(
+      [&]() { ke.run({t0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "number of elements to be traversed along each of the tensorRank "
+          "dimensions, must be non-zero and less than or equal to 256")));
+}
+
+//  global_dim=, 256 4, global_strides=, 1024, box_dim=, 256 2,
+//  element_strides=, 1 1
+TEST_F(TMATest, TwoDimTensor2dTile2x256Legal) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const DataType dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({4, 256}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  for (auto tv : {tv1, tv2}) {
+    //[4, 256] -> [4, 1, 256]
+    tv->split(1, 256);
+    //[4, 1, 256] -> [2, 2, 1, 256]
+    tv->split(0, 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv == tv1) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+      tv->axis(3)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({4, 256}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
