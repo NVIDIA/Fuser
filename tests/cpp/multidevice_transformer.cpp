@@ -5,10 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <unordered_set>
 #include <vector>
 
 #include <fusion.h>
+#include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <scheduler/utils.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_transformer.h>
 
@@ -91,7 +95,38 @@ TensorView* layerNormWithCachedStats(
   auto bias_bcast = broadcast(bias, outer_broadcast_mask);
   return add(y, bias_bcast);
 }
+
+void shardAllLike(TensorView* ref, const std::vector<TensorView*>& tvs) {
+  if (tvs.empty()) {
+    return;
+  }
+  for (auto* tv : tvs) {
+    tv->setDeviceMesh(ref->getDeviceMesh());
+  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, deviceAndStreamParallelTypes());
+}
 } // namespace
+
+void shardBetween(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref) {
+  std::unordered_set<TensorView*> boundary(to.begin(), to.end());
+  for (auto* tv : from) {
+    auto* expr = tv->definition();
+    if (expr == nullptr) {
+      continue;
+    }
+    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    for (auto* input_tv : inputs) {
+      boundary.insert(input_tv);
+    }
+  }
+
+  auto all_tvs = scheduler_utils::getAllTvsFrom(from, boundary);
+  std::vector<TensorView*> sharded_tvs(all_tvs.begin(), all_tvs.end());
+  shardAllLike(ref, sharded_tvs);
+}
 
 MlpResult DistributedTransformer::mlp(
     TensorView* x,

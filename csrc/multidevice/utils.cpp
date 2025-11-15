@@ -587,59 +587,6 @@ std::unordered_set<ParallelType> deviceParallelTypes() {
   return s;
 }
 
-void shardAllLike(
-    TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    const std::unordered_set<ParallelType>& parallel_types) {
-  if (tvs.empty()) {
-    return;
-  }
-  for (auto* tv : tvs) {
-    tv->setDeviceMesh(ref->getDeviceMesh());
-  }
-  scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
-}
-
-void shardBetween(
-    const std::vector<Expr*>& from,
-    const std::vector<Expr*>& to,
-    TensorView* ref) {
-  std::vector<TensorView*> from_tvs;
-  std::vector<TensorView*> to_tvs;
-  for (auto expr : from) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(from_tvs));
-  }
-
-  for (auto expr : to) {
-    auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::copy(outputs.begin(), outputs.end(), std::back_inserter(to_tvs));
-  }
-
-  shardBetween(from_tvs, to_tvs, ref);
-}
-
-void shardBetween(
-    const std::vector<TensorView*>& from,
-    const std::vector<TensorView*>& to,
-    TensorView* ref) {
-  std::unordered_set<TensorView*> boundary = {to.begin(), to.end()};
-  for (auto tv : from) {
-    auto expr = tv->definition();
-    if (expr == nullptr) {
-      continue;
-    }
-    auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::copy(
-        inputs.begin(), inputs.end(), std::inserter(boundary, boundary.end()));
-  }
-
-  std::unordered_set<TensorView*> all_tvs =
-      scheduler_utils::getAllTvsFrom(from, boundary);
-  shardAllLike(
-      ref, {all_tvs.begin(), all_tvs.end()}, deviceAndStreamParallelTypes());
-}
-
 namespace {
 int64_t rankOfParallelType(ParallelType parallel_type) {
   // Currently, when reorderParallelizedToFront is called, the loop domain is
