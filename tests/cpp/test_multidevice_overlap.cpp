@@ -77,9 +77,9 @@ TEST_F(StreamTest, RowParallelLinear_Forward) {
   constexpr int64_t t = 6;
   static_assert(t % s == 0);
   at::Tensor in_tensor =
-      at::randn({t, h * 4}, tensor_options_.dtype(at::kBFloat16));
+      at::randint(-2, 3, {t, h * 4}, tensor_options_.dtype(at::kBFloat16));
   at::Tensor w_tensor =
-      at::randn({h, h * 4}, tensor_options_.dtype(at::kBFloat16));
+      at::randint(-2, 3, {h, h * 4}, tensor_options_.dtype(at::kBFloat16));
   at::Tensor out_tensor = at::linear(in_tensor, w_tensor);
 
   at::Tensor sharded_in_tensor = shardTensor(in_tensor, in);
@@ -91,7 +91,11 @@ TEST_F(StreamTest, RowParallelLinear_Forward) {
           .runFusionWithInputs({sharded_in_tensor, sharded_w_tensor})[0]
           .as<at::Tensor>();
 
-  EXPECT_TRUE(at::allclose(sharded_out_tensor, out_tensor));
+  EXPECT_TRUE(at::allclose(sharded_out_tensor, out_tensor))
+      << "sharded_out_tensor:" << std::endl
+      << sharded_out_tensor << std::endl
+      << " out_tensor:" << std::endl
+      << out_tensor;
 }
 
 } // namespace nvfuser
