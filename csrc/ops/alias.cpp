@@ -1023,11 +1023,7 @@ TensorView* broadcast(
       nBCastDims - n_broadcasts);
 
   if (n_broadcasts == 0) {
-    auto identity = set(inp);
-    NVF_ERROR(
-        identity->getValType().value() == ValType::TensorView,
-        "Expected identity op, but didn't get a TensorView back.");
-    return identity->as<TensorView>();
+    return inp;
   }
 
   std::vector<IterDomain*> out_domain;
