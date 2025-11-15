@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <fusion.h>
+#include <multidevice/propagation.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/multidevice_transformer.h>
