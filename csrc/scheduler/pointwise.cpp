@@ -268,6 +268,62 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // The block scales output of the Block Quantization Op
+  // should be a segment output as it is written to the global
+  // memory.
+  if (registry_utils::hasNonTerminalBlockQuantizeOp(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "no support for block quantization where block scales is not a fusion "
+        "output");
+    return false;
+  }
+
+  return true;
+}
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  // Check if the fusion has a Block Quantization Op
+  // If so, ensure that the vectorization factor is at least 2
+  // and that the grid y dimension is not split.
+  // These are requirements of the current implementation of the
+  // Block Quantization Op runtime function.
+
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
+
+  if (has_block_quantization_ops) {
+    auto heuristics = computeHeuristics(fusion, runtime_info, data_cache);
+    auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
+    NVF_ERROR(pparams != nullptr);
+    if (pparams->vectorization_factor < 2) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op requires vectorization factor to be at least "
+          "2.");
+      return false;
+    }
+
+    if (pparams->split_grid_y_dim) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op is not supported when splitting grid y "
+          "dimension. This is because this will create a serial ID with an "
+          "extent > 1. The runtime function implementing block quantization "
+          "will currently not be able to handle that.");
+      return false;
+    }
+  }
   return true;
 }
 

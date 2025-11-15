@@ -1380,8 +1380,14 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
         // direct write to global memory because of random access.
+        // The output of block quantization has to be in global memory. This is
+        // because this op is implemented via a runtime function that write the
+        // scaling factors to global memory.
         output->definition()
-            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
+        (output->definition()->isA<BlockQuantizationOp>() &&
+         output->definition()->as<BlockQuantizationOp>()->blockScales() ==
+             output)) {
       continue;
     }
     if (!output->uses().empty()) {
