@@ -115,28 +115,21 @@ const std::vector<IterDomain*>& findReferenceLoopDomain(
 Expr* cloneWithNewOperands(
     Expr* e,
     const std::unordered_map<Val*, Val*>& replacement_map) {
-  auto maybe_replace = [&](Val*& x) -> bool {
-    Val* new_x = getOrDefault(replacement_map, x);
-    if (new_x == nullptr) {
-      return false;
+  OptOutMutator mutator;
+  for (auto* input : e->inputs()) {
+    Val* new_input = getOrDefault(replacement_map, input);
+    if (new_input != nullptr) {
+      mutator.registerMutation(input, new_input);
     }
-    x = new_x;
-    return true;
-  };
-
-  int64_t replaced = 0;
-
-  std::vector<Val*> new_ins = e->inputs();
-  replaced += std::ranges::count_if(new_ins, maybe_replace);
-
-  std::vector<Val*> new_outs = e->outputs();
-  replaced += std::ranges::count_if(new_outs, maybe_replace);
-
-  if (replaced == 0) {
-    return e;
   }
-
-  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  for (auto* output : e->outputs()) {
+    Val* new_output = getOrDefault(replacement_map, output);
+    if (new_output != nullptr) {
+      mutator.registerMutation(output, new_output);
+    }
+  }
+  mutator.mutate(e);
+  return mutator.mutateExprOutputsOnly(e);
 }
 
 void lowerSegment(
