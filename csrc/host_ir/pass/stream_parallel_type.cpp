@@ -475,6 +475,7 @@ std::list<Expr*> processForLoopBodies(
              ir_utils::filterByType<TensorView>(body_expr->outputs())) {
           processTensor(body_expr, output, tensor_index);
         }
+        body_expr = body_expr->withOutputPreallocated();
         new_loop_body.push_back(body_expr);
       }
     }

@@ -118,7 +118,10 @@ const std::vector<IterDomain*>& findReferenceLoopDomain(
 // Expr.
 Expr* cloneWithNewOperands(
     Expr* e,
-    const std::unordered_map<Val*, Val*>& replacement_map) {
+    const std::unordered_map<Val*, Val*>& replacement_map,
+    bool output_is_preallocated) {
+  NVF_ERROR(!e->outputIsPreallocated());
+
   auto maybe_replace = [&](Val*& x) -> bool {
     Val* new_x = getOrDefault(replacement_map, x);
     if (new_x == nullptr) {
@@ -136,11 +139,16 @@ Expr* cloneWithNewOperands(
   std::vector<Val*> new_outs = e->outputs();
   replaced += std::ranges::count_if(new_outs, maybe_replace);
 
-  if (replaced == 0) {
+  if (replaced == 0 && !output_is_preallocated) {
     return e;
   }
 
-  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  Expr* new_e =
+      e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  if (output_is_preallocated) {
+    new_e = new_e->withOutputPreallocated();
+  }
+  return new_e;
 }
 
 void lowerSegment(
@@ -208,7 +216,7 @@ void lowerSegment(
           innermost_scope.push_back(allocate);
         }
 
-        Expr* new_c = cloneWithNewOperands(c, replacement_map);
+        Expr* new_c = cloneWithNewOperands(c, replacement_map, true);
         innermost_scope.push_back(new_c);
 
         auto* wait = IrBuilder::create<hir::Wait>(new_c);
@@ -265,12 +273,14 @@ void lowerSegment(
           }
         }
 
+        bool output_is_preallocated = false;
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
           if (getShardedIterDomain(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            output_is_preallocated = true;
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -285,7 +295,8 @@ void lowerSegment(
           }
         }
 
-        Expr* new_e = cloneWithNewOperands(e, replacement_map);
+        Expr* new_e =
+            cloneWithNewOperands(e, replacement_map, output_is_preallocated);
         innermost_scope.push_back(new_e);
       }
       break;
