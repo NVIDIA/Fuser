@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -529,6 +530,9 @@ std::vector<PolymorphicValue> Expr::evaluate(
   std::vector<PolymorphicValue> expr_inputs;
   expr_inputs.reserve(inputs().size());
   for (auto inp : inputs()) {
+    if (ir_utils::isScheduleOp(inp)) {
+      continue;
+    }
     const auto& eval_i = ee.evaluate(inp, known_values);
     if (!eval_i.hasValue()) {
       return {std::monostate{}};
