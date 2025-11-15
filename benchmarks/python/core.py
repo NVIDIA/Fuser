@@ -12,6 +12,7 @@ from nvfuser_direct.benchmark_utils import FusionProfileTimer, CuptiTimer
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
+import importlib.util
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -27,6 +28,12 @@ L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
 DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
+
+
+def check_module_available(module_name):
+    # If spec is not None, the module can be imported.
+    spec = importlib.util.find_spec(module_name)
+    return spec is not None
 
 
 def clear_l2_cache() -> None:
