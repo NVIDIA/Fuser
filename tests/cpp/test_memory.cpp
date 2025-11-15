@@ -3464,6 +3464,7 @@ TEST_F(TMATest, OneDimTensor2dTile2x256Illegal) {
           "dimensions, must be non-zero and less than or equal to 256")));
 }
 
+// NVFUSER_DUMP="ftrace(EncodeTensorMapTiled)"
 // global_dim=, 1024, global_strides=, , box_dim=, 512, element_strides=, 1,
 TEST_F(TMATest, TwoDimTensor2dTile2x256Illegal) {
   Fusion fusion;
