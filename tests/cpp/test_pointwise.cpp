@@ -1518,7 +1518,6 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   // domain split must be evenly divisible.
   // Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
   reference->flatten();
-
   int64_t D1 = scheduler_utils::getInnerTmaDomainSize(
       total_elem_count, 512, dtype_bytes);
   int64_t D0 = total_elem_count / D1;
@@ -1541,6 +1540,11 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   reference->split(0, to);
   reference->split(2, ti);
 
+  // Step 3: Propagate TMA transformation to all tensors.
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Step 4: Parallelize TMA tensors with block and bulk parallel types.
   // Check grid dimensions and swap parallel types if needed to avoid exceeding
   // the maximum grid dimension limit (65535).
   auto pto = ParallelType::BIDy;
@@ -1549,25 +1553,6 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
   if (gdim_y > 65535) {
     std::swap(pto, pti);
   }
-
-  // Propagate the transformation to all tensors.
-  TransformPropagatorWithCheck propagator(reference);
-  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
-
-  // Step 3: Schedule non-TMA tensors.
-  // Calculate vectorization factor based on the inner tile dimension.
-  int64_t vect_factor = 1;
-  while (ti % (vect_factor * 2) == 0) {
-    vect_factor *= 2;
-    if (vect_factor == 4) {
-      break;
-    }
-  }
-  // Calculate thread block dimensions for non-TMA tensors.
-  int64_t tidx = std::min(32L, ti / vect_factor),
-          tidy = std::min(128L / tidx, to);
-
-  // Step 4: Parallelize TMA tensors with block and bulk parallel types.
   std::vector<TensorView*> tma_tvs = {tv0_smem};
   if (use_tma_store) {
     tma_tvs.push_back(tv1);
@@ -1579,17 +1564,24 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
     tv->axis(3)->parallelize(ParallelType::Bulk);
   }
 
-  // Step 5: Schedule all non-TMA tensors (register and output tensors).
+  // Step 5: Schedule non-TMA tensors.
+  // Calculate vectorization factor based on the inner tile dimension.
+  int64_t vect_factor = 1;
+  while (ti % (vect_factor * 2) == 0) {
+    vect_factor *= 2;
+    if (vect_factor == 4) {
+      break;
+    }
+  }
+  // Calculate thread block dimensions for non-TMA tensors.
+  int64_t tidx = std::min(32L, ti / vect_factor),
+          tidy = std::min(128L / tidx, to);
   std::vector<TensorView*> compute_tvs = {tv0_regs, tv1_regs};
-
-  // Add the appropriate output tensor: smem if using TMA store, otherwise
-  // global.
   if (use_tma_store) {
     compute_tvs.push_back(tv1_smem);
   } else {
     compute_tvs.push_back(tv1);
   }
-
   for (auto tv : compute_tvs) {
     // [D0/to, to, D1/ti, ti] -> [D0/to, to/y, y, D1/ti, ti/v/x, x, v]
     tv->split(3, vect_factor);
@@ -1605,7 +1597,8 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
       tv->axis(6)->parallelize(ParallelType::Vectorize);
     }
   }
-  // Inline most tensors for better performance.
+
+  // Step 6: Inline
   inlineMost();
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
