@@ -307,6 +307,7 @@ void TransformReplay::selfReplay(
     std::vector<IterDomain*> new_loop;
     for (auto* new_id : new_self->logical()) {
       if (mapped_new_ids.count(new_id) == 0) {
+        NVF_THROW("");
         NVF_ERROR(
             new_id->isReduction(),
             new_id->toString(),
