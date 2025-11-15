@@ -1305,6 +1305,10 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto out_tv = out->as<TensorView>();
+      // The outputs of schedule operations only exist in Fusion IR.
+      if (ir_utils::isScheduleOp(out_tv)) {
+        continue;
+      }
       auto default_val =
           FusionInfoGuard::current()->tensorInitVal().get(out_tv);
 

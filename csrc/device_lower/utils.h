@@ -39,6 +39,9 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite);
 
 namespace ir_utils {
 
+//! Returns true if the given Val is a schedule operation.
+bool isScheduleOp(const Val* val);
+
 // Create a TVDomainGuard that temporarily view a TensorView with specified
 // all-true or all-false contiguity.
 NVF_API ir_utils::TVDomainGuard overrideContiguityGuard(
