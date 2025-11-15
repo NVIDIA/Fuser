@@ -874,7 +874,8 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = makeContigTensor(3);
   TensorView* tv2 = makeContigTensor(3);
-  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
+  auto* matmul =
+      IrBuilder::create<MatmulOp>(tv2, tv0, tv1)->withOutputPreallocated();
 
   hic->addInput(tv0);
   hic->addInput(tv1);
@@ -956,7 +957,8 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   TensorView* bias = makeContigTensor(1);
   TensorView* out = makeContigTensor(3);
 
-  auto linear_op = IrBuilder::create<LinearOp>(out, in, weight, bias);
+  auto* linear_op = IrBuilder::create<LinearOp>(out, in, weight, bias)
+                        ->withOutputPreallocated();
 
   hic->addInput(in);
   hic->addInput(weight);
