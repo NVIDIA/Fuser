@@ -96,17 +96,14 @@ TensorView* layerNormWithCachedStats(
   return add(y, bias_bcast);
 }
 
-void shardAllLike(
-    TensorView* ref,
-    const std::vector<TensorView*>& tvs) {
+void shardAllLike(TensorView* ref, const std::vector<TensorView*>& tvs) {
   if (tvs.empty()) {
     return;
   }
   for (auto* tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  scheduler_utils::parallelizeAllLike(
-      ref, tvs, deviceAndStreamParallelTypes());
+  scheduler_utils::parallelizeAllLike(ref, tvs, deviceAndStreamParallelTypes());
 }
 } // namespace
 
