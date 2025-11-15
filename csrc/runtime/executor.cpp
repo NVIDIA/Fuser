@@ -1050,7 +1050,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   c10::DeviceGuard dg(compiled_kernel_->device());
   auto stream = at::cuda::getCurrentCUDAStream();
-  at::cuda::jit::initializeCudaContext();
+  executor_utils::initializeCudaContext();
   NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
