@@ -725,10 +725,13 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
-                       .to(data_type_to_aten(data_type)));
+  auto in_tensor = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_type));
+  inputs.push_back(in_tensor);
   if (use_global_scale) {
-    inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+    // Calculate the max value in the in_tensor.
+    auto max_value = in_tensor.max().to(at::kFloat);
+    inputs.push_back(max_value);
   }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
