@@ -119,18 +119,13 @@ class EVTConverter : OptInDispatch {
       }
       return acc_node;
     }
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.alpha->nDims() != 0,
-        "Only zero-dimensional alpha is supported for EVT translation");
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.alpha->dtype() != DataType::Float,
-        "Only Float alpha is supported for EVT translation");
 
     EVTModel::Node* alpha_bcast_node = nullptr;
     if (pattern_.alpha->nDims() == 0) {
       // Broadcast scalar alpha to the same dimensions as the accumulator
       alpha_bcast_node = model_.makeNode(
-          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+          dtypeToCutlass(pattern_.alpha->dtype()) + ">");
       alpha_bcast_node->arguments.emplace_back(
           "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
     } else if (pattern_.alpha->nDims() == 1) {
@@ -138,7 +133,8 @@ class EVTConverter : OptInDispatch {
           !pattern_.is_grouped,
           "Non-scalar alpha only supported for grouped GEMM");
       alpha_bcast_node = model_.makeNode(
-          "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<float>");
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<" +
+          dtypeToCutlass(pattern_.alpha->dtype()) + ">");
       alpha_bcast_node->arguments = {
           {"scalars", "{}"},
           {"scalar_ptrs", "{}"},
@@ -461,6 +457,9 @@ class EVTConverter : OptInDispatch {
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
   std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
+
+  // Maps from a TensorView* to its corresponding pointer array
+  std::unordered_map<TensorView*, int64_t> ptr_array_mapping_;
 };
 
 } // namespace

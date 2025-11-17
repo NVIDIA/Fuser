@@ -38,11 +38,11 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
   const size_t ndims = std::ranges::distance(nored_logical);
 
   NVF_CUTLASS_REJECT_IF(
-      ndims != 2,
+      ndims < 2,
       tv->toString(),
       " has dimension ",
       ndims,
-      " but only dimension 2 tensors are supported");
+      " but only dimension 2 or higher tensors are supported");
 
   auto nored_alloc =
       tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions;
@@ -141,12 +141,6 @@ class CutlassCodeGenerator {
           tv->toString(),
           " to be fully contiguous for the Cutlass executor.");
     }
-
-    NVF_CUTLASS_REJECT_IF(
-        !pattern_.mma->isA<ScaledMmaOp>(),
-        "Only ScaledMmaOp is supported so far");
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.is_grouped, "Grouped patterns are not yet supported");
   }
 
   // Gathers necessary info from fusion_ but does not start generating code. If
