@@ -34,7 +34,8 @@ TensorView* createBroadcastTv(TensorView* reference) {
       });
   TensorView* out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_domain,
+          TensorDomain::getContiguityFilledWith(out_domain, std::nullopt)),
       reference->getDataType().value());
   return out;
 }
