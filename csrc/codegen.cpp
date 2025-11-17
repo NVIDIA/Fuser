@@ -1867,6 +1867,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // write out the block scaling factors in the runtime function.
     func_args.arg(genInline(bqop->attributeVal(0)));
 
+    // Fifth argument: global scale (if any)
     func_args.arg(
         bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
 
