@@ -462,6 +462,7 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
@@ -507,6 +508,7 @@ endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
+target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
 target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
 if (NVMMH_FOUND)
   target_include_directories(codegen_internal PUBLIC ${NVMMH_INCLUDE_DIR})

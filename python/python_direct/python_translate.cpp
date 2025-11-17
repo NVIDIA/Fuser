@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <bindings.h>
+#include <python_translate.h>
 #include <python_utils.h>
 #include <translation_names.h>
 
