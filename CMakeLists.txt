@@ -1123,6 +1123,7 @@ endfunction()
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+  target_precompile_headers("${TEST_NAME}" PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
 endfunction()
 
 if(BUILD_TEST)
