@@ -8,6 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser {
 
