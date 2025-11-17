@@ -56,16 +56,17 @@ bool isScheduleOp(const Val* val) {
   if (tv->definition() == nullptr) {
     return false;
   }
+  if (!tv->definition()->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>()) {
+    return false;
+  }
   bool only_broadcast_domains = std::all_of(
       tv->getLogicalDomain().begin(),
       tv->getLogicalDomain().end(),
       [](const IterDomain* id) { return id->isBroadcast(); });
-  if (!only_broadcast_domains) {
-    return false;
-  }
-  if (!tv->definition()->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>()) {
-    return false;
-  }
+  NVF_ERROR(
+      only_broadcast_domains,
+      "Expected output TensorView is always broadcast-only for schedule "
+      "operations.");
   return true;
 }
 
