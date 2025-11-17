@@ -136,7 +136,7 @@ void createNVFP4QuantizationFusion(
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
   if (use_global_scale) {
-    tv_block_scale = div(tv_block_scale, tv_global_scale);
+    tv_block_scale = mul(tv_block_scale, tv_global_scale);
   }
 
   auto tv_block_scale_clamp = clamp(
@@ -148,7 +148,7 @@ void createNVFP4QuantizationFusion(
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = mul(tv_block_scale_fp32, tv_global_scale);
+    tv_block_scale_fp32 = div(tv_block_scale_fp32, tv_global_scale);
   }
 
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);

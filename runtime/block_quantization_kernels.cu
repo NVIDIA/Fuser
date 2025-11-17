@@ -104,7 +104,7 @@ __device__ void block_quantize_to_nvfp4(
   float scaled_max = block_max / 6.000000000e+00f;
 
   if constexpr (USE_GLOBAL_SCALE) {
-    scaled_max = scaled_max / global_scale[0];
+    scaled_max = scaled_max * global_scale[0];
   }
 
   float clamped_max = clamp(
@@ -116,7 +116,7 @@ __device__ void block_quantize_to_nvfp4(
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
 
   if constexpr (USE_GLOBAL_SCALE) {
-    clamped_max_converted = clamped_max_converted * global_scale[0];
+    clamped_max_converted = clamped_max_converted / global_scale[0];
   }
 
   // Write out the block scaling factor to global memory.
