@@ -8,7 +8,9 @@
 #include <multidevice/utils.h>
 
 #include <algorithm>
+#include <ostream>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <device_lower/utils.h>
@@ -26,6 +28,20 @@
 #include <type.h>
 
 namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, DomainType domain_type) {
+  switch (domain_type) {
+    case DomainType::kRoot:
+      return os << "kRoot";
+    case DomainType::kLogical:
+      return os << "kLogical";
+    case DomainType::kLoop:
+      return os << "kLoop";
+    case DomainType::kAllocation:
+      return os << "kAllocation";
+  }
+  std::unreachable();
+}
 
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
@@ -182,7 +198,11 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
 int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
-  IterDomain* parallel_id = getShardedIterDomain(tv, parallel_type);
+  const DomainType domain_type = parallel_type == ParallelType::Stream
+      ? DomainType::kAllocation
+      : DomainType::kLoop;
+  IterDomain* parallel_id =
+      getShardedIterDomain(tv, parallel_type, domain_type);
   if (parallel_id == nullptr) {
     return -1;
   }
@@ -192,24 +212,21 @@ int64_t getShardedLogicalAxis(
 
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
-    const ParallelType parallel_type) {
-  // The allocation domain for multidevice TensorViews is set during
-  // presegmentation, which is after concretization. This exposes a issue:
-  // allocation domain is not set for fusion inputs before presegmentation and
-  // can cause errors during binding.
-  //
-  // We use the loop domain, since allocation and loop domain will have the
-  // same DID parallelization. For ParalleType::Stream, fusion inputs will
-  // always be fully allocated, and segment inputs/outputs may be partially /
-  // fully allocated which can be inferred from its allocation domain.
-  const std::vector<IterDomain*>& domain = [&]() {
-    if (parallel_type == ParallelType::Stream) {
-      return tv->getMaybeAllocationDomain();
+    const ParallelType parallel_type,
+    const DomainType domain_type) {
+  const std::vector<IterDomain*>& domain =
+      [&]() -> const std::vector<IterDomain*>& {
+    switch (domain_type) {
+      case DomainType::kRoot:
+        return tv->getMaybeRootDomain();
+      case DomainType::kLogical:
+        return tv->getLogicalDomain();
+      case DomainType::kLoop:
+        return tv->getLoopDomain();
+      case DomainType::kAllocation:
+        return tv->getMaybeAllocationDomain();
     }
-    if (isParallelTypeDeviceDim(parallel_type)) {
-      return tv->getLoopDomain();
-    }
-    NVF_THROW("Unexpected parallel type: ", parallel_type);
+    std::unreachable();
   }();
 
   for (IterDomain* id : domain | TensorDomain::kNoReductions) {
