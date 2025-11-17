@@ -482,14 +482,15 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-    at::matmul_out(t_out, t_a, t_b);
-  } else {
+  if (!matmul->outputIsPreallocated()) {
     unhandled(matmul);
+    return;
   }
+
+  auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+  auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+  at::matmul_out(t_out, t_a, t_b);
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
@@ -497,7 +498,7 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* weight = linear->inB()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
 
-  if (!expr_evaluator_.isKnown(out)) {
+  if (!linear->outputIsPreallocated()) {
     unhandled(linear);
     return;
   }
