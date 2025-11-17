@@ -38,7 +38,7 @@ TensorView* scheduleReductionTV(
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
   IterDomain* sharded_id =
-      getShardedIterDomain(reduction_tv, ParallelType::DIDx);
+      getShardedIterDomain(reduction_tv, ParallelType::DIDx, DomainType::kLoop);
   if (sharded_id != nullptr) {
     NVF_ERROR_EQ(reduction_tv->getDeviceMesh().rank(), 1);
     NVF_ERROR_EQ(

@@ -84,20 +84,6 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
   return os;
 }
 
-// Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
-// or nullptr if not found.  This is different from `getShardedIterDomain(tv,
-// ParallelType::Stream)`, which searches the allocation domain.  Consider
-// unifying them into one function with an extra DomainType parameter.
-IterDomain* findStreamIterDomain(TensorView* tv) {
-  const std::vector<IterDomain*>& loop = tv->getLoopDomain();
-  // FinalizeMultideviceDomains pass puts the stream IterDomain to the
-  // front.
-  if (!loop.empty() && loop.front()->isStream()) {
-    return loop.front();
-  }
-  return nullptr;
-}
-
 // Finds the TensorView in the group whose loop domain has the most parallel
 // types and returns its loop domain.
 const std::vector<IterDomain*>& findReferenceLoopDomain(
@@ -201,8 +187,11 @@ void lowerSegment(
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (findStreamIterDomain(in) != nullptr &&
-              getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
+          if (getShardedIterDomain(
+                  in, ParallelType::Stream, DomainType::kLoop) != nullptr &&
+              getShardedIterDomain(
+                  in, ParallelType::Stream, DomainType::kAllocation) ==
+                  nullptr) {
             auto [i, inserted] = replacement_map.try_emplace(
                 in, hir::shardByStream(in, for_loop->index()));
             if (inserted) {
@@ -212,7 +201,9 @@ void lowerSegment(
         }
 
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-          if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
+          if (getShardedIterDomain(
+                  out, ParallelType::Stream, DomainType::kAllocation) ==
+              nullptr) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
             parent_scope->insert(parent_insertion_point, allocate);
