@@ -3382,11 +3382,12 @@ int64_t getInnerTmaDomainSize(
   int64_t limit =
       static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
 
-  // Handle edge case where min_size > sqrt(total_element). In this case, check
-  // all divisors by iterating with a smaller step and filtering by min_size.
-  int64_t step = (min_size > limit) ? 1 : min_size;
-
-  for (int64_t i = step; i <= limit; i += step) {
+  // Check all potential divisors. Even if i is not divisible by min_size,
+  // the complement total_element/i might be, so we cannot skip any divisors.
+  // Example: total_element=8184, target=512, min_size=8. If we only checked
+  // multiples of 8, we'd miss i=11, which gives 8184/11=744 (divisible by 8).
+  // This would return 88 (diff=424) instead of the optimal 744 (diff=232).
+  for (int64_t i = 1; i <= limit; i++) {
     if (total_element % i == 0) {
       int64_t f1 = i;
       int64_t f2 = total_element / i;
