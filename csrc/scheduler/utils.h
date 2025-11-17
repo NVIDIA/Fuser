@@ -709,7 +709,7 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
-void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
+void propagateReshapeTransforms(Fusion* fusion);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);

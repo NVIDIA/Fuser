@@ -108,7 +108,7 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -155,7 +155,7 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -187,7 +187,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
   // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -297,7 +297,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -689,6 +689,143 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
           "IDs from the logical domain for BlockQuantizationOp")));
 }
 
+struct BlockQuantizationSchedulingTestParams {
+  DataType data_type;
+  int m;
+  int n;
+};
+
+class BlockQuantizationSchedulingTest
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<
+          BlockQuantizationSchedulingTestParams> {};
+
+TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
+  auto params = GetParam();
+  auto data_type = params.data_type;
+  const int m = params.m;
+  const int n = params.n;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QuantizationFusion(fusion.get(), data_type);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_type)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, data_type);
+  fusion_new_op->addInput(tv_in_1);
+
+  auto quantization_results = blockQuantize(tv_in_1);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
+class BlockQuantizationCanScheduleTests : public BlackwellBase {};
+
+TEST_F(
+    BlockQuantizationCanScheduleTests,
+    CanRuntimeScheduleFailFromNoVectorization) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = blockQuantize(t0);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(t_out);
+
+  // Create misaligned tensor directly on GPU using custom CUDA allocation
+  size_t element_size = 4;
+  int m = 1024;
+  int n = 1024;
+
+  size_t total_elements = m * n;
+  size_t buffer_size =
+      total_elements * element_size + 16; // Extra bytes for misalignment
+
+  // Allocate GPU memory with extra space
+  void* gpu_ptr;
+  cudaMalloc(&gpu_ptr, buffer_size);
+
+  // Create tensor from GPU memory at offset of 4 bytes
+  void* misaligned_ptr = static_cast<char*>(gpu_ptr) + 4;
+  auto misaligned_gpu_tensor = at::from_blob(
+      misaligned_ptr,
+      {m, n},
+      at::TensorOptions()
+          .dtype(data_type_to_aten(DataType::Float))
+          .device(at::kCUDA));
+
+  auto good_input = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat));
+
+  // Expect failure as the input tensor can't be vectorized
+  // and we need vectorization > 2
+  SchedulerRuntimeInfo runtime_info(fusion.get(), {misaligned_gpu_tensor});
+  ASSERT_FALSE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info));
+
+  SchedulerRuntimeInfo runtime_info_new(fusion.get(), {good_input});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info_new));
+
+  if (gpu_ptr)
+    cudaFree(gpu_ptr);
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
@@ -853,6 +990,26 @@ INSTANTIATE_TEST_SUITE_P(
       std::ostringstream os;
       os << std::get<0>(info.param) << "_GroupWidth" << std::get<1>(info.param);
       return os.str();
+    });
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    BlockQuantizationSchedulingTest,
+    ::testing::Values(
+        BlockQuantizationSchedulingTestParams{DataType::Float, 1024, 1024},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 128, 64},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 128},
+        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 2048},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 1024, 1024},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 128, 64},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 128},
+        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 2048}),
+    [](const testing::TestParamInfo<BlockQuantizationSchedulingTestParams>&
+           info) {
+      std::ostringstream name;
+      name << info.param.data_type << "_" << info.param.m << "x"
+           << info.param.n;
+      return name.str();
     });
 
 } // namespace nvfuser

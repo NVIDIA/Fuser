@@ -90,7 +90,7 @@ class EVTModel {
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
 //! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when
 //! those arguments are provided.
-mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion);
+EVTModel extractEVTModel(Fusion* fusion);
 
 } // namespace cutlass_codegen
 
