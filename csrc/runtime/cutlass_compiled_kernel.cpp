@@ -117,7 +117,7 @@ void CutlassCompiledKernel::run(
     NVF_ERROR(false, "Kernel not compiled");
   }
 
-  NVF_ERROR(temp_tensor_size_function_);
+  NVF_ERROR(temp_tensor_sizes_function_);
   NVF_ERROR(run_kernel_function_);
   // Launch the CUTLASS kernel
 
@@ -145,6 +145,8 @@ void CutlassCompiledKernel::run(
   {
     std::vector<int64_t> temp_tensor_sizes(num_temp_tensors_);
 
+    temp_tensor_sizes_function_(temp_tensor_sizes.data(), tensor_args);
+
     auto const temp_tensor_options =
         at::TensorOptions().dtype(at::kByte).device(
             at::kCUDA, args.getDeviceIndex());
@@ -158,8 +160,6 @@ void CutlassCompiledKernel::run(
       temp_tensor_dataptrs.push_back(t.data_ptr());
     }
   }
-
-  init_temp_tensors_function_(temp_tensor_dataptrs.data());
 
   // Call the kernel
   run_kernel_function_(
@@ -367,15 +367,10 @@ void CutlassCompiledKernel::compileWithNVCC() {
 void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
     // Get functions from dlopen-loaded library
-    temp_tensor_size_function_ = reinterpret_cast<TempTensorSizeFunc>(
-        dlsym(shared_library_handle_, "temp_tensor_size"));
-    if (!temp_tensor_size_function_) {
+    temp_tensor_sizes_function_ = reinterpret_cast<TempTensorSizesFunc>(
+        dlsym(shared_library_handle_, "temp_tensor_sizes"));
+    if (!temp_tensor_sizes_function_) {
       NVF_THROW("Failed to get CUTLASS temp tensor size function: ", dlerror());
-    }
-    init_temp_tensors_function_ = reinterpret_cast<InitTempTensorsFunc>(
-        dlsym(shared_library_handle_, "init_temp_tensors"));
-    if (!init_temp_tensors_function_) {
-      NVF_THROW("Failed to get CUTLASS temp tensor init function: ", dlerror());
     }
     run_kernel_function_ = reinterpret_cast<RunKernelFunc>(
         dlsym(shared_library_handle_, "run_kernel"));

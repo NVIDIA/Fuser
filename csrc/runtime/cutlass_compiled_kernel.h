@@ -83,14 +83,10 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   int64_t num_temp_tensors_ = 32;
 
   //! Signature for the function for getting the workspace size
-  using TempTensorSizeFunc = void (*)(
+  using TempTensorSizesFunc = void (*)(
       /*out_tensor_sizes*/ int64_t*,
-      /*tensor_args*/ void*);
-  TempTensorSizeFunc temp_tensor_size_function_ = nullptr;
-
-  //! Signature for the function for getting the workspace size
-  using InitTempTensorsFunc = void (*)(/*data_ptrs*/ void*);
-  InitTempTensorsFunc init_temp_tensors_function_ = nullptr;
+      /*tensor_args*/ const std::vector<TensorArg>&);
+  TempTensorSizesFunc temp_tensor_sizes_function_ = nullptr;
 
   //! Signature for the function to run the kernel
   using RunKernelFunc = void (*)(

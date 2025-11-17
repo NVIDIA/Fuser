@@ -515,23 +515,11 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
   }
 
   void genRunKernel() {
+    genTempTensorSizes();
+
+    genInitTempTensors();
+
     code_ += R"(
-
-// Calling code should pass a pointer to a vector of TensorArgs
-extern "C" void temp_tensor_size(
-    int64_t* out_tensor_sizes,
-    const std::vector<TensorArg>& inputs) {
-  auto arguments = args_from_inputs<Fp4GemmSm100>(inputs);
-  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
-}
-
-extern "C" void init_temp_tensors(uint8_t** temp_tensors) {
-  // TODO: do stuff here other than workspace initialization
-  // The cutlass workspace _is_ a temporary tensor, but since it needs
-  // arguments to be built in order to initialize it, I currently left it in
-  // run_kernel to avoid needing to call args_from_inputs twice.
-}
-
 // Executes the FP4 scaled matrix multiplication using CUTLASS kernels
 //
 // This function orchestrates the GEMM operation by setting up the kernel,
@@ -550,12 +538,50 @@ extern "C" void run_kernel(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
+  init_temp_tensors(temp_tensor_ptrs, arguments, stream);
+
+  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
+
+  auto status = gemm.run(arguments, workspace_ptr, stream);
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
+}
+)";
+  }
+
+  void genTempTensorSizes() {
+    code_ += R"(
+// Calling code should pass a pointer to a vector of TensorArgs
+extern "C" void temp_tensor_sizes(
+    int64_t* out_tensor_sizes,
+    const std::vector<TensorArg>& inputs) {
+  auto arguments = args_from_inputs(inputs);
+  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+)";
+    num_temp_tensors_ = 1;
+
+    // TODO: For grouped gem, we need one temp tensor for each grouped input and
+    // output
+
+    code_ += R"(
+}
+)";
+  }
+
+  void genInitTempTensors() {
+    code_ += R"(
+void init_temp_tensors(uint8_t** temp_tensor_ptrs,
+    const Fp4GemmSm100::Gemm::Arguments& arguments,
+    cudaStream_t stream) {
+  typename Fp4GemmSm100::Gemm gemm;
+
+  // TODO: do stuff here other than workspace initialization
+  // The cutlass workspace _is_ a temporary tensor, but since it needs
+  // arguments to be built in order to initialize it, I currently left it in
+  // run_kernel to avoid needing to call args_from_inputs twice.
+
   uint8_t* workspace_ptr = temp_tensor_ptrs[0];
   auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
-
-  status = gemm.run(arguments, workspace_ptr, stream);
-  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 )";
   }
@@ -579,7 +605,7 @@ extern "C" void run_kernel(
 
   // We require one temp tensor for the CUTLASS workspace. For grouped gemm, we
   // also need a temp tensor for each pointer array
-  int64_t num_temp_tensors_;
+  int64_t num_temp_tensors_ = -1;
 
   std::string code_;
 };
