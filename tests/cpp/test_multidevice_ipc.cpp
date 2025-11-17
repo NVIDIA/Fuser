@@ -12,9 +12,10 @@
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <tests/cpp/multidevice.h>
+
 #include <sys/prctl.h>
 #include <sys/syscall.h>
-#include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
 
@@ -477,6 +478,7 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle, (void*)((uint64_t)peer_fd), handle_type));
     close(pid_fd);
+    close(peer_fd);
   }
 
   // All ranks add their device to multicast group
@@ -598,6 +600,11 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   NVFUSER_CUDA_SAFE_CALL(
       cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
+
+  // Restore ptracer setting to default (clear the PR_SET_PTRACER_ANY exception)
+  if (rank == exporter_rank) {
+    prctl(PR_SET_PTRACER, 0);
+  }
 }
 
 #endif
