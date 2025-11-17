@@ -16,8 +16,7 @@
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
 #include <preseg_passes/pre_segmenter.h>
-#include <python_frontend/fusion_definition.h>
-#include <python_frontend/translation.h>
+#include <python_direct/python_translate.h>
 #include <runtime/executor.h>
 #include <runtime/executor_dispatch.h>
 #include <runtime/fusion_cache_utils.h>
@@ -475,9 +474,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (SegmentedGroup* group_to_run : runtime_workspace_.group_run_order) {
       debug() << "Python definition for segmented group "
               << group_to_run->groupId() << ":" << std::endl;
-      python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
-      python_frontend::translate(group_to_run->getFusion(), &fd);
-      fd.print(debug());
+      debug() << python::translateFusion(group_to_run->getFusion());
     }
   }
 

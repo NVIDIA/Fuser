@@ -10,6 +10,7 @@
 #include <direct_utils.h>
 #include <multidevice/communicator.h>
 #include <python_common/python_utils.h>
+#include <python_translate.h>
 #include <validator_utils.h>
 
 namespace nvfuser::python {
