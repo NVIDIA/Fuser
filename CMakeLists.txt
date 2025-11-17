@@ -551,6 +551,9 @@ target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
+target_precompile_headers(codegen_internal PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
+target_precompile_headers(nvfuser_codegen PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
+
 if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
 endif()
