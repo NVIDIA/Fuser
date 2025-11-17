@@ -965,6 +965,9 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //     original tensor. This effectively creates a single TMA virtual dimension
 //     of size (OuterTmaTile * InnerTmaTile), which is subject to the 256
 //     element limitation and may fail.
+//     Note: It failes when OuterTmaTile * InnerTmaTile > 256, becuase
+//           MergeTileGroupsByRotation merges contiguous bulk dimensions,
+//           but lacked the 256-element hardware constraint check.
 //
 //   With 512, even if InnerTmaTile=256:
 //     [total_element/512, 512]
