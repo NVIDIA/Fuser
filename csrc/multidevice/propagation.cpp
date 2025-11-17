@@ -8,6 +8,7 @@
 
 #include <multidevice/propagation.h>
 
+#include <algorithm>
 #include <unordered_map>
 #include <vector>
 
