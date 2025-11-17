@@ -14,6 +14,13 @@ namespace nvfuser {
 // Marks aliases between fusion inputs and outputs. This respects existing
 // allocation domains **even when** they are empty (assuming default order). See
 // [Note on overriding empty allocation domains].
+//
+// This function is called by various schedulers (like pointwise and reduction)
+// to handle a partially alias-producing fusion. We could instead improve
+// MarkAliasesPreparePass to split a partially alias-producing fusion into an
+// alias-only segment and the rest. This way, the rest of the fusion (which has
+// fewer expressions) can potentially find a better scheduler or scheduling, and
+// we can completely remove this function for simplicity.
 void markAliases(Fusion* fusion);
 
 } // namespace nvfuser
