@@ -525,4 +525,53 @@ class ForLoop : public Expr {
   }
 };
 
+class LinearOut : public Expr {
+ public:
+  using Expr::Expr;
+  LinearOut(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in,
+      TensorView* weight,
+      TensorView* bias);
+
+  LinearOut(const LinearOut& other) = delete;
+  LinearOut& operator=(const LinearOut& other) = delete;
+  LinearOut(LinearOut&& other) = delete;
+  LinearOut& operator=(LinearOut&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "hir::LinearOut";
+  }
+
+  TensorView* out() const {
+    return outputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* weight() const {
+    return inputs().at(1)->as<TensorView>();
+  }
+
+  TensorView* bias() const {
+    if (hasBias()) {
+      return input(2)->as<TensorView>();
+    } else {
+      return nullptr;
+    }
+  }
+
+  bool hasBias() const {
+    return inputs().size() == 3;
+  }
+};
+
 } // namespace nvfuser::hir

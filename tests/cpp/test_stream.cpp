@@ -152,6 +152,45 @@ TEST_F(StreamTest, TwoMatmuls) {
     //                 T2_g_float[iS15{i4}, iS5{i6}])
     // } // %HostIrContainer
     // clang-format on
+    //
+    // Note that the first matmul in the loop generates a tensor and the second
+    // matmul writes to a pre-allocated tensor.
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto out =
+        executor_cache.runFusionWithInputs({in, w1, w2})[0].as<at::Tensor>();
+
+    testValidate(
+        executor_cache.fusion(), {out}, {in, w1, w2}, __LINE__, __FILE__);
+  }
+}
+
+// Similar to TwoMatmuls, but with two linear ops.
+TEST_F(StreamTest, TwoLinears) {
+  constexpr int64_t c = 3;
+
+  auto fusion = std::make_unique<Fusion>();
+  {
+    FusionGuard fg(fusion.get());
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* w1 = makeSymbolicTensor(2);
+    TensorView* w2 = makeSymbolicTensor(2);
+    TensorView* out = linear(in, w1);
+    out = linear(out, w2);
+    fusion->addInput(in);
+    fusion->addInput(w1);
+    fusion->addInput(w2);
+    fusion->addOutput(out);
+
+    in->outer_split(0, c);
+    in->axis(0)->parallelize(ParallelType::Stream);
+  }
+
+  {
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+    at::Tensor in = at::randn({c * 2, 3}, options);
+    at::Tensor w1 = at::randn({5, 3}, options);
+    at::Tensor w2 = at::randn({3, 5}, options);
+
     FusionExecutorCache executor_cache(std::move(fusion));
     auto out =
         executor_cache.runFusionWithInputs({in, w1, w2})[0].as<at::Tensor>();
