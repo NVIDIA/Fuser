@@ -79,6 +79,14 @@ def test_rope_bwd_benchmark(
         kwargs["nv_enable_matmul"] = True
     elif executor == "torchcompile":
         clear_dynamo_cache()
+    elif executor == "thunder-torchcompile" and variation in [
+        "llama_2_7b_hf",
+        "llama_3_8B",
+    ]:
+        # See https://github.com/Lightning-AI/lightning-thunder/issues/2297
+        pytest.skip(
+            "torch._dynamo.exc.TorchRuntimeError: Dynamo failed to run FX node with fake tensors"
+        )
 
     model, gen_inputs, grad, iobytes = rope_setup[variation](seq_length)
     fwd_inputs = gen_inputs()
