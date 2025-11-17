@@ -1364,10 +1364,10 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
   }
 
   if (!original_inputs.empty()) {
-    // Add wait for prior grid before getting the cached inputs
-    TensorView* grid_wait = wait_for_prior_grid(original_inputs);
-    for (auto [cached_input_tv, _] : cached_inputs) {
-      cached_input_tv->addDependency(grid_wait);
+    for (auto&& [original, cached] : zip(original_inputs, cached_inputs)) {
+      // Add wait for prior grid before getting the cached inputs
+      TensorView* grid_wait = wait_for_prior_grid({original});
+      cached.first->addDependency(grid_wait);
     }
   }
 
