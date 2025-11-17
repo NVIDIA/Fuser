@@ -40,6 +40,7 @@ __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
 // elements (ITEMS_PER_THREAD). Thus n threads are working to quantize 16
 // elements, where n = 16 / ITEMS_PER_THREAD.
 template <
+    bool USE_GLOBAL_SCALE,
     int ITEMS_PER_THREAD,
     typename T,
     int ALIGNMENT_1,
@@ -50,7 +51,8 @@ __device__ void block_quantize_to_nvfp4(
     const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
-    nvfuser_index_t logical_index) {
+    nvfuser_index_t logical_index,
+    Tensor<float, 0, 0> global_scale) {
   constexpr bool is_half_or_bfloat =
       std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
   constexpr bool is_float = std::is_same<T, float>::value;
@@ -100,6 +102,11 @@ __device__ void block_quantize_to_nvfp4(
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
   float scaled_max = block_max / 6.000000000e+00f;
+
+  if constexpr (USE_GLOBAL_SCALE) {
+    scaled_max = scaled_max / global_scale[0];
+  }
+
   float clamped_max = clamp(
       scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
 
@@ -107,6 +114,10 @@ __device__ void block_quantize_to_nvfp4(
 
   // Convert back from FP8 to float using __e4m32float
   float clamped_max_converted = __e4m32float(clamped_max_fp8);
+
+  if constexpr (USE_GLOBAL_SCALE) {
+    clamped_max_converted = clamped_max_converted * global_scale[0];
+  }
 
   // Write out the block scaling factor to global memory.
   // This assumes 16 elements in the input were contiguous.

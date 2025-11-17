@@ -1848,6 +1848,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     ArgumentBuilder template_args;
+    template_args.arg(
+        bqop->hasGlobalScale() ? true : false); // HAS_GLOBAL_SCALE
     template_args.arg(group_size); // ITEMS_PER_THREAD
 
     // Function arguments
@@ -1864,6 +1866,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Fourth argument: This holds the linearized index that will be used to
     // write out the block scaling factors in the runtime function.
     func_args.arg(genInline(bqop->attributeVal(0)));
+
+    func_args.arg(
+        bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
 
     indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
              << ";\n";

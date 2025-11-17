@@ -140,8 +140,15 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     // We don't map the inner-most dimension of the block scaling factors
     // as it's extent is reduced by a factor of the block size
     // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+    // We also skip mapping if the producer is the global scale
     if (consumer_tv ==
-        consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales()) {
+            consumer_tv->definition()
+                ->as<BlockQuantizationOp>()
+                ->blockScales() &&
+        producer_tv !=
+            consumer_tv->definition()
+                ->as<BlockQuantizationOp>()
+                ->globalScale()) {
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       auto last_logical_dim = producer_logical.size() - 1;

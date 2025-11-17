@@ -108,9 +108,18 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QuantizationFusion(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool use_global_scale = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
+
+  auto tv_global_scale =
+      use_global_scale ? makeContigTensor(0, DataType::Float) : nullptr;
+  if (use_global_scale) {
+    fusion->addInput(tv_global_scale);
+  }
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -126,14 +135,22 @@ void createNVFP4QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   // input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  if (use_global_scale) {
+    tv_block_scale = div(tv_block_scale, tv_global_scale);
+  }
+
   auto tv_block_scale_clamp = clamp(
       tv_block_scale,
       IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
       IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
   auto tv_block_scale_fp8 =
       castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
-  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  if (use_global_scale) {
+    tv_block_scale_fp32 = mul(tv_block_scale_fp32, tv_global_scale);
+  }
+
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
   auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
   auto tv_data_scaled_clamp = clamp(
@@ -689,32 +706,30 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
           "IDs from the logical domain for BlockQuantizationOp")));
 }
 
-struct BlockQuantizationSchedulingTestParams {
-  DataType data_type;
-  int m;
-  int n;
-};
-
 class BlockQuantizationSchedulingTest
     : public BlackwellBase,
       public ::testing::WithParamInterface<
-          BlockQuantizationSchedulingTestParams> {};
+          std::tuple<DataType, std::pair<int, int>, bool>> {};
 
 TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
-  auto params = GetParam();
-  auto data_type = params.data_type;
-  const int m = params.m;
-  const int n = params.n;
+  const auto data_type = std::get<0>(GetParam());
+  const auto dimensions = std::get<1>(GetParam());
+  const auto use_global_scale = std::get<2>(GetParam());
+  const int m = dimensions.first;
+  const int n = dimensions.second;
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QuantizationFusion(fusion.get(), data_type);
+  createNVFP4QuantizationFusion(fusion.get(), data_type, use_global_scale);
 
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
   inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
                        .to(data_type_to_aten(data_type)));
+  if (use_global_scale) {
+    inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+  }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
@@ -732,9 +747,14 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   FusionGuard fg2(fusion_new_op.get());
 
   auto tv_in_1 = makeContigTensor(2, data_type);
+  auto tv_global_scale =
+      use_global_scale ? makeContigTensor(0, DataType::Float) : nullptr;
   fusion_new_op->addInput(tv_in_1);
+  if (use_global_scale) {
+    fusion_new_op->addInput(tv_global_scale);
+  }
 
-  auto quantization_results = blockQuantize(tv_in_1);
+  auto quantization_results = blockQuantize(tv_in_1, tv_global_scale);
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
@@ -993,22 +1013,25 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    BlockQuantizationSchedulingTestSuite,
     BlockQuantizationSchedulingTest,
-    ::testing::Values(
-        BlockQuantizationSchedulingTestParams{DataType::Float, 1024, 1024},
-        BlockQuantizationSchedulingTestParams{DataType::Float, 128, 64},
-        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 128},
-        BlockQuantizationSchedulingTestParams{DataType::Float, 2048, 2048},
-        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 1024, 1024},
-        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 128, 64},
-        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 128},
-        BlockQuantizationSchedulingTestParams{DataType::BFloat16, 2048, 2048}),
-    [](const testing::TestParamInfo<BlockQuantizationSchedulingTestParams>&
-           info) {
+    ::testing::Combine(
+        ::testing::Values(DataType::Float, DataType::BFloat16),
+        ::testing::Values(
+            std::make_pair(1024, 1024),
+            std::make_pair(128, 64),
+            std::make_pair(2048, 128),
+            std::make_pair(2048, 2048)),
+        ::testing::Bool()),
+    [](const testing::TestParamInfo<
+        std::tuple<DataType, std::pair<int, int>, bool>>& info) {
+      const auto data_type = std::get<0>(info.param);
+      const auto dimensions = std::get<1>(info.param);
+      const auto use_global_scale = std::get<2>(info.param);
+
       std::ostringstream name;
-      name << info.param.data_type << "_" << info.param.m << "x"
-           << info.param.n;
+      name << data_type << "_" << dimensions.first << "x" << dimensions.second;
+      name << (use_global_scale ? "_WithGlobalScale" : "_NoGlobalScale");
       return name.str();
     });
 
