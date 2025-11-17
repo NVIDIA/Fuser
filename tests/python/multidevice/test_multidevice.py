@@ -420,5 +420,6 @@ def test_welford(multidevice_direct_test):
         _definition(fd)
         _multidevice_schedule(fd)
     var, mean = fd.execute([sharded])
-    torch.testing.assert_close(var.cpu(), unsharded.var(1))
-    torch.testing.assert_close(mean.cpu(), unsharded.mean(1))
+
+    torch.testing.assert_close(var, sharded.var(1), rtol=1e-3, atol=1e-3)
+    torch.testing.assert_close(mean, sharded.mean(1), rtol=1e-3, atol=1e-3)

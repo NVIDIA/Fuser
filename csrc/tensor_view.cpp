@@ -974,8 +974,20 @@ TensorView* TensorView::multiOutputRFactorHelper(
       it->second->parallelize(loop_id->getParallelType());
       new_loop.push_back(it->second);
     }
+
+    std::vector<IterDomain*> new_allocation;
+    for (IterDomain* allocation_id : getAllocationDomain()) {
+      auto it = replay.getReplay().find(allocation_id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "failed to replay IterDomain: ",
+          allocation_id);
+      it->second->parallelize(allocation_id->getParallelType());
+      new_allocation.push_back(it->second);
+    }
     tv->setLoopDomain(new_loop);
-    debug() << "Replayed: " << tv->domain()->toString(0, false) << std::endl;
+    tv->setAllocationDomain(new_allocation, tv->domain()->contiguity());
+    debug() << "Replayed TV: " << tv->domain()->toString(0, false) << std::endl;
   }
 
   // Split tensor view into 2 parts
@@ -1025,6 +1037,8 @@ std::vector<TensorView*> TensorView::rFactor(
     NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
+    debug() << "Output " << i << ": " << tvs.at(i)->domain()->toString(0, false)
+            << std::endl;
   }
 
   // Currently grouping of welford is only supported through

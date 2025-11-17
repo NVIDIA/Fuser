@@ -37,6 +37,8 @@ TensorView* scheduleReductionTV(
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
+  debug() << "scheduleReductionTV: "
+          << reduction_tv->domain()->toString(0, false) << std::endl;
   IterDomain* sharded_id =
       getShardedIterDomain(reduction_tv, ParallelType::DIDx);
   if (sharded_id != nullptr) {
@@ -332,6 +334,8 @@ TensorView* scheduleReductionTV(
       !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =
       sortAndRFactor(reduction_tv, is_non_persistent_outer_reduction);
+  debug() << "Reduction RF TV: "
+          << reduction_rf_tv->domain()->toString(0, false) << std::endl;
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
@@ -697,6 +701,8 @@ bool placedBefore(const IterDomain* id0, const IterDomain* id1) {
 TensorView* sortAndRFactor(
     TensorView* reference_tv,
     bool is_non_persistent_outer_reduction) {
+  debug() << "sortAndRFactor: " << reference_tv->domain()->toString(0, false)
+          << std::endl;
   auto domain = reference_tv->getLoopDomain();
   std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
@@ -767,6 +773,8 @@ TensorView* sortAndRFactor(
     }
     rfactor_axes.push_back(axis_i);
   }
+  debug() << "Reference TV after sorting: "
+          << reference_tv->domain()->toString(0, false) << std::endl;
 
   if (reduction_dims == rfactor_axes.size()) {
     return ir_utils::rFactorHelper(reference_tv, rfactor_axes_no_unswitch);
