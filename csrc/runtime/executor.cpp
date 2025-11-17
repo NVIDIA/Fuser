@@ -1308,7 +1308,6 @@ KernelArgumentHolder KernelExecutor::run(
       }
 
       if (kernel_summary.enable_programmatic_dependent_launch) {
-        std::cout << "enable_programmatic_dependent_launch" << std::endl;
         CUlaunchAttribute attribute;
         attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
         attribute.value.programmaticStreamSerializationAllowed = 1;
