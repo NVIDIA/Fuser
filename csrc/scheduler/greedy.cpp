@@ -1723,8 +1723,6 @@ void GreedyScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     resetInlining(fusion);
     inlineMost(uninlinable_ids);
   }
-
-  markAliases(fusion);
 }
 
 } // namespace nvfuser
