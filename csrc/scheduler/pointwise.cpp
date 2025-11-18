@@ -8,6 +8,7 @@
 
 #include <scheduler/pointwise.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_non_tma.h>
@@ -16,7 +17,6 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
-
 #include <ranges>
 
 namespace nvfuser {
@@ -329,6 +329,65 @@ bool PointWiseScheduler::canScheduleRunTime(
   return true;
 }
 
+namespace {
+
+// TODO: refine this function to check the contiguity, broadcast, reshape, etc.
+bool mayHaveTmaCompatibleInputs(
+    const pointwise_utils::FusionRuntimeProperties& prop) {
+  for (auto tv : prop.vectorizable_inputs_outputs) {
+    if (!tv->isFusionInput()) {
+      continue;
+    }
+    auto dtype_bits =
+        dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
+    // actual element count should consider breakpoint and compute individually
+    // for each input. here the largest output is used as the reference. If we
+    // fail with this largest value, then it guarantees no input is suitable for
+    // Tma since all inputs are smaller than the largest output in pointwise.
+    auto elem_count = prop.n_elems;
+    auto total_bits = elem_count * dtype_bits;
+    // function-condition-1, TMA requires size divisible by 16 bytes (128 bits)
+    if (total_bits % 128 != 0) {
+      continue;
+    }
+    // function-condition-2, We only do 2D TMA, requires at least 2 boxes in
+    // inner dimension each with 16 bytes. This requires a minimum innter tma
+    // domain size of 2 * 16 bytes. We also should skip if the inner tma domain
+    // size is exactly the same as the element count. This means outer tma
+    // domain is 1, which is not a valid 2D TMA domain.
+    const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
+    if (elem_count % min_inner_tma_domain_size != 0 ||
+        elem_count == min_inner_tma_domain_size) {
+      continue;
+    }
+    // TODO: check reshape, contiguity, allocation domain, etc.
+    // function-condition-3, reshape, contiguity, allocation domain, etc.
+    // TODO: performance checks
+    // performance-condition-1, input size is too small
+    // performance-condition-2, Innner TMA domain size is too small
+
+    // pass all preliminary checks, may be suitable for TMA.
+    return true;
+  }
+  return false;
+}
+// Preliminary check if TMA can be used for the fusion. Serves as a fast path to
+// avoid computing heuristics if TMA is obviously not possible. Passing this
+// check does not guarantee that TMA will be used, as the actual TMA usage will
+// be determined by the heuristics.
+bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
+  // Harware, Don't use tma for pre-Blackwell GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 10) {
+    return false;
+  }
+  // Inputs
+  if (!mayHaveTmaCompatibleInputs(prop)) {
+    return false;
+  }
+  return true;
+}
+} // namespace
+
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -346,11 +405,11 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  bool use_tma = false;
+  bool use_tma = mayUseTma(prop) && isOptionEnabled(EnableOption::TmaPointwise);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, prop);
   } else {
     pparams = pointwise::non_tma::getPointwiseHeuristics(
         fusion, runtime_info, data_cache, prop);
