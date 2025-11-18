@@ -138,8 +138,8 @@ __device__ void block_quantize_to_nvfp4(
     auto stride_1 = stride_2 * alloc_dim2;
     auto stride_0 = stride_1 * alloc_dim1;
 
-    auto logical_inner = offset % fp8_output_inner_dim;
-    auto logical_outer = offset / fp8_output_inner_dim;
+    auto logical_inner = offset % fp8_scaling_factors_inner_dim;
+    auto logical_outer = offset / fp8_scaling_factors_inner_dim;
 
     // The allocation domain swizzle logic is:
     // m, k -> m, k/4, 4

@@ -1828,7 +1828,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Validate group size based on input data type
     const auto input_dtype =
-        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType().value();
     const bool is_half_precision =
         (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
     const bool is_valid_group_size = is_half_precision

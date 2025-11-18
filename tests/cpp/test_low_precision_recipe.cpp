@@ -105,13 +105,39 @@ constexpr double F4_E2M1_MAX = 6.0;
 constexpr double E4M3_EPS = 0.015625;
 constexpr double F8E4M3_MAX = 448.0;
 
+namespace {
+// Helper function to apply swizzling to block scales output
+void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
+  // auto original_loop = tv_block_scale_fp8->getLoopDomain();
+  tv_block_scale_fp8->split(0, 128);
+  // m/128, 128, k
+  tv_block_scale_fp8->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv_block_scale_fp8->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      tv_block_scale_fp8->axis(0),
+      tv_block_scale_fp8->axis(3),
+      tv_block_scale_fp8->axis(2),
+      tv_block_scale_fp8->axis(1),
+      tv_block_scale_fp8->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+  // back to a 2D logical domain.
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(0);
+  tv_block_scale_fp8->merge(-1);
+}
+} // namespace
+
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
-    bool use_global_scale = false) {
+    bool use_global_scale = false,
+    bool swizzle_block_scales = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -163,6 +189,10 @@ void createNVFP4QuantizationFusion(
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
+
+  if (swizzle_block_scales) {
+    applyBlockScaleSwizzling(tv_block_scale_fp8);
+  }
 }
 } // namespace
 
@@ -709,18 +739,20 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
 class BlockQuantizationSchedulingTest
     : public BlackwellBase,
       public ::testing::WithParamInterface<
-          std::tuple<DataType, std::pair<int, int>, bool>> {};
+          std::tuple<DataType, std::pair<int, int>, bool, bool>> {};
 
 TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   const auto data_type = std::get<0>(GetParam());
   const auto dimensions = std::get<1>(GetParam());
   const auto use_global_scale = std::get<2>(GetParam());
+  const auto swizzle_block_scales = std::get<3>(GetParam());
   const int m = dimensions.first;
   const int n = dimensions.second;
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QuantizationFusion(fusion.get(), data_type, use_global_scale);
+  createNVFP4QuantizationFusion(
+      fusion.get(), data_type, use_global_scale, swizzle_block_scales);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -763,6 +795,10 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  if (swizzle_block_scales) {
+    applyBlockScaleSwizzling(quantization_results.block_scales);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
@@ -892,25 +928,7 @@ TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
-  tv_block_scale_fp8->split(0, 128);
-  // m/128, 128, k
-  tv_block_scale_fp8->split(1, 32);
-  // m/128, 4(m_o), 32(m_i), k
-  tv_block_scale_fp8->split(3, 4);
-  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
-  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
-      tv_block_scale_fp8->axis(0),
-      tv_block_scale_fp8->axis(3),
-      tv_block_scale_fp8->axis(2),
-      tv_block_scale_fp8->axis(1),
-      tv_block_scale_fp8->axis(4)};
-  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
-  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
-
-  // back to a 2D logical domain.
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(-1);
+  applyBlockScaleSwizzling(tv_block_scale_fp8);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -1027,16 +1045,19 @@ INSTANTIATE_TEST_SUITE_P(
             std::make_pair(128, 64),
             std::make_pair(2048, 128),
             std::make_pair(2048, 2048)),
+        ::testing::Bool(),
         ::testing::Bool()),
     [](const testing::TestParamInfo<
-        std::tuple<DataType, std::pair<int, int>, bool>>& info) {
+        std::tuple<DataType, std::pair<int, int>, bool, bool>>& info) {
       const auto data_type = std::get<0>(info.param);
       const auto dimensions = std::get<1>(info.param);
       const auto use_global_scale = std::get<2>(info.param);
+      const auto swizzle_block_scales = std::get<3>(info.param);
 
       std::ostringstream name;
       name << data_type << "_" << dimensions.first << "x" << dimensions.second;
       name << (use_global_scale ? "_WithGlobalScale" : "_NoGlobalScale");
+      name << (swizzle_block_scales ? "_WithSwizzle" : "_NoSwizzle");
       return name.str();
     });
 

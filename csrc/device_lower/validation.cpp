@@ -515,15 +515,27 @@ class ExprValidator : public OptOutDispatch {
         !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
-    // TODO: Relax these for swizzled block scaling factor outputs
-    // When scaling will be swizzled we will need to allow these checks
-    // to be relaxed, but we will need to ensure that the swizzling
+    // When scaling is swizzled we will need to allow these checks
+    // to be relaxed. We will need to ensure that the swizzling
     // allocation allowed is a fixed pattern:
     // 2D logical and 5D allocation domain.
     // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
-    NVF_ERROR(
-        !block_scaling_factor->hasAllocation(),
-        "Block scaling factor must not have an allocation domain.");
+    if (block_scaling_factor->hasAllocation()) {
+      // Check that the logical domain in 2D and the allocation domain is 5D
+      NVF_ERROR_EQ(
+          block_scaling_factor->getLogicalDomain().size(),
+          2,
+          "Block scaling factor logical domain must be 2D when allocation "
+          "domain is present. Found: ",
+          block_scaling_factor->getLogicalDomain().size());
+      NVF_ERROR_EQ(
+          block_scaling_factor->getAllocationDomain().size(),
+          5,
+          "Block scaling factor allocation domain must be 5D when allocation "
+          "domain is present. Found: ",
+          block_scaling_factor->getAllocationDomain().size());
+    }
+
     NVF_ERROR(
         std::all_of(
             block_scaling_factor->getContiguity().begin(),
