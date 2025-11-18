@@ -64,6 +64,8 @@ class LoopNest {
     return loop_infos_.back();
   }
 
+  // Returns the scope of the innermost for-loop or the top-level scope if the
+  // loop nest is empty.
   Scope& innermostScope() const {
     return empty() ? top_level_ : innermost().loop->body();
   }
@@ -151,8 +153,6 @@ void lowerSegment(
     LoopNest& loop_nest,
     IrCloner& ir_cloner) {
   Scope& innermost_scope = loop_nest.innermostScope();
-  // FIXME: cleanup. innermost can return an empty LoopInfo when the nest is
-  // empty.
   LoopInfo innermost;
   if (!loop_nest.empty()) {
     innermost = loop_nest.innermost();
