@@ -1319,6 +1319,11 @@ if(BUILD_NVFUSER_BENCHMARK)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
+  set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_options(nvfuser_bench PRIVATE -fPIC)
+
   target_include_directories(nvfuser_bench SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
