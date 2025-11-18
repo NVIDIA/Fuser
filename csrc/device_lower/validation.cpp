@@ -274,7 +274,8 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
-// Validate the swizzling pattern: from 2D logical to 5D allocation
+// Validate the swizzling pattern:
+// We support a very restricted pattern from 2D logical to 5D allocation
 // Expected pattern:
 // m, k -> m, k/4, 4 (split k by 4)
 // m, k/4, 4 -> m/128, 128, k/4, 4 (split m by 128)
@@ -298,9 +299,12 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
       block_scale->toString());
 
   // keep count of splits
-  int cnt = 0;
+  int num_splits = 0;
 
-  auto check_transform = [block_scale, &logical_domain, &cnt](Expr* expr) {
+  // A lambda to check the transforms from logical to allocation domain
+  // Each transform must be a split, and there can be only 3 splits.
+  auto check_transform = [block_scale, &logical_domain, &num_splits](
+                             Expr* expr) {
     // If expr is not split throw an error.
     if (dynamic_cast<Split*>(expr) == nullptr) {
       NVF_THROW(
@@ -309,9 +313,10 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
     }
 
     // Can have a max of 3 splits
-    cnt++;
-    NVF_ERROR(
-        cnt <= 3,
+    num_splits++;
+    NVF_ERROR_LE(
+        num_splits,
+        3,
         "Block scale swizzle can have a maximum of 3 splits. Found more in "
         "TensorView: ",
         block_scale->toString());
@@ -319,6 +324,8 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
     // If expr and it's input is logical_domain back()
     // the inner split output should have an extent of 4.
     auto split_expr = dynamic_cast<Split*>(expr);
+
+    // Check K -> K/4, 4
     if (split_expr->in() == logical_domain.back()) {
       NVF_ERROR(
           split_expr->inner()->extent()->isConstInt() &&
@@ -332,6 +339,7 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
           " for TensorView: ",
           block_scale->toString());
     } else if (split_expr->in() == logical_domain.front()) {
+      // Check M -> M/128, 128
       NVF_ERROR(
           split_expr->inner()->extent()->isConstInt() &&
               split_expr->inner()->extent()->evaluate().as<int64_t>() == 128,
@@ -346,8 +354,10 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
 
       // Check that the inner output of the split has exactly one use
       // and that use is another split with an inner extent of 32
-      NVF_ERROR(
-          split_expr->inner()->uses().size() == 1,
+      // Check 128 -> 4(m_o), 32(m_i)
+      NVF_ERROR_EQ(
+          split_expr->inner()->uses().size(),
+          1,
           "The inner output of the outermost split must have exactly one use. "
           "Found ",
           split_expr->inner()->uses().size(),
@@ -357,7 +367,7 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
       auto inner_split =
           dynamic_cast<Split*>(split_expr->inner()->uses().at(0)->asExpr());
       NVF_ERROR(
-          inner_split != nullptr,
+          inner_split,
           "The inner output of the outermost split must be used in another "
           "split. "
           "Found expr: ",
@@ -379,16 +389,31 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
     }
   };
 
+  // Get all exprs between logical and allocation domain
   auto transform_exprs = DependencyCheck::getAllExprsBetween(
       {logical_domain.begin(), logical_domain.end()},
       {allocation_domain.begin(), allocation_domain.end()});
+
   std::vector<IterDomain*> ids_to_transform = logical_domain;
+
+  // Transform the logical domain to the allocation domain
+  // without the permutation.
   scheduler_utils::applyTransforms(
       ids_to_transform, transform_exprs, check_transform);
+
+  // Check that there are exactly 3 splits
+  NVF_ERROR_EQ(
+      num_splits,
+      3,
+      "Block scale swizzle must have exactly 3 splits. Found ",
+      num_splits,
+      " splits in TensorView: ",
+      block_scale->toString());
+
+  // Get the permutation.
   auto permutation =
       ir_utils::computePermutation(ids_to_transform, allocation_domain);
 
-  // m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
   // Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
   // check that permutation has a value and it is 0, 3, 2, 1, 4
   NVF_ERROR(

@@ -126,9 +126,14 @@ void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
       tv_block_scale_fp8->axis(4)};
   // m/128, k/4, 32(m_i), 4(m_o), 4(k)
   tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+
   // back to a 2D logical domain.
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k) ->
+  // m/32, 32, k/4, 4(k)
   tv_block_scale_fp8->merge(0);
+  // m/32, 32, k/4, 4(k) -> m, k/4, 4(k)
   tv_block_scale_fp8->merge(0);
+  // m, k/4, 4(k) -> m, k
   tv_block_scale_fp8->merge(-2);
 }
 
@@ -572,6 +577,118 @@ TEST_F(
       [&]() { GpuLower(fusion.get()).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "Block scaling factor must be a global memory tensor")));
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    InvalidSwizzlePermutationOnBlockScales) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  quantization_results.block_scales->split(3, 4);
+
+  // Bad permutation.
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Block scale swizzle permutation is invalid")));
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    SwizzleInnermostSplitMustHaveExtentOfFour) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  // Bad inner split.
+  quantization_results.block_scales->split(3, 8);
+
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("The innermost split in block scale swizzle must "
+                             "have an extent of 4")));
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    SwizzleAllocationDomainMustHaveAtMostFiveIterDomains) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results = blockQuantize(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  // Too many splits - allocation domain is now more than 5.
+  quantization_results.block_scales->split(2, 4);
+  quantization_results.block_scales->split(4, 4);
+
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(5),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Block scale swizzle must have 2D logical domain "
+                             "and 5D allocation domain")));
 }
 
 // Group ID must be the innermost of all splits from logical domains to loop
