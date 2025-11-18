@@ -21,14 +21,14 @@ namespace nvfuser {
 namespace pointwise {
 namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
-// dimensions, e.g. outer broadcast input [B, I] can also be loaded with Tma.
+// dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
 bool isTvSuitableForTma(const TensorView* tv, int64_t n_valid_dims) {
   return scheduler_utils::nLogicalDims(tv) == n_valid_dims;
 };
 
-// Return total bits if loads one element from each tma loaded input.
-// Used to derive number of elements we should load from each input to satisfy
-// the required bits in flight.
+// Returns the total bits required to load one element from each TMA-loaded
+// input. This is used to determine how many elements should be loaded from each
+// input to achieve the required bits in flight.
 int64_t getInputBitsPerElement(
     const pointwise_utils::FusionRuntimeProperties& prop) {
   int64_t bits_per_element = 0;
@@ -63,20 +63,20 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       prop.min_dtype_size_bit_for_vectorization);
   NVF_ERROR(
       tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
-      "Ilegal TMA inner domain size: ",
+      "Illegal TMA inner domain size: ",
       tma_domain_inner,
       ", n_elems: ",
       prop.n_elems);
   const int64_t tma_outer_domain_size = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
 
-  // set elements_per_cta: Each CTA issues one TMA load operation, set number of
-  // elements of this TMA load operation. Assuming 8 CTAs per SM, using
-  // empirical required bits in flight, it is just a guidance, actual tile size
-  // is set by tma_tile_inner and tma_tile_outer.
-  // Inner tila size: ensure we have at least 2 tiles in the inner TMA
-  // dimension. outer tile size: don't exceed the outer TMA dimension size Both
-  // are subject to hardware constraints of 256 elements per dimension.
+  // Compute elements_per_cta: Each CTA issues one TMA load operation. We
+  // calculate the number of elements per TMA load based on the required bits
+  // in flight, assuming 8 CTAs per SM. This is a guideline; the actual tile
+  // size is determined by tma_tile_inner and tma_tile_outer.
+  // - Inner tile size: ensure at least 2 tiles in the inner TMA dimension
+  // - Outer tile size: don't exceed the outer TMA dimension size
+  // Both are subject to hardware constraints of 256 elements per dimension.
   constexpr int64_t cta_per_sm = 8;
   int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   int64_t bits_per_cta = bits_per_sm / cta_per_sm;
@@ -96,17 +96,18 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->tma_tile_inner = tma_tile_inner;
   params->tma_tile_outer = tma_tile_outer;
 
-  // set block tile size, typical setup is 32 in x-dim and 4 in y-dim.
-  // but don't go beyond tma tile size in each dimension.
+  // Set block dimensions: typical configuration is 32 threads in x-dimension
+  // and 4 threads in y-dimension, but constrain to TMA tile size in each
+  // dimension.
   constexpr int64_t threads_per_cta = 128;
   int64_t bdimx = std::min(threads_per_warp, tma_tile_inner);
   int64_t bdimy = std::min(threads_per_cta / bdimx, tma_tile_outer);
   params->lparams.bindUnsafe(bdimx, ParallelType::TIDx);
   params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
 
-  // set vectorization factor gmem <--> regs
-  // [tma_tile_inner] is scheduled as [S, TIDx, Vect], so vectorization factor
-  // can't exceed tma_tile_inner / bdimx.
+  // Set vectorization factor for global memory <-> register transfers.
+  // The [tma_tile_inner] dimension is scheduled as [S, TIDx, Vect], so the
+  // vectorization factor cannot exceed tma_tile_inner / bdimx.
   NVF_ERROR(
       tma_tile_inner % bdimx == 0, "tma_tile_inner must be divisible by bdimx");
   constexpr int64_t max_vectorization_size_in_bit = 128;
@@ -163,8 +164,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   FusionGuard fg(fusion);
 
-  // always merge all dimensions without considering break point
-  // it can be equivalently considered in setting TMA domain sizes
+  // Always merge all dimensions without considering the break point. The
+  // break point effect can be equivalently handled by setting TMA domain sizes.
   auto schedule_info_opt =
       pointwise_utils::commonPointwiseSchedule(fusion, /*break_point=*/0);
   if (!schedule_info_opt.has_value()) {
@@ -181,8 +182,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   std::unordered_set<TensorView*> vectorizable_io_tvs(
       inputs_outputs.begin(), inputs_outputs.end());
 
-  // For each cached input, use TMA load if it has full logical domains as the
-  // reference tv, otherwise use LDG.
+  // For each cached input: use TMA load if it has the same number of logical
+  // dimensions as the reference tensor; otherwise, use LDG (standard load).
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
   std::vector<TensorView*> tma_tvs;
   std::vector<TensorView*> ldg_tvs;
@@ -200,21 +201,20 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     tma_tvs.push_back(tv);
   }
 
-  // Schedule the TMA domain [I0] -> [Do, Di]
+  // Split the TMA domain: [I0] -> [Do, Di]
   reference_tv->split(0, pparams->tma_domain_inner);
 
-  // Schedule the TMA box/tile
+  // Split into TMA tiles (box/tile sizes)
   // [Do, Di] -> [Do/to, to, Di/ti, ti]
   reference_tv->split(1, pparams->tma_tile_inner);
   reference_tv->split(0, pparams->tma_tile_outer);
 
-  // Propagate the TMA related transformation to all tensors.
+  // Propagate the TMA-related transformations to all tensors
   TransformPropagator propagator(reference_tv);
   MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
 
-  // parallelize tma tvs,
-  // after propagation,reset reference back to serial to further schedule
-  // non-tma parts.
+  // Parallelize TMA tensors. After propagation, reset the reference tensor
+  // back to serial mode to enable further scheduling of non-TMA parts.
   auto outer_cord_pt = ParallelType::BIDy;
   auto inner_cord_pt = ParallelType::BIDx;
   if (pparams->flip_grid_binding) {
@@ -228,14 +228,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   reference_tv->axis(1)->parallelize(ParallelType::Serial);
   reference_tv->axis(3)->parallelize(ParallelType::Serial);
 
-  // Further schedule non-TMA part, start with [Do/to, to, Di/ti, ti]
-  // [Do/to, to, Di/ti, ti] -> [Do/to, to/y, y, Di/ti, ti/v/x, x, v]
+  // Schedule the non-TMA parts, starting with [Do/to, to, Di/ti, ti]
+  // Transform: [Do/to, to, Di/ti, ti] -> [Do/to, to/y, y, Di/ti, ti/v/x, x, v]
   int64_t opos = 1, ipos = 3;
   reference_tv->split(ipos, pparams->vectorization_factor);
   reference_tv->split(ipos, pparams->lparams.bdimx());
   reference_tv->split(opos, pparams->lparams.bdimy());
 
-  // propagate transformation to non-tma tvs
+  // Propagate transformations to non-TMA tensors
   std::vector<TensorView*> non_tma_tvs =
       ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   TransformPropagator non_tma_propagator(reference_tv);
@@ -247,10 +247,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   reference_tv->axis(2)->parallelize(ParallelType::TIDy);
   reference_tv->axis(3)->parallelize(inner_cord_pt);
   reference_tv->axis(5)->parallelize(ParallelType::TIDx);
-  int64_t vect_pos = 6; // save position for vectorization
+  int64_t vect_pos = 6; // Position for vectorization axis
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
-  // vectorize regs -> global
+  // Vectorize register -> global memory transfers
   if (!pparams->use_tma_store && pparams->vectorization_factor > 1) {
     for (const auto& [_, original_idx] : cached_outputs) {
       auto output_tv =
@@ -261,14 +261,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
   }
 
-  // vectorize global -> regs
+  // Vectorize global memory -> register transfers
   for (auto ldg_tv : ldg_tvs) {
     if (vectorizable_io_tvs.contains(ldg_tv)) {
       ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
     }
   }
 
-  // inline all
+  // Inline all intermediate computations
   inlineMost();
 }
 

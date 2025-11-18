@@ -331,7 +331,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 
 namespace {
 
-// TODO: refine this function to check the contiguity, broadcast, reshape, etc.
+// TODO: Refine this function to check contiguity, broadcasts, reshapes, etc.
 bool mayHaveTmaCompatibleInputs(
     const pointwise_utils::FusionRuntimeProperties& prop) {
   for (auto tv : prop.vectorizable_inputs_outputs) {
@@ -340,47 +340,51 @@ bool mayHaveTmaCompatibleInputs(
     }
     auto dtype_bits =
         dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
-    // actual element count should consider breakpoint and compute individually
-    // for each input. here the largest output is used as the reference. If we
-    // fail with this largest value, then it guarantees no input is suitable for
-    // Tma since all inputs are smaller than the largest output in pointwise.
+    // Note: The actual element count should consider the breakpoint and be
+    // computed individually for each input. Here, the largest output is used
+    // as a conservative estimate. If the largest output fails these checks,
+    // then no input is suitable for TMA since all inputs are smaller than or
+    // equal to the largest output in a pointwise fusion.
     auto elem_count = prop.n_elems;
     auto total_bits = elem_count * dtype_bits;
-    // function-condition-1, TMA requires size divisible by 16 bytes (128 bits)
+
+    // Condition 1: TMA requires size divisible by 16 bytes (128 bits)
     if (total_bits % 128 != 0) {
       continue;
     }
-    // function-condition-2, We only do 2D TMA, requires at least 2 boxes in
-    // inner dimension each with 16 bytes. This requires a minimum innter tma
-    // domain size of 2 * 16 bytes. We also should skip if the inner tma domain
-    // size is exactly the same as the element count. This means outer tma
-    // domain is 1, which is not a valid 2D TMA domain.
+
+    // Condition 2: We only support 2D TMA, which requires at least 2 tiles in
+    // the inner dimension, each with 16 bytes. This imposes a minimum inner
+    // TMA domain size of 2 * 16 bytes. Additionally, skip if the inner TMA
+    // domain size equals the total element count, as this would mean the outer
+    // TMA domain is 1, which is not a valid 2D TMA configuration.
     const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
     if (elem_count % min_inner_tma_domain_size != 0 ||
         elem_count == min_inner_tma_domain_size) {
       continue;
     }
-    // TODO: check reshape, contiguity, allocation domain, etc.
-    // function-condition-3, reshape, contiguity, allocation domain, etc.
-    // TODO: performance checks
-    // performance-condition-1, input size is too small
-    // performance-condition-2, Innner TMA domain size is too small
 
-    // pass all preliminary checks, may be suitable for TMA.
+    // TODO: Add checks for reshape, contiguity, allocation domain, etc.
+    // TODO: Add performance checks:
+    //   - Skip if input size is too small
+    //   - Skip if inner TMA domain size is too small
+
+    // Passed all preliminary checks, may be suitable for TMA
     return true;
   }
   return false;
 }
-// Preliminary check if TMA can be used for the fusion. Serves as a fast path to
-// avoid computing heuristics if TMA is obviously not possible. Passing this
-// check does not guarantee that TMA will be used, as the actual TMA usage will
-// be determined by the heuristics.
+
+// Preliminary check to determine if TMA can be used for this fusion. This
+// serves as a fast path to avoid computing full heuristics if TMA is clearly
+// not applicable. Passing this check does not guarantee that TMA will be used;
+// the final decision is made during heuristics computation.
 bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
-  // Harware, Don't use tma for pre-Hoppper GPUs
+  // Hardware requirement: Don't use TMA for pre-Hopper GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return false;
   }
-  // Inputs
+  // Check if there are TMA-compatible inputs
   if (!mayHaveTmaCompatibleInputs(prop)) {
     return false;
   }
