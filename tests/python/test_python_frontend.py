@@ -4326,133 +4326,134 @@ def test_unpadded_catop_issue2275_repro2():
 )
 def test_reduction_transpose_sched_issue2317():
     inputs = [
-            torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
-        ]
+        torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
+    ]
 
-        def fusion_func(fd: FusionDefinition, inputs) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.from_pytorch(inputs[2])
+    def fusion_func(fd: FusionDefinition, inputs) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
 
-            T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
-            T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
-            T16 = fd.ops.reshape(T11, new_shape=T1.shape())
-            T17 = fd.ops.linear(T16, T2)
-            T33 = fd.ops.add(T17, T1)
+        T10 = fd.ops.permute(T0, dims=[0, 2, 1, 3])
+        T11 = fd.ops.stride_order(T10, stride_order=[3, 2, 1, 0])
+        T16 = fd.ops.reshape(T11, new_shape=T1.shape())
+        T17 = fd.ops.linear(T16, T2)
+        T33 = fd.ops.add(T17, T1)
 
-            T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
-            T34 = fd.ops.linear(T33, T2)
-            T35 = fd.ops.add(T34, T33)
-            fd.add_output(T35)
+        T33 = fd.ops.cast(T33, dtype=DataType.BFloat16)
+        T34 = fd.ops.linear(T33, T2)
+        T35 = fd.ops.add(T34, T33)
+        fd.add_output(T35)
 
-        nvf_out, _ = exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
+    nvf_out, _ = exec_nvfuser(partial(fusion_func, inputs=inputs), inputs)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_fusion_profiler():
-        inputs = [
-            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
-            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
-        ]
+    inputs = [
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.ops.add(T0, T1)
-            T3 = fd.ops.sum(T2, dim=-1)
-            T4 = fd.ops.sum(T3, dim=-1)
-            fd.add_output(T4)
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.add(T0, T1)
+        T3 = fd.ops.sum(T2, dim=-1)
+        T4 = fd.ops.sum(T3, dim=-1)
+        fd.add_output(T4)
 
-        with FusionDefinition() as fd:
-            fusion_func(fd)
+    with FusionDefinition() as fd:
+        fusion_func(fd)
 
-        # Testing returning a profile without profiling, expect an error!
-        try:
-            fd.profile()
-            raise RuntimeError(
-                "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
-            )
-        except ValueError:
-            pass
+    # Testing returning a profile without profiling, expect an error!
+    try:
+        fd.profile()
+        raise RuntimeError(
+            "fd.profile() should have raised a ValueError because profile() was called before exeute()!"
+        )
+    except ValueError:
+        pass
 
-        # Testing that the profile returns 2 segments
-        try:
-            fd.execute(inputs, profile=True)
-            prof = fd.profile()
-            self.assertEqual(prof.segments, 2)
-            self.assertEqual(len(prof.kernel_profiles), 2)
-        except Exception as e:
-            raise RuntimeError(
-                "FusionDefinition's execute() did not run correctly with profile enabled!"
-            )
+    # Testing that the profile returns 2 segments
+    try:
+        fd.execute(inputs, profile=True)
+        prof = fd.profile()
+        assert prof.segments == 2
+        assert len(prof.kernel_profiles) == 2
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition's execute() did not run correctly with profile enabled!"
+        )
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_fusion_profiler_user_schedule():
-        inputs = [
-            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
-            torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
-        ]
+    inputs = [
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+        torch.randn((2, 5), dtype=torch.float, device="cuda:0"),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.ops.add(T0, T1)
-            fd.add_output(T2)
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.ops.add(T0, T1)
+        fd.add_output(T2)
 
-        class MyFusion(FusionDefinition):
-            def definition(self):
-                fusion_func(fd)
+    class MyFusion(FusionDefinition):
+        def definition(self):
+            fusion_func(fd)
 
-            def schedule(self):
-                pass
+        def schedule(self):
+            pass
 
-        fd = MyFusion()
-        try:
-            fd.execute(inputs, profile=True)
-            assert (fd.profile().fusion_id >= 0)
-            self.assertEqual(fd.profile().kernel_profiles[0].scheduler, "user")
-        except Exception as e:
-            raise RuntimeError(
-                "FusionDefinition's execute() did not run correctly with profile enabled!"
-            )
+    fd = MyFusion()
+    try:
+        fd.execute(inputs, profile=True)
+        assert (fd.profile().fusion_id >= 0)
+        assert fd.profile().kernel_profiles[0].scheduler == "user"
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition's execute() did not run correctly with profile enabled!"
+        )
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_fusion_profiler_with_noncodegen_kernels():
-        inputs = [
-            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
-        ]
+    inputs = [
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.from_pytorch(inputs[2])
-            T3 = fd.ops.linear(T0, T2)
-            T4 = fd.ops.add(T3, T1)
-            fd.add_output(T4)
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
+        T3 = fd.ops.linear(T0, T2)
+        T4 = fd.ops.add(T3, T1)
+        fd.add_output(T4)
 
-        class MyFusion(FusionDefinition):
-            def definition(self):
-                fusion_func(fd)
+    class MyFusion(FusionDefinition):
+        def definition(self):
+            fusion_func(fd)
 
-        fd = MyFusion()
-        try:
-            fd.execute(inputs, profile=True)
-            assert (fd.profile().fusion_id >= 0)
-            self.assertEqual(len(fd.profile().kernel_profiles), 2)
-            self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
-            self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
-        except Exception as e:
-            raise RuntimeError(
-                "FusionDefinition's execute() did not run correctly with profile enabled!"
-            )
+    fd = MyFusion()
+    try:
+        fd.execute(inputs, profile=True)
+        assert (fd.profile().fusion_id >= 0)
+        assert len(fd.profile().kernel_profiles) == 2
+        assert len(fd.profile().kernel_profiles[0].name) >= 0
+        assert len(fd.profile().kernel_profiles[1].name) >= 0
+    except Exception as e:
+        raise RuntimeError(
+            "FusionDefinition's execute() did not run correctly with profile enabled!"
+        )
 
-    # Small repro from https://github.com/NVIDIA/Fuser/issues/2359
+
+# Small repro from https://github.com/NVIDIA/Fuser/issues/2359
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_reshape_squeeze_concretization():
