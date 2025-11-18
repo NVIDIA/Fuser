@@ -1,1 +1,1 @@
-act pull_request --artifact-server-path ./act-artifacts -C <path to Fuser> -W .github/workflows/claude-code-review.yml -j claude-code-review --eventpath .github/workflows/claude_code_reivew_test.json
+~/dev/act/bin/act pull_request --artifact-server-path ./act-artifacts -C ./ -W .github/workflows/gemini-cli-review.yml -j gemini-cli-review --eventpath .github/workflows/claude_code_reivew_test.json
