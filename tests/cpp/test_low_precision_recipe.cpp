@@ -730,7 +730,9 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   inputs.push_back(in_tensor);
   if (use_global_scale) {
     // Calculate the max value in the in_tensor.
-    auto max_value = in_tensor.max().to(at::kFloat);
+    auto max_value = 4.480000000e+02f /*FLOAT8_E4M3_MAX*/
+        * 6.0f /*FLOAT4_E2M1_MAX*/
+        / in_tensor.max().to(at::kFloat);
     inputs.push_back(max_value);
   }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
