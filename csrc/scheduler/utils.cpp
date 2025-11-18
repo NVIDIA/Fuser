@@ -1298,6 +1298,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
   }
 
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<Val*> original_inputs;
   // If we're going to unroll, make a cache of the inputs
   for (auto [input_idx, input] : enumerate(fusion->inputs())) {
     auto tv = dynamic_cast<TensorView*>(input);
@@ -1359,7 +1360,17 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
         /*cached_uses=*/cached_uses);
 
     cached_inputs.emplace_back(cached_tv, input_idx);
+    original_inputs.push_back(tv);
   }
+
+  if (!original_inputs.empty()) {
+    for (auto&& [original, cached] : zip(original_inputs, cached_inputs)) {
+      // Add wait for prior grid before getting the cached inputs
+      TensorView* grid_wait = wait_for_prior_grid({original});
+      cached.first->addDependency(grid_wait);
+    }
+  }
+
   return cached_inputs;
 }
 
@@ -1369,6 +1380,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
   std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
+  std::vector<Val*> original_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
     auto output = dynamic_cast<TensorView*>(output_val);
@@ -1396,6 +1408,21 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     if (unroll) {
       auto cached_output = output->cacheBefore();
       cached_outputs.emplace_back(cached_output, output_idx);
+      original_outputs.push_back(output);
+    }
+  }
+
+  if (!original_outputs.empty()) {
+    std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
+    for (auto&& [original, cached] : zip(original_outputs, cached_outputs)) {
+      if (std::count(
+              terminating_outputs.begin(),
+              terminating_outputs.end(),
+              original) == 0) {
+        continue;
+      }
+      TensorView* grid_launch = launch_dependent_grid({cached.first});
+      original->addDependency(grid_launch);
     }
   }
   return cached_outputs;
