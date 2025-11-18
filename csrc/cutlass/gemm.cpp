@@ -564,8 +564,9 @@ extern "C" void run_kernel(
 // Calling code should pass a pointer to a vector of TensorArgs
 extern "C" void temp_tensor_sizes(
     int64_t* out_tensor_sizes,
-    const std::vector<TensorArg>& inputs) {
-  auto arguments = args_from_inputs(inputs);
+    const std::vector<TensorArg>& inputs,
+    uint8_t** temp_tensor_ptrs) {
+  auto arguments = args_from_inputs(inputs, temp_tensor_ptrs);
   out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
 )";
 
