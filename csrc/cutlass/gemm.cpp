@@ -81,8 +81,6 @@ class CutlassCodeGenerator {
 
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
-    std::cout << pattern_.toString() << std::endl;
-    ;
 
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
@@ -692,7 +690,7 @@ std::string CutlassMatmulPattern::toString() const {
   PRINTATTR(expert_offsets);
   PRINTATTR(scale_factor_offsets);
 #undef PRINTATTR
-  ss << "  is_grouped = " << is_grouped << "\n";
+  ss << "  is_grouped = " << std::boolalpha << is_grouped << "\n";
   ss << "}";
   return ss.str();
 }
