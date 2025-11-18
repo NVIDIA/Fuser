@@ -348,16 +348,11 @@ bool mayHaveTmaCompatibleInputs(
     auto elem_count = prop.n_elems;
     auto total_bits = elem_count * dtype_bits;
 
-    // Condition 1: TMA requires size divisible by 16 bytes (128 bits)
-    if (total_bits % 128 != 0) {
-      continue;
-    }
-
-    // Condition 2: We only support 2D TMA, which requires at least 2 tiles in
-    // the inner dimension, each with 16 bytes. This imposes a minimum inner
-    // TMA domain size of 2 * 16 bytes. Additionally, skip if the inner TMA
-    // domain size equals the total element count, as this would mean the outer
-    // TMA domain is 1, which is not a valid 2D TMA configuration.
+    // Condition 1: We only support 2D TMA, which requires at least 2 tiles in
+    // the inner dimension, each with  at least 16 bytes. This imposes a minimum
+    // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
+    // TMA domain size equals the total element count, as this would mean the
+    // outer TMA domain is 1, which is not a valid 2D TMA configuration.
     const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
     if (elem_count % min_inner_tma_domain_size != 0 ||
         elem_count == min_inner_tma_domain_size) {
