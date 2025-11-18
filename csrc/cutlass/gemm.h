@@ -69,6 +69,8 @@ struct CutlassMatmulPattern {
   TensorView* expert_offsets = nullptr;
   TensorView* scale_factor_offsets = nullptr;
   bool is_grouped = false;
+
+  std::string toString() const;
 };
 
 //! Detects supported matmul patterns and fills out a MatmulPattern struct. Note

@@ -81,6 +81,8 @@ class CutlassCodeGenerator {
 
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
+    std::cout << pattern_.toString() << std::endl;
+    ;
 
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
@@ -553,8 +555,40 @@ extern "C" void temp_tensor_sizes(
 )";
     num_temp_tensors_ = 1;
 
-    // TODO: For grouped gem, we need one temp tensor for each grouped input and
-    // output
+    if (pattern_.is_grouped) {
+      // TODO: For grouped gemm, we need one temp tensor for each grouped input
+      // and output. These are the pointer arrays and they are all the same
+      // size: [num_experts].
+      NVF_ERROR(
+          pattern_.expert_offsets != nullptr,
+          "expert_offsets must be provided for grouped GEMM");
+      code_ += "  const TensorArg& expert_offsets = inputs.at(" +
+          std::to_string(
+                   fusionInputPosition(fusion_, pattern_.expert_offsets)) +
+          ");\n";
+      code_ += R"(
+  int64_t num_experts = expert_offsets.sizes[0];
+)";
+      // There are always going to be pointer arrays for A, B, A_sf, B_sf. There
+      // is also one for each output and one for each _epilogue_ input.
+      auto register_temp_tensor = [&](TensorView* tv) {
+        code_ += "  out_tensor_sizes[" + std::to_string(num_temp_tensors_) +
+            "] = num_experts * sizeof(int64_t);\n";
+        temp_tensor_map_.emplace(tv, num_temp_tensors_++);
+      };
+      for (Val* inp : fusion_->inputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(inp); tv &&
+            inp != pattern_.problem_sizes && inp != pattern_.expert_offsets &&
+            inp != pattern_.scale_factor_offsets) {
+          register_temp_tensor(tv);
+        }
+      }
+      for (Val* outp : fusion_->outputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(outp)) {
+          register_temp_tensor(tv);
+        }
+      }
+    }
 
     code_ += R"(
 }
@@ -601,6 +635,11 @@ void init_temp_tensors(uint8_t** temp_tensor_ptrs,
   // also need a temp tensor for each pointer array
   int64_t num_temp_tensors_ = -1;
 
+  // Map from TensorView to position of temp tensors. Currently this is only
+  // used to map each input and output to a temporary pointer array in grouped
+  // GEMM
+  std::unordered_map<TensorView*, int64_t> temp_tensor_map_;
+
   std::string code_;
 };
 
@@ -633,6 +672,29 @@ int64_t fusionOutputPosition(Fusion* fusion, Val* v) {
   return std::distance(
       fusion->outputs().begin(),
       std::find(fusion->outputs().begin(), fusion->outputs().end(), v));
+}
+
+std::string CutlassMatmulPattern::toString() const {
+  std::stringstream ss;
+  ss << "CutlassMatmulPattern{\n";
+#define PRINTATTR(attr)                                                      \
+  ss << "  " #attr " = " << (attr == nullptr ? "nullptr" : attr->toString()) \
+     << "\n";
+  PRINTATTR(mma);
+  PRINTATTR(a);
+  PRINTATTR(b);
+  PRINTATTR(a_scale);
+  PRINTATTR(b_scale);
+  PRINTATTR(alpha);
+  PRINTATTR(beta);
+  PRINTATTR(bias);
+  PRINTATTR(problem_sizes);
+  PRINTATTR(expert_offsets);
+  PRINTATTR(scale_factor_offsets);
+#undef PRINTATTR
+  ss << "  is_grouped = " << is_grouped << "\n";
+  ss << "}";
+  return ss.str();
 }
 
 CutlassMatmulPattern findCutlassMatmulPattern(Fusion* fusion) {
