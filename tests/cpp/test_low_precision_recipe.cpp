@@ -108,9 +108,18 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
-void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+void createNVFP4QuantizationFusion(
+    Fusion* fusion,
+    DataType data_hp_dtype,
+    bool use_global_scale = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
+
+  auto tv_global_scale =
+      use_global_scale ? makeContigTensor(0, DataType::Float) : nullptr;
+  if (use_global_scale) {
+    fusion->addInput(tv_global_scale);
+  }
 
   auto tv_data_hp_reshaped =
       reshape(tv_data_hp, [](auto& x) { x.split(-1, block_size); });
@@ -126,14 +135,22 @@ void createNVFP4QunatizationFusion(Fusion* fusion, DataType data_hp_dtype) {
   // input dtype.
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  if (use_global_scale) {
+    tv_block_scale = mul(tv_block_scale, tv_global_scale);
+  }
+
   auto tv_block_scale_clamp = clamp(
       tv_block_scale,
       IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
       IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
   auto tv_block_scale_fp8 =
       castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
-  // TODO: should we just use auto tv_block_scale_fp32 = tv_block_scale_clamp?
+
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
+  if (use_global_scale) {
+    tv_block_scale_fp32 = div(tv_block_scale_fp32, tv_global_scale);
+  }
+
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
   auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
   auto tv_data_scaled_clamp = clamp(
@@ -155,7 +172,7 @@ TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -187,7 +204,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise) {
   // Baseline implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -297,7 +314,7 @@ TEST_P(BlockQuantizationTest, ScheduleAsPointwise2D) {
   // Baseline  implementation
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QunatizationFusion(fusion.get(), data_hp_dtype);
+  createNVFP4QuantizationFusion(fusion.get(), data_hp_dtype);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -689,6 +706,151 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
           "IDs from the logical domain for BlockQuantizationOp")));
 }
 
+class BlockQuantizationSchedulingTest
+    : public BlackwellBase,
+      public ::testing::WithParamInterface<
+          std::tuple<DataType, std::pair<int, int>, bool>> {};
+
+TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
+  const auto data_type = std::get<0>(GetParam());
+  const auto dimensions = std::get<1>(GetParam());
+  const auto use_global_scale = std::get<2>(GetParam());
+  const int m = dimensions.first;
+  const int n = dimensions.second;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  createNVFP4QuantizationFusion(fusion.get(), data_type, use_global_scale);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  auto in_tensor = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_type));
+  inputs.push_back(in_tensor);
+  if (use_global_scale) {
+    // Calculate the max value in the in_tensor.
+    auto max_value = 4.480000000e+02f /*FLOAT8_E4M3_MAX*/
+        * 6.0f /*FLOAT4_E2M1_MAX*/
+        / in_tensor.max().to(at::kFloat);
+    inputs.push_back(max_value);
+  }
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  auto baseline_block_scales = outputs_baseline[0].as<at::Tensor>();
+  auto baseline_quantized_tensor = outputs_baseline[1].as<at::Tensor>();
+
+  auto baseline_block_scales_cpu = baseline_block_scales.cpu();
+  auto baseline_quantized_tensor_cpu = baseline_quantized_tensor.cpu();
+
+  const uint8_t* baseline_block_scales_data =
+      static_cast<const uint8_t*>(baseline_block_scales_cpu.data_ptr());
+  const uint8_t* baseline_quantized_data =
+      static_cast<const uint8_t*>(baseline_quantized_tensor_cpu.data_ptr());
+
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, data_type);
+  auto tv_global_scale =
+      use_global_scale ? makeContigTensor(0, DataType::Float) : nullptr;
+  fusion_new_op->addInput(tv_in_1);
+  if (use_global_scale) {
+    fusion_new_op->addInput(tv_global_scale);
+  }
+
+  auto quantization_results = blockQuantize(tv_in_1, tv_global_scale);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  // Verify we got the expected outputs
+  auto block_scales_output = outputs_new_op[0].as<at::Tensor>();
+  auto quantized_tensor_output = outputs_new_op[1].as<at::Tensor>();
+
+  // Move tensors from GPU to CPU
+  auto block_scales_cpu = block_scales_output.cpu();
+  auto quantized_tensor_cpu = quantized_tensor_output.cpu();
+
+  auto block_scales_bytes = (m * n) / block_size;
+  auto quantized_tensor_bytes = (m * n) / 2;
+
+  const uint8_t* block_scales_data =
+      static_cast<const uint8_t*>(block_scales_cpu.data_ptr());
+  for (int i = 0; i < block_scales_bytes; ++i) {
+    EXPECT_EQ(
+        block_scales_data[i],
+        baseline_block_scales_data[i]); // Compare with baseline
+  }
+
+  const uint8_t* quantized_data =
+      static_cast<const uint8_t*>(quantized_tensor_cpu.data_ptr());
+  for (int i = 0; i < quantized_tensor_bytes; ++i) {
+    EXPECT_EQ(
+        quantized_data[i],
+        baseline_quantized_data[i]); // Compare with baseline
+  }
+}
+
+class BlockQuantizationCanScheduleTests : public BlackwellBase {};
+
+TEST_F(
+    BlockQuantizationCanScheduleTests,
+    CanRuntimeScheduleFailFromNoVectorization) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results = blockQuantize(t0);
+  auto t_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(quantization_results.block_scales);
+  fusion->addOutput(t_out);
+
+  // Create misaligned tensor directly on GPU using custom CUDA allocation
+  size_t element_size = 4;
+  int m = 1024;
+  int n = 1024;
+
+  size_t total_elements = m * n;
+  size_t buffer_size =
+      total_elements * element_size + 16; // Extra bytes for misalignment
+
+  // Allocate GPU memory with extra space
+  void* gpu_ptr;
+  cudaMalloc(&gpu_ptr, buffer_size);
+
+  // Create tensor from GPU memory at offset of 4 bytes
+  void* misaligned_ptr = static_cast<char*>(gpu_ptr) + 4;
+  auto misaligned_gpu_tensor = at::from_blob(
+      misaligned_ptr,
+      {m, n},
+      at::TensorOptions()
+          .dtype(data_type_to_aten(DataType::Float))
+          .device(at::kCUDA));
+
+  auto good_input = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat));
+
+  // Expect failure as the input tensor can't be vectorized
+  // and we need vectorization > 2
+  SchedulerRuntimeInfo runtime_info(fusion.get(), {misaligned_gpu_tensor});
+  ASSERT_FALSE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info));
+
+  SchedulerRuntimeInfo runtime_info_new(fusion.get(), {good_input});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::PointWise, fusion.get(), runtime_info_new));
+
+  if (gpu_ptr)
+    cudaFree(gpu_ptr);
+}
+
 TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
@@ -853,6 +1015,29 @@ INSTANTIATE_TEST_SUITE_P(
       std::ostringstream os;
       os << std::get<0>(info.param) << "_GroupWidth" << std::get<1>(info.param);
       return os.str();
+    });
+
+INSTANTIATE_TEST_SUITE_P(
+    BlockQuantizationSchedulingTestSuite,
+    BlockQuantizationSchedulingTest,
+    ::testing::Combine(
+        ::testing::Values(DataType::Float, DataType::BFloat16),
+        ::testing::Values(
+            std::make_pair(1024, 1024),
+            std::make_pair(128, 64),
+            std::make_pair(2048, 128),
+            std::make_pair(2048, 2048)),
+        ::testing::Bool()),
+    [](const testing::TestParamInfo<
+        std::tuple<DataType, std::pair<int, int>, bool>>& info) {
+      const auto data_type = std::get<0>(info.param);
+      const auto dimensions = std::get<1>(info.param);
+      const auto use_global_scale = std::get<2>(info.param);
+
+      std::ostringstream name;
+      name << data_type << "_" << dimensions.first << "x" << dimensions.second;
+      name << (use_global_scale ? "_WithGlobalScale" : "_NoGlobalScale");
+      return name.str();
     });
 
 } // namespace nvfuser
