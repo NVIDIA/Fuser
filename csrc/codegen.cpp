@@ -1876,7 +1876,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                 .size() == EXPECTED_LOGICAL_DIMS;
 
     if (is_swizzled) {
-      const auto& logical_domain = block_scales_tv->getLogicalDomain();
+      const auto& logical_domain = TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
       const auto& allocation_domain = block_scales_tv->getAllocationDomain();
 
       // Add logical domain extent of the inner dimension
