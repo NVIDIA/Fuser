@@ -972,24 +972,26 @@ TensorView* TensorView::multiOutputRFactorHelper(
       it->second->parallelize(loop_id->getParallelType());
       new_loop.push_back(it->second);
     }
-
-    // Allocation does not change. The loop replay above will also replay the
-    // device-split overwriting the existent one. Subsequent replays (such as in
-    // rfactor) which use a common replay to replay both loop and allocation
-    // will fail, if the device IDs are not the same. Hence, we also replay
-    // allocation here.
-    std::vector<IterDomain*> new_allocation;
-    for (IterDomain* allocation_id : getAllocationDomain()) {
-      auto it = replay.getReplay().find(allocation_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          allocation_id);
-      it->second->parallelize(allocation_id->getParallelType());
-      new_allocation.push_back(it->second);
-    }
     tv->setLoopDomain(new_loop);
-    tv->setAllocationDomain(new_allocation, tv->domain()->contiguity());
+
+    if (tv->hasAllocation()) {
+      // Allocation does not change. The loop replay above will also replay the
+      // device-split overwriting the existent one. Subsequent replays (such as
+      // in rfactor) which use a common replay to replay both loop and
+      // allocation will fail, if the device IDs are not the same. Hence, we
+      // also replay allocation here.
+      std::vector<IterDomain*> new_allocation;
+      for (IterDomain* allocation_id : getAllocationDomain()) {
+        auto it = replay.getReplay().find(allocation_id);
+        NVF_ERROR(
+            it != replay.getReplay().end(),
+            "failed to replay IterDomain: ",
+            allocation_id);
+        it->second->parallelize(allocation_id->getParallelType());
+        new_allocation.push_back(it->second);
+      }
+      tv->setAllocationDomain(new_allocation, tv->domain()->contiguity());
+    }
   }
 
   // Split tensor view into 2 parts
