@@ -1380,6 +1380,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll) {
   std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
+  std::vector<Val*> original_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
     auto output = dynamic_cast<TensorView*>(output_val);
@@ -1407,6 +1408,21 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     if (unroll) {
       auto cached_output = output->cacheBefore();
       cached_outputs.emplace_back(cached_output, output_idx);
+      original_outputs.push_back(output);
+    }
+  }
+
+  if (!original_outputs.empty()) {
+    std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
+    for (auto&& [original, cached] : zip(original_outputs, cached_outputs)) {
+      if (std::count(
+              terminating_outputs.begin(),
+              terminating_outputs.end(),
+              original) == 0) {
+        continue;
+      }
+      TensorView* grid_launch = launch_dependent_grid({cached.first});
+      original->addDependency(grid_launch);
     }
   }
   return cached_outputs;

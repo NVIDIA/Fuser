@@ -529,7 +529,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
                 raw_dims.toString());
           } else if (raw_dims.hasTID()) {
             NVF_ERROR(
-                ir_utils::isLdMatrixOp(producer->definition()) ||
+                ir_utils::isScheduleOp(consumer) ||
+                    ir_utils::isLdMatrixOp(producer->definition()) ||
                     ir_utils::isStMatrixOp(consumer->definition()) ||
                     producer->getMemoryType() == MemoryType::Global ||
                     producer->getMemoryType() == MemoryType::Shared ||
