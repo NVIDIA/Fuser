@@ -170,8 +170,7 @@ bool Val::sameAs(const Statement* other) const {
 }
 
 size_t Val::hash() const {
-  size_t hash = 0;
-  hashCombine(hash, std::hash<ValType>()(vtype_));
+  size_t hash = std::hash<ValType>()(vtype_);
   if (std::holds_alternative<PrimDataType>(dtype_.type)) {
     hashCombine(
         hash,
@@ -317,8 +316,7 @@ size_t hashVector(const std::vector<T>& statements) {
 } // namespace
 
 size_t Expr::hash() const {
-  size_t hash = 0;
-  hashCombine(hash, std::hash<std::string>()(getOpString()));
+  size_t hash = std::hash<std::string>()(getOpString());
   hashCombine(hash, hashVector(inputs_));
   hashCombine(hash, hashVector(outputs_));
   hashCombine(hash, hashVector(attributes_));
