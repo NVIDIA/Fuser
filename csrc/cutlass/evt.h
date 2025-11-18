@@ -90,7 +90,9 @@ class EVTModel {
 //! Convert a Fusion into an EVTModel. This includes creating nodes to
 //! represent the default epilogue in ScaledMmaOp, alpha*acc + beta*bias, when
 //! those arguments are provided.
-EVTModel extractEVTModel(Fusion* fusion);
+EVTModel extractEVTModel(
+    Fusion* fusion,
+    const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions);
 
 } // namespace cutlass_codegen
 

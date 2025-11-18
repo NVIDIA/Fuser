@@ -34,15 +34,21 @@ namespace {
 //! https://dx.doi.org/10.1145/3620666.3651369
 class EVTConverter : OptInDispatch {
  public:
-  static EVTModel convert(Fusion* fusion) {
-    EVTConverter conv(fusion);
+  static EVTModel convert(
+      Fusion* fusion,
+      const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions) {
+    EVTConverter conv(fusion, temp_tensor_positions);
     conv.run();
     return std::move(conv.model());
   }
 
  private:
-  EVTConverter(Fusion* fusion)
-      : fusion_(fusion), pattern_(findCutlassMatmulPattern(fusion)) {
+  EVTConverter(
+      Fusion* fusion,
+      const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions)
+      : fusion_(fusion),
+        pattern_(findCutlassMatmulPattern(fusion)),
+        ptr_array_mapping_(temp_tensor_positions) {
     validatePattern();
     NVF_ERROR_EQ(pattern_.mma->outputs().size(), 1);
     mma_out_ = pattern_.mma->output(0)->as<TensorView>();
@@ -70,8 +76,13 @@ class EVTConverter : OptInDispatch {
           tv->toString(),
           " which is not a fusion input or output");
     }
-    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-        std::to_string(index) + ").data_ptr)";
+    if (auto it = ptr_array_mapping_.find(tv); it != ptr_array_mapping_.end()) {
+      return "reinterpret_cast<" + dtypeToCutlass(tv->dtype()) +
+          "**>(inputs.at(" + std::to_string(index) + ").data_ptr)";
+    } else {
+      return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+          std::to_string(index) + ").data_ptr)";
+    }
   }
 
   std::string getPointerArrayPointerCode(TensorView* tv) {
@@ -679,8 +690,10 @@ std::string EVTModel::toString() const {
   return ss.str();
 }
 
-EVTModel extractEVTModel(Fusion* fusion) {
-  return EVTConverter::convert(fusion);
+EVTModel extractEVTModel(
+    Fusion* fusion,
+    const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions) {
+  return EVTConverter::convert(fusion, temp_tensor_positions);
 }
 
 } // namespace cutlass_codegen

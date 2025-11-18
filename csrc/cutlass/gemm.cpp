@@ -149,8 +149,6 @@ class CutlassCodeGenerator {
   void gatherInfo() {
     findPattern();
 
-    evt_model_ = std::make_unique<EVTModel>(extractEVTModel(fusion_));
-
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
         block_scaled_outputs_.size() > 1,
@@ -160,6 +158,33 @@ class CutlassCodeGenerator {
     } else {
       main_output_ = block_scaled_outputs_.front().quantized_output;
     }
+
+    // There is always a workspace tensor, even though it might be empty
+    num_temp_tensors_ = 1;
+
+    // Build a map from tensors to pointer arrays
+    if (pattern_.is_grouped) {
+      // There are always going to be pointer arrays for A, B, A_sf, B_sf. There
+      // is also one for each output and one for each _epilogue_ input.
+      auto register_temp_tensor = [&](TensorView* tv) {
+        temp_tensor_map_.emplace(tv, num_temp_tensors_++);
+      };
+      for (Val* inp : fusion_->inputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(inp); tv &&
+            inp != pattern_.problem_sizes && inp != pattern_.expert_offsets &&
+            inp != pattern_.scale_factor_offsets) {
+          register_temp_tensor(tv);
+        }
+      }
+      for (Val* outp : fusion_->outputs()) {
+        if (auto* tv = dynamic_cast<TensorView*>(outp)) {
+          register_temp_tensor(tv);
+        }
+      }
+    }
+
+    evt_model_ =
+        std::make_unique<EVTModel>(extractEVTModel(fusion_, temp_tensor_map_));
   }
 
   void generateCode() {
@@ -413,18 +438,10 @@ struct Fp4GemmSm100 {
 // expected by CUTLASS GEMM kernels, including proper stride calculations
 // and layout configurations for the scaled matrix multiplication.
 //
-// Parameters:
-//   output: Output tensor for storing results
-//   a: Input matrix A in NVFP4 format
-//   b: Input matrix B in NVFP4 format
-//   scales_a: Per-block scaling factors for matrix A
-//   scales_b: Per-block scaling factors for matrix B
-//   alpha: Global scaling factor
-//   M, N, K: Matrix dimensions
-//
-// Returns: CUTLASS GEMM arguments structure ready for kernel execution
+// Returns CUTLASS GEMM arguments structure ready for kernel execution
 typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
-  const std::vector<TensorArg>& inputs) {
+  const std::vector<TensorArg>& inputs,
+  uint8_t** temp_tensor_ptrs) {
   using T = Fp4GemmSm100;
 
   using ElementA = typename T::Gemm::ElementA;
@@ -525,7 +542,7 @@ extern "C" void run_kernel(
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  auto arguments = args_from_inputs(inputs);
+  auto arguments = args_from_inputs(inputs, temp_tensor_ptrs);
 
   auto can_implement_status = gemm.can_implement(arguments);
   NVF_ERROR(
@@ -551,7 +568,6 @@ extern "C" void temp_tensor_sizes(
   auto arguments = args_from_inputs(inputs);
   out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
 )";
-    num_temp_tensors_ = 1;
 
     if (pattern_.is_grouped) {
       // TODO: For grouped gemm, we need one temp tensor for each grouped input
@@ -571,25 +587,10 @@ extern "C" void temp_tensor_sizes(
   // the inner dimensions of each group.
   int64_t ptr_array_bytes = num_experts * sizeof(int64_t);
 )";
-      // There are always going to be pointer arrays for A, B, A_sf, B_sf. There
-      // is also one for each output and one for each _epilogue_ input.
-      auto register_temp_tensor = [&](TensorView* tv) {
-        code_ += "  out_tensor_sizes[" + std::to_string(num_temp_tensors_) +
-            "] = num_experts * ptr_array_bytes;\n";
-        temp_tensor_map_.emplace(tv, num_temp_tensors_++);
+      for (auto i : arange(1, num_temp_tensors_)) {
+        code_ += "  out_tensor_sizes[" + std::to_string(i) +
+            "] = ptr_array_bytes;\n";
       };
-      for (Val* inp : fusion_->inputs()) {
-        if (auto* tv = dynamic_cast<TensorView*>(inp); tv &&
-            inp != pattern_.problem_sizes && inp != pattern_.expert_offsets &&
-            inp != pattern_.scale_factor_offsets) {
-          register_temp_tensor(tv);
-        }
-      }
-      for (Val* outp : fusion_->outputs()) {
-        if (auto* tv = dynamic_cast<TensorView*>(outp)) {
-          register_temp_tensor(tv);
-        }
-      }
     }
 
     code_ += R"(
