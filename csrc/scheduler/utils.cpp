@@ -3339,5 +3339,93 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
+int64_t getInnerTmaDomainSize(
+    int64_t total_element,
+    int64_t target_inner_tma_domain_size,
+    int64_t min_dtype_bytes) {
+  // TMA Hardware Alignment Constraints:
+  // - We use TMA without interleave; the byte size of the innermost TMA tile
+  //   must be divisible by 16 bytes.
+  // - 2D TMA requires at least 2 tiles in the inner dimension to maintain a
+  //   proper 2D structure and avoid dimension collapse.
+  // - Therefore, InnerTmaDomain must be at least 2 * 16 bytes, which translates
+  //   to (2 * 16 / min_dtype_bytes) elements.
+  constexpr int64_t align_bytes = 16;
+  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+  NVF_ERROR(
+      total_element % min_size == 0,
+      "total_element must be divisible by min_size to satisfy 2D TMA "
+      "alignment requirements, but got ",
+      total_element,
+      " % ",
+      min_size,
+      " = ",
+      total_element % min_size);
+  // Fast path: If total_element is evenly divisible by the target size and
+  // the target size satisfies min_size constraints (already checked above),
+  // return it immediately as the optimal InnerTmaDomain size.
+  if (total_element % target_inner_tma_domain_size == 0) {
+    return target_inner_tma_domain_size;
+  }
+
+  // Search Algorithm:
+  // Find the divisor of total_element that:
+  // 1. Is closest to target_inner_tma_domain_size
+  // 2. Satisfies min_size divisibility constraint
+  // 3. Is less than total_element (to ensure valid 2D split)
+  //
+  // Initialize to 1. Returning 1 signals that no suitable divisor was found
+  // and the configuration is not viable for TMA.
+  int64_t best_divisible_size = 1;
+  int64_t best_diff =
+      std::abs(best_divisible_size - target_inner_tma_domain_size);
+
+  // Helper lambda to update the best candidate InnerTmaDomain size.
+  // Only updates if:
+  // - candidate < total_element (ensures valid 2D split: [OuterTmaDomain,
+  //   InnerTmaDomain])
+  // - candidate is closer to target_inner_tma_domain_size than current best
+  auto update_best = [&](int64_t candidate) {
+    if (candidate >= total_element) {
+      return;
+    }
+    int64_t diff = std::abs(candidate - target_inner_tma_domain_size);
+    if (diff < best_diff) {
+      best_divisible_size = candidate;
+      best_diff = diff;
+    }
+  };
+
+  // Efficient divisor search using sqrt optimization:
+  // For any divisor i of total_element, we also get total_element/i.
+  // We only need to check up to sqrt(total_element) to find all divisor pairs.
+  // Both divisors in each pair are evaluated as candidates for InnerTmaDomain.
+  int64_t limit =
+      static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
+
+  // Important: Check ALL divisors, not just multiples of min_size.
+  // Even if divisor i is not divisible by min_size, its complement
+  // total_element/i might be.
+  //
+  // Example: total_element=8184, target=512, min_size=8
+  // - If we only check multiples of 8, we'd miss i=11
+  // - But 8184/11=744, which IS divisible by 8 (744 % 8 == 0)
+  // - This gives us 744 (diff=232) instead of suboptimal 88 (diff=424)
+  for (int64_t i = 1; i <= limit; i++) {
+    if (total_element % i == 0) {
+      int64_t f1 = i;
+      int64_t f2 = total_element / i;
+      // Check both divisors of the pair if they satisfy min_size constraint
+      if (f1 % min_size == 0) {
+        update_best(f1);
+      }
+      if (f2 % min_size == 0) {
+        update_best(f2);
+      }
+    }
+  }
+  return best_divisible_size;
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser
