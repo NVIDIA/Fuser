@@ -185,6 +185,13 @@ class EVTConverter : OptInDispatch {
         dtypeToCutlass(bias_->dtype()) + ">");
 
     if (beta_ != nullptr) {
+      NVF_CUTLASS_REJECT_IF(
+          beta_->nDims() != 0,
+          "Only zero-dimensional beta is supported for EVT translation");
+      NVF_CUTLASS_REJECT_IF(
+          beta_->dtype() != DataType::Float,
+          "Only Float beta is supported for EVT translation");
+      EVTModel::Node* beta_bcast_node = model_.makeNode(
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(beta_->dtype()) + ">");
