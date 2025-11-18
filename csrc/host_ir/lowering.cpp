@@ -84,20 +84,6 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
   return os;
 }
 
-// Finds the stream-parallelized IterDomain in the loop domain of a TensorView,
-// or nullptr if not found.  This is different from `getShardedIterDomain(tv,
-// ParallelType::Stream)`, which searches the allocation domain.  Consider
-// unifying them into one function with an extra DomainType parameter.
-IterDomain* findStreamIterDomain(TensorView* tv) {
-  const std::vector<IterDomain*>& loop = tv->getLoopDomain();
-  // FinalizeMultideviceDomains pass puts the stream IterDomain to the
-  // front.
-  if (!loop.empty() && loop.front()->isStream()) {
-    return loop.front();
-  }
-  return nullptr;
-}
-
 // Finds the TensorView in the group whose loop domain has the most parallel
 // types and returns its loop domain.
 const std::vector<IterDomain*>& findReferenceLoopDomain(
@@ -121,6 +107,36 @@ const std::vector<IterDomain*>& findReferenceLoopDomain(
   }
   NVF_ERROR(reference_tv != nullptr);
   return reference_tv->getLoopDomain();
+}
+
+// Returns a new Expr with the inputs and outputs replaced by the replacement
+// map. If none of the inputs or outputs are replaced, returns the original
+// Expr.
+Expr* cloneWithNewOperands(
+    Expr* e,
+    const std::unordered_map<Val*, Val*>& replacement_map) {
+  auto maybe_replace = [&](Val*& x) -> bool {
+    Val* new_x = getOrDefault(replacement_map, x);
+    if (new_x == nullptr) {
+      return false;
+    }
+    x = new_x;
+    return true;
+  };
+
+  int64_t replaced = 0;
+
+  std::vector<Val*> new_ins = e->inputs();
+  replaced += std::ranges::count_if(new_ins, maybe_replace);
+
+  std::vector<Val*> new_outs = e->outputs();
+  replaced += std::ranges::count_if(new_outs, maybe_replace);
+
+  if (replaced == 0) {
+    return e;
+  }
+
+  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
 void lowerSegment(
@@ -201,8 +217,11 @@ void lowerSegment(
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (findStreamIterDomain(in) != nullptr &&
-              getShardedIterDomain(in, ParallelType::Stream) == nullptr) {
+          if (getShardedIterDomain(
+                  in, ParallelType::Stream, DomainType::kLoop) != nullptr &&
+              getShardedIterDomain(
+                  in, ParallelType::Stream, DomainType::kAllocation) ==
+                  nullptr) {
             auto [i, inserted] = replacement_map.try_emplace(
                 in, hir::shardByStream(in, for_loop->index()));
             if (inserted) {
@@ -212,7 +231,9 @@ void lowerSegment(
         }
 
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
-          if (getShardedIterDomain(out, ParallelType::Stream) == nullptr) {
+          if (getShardedIterDomain(
+                  out, ParallelType::Stream, DomainType::kAllocation) ==
+              nullptr) {
             auto* allocate =
                 IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
             parent_scope->insert(parent_insertion_point, allocate);
@@ -228,24 +249,7 @@ void lowerSegment(
           }
         }
 
-        std::vector<Val*> new_inputs;
-        std::transform(
-            e->inputs().begin(),
-            e->inputs().end(),
-            std::back_inserter(new_inputs),
-            [&replacement_map](Val* input) {
-              return getOrDefault(replacement_map, input, input);
-            });
-        std::vector<Val*> new_outputs;
-        std::transform(
-            e->outputs().begin(),
-            e->outputs().end(),
-            std::back_inserter(new_outputs),
-            [&replacement_map](Val* output) {
-              return getOrDefault(replacement_map, output, output);
-            });
-        Expr* new_e = e->newObjectFunc()(
-            e->container(), new_inputs, new_outputs, e->attributes());
+        Expr* new_e = cloneWithNewOperands(e, replacement_map);
         for_loop->body().push_back(new_e);
       }
       break;

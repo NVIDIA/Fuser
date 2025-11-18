@@ -493,6 +493,22 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
+    if (bqop->hasGlobalScale()) {
+      auto global_scale = bqop->globalScale()->as<TensorView>();
+
+      NVF_ERROR_EQ(
+          global_scale->getMemoryType(),
+          MemoryType::Global,
+          "Global scaling factor must be a global memory tensor. Found: ",
+          global_scale->getMemoryType());
+
+      NVF_ERROR_EQ(
+          global_scale->dtype(),
+          DataType::Float,
+          "Global scaling factor must be of type float. Found: ",
+          global_scale->dtype());
+    }
+
     // Outputs have the same allocation domain
     // as the logical domain - no allocation domain.
     NVF_ERROR(

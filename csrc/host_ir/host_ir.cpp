@@ -464,14 +464,16 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
 
   NVF_ERROR(
-      getShardedIterDomain(in, ParallelType::Stream) == nullptr,
+      getShardedIterDomain(in, ParallelType::Stream, DomainType::kAllocation) ==
+          nullptr,
       "Input allocation shouldn't be sharded on stream: ",
       in);
   TransformReplay::selfReplay(in->domain(), out->domain());
 
   shardAllocationAsLoop(out, {ParallelType::Stream});
   NVF_ERROR(
-      getShardedIterDomain(out, ParallelType::Stream) != nullptr,
+      getShardedIterDomain(
+          out, ParallelType::Stream, DomainType::kAllocation) != nullptr,
       "Output allocation should be sharded on stream after "
       "shardAllocationAsLoop: ",
       out);
