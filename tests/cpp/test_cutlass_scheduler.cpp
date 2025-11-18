@@ -897,10 +897,15 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
 
-  // Test dimensions
-  constexpr int64_t // num_experts = 3,
-      M = 1024,
-      N = 128, K = 256;
+  const std::vector<int64_t> tokens_per_expert{115, 144, 8};
+
+  const int64_t M = std::accumulate(
+      tokens_per_expert.begin(),
+      tokens_per_expert.end(),
+      0,
+      std::plus<int64_t>());
+  int64_t num_experts = tokens_per_expert.size();
+  constexpr int64_t N = 128, K = 256;
 
   // Create test data
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -917,8 +922,50 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
   at::Tensor at_global_normconst = at::full({}, 2.0f, options);
 
+  /*
+@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8], [5, 7,
+9]])
+
+    tokens_per_expert = list(tokens_per_expert_neg_one)
+    tokens_per_expert.append(m - sum(tokens_per_expert))
+    g = len(tokens_per_expert)
+
+    # offsets represents the lhs of slice in nvfuser
+    offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
+    # aten_offsets represents the rhs of slice of torch._grouped_mm(A[m,k], B[g,
+n, k]) aten_offsets = torch.empty((g,), dtype=torch.int32, device="cuda:0")
+    problem_sizes = torch.empty((g, 3), dtype=torch.int32, device="cuda:0")
+
+    accumulated_tokens = 0
+    # Use tokens_per_expert to calculate offsets into m dimension of input
+tensor. for i in range(g): offsets[i] = accumulated_tokens accumulated_tokens +=
+tokens_per_expert[i] aten_offsets[i] = accumulated_tokens
+
+        problem_sizes[i][0] = tokens_per_expert[i]
+        problem_sizes[i][1] = n
+        problem_sizes[i][2] = k
+    */
+  at::Tensor at_offsets = at::empty({num_experts}, options.dtype(at::kInt));
+  at::Tensor at_problem_sizes =
+      at::empty({num_experts, 3}, options.dtype(at::kInt));
+  int32_t accumulated_tokens = 0;
+  for (int64_t i : arange(num_experts)) {
+    at_offsets[i] = accumulated_tokens;
+    accumulated_tokens += tokens_per_expert[i];
+    at_problem_sizes.index({i, 0}).fill_(tokens_per_expert[i]);
+    at_problem_sizes.index({i, 1}).fill_(N);
+    at_problem_sizes.index({i, 2}).fill_(K);
+  }
+
   std::vector<c10::IValue> inputs{
-      at_a, at_b, at_a_sf, at_b_sf, at_alpha, at_global_normconst};
+      at_a,
+      at_b,
+      at_a_sf,
+      at_b_sf,
+      at_alpha,
+      at_problem_sizes,
+      at_offsets,
+      at_global_normconst};
 
   // Compile and run
   CutlassParams params;
