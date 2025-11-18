@@ -552,7 +552,7 @@ target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 target_precompile_headers(codegen_internal PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
-target_precompile_headers(nvfuser_codegen PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
+target_precompile_headers(nvfuser_codegen REUSE_FROM codegen_internal)
 
 if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
@@ -1123,7 +1123,11 @@ endfunction()
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
-  target_precompile_headers("${TEST_NAME}" PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
+
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
+  set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_options("${TEST_NAME}" PRIVATE -fPIC)
 endfunction()
 
 if(BUILD_TEST)
