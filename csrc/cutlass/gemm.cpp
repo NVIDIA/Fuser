@@ -172,8 +172,7 @@ class CutlassCodeGenerator {
       for (Val* inp : fusion_->inputs()) {
         if (auto* tv = dynamic_cast<TensorView*>(inp); tv &&
             inp != pattern_.problem_sizes && inp != pattern_.expert_offsets &&
-            inp != pattern_.scale_factor_offsets && 
-            tv->nDims() > 0) {
+            inp != pattern_.scale_factor_offsets && tv->nDims() > 0) {
           register_temp_tensor(tv);
         }
       }
