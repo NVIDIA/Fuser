@@ -515,7 +515,7 @@ class ExprValidator : public OptOutDispatch {
         !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
-    // When scaling is swizzled we will need to allow these checks
+    // When output scales is swizzled we will need to allow these checks
     // to be relaxed. We will need to ensure that the swizzling
     // allocation allowed is a fixed pattern:
     // 2D logical and 5D allocation domain.

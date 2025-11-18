@@ -105,7 +105,10 @@ constexpr double F4_E2M1_MAX = 6.0;
 constexpr double E4M3_EPS = 0.015625;
 constexpr double F8E4M3_MAX = 448.0;
 
+class NVFP4QuantizeTest : public BlackwellBase,
+                          public ::testing::WithParamInterface<DataType> {};
 namespace {
+
 // Helper function to apply swizzling to block scales output
 void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
   // auto original_loop = tv_block_scale_fp8->getLoopDomain();
@@ -128,11 +131,7 @@ void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
   tv_block_scale_fp8->merge(0);
   tv_block_scale_fp8->merge(-1);
 }
-} // namespace
 
-class NVFP4QuantizeTest : public BlackwellBase,
-                          public ::testing::WithParamInterface<DataType> {};
-namespace {
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
