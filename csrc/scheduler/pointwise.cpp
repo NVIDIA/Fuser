@@ -346,7 +346,6 @@ bool mayHaveTmaCompatibleInputs(
     // then no input is suitable for TMA since all inputs are smaller than or
     // equal to the largest output in a pointwise fusion.
     auto elem_count = prop.n_elems;
-    auto total_bits = elem_count * dtype_bits;
 
     // Condition 1: We only support 2D TMA, which requires at least 2 tiles in
     // the inner dimension, each with  at least 16 bytes. This imposes a minimum
