@@ -274,6 +274,130 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
+// Validate the swizzling pattern: from 2D logical to 5D allocation
+// Expected pattern:
+// m, k -> m, k/4, 4 (split k by 4)
+// m, k/4, 4 -> m/128, 128, k/4, 4 (split m by 128)
+// m/128, 128, k/4, 4 -> m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
+// Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
+void isValidBlockScaleSwizzle(TensorView* block_scale) {
+  auto logical_domain =
+      TensorDomain::noReductions(block_scale->getLogicalDomain());
+  auto allocation_domain =
+      TensorDomain::noReductions(block_scale->getAllocationDomain());
+
+  // check that size of logical domain is 2 and allocation domain is 5
+  NVF_ERROR(
+      logical_domain.size() == 2 && allocation_domain.size() == 5,
+      "Block scale swizzle must have 2D logical domain and 5D allocation "
+      "domain. Found: ",
+      logical_domain.size(),
+      "D logical and ",
+      allocation_domain.size(),
+      "D allocation for TensorView: ",
+      block_scale->toString());
+
+  // keep count of splits
+  int cnt = 0;
+
+  auto check_transform = [block_scale, &logical_domain, &cnt](Expr* expr) {
+    // If expr is not split throw an error.
+    if (dynamic_cast<Split*>(expr) == nullptr) {
+      NVF_THROW(
+          "Block scale swizzle can only contain split operations. Found: ",
+          expr->toString());
+    }
+
+    // Can have a max of 3 splits
+    cnt++;
+    NVF_ERROR(
+        cnt <= 3,
+        "Block scale swizzle can have a maximum of 3 splits. Found more in "
+        "TensorView: ",
+        block_scale->toString());
+
+    // If expr and it's input is logical_domain back()
+    // the inner split output should have an extent of 4.
+    auto split_expr = dynamic_cast<Split*>(expr);
+    if (split_expr->in() == logical_domain.back()) {
+      NVF_ERROR(
+          split_expr->inner()->extent()->isConstInt() &&
+              split_expr->inner()->extent()->evaluate().as<int64_t>() == 4,
+          "The innermost split in block scale swizzle must have an extent of "
+          "4. "
+          "Found extent: ",
+          split_expr->inner()->extent()->toString(),
+          " in expr: ",
+          expr->toString(),
+          " for TensorView: ",
+          block_scale->toString());
+    } else if (split_expr->in() == logical_domain.front()) {
+      NVF_ERROR(
+          split_expr->inner()->extent()->isConstInt() &&
+              split_expr->inner()->extent()->evaluate().as<int64_t>() == 128,
+          "The outermost split in block scale swizzle must have an extent of "
+          "128. "
+          "Found extent: ",
+          split_expr->inner()->extent()->toString(),
+          " in expr: ",
+          expr->toString(),
+          " for TensorView: ",
+          block_scale->toString());
+
+      // Check that the inner output of the split has exactly one use
+      // and that use is another split with an inner extent of 32
+      NVF_ERROR(
+          split_expr->inner()->uses().size() == 1,
+          "The inner output of the outermost split must have exactly one use. "
+          "Found ",
+          split_expr->inner()->uses().size(),
+          " uses in TensorView: ",
+          block_scale->toString());
+
+      auto inner_split =
+          dynamic_cast<Split*>(split_expr->inner()->uses().at(0)->asExpr());
+      NVF_ERROR(
+          inner_split != nullptr,
+          "The inner output of the outermost split must be used in another "
+          "split. "
+          "Found expr: ",
+          split_expr->inner()->uses().at(0)->toString(),
+          " for TensorView: ",
+          block_scale->toString());
+
+      NVF_ERROR(
+          inner_split->inner()->extent()->isConstInt() &&
+              inner_split->inner()->extent()->evaluate().as<int64_t>() == 32,
+          "The middle split in block scale swizzle must have an extent of "
+          "32. "
+          "Found extent: ",
+          inner_split->inner()->extent()->toString(),
+          " in expr: ",
+          inner_split->toString(),
+          " for TensorView: ",
+          block_scale->toString());
+    }
+  };
+
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {logical_domain.begin(), logical_domain.end()},
+      {allocation_domain.begin(), allocation_domain.end()});
+  std::vector<IterDomain*> ids_to_transform = logical_domain;
+  scheduler_utils::applyTransforms(
+      ids_to_transform, transform_exprs, check_transform);
+  auto permutation =
+      ir_utils::computePermutation(ids_to_transform, allocation_domain);
+
+  // m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
+  // Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  // check that permutation has a value and it is 0, 3, 2, 1, 4
+  NVF_ERROR(
+      permutation.has_value() &&
+          permutation.value() == std::vector<int64_t>({0, 3, 2, 1, 4}),
+      "Block scale swizzle permutation is invalid for TensorView: ",
+      block_scale->toString());
+}
+
 // Expr-specific validaion
 //
 // TODO: Move individual validations to here, e.g.,
@@ -521,25 +645,7 @@ class ExprValidator : public OptOutDispatch {
     // 2D logical and 5D allocation domain.
     // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     if (block_scaling_factor->hasAllocation()) {
-      // Check that the logical domain in 2D and the allocation domain is 5D
-      NVF_ERROR_EQ(
-          TensorDomain::noReductions(block_scaling_factor->getLogicalDomain()).size(),
-          2,
-          "Block scaling factor logical domain must be 2D (excluding reductions) when allocation "
-          "domain is present. Found: ",
-          TensorDomain::noReductions(block_scaling_factor->getLogicalDomain()).size());
-          TensorDomain::noReductions(block_scaling_factor->getLogicalDomain())
-              .size());
-      NVF_ERROR_EQ(
-          TensorDomain::noReductions(
-              block_scaling_factor->getAllocationDomain())
-              .size(),
-          5,
-          "Block scaling factor allocation domain must be 5D when allocation "
-          "domain is present. Found: ",
-          TensorDomain::noReductions(
-              block_scaling_factor->getAllocationDomain())
-              .size());
+      isValidBlockScaleSwizzle(block_scaling_factor);
     }
 
     NVF_ERROR(
