@@ -136,7 +136,7 @@ void createNVFP4QuantizationFusion(
   auto tv_block_scale = div(
       tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
   if (use_global_scale) {
-    tv_block_scale = div(tv_block_scale, tv_global_scale);
+    tv_block_scale = mul(tv_block_scale, tv_global_scale);
   }
 
   auto tv_block_scale_clamp = clamp(
@@ -148,7 +148,7 @@ void createNVFP4QuantizationFusion(
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = mul(tv_block_scale_fp32, tv_global_scale);
+    tv_block_scale_fp32 = div(tv_block_scale_fp32, tv_global_scale);
   }
 
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
@@ -725,10 +725,15 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
-                       .to(data_type_to_aten(data_type)));
+  auto in_tensor = at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_type));
+  inputs.push_back(in_tensor);
   if (use_global_scale) {
-    inputs.push_back(at::randn({}, at::device(at::kCUDA).dtype(at::kFloat)));
+    // Calculate the max value in the in_tensor.
+    auto max_value = 4.480000000e+02f /*FLOAT8_E4M3_MAX*/
+        * 6.0f /*FLOAT4_E2M1_MAX*/
+        / in_tensor.max().to(at::kFloat);
+    inputs.push_back(max_value);
   }
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
