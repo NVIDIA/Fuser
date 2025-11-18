@@ -21,6 +21,10 @@ namespace nvfuser {
 // alias-only segment and the rest. This way, the rest of the fusion (which has
 // fewer expressions) can potentially find a better scheduler or scheduling, and
 // we can completely remove this function for simplicity.
+//
+// This function is typically called at the end of scheduling. This is because
+// schedulers may add Exprs that affects aliasing:
+// https://github.com/NVIDIA/Fuser/issues/1401#issuecomment-1840137527.
 void markAliases(Fusion* fusion);
 
 } // namespace nvfuser
