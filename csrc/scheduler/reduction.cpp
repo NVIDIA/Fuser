@@ -1651,7 +1651,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   // fusion into an alias-only segment and the rest. This way, the rest of the
   // fusion (which has fewer expressions) can potentially find a better
   // scheduler and we need to call markAliases only in NoOpScheduler.
-  // markAliases(fusion);
+  markAliases(fusion);
 }
 
 } // namespace
