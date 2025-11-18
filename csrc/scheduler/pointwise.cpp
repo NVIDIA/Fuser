@@ -376,8 +376,8 @@ bool mayHaveTmaCompatibleInputs(
 // check does not guarantee that TMA will be used, as the actual TMA usage will
 // be determined by the heuristics.
 bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
-  // Harware, Don't use tma for pre-Blackwell GPUs
-  if (at::cuda::getCurrentDeviceProperties()->major < 10) {
+  // Harware, Don't use tma for pre-Hoppper GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return false;
   }
   // Inputs
