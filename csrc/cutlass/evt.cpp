@@ -192,7 +192,6 @@ class EVTConverter : OptInDispatch {
           beta_->dtype() != DataType::Float,
           "Only Float beta is supported for EVT translation");
       EVTModel::Node* beta_bcast_node = model_.makeNode(
-      EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(beta_->dtype()) + ">");
       beta_bcast_node->arguments.emplace_back(
