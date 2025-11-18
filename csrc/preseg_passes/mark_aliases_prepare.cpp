@@ -180,6 +180,20 @@ void MarkAliasesPreparePass::runPass(Fusion* fusion) {
   // we want to avoid putting a `segment_set` before M1, a meta op, because
   // that would lead to two kernels. See AliasTest.DoNotOverSegment_* for more
   // examples. This is the reason behind `depended_by_non_aliases`.
+  //
+  // However, this makes the pass not ideal at the following pattern:
+  //
+  //   M0 -> M1 -> N/M
+  //         |
+  //         -> M2
+  //
+  // Ideally, it should put a `segment_set` before N/M, creating one meta-only
+  // segment for M0->M1->M2 and the other for N/M.  See
+  // AliasTest.QKVSplitBackprop. Instead, the current implementation creates one
+  // segment for M0->M1->N/M and the other for M2. So the scheduler (e.g.
+  // pointwise and reduction) that takes M0->M1->N/M has to markAliases (which
+  // leads to complexity) to ensure it doesn't waste any kernel code to compute
+  // M1's output.
   const std::unordered_set<Expr*>& depended_by_non_aliases =
       exprsDependedByNonAliases(analysis, fusion);
   std::vector<Use> uses_to_segment;
