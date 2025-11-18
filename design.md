@@ -136,7 +136,7 @@ class RaggedIterDomain : public IterDomain {
 
   // This overrides IterDomain::extent and returns the total extent
   Val* extent() const override;
-  
+
   // This overrides IterDomain::parallelize and calls nested_domains[i]->parallelize(pt) for all nested domains
   void parallelize(ParallelType pt);
 
