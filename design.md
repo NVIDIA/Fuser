@@ -1,10 +1,5 @@
 # RaggedIterDomain for Nested Tensors
 
-**Status**: Draft
-**Author**: [To be filled]
-**Date**: 2025-01-XX
-**Last Updated**: 2025-01-XX
-
 ---
 
 ## 1. Overview
@@ -26,7 +21,7 @@ NvFuser currently lacks support for compiling operations on nested tensors. This
 ### PyTorch Nested Tensor Semantics
 
 Please review the PyTorch [semantics](https://docs.pytorch.org/docs/stable/nested.html) of nested tensors.
-PyTorch nested tensors represent collections of tensors with varying shapes along one or more dimensions. For example, a batch of 3 sequences with lengths [3, 5, 2] is stored contiguously with offset-based indexing rather than padding to length 5.
+PyTorch nested tensors represent collections of tensors with varying shapes along one dimension. For example, a batch of 3 sequences with lengths [3, 5, 2] is stored contiguously with offset-based indexing rather than padding to length 5.
 
 ```python
 # Batch of 3 sequences with different lengths
@@ -244,6 +239,28 @@ The `parallelize()` method applies uniformly to all nested domains:
 ragged->parallelize(ParallelType::TIDx);
 // All nested domains now have ParallelType::TIDx
 ```
+
+#### Select Operation
+
+The `select` operation extracts a specific component from a ragged dimension, converting it to a regular IterDomain. This requires two steps:
+
+1. Select on the batch dimension to choose which component
+2. The ragged dimension automatically becomes a regular IterDomain with that component's extent
+
+```cpp
+// Starting tensor: [batch=3, ragged=[3,5,2], feature=4]
+auto tv = makeContigTensor(3);  // Assume ragged dimension is at position 1
+
+// Select batch component 1
+auto selected = tv->select(/*batch_dim=*/0, /*index=*/1);
+// Result: [ragged_extent=5, feature=4]
+// The ragged dimension collapsed to a regular IterDomain with extent 5
+```
+
+**Implementation notes:**
+- Select on batch dimension causes the RaggedIterDomain to resolve to the corresponding nested IterDomain
+- The nested IterDomain at the selected index replaces the RaggedIterDomain in the output TensorDomain
+- This enables direct access to individual components, similar to PyTorch's `nested_tensor[i]` indexing
 
 ### 6.5 Indexing and Code Generation
 
