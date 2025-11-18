@@ -1,4 +1,5 @@
 {
+  "action": "opened",
   "pull_request": {
     "draft": false,
     "number": 5489,
