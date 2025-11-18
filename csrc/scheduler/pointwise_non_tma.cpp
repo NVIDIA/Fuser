@@ -137,7 +137,26 @@ int64_t getUnrollFactor(
     int64_t total_blocks,
     int64_t vectorization_bits,
     bool divisible_split,
-    std::vector<TensorView*> vectorizable_io_tvs) {
+    std::vector<TensorView*> vectorizable_io_tvs,
+    HeuristicDataCache* data_cache) {
+  // Check if fusion has BlockQuantizationOp(s)
+  // Limit unroll factor for fusions with BlockQuantizationOp(s). The runtime
+  // function which implements quantization assumes no unrolling
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
+
+  if (has_block_quantization_ops) {
+    // Runtime function implementing Block Quantization Op requires unroll
+    // factor to be 1
+    return 1;
+  }
+
   // only consider vectorizable inputs,
   // needs to check if it's already in the list to avoid duplication since a tv
   // may be both input and output, e.g. NVFuserTest.FusionIssue2372_CUDA
@@ -518,7 +537,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       total_blocks,
       params->vectorization_factor * max_dtype_size_bit_for_vectorization,
       divisible_split,
-      vectorizable_inputs_outputs_entry.get());
+      vectorizable_inputs_outputs_entry.get(),
+      data_cache);
 
   if (is_outer_broadcast_dominated) {
     params->unroll_factor_outer = unroll_factor;
@@ -967,6 +987,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   spanning_tree.traverse(&propagator);
   scheduler_utils::parallelizeAllLike(reference_tv);
 
+  // We first vectorize the quantized outputs of the block quantization ops.
+  // We then convert the vectorized ID to group ID.
+  // We do so as the runtime function for block quantization expects 2/4/8
+  // elements per thread.
+  auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+  std::vector<TensorView*> nvfp4_quantized_outputs = {};
+  for (auto bq_op : bq_ops) {
+    nvfp4_quantized_outputs.push_back(
+        bq_op->quantizedOutput()->as<TensorView>());
+  }
+
   if (pparams->vectorization_factor > 1) {
     // Grab all tensor views that should be vectorized
     auto inputs_outputs =
@@ -998,6 +1029,13 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
         }
       }
     }
+
+    // Vectorize nvfp4 quantized outputs.
+    // We will later change the vectorized ID to group ID
+    for (auto quantized_output : nvfp4_quantized_outputs) {
+      vectorized_tvs.emplace_back(quantized_output);
+    }
+
     if (!vectorized_tvs.empty()) {
       // Aggressively mark with vectorized and cleanup later. That way we
       // don't have to manually specify parallelization outside the reference.
@@ -1006,6 +1044,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
           reference_tv, vectorized_tvs, {ParallelType::Vectorize});
       if (!should_vectorize_reference_tv) {
         vectorize_id->parallelize(ParallelType::Serial);
+      }
+
+      // Change vectorized IDs to group IDs for quantized outputs
+      for (auto quantized_output : nvfp4_quantized_outputs) {
+        for (auto id : quantized_output->getLoopDomain()) {
+          if (id->getParallelType() == ParallelType::Vectorize) {
+            id->parallelize(ParallelType::Group);
+          }
+        }
       }
     }
   }
