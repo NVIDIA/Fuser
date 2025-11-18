@@ -947,8 +947,6 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // scheduled the same but the user end cannot guarantee that. In order to
   // guarantee that the rFactor is defined meaningfully the scheduling of the
   // output TV that got the rfactor call is force replayed towards the other two
-  debug() << "Reference: " << domain()->toString(0, false) << std::endl;
-  debug() << "This: " << tv->domain()->toString(0, false) << std::endl;
   if (this != tv) {
     const std::vector<IterDomain*>& target_logical = tv->getLogicalDomain();
     const std::vector<IterDomain*>& ref_logical = getLogicalDomain();
@@ -963,7 +961,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
     // replay on the target tv
     ReplayTransformations replay(ref_loop, ref_to_target_map);
 
-    // construct the new tensor domain
+    // Construct the replayed loop domain
     std::vector<IterDomain*> new_loop;
     for (IterDomain* loop_id : ref_loop) {
       auto it = replay.getReplay().find(loop_id);
@@ -975,6 +973,11 @@ TensorView* TensorView::multiOutputRFactorHelper(
       new_loop.push_back(it->second);
     }
 
+    // Allocation does not change. The loop replay above will also replay the
+    // device-split overwriting the existent one. Subsequent replays (such as in
+    // rfactor) which use a common replay to replay both loop and allocation
+    // will fail, if the device IDs are not the same. Hence, we also replay
+    // allocation here.
     std::vector<IterDomain*> new_allocation;
     for (IterDomain* allocation_id : getAllocationDomain()) {
       auto it = replay.getReplay().find(allocation_id);
@@ -987,7 +990,6 @@ TensorView* TensorView::multiOutputRFactorHelper(
     }
     tv->setLoopDomain(new_loop);
     tv->setAllocationDomain(new_allocation, tv->domain()->contiguity());
-    debug() << "Replayed TV: " << tv->domain()->toString(0, false) << std::endl;
   }
 
   // Split tensor view into 2 parts
