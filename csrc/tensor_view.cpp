@@ -1039,8 +1039,6 @@ std::vector<TensorView*> TensorView::rFactor(
     NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
-    debug() << "Output " << i << ": " << tvs.at(i)->domain()->toString(0, false)
-            << std::endl;
   }
 
   // Currently grouping of welford is only supported through
