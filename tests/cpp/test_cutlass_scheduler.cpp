@@ -873,6 +873,8 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   fusion->addInput(a_sf);
   fusion->addInput(b_sf);
   fusion->addInput(alpha);
+  fusion->addInput(problem_sizes);
+  fusion->addInput(expert_offsets);
   fusion->addInput(global_normconst);
 
   // Perform block-scaled matmul
