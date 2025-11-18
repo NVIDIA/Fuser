@@ -806,7 +806,7 @@ def test_tensor_shape_expand_bcast():
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         eager_out1 = prims.broadcast_in_dim(inputs[1], inputs[0].size(), [0, 1, 2])
         eager_out2 = prims.broadcast_in_dim(inputs[2], eager_out1.size(), [0, 1, 2])
-        self.assertEqual(eager_out2, nvf_out[0])
+        assert torch.equal(eager_out2, nvf_out[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -827,9 +827,9 @@ def test_alias_output_to_input():
         out_tensors, _ = exec_nvfuser(fusion_func, in_tensors)
 
         # t1 is an alias and therefore is hidden.
-        self.assertEqual(len(out_tensors), 1)
-        self.assertEqual(out_tensors[0], torch.full((4, 4), 4.0, device="cuda"))
-        self.assertEqual(in_tensors[0], torch.full((4, 4), 2.0, device="cuda"))
+        assert len(out_tensors) == 1
+        assert torch.equal(out_tensors[0], torch.full((4, 4), 4.0, device="cuda"))
+        assert torch.equal(in_tensors[0], torch.full((4, 4), 2.0, device="cuda"))
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1046,8 +1046,8 @@ def test_func_definition():
 def test_python_version_API():
         from nvfuser.nvfuser_version import Version
 
-        self.assertTrue(version() > "0.0.0")
-        self.assertTrue(version() > Version("0.0.0"))
+        assert version() > "0.0.0"
+        assert version() > Version("0.0.0")
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1065,7 +1065,7 @@ def test_zero_size_dim():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         eager_out = torch.relu(inputs[0])
-        self.assertEqual(eager_out.numel(), nvf_out[0].numel())
+        assert eager_out.numel() == nvf_out[0].numel()
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1107,7 +1107,7 @@ def test_normal():
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
         # Is there a better way to test distribution?!
-        self.assertTrue(
+        assert (
             nvf_out[0]
             .mean()
             .cpu()
@@ -1115,7 +1115,7 @@ def test_normal():
             .isclose(torch.tensor(mean), rtol=1e-2, atol=1e-2)
             .item()
         )
-        self.assertTrue(
+        assert (
             nvf_out[0]
             .std()
             .cpu()
@@ -1146,7 +1146,7 @@ def test_uniform():
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
         # Is there a better way to test distribution?!
-        self.assertTrue(
+        assert (
             nvf_out[0]
             .mean()
             .cpu()
@@ -1154,7 +1154,7 @@ def test_uniform():
             .isclose(torch.tensor((hi - lo) / 2.0), rtol=1e-2, atol=1e-2)
             .item()
         )
-        self.assertTrue(
+        assert (
             nvf_out[0]
             .min()
             .cpu()
@@ -1162,7 +1162,7 @@ def test_uniform():
             .isclose(torch.tensor(lo), rtol=1e-2, atol=1e-2)
             .item()
         )
-        self.assertTrue(
+        assert (
             nvf_out[0]
             .max()
             .cpu()
@@ -1241,7 +1241,7 @@ def test_where_dtypes():
         eager_out = torch.where(inputs[0], 3.0, 5.0)
 
         # explicit Float dtype matches torch.where behavior
-        self.assertEqual(eager_out, nf)
+        assert torch.equal(eager_out, nf)
 
         assert n.dtype == torch.float64
         assert nf.dtype == torch.float32
@@ -1270,7 +1270,7 @@ def test_complex_constants():
 
         eager_out = inputs[0] * (3.0 + 0.5j)
 
-        self.assertEqual(eager_out, n)
+        assert torch.equal(eager_out, n)
         assert n.dtype == torch.complex64
 
 
@@ -1337,8 +1337,8 @@ def test_iota():
         eager_out1 = torch.tensor([0, 2], dtype=torch.long, device="cuda")
         eager_out2 = torch.tensor([100, 101, 102], dtype=torch.int, device="cuda")
         eager_out3 = torch.tensor([0, 1, 2, 3], dtype=torch.long, device="cuda")
-        self.assertEqual(eager_out1, nvf_out[0])
-        self.assertEqual(eager_out2, nvf_out[1])
+        assert torch.equal(eager_out1, nvf_out[0])
+        assert torch.equal(eager_out2, nvf_out[1])
         # self.assertEqual(eager_out3, nvf_out[2])
 
 
@@ -1355,7 +1355,7 @@ def test_triu():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         eager_out0 = torch.triu(inputs[0], -1)
-        self.assertEqual(eager_out0, nvf_out[0])
+        assert torch.equal(eager_out0, nvf_out[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1371,7 +1371,7 @@ def test_cumsum():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         eager_out = torch.cumsum(inputs[0], dim=0)
-        self.assertEqual(nvf_out[0], eager_out)
+        assert torch.equal(nvf_out[0], eager_out)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1394,8 +1394,8 @@ def test_complex_rsqrt():
         at_rfloat = inputs[0].rsqrt()
         at_rdouble = inputs[1].rsqrt()
 
-        self.assertEqual(at_rfloat, rfloat)
-        self.assertEqual(at_rdouble, rdouble)
+        assert torch.equal(at_rfloat, rfloat)
+        assert torch.equal(at_rdouble, rdouble)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1412,7 +1412,7 @@ def test_reduction_complex_number():
 
             nvf_out1, _ = exec_nvfuser(fusion_func, inputs)
             eager_out = torch.sum(inputs[0], dim=-1)
-            self.assertEqual(eager_out, nvf_out1[0])
+            assert torch.equal(eager_out, nvf_out1[0])
 
         list_of_dtype = [torch.complex64, torch.complex128]
         for torch_dtype in list_of_dtype:
@@ -1435,7 +1435,7 @@ def test_segmentation_reduction_pointwise_epilogue():
 
         nvf_out1, _ = exec_nvfuser(fusion_func, inputs)
         eager_out = torch.sum(inputs[0], dim=-1, keepdim=True) + inputs[1]
-        self.assertEqual(eager_out, nvf_out1[0])
+        assert torch.equal(eager_out, nvf_out1[0])
 
         with FusionDefinition() as fd:
             fusion_func(fd)
@@ -1506,9 +1506,9 @@ def test_arithmetic_ops():
         at_out1 = abs(inputs[0])
         at_out2 = inputs[0] * (1.0 - inputs[0] * inputs[0]) / abs(inputs[0])
 
-        self.assertEqual(at_out0, nvf_out[0])
-        self.assertEqual(at_out1, nvf_out[1])
-        self.assertEqual(at_out2, nvf_out[2])
+        assert torch.equal(at_out0, nvf_out[0])
+        assert torch.equal(at_out1, nvf_out[1])
+        assert torch.equal(at_out2, nvf_out[2])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1528,7 +1528,7 @@ def test_signbit():
         at_out = torch.where(
             torch.signbit(inputs[0]), -torch.abs(inputs[1]), torch.abs(inputs[1])
         )
-        self.assertEqual(at_out, nvf_out[0])
+        assert torch.equal(at_out, nvf_out[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1549,7 +1549,7 @@ def test_all_dim_var_mean():
         for correction in list_of_test_cases:
             fuser_result, _ = exec_nvfuser(fusion_decorator(correction), inputs)
             torch_result = torch.var_mean(inputs[0], [0, 1, 2], bool(correction))
-            self.assertEqual(fuser_result, torch_result)
+            assert torch.equal(fuser_result, torch_result)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1570,7 +1570,7 @@ def test_var_mean_correction():
         for correction in range(num_elem + 5):
             fuser_result, _ = exec_nvfuser(fusion_decorator(correction), inputs)
             torch_result = torch.var_mean(inputs[0], [-1], correction=correction)
-            self.assertEqual(fuser_result, torch_result)
+            assert torch.equal(fuser_result, torch_result)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1587,7 +1587,7 @@ def test_welford():
 
         fuser_result, _ = exec_nvfuser(fusion_func, inputs)
         torch_result = torch.var_mean(inputs[0], [-1], correction=0)
-        self.assertEqual(fuser_result, torch_result)
+        assert torch.equal(fuser_result, torch_result)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1655,7 +1655,7 @@ def test_addcmul():
 
         torch_out = torch.addcmul(*inputs, value=0.1)
 
-        self.assertEqual(nvfout[0], torch_out)
+        assert torch.equal(nvfout[0], torch_out)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1663,10 +1663,10 @@ def test_compute_contiguity():
         sizes = [2, 1, 3, 1, 4, 5, 6]
         strides = [80, 30, 30, 456456465465, 0, 6, 1]
         contiguity = [False, None, True, None, None, True, True]
-        self.assertEqual(compute_contiguity(sizes, strides), contiguity)
+        assert compute_contiguity(sizes, strides) == contiguity
         strides = [800, 300, 300, 456456465465, 0, 60, 10]
         contiguity = [False, None, True, None, None, True, False]
-        self.assertEqual(compute_contiguity(sizes, strides), contiguity)
+        assert compute_contiguity(sizes, strides) == contiguity
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1766,9 +1766,9 @@ def test_stride_order_with_explicit_broadcast():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         eager_out = inputs[0] + inputs[1]
-        self.assertEqual(nvf_out[0], inputs[0] + inputs[1])
-        self.assertEqual(nvf_out[1], inputs[2] + 3.0)
-        self.assertEqual(nvf_out[2], inputs[3] * 3.0)
+        assert torch.equal(nvf_out[0], inputs[0] + inputs[1])
+        assert torch.equal(nvf_out[1], inputs[2] + 3.0)
+        assert torch.equal(nvf_out[2], inputs[3] * 3.0)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -1934,7 +1934,7 @@ def test_fix_2549():
             nvfuser_fusion_id(fd)
 
         out = fd.execute([a, b])
-        self.assertEqual(out[0], b / a)
+        assert torch.equal(out[0], b / a)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2018,28 +2018,28 @@ def test_cuda_code_and_scheduled_fusion_ir_strings():
             _ = fd.execute(inputs)
 
             code_len = len(fd.sched.user_schedule_ir())
-            self.assertTrue(code_len > 0, "User schedule is not defined.")
+            assert (code_len > 0, "User schedule is not defined.")
             code_len = len(fd.last_cuda_code())
-            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            assert (code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.last_cuda_code(intrinsic_code=True))
-            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            assert (code_len > 0, "Cuda Code was not produced!")
             sched_ir_len = len(fd.last_scheduled_fusion_ir())
-            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            assert (code_len > 0, "Scheduled Fusion IR was not produced!")
             sched_ir_len = len(fd.last_scheduled_fusion_ir(tensor_transforms=True))
-            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            assert (code_len > 0, "Scheduled Fusion IR was not produced!")
             sched_ir_len = len(fd.fusion_ir())
-            self.assertTrue(code_len > 0, "Unscheduled Fusion IR was not produced!")
+            assert (code_len > 0, "Unscheduled Fusion IR was not produced!")
 
             code_len = len(fd.cuda_code_for(inputs))
-            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            assert (code_len > 0, "Cuda Code was not produced!")
             code_len = len(fd.cuda_code_for(inputs, intrinsic_code=True))
-            self.assertTrue(code_len > 0, "Cuda Code was not produced!")
+            assert (code_len > 0, "Cuda Code was not produced!")
             sched_ir_len = len(fd.scheduled_fusion_ir_for(inputs))
-            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            assert (code_len > 0, "Scheduled Fusion IR was not produced!")
             sched_ir_len = len(
                 fd.scheduled_fusion_ir_for(inputs, tensor_transforms=True)
             )
-            self.assertTrue(code_len > 0, "Scheduled Fusion IR was not produced!")
+            assert (code_len > 0, "Scheduled Fusion IR was not produced!")
 
             # Attempt to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
@@ -2093,12 +2093,12 @@ def test_pad():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
-        self.assertEqual(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
-        self.assertEqual(F.pad(inputs[0], [2, 3]), nvf_out[3])
-        self.assertEqual(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
-        self.assertEqual(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
+        assert torch.equal(F.pad(inputs[0], [1, 1, 1, 1]), nvf_out[0])
+        assert torch.equal(F.pad(inputs[0], [0, 0, 2, 3]), nvf_out[1])
+        assert torch.equal(F.pad(inputs[0], [0, 0, 0, 0]), nvf_out[2])
+        assert torch.equal(F.pad(inputs[0], [2, 3]), nvf_out[3])
+        assert torch.equal(F.pad(inputs[0], [2, 3], "constant", 2.0), nvf_out[4])
+        assert torch.equal(F.pad(inputs[0], [2, 3, 0, 0, 0, 0]), nvf_out[5])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2121,7 +2121,7 @@ def test_pad_dynamic():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(F.pad(inputs[0], [17, 17, 17, 17]), nvf_out[0])
+        assert torch.equal(F.pad(inputs[0], [17, 17, 17, 17]), nvf_out[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2164,11 +2164,11 @@ def test_pad_cache():
         )
         _ = exec_nvfuser(fusion_func_pad3, inputs, new_fusion_expected=False)
 
-        self.assertEqual(F.pad(inputs[0], [1, 1]), nvf_out1[0])
+        assert torch.equal(F.pad(inputs[0], [1, 1]), nvf_out1[0])
         # Erroneous cache miss would use kernel 1 instead of 2
-        self.assertEqual(F.pad(inputs[0], [2, 2]), nvf_out2[0])
+        assert torch.equal(F.pad(inputs[0], [2, 2]), nvf_out2[0])
         # Erroneous cache hit based on fill value would use kernel1
-        self.assertEqual(F.pad(inputs[0], [1, 1], "constant", 2.0), nvf_out3[0])
+        assert torch.equal(F.pad(inputs[0], [1, 1], "constant", 2.0), nvf_out3[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2202,8 +2202,8 @@ def test_cat():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
-        self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
+        assert torch.equal(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
+        assert torch.equal(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
         # self.assertEqual(torch.cat([inputs[0], inputs[3]], dim=0), nvf_out[2])
 
 
@@ -2230,7 +2230,7 @@ def test_pad_prior_cat():
         # pad tensors t0 and t1, so their first dimension are size 10.
         pad_input0 = torch.nn.functional.pad(inputs[0], [0, 0, 0, 8])
         pad_input1 = torch.nn.functional.pad(inputs[1], [0, 0, 0, 7])
-        self.assertEqual(torch.cat([pad_input0, pad_input1], dim=1), nvf_out[0])
+        assert torch.equal(torch.cat([pad_input0, pad_input1], dim=1), nvf_out[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2606,55 +2606,54 @@ def test_constant_nans():
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_def_op_in_schedule():
-        """
-        Tests for an error when a definition op is used in a schedule
-        """
-        inputs = [
-            torch.randn(4, 4, 4, device="cuda"),
-        ]
+    """
+    Tests for an error when a definition op is used in a schedule
+    """
+    inputs = [
+        torch.randn(4, 4, 4, device="cuda"),
+    ]
 
-        class SchedError(FusionDefinition):
-            def definition(self):
-                self.t0 = self.from_pytorch(inputs[0])
-                self.t1 = self.ops.tanh(self.t0)
-                self.add_output(self.t1)
+    class SchedError(FusionDefinition):
+        def definition(self):
+            self.t0 = self.from_pytorch(inputs[0])
+            self.t1 = self.ops.tanh(self.t0)
+            self.add_output(self.t1)
 
-            def schedule(self):
-                self.t2 = self.ops.relu(self.t1)
+        def schedule(self):
+            self.t2 = self.ops.relu(self.t1)
 
-        with self.assertRaisesRegex(
-            RuntimeError, "Attempting to add to a completed definition!"
-        ):
-            fd = SchedError()
-            _ = fd.execute(inputs)
+    with pytest.raises(RuntimeError, match="Attempting to add to a completed definition!"):
+        fd = SchedError()
+        _ = fd.execute(inputs)
 
-    @pytest.mark.skipif(
-        torch.cuda.device_count() < 2,
-        reason="test_selected_device requires multiple GPUs",
-    )
-    def test_selected_device(self):
-        """
-        Run the Fusion on device 1
-        """
-        inputs = [
-            torch.rand(2, 2, device="cuda:1"),
-            torch.rand(2, 2, device="cuda:1"),
-        ]
 
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.from_pytorch(inputs[1])
-            t2 = fd.ops.add(t0, t1)
-            c0 = fd.define_scalar(1.0, DataType.Float)
-            t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
-            t4 = fd.ops.mul(t3, t2)
-            fd.add_output(t4)
+@pytest.mark.skipif(
+    torch.cuda.device_count() < 2,
+    reason="test_selected_device requires multiple GPUs",
+)
+def test_selected_device():
+    """
+    Run the Fusion on device 1
+    """
+    inputs = [
+        torch.rand(2, 2, device="cuda:1"),
+        torch.rand(2, 2, device="cuda:1"),
+    ]
 
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs, device="cuda:1")
-        eager_out = torch.full([2, 2], 1.0, device="cuda:1") * (inputs[0] + inputs[1])
-        assert torch.equal(eager_out, nvf_out[0])
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.add(t0, t1)
+        c0 = fd.define_scalar(1.0, DataType.Float)
+        t3 = fd.ops.full(shape=[2, 2], fill_value=c0, dtype=DataType.Float)
+        t4 = fd.ops.mul(t3, t2)
+        fd.add_output(t4)
 
-        self.assertTrue(nvf_out[0].device.index == 1)
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs, device="cuda:1")
+    eager_out = torch.full([2, 2], 1.0, device="cuda:1") * (inputs[0] + inputs[1])
+    assert torch.equal(eager_out, nvf_out[0])
+
+    assert nvf_out[0].device.index == 1
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2673,10 +2672,10 @@ def test_integer_division():
             fd.add_output(t3)
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
-        self.assertEqual(
+        assert torch.equal(
             nvf_out[0], torch.div(inputs[0], inputs[1], rounding_mode="trunc")
         )
-        self.assertEqual(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
+        assert torch.equal(nvf_out[1], torch.true_divide(inputs[0], inputs[1]))
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2693,7 +2692,7 @@ def test_right_shift_arithmetic():
 
         nvf_out1, _ = exec_nvfuser(fusion_func, inputs)
         eager_out = torch.bitwise_right_shift(inputs[0], 3)
-        self.assertEqual(eager_out, nvf_out1[0])
+        assert torch.equal(eager_out, nvf_out1[0])
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2806,7 +2805,7 @@ def test_gcd():
             fd.add_output(t2)
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
-        self.assertEqual(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
+        assert torch.equal(nvf_out[0], torch.gcd(inputs[0], inputs[1]))
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2840,13 +2839,13 @@ def test_debug_output():
             fd.add_output(T1)
 
         out1 = fd.execute(inputs)
-        self.assertIsNone(fd.debug_output())
+        assert fd.debug_output() is None
 
         # If debug output is captured, getDebugOutput() will not return None.
         # The output will depend on the NVFUSER_DUMP environment variable in
         # such case
         out2 = fd.execute(inputs, capture_debug_output=True)
-        self.assertIsNotNone(fd.debug_output())
+        assert fd.debug_output() is not None
 
     # Test that deterministic random ops (uniform, normal) give same results as
     # their stochastic versions
@@ -2935,8 +2934,8 @@ def test_expand_to_zero():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(nvf_out[0].shape, (0, 0))
-        self.assertEqual(nvf_out[1].shape, (0, 0))
+        assert nvf_out[0].shape == (0, 0)
+        assert nvf_out[1].shape == (0, 0)
 
     # Test that a pad of an expanded empty tensor works properly
     # See https://github.com/NVIDIA/Fuser/issues/596#issuecomment-1714465618
@@ -2959,7 +2958,7 @@ def test_pad_expanded_empty():
 
         torch_ref = F.pad(inputs[0], (0, 0, 1, 1, 1, 0), "constant", -3.70753)
 
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -2975,11 +2974,11 @@ def test_dynamic_reshape():
 
         x = torch.rand(3, 4, device="cuda")
         ys, _ = exec_nvfuser(dynamic_reshape, [x, 2, 2])
-        self.assertEqual(len(ys), 1)
+        assert len(ys) == 1
         y = ys[0]
 
-        self.assertEqual(y.shape, torch.Size([3, 2, 2]))
-        self.assertEqual(x.flatten(), y.flatten())
+        assert y.shape == torch.Size([3, 2, 2])
+        assert torch.equal(x.flatten(), y.flatten())
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -3005,7 +3004,7 @@ def test_allocation_domain_concretization():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         torch_ref = inputs[0] * 2.0
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -3033,7 +3032,7 @@ def test_allocation_domain_index_select():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         torch_ref = torch.index_select(inputs[0], 1, inputs[1])
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
     # This tests that concretization will work properly with index_select
 
@@ -3076,7 +3075,7 @@ def test_issue1129():
         torch_ref = torch.reshape(
             torch.index_select(inputs[1], 0, torch.reshape(inputs[0], [25])), [5, 5, 64]
         )
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
     # This test verifies aliases added by MarkAliasPass are still in effect
     # after serialization and deserialization.
@@ -3092,10 +3091,10 @@ def test_mark_alias_pass():
 
         x = torch.rand(2, 3, 4, device="cuda")
         ys, _ = exec_nvfuser(reshape, [x])
-        self.assertEqual(len(ys), 1)
+        assert len(ys) == 1
         y = ys[0]
 
-        self.assertEqual(y.data_ptr(), x.data_ptr())
+        assert y.data_ptr() == x.data_ptr()
 
     # Test that reshape to slice to sum with concrete sizes sets extents properly
     # https://github.com/NVIDIA/Fuser/issues/1221
@@ -3179,8 +3178,8 @@ def test_issue1270():
         t8 = t7 * t5
         t24 = t6.sum([1])
         t11 = t8.sum([0])
-        self.assertEqual(nvf_out[0], t24)
-        self.assertEqual(nvf_out[1], t11)
+        assert torch.equal(nvf_out[0], t24)
+        assert torch.equal(nvf_out[1], t11)
 
     # This tests squeeze of dynamic input is handled properly
 
@@ -3226,7 +3225,7 @@ def test_issue1273():
         t27 = t7 - t9.unsqueeze(-1).expand((2, 1, 2))
         t32 = torch.rsqrt(inputs[1] + t8.unsqueeze(-1)).expand((2, 1, 2))
         torch_ref = (t27 * t32).reshape((2, 2))
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
     # See https://github.com/NVIDIA/Fuser/issues/1246
 
@@ -3269,7 +3268,7 @@ def test_issue1246():
 
             nvf_out, _ = exec_nvfuser(fusion_func, inputs)
             torch_ref = torch.cat([2.0 * inputs[0], inputs[1]], dim=-1)
-            self.assertEqual(nvf_out[0], torch_ref)
+            assert torch.equal(nvf_out[0], torch_ref)
 
     # Test that inputs are properly forwarded when an input is used in multiple
     # UnaryOps, some having one and others having multiple further uses.
@@ -3306,9 +3305,9 @@ def test_issue1310():
         t14 = inputs[0].type(torch.float32)
         t16 = t14.sum([0, 1])
         t31 = t14.sum([2])
-        self.assertEqual(nvf_out[0], t16)
-        self.assertEqual(nvf_out[1], t16)  # T16 == T20
-        self.assertEqual(nvf_out[2], t31)
+        assert torch.equal(nvf_out[0], t16)
+        assert torch.equal(nvf_out[1], t16)  # T16 == T20
+        assert torch.equal(nvf_out[2], t31)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -3366,7 +3365,7 @@ def test_issue1393():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         torch_ref = inputs[0] * (inputs[1] * inputs[2]).unsqueeze(-1)
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
     # We expect this to fail on branch `wjy/input` but to pass on ToT.
 
@@ -3693,7 +3692,7 @@ def test_issue1691():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         torch_ref = (inputs[0].sum(dim=[0, 1]) * inputs[1].sum(dim=1)).sum(dim=0)
-        self.assertEqual(nvf_out[0], torch_ref)
+        assert torch.equal(nvf_out[0], torch_ref)
 
     # Test that expanded dimensions can be reduced properly
     # See https://github.com/NVIDIA/Fuser/issues/1678
@@ -4418,7 +4417,7 @@ def test_fusion_profiler_user_schedule():
         fd = MyFusion()
         try:
             fd.execute(inputs, profile=True)
-            self.assertTrue(fd.profile().fusion_id >= 0)
+            assert (fd.profile().fusion_id >= 0)
             self.assertEqual(fd.profile().kernel_profiles[0].scheduler, "user")
         except Exception as e:
             raise RuntimeError(
@@ -4449,7 +4448,7 @@ def test_fusion_profiler_with_noncodegen_kernels():
         fd = MyFusion()
         try:
             fd.execute(inputs, profile=True)
-            self.assertTrue(fd.profile().fusion_id >= 0)
+            assert (fd.profile().fusion_id >= 0)
             self.assertEqual(len(fd.profile().kernel_profiles), 2)
             self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
             self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
@@ -4749,9 +4748,9 @@ def test_returning_aliased_outputs():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         num_out = len(nvf_out)
-        self.assertEqual(num_out, 3)
+        assert num_out == 3
         for i in range(num_out):
-            self.assertEqual(nvf_out[i].data_ptr(), inputs[0].data_ptr())
+            assert nvf_out[i].data_ptr() == inputs[0].data_ptr()
 
     # Test that we properly raise an error when passing inputs with the wrong types
 
@@ -5028,7 +5027,7 @@ def test_slice_api():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
         for out in nvf_out:
-            self.assertTrue(out.allclose(x[:, 1:, 2:]))
+            assert (out.allclose(x[:, 1:, 2:]))
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -5057,16 +5056,16 @@ def test_fusion_information():
             fusion_func(fd)
 
         nvf_out1 = fd.execute(inputs)
-        self.assertEqual(eager_out, nvf_out1[0])
+        assert torch.equal(eager_out, nvf_out1[0])
 
         # The input tensors are t0 and t1.
-        self.assertEqual(fd.inputs(), [0, 1])
+        assert fd.inputs() == [0, 1]
         # The output tensors is t5.
-        self.assertEqual(fd.outputs(), [5])
+        assert fd.outputs() == [5]
         # The extents correspond with the dimensions for each input tensor.
         # There are two input tensors with three dimensions each, so the
         # extents range from [-1, -6].
-        self.assertEqual(fd.extents(), [idx for idx in range(-1, -7, -1)])
+        assert fd.extents() == [idx for idx in range(-1, -7, -1)]
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -5214,8 +5213,8 @@ def test_issue1279():
         d = b.type(torch.float16)
         e = c.type(torch.float16)
 
-        self.assertEqual(nvf_out[0], d)
-        self.assertEqual(nvf_out[1], e)
+        assert torch.equal(nvf_out[0], d)
+        assert torch.equal(nvf_out[1], e)
 
     # See https://github.com/NVIDIA/Fuser/issues/3833
 
@@ -5255,7 +5254,7 @@ def test_bcast_squeeze_replace_aliased_output():
         )
 
         assert len(nvf_out) == 1
-        self.assertEqual(nvf_out[0], inputs[0].squeeze(1))
+        assert torch.equal(nvf_out[0], inputs[0].squeeze(1))
 
     # See https://github.com/NVIDIA/Fuser/issues/3957
     # This test checks that our alias update keeps the output layout consistency
@@ -5297,8 +5296,8 @@ def test_inplace_update_on_non_contiguous_inputs():
         )
 
         assert len(nvf_out) == 1
-        self.assertEqual(nvf_out[0], inputs[0])
-        self.assertEqual(nvf_out[0], ref_inp.relu())
+        assert torch.equal(nvf_out[0], inputs[0])
+        assert torch.equal(nvf_out[0], ref_inp.relu())
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
@@ -5332,8 +5331,8 @@ def test_broadcast_and_stride_order():
 
         nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-        self.assertEqual(nvf_out[0], inputs[0].unsqueeze(1))
-        self.assertEqual(nvf_out[0].stride(), (1, 2, 2, 6))
+        assert torch.equal(nvf_out[0], inputs[0].unsqueeze(1))
+        assert nvf_out[0].stride() == (1, 2, 2, 6)
 
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
