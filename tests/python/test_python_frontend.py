@@ -3735,602 +3735,597 @@ def test_issue1872():
 
         exec_nvfuser(fusion_func, [])
 
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
 
-@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+@pytest.mark.skipif(
+    is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+)
 def test_issue1706():
-        inputs = [
-            1e-6,
-            10,
-            4096,
-            4096,
-            torch.randn(
-                (
-                    1,
-                    4096,
-                    4096,
-                ),
-                dtype=torch.bfloat16,
-                device="cuda:0",
+    inputs = [
+        1e-6,
+        10,
+        4096,
+        4096,
+        torch.randn(
+            (
+                1,
+                4096,
+                4096,
             ),
-            torch.randn((10, 32), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn(
-                (
-                    1,
-                    4096,
-                    4096,
-                ),
-                dtype=torch.bfloat16,
-                device="cuda:0",
+            dtype=torch.bfloat16,
+            device="cuda:0",
+        ),
+        torch.randn((10, 32), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn(
+            (
+                1,
+                4096,
+                4096,
             ),
-            torch.randn(
-                (
-                    1,
-                    4096,
-                    1,
-                ),
-                dtype=torch.bfloat16,
-                device="cuda:0",
+            dtype=torch.bfloat16,
+            device="cuda:0",
+        ),
+        torch.randn(
+            (
+                1,
+                4096,
+                1,
             ),
-            torch.randn(
-                (
-                    1,
-                    1,
-                    4096,
-                ),
-                dtype=torch.bfloat16,
-                device="cuda:0",
-            ).expand(1, 4096, 4096),
-        ]
+            dtype=torch.bfloat16,
+            device="cuda:0",
+        ),
+        torch.randn(
+            (
+                1,
+                1,
+                4096,
+            ),
+            dtype=torch.bfloat16,
+            device="cuda:0",
+        ).expand(1, 4096, 4096),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            S0 = fd.define_scalar(None, dtype=DataType.Double)
-            S1 = fd.define_scalar(None, dtype=DataType.Int)
-            S2 = fd.define_scalar(None, dtype=DataType.Int)
-            S3 = fd.define_scalar(None, dtype=DataType.Int)
-            T4 = fd.define_tensor(
-                shape=[1, -1, -1],
-                contiguity=[None, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            T5 = fd.define_tensor(
-                shape=[-1, -1],
-                contiguity=[True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            T6 = fd.define_tensor(
-                shape=[1, -1, -1],
-                contiguity=[None, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            T7 = fd.define_tensor(
-                shape=[1, -1, 1],
-                contiguity=[None, True, None],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            T8 = fd.define_tensor(
-                shape=[1, -1, -1],
-                contiguity=[None, None, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-            )
-            T9 = fd.ops.cast(T6, dtype=DataType.Float)
-            T10 = fd.ops.cast(T6, dtype=DataType.Float)
-            T11 = fd.ops.cast(T7, dtype=DataType.Float)
-            T12 = fd.ops.rsqrt(T11)
-            T13 = fd.ops.cast(T12, dtype=DataType.BFloat16)
-            S14 = fd.define_scalar(1, dtype=DataType.Int)
-            S15 = fd.define_scalar(4096, dtype=DataType.Int)
-            S16 = fd.define_scalar(4096, dtype=DataType.Int)
-            V17 = fd.define_vector([S14, S15, S16], dtype=DataType.Int)
-            T18 = fd.ops.broadcast_in_dim(T13, shape=V17, broadcast_dims=[0, 1, 2])
-            T19 = fd.ops.cast(T6, dtype=DataType.Float)
-            T20 = fd.ops.cast(T18, dtype=DataType.Float)
-            T21 = fd.ops.mul(T19, T20)
-            T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
-            T23 = fd.ops.cast(T8, dtype=DataType.Float)
-            T24 = fd.ops.cast(T22, dtype=DataType.Float)
-            T25 = fd.ops.cast(T4, dtype=DataType.Float)
-            T26 = fd.ops.mul(T25, T24)
-            T27 = fd.ops.mul(T25, T23)
-            T28 = fd.ops.cast(T27, dtype=DataType.BFloat16)
-            T29 = fd.ops.cast(T26, dtype=DataType.BFloat16)
-            T30 = fd.ops.cast(T29, dtype=DataType.Float)
-            T31 = fd.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
-            T32 = fd.ops.cast(T31, dtype=DataType.BFloat16)
-            T33 = fd.ops.cast(T32, dtype=DataType.Float)
-            S34 = fd.define_scalar(2.00000, dtype=DataType.Double)
-            S35 = fd.ops.reciprocal(S34)
-            T36 = fd.ops.mul(T33, S35)
-            T37 = fd.ops.cast(T36, dtype=DataType.BFloat16)
-            T38 = fd.ops.cast(T28, dtype=DataType.Float)
-            T39 = fd.ops.mul(T38, T20)
-            T40 = fd.ops.mul(T38, T19)
-            T41 = fd.ops.cast(T40, dtype=DataType.BFloat16)
-            T42 = fd.ops.cast(T39, dtype=DataType.BFloat16)
-            T43 = fd.ops.cast(T41, dtype=DataType.Float)
-            T44 = fd.ops.sum(T43, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-            T45 = fd.ops.cast(T44, dtype=DataType.BFloat16)
-            S46 = fd.define_scalar(1, dtype=DataType.Int)
-            S47 = fd.define_scalar(4096, dtype=DataType.Int)
-            S48 = fd.define_scalar(1, dtype=DataType.Int)
-            V49 = fd.define_vector([S46, S47, S48], dtype=DataType.Int)
-            T50 = fd.ops.broadcast_in_dim(T45, shape=V49, broadcast_dims=[1])
-            T51 = fd.ops.cast(T50, dtype=DataType.Float)
-            S52 = fd.define_scalar(-0.500000, dtype=DataType.Double)
-            T53 = fd.ops.mul(S52, T51)
-            S54 = fd.define_scalar(3.00000, dtype=DataType.Double)
-            T55 = fd.ops.pow(T12, S54)
-            T56 = fd.ops.mul(T53, T55)
-            T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
-            T58 = fd.ops.cast(T57, dtype=DataType.Float)
-            T59 = fd.ops.cast(T58, dtype=DataType.BFloat16)
-            T60 = fd.ops.cast(T59, dtype=DataType.Float)
-            S61 = fd.ops.reciprocal(S0)
-            T62 = fd.ops.mul(T60, S61)
-            T63 = fd.ops.sum(T62, dims=[0, 2], keepdim=False, dtype=DataType.Null)
-            S64 = fd.define_scalar(1, dtype=DataType.Int)
-            S65 = fd.define_scalar(4096, dtype=DataType.Int)
-            V66 = fd.define_vector([S64, S65], dtype=DataType.Int)
-            T67 = fd.ops.broadcast_in_dim(T63, shape=V66, broadcast_dims=[1])
-            S68 = fd.define_scalar(1, dtype=DataType.Int)
-            S69 = fd.define_scalar(4096, dtype=DataType.Int)
-            S70 = fd.define_scalar(1, dtype=DataType.Int)
-            V71 = fd.define_vector([S68, S69, S70], dtype=DataType.Int)
-            T72 = fd.ops.broadcast_in_dim(T67, shape=V71, broadcast_dims=[0, 1])
-            S73 = fd.define_scalar(1, dtype=DataType.Int)
-            S74 = fd.define_scalar(4096, dtype=DataType.Int)
-            S75 = fd.define_scalar(4096, dtype=DataType.Int)
-            V76 = fd.define_vector([S73, S74, S75], dtype=DataType.Int)
-            T77 = fd.ops.broadcast_in_dim(T72, shape=V76, broadcast_dims=[0, 1, 2])
-            T78 = fd.ops.cast(T77, dtype=DataType.BFloat16)
-            T79 = fd.ops.cast(T78, dtype=DataType.Float)
-            T80 = fd.ops.mul(T79, T10)
-            T81 = fd.ops.mul(T79, T9)
-            T82 = fd.ops.cast(T81, dtype=DataType.BFloat16)
-            T83 = fd.ops.cast(T80, dtype=DataType.BFloat16)
-            T84 = fd.ops.cast(T42, dtype=DataType.Float)
-            T85 = fd.ops.cast(T83, dtype=DataType.Float)
-            T86 = fd.ops.add(T84, T85)
-            T87 = fd.ops.cast(T86, dtype=DataType.BFloat16)
-            T88 = fd.ops.cast(T87, dtype=DataType.Float)
-            T89 = fd.ops.cast(T82, dtype=DataType.Float)
-            T90 = fd.ops.add(T88, T89)
-            T91 = fd.ops.cast(T90, dtype=DataType.BFloat16)
-            T92 = fd.ops.cast(T91, dtype=DataType.Float)
-            T93 = fd.ops.cast(T92, dtype=DataType.BFloat16)
-            T94 = fd.ops.cast(T92, dtype=DataType.BFloat16)
-            T95 = fd.ops.cast(T93, dtype=DataType.Float)
-            T96 = fd.ops.cast(T5, dtype=DataType.Float)
-            S97 = fd.define_scalar(2.00000, dtype=DataType.Double)
-            S98 = fd.ops.reciprocal(S97)
-            T99 = fd.ops.mul(T96, S98)
-            T100 = fd.ops.cast(T99, dtype=DataType.BFloat16)
-            fd.add_output(T100)
-            fd.add_output(T37)
-            fd.add_output(T94)
-            fd.add_output(T95)
+    def fusion_func(fd: FusionDefinition) -> None:
+        S0 = fd.define_scalar(None, dtype=DataType.Double)
+        S1 = fd.define_scalar(None, dtype=DataType.Int)
+        S2 = fd.define_scalar(None, dtype=DataType.Int)
+        S3 = fd.define_scalar(None, dtype=DataType.Int)
+        T4 = fd.define_tensor(
+            shape=[1, -1, -1],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        T5 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        T6 = fd.define_tensor(
+            shape=[1, -1, -1],
+            contiguity=[None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        T7 = fd.define_tensor(
+            shape=[1, -1, 1],
+            contiguity=[None, True, None],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        T8 = fd.define_tensor(
+            shape=[1, -1, -1],
+            contiguity=[None, None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        T9 = fd.ops.cast(T6, dtype=DataType.Float)
+        T10 = fd.ops.cast(T6, dtype=DataType.Float)
+        T11 = fd.ops.cast(T7, dtype=DataType.Float)
+        T12 = fd.ops.rsqrt(T11)
+        T13 = fd.ops.cast(T12, dtype=DataType.BFloat16)
+        S14 = fd.define_scalar(1, dtype=DataType.Int)
+        S15 = fd.define_scalar(4096, dtype=DataType.Int)
+        S16 = fd.define_scalar(4096, dtype=DataType.Int)
+        V17 = fd.define_vector([S14, S15, S16], dtype=DataType.Int)
+        T18 = fd.ops.broadcast_in_dim(T13, shape=V17, broadcast_dims=[0, 1, 2])
+        T19 = fd.ops.cast(T6, dtype=DataType.Float)
+        T20 = fd.ops.cast(T18, dtype=DataType.Float)
+        T21 = fd.ops.mul(T19, T20)
+        T22 = fd.ops.cast(T21, dtype=DataType.BFloat16)
+        T23 = fd.ops.cast(T8, dtype=DataType.Float)
+        T24 = fd.ops.cast(T22, dtype=DataType.Float)
+        T25 = fd.ops.cast(T4, dtype=DataType.Float)
+        T26 = fd.ops.mul(T25, T24)
+        T27 = fd.ops.mul(T25, T23)
+        T28 = fd.ops.cast(T27, dtype=DataType.BFloat16)
+        T29 = fd.ops.cast(T26, dtype=DataType.BFloat16)
+        T30 = fd.ops.cast(T29, dtype=DataType.Float)
+        T31 = fd.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+        T32 = fd.ops.cast(T31, dtype=DataType.BFloat16)
+        T33 = fd.ops.cast(T32, dtype=DataType.Float)
+        S34 = fd.define_scalar(2.00000, dtype=DataType.Double)
+        S35 = fd.ops.reciprocal(S34)
+        T36 = fd.ops.mul(T33, S35)
+        T37 = fd.ops.cast(T36, dtype=DataType.BFloat16)
+        T38 = fd.ops.cast(T28, dtype=DataType.Float)
+        T39 = fd.ops.mul(T38, T20)
+        T40 = fd.ops.mul(T38, T19)
+        T41 = fd.ops.cast(T40, dtype=DataType.BFloat16)
+        T42 = fd.ops.cast(T39, dtype=DataType.BFloat16)
+        T43 = fd.ops.cast(T41, dtype=DataType.Float)
+        T44 = fd.ops.sum(T43, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        T45 = fd.ops.cast(T44, dtype=DataType.BFloat16)
+        S46 = fd.define_scalar(1, dtype=DataType.Int)
+        S47 = fd.define_scalar(4096, dtype=DataType.Int)
+        S48 = fd.define_scalar(1, dtype=DataType.Int)
+        V49 = fd.define_vector([S46, S47, S48], dtype=DataType.Int)
+        T50 = fd.ops.broadcast_in_dim(T45, shape=V49, broadcast_dims=[1])
+        T51 = fd.ops.cast(T50, dtype=DataType.Float)
+        S52 = fd.define_scalar(-0.500000, dtype=DataType.Double)
+        T53 = fd.ops.mul(S52, T51)
+        S54 = fd.define_scalar(3.00000, dtype=DataType.Double)
+        T55 = fd.ops.pow(T12, S54)
+        T56 = fd.ops.mul(T53, T55)
+        T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
+        T58 = fd.ops.cast(T57, dtype=DataType.Float)
+        T59 = fd.ops.cast(T58, dtype=DataType.BFloat16)
+        T60 = fd.ops.cast(T59, dtype=DataType.Float)
+        S61 = fd.ops.reciprocal(S0)
+        T62 = fd.ops.mul(T60, S61)
+        T63 = fd.ops.sum(T62, dims=[0, 2], keepdim=False, dtype=DataType.Null)
+        S64 = fd.define_scalar(1, dtype=DataType.Int)
+        S65 = fd.define_scalar(4096, dtype=DataType.Int)
+        V66 = fd.define_vector([S64, S65], dtype=DataType.Int)
+        T67 = fd.ops.broadcast_in_dim(T63, shape=V66, broadcast_dims=[1])
+        S68 = fd.define_scalar(1, dtype=DataType.Int)
+        S69 = fd.define_scalar(4096, dtype=DataType.Int)
+        S70 = fd.define_scalar(1, dtype=DataType.Int)
+        V71 = fd.define_vector([S68, S69, S70], dtype=DataType.Int)
+        T72 = fd.ops.broadcast_in_dim(T67, shape=V71, broadcast_dims=[0, 1])
+        S73 = fd.define_scalar(1, dtype=DataType.Int)
+        S74 = fd.define_scalar(4096, dtype=DataType.Int)
+        S75 = fd.define_scalar(4096, dtype=DataType.Int)
+        V76 = fd.define_vector([S73, S74, S75], dtype=DataType.Int)
+        T77 = fd.ops.broadcast_in_dim(T72, shape=V76, broadcast_dims=[0, 1, 2])
+        T78 = fd.ops.cast(T77, dtype=DataType.BFloat16)
+        T79 = fd.ops.cast(T78, dtype=DataType.Float)
+        T80 = fd.ops.mul(T79, T10)
+        T81 = fd.ops.mul(T79, T9)
+        T82 = fd.ops.cast(T81, dtype=DataType.BFloat16)
+        T83 = fd.ops.cast(T80, dtype=DataType.BFloat16)
+        T84 = fd.ops.cast(T42, dtype=DataType.Float)
+        T85 = fd.ops.cast(T83, dtype=DataType.Float)
+        T86 = fd.ops.add(T84, T85)
+        T87 = fd.ops.cast(T86, dtype=DataType.BFloat16)
+        T88 = fd.ops.cast(T87, dtype=DataType.Float)
+        T89 = fd.ops.cast(T82, dtype=DataType.Float)
+        T90 = fd.ops.add(T88, T89)
+        T91 = fd.ops.cast(T90, dtype=DataType.BFloat16)
+        T92 = fd.ops.cast(T91, dtype=DataType.Float)
+        T93 = fd.ops.cast(T92, dtype=DataType.BFloat16)
+        T94 = fd.ops.cast(T92, dtype=DataType.BFloat16)
+        T95 = fd.ops.cast(T93, dtype=DataType.Float)
+        T96 = fd.ops.cast(T5, dtype=DataType.Float)
+        S97 = fd.define_scalar(2.00000, dtype=DataType.Double)
+        S98 = fd.ops.reciprocal(S97)
+        T99 = fd.ops.mul(T96, S98)
+        T100 = fd.ops.cast(T99, dtype=DataType.BFloat16)
+        fd.add_output(T100)
+        fd.add_output(T37)
+        fd.add_output(T94)
+        fd.add_output(T95)
 
-        # check if serialization passes during segmentation
-        # skip pytorch check because fusion is derived from llama2 network.
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs)
+    # check if serialization passes during segmentation
+    # skip pytorch check because fusion is derived from llama2 network.
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-    # https://github.com/NVIDIA/Fuser/issues/1953
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
 
-@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+# https://github.com/NVIDIA/Fuser/issues/1953
+@pytest.mark.skipif(
+    is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+)
 def test_issue1953():
-        inputs = [
-            128,
-            256,
-            6,
-            24,
-            2,
-            128,
-            256,
-            6,
-            24,
-            2,
-            torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
-                (128, 256, 6, 24), (0, 24, 0, 1)
-            ),
-            torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
-                (128, 256, 6, 24), (0, 24, 0, 1)
-            ),
-            torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (128, 6, 256, 48), (73728, 48, 288, 1)
-            ),
-            torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (128, 6, 256, 48), (73728, 48, 288, 1)
-            ),
-        ]
+    inputs = [
+        128,
+        256,
+        6,
+        24,
+        2,
+        128,
+        256,
+        6,
+        24,
+        2,
+        torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
+            (128, 256, 6, 24), (0, 24, 0, 1)
+        ),
+        torch.randn((6144,), dtype=torch.float32, device="cuda:0").as_strided(
+            (128, 256, 6, 24), (0, 24, 0, 1)
+        ),
+        torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (128, 6, 256, 48), (73728, 48, 288, 1)
+        ),
+        torch.randn((9437184,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (128, 6, 256, 48), (73728, 48, 288, 1)
+        ),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            S0 = fd.define_scalar(None, dtype=DataType.Int)
-            S1 = fd.define_scalar(None, dtype=DataType.Int)
-            S2 = fd.define_scalar(None, dtype=DataType.Int)
-            S3 = fd.define_scalar(None, dtype=DataType.Int)
-            S4 = fd.define_scalar(None, dtype=DataType.Int)
-            S5 = fd.define_scalar(None, dtype=DataType.Int)
-            S6 = fd.define_scalar(None, dtype=DataType.Int)
-            S7 = fd.define_scalar(None, dtype=DataType.Int)
-            S8 = fd.define_scalar(None, dtype=DataType.Int)
-            S9 = fd.define_scalar(None, dtype=DataType.Int)
-            T10 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[None, True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[3, 2, 1, 0],
-            )
-            T11 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[None, True, None, True],
-                dtype=DataType.Float,
-                is_cpu=False,
-                stride_order=[3, 2, 1, 0],
-            )
-            T12 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[3, 1, 2, 0],
-            )
-            T13 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[True, True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[3, 1, 2, 0],
-            )
-            T14 = fd.ops.cast(T13, dtype=DataType.Float)
-            T15 = fd.ops.permute(T14, dims=[0, 2, 1, 3])
-            S16 = fd.define_scalar(128, dtype=DataType.Int)
-            S17 = fd.define_scalar(256, dtype=DataType.Int)
-            S18 = fd.define_scalar(6, dtype=DataType.Int)
-            S19 = fd.define_scalar(24, dtype=DataType.Int)
-            S20 = fd.define_scalar(2, dtype=DataType.Int)
-            V21 = fd.define_vector([S16, S17, S18, S19, S20], dtype=DataType.Int)
-            T22 = fd.ops.reshape(T15, new_shape=V21)
-            T23 = fd.ops.slice(
-                T22,
-                start_indices=[0, 0, 0, 0, 0],
-                end_indices=[128, 256, 6, 24, 1],
-                strides=[1, 1, 1, 1, 1],
-            )
-            T24 = fd.ops.slice(
-                T22,
-                start_indices=[0, 0, 0, 0, 1],
-                end_indices=[128, 256, 6, 24, 2],
-                strides=[1, 1, 1, 1, 1],
-            )
-            T25 = fd.ops.sum(T24, dims=[4], keepdim=False, dtype=DataType.Null)
-            T26 = fd.ops.sum(T23, dims=[4], keepdim=False, dtype=DataType.Null)
-            T27 = fd.ops.mul(T25, T10)
-            T28 = fd.ops.mul(T25, T11)
-            T29 = fd.ops.neg(T26)
-            T30 = fd.ops.mul(T29, T11)
-            T31 = fd.ops.add(T27, T30)
-            T32 = fd.ops.cast(T31, dtype=DataType.BFloat16)
-            T33 = fd.ops.mul(T26, T10)
-            T34 = fd.ops.add(T28, T33)
-            T35 = fd.ops.cast(T34, dtype=DataType.BFloat16)
-            S36 = fd.define_scalar(128, dtype=DataType.Int)
-            S37 = fd.define_scalar(256, dtype=DataType.Int)
-            S38 = fd.define_scalar(6, dtype=DataType.Int)
-            S39 = fd.define_scalar(24, dtype=DataType.Int)
-            S40 = fd.define_scalar(1, dtype=DataType.Int)
-            V41 = fd.define_vector([S36, S37, S38, S39, S40], dtype=DataType.Int)
-            T42 = fd.ops.broadcast_in_dim(T32, shape=V41, broadcast_dims=[0, 1, 2, 3])
-            S43 = fd.define_scalar(128, dtype=DataType.Int)
-            S44 = fd.define_scalar(256, dtype=DataType.Int)
-            S45 = fd.define_scalar(6, dtype=DataType.Int)
-            S46 = fd.define_scalar(24, dtype=DataType.Int)
-            S47 = fd.define_scalar(1, dtype=DataType.Int)
-            V48 = fd.define_vector([S43, S44, S45, S46, S47], dtype=DataType.Int)
-            T49 = fd.ops.broadcast_in_dim(T35, shape=V48, broadcast_dims=[0, 1, 2, 3])
-            S50 = fd.define_scalar(0.00000, dtype=DataType.Double)
-            T51 = fd.ops.pad(T42, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S50)
-            S52 = fd.define_scalar(0.00000, dtype=DataType.Double)
-            T53 = fd.ops.pad(T49, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S52)
-            T54 = fd.ops.cast(T51, dtype=DataType.Float)
-            T55 = fd.ops.cast(T53, dtype=DataType.Float)
-            T56 = fd.ops.add(T54, T55)
-            T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
-            T58 = fd.ops.cast(T12, dtype=DataType.Float)
-            T59 = fd.ops.permute(T58, dims=[0, 2, 1, 3])
-            S60 = fd.define_scalar(128, dtype=DataType.Int)
-            S61 = fd.define_scalar(256, dtype=DataType.Int)
-            S62 = fd.define_scalar(6, dtype=DataType.Int)
-            S63 = fd.define_scalar(24, dtype=DataType.Int)
-            S64 = fd.define_scalar(2, dtype=DataType.Int)
-            V65 = fd.define_vector([S60, S61, S62, S63, S64], dtype=DataType.Int)
-            T66 = fd.ops.reshape(T59, new_shape=V65)
-            T67 = fd.ops.slice(
-                T66,
-                start_indices=[0, 0, 0, 0, 0],
-                end_indices=[128, 256, 6, 24, 1],
-                strides=[1, 1, 1, 1, 1],
-            )
-            T68 = fd.ops.slice(
-                T66,
-                start_indices=[0, 0, 0, 0, 1],
-                end_indices=[128, 256, 6, 24, 2],
-                strides=[1, 1, 1, 1, 1],
-            )
-            T69 = fd.ops.sum(T68, dims=[4], keepdim=False, dtype=DataType.Null)
-            T70 = fd.ops.sum(T67, dims=[4], keepdim=False, dtype=DataType.Null)
-            T71 = fd.ops.mul(T69, T10)
-            T72 = fd.ops.mul(T69, T11)
-            T73 = fd.ops.neg(T70)
-            T74 = fd.ops.mul(T73, T11)
-            T75 = fd.ops.add(T71, T74)
-            T76 = fd.ops.cast(T75, dtype=DataType.BFloat16)
-            T77 = fd.ops.mul(T70, T10)
-            T78 = fd.ops.add(T72, T77)
-            T79 = fd.ops.cast(T78, dtype=DataType.BFloat16)
-            S80 = fd.define_scalar(128, dtype=DataType.Int)
-            S81 = fd.define_scalar(256, dtype=DataType.Int)
-            S82 = fd.define_scalar(6, dtype=DataType.Int)
-            S83 = fd.define_scalar(24, dtype=DataType.Int)
-            S84 = fd.define_scalar(1, dtype=DataType.Int)
-            V85 = fd.define_vector([S80, S81, S82, S83, S84], dtype=DataType.Int)
-            T86 = fd.ops.broadcast_in_dim(T76, shape=V85, broadcast_dims=[0, 1, 2, 3])
-            S87 = fd.define_scalar(128, dtype=DataType.Int)
-            S88 = fd.define_scalar(256, dtype=DataType.Int)
-            S89 = fd.define_scalar(6, dtype=DataType.Int)
-            S90 = fd.define_scalar(24, dtype=DataType.Int)
-            S91 = fd.define_scalar(1, dtype=DataType.Int)
-            V92 = fd.define_vector([S87, S88, S89, S90, S91], dtype=DataType.Int)
-            T93 = fd.ops.broadcast_in_dim(T79, shape=V92, broadcast_dims=[0, 1, 2, 3])
-            S94 = fd.define_scalar(0.00000, dtype=DataType.Double)
-            T95 = fd.ops.pad(T86, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S94)
-            S96 = fd.define_scalar(0.00000, dtype=DataType.Double)
-            T97 = fd.ops.pad(T93, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S96)
-            T98 = fd.ops.cast(T95, dtype=DataType.Float)
-            T99 = fd.ops.cast(T97, dtype=DataType.Float)
-            T100 = fd.ops.add(T98, T99)
-            T101 = fd.ops.cast(T100, dtype=DataType.BFloat16)
-            fd.add_output(T57)
-            fd.add_output(T101)
+    def fusion_func(fd: FusionDefinition) -> None:
+        S0 = fd.define_scalar(None, dtype=DataType.Int)
+        S1 = fd.define_scalar(None, dtype=DataType.Int)
+        S2 = fd.define_scalar(None, dtype=DataType.Int)
+        S3 = fd.define_scalar(None, dtype=DataType.Int)
+        S4 = fd.define_scalar(None, dtype=DataType.Int)
+        S5 = fd.define_scalar(None, dtype=DataType.Int)
+        S6 = fd.define_scalar(None, dtype=DataType.Int)
+        S7 = fd.define_scalar(None, dtype=DataType.Int)
+        S8 = fd.define_scalar(None, dtype=DataType.Int)
+        S9 = fd.define_scalar(None, dtype=DataType.Int)
+        T10 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[None, True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T11 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[None, True, None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T12 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[True, True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 1, 2, 0],
+        )
+        T13 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[True, True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 1, 2, 0],
+        )
+        T14 = fd.ops.cast(T13, dtype=DataType.Float)
+        T15 = fd.ops.permute(T14, dims=[0, 2, 1, 3])
+        S16 = fd.define_scalar(128, dtype=DataType.Int)
+        S17 = fd.define_scalar(256, dtype=DataType.Int)
+        S18 = fd.define_scalar(6, dtype=DataType.Int)
+        S19 = fd.define_scalar(24, dtype=DataType.Int)
+        S20 = fd.define_scalar(2, dtype=DataType.Int)
+        V21 = fd.define_vector([S16, S17, S18, S19, S20], dtype=DataType.Int)
+        T22 = fd.ops.reshape(T15, new_shape=V21)
+        T23 = fd.ops.slice(
+            T22,
+            start_indices=[0, 0, 0, 0, 0],
+            end_indices=[128, 256, 6, 24, 1],
+            strides=[1, 1, 1, 1, 1],
+        )
+        T24 = fd.ops.slice(
+            T22,
+            start_indices=[0, 0, 0, 0, 1],
+            end_indices=[128, 256, 6, 24, 2],
+            strides=[1, 1, 1, 1, 1],
+        )
+        T25 = fd.ops.sum(T24, dims=[4], keepdim=False, dtype=DataType.Null)
+        T26 = fd.ops.sum(T23, dims=[4], keepdim=False, dtype=DataType.Null)
+        T27 = fd.ops.mul(T25, T10)
+        T28 = fd.ops.mul(T25, T11)
+        T29 = fd.ops.neg(T26)
+        T30 = fd.ops.mul(T29, T11)
+        T31 = fd.ops.add(T27, T30)
+        T32 = fd.ops.cast(T31, dtype=DataType.BFloat16)
+        T33 = fd.ops.mul(T26, T10)
+        T34 = fd.ops.add(T28, T33)
+        T35 = fd.ops.cast(T34, dtype=DataType.BFloat16)
+        S36 = fd.define_scalar(128, dtype=DataType.Int)
+        S37 = fd.define_scalar(256, dtype=DataType.Int)
+        S38 = fd.define_scalar(6, dtype=DataType.Int)
+        S39 = fd.define_scalar(24, dtype=DataType.Int)
+        S40 = fd.define_scalar(1, dtype=DataType.Int)
+        V41 = fd.define_vector([S36, S37, S38, S39, S40], dtype=DataType.Int)
+        T42 = fd.ops.broadcast_in_dim(T32, shape=V41, broadcast_dims=[0, 1, 2, 3])
+        S43 = fd.define_scalar(128, dtype=DataType.Int)
+        S44 = fd.define_scalar(256, dtype=DataType.Int)
+        S45 = fd.define_scalar(6, dtype=DataType.Int)
+        S46 = fd.define_scalar(24, dtype=DataType.Int)
+        S47 = fd.define_scalar(1, dtype=DataType.Int)
+        V48 = fd.define_vector([S43, S44, S45, S46, S47], dtype=DataType.Int)
+        T49 = fd.ops.broadcast_in_dim(T35, shape=V48, broadcast_dims=[0, 1, 2, 3])
+        S50 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T51 = fd.ops.pad(T42, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S50)
+        S52 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T53 = fd.ops.pad(T49, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S52)
+        T54 = fd.ops.cast(T51, dtype=DataType.Float)
+        T55 = fd.ops.cast(T53, dtype=DataType.Float)
+        T56 = fd.ops.add(T54, T55)
+        T57 = fd.ops.cast(T56, dtype=DataType.BFloat16)
+        T58 = fd.ops.cast(T12, dtype=DataType.Float)
+        T59 = fd.ops.permute(T58, dims=[0, 2, 1, 3])
+        S60 = fd.define_scalar(128, dtype=DataType.Int)
+        S61 = fd.define_scalar(256, dtype=DataType.Int)
+        S62 = fd.define_scalar(6, dtype=DataType.Int)
+        S63 = fd.define_scalar(24, dtype=DataType.Int)
+        S64 = fd.define_scalar(2, dtype=DataType.Int)
+        V65 = fd.define_vector([S60, S61, S62, S63, S64], dtype=DataType.Int)
+        T66 = fd.ops.reshape(T59, new_shape=V65)
+        T67 = fd.ops.slice(
+            T66,
+            start_indices=[0, 0, 0, 0, 0],
+            end_indices=[128, 256, 6, 24, 1],
+            strides=[1, 1, 1, 1, 1],
+        )
+        T68 = fd.ops.slice(
+            T66,
+            start_indices=[0, 0, 0, 0, 1],
+            end_indices=[128, 256, 6, 24, 2],
+            strides=[1, 1, 1, 1, 1],
+        )
+        T69 = fd.ops.sum(T68, dims=[4], keepdim=False, dtype=DataType.Null)
+        T70 = fd.ops.sum(T67, dims=[4], keepdim=False, dtype=DataType.Null)
+        T71 = fd.ops.mul(T69, T10)
+        T72 = fd.ops.mul(T69, T11)
+        T73 = fd.ops.neg(T70)
+        T74 = fd.ops.mul(T73, T11)
+        T75 = fd.ops.add(T71, T74)
+        T76 = fd.ops.cast(T75, dtype=DataType.BFloat16)
+        T77 = fd.ops.mul(T70, T10)
+        T78 = fd.ops.add(T72, T77)
+        T79 = fd.ops.cast(T78, dtype=DataType.BFloat16)
+        S80 = fd.define_scalar(128, dtype=DataType.Int)
+        S81 = fd.define_scalar(256, dtype=DataType.Int)
+        S82 = fd.define_scalar(6, dtype=DataType.Int)
+        S83 = fd.define_scalar(24, dtype=DataType.Int)
+        S84 = fd.define_scalar(1, dtype=DataType.Int)
+        V85 = fd.define_vector([S80, S81, S82, S83, S84], dtype=DataType.Int)
+        T86 = fd.ops.broadcast_in_dim(T76, shape=V85, broadcast_dims=[0, 1, 2, 3])
+        S87 = fd.define_scalar(128, dtype=DataType.Int)
+        S88 = fd.define_scalar(256, dtype=DataType.Int)
+        S89 = fd.define_scalar(6, dtype=DataType.Int)
+        S90 = fd.define_scalar(24, dtype=DataType.Int)
+        S91 = fd.define_scalar(1, dtype=DataType.Int)
+        V92 = fd.define_vector([S87, S88, S89, S90, S91], dtype=DataType.Int)
+        T93 = fd.ops.broadcast_in_dim(T79, shape=V92, broadcast_dims=[0, 1, 2, 3])
+        S94 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T95 = fd.ops.pad(T86, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0], S94)
+        S96 = fd.define_scalar(0.00000, dtype=DataType.Double)
+        T97 = fd.ops.pad(T93, [0, 1, 0, 0, 0, 0, 0, 0, 0, 0], S96)
+        T98 = fd.ops.cast(T95, dtype=DataType.Float)
+        T99 = fd.ops.cast(T97, dtype=DataType.Float)
+        T100 = fd.ops.add(T98, T99)
+        T101 = fd.ops.cast(T100, dtype=DataType.BFloat16)
+        fd.add_output(T57)
+        fd.add_output(T101)
 
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     # A simple pointwise fusion, but passed misaligned input
 
 @pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
 def test_misaligned_add():
-        inputs = [
-            torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
-            torch.ones(2**20, device="cuda"),
-        ]
+    inputs = [
+        torch.ones(2**20 + 1, device="cuda")[1:],  # cannot vectorize
+        torch.ones(2**20, device="cuda"),
+    ]
 
-        def fusion_func(fd: FusionDefinition):
-            t0 = fd.from_pytorch(inputs[0])
-            t1 = fd.from_pytorch(inputs[1])
-            c0 = fd.define_scalar(3.0)
+    def fusion_func(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        c0 = fd.define_scalar(3.0)
 
-            t2 = fd.ops.add(t0, t1)
+        t2 = fd.ops.add(t0, t1)
 
-            fd.add_output(t2)
+        fd.add_output(t2)
 
-        # Fails because vectorization 4 is set but only 1 supported
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs)
+    # Fails because vectorization 4 is set but only 1 supported
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs)
 
-    # See https://github.com/NVIDIA/Fuser/issues/2275
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
 
-@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+# See https://github.com/NVIDIA/Fuser/issues/2275
+@pytest.mark.skipif(
+    is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+)
 def test_unpadded_catop_issue2275_repro1():
-        inputs = [
-            torch.randn((4096,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (2, 4096, 4096), (0, 0, 1)
-            ),
-            torch.randn((33554432,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (2, 4096, 4096), (16777216, 4096, 1)
-            ),
-            torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (2, 32, 4096, 128), (0, 0, 128, 1)
-            ),
-            torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (2, 32, 4096, 128), (0, 0, 128, 1)
-            ),
-            torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
-                (6144, 4096), (4096, 1)
-            ),
-        ]
+    inputs = [
+        torch.randn((4096,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (2, 4096, 4096), (0, 0, 1)
+        ),
+        torch.randn((33554432,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (2, 4096, 4096), (16777216, 4096, 1)
+        ),
+        torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (2, 32, 4096, 128), (0, 0, 128, 1)
+        ),
+        torch.randn((524288,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (2, 32, 4096, 128), (0, 0, 128, 1)
+        ),
+        torch.randn((25165824,), dtype=torch.bfloat16, device="cuda:0").as_strided(
+            (6144, 4096), (4096, 1)
+        ),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.define_tensor(
-                shape=[-1, -1, -1],
-                contiguity=[None, None, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T1 = fd.define_tensor(
-                shape=[-1, -1, -1],
-                contiguity=[True, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[2, 1, 0],
-            )
-            T2 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[None, None, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[3, 2, 1, 0],
-            )
-            T3 = fd.define_tensor(
-                shape=[-1, -1, -1, -1],
-                contiguity=[None, None, True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[3, 2, 1, 0],
-            )
-            T4 = fd.define_tensor(
-                shape=[-1, -1],
-                contiguity=[True, True],
-                dtype=DataType.BFloat16,
-                is_cpu=False,
-                stride_order=[1, 0],
-            )
-            T5 = fd.ops.cast(T1, dtype=DataType.Float)
-            T6 = fd.ops.mul(T5, T5)
-            T7 = fd.ops.sum(T6, dims=[2], keepdim=False, dtype=DataType.Null)
-            S8 = fd.define_scalar(2, dtype=DataType.Int)
-            S9 = fd.define_scalar(4096, dtype=DataType.Int)
-            S10 = fd.define_scalar(1, dtype=DataType.Int)
-            V11 = fd.define_vector([S8, S9, S10], dtype=DataType.Int)
-            T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
-            S13 = fd.define_scalar(4096.00, dtype=DataType.Double)
-            S14 = fd.ops.reciprocal(S13)
-            T15 = fd.ops.mul(T12, S14)
-            S16 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
-            T17 = fd.ops.add(T15, S16)
-            T18 = fd.ops.rsqrt(T17)
-            S19 = fd.define_scalar(2, dtype=DataType.Int)
-            S20 = fd.define_scalar(4096, dtype=DataType.Int)
-            S21 = fd.define_scalar(4096, dtype=DataType.Int)
-            V22 = fd.define_vector([S19, S20, S21], dtype=DataType.Int)
-            T23 = fd.ops.broadcast_in_dim(T18, shape=V22, broadcast_dims=[0, 1, 2])
-            T24 = fd.ops.mul(T5, T23)
-            T25 = fd.ops.cast(T0, dtype=DataType.Float)
-            T26 = fd.ops.mul(T24, T25)
-            T27 = fd.ops.cast(T26, dtype=DataType.BFloat16)
-            T28 = fd.ops.linear(T27, T4)
-            S29 = fd.define_scalar(2, dtype=DataType.Int)
-            S30 = fd.define_scalar(4096, dtype=DataType.Int)
-            S31 = fd.define_scalar(8, dtype=DataType.Int)
-            S32 = fd.define_scalar(6, dtype=DataType.Int)
-            S33 = fd.define_scalar(128, dtype=DataType.Int)
-            V34 = fd.define_vector([S29, S30, S31, S32, S33], dtype=DataType.Int)
-            T35 = fd.ops.reshape(T28, new_shape=V34)
-            T36 = fd.ops.permute(T35, dims=[0, 2, 3, 1, 4])
-            T37 = fd.ops.slice(
-                T36,
-                start_indices=[0, 0, 0, 0, 0],
-                end_indices=[2, 8, 4, 4096, 128],
-                strides=[1, 1, 1, 1, 1],
-            )
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[None, None, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1, -1],
+            contiguity=[True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[2, 1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[None, None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T3 = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=[None, None, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T4 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T5 = fd.ops.cast(T1, dtype=DataType.Float)
+        T6 = fd.ops.mul(T5, T5)
+        T7 = fd.ops.sum(T6, dims=[2], keepdim=False, dtype=DataType.Null)
+        S8 = fd.define_scalar(2, dtype=DataType.Int)
+        S9 = fd.define_scalar(4096, dtype=DataType.Int)
+        S10 = fd.define_scalar(1, dtype=DataType.Int)
+        V11 = fd.define_vector([S8, S9, S10], dtype=DataType.Int)
+        T12 = fd.ops.broadcast_in_dim(T7, shape=V11, broadcast_dims=[0, 1])
+        S13 = fd.define_scalar(4096.00, dtype=DataType.Double)
+        S14 = fd.ops.reciprocal(S13)
+        T15 = fd.ops.mul(T12, S14)
+        S16 = fd.define_scalar(1.00000e-05, dtype=DataType.Double)
+        T17 = fd.ops.add(T15, S16)
+        T18 = fd.ops.rsqrt(T17)
+        S19 = fd.define_scalar(2, dtype=DataType.Int)
+        S20 = fd.define_scalar(4096, dtype=DataType.Int)
+        S21 = fd.define_scalar(4096, dtype=DataType.Int)
+        V22 = fd.define_vector([S19, S20, S21], dtype=DataType.Int)
+        T23 = fd.ops.broadcast_in_dim(T18, shape=V22, broadcast_dims=[0, 1, 2])
+        T24 = fd.ops.mul(T5, T23)
+        T25 = fd.ops.cast(T0, dtype=DataType.Float)
+        T26 = fd.ops.mul(T24, T25)
+        T27 = fd.ops.cast(T26, dtype=DataType.BFloat16)
+        T28 = fd.ops.linear(T27, T4)
+        S29 = fd.define_scalar(2, dtype=DataType.Int)
+        S30 = fd.define_scalar(4096, dtype=DataType.Int)
+        S31 = fd.define_scalar(8, dtype=DataType.Int)
+        S32 = fd.define_scalar(6, dtype=DataType.Int)
+        S33 = fd.define_scalar(128, dtype=DataType.Int)
+        V34 = fd.define_vector([S29, S30, S31, S32, S33], dtype=DataType.Int)
+        T35 = fd.ops.reshape(T28, new_shape=V34)
+        T36 = fd.ops.permute(T35, dims=[0, 2, 3, 1, 4])
+        T37 = fd.ops.slice(
+            T36,
+            start_indices=[0, 0, 0, 0, 0],
+            end_indices=[2, 8, 4, 4096, 128],
+            strides=[1, 1, 1, 1, 1],
+        )
 
-            S47 = fd.define_scalar(2, dtype=DataType.Int)
-            S48 = fd.define_scalar(32, dtype=DataType.Int)
-            S49 = fd.define_scalar(4096, dtype=DataType.Int)
-            S50 = fd.define_scalar(128, dtype=DataType.Int)
-            V51 = fd.define_vector([S47, S48, S49, S50], dtype=DataType.Int)
-            T52 = fd.ops.reshape(T37, new_shape=V51)
-            T59 = fd.ops.slice(
-                T52,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 128],
-                strides=[1, 1, 1, 1],
-            )
-            T60 = fd.ops.slice(
-                T59,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 64],
-                strides=[1, 1, 1, 1],
-            )
-            T61 = fd.ops.slice(
-                T59,
-                start_indices=[0, 0, 0, 64],
-                end_indices=[2, 32, 4096, 128],
-                strides=[1, 1, 1, 1],
-            )
-            T62 = fd.ops.cast(T61, dtype=DataType.Float)
-            T63 = fd.ops.neg(T62)
-            T64 = fd.ops.cast(T63, dtype=DataType.BFloat16)
-            T65 = fd.ops.cat([T64, T60], dim=-1)
-            T66 = fd.ops.cast(T59, dtype=DataType.Float)
-            T67 = fd.ops.cast(T2, dtype=DataType.Float)
-            T68 = fd.ops.mul(T66, T67)
-            T69 = fd.ops.cast(T65, dtype=DataType.Float)
-            T70 = fd.ops.cast(T3, dtype=DataType.Float)
-            T71 = fd.ops.mul(T69, T70)
-            T72 = fd.ops.add(T68, T71)
-            T73 = fd.ops.cast(T72, dtype=DataType.BFloat16)
+        S47 = fd.define_scalar(2, dtype=DataType.Int)
+        S48 = fd.define_scalar(32, dtype=DataType.Int)
+        S49 = fd.define_scalar(4096, dtype=DataType.Int)
+        S50 = fd.define_scalar(128, dtype=DataType.Int)
+        V51 = fd.define_vector([S47, S48, S49, S50], dtype=DataType.Int)
+        T52 = fd.ops.reshape(T37, new_shape=V51)
+        T59 = fd.ops.slice(
+            T52,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 128],
+            strides=[1, 1, 1, 1],
+        )
+        T60 = fd.ops.slice(
+            T59,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 64],
+            strides=[1, 1, 1, 1],
+        )
+        T61 = fd.ops.slice(
+            T59,
+            start_indices=[0, 0, 0, 64],
+            end_indices=[2, 32, 4096, 128],
+            strides=[1, 1, 1, 1],
+        )
+        T62 = fd.ops.cast(T61, dtype=DataType.Float)
+        T63 = fd.ops.neg(T62)
+        T64 = fd.ops.cast(T63, dtype=DataType.BFloat16)
+        T65 = fd.ops.cat([T64, T60], dim=-1)
+        T66 = fd.ops.cast(T59, dtype=DataType.Float)
+        T67 = fd.ops.cast(T2, dtype=DataType.Float)
+        T68 = fd.ops.mul(T66, T67)
+        T69 = fd.ops.cast(T65, dtype=DataType.Float)
+        T70 = fd.ops.cast(T3, dtype=DataType.Float)
+        T71 = fd.ops.mul(T69, T70)
+        T72 = fd.ops.add(T68, T71)
+        T73 = fd.ops.cast(T72, dtype=DataType.BFloat16)
 
-            T87 = fd.ops.slice(
-                T52,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 0],
-                strides=[1, 1, 1, 1],
-            )
-            T88 = fd.ops.cat([T73, T87], dim=-1)
+        T87 = fd.ops.slice(
+            T52,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 0],
+            strides=[1, 1, 1, 1],
+        )
+        T88 = fd.ops.cat([T73, T87], dim=-1)
 
-            fd.add_output(T88)
+        fd.add_output(T88)
 
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
-    # See https://github.com/NVIDIA/Fuser/issues/2275
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
 
-@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+# See https://github.com/NVIDIA/Fuser/issues/2275
+@pytest.mark.skipif(
+    is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+)
 def test_unpadded_catop_issue2275_repro2():
-        inputs = [
-            torch.randn((2, 32, 4096, 128), dtype=torch.bfloat16, device="cuda:0")
-        ]
+    inputs = [
+        torch.randn((2, 32, 4096, 128), dtype=torch.bfloat16, device="cuda:0")
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
 
-            T1 = fd.ops.slice(
-                T0,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 128],
-                strides=[1, 1, 1, 1],
-            )
-            T2 = fd.ops.slice(
-                T1,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 64],
-                strides=[1, 1, 1, 1],
-            )
-            T3 = fd.ops.slice(
-                T1,
-                start_indices=[0, 0, 0, 64],
-                end_indices=[2, 32, 4096, 128],
-                strides=[1, 1, 1, 1],
-            )
-            T4 = fd.ops.cast(fd.ops.neg(T3), DataType.BFloat16)
-            T5 = fd.ops.cat([T4, T2], dim=-1)
-            T6 = fd.ops.add(fd.ops.sin(T5), fd.ops.cos(T5))
-            T7 = fd.ops.cast(T6, DataType.BFloat16)
+        T1 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 128],
+            strides=[1, 1, 1, 1],
+        )
+        T2 = fd.ops.slice(
+            T1,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 64],
+            strides=[1, 1, 1, 1],
+        )
+        T3 = fd.ops.slice(
+            T1,
+            start_indices=[0, 0, 0, 64],
+            end_indices=[2, 32, 4096, 128],
+            strides=[1, 1, 1, 1],
+        )
+        T4 = fd.ops.cast(fd.ops.neg(T3), DataType.BFloat16)
+        T5 = fd.ops.cat([T4, T2], dim=-1)
+        T6 = fd.ops.add(fd.ops.sin(T5), fd.ops.cos(T5))
+        T7 = fd.ops.cast(T6, DataType.BFloat16)
 
-            T100 = fd.ops.slice(
-                T0,
-                start_indices=[0, 0, 0, 0],
-                end_indices=[2, 32, 4096, 0],
-                strides=[1, 1, 1, 1],
-            )
-            T101 = fd.ops.cat([T7, T100], dim=-1)
-            fd.add_output(T101)
+        T100 = fd.ops.slice(
+            T0,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[2, 32, 4096, 0],
+            strides=[1, 1, 1, 1],
+        )
+        T101 = fd.ops.cat([T7, T100], dim=-1)
+        fd.add_output(T101)
 
-        nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
+    nvf_out, _ = exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
-    # See https://github.com/NVIDIA/Fuser/issues/2317
-    @pytest.mark.skipif(
-        is_pre_ampere(), reason="Only supported on Ampere and newer devices."
-    )
 
-@pytest.mark.skipif(is_pre_volta(), reason="Only supported on Volta and newer devices.")
+# See https://github.com/NVIDIA/Fuser/issues/2317
+@pytest.mark.skipif(
+    is_pre_ampere(), reason="Only supported on Ampere and newer devices."
+)
 def test_reduction_transpose_sched_issue2317():
-        inputs = [
+    inputs = [
             torch.randn((16, 25, 128, 64), dtype=torch.bfloat16, device="cuda:0"),
             torch.randn((16, 128, 1600), dtype=torch.bfloat16, device="cuda:0"),
             torch.randn((1600, 1600), dtype=torch.bfloat16, device="cuda:0"),
