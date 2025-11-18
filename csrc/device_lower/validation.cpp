@@ -523,17 +523,23 @@ class ExprValidator : public OptOutDispatch {
     if (block_scaling_factor->hasAllocation()) {
       // Check that the logical domain in 2D and the allocation domain is 5D
       NVF_ERROR_EQ(
-          block_scaling_factor->getLogicalDomain().size(),
+          TensorDomain::noReductions(block_scaling_factor->getLogicalDomain())
+              .size(),
           2,
           "Block scaling factor logical domain must be 2D when allocation "
           "domain is present. Found: ",
-          block_scaling_factor->getLogicalDomain().size());
+          TensorDomain::noReductions(block_scaling_factor->getLogicalDomain())
+              .size());
       NVF_ERROR_EQ(
-          block_scaling_factor->getAllocationDomain().size(),
+          TensorDomain::noReductions(
+              block_scaling_factor->getAllocationDomain())
+              .size(),
           5,
           "Block scaling factor allocation domain must be 5D when allocation "
           "domain is present. Found: ",
-          block_scaling_factor->getAllocationDomain().size());
+          TensorDomain::noReductions(
+              block_scaling_factor->getAllocationDomain())
+              .size());
     }
 
     NVF_ERROR(

@@ -1870,8 +1870,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     constexpr size_t EXPECTED_LOGICAL_DIMS = 2;
 
     const bool is_swizzled = block_scales_tv->hasAllocation() &&
-        block_scales_tv->getAllocationDomain().size() ==
-            EXPECTED_ALLOCATION_DIMS &&
+        TensorDomain::noReductions(block_scales_tv->getAllocationDomain())
+                .size() == EXPECTED_ALLOCATION_DIMS &&
         TensorDomain::noReductions(block_scales_tv->getLogicalDomain())
                 .size() == EXPECTED_LOGICAL_DIMS;
 

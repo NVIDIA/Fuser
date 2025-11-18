@@ -129,7 +129,7 @@ void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
   // back to a 2D logical domain.
   tv_block_scale_fp8->merge(0);
   tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(-1);
+  tv_block_scale_fp8->merge(-2);
 }
 
 void createNVFP4QuantizationFusion(
