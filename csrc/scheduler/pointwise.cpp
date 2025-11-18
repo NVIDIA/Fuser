@@ -414,7 +414,9 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
         fusion, runtime_info, data_cache, prop);
-  } else {
+  }
+  // Fallback to non-TMA scheduler if TMA is not applicable
+  if (pparams == nullptr) {
     pparams = pointwise::non_tma::getPointwiseHeuristics(
         fusion, runtime_info, data_cache, prop);
   }

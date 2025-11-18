@@ -81,6 +81,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   int64_t bits_per_cta = bits_per_sm / cta_per_sm;
   int64_t bits_per_element = getInputBitsPerElement(prop);
+  // No suitable inputs found, TMA is not applicable
+  if (bits_per_element == 0) {
+    return nullptr;
+  }
   int64_t elements_per_cta = ceilDiv(bits_per_cta, bits_per_element);
   elements_per_cta = scheduler_utils::roundUpPow2Or8(elements_per_cta);
   int64_t max_tma_tile_inner =
