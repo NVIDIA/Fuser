@@ -411,12 +411,20 @@ class EVTConverter : OptInDispatch {
         unquantized_node == nullptr,
         "Could not find EVT node for unquantized output");
 
+    // For grouped GEMM, the element type is actually the pointer type and
+    // Sm100BlockScaleFactorRowStore will detect that pattern and dereference
+    // automatically
+    std::string element_block_scale_factor =
+        dtypeToCutlass(pattern.block_scale_factors->dtype());
+    if (pattern_.is_grouped) {
+      element_block_scale_factor += "*";
+    }
     EVTModel::Node* scaling_node = model_.makeNode(
         "cutlass::epilogue::fusion::Sm100BlockScaleFactorRowStore<" +
         std::to_string(pattern.block_size) + ", EpilogueTileShape, " +
         dtypeToCutlass(pattern.quantized_output->dtype()) + ", " +
         dtypeToCutlass(pattern.unquantized_output->dtype()) + ", " +
-        dtypeToCutlass(pattern.block_scale_factors->dtype()) +
+        element_block_scale_factor +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
         {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
