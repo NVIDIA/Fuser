@@ -566,12 +566,16 @@ extern "C" void temp_tensor_sizes(
           ");\n";
       code_ += R"(
   int64_t num_experts = expert_offsets.sizes[0];
+  // All pointer arrays are the same size since they represent an array of
+  // base pointers, so they are independent of the dimension of the tensor or
+  // the inner dimensions of each group.
+  int64_t ptr_array_bytes = num_experts * sizeof(int64_t);
 )";
       // There are always going to be pointer arrays for A, B, A_sf, B_sf. There
       // is also one for each output and one for each _epilogue_ input.
       auto register_temp_tensor = [&](TensorView* tv) {
         code_ += "  out_tensor_sizes[" + std::to_string(num_temp_tensors_) +
-            "] = num_experts * sizeof(int64_t);\n";
+            "] = num_experts * ptr_array_bytes;\n";
         temp_tensor_map_.emplace(tv, num_temp_tensors_++);
       };
       for (Val* inp : fusion_->inputs()) {
