@@ -70,12 +70,16 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const int64_t tma_outer_domain_size = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
 
+  auto bp_info = pointwise_utils::getBreakPoint(
+      fusion, prop, data_cache, /*is_tma =*/true);
+  params->break_point = bp_info.break_point;
+
   // Compute elements_per_cta: Each CTA issues one TMA load operation. We
   // calculate the number of elements per TMA load based on the required bits
   // in flight, assuming 8 CTAs per SM. This is a guideline; the actual tile
   // size is determined by tma_tile_inner and tma_tile_outer.
   // - Inner tile size: ensure at least 2 tiles in the inner TMA dimension
-  // - Outer tile size: don't exceed the outer TMA dimension size
+  // dimension. outer tile size: don't exceed the outer TMA dimension size Both
   // Both are subject to hardware constraints of 256 elements per dimension.
   constexpr int64_t cta_per_sm = 8;
   int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
@@ -124,6 +128,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n==== Pointwise TMA Scheduler Heuristics ====\n";
     debug() << "Domain sizes:\n";
     debug() << "  n_elems: " << prop.n_elems << "\n";
+    debug() << "  break_point: " << bp_info.break_point << "\n";
     debug() << "  tma_domain_inner: " << tma_domain_inner << "\n";
     debug() << "  tma_outer_domain_size: " << tma_outer_domain_size << "\n";
     debug() << "\nMemory and CTA configuration:\n";
@@ -167,7 +172,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Always merge all dimensions without considering the break point. The
   // break point effect can be equivalently handled by setting TMA domain sizes.
   auto schedule_info_opt =
-      pointwise_utils::commonPointwiseSchedule(fusion, /*break_point=*/0);
+      pointwise_utils::commonPointwiseSchedule(fusion, pparams->break_point);
   if (!schedule_info_opt.has_value()) {
     // Zero-dimensional tensors, nothing to schedule
     return;
@@ -202,7 +207,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Split the TMA domain: [I0] -> [Do, Di]
-  reference_tv->split(0, pparams->tma_domain_inner);
+  if (pparams->break_point == 0) {
+    reference_tv->split(0, pparams->tma_domain_inner);
+  } else {
+    NVF_ERROR(
+        n_valid_dims >= 2,
+        "Required at least 2 valid dimensions for Tma scheduling, but got ",
+        n_valid_dims);
+  }
 
   // Split into TMA tiles (box/tile sizes)
   // [Do, Di] -> [Do/to, to, Di/ti, ti]

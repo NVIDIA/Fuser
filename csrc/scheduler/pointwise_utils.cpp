@@ -174,6 +174,187 @@ std::optional<FusionRuntimeProperties> getFusionRuntimeProperties(
   return prop;
 }
 
+BreakPointInfo getBreakPoint(
+    Fusion* fusion,
+    const FusionRuntimeProperties& prop,
+    HeuristicDataCache* data_cache,
+    bool is_tma,
+    int64_t max_vect_factor,
+    int64_t kThreadX) {
+  BreakPointInfo result;
+
+  // Calculate dtype_sum_bit from fusion inputs/outputs
+  int64_t dtype_sum_bit = 0;
+  const auto index_type = prop.index_type;
+  for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
+    dtype_sum_bit += dataTypeSizeBit(inp->getDataType().value(), index_type);
+  }
+  for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
+  }
+
+  // Get broadcast information
+  TensorView* largest_out = prop.largest_out;
+  auto broadcast_info_entry = HeuristicDataCacheEntry<
+      HeuristicCompileTime::BroadcastMultiples>(
+      data_cache, [&largest_out, &index_type]() {
+        return std::make_unique<scheduler_utils::BroadcastMultipleInformation>(
+            scheduler_utils::getBroadcastMultiples(largest_out, index_type));
+      });
+  const auto& broadcast_info = broadcast_info_entry.get();
+
+  const auto& ref_loop = prop.ref_loop;
+  const auto& elem_counts = prop.elem_counts;
+  const int64_t n_elems = prop.n_elems;
+  const auto& view_disjoint_sets = broadcast_info.view_disjoint_set_ids;
+  const auto& broadcast_bit_multiples = broadcast_info.broadcast_multiples;
+
+  // Default values for 1D scheduling
+  result.break_point = 0;
+  result.flip_grid_binding = false;
+  result.right_elem_count = 0;
+  result.is_outer_broadcast_dominated = false;
+
+  // Figure out break point position
+  // How much would this transfer cost if it was done as a 1-D schedule
+  int64_t transfer_size_1d_bit = 1;
+
+  for (const auto i : arange(ref_loop.size())) {
+    transfer_size_1d_bit =
+        transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
+  }
+
+  // Calculate optimal break point for 2D scheduling
+  int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
+  // Don't check the inner most dimension, scheduler assumes there's always
+  // an rhs
+  for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
+    // If break point is incoherent with view, don't consider breaking here.
+    if (!scheduler_utils::breakIsDisjoint(view_disjoint_sets, break_point_i)) {
+      continue;
+    }
+
+    // Number of elements in the right side of reference tv with
+    // break_point_i
+    int64_t cur_right_elem_count = 1;
+    for (const auto right_i : arange(break_point_i, ref_loop.size())) {
+      cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
+    }
+
+    // For tma scheduling, allow no element in the left side of break point,
+    // e.g. break at pos-0 for non-broadcasted case.
+    auto cur_left_elem_count = n_elems / cur_right_elem_count;
+    if (!is_tma && cur_left_elem_count <= 1) {
+      continue;
+    }
+
+    auto lhs_bit_multiple = broadcast_bit_multiples[break_point_i].lhs_multiple;
+    auto rhs_bit_multiple = broadcast_bit_multiples[break_point_i].rhs_multiple;
+
+    // Estimate transfer cost with this break point
+    int64_t cur_transfer_size_bit = 1;
+    int64_t right_transfer_size_bit = 1;
+
+    for (const auto left_i : arange(break_point_i)) {
+      cur_transfer_size_bit =
+          cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
+    }
+
+    for (const auto right_i : arange(break_point_i, ref_loop.size())) {
+      right_transfer_size_bit =
+          right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
+    }
+    cur_transfer_size_bit *= right_transfer_size_bit;
+
+    if (!is_tma) {
+      //  Continue if this break point doesn't save at least 10% of 1D
+      //  scheduling or isn't better than previous break_points found.
+      if (cur_transfer_size_bit >= min_total_transfer_bit ||
+          cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
+        continue;
+      }
+
+      // Need to be able to parallelize, don't use break if there's not
+      // at least an unrolled warp.
+      if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
+          at::cuda::getCurrentDeviceProperties()->warpSize) {
+        continue;
+      }
+      // If outer broadcast, or balanced broadcast:
+      if (lhs_bit_multiple <= rhs_bit_multiple &&
+          // If right transfer size is bigger than half of L2
+          at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
+              right_transfer_size_bit * 2) {
+        // flip BIDx and BIDy bindings
+        result.flip_grid_binding = true;
+      } else {
+        result.flip_grid_binding = false;
+      }
+    } else {
+      // If TMA is used, priorize break if it saves transfered size
+      // This ensures we break at broadcast dimensions, then we can optionally
+      // load tvs with broadcasted dimensions.
+      if (cur_transfer_size_bit >= min_total_transfer_bit) {
+        continue;
+      }
+    }
+
+    // Use this break point
+    result.break_point = static_cast<int>(break_point_i);
+    min_total_transfer_bit = cur_transfer_size_bit;
+    result.right_elem_count = cur_right_elem_count;
+
+    // when lhs byte multiple is smaller than rhs byte multiple,
+    // there is broadcast in the lhs, which is outer broadcast.
+    result.is_outer_broadcast_dominated = lhs_bit_multiple < rhs_bit_multiple;
+  }
+
+  return result;
+}
+
+BlockGridConfig getBlockGridConfig(
+    const FusionRuntimeProperties& prop,
+    const BreakPointInfo& bp_info,
+    int64_t max_vect_factor,
+    int64_t kThreadX) {
+  BlockGridConfig result;
+
+  // Copy break point information
+  result.break_point = bp_info.break_point;
+  result.flip_grid_binding = bp_info.flip_grid_binding;
+  result.right_elem_count = bp_info.right_elem_count;
+  result.is_outer_broadcast_dominated = bp_info.is_outer_broadcast_dominated;
+
+  // Default thread/grid dimensions for 1D scheduling
+  result.bdimx = kThreadX;
+  result.bdimy = 1;
+  result.gdim_left = 1;
+  result.gdim_right = 1;
+
+  // Calculate thread/grid dimensions if we have a 2D break point
+  if (result.break_point > 0 && result.right_elem_count > 0) {
+    const int64_t n_elems = prop.n_elems;
+    int64_t threads_per_warp =
+        (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
+
+    int64_t cur_left_elem_count = n_elems / result.right_elem_count;
+
+    // Start bdimx with 1 warp, increase if split is divisible
+    int64_t after_vect = ceilDiv(result.right_elem_count, max_vect_factor);
+    result.bdimx = std::min(after_vect, threads_per_warp);
+    while (result.bdimx * 2 <= kThreadX && result.bdimx * 2 <= after_vect &&
+           after_vect % (result.bdimx * 2) == 0) {
+      result.bdimx *= 2;
+    }
+    result.bdimy = kThreadX / result.bdimx;
+    result.gdim_left = ceilDiv(cur_left_elem_count, result.bdimy);
+    result.gdim_right =
+        ceilDiv(result.right_elem_count, result.bdimx * max_vect_factor);
+  }
+
+  return result;
+}
+
 std::optional<CommonScheduleInfo> commonPointwiseSchedule(
     Fusion* fusion,
     int64_t break_point) {
