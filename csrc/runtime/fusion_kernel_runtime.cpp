@@ -473,7 +473,10 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
     } else {
       hie_ = std::make_unique<hir::HostIrEvaluator>(
-          std::move(hic), &Communicator::getInstance());
+          std::move(hic),
+          &Communicator::getInstance(),
+          hir::HostIrEvaluatorParams{
+              .mode = hir::HostIrEvaluatorParams::Mode::kFusionExecutorCache});
     }
   }
 

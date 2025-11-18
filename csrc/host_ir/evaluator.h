@@ -24,6 +24,11 @@ namespace hir {
 
 // Set of parameters that control the behavior of HostIrEvaluator
 struct HostIrEvaluatorParams {
+  enum class Mode {
+    kFusionExecutorCache,
+    kMultiDeviceExecutor,
+  };
+
   // Experimental: whether to use FusionExecutorCache rather than
   // KernelExecutor.
   bool use_fusion_executor_cache = false;
@@ -39,6 +44,8 @@ struct HostIrEvaluatorParams {
   int64_t number_of_streams = 4;
   // Whether to use allocation cache for tensor allocations
   bool use_allocation_cache = false;
+
+  Mode mode = Mode::kMultiDeviceExecutor;
 };
 
 // A HostIrEvaluator evaluates a host programs represented through a
@@ -55,7 +62,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = &Communicator::getInstance(),
-      HostIrEvaluatorParams = HostIrEvaluatorParams());
+      HostIrEvaluatorParams params = HostIrEvaluatorParams());
 
   // Used by FusionExecutorCache, the main stack.
   KernelArgumentHolder runWithInputs(const KernelArgumentHolder& args);

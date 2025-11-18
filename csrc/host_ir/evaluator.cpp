@@ -493,10 +493,14 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
+  if (params_.mode == HostIrEvaluatorParams::Mode::kFusionExecutorCache) {
+    unhandled(linear);
+    return;
+  }
+
   auto* in = linear->inA()->as<TensorView>();
   auto* weight = linear->inB()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
-
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
     return;

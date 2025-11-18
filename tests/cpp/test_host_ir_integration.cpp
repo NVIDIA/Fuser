@@ -156,9 +156,15 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
     hic->pushBackTopLevelExprs(deallocate);
   }
 
-  HostIrEvaluator hie(std::move(hic));
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*communicator=*/nullptr,
+      HostIrEvaluatorParams{
+          .mode = HostIrEvaluatorParams::Mode::kFusionExecutorCache});
 
-  hie.runWithInput({});
+  KernelArgumentHolder args({});
+  args.setCacheId(0);
+  hie.runWithInputs(args);
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
 }
