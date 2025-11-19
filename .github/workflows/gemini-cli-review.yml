@@ -82,7 +82,7 @@ jobs:
 
       - name: Run Gemini PR review
         env:
-          GEMINI_MODEL: gemini-1.5-flash-latest
+          #GEMINI_MODEL: gemini-1.5-flash-latest
           GEMINI_OUTPUT_DIR: artifacts/gemini_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
 
           GEMINI_API_KEY: ${{ secrets.GEMINI_TEST }}
