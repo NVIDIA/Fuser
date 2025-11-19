@@ -16,7 +16,7 @@ VERDICT_MARKER = "VERDICT:"
 def parse_args() -> argparse.Namespace:
    parser = argparse.ArgumentParser(
       description=(
-         "Preflight launcher for PR quality checks (Gemini). "
+         "Preflight launcher for PR quality checks (Gemini, Claude, etc.). "
          "Prefers SHAs from environment variables, with optional CLI overrides."
       )
    )
@@ -56,7 +56,6 @@ def build_context_from_env_and_args(args: argparse.Namespace) -> argparse.Namesp
       )
 
    output_dir = args.output_dir
-
    return argparse.Namespace(
       pr_number=pr_number,
       head_sha=head_sha,
@@ -71,7 +70,11 @@ def main() -> int:
    args = parse_args()
    context = build_context_from_env_and_args(args)
 
-   # Use the merge-base as the diff baseline
+    # Use the merge-base as the diff baseline (GitHub-style three-dot diff).
+    # This finds the closest common ancestor of base and head so our comparisons
+    # reflect only changes introduced by the PR, minimizing noise from commits
+    # that may have landed on the base branch. We keep context.base_sha as the
+    # canonical event SHA and only use merge_base_sha for diffing/analysis.
    merge_base_sha = compute_merge_base_sha(context.base_sha, context.head_sha)
    if not merge_base_sha:
       print(
@@ -79,7 +82,7 @@ def main() -> int:
          file=sys.stderr,
       )
 
-   # Build prompt for Gemini
+   # Build prompt
    merge_base_line = f"\n - merge-base: {merge_base_sha}" if merge_base_sha else ""
    prompt = (
       f"Review this pull request for readiness. Analyze:\n"
@@ -117,8 +120,8 @@ def main() -> int:
       output_dir=output_dir)
 
    # Short summary for logs
-   print(f"Gemini review artifacts: {output_dir}")
-   print(f"Gemini review exit code: {exit_code}")
+   print(f"PR review artifacts: {output_dir}")
+   print(f"PR review exit code: {exit_code}")
 
    return exit_code
 
