@@ -1,17 +1,12 @@
 # RaggedIterDomain for Nested Tensors
 
-**Status**: Draft
-**Author**: [To be filled]
-**Date**: 2025-01-XX
-**Last Updated**: 2025-01-XX
-
 ---
 
 ## 1. Overview
 
 This document proposes adding `RaggedIterDomain`, a new `IterDomain` subclass to nvFuser that represents dimensions with variable extents across batch components (ragged/jagged dimensions). This enables efficient compilation of PyTorch nested tensors and other variable-length data structures without padding overhead.
 
-The initial goal is intentionally minimal by just supporting enough capabilities for expert parallelism. Full scheduling and lowering capabilities will be considered as needed.
+**Scope Note**: This proposal represents a **minimalistic initial version** containing only the capabilities that are absolutely necessary for expert parallelism. The exact requirements for expert parallelism are still being clarified with Jingyue. As those requirements become clear, additional capabilities (such as flatten operations, specific IdModel integrations, or lowering support) may be added to this design. The features described here should be considered the bare minimum starting point.
 
 ---
 
@@ -25,8 +20,8 @@ NvFuser currently lacks support for compiling operations on nested tensors. This
 
 ### PyTorch Nested Tensor Semantics
 
-Please review the PyTorch [semantics|https://docs.pytorch.org/docs/stable/nested.html] of nested tensors.
-PyTorch nested tensors represent collections of tensors with varying shapes along one or more dimensions. For example, a batch of 3 sequences with lengths [3, 5, 2] is stored contiguously with offset-based indexing rather than padding to length 5.
+Please review the PyTorch [semantics](https://docs.pytorch.org/docs/stable/nested.html) of nested tensors.
+PyTorch nested tensors represent collections of tensors with varying shapes along one dimension. For example, a batch of 3 sequences with lengths [3, 5, 2] is stored contiguously with offset-based indexing rather than padding to length 5.
 
 ```python
 # Batch of 3 sequences with different lengths
@@ -74,7 +69,7 @@ TensorView contains a TensorDomain which groups multiple IterDomains representin
 - Inlining
 - Extension of single-GPU schedulers for ragged dimensions
 
-Inlining would be eventually necessary for lowering to CUDA code but should not be necessary for DID parallelization. Similarly, the schedulers will be left as is for now.
+Inlining would be eventually necessary for lowering to CUDA code but should not be necessary for distributed device (multi-GPU) parallelization. Similarly, the schedulers will be left as is for now.
 
 ---
 
@@ -84,7 +79,7 @@ Inlining would be eventually necessary for lowering to CUDA code but should not 
 
 - **IR Representation**: Represent ragged dimensions with variable extents per batch component
 - **Offset Computation**: Compute and provide access to offsets for indexing into contiguous storage
-- **Operations Support**: Support creation, flattening, and basic transformations on ragged dimensions
+- **Operations Support**: Support creation and basic transformations on ragged dimensions (flatten operation TBD based on expert parallelism requirements)
 - **Code Generation**: Generate correct CUDA code with offset-based indexing for ragged iteration
 - **Uniform Properties**: Enforce uniform execution properties (ParallelType, IterType) across components
 - **Integration**: Work within existing TensorView/TensorDomain infrastructure
@@ -96,9 +91,9 @@ Inlining would be eventually necessary for lowering to CUDA code but should not 
 
 ---
 
-## 7. Proposed Design
+## 6. Proposed Design
 
-### 7.1 High-Level Architecture
+### 6.1 High-Level Architecture
 
 `RaggedIterDomain` is a direct subclass of `IterDomain`, allowing it to be used anywhere an IterDomain is expected (in TensorDomain, transformations, etc.) while providing ragged-specific functionality.
 
@@ -124,7 +119,7 @@ auto tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged_seq, feature
 
 The compilation pipeline detects ragged dimensions and routes to appropriate indexing and code generation paths.
 
-### 7.2 Core Abstractions
+### 6.2 Core Abstractions
 
 #### RaggedIterDomain Class
 
@@ -141,8 +136,8 @@ class RaggedIterDomain : public IterDomain {
 
   // This overrides IterDomain::extent and returns the total extent
   Val* extent() const override;
-  
-  // This overrides IterDomain::parallelize and calls nested_domains[i]->parallelize(pt) for all nested IDs
+
+  // This overrides IterDomain::parallelize and calls nested_domains[i]->parallelize(pt) for all nested domains
   void parallelize(ParallelType pt);
 
  private:
@@ -169,7 +164,7 @@ For a ragged dimension with extents [3, 5, 2], the offsets are [0, 3, 8, 10].
 
 **extent()**: Overrides `IterDomain::extent()` to return the sum of all nested domain extents (total extent). This represents the total storage size needed for the ragged dimension when data is stored contiguously.
 
-### 7.3 Property Uniformity
+### 6.3 Property Uniformity
 
 Certain IterDomain properties are allowed to be non-uniform across all nested domains, such as extents. In the initial version, properties that have no reason to be non-uniform are set to be uniform to simplify the overall design and implementation.
 
@@ -181,14 +176,18 @@ Certain IterDomain properties are allowed to be non-uniform across all nested do
 | **start** | **UNIFORM (=0)** | Simplifies offset computation; all components start at 0 |
 | **is_rfactor_domain** | **UNIFORM** | Reduction transformation applies uniformly |
 
-The follow properties are out of scope of this initial buildout.
-- is_padded_dimension
-- is_clustered_dimension
-- padded_to_size
+The following properties are out of scope of this initial buildout:
+- `is_padded_dimension`
+- `is_clustered_dimension`
+- `padded_to_size`
 
-The constructor validates uniform properties and throws an error if violated.
+The constructor validates that:
+1. Uniform properties (ParallelType, IterType, start, is_rfactor_domain) are consistent across all nested domains
+2. Out-of-scope properties are not set (must be false/nullptr for all nested domains)
 
-### 7.4 Key Operations
+If any validation fails, an error is thrown.
+
+### 6.4 Key Operations
 
 #### Creation and Nesting
 
@@ -202,9 +201,10 @@ auto ragged = IrBuilder::create<RaggedIterDomain>({id0, id1, id2});
 // Creates ragged dimension with extents [3, 5, 2]
 ```
 
-Create a nested tensor using a ragged dimension:
+Create a TensorView with a ragged dimension:
 ```cpp
-auto nested_tensor_domain = IrBuilder::create<TensorDomain>({IrBuilder::create<IterDomain>(0, 3), ragged});
+auto batch = IrBuilder::create<IterDomain>(0, 3);  // batch dimension
+auto nested_tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged});
 ```
 
 #### Transformations
@@ -240,7 +240,29 @@ ragged->parallelize(ParallelType::TIDx);
 // All nested domains now have ParallelType::TIDx
 ```
 
-### 7.5 Indexing and Code Generation
+#### Select Operation
+
+The `select` operation extracts a specific component from a ragged dimension, converting it to a regular IterDomain. This requires two steps:
+
+1. Select on the batch dimension to choose which component
+2. The ragged dimension automatically becomes a regular IterDomain with that component's extent
+
+```cpp
+// Starting tensor: [batch=3, ragged=[3,5,2], feature=4]
+auto tv = makeContigTensor(3);  // Assume ragged dimension is at position 1
+
+// Select batch component 1
+auto selected = tv->select(/*batch_dim=*/0, /*index=*/1);
+// Result: [ragged_extent=5, feature=4]
+// The ragged dimension collapsed to a regular IterDomain with extent 5
+```
+
+**Implementation notes:**
+- Select on batch dimension causes the RaggedIterDomain to resolve to the corresponding nested IterDomain
+- The nested IterDomain at the selected index replaces the RaggedIterDomain in the output TensorDomain
+- This enables direct access to individual components, similar to PyTorch's `nested_tensor[i]` indexing
+
+### 6.5 Indexing and Code Generation
 
 #### Offset-Based Indexing
 
@@ -269,9 +291,9 @@ for (int batch = 0; batch < num_components; batch++) {
 
 #### Indexer Strategy
 
-RaggedIterDomain will integrate with the IdModel-based indexing system. This requires extending IdModel to handle ragged dimensions, including new expression types for ragged transformations and modifications to ValGraph handling. See Appendix B for detailed analysis of IdModel integration challenges and approach.
+RaggedIterDomain will integrate with the IdModel-based indexing system. This requires extending IdModel to handle ragged dimensions, including new expression types for ragged transformations and modifications to ValGraph handling.
 
-### 7.6 Memory Layout
+### 6.6 Memory Layout
 
 Ragged data is stored contiguously in memory with components placed sequentially:
 
@@ -292,7 +314,7 @@ Properties:
 
 This layout enables efficient sequential access and avoids padding overhead.
 
-### 7.7 Extent and Offset Tensor Management
+### 6.7 Extent and Offset Tensor Management
 
 #### Motivation: Dynamic Extent Computation
 
@@ -457,30 +479,7 @@ fusion.addOutput(tv_result_offsets);   // Offset tensor output (injected)
 
 ---
 
-## 8. Select Operation
-
-### 9.1 Extend IterDomain (vs Subclass)
-
-**Approach**:
-Add ragged support directly to IterDomain with an `isRagged()` flag and optional ragged-specific members.
-
-**Pros**:
-- Uniform handling across codebase (single type)
-- Simpler type system (no subclass)
-- Transformations preserve object identity
-
-**Cons**:
-- **Memory overhead**: Every IterDomain pays ~64 bytes for ragged storage even when not ragged (99% waste)
-- **API pollution**: Methods like `offsetForComponent()` exist on all IterDomains but only work for ragged
-- **Runtime errors**: Forgotten `isRagged()` checks compile fine but fail at runtime
-- **Unclear semantics**: What does `extent()` return for ragged? Multiple extent accessors are confusing
-
-**Why Rejected**:
-Memory efficiency is critical for IterDomain (created in huge quantities). The subclass approach provides type safety and clear API boundaries without overhead for regular IterDomains.
-
----
-
-## 10. System Integration
+## 7. System Integration
 
 ### IR Layer
 
@@ -525,7 +524,7 @@ Memory efficiency is critical for IterDomain (created in huge quantities). The s
 
 ---
 
-## 11. Implementation Phases
+## 8. Implementation Phases
 
 ### Phase 1: Core Infrastructure
 - Type system updates (ValType enum, dispatch macros)
@@ -541,11 +540,10 @@ Memory efficiency is critical for IterDomain (created in huge quantities). The s
 - **Goal**: Can compile and execute simple ragged operations
 
 ### Phase 3: Transformations
-- Implement flatten operation (concatenation)
 - Implement split operations on ragged dimensions
 - Implement merge operations (ragged with regular IterDomain)
 - Add parallelize override
-- Basic nest/unnest operations
+- Additional operations (flatten, nest/unnest) as determined by expert parallelism requirements
 - **Goal**: Can create and transform ragged dimensions
 
 ### Phase 4: Full Integration
@@ -557,7 +555,7 @@ Memory efficiency is critical for IterDomain (created in huge quantities). The s
 
 ---
 
-## 13. Future Work
+## 9. Future Work
 
 - **Python Frontend**: Expose RaggedIterDomain to Python API for direct construction
 - **Ragged-Aware Schedulers**: Specialized pointwise, reduction, and matmul schedulers for ragged patterns
@@ -565,7 +563,7 @@ Memory efficiency is critical for IterDomain (created in huge quantities). The s
 
 ---
 
-## 14. References
+## 10. References
 
 - [PyTorch Nested Tensor Documentation](https://pytorch.org/docs/stable/nested.html)
 
