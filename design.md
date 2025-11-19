@@ -11,6 +11,8 @@
 
 This document proposes adding `RaggedIterDomain`, a new `IterDomain` subclass to nvFuser that represents dimensions with variable extents across batch components (ragged/jagged dimensions). This enables efficient compilation of PyTorch nested tensors and other variable-length data structures without padding overhead.
 
+The initial goal is intentionally minimal by just supporting enough capabilities for expert parallelism. Full scheduling and lowering capabilities will be considered as needed.
+
 ---
 
 ## 2. Motivation
@@ -38,7 +40,7 @@ nt = torch.nested.nested_tensor([t1, t2, t3])
 
 The ragged dimension uses contiguous storage with offsets [0, 3, 8, 10] to locate each component.
 
-**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. It is unclear if this restriction would make sense for nvFuser. If it's simple enough, we would try to remove the restriction.
+**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. For the initial implementation, nvFuser will have the same restriction to simplify the design. Support for multiple ragged dimensions per tensor is deferred to future work.
 
 ### nvFuser IterDomain System
 
@@ -55,8 +57,7 @@ TensorView contains a TensorDomain which groups multiple IterDomains representin
 - **Nested domains**: The individual IterDomains contained within a RaggedIterDomain, one per batch component
 - **Component**: One element of the batch (e.g., one sequence in a batch of sequences)
 - **Offset**: Starting position of each component in contiguous storage
-- **Max extent**: Maximum extent across all nested domains
-- **Total extent**: Sum of all nested domain extents
+- **Extent**: Sum of all nested domain extents (total extent)
 
 ---
 
@@ -64,16 +65,16 @@ TensorView contains a TensorDomain which groups multiple IterDomains representin
 
 ### Goals
 
-- Support ragged dimensions in fusion IR
-- Lower fusions with ragged iteration domains
+- Support ragged dimensions in fusion IR for expert parallelism
 
 ### Non-Goals
 
 - Multi-level nesting (ragged within ragged)
+- Multiple ragged dimensions per tensor (deferred to future work)
 - Inlining
 - Extension of single-GPU schedulers for ragged dimensions
 
-Inlining would be eventually necessary for lowering to CUDA code but should not be necessary for DID parallelization. Similarly, the schedulers would be left as is for now.
+Inlining would be eventually necessary for lowering to CUDA code but should not be necessary for DID parallelization. Similarly, the schedulers will be left as is for now.
 
 ---
 
@@ -108,17 +109,17 @@ Val
       └── RaggedIterDomain (new subclass)
 ```
 
-A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. Unlike PyTorch (which restricts to one ragged dimension per tensor), nvFuser allows **multiple ragged dimensions** in the same TensorDomain, enabling patterns like:
+A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. For the initial implementation, **only one RaggedIterDomain per TensorDomain is supported** (matching PyTorch's restriction). Example:
 
 ```cpp
-// Example: Ragged in both sequence and feature dimensions
-// batch=2, seq_lengths=[3,5], feature_lengths=[4,6]
-auto batch = IrBuilder::create<IterDomain>(0, 2);
-auto ragged_seq = IrBuilder::create<RaggedIterDomain>({seq0, seq1});
-auto ragged_feat = IrBuilder::create<RaggedIterDomain>({feat0, feat1});
+// Example: Batch of sequences with variable lengths
+auto batch = IrBuilder::create<IterDomain>(0, 3);
+auto ragged_seq = IrBuilder::create<RaggedIterDomain>({seq0, seq1, seq2});
+auto feature = IrBuilder::create<IterDomain>(0, 4);
 
-// TensorDomain: {batch, ragged_seq, ragged_feat}
-auto tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged_seq, ragged_feat});
+// TensorDomain: {batch, ragged_seq, feature}
+// Only one ragged dimension allowed
+auto tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged_seq, feature});
 ```
 
 The compilation pipeline detects ragged dimensions and routes to appropriate indexing and code generation paths.
@@ -166,7 +167,7 @@ For a ragged dimension with extents [3, 5, 2], the offsets are [0, 3, 8, 10].
 
 #### Extent Semantics
 
-**extent()**: Returns the sum of all nested domain extents. Used for allocation size when storing ragged data contiguously.
+**extent()**: Overrides `IterDomain::extent()` to return the sum of all nested domain extents (total extent). This represents the total storage size needed for the ragged dimension when data is stored contiguously.
 
 ### 7.3 Property Uniformity
 
@@ -289,11 +290,174 @@ Properties:
   - extent = 10
 ```
 
-This layout enables efficient sequential access and avoids padding overhead. See Appendix D for additional memory layout examples.
+This layout enables efficient sequential access and avoids padding overhead.
+
+### 7.7 Extent and Offset Tensor Management
+
+#### Motivation: Dynamic Extent Computation
+
+Consider the mixture of experts (MoE) use case where a kernel dynamically creates a nested tensor output:
+
+```python
+# Input: tokens [num_tokens, hidden_dim], routing decisions per token
+# Output: nested tensor where each component corresponds to tokens for one expert
+
+# At kernel launch time:
+# - Total number of tokens: KNOWN (e.g., 1024)
+# - Number of experts: KNOWN (e.g., 8)
+# - Tokens per expert: UNKNOWN (depends on routing computation inside kernel)
+
+# Inside the kernel:
+# 1. Compute routing: which tokens go to which expert
+# 2. Count tokens per expert: [127, 0, 198, 64, 412, 89, 103, 31]
+# 3. Compute offsets: [0, 127, 127, 325, 389, 801, 890, 993, 1024]
+# 4. Reorder token data: group tokens by expert assignment
+# 5. Write nested tensor output with ragged dimension
+
+# Result: nested tensor [num_experts=8, ragged_tokens=[127,0,198,...], hidden_dim]
+```
+
+**Key Observation**: The nested domain extents are computed **inside the kernel** and are not known at kernel launch time.
+
+**Implication**: We cannot bundle extent/offset information with the nested tensor itself. The offsets must be managed as a separate tensor that can be computed dynamically on GPU and passed between kernels.
+
+#### Solution: Offset Tensor as Separate GPU-Resident Tensor
+
+**Design Principle**: Manage the offset tensor as a separate 1D GPU-resident tensor, decoupled from the nested tensor data.
+
+For a nested tensor with ragged dimension:
+- **Data tensor**: Contiguous storage for all components (size = Σextents)
+- **Offset tensor**: 1D tensor containing cumulative sum of extents (size = num_components + 1)
+
+**Example**:
+```cpp
+// Nested tensor: [batch=3, ragged=[127, 0, 198], hidden=512]
+
+// Two separate allocations:
+// 1. Data tensor: size = (127+0+198) * 512 = 325 * 512 elements
+float* data;
+
+// 2. Offset tensor: size = 4 (num_components + 1)
+int64_t* offsets = [0, 127, 127, 325];
+```
+
+**Why num_components + 1?** The offset tensor stores boundaries (start/end positions) for each component:
+- `offsets[i]` = start position of component `i`
+- `offsets[i+1]` = end position of component `i` (equivalently, start of component `i+1`)
+- `extent[i] = offsets[i+1] - offsets[i]`
+
+The final element represents the total size, enabling extent computation for the last component. This is the standard representation used by PyTorch's `torch.nested.nested_tensor_from_jagged(values, offsets)`.
+
+#### New Operation: viewAsNested
+
+To create a nested tensor from data and offsets, nvFuser provides the `viewAsNested` operation:
+
+```cpp
+// In csrc/ops/alias.h (or new csrc/ops/nested.h)
+NVF_API TensorView* viewAsNested(
+    TensorView* data,      // Data tensor with contiguous ragged storage
+    TensorView* offsets,   // Offset tensor [num_components + 1]
+    int64_t ragged_dim     // Which dimension of data is ragged
+);
+```
+
+**Semantics**:
+- Takes a regular TensorView `data` and reinterprets one dimension as ragged
+- `offsets` tensor provides the boundaries for each component
+- Returns a TensorView with a RaggedIterDomain at position `ragged_dim`
+- This is a view operation (no data copy), similar to `reshape` or `view`
+
+**Example Usage**:
+```cpp
+// Data: [325, 512] - flattened ragged dimension
+// Offsets: [0, 127, 127, 325] - 3 components with lengths [127, 0, 198]
+auto nested_tv = viewAsNested(data_tv, offsets_tv, /*ragged_dim=*/0);
+// Result: TensorView with shape [batch=3, ragged=[127,0,198], hidden=512]
+```
+
+#### Automatic Injection via Preseg Pass
+
+The offset tensor should be **transparent to the user-facing Fusion definition**. Users explicitly use `viewAsNested` to create nested tensors, but the preseg pass ensures offset tensors are properly threaded through the Fusion as separate inputs/outputs.
+
+**Original Fusion (user-defined)**:
+```cpp
+// User-defined Fusion
+Fusion fusion;
+FusionGuard fg(&fusion);
+
+// User provides data and offsets as separate inputs
+auto tv_data = TensorViewBuilder()
+    .ndims(2)
+    .shape({-1, 512})  // [total_tokens, hidden]
+    .dtype(DataType::Float)
+    .build();
+fusion.addInput(tv_data);
+
+auto tv_offsets = TensorViewBuilder()
+    .ndims(1)
+    .shape({9})  // [num_experts + 1]
+    .dtype(DataType::Int)
+    .build();
+fusion.addInput(tv_offsets);
+
+// User explicitly creates nested tensor view
+auto tv_nested = viewAsNested(tv_data, tv_offsets, /*ragged_dim=*/0);
+// tv_nested has shape [batch=8, ragged_tokens, hidden=512]
+
+// Operations on the nested tensor
+auto tv_result = some_operation(tv_nested);
+
+fusion.addOutput(tv_result);
+```
+
+**Transformed Fusion (after preseg pass)**:
+```cpp
+// After offset injection preseg pass
+// The pass ensures offset tensors are threaded through to all nested tensor outputs
+
+fusion.addInput(tv_data);      // Original data input (unchanged)
+fusion.addInput(tv_offsets);   // Original offset input (unchanged)
+
+auto tv_nested = viewAsNested(tv_data, tv_offsets, /*ragged_dim=*/0);
+auto tv_result = some_operation(tv_nested);
+
+// If tv_result has RaggedIterDomain, the preseg pass decomposes it:
+// INJECTED: Extract data and offset tensors from nested result
+auto tv_result_data = /* extract data part of tv_result */;
+auto tv_result_offsets = /* extract/compute offset part of tv_result */;
+
+fusion.addOutput(tv_result_data);      // Data tensor output
+fusion.addOutput(tv_result_offsets);   // Offset tensor output (injected)
+```
+
+**Key Transformation by Preseg Pass**:
+1. **Input handling**: No change - users explicitly provide data and offset tensors, call `viewAsNested`
+2. **Output decomposition**: Each nested tensor output is automatically decomposed into (data, offsets) pair
+3. **Update Fusion outputs**: Replace single nested tensor output with two outputs (data + offsets)
+4. **Offset threading**: Ensure offset tensors flow through the Fusion to all operations requiring them
+
+**Implementation Details**:
+- New preseg pass class: `InjectRaggedOffsets` in `csrc/preseg_passes/inject_ragged_offsets.{h,cpp}`
+- Pass runs early in preseg pipeline, before segmentation
+- Detects Fusion outputs with RaggedIterDomain
+- Automatically decomposes nested tensor outputs into (data, offsets) pairs
+- Threads offset tensors to all operations that need them for indexing
+
+#### Benefits
+
+**Performance**:
+- Eliminates CPU↔GPU synchronization for offset transfers
+- Enables kernels to dynamically create nested tensors (offsets computed on GPU)
+- Allows offset reuse across multiple kernel launches without repeated transfers
+- Supports pipelined execution without host-device barriers
+
+**Memory Overhead**:
+- Offset tensor: O(N+1) where N = batch size (typically small, e.g., 8-64 for MoE)
+- Negligible compared to data tensor size
 
 ---
 
-## 9. Alternative Designs Considered
+## 8. Select Operation
 
 ### 9.1 Extend IterDomain (vs Subclass)
 
@@ -390,14 +554,6 @@ Memory efficiency is critical for IterDomain (created in huge quantities). The s
 - CUDA code generation with offset-based indexing
 - Comprehensive end-to-end tests
 - **Goal**: Production-ready ragged tensor support
-
-### Phase 5: Advanced Features (Future)
-- Advanced split/merge patterns (ragged-to-ragged transformations)
-- Ragged-aware schedulers
-- Python frontend exposure
-- PyTorch automatic detection
-- Multi-level nesting support
-- **Goal**: Full feature parity and optimization
 
 ---
 
