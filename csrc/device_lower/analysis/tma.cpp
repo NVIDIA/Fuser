@@ -1069,6 +1069,100 @@ std::vector<TMADim> run(
 
 } // namespace collapse_tma_domain
 
+// Validate that consumers of TMA-loaded tensors don't have broadcast dimensions
+// that get merged with non-broadcast dimensions. This would lead to incorrect
+// indexing and silent numerical errors.
+//
+// This function catches two types of problematic patterns:
+//
+// 1. CASE 1: Broadcast in gmem allocation domain (already caught by existing
+//    TMA analysis)
+//    - Example: gmem tensor has shape {1, 256, 4096} with broadcast in
+//      allocation domain
+//    - When flattening merges dimensions, it tries to merge broadcast {1} with
+//      non-broadcast
+//    - The existing TMA analysis (handleTwoToOne) fails because broadcast
+//      dimensions are filtered from the frontier in getGmemAllocDomain()
+//    - Error: "bS6{1} is not on the path"
+//
+// 2. CASE 2: Broadcast happens AFTER TMA load (THIS function catches it)
+//    - Example: gmem tensor is {256, 4096} (no broadcast), TMA loads it
+//    - Then broadcast(tma_loaded_tensor, {true, false, false}) adds broadcast
+//      either directly or through intermediate ops:
+//      * Direct: t1 = tma_load(t0); t2 = broadcast(t1, {true, false, false})
+//      * Indirect: t1 = tma_load(t0); t2 = exp(t1); t3 = broadcast(t2, {true,
+//      ...})
+//    - Downstream tensor's logical domain becomes (bS15{1}, iS16{256},
+//    iS17{4096})
+//    - Flattening causes Merge(bS15{1}, iS16{256}) in the downstream tensor
+//    - The original TMA analysis doesn't see this because it only checks the
+//      path from smem_tv to gmem_tv, not ALL downstream dependent tensors
+//    - Without this check: SILENT NUMERICAL ERRORS (wrong indexing)
+//
+// Both cases violate the fundamental restriction that TMA cannot properly
+// handle schedules where broadcast and non-broadcast dimensions are merged,
+// because the TMA box/tile configuration and indexing assume a specific memory
+// layout that becomes invalid when broadcast semantics (stride 0) are mixed
+// with non-broadcast dimensions.
+void validateTMAConsumerBroadcasts(TensorView* smem_tv) {
+  // Get ALL vals that transitively depend on the TMA-loaded tensor,
+  // not just direct consumers. Example:
+  //   t1 = tma_load(t0)
+  //   t2 = exp(t1)
+  //   t3 = broadcast(t2)
+  // We need to check t2, t3, and any other tensors downstream of t1.
+  auto all_downstream_vals = DependencyCheck::getAllDependentVals({smem_tv});
+
+  // Filter to get only TensorViews
+  for (auto val : all_downstream_vals) {
+    if (!val->isA<TensorView>()) {
+      continue;
+    }
+    auto consumer = val->as<TensorView>();
+    // Check if this consumer has broadcast dimensions in its logical domain
+    bool has_broadcast = std::any_of(
+        consumer->getLogicalDomain().begin(),
+        consumer->getLogicalDomain().end(),
+        [](IterDomain* id) { return id->isBroadcast(); });
+
+    if (!has_broadcast) {
+      continue;
+    }
+
+    // Get the transformation path from logical to loop domain
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {consumer->getLogicalDomain().begin(),
+         consumer->getLogicalDomain().end()},
+        {consumer->getLoopDomain().begin(), consumer->getLoopDomain().end()});
+
+    // Check for merge expressions that combine broadcast and non-broadcast
+    for (auto expr : exprs) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        bool outer_is_bcast = merge->outer()->isBroadcast();
+        bool inner_is_bcast = merge->inner()->isBroadcast();
+
+        NVF_ERROR(
+            outer_is_bcast == inner_is_bcast,
+            "TMA with broadcast restriction: Tensor ",
+            consumer->toString(),
+            " (which depends on TMA-loaded tensor ",
+            smem_tv->toString(),
+            ") has a merge operation that combines broadcast dimension ",
+            (outer_is_bcast ? merge->outer()->toString()
+                            : merge->inner()->toString()),
+            " with non-broadcast dimension ",
+            (outer_is_bcast ? merge->inner()->toString()
+                            : merge->outer()->toString()),
+            ". This is not supported when using TMA because it can lead to ",
+            "incorrect indexing and silent numerical errors. ",
+            "Use separate dimensions for broadcast and non-broadcast ",
+            "(e.g., merge(1) instead of flatten()) to keep broadcast and ",
+            "non-broadcast dimensions in separate groups.");
+      }
+    }
+  }
+}
+
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
@@ -1086,6 +1180,10 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
     smem_tv = consumer_tv;
     gmem_tv = producer_tv;
   }
+
+  // Validate consumers of TMA-loaded tensor (smem_tv) don't have problematic
+  // broadcast/merge patterns
+  validateTMAConsumerBroadcasts(smem_tv);
 
   std::list<std::pair<ExprGroup, Direction>> exprs = [&]() {
     ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
