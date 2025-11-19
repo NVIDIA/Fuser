@@ -99,7 +99,9 @@ def test_scaled_mm(
         )
         fd.add_output(out)
 
-    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(
+        nvfuser_fusion_id0, inputs, new_fusion_expected=None
+    )
 
     ref_outputs = (
         torch._scaled_mm(
@@ -135,7 +137,8 @@ def test_cutlass_nvfp4_grouped_mm(
 
     # k dimension is multiple of 128 to avoid padding
     m, n, k = config
-    tokens_per_expert = tokens_per_expert_neg_one
+    # copy list and append tokens for last expert
+    tokens_per_expert = list(tokens_per_expert_neg_one)
     tokens_per_expert.append(m - sum(tokens_per_expert))
     g = len(tokens_per_expert)
 
