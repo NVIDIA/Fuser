@@ -19,7 +19,7 @@ from tools.utils import ensure_dir, write_to_path
 def launch_ai_cli(
    prompt: str, 
    tool: None,
-   tool_args : [],
+   tool_args : list[str],
    verdict_marker: str, 
    output_dir: Path | str, 
    timeout_seconds: int = 180
@@ -47,12 +47,9 @@ def launch_ai_cli(
       )
 
       prompt = f"{safety_instructions}\n\n{prompt}"
-      launch_array = [tool]
-      launch_array += tool_args
-      launch_array.append(prompt)
 
       result = subprocess.run(
-         launch_array, 
+         [tool] + tool_args + [prompt],
          capture_output=True,
          text=True,
          timeout=timeout_seconds,
