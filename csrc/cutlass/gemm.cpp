@@ -82,6 +82,9 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
+    fusion_->printMath();
+    std::cout << pattern_.toString() << std::endl;
+
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
@@ -482,8 +485,18 @@ typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
     code_ += R"(
   int m = static_cast<int>(a.sizes[0]);
   int n = static_cast<int>(b.sizes[1]);
+)";
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  int k = static_cast<int>(a.sizes[2]) * 2;
+)";
+    } else {
+      code_ += R"(
   int k = static_cast<int>(a.sizes[1]) * 2;
   NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
+)";
+    }
+    code_ += R"(
 
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});

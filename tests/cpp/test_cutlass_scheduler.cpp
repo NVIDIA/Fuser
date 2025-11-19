@@ -293,8 +293,11 @@ std::pair<at::Tensor, at::Tensor> pytorchNvfp4Quantize(
   NVF_ERROR(a.is_contiguous(), "Only contiguous tensors are supported.");
 
   const auto& original_shape = a.sizes();
-  const auto a_fp32 =
-      a.to(at::kFloat).reshape({original_shape[0], -1, BLOCK_SIZE});
+  std::vector<int64_t> new_shape = original_shape.vec();
+  new_shape.back() = original_shape.back() / BLOCK_SIZE;
+  new_shape.push_back(BLOCK_SIZE);
+
+  const auto a_fp32 = a.to(at::kFloat).reshape(new_shape);
 
   // Find absolute maximum along blockwise dimension
   const auto max_abs = a_fp32.abs().amax(/*dim=*/-1);
@@ -862,7 +865,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
   TensorView* b_sf = makeContigTensor(3, DataType::Float8_e4m3fn);
   TensorView* alpha = makeContigTensor(1, DataType::Float);
-  TensorView* problem_sizes = makeContigTensor(1, DataType::Int32);
+  TensorView* problem_sizes = makeContigTensor(2, DataType::Int32);
   TensorView* expert_offsets = makeContigTensor(1, DataType::Int32);
   TensorView* sf_offsets = makeContigTensor(1, DataType::Int32);
 
@@ -911,15 +914,18 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   QuantizedTensor qa = quantizeNvfp4(at::randn({M, K}, options));
-  QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+  QuantizedTensor qb = quantizeNvfp4(at::randn({num_experts, N, K}, options));
 
   at::Tensor at_a = qa.elts;
-  at::Tensor at_b = qb.elts.t();
+  at::Tensor at_b = qb.elts.permute({0, 2, 1});
   at::Tensor at_a_sf = qa.block_scale;
   at::Tensor at_b_sf = qb.block_scale;
+  std::cout << "at_a.sizes()=" << at_a.sizes() << std::endl;
+  std::cout << "at_b.sizes()=" << at_b.sizes() << std::endl;
 
   // Compute alpha to combine global scales
-  at::Tensor at_alpha = 1.0 / (qa.global_scale * qb.global_scale);
+  at::Tensor at_alpha =
+      at::ones({num_experts}, options) / (qa.global_scale * qb.global_scale);
   at::Tensor at_global_normconst = at::full({}, 2.0f, options);
 
   /*
