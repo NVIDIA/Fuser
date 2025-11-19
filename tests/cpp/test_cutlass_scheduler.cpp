@@ -891,7 +891,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   // Input tensors: nvfp4 block-scaled A and B matrices
   TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
   TensorView* b = makeContigTensor(3, DataType::Float4_e2m1fn);
-  // B has K inner for optimal memory access
+  // B has K inner and is of logical shape [E, K, N]
   b->setAllocationDomain(
       {b->axis(0), b->axis(2), b->axis(1)}, /*new_contiguity=*/true);
   TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
@@ -972,17 +972,8 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
     const QuantizedTensor qa = quantizeNvfp4(at::randn({Mi, K}, options));
     const QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
 
-    std::cout << "qa.elts.sizes()=" << qa.elts.sizes() << std::endl;
-    std::cout << "qb.elts.sizes()=" << qb.elts.sizes() << std::endl;
-    std::cout << "qa.block_scale.sizes()=" << qa.block_scale.sizes()
-              << std::endl;
-    std::cout << "qb.block_scale.sizes()=" << qb.block_scale.sizes()
-              << std::endl;
-
     // For the A operand we need to swizzle and pad the scale factor
     at::Tensor a_sf = linearToSwizzled128by4(qa.block_scale);
-
-    std::cout << "a_sf.sizes()=" << a_sf.sizes() << std::endl;
 
     as.push_back(qa.elts);
     bs.push_back(qb.elts);
@@ -998,7 +989,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   }
 
   at::Tensor at_a = at::concatenate(as, /*dim=*/0);
-  at::Tensor at_b = at::stack(bs, /*dim=*/0);
+  at::Tensor at_b = at::stack(bs, /*dim=*/0).permute({0, 2, 1});
   at::Tensor at_a_sf = at::concatenate(a_sfs, /*dim=*/0);
   at::Tensor at_b_sf = at::stack(b_sfs, /*dim=*/0);
   at::Tensor at_alpha = at::stack(alphas, /*dim=*/0);
