@@ -771,7 +771,9 @@ class TestNvFuserFrontend(NVFuserTest):
 
     def test_gather_1000_runs(self):
         for _ in range(1000):
+            print(f"Running test_gather {_} times")
             self.test_gather()
+            print(f"Test_gather {_} times completed")
 
     def test_take_along_axis(self):
         inputs = [
