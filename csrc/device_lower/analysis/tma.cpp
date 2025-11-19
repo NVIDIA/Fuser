@@ -23,8 +23,7 @@
 namespace nvfuser {
 
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
-  os << "TMADim{"
-     << "partitioned="
+  os << "TMADim{" << "partitioned="
      << (d.partitioned ? d.partitioned->toString() : "nullptr")
      << ", box=" << (d.box ? d.box->toString() : "nullptr")
      << ", tile=" << (d.tile ? d.tile->toString() : "nullptr")
@@ -1072,55 +1071,71 @@ std::vector<TMADim> run(
 // Validate broadcast usage with TMA loads
 //
 // TMA auto-fills out-of-bounds accesses with zeros. When broadcast dimensions
-// are merged with non-broadcast and propagated to TMA tile shape, TMA treats
+// are merged with non-broadcast and loaded with TMA, TMA treats
 // the broadcast as a physical dimension and loads extra rows/cols as zeros,
 // breaking broadcast semantics (which should replicate values, not fill zeros).
 //
 // See test BroadcastDownstreamOfTMALoad for detailed example.
 
-// TODO: This check is conservative. A more precise approach would be to check
-// whether tma loaded data crossed into broadcasted domains. For example, test
-// BroadcastDownstreamOfTMALoad1dTileValid is valid.
 void validateTMAConsumerBroadcasts(TensorView* smem_tv) {
-  auto all_downstream_vals = DependencyCheck::getAllDependentVals({smem_tv});
-  // Filter to get only TensorViews
-  for (auto val : all_downstream_vals) {
-    if (!val->isA<TensorView>()) {
-      continue;
+  // Check if Bulk-parallelized dimensions (TMA tile dimensions) depend on
+  // broadcast dimensions through transformations.
+  //
+  // Uses PERMISSIVE mode which maps broadcast to non-broadcast. We find
+  // ValGroups containing broadcasts and check if Bulk-parallelized ValGroups
+  // are reachable from them through transitive dependencies.
+
+  // Build PERMISSIVE IdModel graph - maps broadcast to non-broadcast through
+  // transformations
+  IdModel id_model(smem_tv->fusion(), /*build_graphs=*/false);
+  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+  // Collect ValGroups containing broadcast IDs
+  ValGroups broadcast_groups;
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    bool has_broadcast =
+        std::any_of(val_group->begin(), val_group->end(), [](Val* val) {
+          return val->isA<IterDomain>() && val->as<IterDomain>()->isBroadcast();
+        });
+    if (has_broadcast) {
+      broadcast_groups.pushBack(val_group);
     }
-    auto consumer = val->as<TensorView>();
-    // Check if this consumer has broadcast dimensions in its logical domain
-    bool has_broadcast = std::any_of(
-        consumer->getLogicalDomain().begin(),
-        consumer->getLogicalDomain().end(),
-        [](IterDomain* id) { return id->isBroadcast(); });
+  }
 
-    if (!has_broadcast) {
-      continue;
+  // Collect ValGroups containing Bulk-parallelized IDs
+  ValGroups bulk_groups;
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    bool has_bulk =
+        std::any_of(val_group->begin(), val_group->end(), [](Val* val) {
+          return val->isA<IterDomain>() &&
+              val->as<IterDomain>()->getParallelType() == ParallelType::Bulk;
+        });
+    if (has_bulk) {
+      bulk_groups.pushBack(val_group);
     }
+  }
 
-    // Get the transformation path from logical to loop domain
-    auto exprs = DependencyCheck::getAllExprsBetween(
-        {consumer->getLogicalDomain().begin(),
-         consumer->getLogicalDomain().end()},
-        {consumer->getLoopDomain().begin(), consumer->getLoopDomain().end()});
+  // Check if any Bulk ValGroup is reachable from broadcast ValGroups
+  // This captures both direct and transitive dependencies (broadcast ->
+  // intermediate -> Bulk)
+  auto reachable_bulk_groups = getReachableValsFrom<ValGraphBFS>(
+      broadcast_groups.vector(),
+      bulk_groups.vector(),
+      Direction::Forward,
+      permissive_graph);
 
-    // Check for merge expressions that combine broadcast and non-broadcast
-    for (auto expr : exprs) {
-      if (auto merge = dynamic_cast<Merge*>(expr)) {
-        bool outer_is_bcast = merge->outer()->isBroadcast();
-        bool inner_is_bcast = merge->inner()->isBroadcast();
-
-        NVF_ERROR(
-            outer_is_bcast == inner_is_bcast,
-            "Not safe to merge broadcast and non-broadcast domains in "
-            "TMA-loaded tensor. ",
-            "Tensor ",
-            consumer->toString(),
-            " depends on TMA-loaded ",
-            smem_tv->toString());
-      }
-    }
+  // If any Bulk group is reachable from broadcasts, it's an error
+  if (!reachable_bulk_groups.empty()) {
+    NVF_ERROR(
+        false,
+        "Broadcast may interfere with TMA loading of ",
+        smem_tv->toString(),
+        ". Bulk-parallelized dimensions are reachable from broadcast "
+        "dimensions through transformations.");
   }
 }
 

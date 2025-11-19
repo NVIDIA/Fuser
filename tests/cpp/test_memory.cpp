@@ -3586,8 +3586,7 @@ TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad) {
         ke.compile(&fusion, {t0, t1});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
-                               "domains in TMA-loaded tensor. ")));
+          ::testing::HasSubstr("Broadcast may interfere with TMA loading")));
 }
 
 // Similar to BroadcastDownstreamOfTMALoad, but with a 1D tile.
@@ -3637,8 +3636,7 @@ TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad1dTile) {
         ke.compile(&fusion, {t0, t1});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
-                               "domains in TMA-loaded tensor. ")));
+          ::testing::HasSubstr("Broadcast may interfere with TMA loading ")));
 }
 
 // Similar to BroadcastDownstreamOfTMALoad1dTile, but valid.
@@ -3690,7 +3688,6 @@ TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad1dTileValid) {
         ke.compile(&fusion, {t0, t1});
       },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
-                               "domains in TMA-loaded tensor. ")));
+          ::testing::HasSubstr("Broadcast may interfere with TMA loading")));
 }
 } // namespace nvfuser
