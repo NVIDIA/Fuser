@@ -95,8 +95,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   while (tma_tile_inner * 2 <= max_tma_tile_inner) {
     tma_tile_inner *= 2;
   }
-  int64_t tma_tile_outer =
-      std::min(elements_per_cta / tma_tile_inner, max_tma_tile_outer);
+  int64_t tma_tile_outer = std::max(
+      1L, std::min(elements_per_cta / tma_tile_inner, max_tma_tile_outer));
   params->tma_tile_inner = tma_tile_inner;
   params->tma_tile_outer = tma_tile_outer;
 
