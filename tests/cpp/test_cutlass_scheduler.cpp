@@ -890,7 +890,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
       problem_sizes,
       expert_offsets,
       sf_offsets,
-      /*dtype=*/DataType::Float);
+      /*dtype=*/DataType::BFloat16);
 
   TensorView* unquantized_output = relu(gmmtv);
 
@@ -899,6 +899,9 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
 
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
+
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
 
   const std::vector<int64_t> tokens_per_expert{115, 144, 8};
 
@@ -957,25 +960,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
 
   KernelArgumentHolder outputs = ce.run(inputs);
 
-  EXPECT_EQ(outputs.size(), 2);
-
-#if NVFUSER_ENABLE_CUTLASS
-  // TODO: validation
-  std::pair<torch::Tensor, torch::Tensor> aot_result =
-      cutlass_kernels::nvfp4_scaled_mm_blockscale(
-          at_a, at_b.t(), at_a_sf, at_b_sf, at_alpha, at_global_normconst);
-
-  EXPECT_TRUE(at::allclose(
-      outputs[0].as<at::Tensor>().to(at::kFloat),
-      aot_result.second.to(at::kFloat),
-      /*rtol=*/0.001,
-      /*atol=*/0.001));
-  EXPECT_TRUE(at::allclose(
-      unpackFp4Bytes(outputs[1].as<at::Tensor>()),
-      unpackFp4Bytes(aot_result.first),
-      /*rtol=*/0.001,
-      /*atol=*/0.001));
-#endif
+  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
