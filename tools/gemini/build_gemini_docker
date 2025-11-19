@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# run me from the 'gemini' directory
+
+(cd .. && docker build -f gemini/Dockerfile -t gemini-shell .)

@@ -1,1 +1,0 @@
-~/dev/act/bin/act pull_request --artifact-server-path ./act-artifacts -C ./ -W .github/workflows/gemini-cli-review.yml -j gemini-pr-review --eventpath .github/workflows/review_test.json -s GEMINI_TEST=AIzaSyBjWHj8lBh1YdtRq1Fy3L20vhDsMUsOT9E

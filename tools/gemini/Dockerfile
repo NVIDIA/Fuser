@@ -1,13 +1,18 @@
-# 1. Start from the official, clean Node.js 20 image (Debian-based)
+# start from the official, clean Node.js 20 image (Debian-based)
+#  Gemini seems to go haywire with older node versions (e.g. 18)
 FROM node:20
 
-# 2. Add Python 3 and vim
+COPY pr_preflight_launcher_gemini.py /usr/local/bin/
+COPY utils.py /usr/local/bin/tools/
+COPY git_helpers.py /usr/local/bin/tools/
+COPY ai_cli_wrapper.py /usr/local/bin/tools/
+
+# Add Python 3 and vim
 RUN apt-get update && apt-get install -y python3 python3-pip vim
 
-# 3. Install the latest Gemini CLI globally inside the container
+# Install the latest Gemini CLI globally inside the container
 RUN npm install -g @google/gemini-cli --no-update-notifier
 
-# 4. Verify the install for our build logs
 RUN node -v
 RUN python3 --version
 RUN gemini --version
