@@ -207,6 +207,33 @@ auto batch = IrBuilder::create<IterDomain>(0, 3);  // batch dimension
 auto nested_tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged});
 ```
 
+**Creating Nested Tensors from Data and Offsets: viewAsNested**
+
+nvFuser provides the `viewAsNested` operation, mirroring PyTorch's `torch.nested.nested_tensor_from_jagged(values, offsets)`, to create a nested tensor from separate data and offset tensors:
+
+```cpp
+// In csrc/ops/alias.h (or new csrc/ops/nested.h)
+NVF_API TensorView* viewAsNested(
+    TensorView* data,      // Data tensor with contiguous ragged storage
+    TensorView* offsets,   // Offset tensor [num_components + 1]
+    int64_t ragged_dim     // Which dimension of data is ragged
+);
+```
+
+**Semantics**:
+- Takes a regular TensorView `data` and reinterprets one dimension as ragged
+- `offsets` tensor provides the boundaries for each component (see Section 6.7 for offset tensor format)
+- Returns a TensorView with a RaggedIterDomain at position `ragged_dim`
+- This is a view operation (no data copy), similar to `reshape` or `view`
+
+**Example Usage**:
+```cpp
+// Data: [325, 512] - flattened ragged dimension
+// Offsets: [0, 127, 127, 325] - 3 components with lengths [127, 0, 198]
+auto nested_tv = viewAsNested(data_tv, offsets_tv, /*ragged_dim=*/0);
+// Result: TensorView with shape [batch=3, ragged=[127,0,198], hidden=512]
+```
+
 #### Transformations
 
 **Split**: Split a regular IterDomain and merge with a RaggedIterDomain to create a new ragged structure.
@@ -370,32 +397,7 @@ int64_t* offsets = [0, 127, 127, 325];
 
 The final element represents the total size, enabling extent computation for the last component. This is the standard representation used by PyTorch's `torch.nested.nested_tensor_from_jagged(values, offsets)`.
 
-#### New Operation: viewAsNested
-
-To create a nested tensor from data and offsets, nvFuser provides the `viewAsNested` operation:
-
-```cpp
-// In csrc/ops/alias.h (or new csrc/ops/nested.h)
-NVF_API TensorView* viewAsNested(
-    TensorView* data,      // Data tensor with contiguous ragged storage
-    TensorView* offsets,   // Offset tensor [num_components + 1]
-    int64_t ragged_dim     // Which dimension of data is ragged
-);
-```
-
-**Semantics**:
-- Takes a regular TensorView `data` and reinterprets one dimension as ragged
-- `offsets` tensor provides the boundaries for each component
-- Returns a TensorView with a RaggedIterDomain at position `ragged_dim`
-- This is a view operation (no data copy), similar to `reshape` or `view`
-
-**Example Usage**:
-```cpp
-// Data: [325, 512] - flattened ragged dimension
-// Offsets: [0, 127, 127, 325] - 3 components with lengths [127, 0, 198]
-auto nested_tv = viewAsNested(data_tv, offsets_tv, /*ragged_dim=*/0);
-// Result: TensorView with shape [batch=3, ragged=[127,0,198], hidden=512]
-```
+The `viewAsNested` operation (introduced in Section 6.4) is used to create nested tensors from data and offset tensors.
 
 #### Automatic Injection via Preseg Pass
 
