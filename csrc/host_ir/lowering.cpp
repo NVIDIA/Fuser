@@ -217,11 +217,30 @@ void lowerSegment(
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-              getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kAllocation) ==
-                  nullptr) {
+          // A loop domain should go with an Expr rather than each individual
+          // output TensorView. Before this is fixed, pick the first output
+          // TensorView as a proxy.
+          auto* out = e->outputs().front()->as<TensorView>();
+          // Check whether in's **allocation** and out's loop are sharded on
+          // ParallelType::Stream consistently. If not, insert a ShardByStream.
+          //
+          // Consider the following example:
+          // ```
+          // in: [m, k]    w: [k, n]   # logical/allocation
+          //            |
+          //            | matmul
+          //            v
+          //      out: [m, n]     logical
+          //          / \.
+          //         s  m/s      loop
+          // ```
+          // `in` needs to be sharded by stream regardless of its loop domain.
+          if (haveDifferentShardings(
+                  in,
+                  DomainType::kAllocation,
+                  out,
+                  DomainType::kLoop,
+                  {ParallelType::Stream})) {
             auto [i, inserted] = replacement_map.try_emplace(
                 in, hir::shardByStream(in, for_loop->index()));
             if (inserted) {
