@@ -305,12 +305,11 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
   // Each transform must be a split, and there can be only 3 splits.
   auto check_transform = [block_scale, &logical_domain, &num_splits](
                              Expr* expr) {
-    // If expr is not split throw an error.
-    if (dynamic_cast<Split*>(expr) == nullptr) {
-      NVF_THROW(
-          "Block scale swizzle can only contain split operations. Found: ",
-          expr->toString());
-    }
+    auto split_expr = dynamic_cast<Split*>(expr);
+    NVF_ERROR(
+        split_expr,
+        "Block scale swizzle can only contain split operations. Found: ",
+        expr->toString());
 
     // Can have a max of 3 splits
     num_splits++;
@@ -323,8 +322,6 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
 
     // If expr and it's input is logical_domain back()
     // the inner split output should have an extent of 4.
-    auto split_expr = dynamic_cast<Split*>(expr);
-
     // Check K -> K/4, 4
     if (split_expr->in() == logical_domain.back()) {
       NVF_ERROR(
