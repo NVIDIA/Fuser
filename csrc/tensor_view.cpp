@@ -948,50 +948,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // guarantee that the rFactor is defined meaningfully the scheduling of the
   // output TV that got the rfactor call is force replayed towards the other two
   if (this != tv) {
-    const std::vector<IterDomain*>& target_logical = tv->getLogicalDomain();
-    const std::vector<IterDomain*>& ref_logical = getLogicalDomain();
-    const std::vector<IterDomain*>& ref_loop = getLoopDomain();
-
-    // construct a trivial logical domain map
-    std::unordered_map<IterDomain*, IterDomain*> ref_to_target_map;
-    for (auto&& [ref_id, target_id] : zip(ref_logical, target_logical)) {
-      ref_to_target_map[ref_id] = target_id;
-    }
-
-    // replay on the target tv
-    ReplayTransformations replay(ref_loop, ref_to_target_map);
-
-    // Construct the replayed loop domain
-    std::vector<IterDomain*> new_loop;
-    for (IterDomain* loop_id : ref_loop) {
-      auto it = replay.getReplay().find(loop_id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ",
-          loop_id);
-      it->second->parallelize(loop_id->getParallelType());
-      new_loop.push_back(it->second);
-    }
-    tv->setLoopDomain(new_loop);
-
-    if (tv->hasAllocation()) {
-      // Allocation does not change. The loop replay above will also replay the
-      // device-split overwriting the existent one. Subsequent replays (such as
-      // in rfactor) which use a common replay to replay both loop and
-      // allocation will fail, if the device IDs are not the same. Hence, we
-      // also replay allocation here.
-      std::vector<IterDomain*> new_allocation;
-      for (IterDomain* allocation_id : getAllocationDomain()) {
-        auto it = replay.getReplay().find(allocation_id);
-        NVF_ERROR(
-            it != replay.getReplay().end(),
-            "failed to replay IterDomain: ",
-            allocation_id);
-        it->second->parallelize(allocation_id->getParallelType());
-        new_allocation.push_back(it->second);
-      }
-      tv->setAllocationDomain(new_allocation, tv->domain()->contiguity());
-    }
+    TransformReplay::selfReplay(this->domain(), tv->domain());
   }
 
   // Split tensor view into 2 parts
