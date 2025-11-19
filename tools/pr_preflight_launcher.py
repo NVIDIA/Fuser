@@ -26,6 +26,12 @@ def parse_args() -> argparse.Namespace:
    parser.add_argument("--head-ref", help="Head branch name")
    parser.add_argument("--base-ref", help="Base branch name")
    parser.add_argument("--output-dir", help="Where to write outputs / artifacts")
+   parser.add_argument(
+      "--ai-backend",
+      choices=["claude", "gemini"],
+      default="gemini",
+      help='AI backend to use ("claude" or "gemini")',
+   )
    return parser.parse_args()
 
 
@@ -62,7 +68,8 @@ def build_context_from_env_and_args(args: argparse.Namespace) -> argparse.Namesp
       base_sha=base_sha,
       head_ref=head_ref,
       base_ref=base_ref,
-      output_dir=output_dir
+      output_dir=output_dir,
+      ai_backend=args.ai_backend,
    )
 
 
@@ -111,11 +118,17 @@ def main() -> int:
    default_dir = f"artifacts/ai_pr_preflight_review/{(context.pr_number or 'local')}-{context.head_sha}"
    output_dir = context.output_dir or default_dir
 
+
+  
+   tool_args = []
+   if context.ai_backend is "gemini":
+      tool_args = ["--yolo"]
+
    # Invoke Gemini and propagate exit code
    exit_code = launch_ai_cli(
       prompt=prompt, 
-      tool="gemini",
-      tool_args=["--yolo"],
+      tool=context.ai_backend,
+      tool_args=tool_args,
       verdict_marker=VERDICT_MARKER, 
       output_dir=output_dir)
 
