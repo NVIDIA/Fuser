@@ -768,6 +768,10 @@ class TestNvFuserFrontend(NVFuserTest):
         test_fn(0)
         test_fn(1)
 
+    def test_gather_1000_runs(self):
+        for _ in range(1000):
+            self.test_gather()
+
     def test_take_along_axis(self):
         inputs = [
             torch.randn(8, 16, device="cuda"),
