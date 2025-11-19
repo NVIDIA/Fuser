@@ -3419,4 +3419,278 @@ TEST_F(TMATest, CpAsyncBulk1dIllegalSize) {
                                "be divisible by 16 bytes")));
 }
 
+// Test Case 1: Broadcast in gmem allocation domain
+//
+// TMA BROADCAST RESTRICTION EXPLANATION:
+// ======================================
+//
+// When TMA loads a tensor with broadcast dimensions in its allocation domain
+// and those dimensions are later merged (via flatten()) with non-broadcast
+// dimensions, the TMA domain analysis fails with an assertion error.
+//
+// ROOT CAUSE:
+// -----------
+// The TMA domain analyzer in tma.cpp maintains a "frontier" data structure
+// that tracks ValGroups during backward traversal from consumer loop domain
+// to gmem allocation domain. The frontier is initialized by
+// getGmemAllocDomain(), which EXPLICITLY FILTERS OUT broadcast dimensions:
+//
+//   if (id->isBroadcast()) {
+//     continue;  // Skip broadcast dimensions
+//   }
+//
+// When flatten() creates a merge expression like "Merge: bS{1} and iS{64}",
+// the handleTwoToOne() function tries to find BOTH ValGroups in the frontier.
+// But the broadcast ValGroup (bS{1}) was never added to the frontier, causing:
+//
+//   "*** ERROR: outer group NOT FOUND in frontier! ***"
+//   "This is the broadcast group that was filtered out by getGmemAllocDomain"
+//   "Is broadcast group: YES"
+//
+// EXAMPLE FROM THIS TEST:
+// -----------------------
+// Input: T0[bS0{1}, iS1{64}, iS2{128}]
+//
+// Initial frontier (broadcasts filtered):
+//   [0] ValGroup: { iS1{64} }
+//   [1] ValGroup: { iS2{128} }
+//   Notice: bS0{1} is NOT in the frontier!
+//
+// Transformation: flatten() creates:
+//   Merge: bS3{1} and iS4{64} -> iS9{64}
+//
+// During backward traversal, handleTwoToOne tries to find:
+//   outer: { bS6{1}; bS3{1}; bS0{1} }  <- NOT in frontier (broadcast)
+//   inner: { iS7{64}; iS4{64}; iS1{64} }  <- IS in frontier
+//
+// Result: Assertion failure because outer ValGroup is not found.
+//
+// SOLUTION:
+// ---------
+// Don't use flatten() when broadcast dimensions are present. Instead use
+// selective merges that keep broadcast and non-broadcast dimensions separate:
+//   reference_tv->merge(1);  // Merge only non-broadcast dimensions
+//
+TEST_F(TMACompileTimeInvalidTest, BroadcastInGmemAllocationDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input with broadcast dimension in allocation domain: {1, 64, 128}
+  auto tv0 = makeContigConcreteTensor({1, 64, 128});
+  fusion.addInput(tv0);
+
+  // Load via TMA
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // Flatten all dimensions - this will try to merge broadcast {1} with
+  // non-broadcast dimensions
+  tv1->flatten();
+  tv1->split(0, 128);
+
+  // Parallelize - the outer split is non-bulk, inner is bulk
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::Bulk);
+
+  // Propagate to tv2
+  tv2->flatten();
+  tv2->split(0, 128);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::Serial);
+
+  EXPECT_THAT(
+      [&]() {
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto t0 = at::randn({1, 64, 128}, options);
+        KernelExecutor ke;
+        ke.compile(&fusion, {t0});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("is not on the path")));
+}
+
+// Test Case 2: Broadcast added downstream of TMA load (2D simplified)
+// ROOT CAUSE: TMA TREATS BROADCAST AS 2D TILE AND AUTO-FILLS WITH ZEROS
+// =======================================================================
+// TMA interprets the merged/split broadcast dimension as a physical tile
+// dimension. It loads data as a 2D tile and auto-fills out-of-bounds with
+// zeros, rather than replicating the broadcast semantics. This produces silent
+// numerical errors.
+//
+// THE PROBLEM:
+// ------------
+// 1. Input tv0: {8} contains [1,2,3,4,5,6,7,8] in global memory
+// 2. We broadcast to tv2: {1, 8}, logically meaning "replicate this row"
+// 3. We flatten and create 2D tiles with ithreadIdx.y{2} from the broadcast dim
+// 4. TMA sees a 2D tile request: {2, 8} and loads accordingly
+// 5. TMA loads row 0 from input: [1,2,3,4,5,6,7,8]
+// 6. TMA tries to load row 1, but input is only 1D (out of bounds)
+// 7. TMA AUTO-FILLS row 1 with zeros: [0,0,0,0,0,0,0,0]
+//
+// Result in shared memory T4:
+//   Row 0: [1, 2, 3, 4, 5, 6, 7, 8]  ✓ Correct data
+//   Row 1: [0, 0, 0, 0, 0, 0, 0, 0]  ✗ Auto-filled with zeros!
+//
+TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad) {
+  int64_t dim0 = 2;
+  int64_t dim1 = 8;
+  DataType dtype = DataType::Float;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::arange(1, dim1 + 1, options);
+  auto t1 = at::arange(1, dim0 * dim1 + 1, options).reshape({dim0, dim1});
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv0_smem, tv2, tv3}) {
+    tv->flatten();
+    tv->split(0, dim1);
+    tv->split(1, 4);
+    tv->split(0, 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    if (tv == tv0_smem) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+      tv->axis(3)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+    }
+  }
+
+  inlineMost();
+
+  EXPECT_THAT(
+      [&]() {
+        KernelExecutor ke;
+        ke.compile(&fusion, {t0, t1});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
+                               "domains in TMA-loaded tensor. ")));
+}
+
+// Similar to BroadcastDownstreamOfTMALoad, but with a 1D tile.
+// Tma fills out of bounds with zeros which breaks the broadcast semantics.
+TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad1dTile) {
+  int64_t dim0 = 4;
+  int64_t dim1 = 8;
+  DataType dtype = DataType::Float;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::arange(1, dim1 + 1, options);
+  auto t1 = at::arange(1, dim0 * dim1 + 1, options).reshape({dim0, dim1});
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv0_smem, tv2, tv3}) {
+    // [I0, I1] -> [I0*I1] -> [I0*I1/16, 16]
+    tv->flatten();
+    tv->split(0, dim1 * dim1 / 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    if (tv == tv0_smem) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+    }
+  }
+
+  inlineMost();
+
+  EXPECT_THAT(
+      [&]() {
+        KernelExecutor ke;
+        ke.compile(&fusion, {t0, t1});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
+                               "domains in TMA-loaded tensor. ")));
+}
+
+// Similar to BroadcastDownstreamOfTMALoad1dTile, but valid.
+// Tma loaded data did not cross into broadcasted domains.
+TEST_F(TMACompileTimeInvalidTest, BroadcastDownstreamOfTMALoad1dTileValid) {
+  int64_t dim0 = 4;
+  int64_t dim1 = 8;
+  DataType dtype = DataType::Float;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {true, false});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::arange(1, dim1 + 1, options);
+  auto t1 = at::arange(1, dim0 * dim1 + 1, options).reshape({dim0, dim1});
+
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : {tv0_smem, tv2, tv3}) {
+    // [I0, I1] -> [I0*I1] -> [I0*I1/4, 4]
+    tv->flatten();
+    tv->split(0, dim1 / 2);
+    tv->axis(0)->parallelize(ParallelType::BIDy);
+    if (tv == tv0_smem) {
+      tv->axis(1)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(1)->parallelize(ParallelType::TIDy);
+    }
+  }
+
+  inlineMost();
+
+  // TODO: This test is valid. See validateTMAConsumerBroadcasts for more
+  // details.
+  EXPECT_THAT(
+      [&]() {
+        KernelExecutor ke;
+        ke.compile(&fusion, {t0, t1});
+      },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Not safe to merge broadcast and non-broadcast "
+                               "domains in TMA-loaded tensor. ")));
+}
 } // namespace nvfuser

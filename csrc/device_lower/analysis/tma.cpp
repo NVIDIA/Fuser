@@ -1069,6 +1069,61 @@ std::vector<TMADim> run(
 
 } // namespace collapse_tma_domain
 
+// Validate broadcast usage with TMA loads
+//
+// TMA auto-fills out-of-bounds accesses with zeros. When broadcast dimensions
+// are merged with non-broadcast and propagated to TMA tile shape, TMA treats
+// the broadcast as a physical dimension and loads extra rows/cols as zeros,
+// breaking broadcast semantics (which should replicate values, not fill zeros).
+//
+// See test BroadcastDownstreamOfTMALoad for detailed example.
+
+// TODO: This check is conservative. A more precise approach would be to check
+// whether tma loaded data crossed into broadcasted domains. For example, test
+// BroadcastDownstreamOfTMALoad1dTileValid is valid.
+void validateTMAConsumerBroadcasts(TensorView* smem_tv) {
+  auto all_downstream_vals = DependencyCheck::getAllDependentVals({smem_tv});
+  // Filter to get only TensorViews
+  for (auto val : all_downstream_vals) {
+    if (!val->isA<TensorView>()) {
+      continue;
+    }
+    auto consumer = val->as<TensorView>();
+    // Check if this consumer has broadcast dimensions in its logical domain
+    bool has_broadcast = std::any_of(
+        consumer->getLogicalDomain().begin(),
+        consumer->getLogicalDomain().end(),
+        [](IterDomain* id) { return id->isBroadcast(); });
+
+    if (!has_broadcast) {
+      continue;
+    }
+
+    // Get the transformation path from logical to loop domain
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {consumer->getLogicalDomain().begin(),
+         consumer->getLogicalDomain().end()},
+        {consumer->getLoopDomain().begin(), consumer->getLoopDomain().end()});
+
+    // Check for merge expressions that combine broadcast and non-broadcast
+    for (auto expr : exprs) {
+      if (auto merge = dynamic_cast<Merge*>(expr)) {
+        bool outer_is_bcast = merge->outer()->isBroadcast();
+        bool inner_is_bcast = merge->inner()->isBroadcast();
+
+        NVF_ERROR(
+            outer_is_bcast == inner_is_bcast,
+            "Not safe to merge broadcast and non-broadcast domains in "
+            "TMA-loaded tensor. ",
+            "Tensor ",
+            consumer->toString(),
+            " depends on TMA-loaded ",
+            smem_tv->toString());
+      }
+    }
+  }
+}
+
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
@@ -1120,6 +1175,10 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
+
+  // Validate broadcast usage: TMA auto-fills out-of-bounds with zeros,
+  // breaking broadcast semantics when broadcast dims participate in tile shape.
+  validateTMAConsumerBroadcasts(smem_tv);
 
   MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
 
