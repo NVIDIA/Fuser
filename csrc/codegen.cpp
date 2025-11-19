@@ -1861,30 +1861,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(
         bqop->attributeVal(0))); // linearized index for runtime function
     func_args.arg(
-        bqop->hasGlobalScale() ? genInline(bqop->globalScale())
-                               : "{}"); // global scale
+        bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
 
     // Add swizzled allocation domain parameters if needed
     auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
-    constexpr size_t EXPECTED_ALLOCATION_DIMS = 5;
-    constexpr size_t EXPECTED_LOGICAL_DIMS = 2;
+    if (block_scales_tv->hasAllocation()) {
+      auto logical_domain =
+          TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
+      auto allocation_domain =
+          TensorDomain::noReductions(block_scales_tv->getAllocationDomain());
 
-    const bool is_swizzled = block_scales_tv->hasAllocation() &&
-        TensorDomain::noReductions(block_scales_tv->getAllocationDomain())
-                .size() == EXPECTED_ALLOCATION_DIMS &&
-        TensorDomain::noReductions(block_scales_tv->getLogicalDomain())
-                .size() == EXPECTED_LOGICAL_DIMS;
+      // Swizzled layout: 2D logical -> 5D allocation
+      if (logical_domain.size() == 2 && allocation_domain.size() == 5) {
+        // Add logical domain extent of the inner dimension
+        func_args.arg(genInline(logical_domain[1]->extent()));
 
-    if (is_swizzled) {
-      const auto& logical_domain = TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
-      const auto& allocation_domain = block_scales_tv->getAllocationDomain();
-
-      // Add logical domain extent of the inner dimension
-      func_args.arg(genInline(logical_domain[1]->extent()));
-
-      // Add all allocation domain extents
-      for (const auto* alloc_domain : allocation_domain) {
-        func_args.arg(genInline(alloc_domain->extent()));
+        // Add all allocation domain extents
+        for (const auto* alloc_id : allocation_domain) {
+          func_args.arg(genInline(alloc_id->extent()));
+        }
       }
     }
 
