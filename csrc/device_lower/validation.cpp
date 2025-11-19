@@ -381,7 +381,9 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
             block_scale->toString());
       }
     } else {
-      NVF_THROW("Unexpected expression: ", expr->toString());
+      NVF_THROW(
+          "Logical to allocation domain transforms for block scale swizzle "
+          "can only contain split operations");
     }
   };
 
@@ -410,7 +412,8 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
   auto permutation =
       ir_utils::computePermutation(ids_to_transform, allocation_domain);
 
-  // Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  // -> m/128, k/4, 32(m_i), 4(m_o), 4(k)
   // check that permutation has a value and it is 0, 3, 2, 1, 4
   NVF_ERROR(
       permutation.has_value() &&
