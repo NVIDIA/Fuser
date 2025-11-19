@@ -1646,10 +1646,6 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
-  // TODO(#1401): We could let segmentation split a partially alias-producing
-  // fusion into an alias-only segment and the rest. This way, the rest of the
-  // fusion (which has fewer expressions) can potentially find a better
-  // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
 }
 
