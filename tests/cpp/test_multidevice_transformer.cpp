@@ -1067,10 +1067,10 @@ TEST_P(DistributedTransformerTest, LoopSplitMHAFwd) {
   pid_t pid = getpid();
   if (rank == 0) {
     std::cout << "rank " << rank << " PID: " << pid << std::endl;
-    int i = 0;
-    while (i == 0) {
-        sleep(5);
-    }
+    // int i = 0;
+    // while (i == 0) {
+    //     sleep(5);
+    // }
   }
 
   auto mesh = DeviceMesh::createForNumDevices(d);

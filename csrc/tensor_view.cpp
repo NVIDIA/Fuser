@@ -24,6 +24,7 @@
 #include <ops/arith.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/inlining.h>
+#include <multidevice/utils.h>
 
 // Cleanup
 #include <transform_iter.h>
@@ -1279,6 +1280,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
+    // Note: we are not setting the correct order on allocation domain here.
+    producer->setAllocationDomain(producer->getLoopDomain(), true);
   }
 
   return producer;
