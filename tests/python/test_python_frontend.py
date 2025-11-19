@@ -770,6 +770,7 @@ class TestNvFuserFrontend(NVFuserTest):
         test_fn(1)
 
     def test_gather_1000_runs(self):
+        print("Starting test_gather 1000 times")
         for _ in range(1000):
             print(f"Running test_gather {_} times")
             self.test_gather()
