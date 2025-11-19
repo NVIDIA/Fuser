@@ -32,7 +32,7 @@ namespace {
 //! This converts the epilogue of a matmul fusion into an Epilogue Visitor Tree
 //! (EVT). We model the tree using the EVTModel class above.
 //! https://dx.doi.org/10.1145/3620666.3651369
-class EVTConverter : OptInDispatch {
+class EVTConverter : OptOutDispatch {
  public:
   static EVTModel convert(
       Fusion* fusion,
@@ -377,13 +377,25 @@ class EVTConverter : OptInDispatch {
     return visitor_node;
   }
 
-  using OptInDispatch::dispatch;
+  void unhandled(Statement* stmt) {
+    std::stringstream ss;
+    if (auto* expr = dynamic_cast<Expr*>(stmt)) {
+      ss << expr->getOpString() << " epilogue expressions are not supported";
+    } else if (auto* val = dynamic_cast<Val*>(stmt)) {
+      ss << val->vtype() << " objects are not supported in the epilogue";
+    } else {
+      ss << "Found Statement with unknown type: " << stmt->toString();
+    }
+    NVF_CUTLASS_REJECT(ss.str());
+  }
+
+  using OptOutDispatch::dispatch;
 
   void dispatch(Expr* expr) {
     if (!ir_utils::isTvOp(expr)) {
       return;
     }
-    OptInDispatch::dispatch(expr);
+    OptOutDispatch::dispatch(expr);
   }
 
   void handle(TensorView* tv) {
