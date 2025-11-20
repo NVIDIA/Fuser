@@ -99,7 +99,19 @@ jobs:
 
             core.info(`Checking PR #${pr_number} at commit ${sha}`);
 
-            // 1. Get all commit statuses (for blossom-ci and other status checks)
+            // Initialize check results
+            const checks = {
+              internal_ci_passed: false,
+              internal_ci_reason: '',
+              no_failed_checks: false,
+              no_failed_checks_reason: '',
+              pr_mergeable: false,
+              pr_mergeable_reason: '',
+              pr_approved: false,
+              pr_approved_reason: '',
+            };
+
+            // 1. Get all commit statuses (for nvfuser-ci and other status checks)
             const { data: statuses } = await github.rest.repos.listCommitStatusesForRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -108,37 +120,29 @@ jobs:
 
             core.info(`Found ${statuses.length} commit statuses`);
 
-            // Check for blossom-ci status
-            const blossomStatus = statuses.find(s => s.context === 'blossom-ci');
-            if (!blossomStatus) {
-              core.setFailed('blossom-ci status not found');
-              return { ready: false, reason: 'blossom-ci status not found' };
+            // Check for nvfuser-ci status
+            const nvfuserCiStatus = statuses.find(s => s.context === 'nvfuser-ci');
+            if (!nvfuserCiStatus) {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = 'nvfuser-ci status not found';
+              core.setFailed('nvfuser-ci status not found');
+            } else if (nvfuserCiStatus.state === 'pending') {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = 'pending';
+              core.info('nvfuser-ci is still pending');
+            } else if (nvfuserCiStatus.state !== 'success') {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = nvfuserCiStatus.state;
+              core.setFailed(`nvfuser-ci status is ${nvfuserCiStatus.state}`);
+            } else {
+              checks.internal_ci_passed = true;
+              core.info('✅ nvfuser-ci is success');
             }
-
-            if (blossomStatus.state === 'pending') {
-              core.info('blossom-ci is still pending');
-              return { ready: false, reason: 'blossom-ci is pending' };
-            }
-
-            if (blossomStatus.state !== 'success') {
-              core.setFailed(`blossom-ci status is ${blossomStatus.state}`);
-              return { ready: false, reason: `blossom-ci is ${blossomStatus.state}` };
-            }
-
-            core.info('✅ blossom-ci is success');
 
             // Check for any failed or error statuses
             const failedStatuses = statuses.filter(s =>
               s.state === 'failure' || s.state === 'error'
             );
-
-            if (failedStatuses.length > 0) {
-              const failedContexts = failedStatuses.map(s => s.context).join(', ');
-              core.setFailed(`Failed statuses: ${failedContexts}`);
-              return { ready: false, reason: `Failed statuses: ${failedContexts}` };
-            }
-
-            core.info('✅ No failed commit statuses');
 
             // 2. Get all check runs
             const { data: checkRuns } = await github.rest.checks.listForRef({
@@ -157,13 +161,21 @@ jobs:
               check.status !== 'completed'
             );
 
-            if (failedChecks.length > 0) {
-              const failedNames = failedChecks.map(c => `${c.name} (${c.conclusion || c.status})`).join(', ');
-              core.setFailed(`Failed or incomplete checks: ${failedNames}`);
-              return { ready: false, reason: `Failed checks: ${failedNames}` };
+            if (failedStatuses.length > 0 || failedChecks.length > 0) {
+              checks.no_failed_checks = false;
+              const failedNames = [];
+              if (failedStatuses.length > 0) {
+                failedNames.push(...failedStatuses.map(s => s.context));
+              }
+              if (failedChecks.length > 0) {
+                failedNames.push(...failedChecks.map(c => c.name));
+              }
+              checks.no_failed_checks_reason = failedNames.join(', ');
+              core.setFailed(`Failed checks: ${checks.no_failed_checks_reason}`);
+            } else {
+              checks.no_failed_checks = true;
+              core.info('✅ No failed checks');
             }
-
-            core.info('✅ All check runs passed');
 
             // 3. Get combined status (this checks required checks)
             const { data: combinedStatus } = await github.rest.repos.getCombinedStatusForRef({
@@ -174,13 +186,6 @@ jobs:
 
             core.info(`Combined status state: ${combinedStatus.state}`);
 
-            if (combinedStatus.state !== 'success') {
-              core.setFailed(`Combined status is ${combinedStatus.state}`);
-              return { ready: false, reason: `Combined status: ${combinedStatus.state}` };
-            }
-
-            core.info('✅ Combined status is success');
-
             // 4. Check if PR is mergeable (includes branch protection rules like approvals)
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
@@ -189,27 +194,155 @@ jobs:
             });
 
             if (pr.mergeable === false) {
+              checks.pr_mergeable = false;
+              checks.pr_mergeable_reason = 'has merge conflicts';
               core.setFailed('PR is not mergeable (conflicts or other issues)');
-              return { ready: false, reason: 'PR has merge conflicts' };
-            }
-
-            if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
+            } else if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
+              checks.pr_mergeable = false;
+              checks.pr_mergeable_reason = pr.mergeable_state;
               core.info(`PR mergeable_state: ${pr.mergeable_state}`);
-              // 'blocked' means branch protection rules aren't satisfied
-              // 'behind' means needs to be updated
-              // 'dirty' means has conflicts
               core.setFailed(`PR mergeable_state is ${pr.mergeable_state}`);
-              return { ready: false, reason: `PR mergeable_state: ${pr.mergeable_state}` };
+            } else {
+              checks.pr_mergeable = true;
+              core.info('✅ PR is mergeable');
             }
 
-            core.info('✅ PR is mergeable');
+            // Check if mergeable_state indicates approval issues
+            // 'blocked' often means branch protection rules (like approvals) aren't satisfied
+            if (pr.mergeable_state === 'blocked') {
+              checks.pr_approved = false;
+              checks.pr_approved_reason = 'branch protection rules not satisfied';
+            } else if (combinedStatus.state === 'success' && checks.pr_mergeable) {
+              checks.pr_approved = true;
+            } else {
+              checks.pr_approved = false;
+              checks.pr_approved_reason = 'requirements not met';
+            }
 
-            // All conditions met!
+            // Determine if ready to merge
+            const ready = checks.internal_ci_passed &&
+                          checks.no_failed_checks &&
+                          checks.pr_mergeable &&
+                          checks.pr_approved;
+
             return {
-              ready: true,
+              ready: ready,
               pr_number: pr_number,
-              reason: 'All conditions met'
+              checks: checks,
             };
+
+      - name: Update auto-merge status comment
+        if: fromJSON(steps.pr.outputs.result).should_skip == false
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prData = ${{ steps.pr.outputs.result }};
+            const pr_number = prData.number;
+
+            // Check if PR has enable-auto-merge label
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr_number,
+            });
+
+            const hasLabel = pr.labels.some(label => label.name === 'enable-auto-merge');
+            if (!hasLabel) {
+              core.info('PR does not have enable-auto-merge label, skipping status update');
+              return;
+            }
+
+            // Get check results from previous step
+            const checkResult = ${{ steps.check.outputs.result }};
+
+            // Build status based on structured check results
+            let statusLines = [];
+
+            if (checkResult && checkResult.checks) {
+              const checks = checkResult.checks;
+
+              // PR approved
+              if (checks.pr_approved) {
+                statusLines.push('✅ PR is approved');
+              } else {
+                const reason = checks.pr_approved_reason ? ` (${checks.pr_approved_reason})` : '';
+                statusLines.push(`❌ PR is approved${reason}`);
+              }
+
+              // Internal CI
+              if (checks.internal_ci_passed) {
+                statusLines.push('✅ Internal CI is finished');
+              } else {
+                const reason = checks.internal_ci_reason ? ` (${checks.internal_ci_reason})` : '';
+                statusLines.push(`❌ Internal CI is finished${reason}`);
+              }
+
+              // No failed checks
+              if (checks.no_failed_checks) {
+                statusLines.push('✅ No failed checks');
+              } else {
+                const reason = checks.no_failed_checks_reason ? ` (${checks.no_failed_checks_reason})` : '';
+                statusLines.push(`❌ No failed checks${reason}`);
+              }
+
+              // PR mergeable
+              if (checks.pr_mergeable) {
+                statusLines.push('✅ PR is mergeable');
+              } else {
+                const reason = checks.pr_mergeable_reason ? ` (${checks.pr_mergeable_reason})` : '';
+                statusLines.push(`❌ PR is mergeable${reason}`);
+              }
+            } else {
+              // Check step didn't run yet or was skipped
+              statusLines = [
+                '⏳ PR is approved (checking...)',
+                '⏳ Internal CI is finished (checking...)',
+                '⏳ No failed checks (checking...)',
+                '⏳ PR is mergeable (checking...)'
+              ];
+            }
+
+            const statusText = statusLines.join('\n');
+
+            // Find the comment with placeholders
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr_number,
+            });
+
+            const placeholder_start = '<!-- BEGIN AUTO MERGE PLACEHOLDER -->';
+            const placeholder_end = '<!-- END AUTO MERGE PLACEHOLDER -->';
+
+            const targetComment = comments.find(comment =>
+              comment.body.includes(placeholder_start) &&
+              comment.body.includes(placeholder_end)
+            );
+
+            if (!targetComment) {
+              core.info('No comment with auto-merge placeholders found');
+              return;
+            }
+
+            // Update the comment content between placeholders
+            const beforePlaceholder = targetComment.body.substring(
+              0,
+              targetComment.body.indexOf(placeholder_start) + placeholder_start.length
+            );
+            const afterPlaceholder = targetComment.body.substring(
+              targetComment.body.indexOf(placeholder_end)
+            );
+
+            const newBody = `${beforePlaceholder}\n### Auto-merge Status\n${statusText}\n${afterPlaceholder}`;
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: targetComment.id,
+              body: newBody,
+            });
+
+            core.info('✅ Updated auto-merge status comment');
 
       - name: Merge PR
         if: fromJSON(steps.check.outputs.result).ready == true
