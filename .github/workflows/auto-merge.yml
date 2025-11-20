@@ -87,17 +87,6 @@ jobs:
               mergeable_state: pr.mergeable_state,
             };
 
-      - name: Check PR can be processed
-        if: steps.pr.outputs.result != 'null'
-        run: |
-          PR_DATA='${{ steps.pr.outputs.result }}'
-          SHOULD_SKIP=$(echo "$PR_DATA" | jq -r '.should_skip')
-
-          if [ "$SHOULD_SKIP" = "true" ]; then
-            echo "Skipping auto-merge for this event"
-            exit 0
-          fi
-
       - name: Check all conditions for auto-merge
         id: check
         if: fromJSON(steps.pr.outputs.result).should_skip == false
@@ -249,19 +238,6 @@ jobs:
           script: |
             const prData = ${{ steps.pr.outputs.result }};
             const pr_number = prData.number;
-
-            // Check if PR has enable-auto-merge label
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr_number,
-            });
-
-            const hasLabel = pr.labels.some(label => label.name === 'enable-auto-merge');
-            if (!hasLabel) {
-              core.info('PR does not have enable-auto-merge label, skipping status update');
-              return;
-            }
 
             // Get check results from previous step
             const checkResult = ${{ steps.check.outputs.result }};
