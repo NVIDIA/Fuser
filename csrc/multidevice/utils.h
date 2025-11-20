@@ -44,11 +44,6 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);
 
-// Returns a set that contains DIDs and Stream.
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
-
-std::unordered_set<ParallelType> deviceParallelTypes();
-
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(

@@ -266,25 +266,6 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
-  static auto s = [&] {
-    std::unordered_set<ParallelType> s(
-        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
-    s.insert(ParallelType::Stream);
-    return s;
-  }();
-  return s;
-}
-
-std::unordered_set<ParallelType> deviceParallelTypes() {
-  static auto s = [&] {
-    std::unordered_set<ParallelType> s(
-        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
-    return s;
-  }();
-  return s;
-}
-
 namespace {
 int64_t rankOfParallelType(ParallelType parallel_type) {
   // Currently, when reorderParallelizedToFront is called, the loop domain is
