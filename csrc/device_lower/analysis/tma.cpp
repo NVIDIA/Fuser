@@ -1193,7 +1193,9 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
 
   // Validate broadcast usage: TMA auto-fills out-of-bounds with zeros,
   // breaking broadcast semantics when broadcast dims participate in tile shape.
-  validateTMAConsumerBroadcasts(smem_tv);
+  if (!GpuLower::current()->hasMma()) {
+    validateTMAConsumerBroadcasts(smem_tv);
+  }
 
   MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
 

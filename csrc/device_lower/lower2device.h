@@ -199,6 +199,14 @@ class GpuLower : public NonCopyable {
     return mbarrier_map_;
   }
 
+  bool hasMma() const {
+    return has_mma_;
+  }
+
+  void setHasMma(bool has_mma) {
+    has_mma_ = has_mma;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -434,6 +442,9 @@ class GpuLower : public NonCopyable {
   // The shared cluster reduction mbarrier tensor allocated during allocation
   // pass
   TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
+
+  // has mma op in fusion
+  bool has_mma_ = false;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \
