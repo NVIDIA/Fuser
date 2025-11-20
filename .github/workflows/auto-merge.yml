@@ -61,6 +61,17 @@ jobs:
               pr = prs.data[0];
             }
 
+            // Defensive checks: skip if PR is closed or draft
+            if (pr.state === 'closed') {
+              core.info('PR is closed, skipping auto-merge checks');
+              return { should_skip: true };
+            }
+
+            if (pr.draft === true) {
+              core.info('PR is a draft, skipping auto-merge checks');
+              return { should_skip: true };
+            }
+
             // Check if PR has the enable-auto-merge label
             const hasLabel = pr.labels.some(label => label.name === 'enable-auto-merge');
             if (!hasLabel) {
