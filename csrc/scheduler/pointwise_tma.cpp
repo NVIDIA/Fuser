@@ -90,7 +90,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     return nullptr;
   }
   int64_t elements_per_cta = ceilDiv(bits_per_cta, bits_per_element);
-  elements_per_cta = scheduler_utils::roundUpPow2Or8(elements_per_cta);
+  elements_per_cta = scheduler_utils::roundUpToN(elements_per_cta, 1024);
   int64_t max_tma_tile_inner =
       std::min(tma_domain_inner / 2, max_size_per_tma_tile_dim);
   int64_t max_tma_tile_outer =
@@ -284,8 +284,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
   }
 
-  // Inline all intermediate computations
-  inlineMost();
+  // Inline all intermediate computations except register-loaded tensors.
+  // Issuing register loads at the beginning of the kernel is more efficient
+  // compared to delaying them until they are used. These non-TMA-loaded tensors
+  // are usually broadcast inputs with smaller sizes, so they only slightly
+  // increase register usage.
+  // Performance comparison (inlining most vs not inlining ldg_tvs):
+  //   - Inline most: 29 registers, 100% occupancy, 53% SOL
+  //   - Uninlined ldg_tvs: 32 registers, 100% occupancy, 88% SOL
+  const auto non_ldg_tvs =
+      ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
+  inlineMost(non_ldg_tvs);
 }
 
 } // namespace tma
