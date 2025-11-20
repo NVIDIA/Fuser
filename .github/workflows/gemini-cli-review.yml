@@ -57,7 +57,7 @@ jobs:
         env:
           #GEMINI_MODEL: gemini-1.5-flash-latest
           GEMINI_OUTPUT_DIR: artifacts/gemini_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_TEST }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
