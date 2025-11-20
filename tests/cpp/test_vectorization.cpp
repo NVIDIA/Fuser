@@ -36,6 +36,7 @@ void checkMappedVal(
 
 class VectorizationAnalysisTest : public NVFuserTest {
   void SetUp() override {
+    NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
