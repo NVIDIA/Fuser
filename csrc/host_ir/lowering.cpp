@@ -12,6 +12,7 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_abstract.h>
 
