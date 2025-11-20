@@ -333,25 +333,21 @@ namespace {
 
 // TODO: Refine this function to check contiguity, broadcasts, reshapes, etc.
 bool mayHaveTmaCompatibleInputs(
-    const pointwise_utils::FusionRuntimeProperties& prop) {
+    const pointwise_utils::FusionRuntimeProperties& prop,
+    SchedulerRuntimeInfo& runtime_info) {
   for (auto tv : prop.vectorizable_inputs_outputs) {
     if (!tv->isFusionInput()) {
       continue;
     }
-    auto dtype_bits =
-        dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
-    // Note: The actual element count should consider the breakpoint and be
-    // computed individually for each input. Here, the largest output is used
-    // as a conservative estimate. If the largest output fails these checks,
-    // then no input is suitable for TMA since all inputs are smaller than or
-    // equal to the largest output in a pointwise fusion.
-    auto elem_count = prop.n_elems;
 
     // Condition 1: We only support 2D TMA, which requires at least 2 tiles in
     // the inner dimension, each with  at least 16 bytes. This imposes a minimum
     // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
     // TMA domain size equals the total element count, as this would mean the
     // outer TMA domain is 1, which is not a valid 2D TMA configuration.
+    auto dtype_bits =
+        dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
+    auto elem_count = scheduler_utils::getNumElements(tv, runtime_info);
     const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
     if (elem_count % min_inner_tma_domain_size != 0 ||
         elem_count == min_inner_tma_domain_size) {
@@ -378,13 +374,15 @@ bool mayHaveTmaCompatibleInputs(
 // serves as a fast path to avoid computing full heuristics if TMA is clearly
 // not applicable. Passing this check does not guarantee that TMA will be used;
 // the final decision is made during heuristics computation.
-bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
+bool mayUseTma(
+    const pointwise_utils::FusionRuntimeProperties& prop,
+    SchedulerRuntimeInfo& runtime_info) {
   // Hardware requirement: Don't use TMA for pre-Hopper GPUs
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return false;
   }
   // Check if there are TMA-compatible inputs
-  if (!mayHaveTmaCompatibleInputs(prop)) {
+  if (!mayHaveTmaCompatibleInputs(prop, runtime_info)) {
     return false;
   }
   return true;
@@ -408,10 +406,10 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  // bool use_tma = mayUseTma(prop) &&
+  // bool use_tma = mayUseTma(prop, runtime_info) &&
   // isOptionEnabled(EnableOption::TmaPointwise); for CI testing, use tma always
   // if possible
-  bool use_tma = mayUseTma(prop);
+  bool use_tma = mayUseTma(prop, runtime_info);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(

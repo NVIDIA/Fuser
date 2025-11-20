@@ -3445,5 +3445,19 @@ int64_t getInnerTmaDomainSize(
   return best_divisible_size;
 }
 
+int64_t getNumElements(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t num_elements = 1;
+  for (auto logical_id : tv->getLogicalDomain()) {
+    auto inferred_val =
+        runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+    NVF_ERROR(
+        inferred_val.hasValue(),
+        "Error inferring extent of: ",
+        logical_id->toString());
+  }
+  return num_elements;
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

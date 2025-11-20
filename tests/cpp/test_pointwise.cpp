@@ -357,10 +357,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase0) {
   auto cg_results =
       scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1}, false);
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 4);
-  EXPECT_FALSE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 4);
+    EXPECT_FALSE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
 
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -389,11 +390,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase1) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 2);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
-
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 2);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -427,11 +428,11 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 4);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
-
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 4);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -462,11 +463,11 @@ TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 2);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
-
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 2);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -783,8 +784,10 @@ TEST_F(PointwiseTest, Heuristicst1Compute1Unroll2) {
   auto cg_results =
       scheduleAndRun(fusion.get(), SchedulerType::PointWise, {t0});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-  ASSERT_EQ(pparams->vectorization_factor, vect);
-  ASSERT_EQ(pparams->unroll_factor_inner, unroll);
+  if (!pparams->use_tma_load) {
+    ASSERT_EQ(pparams->vectorization_factor, vect);
+    ASSERT_EQ(pparams->unroll_factor_inner, unroll);
+  }
   testValidate(fusion.get(), cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 

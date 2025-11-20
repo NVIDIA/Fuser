@@ -1005,6 +1005,11 @@ int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size = 512,
     int64_t min_dtype_bytes = 1);
+
+// Get the total number of elements in a given TensorView
+int64_t getNumElements(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
