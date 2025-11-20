@@ -1031,22 +1031,22 @@ KernelArgumentHolder KernelExecutor::run(
     sprof.startKernel();
   }
 
-  //NVF_ERROR(isCompiled());
-  //NVF_ERROR(
-  //    output_args.empty() ||
-  //        (output_args.size() ==
-  //         std::ssize(compiledKernel()->kernel()->outputs())),
-  //    __func__,
-  //    " provided number of outputs does not match fusion output");
+  NVF_ERROR(isCompiled());
+  NVF_ERROR(
+      output_args.empty() ||
+          (output_args.size() ==
+           std::ssize(compiledKernel()->kernel()->outputs())),
+      __func__,
+      " provided number of outputs does not match fusion output");
 
-  //validateIndexType(compiled_kernel_->kernel(), compile_params);
+  validateIndexType(compiled_kernel_->kernel(), compile_params);
 
-  ////const auto num_inputs = args.size();
+  const auto num_inputs = args.size();
 
-  //if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
-  //  dumpFusionArgs(
-  //      fusion_id_, args, launch_constraints, compile_params, output_args);
-  //}
+  if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
+    dumpFusionArgs(
+        fusion_id_, args, launch_constraints, compile_params, output_args);
+  }
 
   c10::DeviceGuard dg(compiled_kernel_->device());
   auto stream = at::cuda::getCurrentCUDAStream();
@@ -1062,7 +1062,6 @@ KernelArgumentHolder KernelExecutor::run(
       : &temporary_executor_entry;
 
   // Initialize the executor entry if not initlized
-  bool first_init = !executor_entry->init;
   if (!executor_entry->init) {
     initializeExecutorEntry(
         *executor_entry,
@@ -1088,189 +1087,187 @@ KernelArgumentHolder KernelExecutor::run(
   // in testing and benchmarking through KernelExecutor::lastLaunchParams
   last_launch_params_ = launch_params;
 
-  //// context manager to disable auto grad for `empty_cuda` calls later
-  //at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
+  // context manager to disable auto grad for `empty_cuda` calls later
+  at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  //// only allocate outputs when not given
-  //if (output_args.empty()) {
-  //  output_args = allocateOutputs(
-  //      compiled_kernel_->kernel(),
-  //      executor_entry->outputs,
-  //      executor_entry->output_aliased_to_input,
-  //      compiled_kernel_->device(),
-  //      args,
-  //      has_dynamic_alias_);
-  //  if (has_dynamic_alias_) {
-  //    ExpressionEvaluator expr_eval;
-  //    if (has_dynamic_alias_ || has_tma_) {
-  //      expr_eval =
-  //          executor_utils::bindInputs(args, compiled_kernel_->kernel());
-  //    }
+  // only allocate outputs when not given
+  if (output_args.empty()) {
+    output_args = allocateOutputs(
+        compiled_kernel_->kernel(),
+        executor_entry->outputs,
+        executor_entry->output_aliased_to_input,
+        compiled_kernel_->device(),
+        args,
+        has_dynamic_alias_);
+    if (has_dynamic_alias_) {
+      ExpressionEvaluator expr_eval;
+      if (has_dynamic_alias_ || has_tma_) {
+        expr_eval =
+            executor_utils::bindInputs(args, compiled_kernel_->kernel());
+      }
 
-  //    for (const auto i :
-  //         arange(compiled_kernel_->kernel()->outputs().size())) {
-  //      auto param = compiled_kernel_->kernel()->outputs()[i];
-  //      if (!param->isA<TensorView>()) {
-  //        continue;
-  //      }
-  //      if (compiled_kernel_->kernel()
-  //              ->getOutputAlias(param->as<TensorView>())
-  //              .type == AllocationType::Evaluate) {
-  //        output_args[i] = expr_eval.evaluate(param);
-  //      }
-  //    }
-  //  }
-  //  NVF_ERROR(
-  //      std::all_of(
-  //          output_args.begin(),
-  //          output_args.end(),
-  //          [](const PolymorphicValue& arg) {
-  //            return arg.hasValue() && arg.is<at::Tensor>();
-  //          }),
-  //      "Output is not populated or not a Tensor");
-  //}
+      for (const auto i :
+           arange(compiled_kernel_->kernel()->outputs().size())) {
+        auto param = compiled_kernel_->kernel()->outputs()[i];
+        if (!param->isA<TensorView>()) {
+          continue;
+        }
+        if (compiled_kernel_->kernel()
+                ->getOutputAlias(param->as<TensorView>())
+                .type == AllocationType::Evaluate) {
+          output_args[i] = expr_eval.evaluate(param);
+        }
+      }
+    }
+    NVF_ERROR(
+        std::all_of(
+            output_args.begin(),
+            output_args.end(),
+            [](const PolymorphicValue& arg) {
+              return arg.hasValue() && arg.is<at::Tensor>();
+            }),
+        "Output is not populated or not a Tensor");
+  }
 
   args.push(output_args);
 
-  //KernelArgumentHolder intermediate_args;
-  //at::Tensor profile_buffer;
-  //{
-  //  FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
-  //  // Intermediates just use logical sizes and strides even though they're
-  //  // really allocation sizes and strides.
-  //  //
-  //  // This is simply because the convention used is that allocation
-  //  // sizes/strides are optional, logical are not.
-  //  for (const auto intermediate_i :
-  //       arange(executor_entry->intermediates.size())) {
-  //    const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
-  //    bool has_expansion = false;
-  //    std::vector<int64_t> unexpanded_sizes;
-  //    unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
-  //    NVF_ERROR(
-  //        buf_info.shape_info.logical_sizes.size() ==
-  //        buf_info.shape_info.logical_strides.size())
-  //    for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
-  //      if (buf_info.shape_info.logical_strides[j] == 0) {
-  //        has_expansion = true;
-  //        unexpanded_sizes.push_back(1L);
-  //      } else {
-  //        unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
-  //      }
-  //    }
-  //    at::Tensor intermediate_buffer;
-  //    if (buf_info.zero_init) {
-  //      if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
-  //          buf_info.resets_to_zero) {
-  //        // Allow access to reusable zeroed memory if buffer is guaranteed
-  //        // to reset to zero upon completion of the kernel, or if we have
-  //        // enabled the option (unsafe)
-  //        intermediate_buffer = contigZeroedTensor(
-  //            unexpanded_sizes, buf_info.type, compiled_kernel_->device());
-  //      } else {
-  //        intermediate_buffer = at::zeros(
-  //            unexpanded_sizes,
-  //            at::TensorOptions()
-  //                .dtype(buf_info.type)
-  //                .device(compiled_kernel_->device()));
-  //      }
-  //    } else {
-  //      intermediate_buffer = at::native::empty_cuda(
-  //          unexpanded_sizes,
-  //          buf_info.type,
-  //          c10::nullopt,
-  //          compiled_kernel_->device(),
-  //          c10::nullopt);
-  //      if (shouldFillAllocationWithNan()) {
-  //        fillTensorWithNan(intermediate_buffer);
-  //      }
-  //    }
-  //    if (has_expansion) {
-  //      intermediate_buffer = at::native::expand(
-  //          intermediate_buffer, buf_info.shape_info.logical_sizes);
-  //    }
-  //    args.push(intermediate_buffer);
-  //    intermediate_args.push(intermediate_buffer);
-  //    if (buf_info.is_profile_buffer) {
-  //      profile_buffer = intermediate_buffer;
-  //    }
-  //  }
-  //}
-
-  //if (has_tma_) {
-  //  // Resolving TMA requires binding all values and evaluating the TMA
-  //  // arguments
-  //  //
-  //  // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
-  //  // function shouldn't also be called.
-  //  args = resolveTMA(*executor_entry, args);
-  //}
-
-  //if (has_rng_) {
-  //  // Resolving RNG seed requires evaluating and adding those values, but
-  //  // doesn't require binding all values as getting RNG seed and offset
-  //  // doesn't depend on other values
-  //  args = resolveRNGSeed(compiled_kernel_->kernel(), args);
-  //}
-
-  if (first_init) {
-    computeArgs(*executor_entry, args);
+  KernelArgumentHolder intermediate_args;
+  at::Tensor profile_buffer;
+  {
+    FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
+    // Intermediates just use logical sizes and strides even though they're
+    // really allocation sizes and strides.
+    //
+    // This is simply because the convention used is that allocation
+    // sizes/strides are optional, logical are not.
+    for (const auto intermediate_i :
+         arange(executor_entry->intermediates.size())) {
+      const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
+      bool has_expansion = false;
+      std::vector<int64_t> unexpanded_sizes;
+      unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
+      NVF_ERROR(
+          buf_info.shape_info.logical_sizes.size() ==
+          buf_info.shape_info.logical_strides.size())
+      for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
+        if (buf_info.shape_info.logical_strides[j] == 0) {
+          has_expansion = true;
+          unexpanded_sizes.push_back(1L);
+        } else {
+          unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
+        }
+      }
+      at::Tensor intermediate_buffer;
+      if (buf_info.zero_init) {
+        if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
+            buf_info.resets_to_zero) {
+          // Allow access to reusable zeroed memory if buffer is guaranteed
+          // to reset to zero upon completion of the kernel, or if we have
+          // enabled the option (unsafe)
+          intermediate_buffer = contigZeroedTensor(
+              unexpanded_sizes, buf_info.type, compiled_kernel_->device());
+        } else {
+          intermediate_buffer = at::zeros(
+              unexpanded_sizes,
+              at::TensorOptions()
+                  .dtype(buf_info.type)
+                  .device(compiled_kernel_->device()));
+        }
+      } else {
+        intermediate_buffer = at::native::empty_cuda(
+            unexpanded_sizes,
+            buf_info.type,
+            c10::nullopt,
+            compiled_kernel_->device(),
+            c10::nullopt);
+        if (shouldFillAllocationWithNan()) {
+          fillTensorWithNan(intermediate_buffer);
+        }
+      }
+      if (has_expansion) {
+        intermediate_buffer = at::native::expand(
+            intermediate_buffer, buf_info.shape_info.logical_sizes);
+      }
+      args.push(intermediate_buffer);
+      intermediate_args.push(intermediate_buffer);
+      if (buf_info.is_profile_buffer) {
+        profile_buffer = intermediate_buffer;
+      }
+    }
   }
 
-  //if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
-  //  launch_params.print();
-  //}
+  if (has_tma_) {
+    // Resolving TMA requires binding all values and evaluating the TMA
+    // arguments
+    //
+    // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
+    // function shouldn't also be called.
+    args = resolveTMA(*executor_entry, args);
+  }
 
-  //if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-  //  dumpKernelArgs(
-  //      fusion_id_,
-  //      group_id_,
-  //      args,
-  //      num_inputs,
-  //      output_args,
-  //      intermediate_args,
-  //      executor_entry->intermediates);
-  //}
+  if (has_rng_) {
+    // Resolving RNG seed requires evaluating and adding those values, but
+    // doesn't require binding all values as getting RNG seed and offset
+    // doesn't depend on other values
+    args = resolveRNGSeed(compiled_kernel_->kernel(), args);
+  }
 
-  //if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-  //  debug() << "Index type: " << compiled_kernel_->kernel()->indexType()
-  //          << std::endl;
-  //}
+  computeArgs(*executor_entry, args);
+
+  if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
+    launch_params.print();
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+    dumpKernelArgs(
+        fusion_id_,
+        group_id_,
+        args,
+        num_inputs,
+        output_args,
+        intermediate_args,
+        executor_entry->intermediates);
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+    debug() << "Index type: " << compiled_kernel_->kernel()->indexType()
+            << std::endl;
+  }
 
   if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
-    //ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
+    ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
-    //if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
-    //    isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
-    //  int blocks_per_sm = -1;
-    //  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
-    //      &blocks_per_sm,
-    //      compiled_kernel_->cudaExecutable()->function,
-    //      launch_params.nThreads(),
-    //      launch_params.smem()));
+    if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
+        isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      int blocks_per_sm = -1;
+      NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+          &blocks_per_sm,
+          compiled_kernel_->cudaExecutable()->function,
+          launch_params.nThreads(),
+          launch_params.smem()));
 
-    //  const int64_t device_id =
-    //      static_cast<unsigned char>(compiled_kernel_->device().index());
-    //  const auto prop =
-    //      at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
-    //  const int64_t warps_per_sm =
-    //      ceilDiv(blocks_per_sm * launch_params.nThreads(), prop->warpSize);
+      const int64_t device_id =
+          static_cast<unsigned char>(compiled_kernel_->device().index());
+      const auto prop =
+          at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
+      const int64_t warps_per_sm =
+          ceilDiv(blocks_per_sm * launch_params.nThreads(), prop->warpSize);
 
-    //  const int hw_max_warps =
-    //      prop->maxThreadsPerMultiProcessor / prop->warpSize;
-    //  const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
-    //  setKernelOccupancy(occupancy);
-    //  std::ostringstream oss;
-    //  oss << std::fixed << std::setprecision(2) << occupancy << "%";
+      const int hw_max_warps =
+          prop->maxThreadsPerMultiProcessor / prop->warpSize;
+      const float occupancy = (float)warps_per_sm / (float)hw_max_warps * 100.f;
+      setKernelOccupancy(occupancy);
+      std::ostringstream oss;
+      oss << std::fixed << std::setprecision(2) << occupancy << "%";
 
-    //  debug() << "num_sms=" << prop->multiProcessorCount
-    //          << ", blocks_per_sm=" << blocks_per_sm
-    //          << ", warps_per_sm=" << warps_per_sm
-    //          << ", occupancy=" << oss.str() << std::endl;
-    //}
+      debug() << "num_sms=" << prop->multiProcessorCount
+              << ", blocks_per_sm=" << blocks_per_sm
+              << ", warps_per_sm=" << warps_per_sm
+              << ", occupancy=" << oss.str() << std::endl;
+    }
 
-    //const auto& kernel_summary = compiled_kernel_->kernel()->summary();
+    const auto& kernel_summary = compiled_kernel_->kernel()->summary();
 
     {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
@@ -1284,56 +1281,56 @@ KernelArgumentHolder KernelExecutor::run(
       config.sharedMemBytes = launch_params.smem();
       config.hStream = stream;
 
-      //std::vector<CUlaunchAttribute> launch_attributes;
+      std::vector<CUlaunchAttribute> launch_attributes;
 
-      //if (kernel_summary.has_cluster_reduction) {
-      //  // cluster reduction uses DSMEM
-      //  // The launch attribute for cluster dimension must match
-      //  // __cluster_dims__ compile-time specification.
-      //  CUlaunchAttribute attribute;
-      //  attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-      //  attribute.value.clusterDim.x = launch_params.gdimx();
-      //  attribute.value.clusterDim.y = 1;
-      //  attribute.value.clusterDim.z = 1;
-      //  launch_attributes.push_back(attribute);
+      if (kernel_summary.has_cluster_reduction) {
+        // cluster reduction uses DSMEM
+        // The launch attribute for cluster dimension must match
+        // __cluster_dims__ compile-time specification.
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+        attribute.value.clusterDim.x = launch_params.gdimx();
+        attribute.value.clusterDim.y = 1;
+        attribute.value.clusterDim.z = 1;
+        launch_attributes.push_back(attribute);
 
-      //  // To request more than 8 CTAs per cluster, need to set non-portable
-      //  // cluster size allowed
-      //  if (attribute.value.clusterDim.x > 8) {
-      //    NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
-      //        compiled_kernel_->cudaExecutable()->function,
-      //        CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
-      //        1));
-      //  }
-      //}
+        // To request more than 8 CTAs per cluster, need to set non-portable
+        // cluster size allowed
+        if (attribute.value.clusterDim.x > 8) {
+          NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+              compiled_kernel_->cudaExecutable()->function,
+              CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED,
+              1));
+        }
+      }
 
-      //if (kernel_summary.has_cooperative_grid_reduction) {
-      //  CUlaunchAttribute attribute;
-      //  attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
-      //  attribute.value.cooperative = 1;
-      //  launch_attributes.push_back(attribute);
-      //}
+      if (kernel_summary.has_cooperative_grid_reduction) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
+        attribute.value.cooperative = 1;
+        launch_attributes.push_back(attribute);
+      }
 
-      //if (launch_attributes.size() > 0) {
-      //  config.attrs = launch_attributes.data();
-      //  config.numAttrs = (unsigned int)launch_attributes.size();
-      //} else {
-      //  config.attrs = nullptr;
-      //  config.numAttrs = 0;
-      //}
+      if (launch_attributes.size() > 0) {
+        config.attrs = launch_attributes.data();
+        config.numAttrs = (unsigned int)launch_attributes.size();
+      } else {
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+      }
 
-      //if (kernel_summary.has_cluster_reduction) {
-      //  // CUDA guide recommends checking max active clusters before launching
-      //  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
-      //  int num_clusters = 0;
-      //  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
-      //      &num_clusters,
-      //      compiled_kernel_->cudaExecutable()->function,
-      //      &config));
-      //  NVF_ERROR(
-      //      num_clusters > 0,
-      //      "Failed to launch kernel with cluster dimensions");
-      //}
+      if (kernel_summary.has_cluster_reduction) {
+        // CUDA guide recommends checking max active clusters before launching
+        // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#thread-block-clusters
+        int num_clusters = 0;
+        NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveClusters(
+            &num_clusters,
+            compiled_kernel_->cudaExecutable()->function,
+            &config));
+        NVF_ERROR(
+            num_clusters > 0,
+            "Failed to launch kernel with cluster dimensions");
+      }
 
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
           &config,
@@ -1343,11 +1340,11 @@ KernelArgumentHolder KernelExecutor::run(
     }
   }
 
-  //releaseZeroedMemory();
+  releaseZeroedMemory();
 
-  //if (isOptionEnabled(EnableOption::KernelProfile)) {
-  //  debug() << compiled_kernel_->kernel()->profile().toString(profile_buffer);
-  //}
+  if (isOptionEnabled(EnableOption::KernelProfile)) {
+    debug() << compiled_kernel_->kernel()->profile().toString(profile_buffer);
+  }
 
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
