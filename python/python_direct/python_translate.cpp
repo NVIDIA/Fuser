@@ -1589,6 +1589,28 @@ class PythonTranslator : public OptInConstDispatch {
         {out_tv});
   }
 
+  // Map BlockQuantizationOp to python frontend
+  void handle(const BlockQuantizationOp* bqop) final {
+    NVF_ERROR(bqop != nullptr);
+    visited_vals_.insert(bqop->output(0));
+    if (bqop->hasGlobalScale()) {
+      visited_vals_.insert(bqop->output(1));
+    }
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(bqop->globalScale())>{"global_scale", nullptr},
+        KeywordArgument<int64_t>{"block_size", 16},
+        KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
+
+    auto dtype = bqop->quantizedOutput()->as<TensorView>()->dtype();
+    printer_.generateKwargsOperation(
+        "fd.ops.nv_block_quantize",
+        std::make_tuple(bqop->in()),
+        default_args,
+        std::make_tuple(bqop->globalScale(), bqop->blockSize(), dtype),
+        std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
+  }
+
   // Map EmbeddingFwdOp to python frontend
   void handle(const EmbeddingFwdOp* eop) final {
     NVF_ERROR(eop != nullptr);

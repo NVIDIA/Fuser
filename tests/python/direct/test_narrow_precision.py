@@ -119,6 +119,104 @@ def test_scaled_mm(
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
+def test_nv_block_quantization(nvfuser_direct_test):
+    swizzle_scales = True
+    x = torch.randn((1024, 1024), dtype=torch.float32, device="cuda")
+    x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+        torch.float32
+    )
+
+    x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
+
+    if swizzle_scales:
+        x_scale = linear_to_swizzled_128_4(x_scale)
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(x_tv, global_scale_tv, 16)
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+        if swizzle_scales:
+            scales_.split(0, 128)
+            scales_.split(1, 32)
+            scales_.split(3, 4)
+            new_order_of_alloc_domain = [
+                scales_.axis(0),
+                scales_.axis(3),
+                scales_.axis(2),
+                scales_.axis(1),
+                scales_.axis(4),
+            ]
+            scales_.set_allocation_domain(new_order_of_alloc_domain, True)
+
+            scales_.merge(1, 2)
+            scales_.merge(0, 1)
+            scales_.merge(1, 2)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x, x_global_scale])
+
+    # # Move tensor from GPU to CPU and get raw data as uint8
+    o0_cpu = o[0].cpu()  # Move to CPU
+    o1_cpu = o[1].cpu()  # Move to CPU
+    o0_uint8 = o0_cpu.view(torch.uint8)  # Reinterpret bytes as uint8
+    o1_uint8 = o1_cpu.view(torch.uint8)  # Reinterpret bytes as uint8
+
+    # Move reference tensors to CPU and convert to uint8 for comparison
+    x_u8_cpu = x_u8.cpu()  # Move x_u8 to CPU
+    x_scale_cpu = x_scale.cpu()  # Move x_scale to CPU
+    x_u8_uint8 = x_u8_cpu.view(torch.uint8)  # Reinterpret x_u8 bytes as uint8
+    x_scale_uint8 = x_scale_cpu.view(torch.uint8)  # Reinterpret x_scale bytes as uint8
+
+    print("\n--- Comparison Results ---")
+    print(f"o[0] (nvfuser quantized values) shape: {o0_uint8.shape}")
+    print(f"x_u8 (reference quantized values) shape: {x_u8_uint8.shape}")
+    print(f"o[1] (nvfuser scales) shape: {o1_uint8.shape}")
+    print(f"x_scale (reference scales) shape: {x_scale_uint8.shape}")
+
+    # Compare first 20 bytes of quantized values (o[0] vs x_u8)
+    print("\n--- Quantized Values Comparison (first 20 bytes) ---")
+    print(f"nvfuser o[0]: {[hex(x.item()) for x in o0_uint8.flatten()[:20]]}")
+    print(f"reference x_u8: {[hex(x.item()) for x in x_u8_uint8.flatten()[:20]]}")
+
+    # Compare first 20 bytes of scales (o[1] vs x_scale)
+    print("\n--- Scale Values Comparison (first 20 bytes) ---")
+    print(f"nvfuser o[1]: {[hex(x.item()) for x in o1_uint8.flatten()[:20]]}")
+    print(f"reference x_scale: {[hex(x.item()) for x in x_scale_uint8.flatten()[:20]]}")
+
+    # Check if quantized values match
+    if o0_uint8.flatten().size() == x_u8_uint8.flatten().size():
+        values_match = torch.equal(o0_uint8.flatten(), x_u8_uint8.flatten())
+        print(f"Quantized values match: {values_match}")
+        if not values_match:
+            diff_count = (o0_uint8.flatten() != x_u8_uint8.flatten()).sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+    else:
+        print(
+            f"Quantized values have different sizes after flattening: {o0_uint8.flatten().size()} vs {x_u8_uint8.flatten().size()}"
+        )
+
+    # Check if scale values match
+    if o1_uint8.flatten().size() == x_scale_uint8.flatten().size():
+        scales_match = torch.equal(o1_uint8.flatten(), x_scale_uint8.flatten())
+        print(f"Scale values match: {scales_match}")
+        if not scales_match:
+            diff_count = (o1_uint8.flatten() != x_scale_uint8.flatten()).sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+    else:
+        print(
+            f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
+        )
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
 @pytest.mark.skipif(
     not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
 )

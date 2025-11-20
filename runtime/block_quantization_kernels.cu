@@ -119,10 +119,10 @@ __device__ void block_quantize_to_nvfp4(
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
   // Convert back from FP8 to float using __e4m32float
-  float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  // float clamped_max_converted = __e4m32float(clamped_max_fp8);
 
   if constexpr (USE_GLOBAL_SCALE) {
-    clamped_max_converted = clamped_max_converted / global_scale[0];
+    clamped_max = clamped_max / global_scale[0];
   }
 
   // Write out the block scaling factor to global memory.
@@ -165,7 +165,7 @@ __device__ void block_quantize_to_nvfp4(
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    float scaled_val = vec_in[i] / clamped_max_converted;
+    float scaled_val = vec_in[i] / clamped_max;
     clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
   }
 

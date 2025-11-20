@@ -3486,6 +3486,55 @@ tuple[TensorView, TensorView, TensorView]
       py::return_value_policy::reference);
 }
 
+void bindQuantizationOps(py::module_& ops) {
+  ops.def(
+      "nv_block_quantize",
+      [](TensorView* input,
+         ScalarVariant global_scale,
+         int64_t block_size,
+         PrimDataType dtype) -> py::tuple {
+        TensorView* global_scale_val = nullptr;
+        if (std::holds_alternative<Val*>(global_scale)) {
+          Val* val = std::get<Val*>(global_scale);
+          if (val != nullptr && val->isA<TensorView>()) {
+            global_scale_val = val->as<TensorView>();
+          }
+        } else {
+          PolymorphicValue::VariantType pv =
+              std::get<PolymorphicValue::VariantType>(global_scale);
+          if (!std::holds_alternative<std::monostate>(pv)) {
+            Val* converted = convertToVal(global_scale);
+            if (converted->isA<TensorView>()) {
+              global_scale_val = converted->as<TensorView>();
+            }
+          }
+        }
+        auto output = blockQuantize(input, global_scale_val, block_size, dtype);
+        return py::make_tuple(output.quantized_tensor, output.block_scales);
+      },
+      py::arg("input"),
+      py::arg("global_scale").none(true) = py::none(),
+      py::arg("block_size") = 16,
+      py::arg("dtype") = DataType::Float4_e2m1fn,
+      R"(
+Block quantize tensor to NVFP4 format.
+Parameters
+----------
+input : TensorView
+    Input tensor to quantize. Must be a floating point tensor.
+global_scale : Val or TensorView, optional
+block_size : int, optional
+    Block size for quantization. Default is 16.
+Returns
+-------
+tuple[TensorView, TensorView]
+    A tuple containing (block_scales, quantized_tensor) where:
+    - block_scales: Per-block scaling factors
+    - quantized_tensor: Quantized tensor in NVFP4 format
+      )",
+      py::return_value_policy::reference);
+}
+
 template <
     class ShapeType,
     TensorView* (*RandomFuncWithSeed)(
@@ -3638,6 +3687,7 @@ void bindOperations(py::module& nvfuser) {
   bindSearchOps(nvf_ops);
   bindSdpaOps(nvf_ops);
   bindRandomOps(nvf_ops);
+  bindQuantizationOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
