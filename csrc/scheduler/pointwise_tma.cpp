@@ -90,9 +90,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Compute TMA inner domain size
   constexpr int64_t target_inner_tma_domain_size = 512;
-  const int64_t min_dtype_bytes = prop.min_dtype_size_bit_for_vectorization / 8;
+  const int64_t min_dtype_bits = prop.min_dtype_size_bit_for_vectorization;
   int64_t tma_domain_inner = scheduler_utils::getInnerTmaDomainSize(
-      prop.n_elems, target_inner_tma_domain_size, min_dtype_bytes);
+      prop.n_elems, target_inner_tma_domain_size, min_dtype_bits);
   NVF_ERROR(
       tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
       "Illegal TMA inner domain size: ",

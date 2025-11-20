@@ -3360,16 +3360,16 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size,
-    int64_t min_dtype_bytes) {
+    int64_t min_dtype_bits) {
   // TMA Hardware Alignment Constraints:
   // - We use TMA without interleave; the byte size of the innermost TMA tile
   //   must be divisible by 16 bytes.
   // - 2D TMA requires at least 2 tiles in the inner dimension to maintain a
   //   proper 2D structure and avoid dimension collapse.
   // - Therefore, InnerTmaDomain must be at least 2 * 16 bytes, which translates
-  //   to (2 * 16 / min_dtype_bytes) elements.
+  //   to (2 * 16 * 8 / min_dtype_bits) elements.
   constexpr int64_t align_bytes = 16;
-  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+  const int64_t min_size = 2 * align_bytes * 8 / min_dtype_bits;
   NVF_ERROR(
       total_element % min_size == 0,
       "total_element must be divisible by min_size to satisfy 2D TMA "
