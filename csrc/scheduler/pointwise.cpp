@@ -408,7 +408,10 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  bool use_tma = mayUseTma(prop) && isOptionEnabled(EnableOption::TmaPointwise);
+  // bool use_tma = mayUseTma(prop) &&
+  // isOptionEnabled(EnableOption::TmaPointwise); for CI testing, use tma always
+  // if possible
+  bool use_tma = mayUseTma(prop);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
