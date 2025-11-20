@@ -1266,6 +1266,7 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_outputs,
                                   void* launch_kernel,
                                   void* container) {
+        FUSER_PERF_SCOPE("launch_kernel_func_ptr");
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_kernel);
         auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
