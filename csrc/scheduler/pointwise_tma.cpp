@@ -23,8 +23,27 @@ namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
 // dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
 bool isTvSuitableForTma(TensorView* tv, int64_t n_valid_dims) {
-  return scheduler_utils::nLogicalDims(tv) == n_valid_dims &&
-      !scheduler_utils::getCacheableUses(tv).empty();
+  // check number of logical dimensions
+  if (scheduler_utils::nLogicalDims(tv) != n_valid_dims) {
+    return false;
+  }
+  // check if the tensor has cacheable uses
+  if (scheduler_utils::getCacheableUses(tv).empty()) {
+    return false;
+  }
+  // check if the tensor is contiguous
+  const auto contiguity = tv->domain()->contiguity();
+  if (std::any_of(
+          contiguity.begin(),
+          contiguity.end(),
+          [](const std::optional<bool>& contiguity) {
+            return !contiguity.has_value() || !contiguity.value();
+          })) {
+    return false;
+  }
+
+  // pass all checks, suitable for TMA
+  return true;
 };
 
 // Returns the total bits required to load one element from each TMA-loaded
@@ -61,7 +80,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t tma_domain_inner = scheduler_utils::getInnerTmaDomainSize(
       prop.n_elems,
       target_inner_tma_domain_size,
-      prop.min_dtype_size_bit_for_vectorization);
+      prop.min_dtype_size_bit_for_vectorization / 8);
   NVF_ERROR(
       tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
       "Illegal TMA inner domain size: ",
