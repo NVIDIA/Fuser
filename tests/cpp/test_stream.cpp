@@ -110,7 +110,7 @@ TEST_F(StreamTest, Matmul) {
       __FILE__);
 }
 
-TEST_F(StreamTest, TwoMatmuls) {
+TEST_F(StreamTest, TwoMatmuls_Inlinable) {
   constexpr int64_t c = 3;
 
   auto fusion = std::make_unique<Fusion>();
@@ -152,6 +152,48 @@ TEST_F(StreamTest, TwoMatmuls) {
     //                 T2_g_float[iS15{i4}, iS5{i6}])
     // } // %HostIrContainer
     // clang-format on
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto out =
+        executor_cache.runFusionWithInputs({in, w1, w2})[0].as<at::Tensor>();
+
+    testValidate(
+        executor_cache.fusion(), {out}, {in, w1, w2}, __LINE__, __FILE__);
+  }
+}
+
+TEST_F(StreamTest, TwoMatmuls_NotInlinable) {
+  constexpr int64_t c = 3;
+
+  auto fusion = std::make_unique<Fusion>();
+  {
+    FusionGuard fg(fusion.get());
+    TensorView* in = makeSymbolicTensor(2);
+    TensorView* w1 = makeSymbolicTensor(2);
+    TensorView* w2 = makeSymbolicTensor(2);
+    TensorView* out = matmul(in, w1);
+    out = matmul(out, w2);
+    fusion->addInput(in);
+    fusion->addInput(w1);
+    fusion->addInput(w2);
+    fusion->addOutput(out);
+
+    // in: [m, k]
+    // w1: [k, n/s]
+    // out1: [m, n/s]
+    // w2: [n, k]
+    // out2: [m/s, k]
+    w1->outer_split(1, c);
+    w1->axis(1)->parallelize(ParallelType::Stream);
+    out->outer_split(0, c);
+    out->axis(0)->parallelize(ParallelType::Stream);
+  }
+
+  {
+    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+    at::Tensor in = at::randn({2, 3}, options);
+    at::Tensor w1 = at::randn({3, 5 * c}, options);
+    at::Tensor w2 = at::randn({5 * c, 3}, options);
+
     FusionExecutorCache executor_cache(std::move(fusion));
     auto out =
         executor_cache.runFusionWithInputs({in, w1, w2})[0].as<at::Tensor>();
