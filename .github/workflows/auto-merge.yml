@@ -232,7 +232,7 @@ jobs:
             };
 
       - name: Update auto-merge status comment
-        if: fromJSON(steps.pr.outputs.result).should_skip == false
+        if: always() && fromJSON(steps.pr.outputs.result).should_skip == false
         uses: actions/github-script@v7
         with:
           script: |
