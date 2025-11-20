@@ -105,7 +105,9 @@ jobs:
           ANTHROPIC_BASE_URL: http://localhost:3456
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           python -m tools.pr_preflight_launcher --ai-backend claude --output-dir "${CLAUDE_OUTPUT_DIR}"
