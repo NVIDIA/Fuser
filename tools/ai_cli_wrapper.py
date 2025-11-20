@@ -34,7 +34,7 @@ def launch_ai_cli(
    VERDICT_MARKER = verdict_marker.strip().upper()
    ensure_dir(OUTPUT_DIR)
 
-   if tool == None:
+   if tool is None:
       write_to_path(OUTPUT_DIR, "error.txt", f"Error (Exit 1 - no tool specified)")
       return 1
 
