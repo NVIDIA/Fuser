@@ -78,8 +78,6 @@ TEST_F(StreamTest, Matmul) {
     fusion->addInput(w);
     fusion->addOutput(out);
 
-    w->outer_split(1, c);
-    w->axis(1)->parallelize(ParallelType::Stream);
     out->outer_split(1, c);
     out->axis(1)->parallelize(ParallelType::Stream);
   }
@@ -188,6 +186,56 @@ TEST_F(StreamTest, TwoMatmuls_NotInlinable) {
     out->axis(0)->parallelize(ParallelType::Stream);
   }
 
+  // The second matmul should have been decomposed because its input [m, n/s]
+  // and output [m/s, k] are sharded differently on ParallelType::Stream.
+  //
+  // clang-format off
+  // Fusion IR after pre-segmenter optimization passes:
+  // Inputs:
+  //   T0_g_float[iS0{i0}, iS1{i2}]
+  //   T1_g_float[istreamIdx12{3}, iS16{i2}, iS13{( ceilDiv(i4, 3) )}]
+  //   T2_g_float[iS17{i4}, iS5{i6}]
+  // Outputs:
+  //   T4_g_float[istreamIdx14{3}, iS15{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}]
+
+  // %kernel {
+  // T3_l_float[istreamIdx18{3}, iS6{i0}, iS19{( ceilDiv(i4, 3) )}, rS8{i2}]
+  //    = matmul(T0_g_float[iS0{i0}, iS1{i2}],
+  //             T1_g_float[istreamIdx12{3}, iS16{i2}, iS13{( ceilDiv(i4, 3) )}])
+  // T4_g_float[istreamIdx14{3}, iS15{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}]
+  //    = matmul(T3_l_float[istreamIdx18{3}, iS6{i0}, iS19{( ceilDiv(i4, 3) )}, rS8{i2}],
+  //             T2_g_float[iS17{i4}, iS5{i6}])
+
+  // TransformPrinter :
+  // T0_g_float[iS0{i0}, iS1{i2}]
+  //  logical domain : (iS0{i0}, iS1{i2})
+  //  contiguity: f f
+  //  loop domain : (iS0{i0}, iS1{i2})
+  // T1_g_float[istreamIdx12{3}, iS16{i2}, iS13{( ceilDiv(i4, 3) )}]
+  //  logical domain : (iS16{i2}, iS3{i4})
+  //  allocation domain : (iS16{i2}, iS3{i4})
+  //  contiguity: f f
+  //   Outer split: iS3{i4} by factor 3 -> istreamIdx12{3}, iS13{( ceilDiv(i4, 3) )}
+  //  loop domain : (istreamIdx12{3}, iS16{i2}, iS13{( ceilDiv(i4, 3) )})
+  // T3_l_float[istreamIdx18{3}, iS6{i0}, iS19{( ceilDiv(i4, 3) )}, rS8{i2}]
+  //  logical domain : (iS6{i0}, iS7{i4}, rS8{i2})
+  //  allocation domain : (iS6{i0}, iS7{i4}, rS8{i2})
+  //  contiguity: t t n
+  //   Outer split: iS7{i4} by factor 3 -> istreamIdx18{3}, iS19{( ceilDiv(i4, 3) )}
+  //  loop domain : (istreamIdx18{3}, iS6{i0}, iS19{( ceilDiv(i4, 3) )}, rS8{i2})
+  // T2_g_float[iS17{i4}, iS5{i6}]
+  //  logical domain : (iS17{i4}, iS5{i6})
+  //  contiguity: f f
+  //  loop domain : (iS17{i4}, iS5{i6})
+  // T4_g_float[istreamIdx14{3}, iS15{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4}]
+  //  logical domain : (iS9{i0}, iS10{i6}, rS11{i4})
+  //  allocation domain : (iS9{i0}, iS10{i6}, rS11{i4})
+  //  contiguity: t t n
+  //   Outer split: iS9{i0} by factor 3 -> istreamIdx14{3}, iS15{( ceilDiv(i0, 3) )}
+  //  loop domain : (istreamIdx14{3}, iS15{( ceilDiv(i0, 3) )}, iS10{i6}, rS11{i4})
+  // } // %kernel
+  // clang-format on
+
   {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
     at::Tensor in = at::randn({2, 3}, options);
@@ -228,8 +276,10 @@ TEST_F(StreamTest, HaveDifferentShardings) {
   tv3->outer_split(1, s);
   tv3->axis(1)->parallelize(ParallelType::Stream);
 
-  EXPECT_FALSE(haveDifferentShardings(tv1, tv2, {ParallelType::Stream}));
-  EXPECT_TRUE(haveDifferentShardings(tv2, tv3, {ParallelType::Stream}));
+  EXPECT_FALSE(haveDifferentShardings(
+      tv1, DomainType::kLoop, tv2, DomainType::kLoop, {ParallelType::Stream}));
+  EXPECT_TRUE(haveDifferentShardings(
+      tv2, DomainType::kLoop, tv3, DomainType::kLoop, {ParallelType::Stream}));
 }
 
 TEST_F(StreamTest, ForwardPropagation) {
