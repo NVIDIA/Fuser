@@ -3433,8 +3433,6 @@ int64_t getInnerTmaDomainSize(
     if (total_element % i == 0) {
       int64_t f1 = i;
       int64_t f2 = total_element / i;
-      std::cout << "f1: " << f1 << ", f2: " << f2 << ", min_size: " << min_size
-                << std::endl;
       // Check both divisors of the pair if they satisfy min_size constraint
       if (f1 % min_size == 0) {
         update_best(f1);

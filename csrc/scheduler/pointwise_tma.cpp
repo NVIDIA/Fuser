@@ -21,8 +21,12 @@ namespace nvfuser {
 namespace pointwise {
 namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
-// dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
-bool isTvSuitableForTma(TensorView* tv, int64_t n_valid_dims) {
+// dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA
+// in non-broadcast dimension.
+bool isTvSuitableForTma(
+    TensorView* tv,
+    int64_t n_valid_dims,
+    int64_t break_point) {
   // check number of logical dimensions
   if (scheduler_utils::nLogicalDims(tv) != n_valid_dims) {
     return false;
@@ -42,6 +46,13 @@ bool isTvSuitableForTma(TensorView* tv, int64_t n_valid_dims) {
     return false;
   }
 
+  // break point separates the reference tv into [lhs, rhs]
+  // then we use 2D tile, [lhs/outer, outer, rhs/inner, inner]
+  // To use TMA, this tv must have both lhs and rhs.
+  // see PointwiseTest.BroadcastAddInner for example.
+  if ((int64_t)tv->getLoopDomain().size() <= break_point) {
+    return false;
+  }
   // pass all checks, suitable for TMA
   return true;
 };
@@ -50,11 +61,13 @@ bool isTvSuitableForTma(TensorView* tv, int64_t n_valid_dims) {
 // input. This is used to determine how many elements should be loaded from each
 // input to achieve the required bits in flight.
 int64_t getInputBitsPerElement(
-    const pointwise_utils::FusionRuntimeProperties& prop) {
+    const pointwise_utils::FusionRuntimeProperties& prop,
+    int64_t break_point) {
   int64_t bits_per_element = 0;
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(prop.largest_out);
   for (const auto& tv : prop.vectorizable_inputs_outputs) {
-    if (tv->isFusionInput() && isTvSuitableForTma(tv, n_valid_dims)) {
+    if (tv->isFusionInput() &&
+        isTvSuitableForTma(tv, n_valid_dims, break_point)) {
       bits_per_element +=
           dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
     }
@@ -77,16 +90,21 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // Compute TMA inner domain size
   constexpr int64_t target_inner_tma_domain_size = 512;
+  const int64_t min_dtype_bytes = prop.min_dtype_size_bit_for_vectorization / 8;
   int64_t tma_domain_inner = scheduler_utils::getInnerTmaDomainSize(
-      prop.n_elems,
-      target_inner_tma_domain_size,
-      prop.min_dtype_size_bit_for_vectorization / 8);
+      prop.n_elems, target_inner_tma_domain_size, min_dtype_bytes);
   NVF_ERROR(
       tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
       "Illegal TMA inner domain size: ",
       tma_domain_inner,
       ", n_elems: ",
       prop.n_elems);
+  // constexpr int64_t align_bytes = 16;
+  // const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+  // if(tma_domain_inner % min_size != 0){
+  //   return nullptr;
+  // }
+
   const int64_t tma_outer_domain_size = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
 
@@ -104,7 +122,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   constexpr int64_t cta_per_sm = 8;
   int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   int64_t bits_per_cta = bits_per_sm / cta_per_sm;
-  int64_t bits_per_element = getInputBitsPerElement(prop);
+  int64_t bits_per_element = getInputBitsPerElement(prop, params->break_point);
   // No suitable inputs found, TMA is not applicable
   if (bits_per_element == 0) {
     return nullptr;
@@ -211,13 +229,16 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   std::unordered_set<TensorView*> vectorizable_io_tvs(
       inputs_outputs.begin(), inputs_outputs.end());
 
+  std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+  reference_tv->printTransforms();
+
   // For each cached input: use TMA load if it has the same number of logical
   // dimensions as the reference tensor; otherwise, use LDG (standard load).
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
   std::vector<TensorView*> tma_tvs;
   std::vector<TensorView*> ldg_tvs;
   for (const auto& [tv, _] : cached_inputs) {
-    if (!isTvSuitableForTma(tv, n_valid_dims)) {
+    if (!isTvSuitableForTma(tv, n_valid_dims, pparams->break_point)) {
       ldg_tvs.push_back(tv);
       continue;
     }
@@ -241,9 +262,11 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Split into TMA tiles (box/tile sizes)
-  // [Do, Di] -> [Do/to, to, Di/ti, ti]
+  // [Do, Di] -> [Do/to, to, Di/ti, ti] -> [Do/to, Di/ti, to, ti]
   reference_tv->split(1, pparams->tma_tile_inner);
   reference_tv->split(0, pparams->tma_tile_outer);
+  // reorder for better inline
+  reference_tv->reorder({{1, 2}});
 
   // Propagate the TMA-related transformations to all tensors
   TransformPropagator propagator(reference_tv);
@@ -257,19 +280,23 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     std::swap(outer_cord_pt, inner_cord_pt);
   }
   reference_tv->axis(0)->parallelize(outer_cord_pt);
-  reference_tv->axis(1)->parallelize(ParallelType::Bulk);
-  reference_tv->axis(2)->parallelize(inner_cord_pt);
+  reference_tv->axis(1)->parallelize(inner_cord_pt);
+  reference_tv->axis(2)->parallelize(ParallelType::Bulk);
   reference_tv->axis(3)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reference_tv, tma_tvs);
-  reference_tv->axis(1)->parallelize(ParallelType::Serial);
+  reference_tv->axis(2)->parallelize(ParallelType::Serial);
   reference_tv->axis(3)->parallelize(ParallelType::Serial);
 
   // Schedule the non-TMA parts, starting with [Do/to, to, Di/ti, ti]
-  // Transform: [Do/to, to, Di/ti, ti] -> [Do/to, to/y, y, Di/ti, ti/v/x, x, v]
-  int64_t opos = 1, ipos = 3;
+  // Transform: [Do/to, Di/ti, to, ti] -> [Do/to, Di/ti, to/y, y, ti/v/x, x, v]
+  int64_t opos = 2, ipos = 3;
   reference_tv->split(ipos, pparams->vectorization_factor);
   reference_tv->split(ipos, pparams->lparams.bdimx());
   reference_tv->split(opos, pparams->lparams.bdimy());
+  // reorder for better inline
+  // [Do/to, Di/ti, to/y, y, ti/v/x, x, v] -> [Do/to, Di/ti, to/y, ti/v/x, y, x,
+  // v]
+  reference_tv->reorder({{3, 4}});
 
   // Propagate transformations to non-TMA tensors
   std::vector<TensorView*> non_tma_tvs =
@@ -279,9 +306,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
       .traverse(&non_tma_propagator);
 
-  reference_tv->axis(0)->parallelize(outer_cord_pt);
-  reference_tv->axis(2)->parallelize(ParallelType::TIDy);
-  reference_tv->axis(3)->parallelize(inner_cord_pt);
+  reference_tv->axis(4)->parallelize(ParallelType::TIDy);
   reference_tv->axis(5)->parallelize(ParallelType::TIDx);
   int64_t vect_pos = 6; // Position for vectorization axis
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
@@ -302,19 +327,24 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     if (vectorizable_io_tvs.contains(ldg_tv)) {
       ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
     }
+    // unroll serial loop over tidx/y
+    // inlineMost won't inline over unrolled domains, we can still use
+    // inlineMost for ldg tvs. Issuing register loads at the beginning of the
+    // kernel is more efficient compared to delaying them until they are used.
+    // These non-TMA-loaded tensors are usually broadcast inputs with smaller
+    // sizes, so they only slightly increase register usage. Performance
+    // comparison (inlining most vs not inlining ldg_tvs):
+    //   - Inline most: 29 registers, 100% occupancy, 53% SOL
+    //   - Uninlined ldg_tvs: 32 registers, 100% occupancy, 88% SOL
+    for (int idx = 0; idx < ldg_tv->nDims(); idx++) {
+      if (ldg_tv->axis(idx)->isThreadDim() &&
+          ldg_tv->axis(idx - 1)->getParallelType() == ParallelType::Serial) {
+        ldg_tv->axis(idx - 1)->parallelize(ParallelType::Unroll);
+      }
+    }
   }
 
-  // Inline all intermediate computations except register-loaded tensors.
-  // Issuing register loads at the beginning of the kernel is more efficient
-  // compared to delaying them until they are used. These non-TMA-loaded tensors
-  // are usually broadcast inputs with smaller sizes, so they only slightly
-  // increase register usage.
-  // Performance comparison (inlining most vs not inlining ldg_tvs):
-  //   - Inline most: 29 registers, 100% occupancy, 53% SOL
-  //   - Uninlined ldg_tvs: 32 registers, 100% occupancy, 88% SOL
-  const auto non_ldg_tvs =
-      ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
-  inlineMost(non_ldg_tvs);
+  inlineMost();
 }
 
 } // namespace tma

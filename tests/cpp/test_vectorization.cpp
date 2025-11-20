@@ -290,7 +290,7 @@ TEST_F(NVFuserTest, MultipleVectorize) {
   auto log1 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log1 != nullptr);
-  NVF_CHECK(log1->vectorization_factor > 1);
+  NVF_CHECK(log1->vectorization_factor > 1 || log1->use_tma_load);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -304,7 +304,7 @@ TEST_F(NVFuserTest, MultipleVectorize) {
   auto log2 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log2 != nullptr);
-  NVF_CHECK(log2->vectorization_factor > 1);
+  NVF_CHECK(log2->vectorization_factor > 1 || log2->use_tma_load);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -318,7 +318,7 @@ TEST_F(NVFuserTest, MultipleVectorize) {
   auto log3 =
       executor_cache.getMostRecentExecutorInfo().params->as<PointwiseParams>();
   NVF_CHECK(log3 != nullptr);
-  NVF_CHECK(log3->vectorization_factor > 1);
+  NVF_CHECK(log3->vectorization_factor > 1 || log3->use_tma_load);
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {t2}, __LINE__, __FILE__);

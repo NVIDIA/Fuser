@@ -323,10 +323,11 @@ TEST_F(PointwiseTest, Issue1567VectorizeAllocationDomain) {
   // NOTE force pointwise scheduler here just for testing purpose
   auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
-
-  EXPECT_EQ(pparams->vectorization_factor, 4);
-  EXPECT_TRUE(hasVectorizationCache(tv0));
-  EXPECT_TRUE(hasVectorizationCache(tv1));
+  if (!pparams->use_tma_load) {
+    EXPECT_EQ(pparams->vectorization_factor, 4);
+    EXPECT_TRUE(hasVectorizationCache(tv0));
+    EXPECT_TRUE(hasVectorizationCache(tv1));
+  }
 
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -696,6 +697,11 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   auto heuristic_params =
       scheduler_instance->computeHeuristics(fusion.get(), runtime_info);
   auto pparams = heuristic_params->as<PointwiseParams>();
+
+  // This test is for non-TMA scheduler, so we skip if TMA is used.
+  if (pparams->use_tma_load) {
+    return;
+  }
 
   // Modify heuristics to enforce unroll on top of vectorization
 
@@ -1870,8 +1876,7 @@ INSTANTIATE_TEST_SUITE_P(
           "_tma_outer_bcast_" + std::to_string(tma_outer_bcast);
     });
 
-// Test caching of inputs with broadcast operations
-// Simplified from ReshapeReduction.FusionReshapeReduction/83
+// Only use TMA for inputs with all dimensions are contiguous.
 TEST_F(PointwiseTest, BroadcastAdd) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1907,6 +1912,98 @@ TEST_F(PointwiseTest, BroadcastAdd) {
 
   // Validate against reference computation
   testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test caching of inputs with broadcast on innermost dimension
+TEST_F(PointwiseTest, BroadcastAddInner) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0: [8, 2, 4, 1] - 4D tensor with broadcast at innermost dim 3
+  auto tv0 = TensorViewBuilder()
+                 .ndims(4)
+                 .shape({8, 2, 4, 1})
+                 .contiguity({true, true, true, std::nullopt})
+                 .build();
+  fusion->addInput(tv0);
+
+  // tv1: [8, 2, 4] - 3D tensor
+  auto tv1 = makeContigConcreteTensor({8, 2, 4});
+  fusion->addInput(tv1);
+
+  // tv2 = broadcast(tv1, {false, false, false, true})
+  // Adds broadcast dimension at innermost position: [8, 2, 4, 1]
+  auto tv2 = broadcast(tv1, {false, false, false, true});
+
+  // tv3 = tv2 + tv0
+  auto tv3 = add(tv2, tv0);
+  fusion->addOutput(tv3);
+
+  // Create input tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 2, 4, 1}, options);
+  auto t1 = at::randn({8, 2, 4}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // Validate against reference computation
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test with multiply, view, broadcast, and add operations
+// This test follows a pattern with view and multiple broadcast dimensions
+TEST_F(PointwiseTest, MultiplyViewBroadcastAdd) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0: [22, 11, 1, 1, 4] - 5D tensor with broadcasts at dims 2 and 3
+  auto tv0 = TensorViewBuilder()
+                 .ndims(5)
+                 .shape({22, 11, 1, 1, 4})
+                 .contiguity({true, true, std::nullopt, std::nullopt, true})
+                 .build();
+  fusion->addInput(tv0);
+
+  // tv1: [22, 22, 2] - 3D tensor
+  auto tv1 = makeContigConcreteTensor({22, 22, 2});
+  fusion->addInput(tv1);
+
+  // tv2: [22, 22, 1] - 3D tensor with broadcast at dim 2
+  auto tv2 = TensorViewBuilder()
+                 .ndims(3)
+                 .shape({22, 22, 1})
+                 .contiguity({true, true, std::nullopt})
+                 .build();
+  fusion->addInput(tv2);
+
+  // tv3 = tv1 * tv2: [22, 22, 2]
+  auto tv3 = mul(tv1, tv2);
+
+  // tv4 = view(tv3): [22, 22, 2] -> [22, 11, 4]
+  auto tv4 = reshape(tv3, {22, 22, 2}, {22, 11, 4});
+
+  // tv5 = broadcast(tv4, {false, false, true, true, false})
+  // [22, 11, 4] -> [22, 11, 1, 1, 4]
+  auto tv5 = broadcast(tv4, {false, false, true, true, false});
+
+  // tv6 = tv5 + tv0: [22, 11, 1, 1, 4]
+  auto tv6 = add(tv5, tv0);
+  fusion->addOutput(tv6);
+
+  // Create input tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({22, 11, 1, 1, 4}, options);
+  auto t1 = at::randn({22, 22, 2}, options);
+  auto t2 = at::randn({22, 22, 1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  // Validate against reference computation
+  testValidate(fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
