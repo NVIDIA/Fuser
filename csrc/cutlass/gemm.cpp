@@ -191,7 +191,26 @@ class CutlassCodeGenerator {
   }
 
   void generateCode() {
-    // Fill the preamble first
+    genPreamble();
+
+    code_ += R"(
+namespace {
+using namespace cute;
+)";
+    genParams();
+
+    genGemmConfigClass();
+
+    genInputMapping();
+
+    genArgumentsFunction();
+
+    code_ += "} // namespace\n";
+
+    genRunKernel();
+  }
+
+  void genPreamble() {
     code_ += R"(#include "cutlass/cutlass.h"
 #include "cutlass/epilogue/collective/collective_builder.hpp"
 #include "cutlass/epilogue/fusion/sm90_visitor_load_tma_warpspecialized.hpp"
@@ -225,20 +244,7 @@ struct TensorArg {
   int64_t* sizes;
   int64_t* strides=nullptr;
 };
-
-namespace {
-using namespace cute;
 )";
-    genParams();
-
-    genGemmConfigClass();
-
-    genArgumentsFunction();
-
-    code_ += R"(
-} // namespace
-)";
-    genRunKernel();
   }
 
   //! Here we put all the CutlassParams into the KernelTraits struct in the
@@ -432,6 +438,51 @@ struct Fp4GemmSm100 {
 )";
   }
 
+  //! Generates a function mapping from vector<TensorArg> to a struct describing
+  //! the problem independent of input position
+  void genInputMapping() {
+    code_ += R"(
+struct StandardArgs {
+  int64_t m;
+  int64_t n;
+  int64_t k;
+  int64_t num_experts;
+  TensorArg* a;
+  TensorArg* b;
+  TensorArg* a_scale = nullptr;
+  TensorArg* b_scale = nullptr;
+  TensorArg* alpha = nullptr;
+  TensorArg* beta = nullptr;
+  TensorArg* bias = nullptr;
+  TensorArg* main_output = nullptr;
+};
+
+StandardArgs standardize_args(
+  const std::vector<TensorArg>& inputs,
+  uint8_t** temp_tensor_ptrs) {
+  return {
+)";
+    auto maybe_add_mapping =
+        [&](std::string tv_name, TensorView* tv, bool is_output) {
+          int64_t pos = is_output
+              ? fusionOutputPosition(fusion_, tv) + fusion_->inputs().size()
+              : fusionInputPosition(fusion_, tv);
+          code_ += "    ." + tv_name + " = inputs.at(" + std::to_string(pos) +
+              "),\n";
+        };
+    maybe_add_mapping("a", pattern_.a, /*is_output=*/false);
+    maybe_add_mapping("b", pattern_.b, /*is_output=*/false);
+    maybe_add_mapping("a_scale", pattern_.a_scale, /*is_output=*/false);
+    maybe_add_mapping("b_scale", pattern_.b_scale, /*is_output=*/false);
+    maybe_add_mapping("alpha", pattern_.alpha, /*is_output=*/false);
+    maybe_add_mapping("beta", pattern_.beta, /*is_output=*/false);
+    maybe_add_mapping("bias", pattern_.bias, /*is_output=*/false);
+    maybe_add_mapping("main_output", main_output_, /*is_output=*/true);
+
+    // TODO: Add the temp tensor mapping (hard-coded)
+    code_ += "  }\n}\n";
+  }
+
   void genArgumentsFunction() {
     // TODO: Handle other scale factor dtypes
     code_ += R"(
@@ -442,7 +493,7 @@ struct Fp4GemmSm100 {
 // and layout configurations for the scaled matrix multiplication.
 //
 // Returns CUTLASS GEMM arguments structure ready for kernel execution
-typename Fp4GemmSm100::Gemm::Arguments args_from_inputs(
+typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   const std::vector<TensorArg>& inputs,
   uint8_t** temp_tensor_ptrs) {
   using T = Fp4GemmSm100;
@@ -555,14 +606,14 @@ extern "C" void run_kernel(
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  auto arguments = args_from_inputs(inputs, temp_tensor_ptrs);
+  auto arguments = cutlass_args_from_inputs(inputs, temp_tensor_ptrs);
 
   auto can_implement_status = gemm.can_implement(arguments);
   NVF_ERROR(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  init_temp_tensors(temp_tensor_ptrs, arguments, stream);
+  init_temp_tensors(temp_tensor_ptrs, arguments, inputs, stream);
 
   uint8_t* workspace_ptr = temp_tensor_ptrs[0];
 
@@ -612,10 +663,187 @@ extern "C" void temp_tensor_sizes(
 )";
   }
 
+  void genGetPointerArrays() {
+    code_ += R"(
+// CUDA kernel to compute memory offsets and layout information for grouped GEMM
+// operations
+//
+// This kernel calculates the starting pointers and layout configurations for
+// each expert in a grouped matrix multiplication.
+template <
+    typename ElementAB,
+    typename ElementC,
+    typename ElementSF,
+    typename ElementAccumulator,
+    typename LayoutSFA,
+    typename LayoutSFB,
+    typename ScaleConfig>
+__global__ void get_group_gemm_starts(
+    ElementAB** a_offsets,
+    ElementAB** b_offsets,
+    ElementC** out_offsets,
+    ElementSF** a_scales_offsets,
+    ElementSF** b_scales_offsets,
+    ElementAccumulator** alpha_offsets,
+    LayoutSFA* layout_sfa_base_as_int,
+    LayoutSFB* layout_sfb_base_as_int,
+    ElementAB* a_base_as_int,
+    ElementAB* b_base_as_int,
+    ElementC* out_base_as_int,
+    ElementSF* a_scales_base_as_int,
+    ElementSF* b_scales_base_as_int,
+    ElementAccumulator* alphas_base_as_int,
+    const int32_t* expert_offsets,
+    const int32_t* sf_offsets,
+    const int32_t* problem_sizes_as_shapes,
+    const int K,
+    const int N) {
+  int64_t expert_id = threadIdx.x;
+  if (expert_id >= gridDim.x * blockDim.x) {
+    return;
+  }
+  // Upcast from int32_t to int64_t to avoid overflow
+  // during offset calculations
+  int64_t expert_offset = static_cast<int64_t>(expert_offsets[expert_id]);
+  int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
+
+  // The block size for nvfp4.
+  constexpr int64_t nvfp4_block_size = 16;
+
+  int64_t m = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3]);
+  int64_t n = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3 + 1]);
+  int64_t k = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3 + 2]);
+  assert(
+      (m >= 0 && n == N && k == K && k % 2 == 0) && "Unexpected problem sizes");
+
+  int64_t half_k = static_cast<int64_t>(k / 2);
+  int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
+
+  // Shape of A as uint8/byte = [M, K // 2]
+  a_offsets[expert_id] = a_base_as_int + expert_offset * half_k;
+
+  // Shape of B as uint8/byte = [E, N, K // 2]
+  b_offsets[expert_id] = b_base_as_int + expert_id * n * half_k;
+
+  // Shape of C = [M, N]
+  out_offsets[expert_id] = out_base_as_int + expert_offset * n;
+
+  // Shape of a_scale = [sum(sf_sizes), K // nvfp4_block_size]
+  a_scales_offsets[expert_id] = a_scales_base_as_int + sf_offset * group_k;
+  assert(
+      (reinterpret_cast<uintptr_t>(a_scales_offsets[expert_id]) % 128) == 0 &&
+      "TMA requires 128-byte alignment");
+
+  // Shape of B scale = [E, N, K // nvfp4_block_size]
+  b_scales_offsets[expert_id] = b_scales_base_as_int + expert_id * n * group_k;
+  assert(
+      (reinterpret_cast<uintptr_t>(b_scales_offsets[expert_id]) % 128) == 0 &&
+      "TMA requires 128-byte alignment");
+
+  // Shape of alpha = [E]
+  alpha_offsets[expert_id] = alphas_base_as_int + expert_id;
+
+  LayoutSFA* layout_sfa_ptr = layout_sfa_base_as_int + expert_id;
+  LayoutSFB* layout_sfb_ptr = layout_sfb_base_as_int + expert_id;
+
+  *layout_sfa_ptr = ScaleConfig::tile_atom_to_shape_SFA(cute::make_shape(
+      static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
+  *layout_sfb_ptr = ScaleConfig::tile_atom_to_shape_SFB(cute::make_shape(
+      static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
+}
+
+// Launches the CUDA kernel to compute memory offsets and layout information for
+// grouped GEMM
+//
+// This function launches the get_group_gemm_starts kernel with appropriate
+// template parameters based on the output data type. It handles the setup and
+// execution of the offset computation kernel for grouped matrix multiplication
+// operations.
+template <typename LayoutSFA, typename LayoutSFB, typename ScaleConfig>
+void run_get_group_gemm_starts(uint8_t** temp_tensor_ptrs,
+    const Fp4GemmSm100::Gemm::Arguments& arguments,
+    const std::vector<TensorArg>& inputs,
+    cudaStream_t stream) {
+/*
+void run_get_group_gemm_starts(
+    const torch::Tensor& a_starts,
+    const torch::Tensor& b_starts,
+    const torch::Tensor& out_starts,
+    const torch::Tensor& a_scales_starts,
+    const torch::Tensor& b_scales_starts,
+    const torch::Tensor& alpha_starts,
+    const torch::Tensor& layout_sfa,
+    const torch::Tensor& layout_sfb,
+    const torch::Tensor& a_tensors,
+    const torch::Tensor& b_tensors,
+    const torch::Tensor& out_tensors,
+    const torch::Tensor& a_scales,
+    const torch::Tensor& b_scales,
+    const torch::Tensor& alphas,
+    const torch::Tensor& expert_offsets,
+    const torch::Tensor& sf_offsets,
+    const torch::Tensor& problem_sizes,
+    int M,
+    int N,
+    int K,
+    cudaStream_t stream) {
+*/
+)";
+    maybe_define("a", pattern_.a, /*is_output=*/false);
+    maybe_define("b", pattern_.b, /*is_output=*/false);
+    maybe_define("a_scale", pattern_.a_scale, /*is_output=*/false);
+    maybe_define("b_scale", pattern_.b_scale, /*is_output=*/false);
+    maybe_define("alpha", pattern_.alpha, /*is_output=*/false);
+    maybe_define("beta", pattern_.beta, /*is_output=*/false);
+    maybe_define("bias", pattern_.bias, /*is_output=*/false);
+    maybe_define("output", main_output_, /*is_output=*/true);
+    // TODO: extract input tensors
+    code += R"(
+  const int num_experts = (int)expert_offsets.size(0);
+
+  NVF_CHECK(
+      out_tensors.size(1) == N,
+      "Output tensor shape doesn't match expected shape");
+  NVF_CHECK(
+      K / 2 == b_tensors.size(2),
+      "b_tensors(dim = 2) and a_tensors(dim = 1) trailing"
+      " dimension must match");
+
+  // TODO: handle large number of experts by splitting into multiple CTAs
+
+  get_group_gemm_starts<<<1, num_experts, 0, stream>>>(
+        static_cast<cutlass::float_e2m1_t**>(a_starts.data_ptr()),
+        static_cast<cutlass::float_e2m1_t**>(b_starts.data_ptr()),
+        static_cast<cutlass::half_t**>(out_starts.data_ptr()),
+        static_cast<cutlass::float_ue4m3_t**>(a_scales_starts.data_ptr()),
+        static_cast<cutlass::float_ue4m3_t**>(b_scales_starts.data_ptr()),
+        static_cast<float**>(alpha_starts.data_ptr()),
+        reinterpret_cast<LayoutSFA*>(layout_sfa.data_ptr()),
+        reinterpret_cast<LayoutSFB*>(layout_sfb.data_ptr()),
+        static_cast<cutlass::float_e2m1_t*>(a_tensors.data_ptr()),
+        static_cast<cutlass::float_e2m1_t*>(b_tensors.data_ptr()),
+        static_cast<cutlass::half_t*>(out_tensors.data_ptr()),
+        static_cast<cutlass::float_ue4m3_t*>(a_scales.data_ptr()),
+        static_cast<cutlass::float_ue4m3_t*>(b_scales.data_ptr()),
+        static_cast<float*>(alphas.data_ptr()),
+        static_cast<int32_t*>(expert_offsets.data_ptr()),
+        static_cast<int32_t*>(sf_offsets.data_ptr()),
+        static_cast<int32_t*>(problem_sizes.data_ptr()),
+        K,
+        N);
+}
+)";
+  }
+
   void genInitTempTensors() {
+    if (pattern_.is_grouped) {
+      genGetPointerArrays();
+    }
+
     code_ += R"(
 void init_temp_tensors(uint8_t** temp_tensor_ptrs,
     const Fp4GemmSm100::Gemm::Arguments& arguments,
+    const std::vector<TensorArg>& inputs,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
@@ -627,8 +855,12 @@ void init_temp_tensors(uint8_t** temp_tensor_ptrs,
   uint8_t* workspace_ptr = temp_tensor_ptrs[0];
   auto status = gemm.initialize(arguments, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
-}
 )";
+    if (pattern_.is_grouped) {
+      code_ +=
+          "  run_get_group_gemm_starts(temp_tensor_ptrs, inputs, stream);\n";
+    }
+    code_ += "}\n";
   }
 
   void run() {
