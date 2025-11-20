@@ -8,8 +8,6 @@ on:
   pull_request:
     types:
       - labeled
-      - synchronize
-      - reopened
   pull_request_review:
     types:
       - submitted
@@ -159,12 +157,14 @@ jobs:
 
             core.info(`Found ${checkRuns.check_runs.length} check runs`);
 
-            // Check for any failed or error check runs
+            // Check for any failed or error check runs (excluding this workflow itself)
             const failedChecks = checkRuns.check_runs.filter(check =>
-              check.conclusion === 'failure' ||
-              check.conclusion === 'cancelled' ||
-              check.conclusion === 'timed_out' ||
-              check.status !== 'completed'
+              check.name !== 'Auto-merge PR' && (
+                check.conclusion === 'failure' ||
+                check.conclusion === 'cancelled' ||
+                check.conclusion === 'timed_out' ||
+                check.status !== 'completed'
+              )
             );
 
             if (failedStatuses.length > 0 || failedChecks.length > 0) {
