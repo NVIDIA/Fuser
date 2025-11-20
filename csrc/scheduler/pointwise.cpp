@@ -358,6 +358,11 @@ bool mayHaveTmaCompatibleInputs(
       continue;
     }
 
+    // Condition 2: the input tensor must have cacheable uses
+    if (scheduler_utils::getCacheableUses(tv).empty()) {
+      continue;
+    }
+
     // TODO: Add checks for reshape, contiguity, allocation domain, etc.
     // TODO: Add performance checks:
     //   - Skip if input size is too small

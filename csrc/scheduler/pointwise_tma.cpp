@@ -22,8 +22,9 @@ namespace pointwise {
 namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
 // dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
-bool isTvSuitableForTma(const TensorView* tv, int64_t n_valid_dims) {
-  return scheduler_utils::nLogicalDims(tv) == n_valid_dims;
+bool isTvSuitableForTma(TensorView* tv, int64_t n_valid_dims) {
+  return scheduler_utils::nLogicalDims(tv) == n_valid_dims &&
+      !scheduler_utils::getCacheableUses(tv).empty();
 };
 
 // Returns the total bits required to load one element from each TMA-loaded

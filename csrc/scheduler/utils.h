@@ -397,6 +397,15 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
+// Returns a vector of expressions (uses) that can be cached for the given
+// TensorView. Returns an empty vector if the tensor cannot be cached due to:
+// - Being 0-dimensional (scalar)
+// - Having no uses
+// - Being used by SelectOp, GatherOp (as lookup), or index_select operations
+// - Only being used by operations that require global memory (PadOp, SliceOp,
+//   GatherOp lookups, PreprocessGroupedMatmulInputSf offsets)
+std::vector<Expr*> getCacheableUses(TensorView* tv);
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
