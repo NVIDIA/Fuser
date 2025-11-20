@@ -850,6 +850,7 @@ using Vect256TestParams = std::tuple<DataType, CacheOp>;
 class Vect256Test : public NVFuserFixtureParamTest<Vect256TestParams> {
  public:
   void SetUp() override {
+    NVFuserFixtureParamTest<Vect256TestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
     std::tie(dtype, cache_op) = GetParam();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
