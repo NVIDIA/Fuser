@@ -19,6 +19,7 @@ namespace nvfuser {
 
 class UnaryTest : public NVFuserFixtureParamTest<PrimDataType> {
   void SetUp() override {
+    NVFuserFixtureParamTest<PrimDataType>::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
