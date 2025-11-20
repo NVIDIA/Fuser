@@ -72,11 +72,12 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
-    NVF_ERROR(
-        kernel_runtime->getIndexType() == forced_index_type.value(),
+    NVF_ERROR_EQ(
+        kernel_runtime->getIndexType(),
+        forced_index_type.value(),
         "Enforcing index type of ",
         forced_index_type.value(),
-        " failed");
+        " failed.");
   }
 
   auto outputs = kernel_runtime->runWithInputs(args);
