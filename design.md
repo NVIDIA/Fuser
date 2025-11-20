@@ -370,11 +370,8 @@ Consider the mixture of experts (MoE) use case where a kernel dynamically create
 
 **Implication**: We cannot bundle extent/offset information with the nested tensor itself.
 
-This problem can be addressed by managing the offsets as a separate tensor that can be computed dynamically on GPU and passed between kernels. That effectively means a logical nested tensor consists of two Vals: one for the nested tensor itself and another tensor for the offsets.
+This problem can be addressed by managing the offsets as a separate tensor that can be computed dynamically on GPU and passed between kernels. That effectively means a logical nested tensor consists of two Vals: one tensor for the nested tensor itself and another tensor for the offsets. More concretely, here's a fusion that creates a nested tensor with `viewAsNested` as an output:
 
-Since it is an implementation detail, the offset tensor should not be visible in the user-facing Fusion definition. When a user uses `viewAsNested` to create a nested tensor, it should still create a single nested tensor Val. At the time of the preseg phase, we automatically inject the offset tensor as a TensorView to the fusion. For example:
-
-**Original Fusion (user-defined)**:
 ```cpp
 // User-defined Fusion
 Fusion fusion;
@@ -405,25 +402,37 @@ auto tv_result = some_operation(tv_nested);
 fusion.addOutput(tv_result);
 ```
 
-**Transformed Fusion (after preseg pass)**:
-```cpp
-// After offset injection preseg pass
-// The pass ensures offset tensors are threaded through to all nested tensor outputs
+The output tensor, `tv_result`, is a nested tensor. The extents of the nested domains are given as a fusion input, but in general, they are not known until the fusion is executed. Thus, if the nested tensor struct were defined like:
 
+```cpp
+template <typename DT, int rank>
+struct NestedTensor {
+	DT* ptr;
+	int64_t extents[rank];
+	int64_t nested_domain_extents[ragged_dimension_rank];
+};
+```
+
+The value of `nested_domain_extents` is not available until the completion of the kernel, which would block the launch of the subsequent kernel.
+
+Instead, we would like the fusion to be defined as follows:
+
+```cpp
 fusion.addInput(tv_data);      // Original data input (unchanged)
 fusion.addInput(tv_offsets);   // Original offset input (unchanged)
 
 auto tv_nested = viewAsNested(tv_data, tv_offsets, /*ragged_dim=*/0);
 auto tv_result = some_operation(tv_nested);
 
-// INJECTED: Extract data and offset tensors from nested result
 auto tv_result_offsets = /* extract/compute offset part of tv_result */;
 
 fusion.addOutput(tv_result);      // Data tensor output
 fusion.addOutput(tv_result_offsets);   // Offset tensor output (injected)
 ```
 
-This design should also allow eliminating CPU and GPU synchronization for offset transfers.
+Here, for `tv_result` we would use the same `Tensor` struct as the normal tensor. The offset tensor would be a 1D tensor with the `ptr` val referring to the vector holding the offsets on the device memory. In this case, there's nothing to block the launch of the subsequent kernel as the offset vector would remain on the device memory.
+
+Since it is an implementation detail, the offset tensor should be hidden behind the nested tensor in the user-facing Fusion definition. When a user uses `viewAsNested` to create a nested tensor, it should still create a single nested tensor Val, as illustrated in the first case above. The translation to the second pattern should be done automatically, e.g., by a new preseg pass.
 
 ---
 
