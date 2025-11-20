@@ -288,8 +288,8 @@ void lowerSegment(
           group_id,
           launch_params,
           ke.compiledKernel()->compileParams(),
-          cloned_ins,
-          cloned_outs,
+          ins,
+          outs,
           cache_id,
           ke.compiledKernel().get());
       loop_nest.innermostScope().push_back(launch_kernel);

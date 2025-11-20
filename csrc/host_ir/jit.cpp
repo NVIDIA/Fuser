@@ -22,10 +22,16 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
+#include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
+#include <host_ir/host_ir.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
@@ -1265,6 +1271,8 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_outputs,
                                   void* launch_kernel,
                                   void* container) {
+        FUSER_PERF_SCOPE("HostIrJitImpl::launch_kernel_func_ptr");
+
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_kernel);
         auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
@@ -1278,12 +1286,108 @@ void HostIrJitImpl::registerExternalFunctions() {
           output_args.push(*output_tensors[i]);
         }
         input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
-                input_args,
-                output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
+
+        //container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
+        //    .run(
+        //        input_args,
+        //        output_args,
+        //        launch_kernel_ptr->launchParams(),
+        //        launch_kernel_ptr->compileParams());
+
+        int64_t group_id = launch_kernel_ptr->groupId();
+        KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+
+        // Placeholder for the case where parameter cache is not used
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        KernelExecutorEntry temporary_executor_entry;
+        CompileParams compile_params = launch_kernel_ptr->compileParams();
+
+        if (isProfilerEnabled()) {
+          NVF_CHECK(
+              group_id >= 0,
+              "An invalid segment id is passed to FusionProfiler!:",
+              group_id);
+          SegmentProfiler& sprof = FusionProfiler::segment(group_id);
+          sprof.inputBytesAccessed(computeBytes(input_args));
+          sprof.scheduler(toString(compiled_kernel->schedulerType()));
+          FusionProfiler::segment(group_id).setDevice(input_args.getDeviceIndex());
+          sprof.startKernel();
+        }
+
+        c10::DeviceGuard dg(compiled_kernel->device());
+
+        auto stream = at::cuda::getCurrentCUDAStream();
+        at::cuda::jit::initializeCudaContext();
+        NVF_ERROR(compiled_kernel->lowered());
+
+        //ExpressionEvaluator expr_eval =
+        //    executor_utils::bindInputs(input_args, compiled_kernel->kernel());
+
+        //auto launch_params = ke.computeLaunchParams(
+        //    launch_kernel_ptr->launchParams(), expr_eval, 32, compiled_kernel->kernel()->indexType());
+
+        KernelExecutorEntry* executor_entry = input_args.getCacheId().has_value() &&
+                !compiled_kernel->launchParamCacheDisabled()
+            ? &ke.executor_entry_lookup_[*input_args.getCacheId()]
+            : &temporary_executor_entry;
+
+        // Initialize the executor entry if not initlized
+        if (!executor_entry->init) {
+          ke.initializeExecutorEntry(
+              *executor_entry,
+              input_args,
+              launch_kernel_ptr->launchParams(),
+              launch_kernel_ptr->compileParams(),
+              output_args,
+              compiled_kernel->kernel()->indexType());
+        }
+
+        if (!(executor_entry->launch_params.nThreads() <=
+                  compiled_kernel->blockSizeHighWatermark() &&
+              compile_params.maxrregcount ==
+                  compiled_kernel->maxrregcountHighWatermark())) {
+          compiled_kernel->recompileKernel(
+              executor_entry->launch_params, compile_params);
+        }
+
+        input_args.push(output_args);
+
+        //ke.computeArgs(temporary_executor_entry, input_args);
+        ke.computeArgs(*executor_entry, input_args);
+
+        // Update stream for this launch (stream can change between calls)
+        //auto stream = at::cuda::getCurrentCUDAStream();
+        LaunchParams launch_params = temporary_executor_entry.launch_params;
+
+        CUlaunchConfig config = {};
+        config.gridDimX = launch_params.gdimx();
+        config.gridDimY = launch_params.gdimy();
+        config.gridDimZ = launch_params.gdimz();
+        config.blockDimX = launch_params.bdimx();
+        config.blockDimY = launch_params.bdimy();
+        config.blockDimZ = launch_params.bdimz();
+        config.sharedMemBytes = launch_params.smem();
+        config.hStream = stream;
+
+        // Launch the kernel
+        if (!compiled_kernel->kernel()->topLevelExprs().empty()) {
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &config,
+              compiled_kernel->cudaExecutable()->function,
+              //temporary_executor_entry.arg_ptrs.data(),
+              executor_entry->arg_ptrs.data(),
+              nullptr));
+        }
+
+        //if (isOptionEnabled(EnableOption::KernelProfile)) {
+        //  debug() << compiled_kernel->kernel()->profile().toString(profile_buffer);
+        //}
+
+        if (isProfilerEnabled()) {
+          auto& sprof = FusionProfiler::segment(group_id);
+          sprof.stopKernel();
+          sprof.outputBytesAccessed(computeBytes(output_args));
+        }
       });
 
   // matmul_out function
