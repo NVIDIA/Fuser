@@ -51,6 +51,14 @@ NVF_API bool isResharding(const Expr* expr);
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
+    DomainType producer_domain_type,
+    const TensorView* consumer,
+    DomainType consumer_domain_type,
+    const std::unordered_set<ParallelType>& parallel_types);
+
+// Same as the above but checks loop domains for both producer and consumer.
+bool haveDifferentShardings(
+    const TensorView* producer,
     const TensorView* consumer,
     const std::unordered_set<ParallelType>& parallel_types);
 
