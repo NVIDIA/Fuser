@@ -301,19 +301,19 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
   // keep count of splits
   int num_splits = 0;
 
+  // keeps track of the split
+  // M -> M/128, 128
+  Split* middle_split = nullptr;
+
   // A lambda to check the transforms from logical to allocation domain
   // Each transform must be a split, and there can be only 3 splits.
-  auto check_transform = [block_scale, &logical_domain, &num_splits](
-                             Expr* expr) {
+  auto check_transform = [block_scale,
+                          &logical_domain,
+                          &num_splits,
+                          &middle_split](Expr* expr) {
     if (auto split_expr = dynamic_cast<Split*>(expr)) {
-      // Can have a max of 3 splits
+      // Can have a max of 3 splits - checked later
       num_splits++;
-      NVF_ERROR_LE(
-          num_splits,
-          3,
-          "Block scale swizzle can have a maximum of 3 splits. Found more in "
-          "TensorView: ",
-          block_scale->toString());
 
       // If expr and it's input is logical_domain back()
       // the inner split output should have an extent of 4.
@@ -344,39 +344,33 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
             " for TensorView: ",
             block_scale->toString());
 
-        // Check that the inner output of the split has exactly one use
-        // and that use is another split with an inner extent of 32
-        // Check 128 -> 4(m_o), 32(m_i)
-        NVF_ERROR_EQ(
-            split_expr->inner()->uses().size(),
-            1,
-            "The inner output of the outermost split must have exactly one "
-            "use. "
-            "Found ",
-            split_expr->inner()->uses().size(),
-            " uses in TensorView: ",
-            block_scale->toString());
-
-        auto inner_split =
-            dynamic_cast<Split*>(split_expr->inner()->uses().at(0)->asExpr());
+        // Cache the M -> M/128, 128 split
+        middle_split = split_expr;
+      } else {
+        // Check that the input to this split is the inner output of
+        // middle_split. As we should have 128 -> 4, 32
         NVF_ERROR(
-            inner_split,
-            "The inner output of the outermost split must be used in another "
-            "split. "
-            "Found expr: ",
-            split_expr->inner()->uses().at(0)->toString(),
+            middle_split != nullptr &&
+                split_expr->in() == middle_split->inner(),
+            "The third split in block scale swizzle must split the inner "
+            "output "
+            "(extent 128) of the second split. Expected input to be the inner "
+            "output "
+            "of the M/128, 128 split. Found expr: ",
+            split_expr->toString(),
             " for TensorView: ",
             block_scale->toString());
 
         NVF_ERROR(
-            inner_split->inner()->extent()->isConstInt() &&
-                inner_split->inner()->extent()->evaluate().as<int64_t>() == 32,
-            "The middle split in block scale swizzle must have an extent of "
-            "32. "
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 32,
+            "The third split in block scale swizzle (128 -> 4, 32) must have "
+            "an "
+            "inner extent of 32. "
             "Found extent: ",
-            inner_split->inner()->extent()->toString(),
+            split_expr->inner()->extent()->toString(),
             " in expr: ",
-            inner_split->toString(),
+            split_expr->toString(),
             " for TensorView: ",
             block_scale->toString());
       }
