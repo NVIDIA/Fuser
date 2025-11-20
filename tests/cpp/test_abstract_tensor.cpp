@@ -21,6 +21,7 @@ class AbstractTensorTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
     fusion_ptr_ = std::make_unique<Fusion>();
     fusion_guard_ptr_ = std::make_unique<FusionGuard>(fusion_ptr_.get());
     auto size = IrBuilder::create<Val>(16, DataType::Index);

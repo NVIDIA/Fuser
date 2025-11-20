@@ -46,7 +46,11 @@ struct RopeConfig {
   }
 };
 
-using RopeTest = NVFuserFixtureParamTest<RopeConfig>;
+class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 using MistralRopeTest = RopeTest;
 
