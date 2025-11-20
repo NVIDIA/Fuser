@@ -532,7 +532,7 @@ def test_transformer_forward(
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    # benchmark.pedantic(benchmark_fn, rounds=5)
+    benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 def transformer_backward_definition(
