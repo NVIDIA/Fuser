@@ -93,6 +93,23 @@ class KernelExecutor : public ExecutorAbstract {
   friend class hir::HostIrEvaluator;
 
  public:
+  // lookup table to take short cut to retrieve recorded information in order to
+  // launch kernels without re-inference parameters.
+  std::unordered_map<size_t, KernelExecutorEntry> executor_entry_lookup_;
+
+  // Creates the initial set of arguments to a kernel, based on the arguments
+  // to we have now.
+  void computeArgs(KernelExecutorEntry& entry, const KernelArgumentHolder& args)
+      const;
+
+  void initializeExecutorEntry(
+      KernelExecutorEntry& executor_entry,
+      const KernelArgumentHolder& args,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const KernelArgumentHolder& outputs,
+      DataType index_type);
+
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API KernelExecutor(
       int64_t fusion_id = 0,
@@ -210,13 +227,13 @@ class KernelExecutor : public ExecutorAbstract {
   //! Get the static shared memory size of the current compiled kernel
   int64_t getStaticSmemSize();
 
- private:
   LaunchParams computeLaunchParams(
       const LaunchParams& launch_constraints,
       ExpressionEvaluator& expr_eval,
       const int64_t warp_size,
       DataType index_dtype);
 
+ private:
   //! Return information necessay for allocating intermediate tensors,
   //! including temporary work buffers as well as intermediate
   //! global-memory tensors
@@ -230,20 +247,7 @@ class KernelExecutor : public ExecutorAbstract {
   }
 
   //! TODO: Consider changing this to a constructor of KernelExecutorEntry
-  void initializeExecutorEntry(
-      KernelExecutorEntry& executor_entry,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
-      const KernelArgumentHolder& outputs,
-      DataType index_type);
-
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
-
-  // Creates the initial set of arguments to a kernel, based on the arguments
-  // to we have now.
-  void computeArgs(KernelExecutorEntry& entry, const KernelArgumentHolder& args)
-      const;
 
   KernelArgumentHolder resolveTMA(
       KernelExecutorEntry& entry,
@@ -318,10 +322,6 @@ class KernelExecutor : public ExecutorAbstract {
   // Has a dynamic alias and therefore needs to infer what they are through
   // expression evaluator
   bool has_dynamic_alias_ = false;
-
-  // lookup table to take short cut to retrieve recorded information in order to
-  // launch kernels without re-inference parameters.
-  std::unordered_map<size_t, KernelExecutorEntry> executor_entry_lookup_;
 
   // Compile time information caching. This is used for shape inference
   //  support. The cache stores graph information that are available
