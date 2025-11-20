@@ -350,8 +350,7 @@ void isValidBlockScaleSwizzle(TensorView* block_scale) {
         // Check that the input to this split is the inner output of
         // middle_split. As we should have 128 -> 4, 32
         NVF_ERROR(
-            middle_split != nullptr &&
-                split_expr->in() == middle_split->inner(),
+            middle_split && split_expr->in() == middle_split->inner(),
             "The third split in block scale swizzle must split the inner "
             "output "
             "(extent 128) of the second split. Expected input to be the inner "
