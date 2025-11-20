@@ -695,6 +695,7 @@ class VectorizationCastTest
       public ::testing::WithParamInterface<VectorizationCastParams> {
  public:
   void SetUp() override {
+    NVFuserTest::SetUp();
     std::tie(dtype_from, dtype_to, vectorization_factor) = GetParam();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
