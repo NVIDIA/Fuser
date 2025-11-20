@@ -247,13 +247,13 @@ struct TensorArg {
 )";
   }
 
-  //! Here we put all the CutlassParams into the KernelTraits struct in the
+  //! Here we put all the CutlassParams into the Params struct in the
   //! generated code.
   void genParams() {
     code_ += R"(
 // Kernel configuration traits for different output data types
 // Defines tile shapes and cluster configurations.
-struct KernelTraits {
+struct Params {
 )";
     code_ += std::format(
         R"(
@@ -348,9 +348,9 @@ struct Fp4GemmSm100 {
   using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
 
   // Kernel Perf config
-  using MmaTileShape = typename KernelTraits::MmaTileShape;
-  using ClusterShape = typename KernelTraits::ClusterShape;
-  using PerSmTileShape_MNK = typename KernelTraits::PerSmTileShape_MNK;
+  using MmaTileShape = typename Params::MmaTileShape;
+  using ClusterShape = typename Params::ClusterShape;
+  using PerSmTileShape_MNK = typename Params::PerSmTileShape_MNK;
 
   // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
   static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
@@ -457,6 +457,7 @@ struct StandardArgs {
   TensorArg* main_output = nullptr;
 };
 
+// Map vectors of inputs and temp tensors to a StandardArgs struct
 StandardArgs standardize_args(
   const std::vector<TensorArg>& inputs,
   uint8_t** temp_tensor_ptrs) {
@@ -494,8 +495,7 @@ StandardArgs standardize_args(
 //
 // Returns CUTLASS GEMM arguments structure ready for kernel execution
 typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
-  const std::vector<TensorArg>& inputs,
-  uint8_t** temp_tensor_ptrs) {
+  const StandardArgs& args) {
   using T = Fp4GemmSm100;
 
   using ElementA = typename T::Gemm::ElementA;
@@ -549,40 +549,41 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
     }
     code_ += R"(
 
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {args.m, args.k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {args.n, args.k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {args.m, args.n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {args.m, args.n, 1});
 
+  // TODO: these should be pointer arrays for grouped GEMM
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-      cute::make_shape(m, n, k, 1));
+      cute::make_shape(args.m, args.n, args.k, 1));
   auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-      cute::make_shape(m, n, k, 1));
+      cute::make_shape(args.m, args.n, args.k, 1));
 
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {m, n, k, 1},
+      {args.m, args.n, args.k, 1},
       {// Mainloop arguments
-       static_cast<ElementA const*>(a.data_ptr),
+       static_cast<ElementA const*>(args.a->data_ptr),
        stride_A,
-       static_cast<ElementB const*>(b.data_ptr),
+       static_cast<ElementB const*>(args.b->data_ptr),
        stride_B,
-       static_cast<ElementSFA const*>(a_scale.data_ptr),
+       static_cast<ElementSFA const*>(args.a_scale->data_ptr),
        layout_SFA,
-       static_cast<ElementSFB const*>(b_scale.data_ptr),
+       static_cast<ElementSFB const*>(args.b_scale->data_ptr),
        layout_SFB},
       {// Epilogue arguments
 )";
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       static_cast<ElementC const*>(bias.data_ptr),";
+      code_ += "       static_cast<ElementC const*>(args.bias->data_ptr),";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
     code_ += R"(
        stride_C,
-       static_cast<ElementD*>(output.data_ptr),
+       static_cast<ElementD*>(args.main_output->data_ptr),
        stride_D}};
   return arguments;
 }
@@ -606,18 +607,20 @@ extern "C" void run_kernel(
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  auto arguments = cutlass_args_from_inputs(inputs, temp_tensor_ptrs);
+  StandardArgs args = standardize_args(inputs, temp_tensor_ptrs);
 
-  auto can_implement_status = gemm.can_implement(arguments);
+  auto cutlass_args = cutlass_args_from_inputs(args);
+
+  auto can_implement_status = gemm.can_implement(cutlass_args);
   NVF_ERROR(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  init_temp_tensors(temp_tensor_ptrs, arguments, inputs, stream);
+  init_temp_tensors(args, cutlass_args, stream);
 
   uint8_t* workspace_ptr = temp_tensor_ptrs[0];
 
-  auto status = gemm.run(arguments, workspace_ptr, stream);
+  auto status = gemm.run(cutlass_args, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 )";
@@ -764,42 +767,9 @@ void run_get_group_gemm_starts(uint8_t** temp_tensor_ptrs,
     const Fp4GemmSm100::Gemm::Arguments& arguments,
     const std::vector<TensorArg>& inputs,
     cudaStream_t stream) {
-/*
-void run_get_group_gemm_starts(
-    const torch::Tensor& a_starts,
-    const torch::Tensor& b_starts,
-    const torch::Tensor& out_starts,
-    const torch::Tensor& a_scales_starts,
-    const torch::Tensor& b_scales_starts,
-    const torch::Tensor& alpha_starts,
-    const torch::Tensor& layout_sfa,
-    const torch::Tensor& layout_sfb,
-    const torch::Tensor& a_tensors,
-    const torch::Tensor& b_tensors,
-    const torch::Tensor& out_tensors,
-    const torch::Tensor& a_scales,
-    const torch::Tensor& b_scales,
-    const torch::Tensor& alphas,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& sf_offsets,
-    const torch::Tensor& problem_sizes,
-    int M,
-    int N,
-    int K,
-    cudaStream_t stream) {
-*/
-)";
-    maybe_define("a", pattern_.a, /*is_output=*/false);
-    maybe_define("b", pattern_.b, /*is_output=*/false);
-    maybe_define("a_scale", pattern_.a_scale, /*is_output=*/false);
-    maybe_define("b_scale", pattern_.b_scale, /*is_output=*/false);
-    maybe_define("alpha", pattern_.alpha, /*is_output=*/false);
-    maybe_define("beta", pattern_.beta, /*is_output=*/false);
-    maybe_define("bias", pattern_.bias, /*is_output=*/false);
-    maybe_define("output", main_output_, /*is_output=*/true);
-    // TODO: extract input tensors
-    code += R"(
   const int num_experts = (int)expert_offsets.size(0);
+
+
 
   NVF_CHECK(
       out_tensors.size(1) == N,
