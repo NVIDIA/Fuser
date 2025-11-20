@@ -343,7 +343,7 @@ This layout enables efficient sequential access and avoids padding overhead.
 
 ### 6.7 Extent and Offset Tensor Management
 
-#### Motivation: Dynamic Extent Computation
+In generated CUDA code, non-nested tensors are represented using the Tensor struct, which has extents as a property. For nested tensors, we cannot have extents of nested domains as they may be dynamically computed.
 
 Consider the mixture of experts (MoE) use case where a kernel dynamically creates a nested tensor output:
 
@@ -368,40 +368,11 @@ Consider the mixture of experts (MoE) use case where a kernel dynamically create
 
 **Key Observation**: The nested domain extents are computed **inside the kernel** and are not known at kernel launch time.
 
-**Implication**: We cannot bundle extent/offset information with the nested tensor itself. The offsets must be managed as a separate tensor that can be computed dynamically on GPU and passed between kernels.
+**Implication**: We cannot bundle extent/offset information with the nested tensor itself.
 
-#### Solution: Offset Tensor as Separate GPU-Resident Tensor
+This problem can be addressed by managing the offsets as a separate tensor that can be computed dynamically on GPU and passed between kernels. That effectively means a logical nested tensor consists of two Vals: one for the nested tensor itself and another tensor for the offsets.
 
-**Design Principle**: Manage the offset tensor as a separate 1D GPU-resident tensor, decoupled from the nested tensor data.
-
-For a nested tensor with ragged dimension:
-- **Data tensor**: Contiguous storage for all components (size = Σextents)
-- **Offset tensor**: 1D tensor containing cumulative sum of extents (size = num_components + 1)
-
-**Example**:
-```cpp
-// Nested tensor: [batch=3, ragged=[127, 0, 198], hidden=512]
-
-// Two separate allocations:
-// 1. Data tensor: size = (127+0+198) * 512 = 325 * 512 elements
-float* data;
-
-// 2. Offset tensor: size = 4 (num_components + 1)
-int64_t* offsets = [0, 127, 127, 325];
-```
-
-**Why num_components + 1?** The offset tensor stores boundaries (start/end positions) for each component:
-- `offsets[i]` = start position of component `i`
-- `offsets[i+1]` = end position of component `i` (equivalently, start of component `i+1`)
-- `extent[i] = offsets[i+1] - offsets[i]`
-
-The final element represents the total size, enabling extent computation for the last component. This is the standard representation used by PyTorch's `torch.nested.nested_tensor_from_jagged(values, offsets)`.
-
-The `viewAsNested` operation (introduced in Section 6.4) is used to create nested tensors from data and offset tensors.
-
-#### Automatic Injection via Preseg Pass
-
-The offset tensor should be **transparent to the user-facing Fusion definition**. Users explicitly use `viewAsNested` to create nested tensors, but the preseg pass ensures offset tensors are properly threaded through the Fusion as separate inputs/outputs.
+Since it is an implementation detail, the offset tensor should not be visible in the user-facing Fusion definition. When a user uses `viewAsNested` to create a nested tensor, it should still create a single nested tensor Val. At the time of the preseg phase, we automatically inject the offset tensor as a TensorView to the fusion. For example:
 
 **Original Fusion (user-defined)**:
 ```cpp
@@ -445,39 +416,14 @@ fusion.addInput(tv_offsets);   // Original offset input (unchanged)
 auto tv_nested = viewAsNested(tv_data, tv_offsets, /*ragged_dim=*/0);
 auto tv_result = some_operation(tv_nested);
 
-// If tv_result has RaggedIterDomain, the preseg pass decomposes it:
 // INJECTED: Extract data and offset tensors from nested result
-auto tv_result_data = /* extract data part of tv_result */;
 auto tv_result_offsets = /* extract/compute offset part of tv_result */;
 
-fusion.addOutput(tv_result_data);      // Data tensor output
+fusion.addOutput(tv_result);      // Data tensor output
 fusion.addOutput(tv_result_offsets);   // Offset tensor output (injected)
 ```
 
-**Key Transformation by Preseg Pass**:
-1. **Input handling**: No change - users explicitly provide data and offset tensors, call `viewAsNested`
-2. **Output decomposition**: Each nested tensor output is automatically decomposed into (data, offsets) pair
-3. **Update Fusion outputs**: Replace single nested tensor output with two outputs (data + offsets)
-4. **Offset threading**: Ensure offset tensors flow through the Fusion to all operations requiring them
-
-**Implementation Details**:
-- New preseg pass class: `InjectRaggedOffsets` in `csrc/preseg_passes/inject_ragged_offsets.{h,cpp}`
-- Pass runs early in preseg pipeline, before segmentation
-- Detects Fusion outputs with RaggedIterDomain
-- Automatically decomposes nested tensor outputs into (data, offsets) pairs
-- Threads offset tensors to all operations that need them for indexing
-
-#### Benefits
-
-**Performance**:
-- Eliminates CPU↔GPU synchronization for offset transfers
-- Enables kernels to dynamically create nested tensors (offsets computed on GPU)
-- Allows offset reuse across multiple kernel launches without repeated transfers
-- Supports pipelined execution without host-device barriers
-
-**Memory Overhead**:
-- Offset tensor: O(N+1) where N = batch size (typically small, e.g., 8-64 for MoE)
-- Negligible compared to data tensor size
+This design should also allow eliminating CPU and GPU synchronization for offset transfers.
 
 ---
 
