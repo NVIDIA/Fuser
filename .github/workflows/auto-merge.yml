@@ -256,50 +256,44 @@ jobs:
             const checkResult = ${{ steps.check.outputs.result }};
 
             // Build status based on structured check results
-            let statusLines = [];
+            if (!checkResult || !checkResult.checks) {
+              core.error('Check results not available - this should not happen');
+              return;
+            }
 
-            if (checkResult && checkResult.checks) {
-              const checks = checkResult.checks;
+            const checks = checkResult.checks;
+            const statusLines = [];
 
-              // PR approved
-              if (checks.pr_approved) {
-                statusLines.push('✅ PR is approved');
-              } else {
-                const reason = checks.pr_approved_reason ? ` (${checks.pr_approved_reason})` : '';
-                statusLines.push(`❌ PR is approved${reason}`);
-              }
-
-              // Internal CI
-              if (checks.internal_ci_passed) {
-                statusLines.push('✅ Internal CI is finished');
-              } else {
-                const reason = checks.internal_ci_reason ? ` (${checks.internal_ci_reason})` : '';
-                statusLines.push(`❌ Internal CI is finished${reason}`);
-              }
-
-              // No failed checks
-              if (checks.no_failed_checks) {
-                statusLines.push('✅ No failed checks');
-              } else {
-                const reason = checks.no_failed_checks_reason ? ` (${checks.no_failed_checks_reason})` : '';
-                statusLines.push(`❌ No failed checks${reason}`);
-              }
-
-              // PR mergeable
-              if (checks.pr_mergeable) {
-                statusLines.push('✅ PR is mergeable');
-              } else {
-                const reason = checks.pr_mergeable_reason ? ` (${checks.pr_mergeable_reason})` : '';
-                statusLines.push(`❌ PR is mergeable${reason}`);
-              }
+            // PR approved
+            if (checks.pr_approved) {
+              statusLines.push('✅ PR is approved');
             } else {
-              // Check step didn't run yet or was skipped
-              statusLines = [
-                '⏳ PR is approved (checking...)',
-                '⏳ Internal CI is finished (checking...)',
-                '⏳ No failed checks (checking...)',
-                '⏳ PR is mergeable (checking...)'
-              ];
+              const reason = checks.pr_approved_reason ? ` (${checks.pr_approved_reason})` : '';
+              statusLines.push(`❌ PR is approved${reason}`);
+            }
+
+            // Internal CI
+            if (checks.internal_ci_passed) {
+              statusLines.push('✅ Internal CI is finished');
+            } else {
+              const reason = checks.internal_ci_reason ? ` (${checks.internal_ci_reason})` : '';
+              statusLines.push(`❌ Internal CI is finished${reason}`);
+            }
+
+            // No failed checks
+            if (checks.no_failed_checks) {
+              statusLines.push('✅ No failed checks');
+            } else {
+              const reason = checks.no_failed_checks_reason ? ` (${checks.no_failed_checks_reason})` : '';
+              statusLines.push(`❌ No failed checks${reason}`);
+            }
+
+            // PR mergeable
+            if (checks.pr_mergeable) {
+              statusLines.push('✅ PR is mergeable');
+            } else {
+              const reason = checks.pr_mergeable_reason ? ` (${checks.pr_mergeable_reason})` : '';
+              statusLines.push(`❌ PR is mergeable${reason}`);
             }
 
             const statusText = statusLines.join('\n');
