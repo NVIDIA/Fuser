@@ -18,7 +18,7 @@ from tools.utils import ensure_dir, write_to_path
 
 def launch_ai_cli(
    prompt: str, 
-   tool: None,
+   tool: str | None,
    tool_args : list[str],
    verdict_marker: str, 
    output_dir: Path | str, 
@@ -35,7 +35,7 @@ def launch_ai_cli(
    ensure_dir(OUTPUT_DIR)
 
    if tool == None:
-      write_to_path(OUTPUT_DIR, "error.txt", f"Error (Exit 1 - no tool specified")
+      write_to_path(OUTPUT_DIR, "error.txt", f"Error (Exit 1 - no tool specified)")
       return 1
 
    try:
@@ -100,12 +100,12 @@ def launch_ai_cli(
          return 4
 
    except subprocess.TimeoutExpired:
-      error_msg = "{tool} command timed out after {timeout_seconds} seconds"
+      error_msg = f"{tool} command timed out after {timeout_seconds} seconds"
       write_to_path(OUTPUT_DIR, "error.txt", error_msg)
       return 1
 
    except FileNotFoundError:
-      error_msg = "Error: '{tool}' command not found. Is it installed and in PATH?"
+      error_msg = f"Error: '{tool}' command not found. Is it installed and in PATH?"
       write_to_path(OUTPUT_DIR, "error.txt", error_msg)
       return 1
 

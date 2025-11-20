@@ -120,7 +120,7 @@ def main() -> int:
 
 
    tool_args = []
-   ok_commands = ["git", "ls", "grep", "ls","stat"]
+   ok_commands = ["git", "ls", "grep", "stat"]
 
    if context.ai_backend == "gemini":
       # e.g. "ShellTool(git),ShellTool(grep)"
