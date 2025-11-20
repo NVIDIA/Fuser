@@ -23,6 +23,8 @@
 #include "runtime/compiled_kernel.h"
 #include "runtime/executor.h"
 
+#include <driver_api.h>
+
 #include <ATen/ATen.h>
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -73,12 +75,23 @@ constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
 
-// Context struct to cache KernelExecutorEntry for repeated kernel launches
-// This is stored in the JIT-compiled code's stack frame and updated after
-// first initialization to enable fast-path execution on subsequent runs
+// Context struct to cache KernelExecutorEntry and launch config for repeated
+// kernel launches. This is stored in the JIT-compiled code's stack frame and
+// updated after first initialization to enable fast-path execution on
+// subsequent runs within a single invocation (e.g., in loops).
 struct LaunchKernelContext {
   hir::LaunchKernel* launch_kernel;
   KernelExecutorEntry* executor_entry;
+
+  // Cached launch configuration to avoid rebuilding CUlaunchConfig each iteration
+  CUlaunchConfig cached_config;
+  bool config_initialized;
+
+  // Track stream to detect changes and invalidate cached config.hStream
+  CUstream last_stream;
+
+  // Cached kernel function pointer
+  CUfunction kernel_function;
 };
 
 llvm::Value* getOrCreateValueForExtent(
@@ -1033,27 +1046,40 @@ class HostIrCompileDispatcher : public OptInDispatch {
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
         void_ptr_type);
 
-    // Allocate LaunchKernelContext on stack
-    llvm::Type* context_type = llvm::StructType::get(
-        context, {void_ptr_type, void_ptr_type});
+    // Allocate LaunchKernelContext on stack as a raw byte array
+    // This ensures proper alignment and size for the full context struct
+    llvm::Type* i8_type = builder_.getInt8Ty();
+    llvm::ArrayType* context_array_type =
+        llvm::ArrayType::get(i8_type, sizeof(LaunchKernelContext));
     llvm::Value* launch_context = builder_.CreateAlloca(
-        context_type, nullptr, "launch_kernel_context");
+        context_array_type, nullptr, "launch_kernel_context");
 
-    // Initialize context with launch_kernel pointer and null executor_entry
-    llvm::Value* launch_kernel_field = builder_.CreateStructGEP(
-        context_type, launch_context, 0);
-    builder_.CreateStore(launch_kernel_ptr, launch_kernel_field);
+    // Zero-initialize the entire context struct
+    llvm::Value* context_ptr = builder_.CreateBitCast(launch_context, void_ptr_type);
+    llvm::Type* size_type = builder_.getInt64Ty();
+    llvm::Value* size_val = builder_.getInt64(sizeof(LaunchKernelContext));
+    llvm::Function* memset_func = module->getFunction("llvm.memset.p0.i64");
+    if (!memset_func) {
+      llvm::Type* memset_params[] = {void_ptr_type, i8_type, size_type, builder_.getInt1Ty()};
+      llvm::FunctionType* memset_type = llvm::FunctionType::get(
+          builder_.getVoidTy(), memset_params, false);
+      memset_func = llvm::Function::Create(
+          memset_type,
+          llvm::Function::ExternalLinkage,
+          "llvm.memset.p0.i64",
+          module);
+    }
+    builder_.CreateCall(
+        memset_func,
+        {context_ptr, builder_.getInt8(0), size_val, builder_.getInt1(false)});
 
-    llvm::Value* executor_entry_field = builder_.CreateStructGEP(
-        context_type, launch_context, 1);
-    builder_.CreateStore(
-        llvm::ConstantPointerNull::get(
-            llvm::cast<llvm::PointerType>(void_ptr_type)),
-        executor_entry_field);
+    // Initialize the launch_kernel pointer (first field at offset 0)
+    llvm::Value* launch_kernel_field_ptr = context_ptr;
+    builder_.CreateStore(launch_kernel_ptr, builder_.CreateBitCast(
+        launch_kernel_field_ptr, void_ptr_type->getPointerTo()));
 
-    // Cast context struct pointer to void*
-    llvm::Value* launch_context_ptr = builder_.CreateBitCast(
-        launch_context, void_ptr_type);
+    // Context pointer is already in void* form
+    llvm::Value* launch_context_ptr = context_ptr;
 
     llvm::Value* container_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
@@ -1394,6 +1420,8 @@ void HostIrJitImpl::registerExternalFunctions() {
                   compiled_kernel_->maxrregcountHighWatermark())) {
           compiled_kernel_->recompileKernel(
               executor_entry->launch_params, compile_params);
+          // Invalidate cached config after recompilation
+          launch_context->config_initialized = false;
         }
 
         LaunchParams launch_params = executor_entry->launch_params;
@@ -1407,21 +1435,34 @@ void HostIrJitImpl::registerExternalFunctions() {
         // Launch the kernel
         if (!compiled_kernel_->kernel()->topLevelExprs().empty()) {
           FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
+
+          // Build or update cached launch configuration
+          if (!launch_context->config_initialized) {
+            // First time or after recompilation - build full config
+            launch_context->cached_config.gridDimX = launch_params.gdimx();
+            launch_context->cached_config.gridDimY = launch_params.gdimy();
+            launch_context->cached_config.gridDimZ = launch_params.gdimz();
+            launch_context->cached_config.blockDimX = launch_params.bdimx();
+            launch_context->cached_config.blockDimY = launch_params.bdimy();
+            launch_context->cached_config.blockDimZ = launch_params.bdimz();
+            launch_context->cached_config.sharedMemBytes = launch_params.smem();
+            launch_context->cached_config.hStream = stream;
+            launch_context->cached_config.attrs = nullptr;
+            launch_context->cached_config.numAttrs = 0;
+            launch_context->last_stream = stream;
+            launch_context->kernel_function = compiled_kernel_->cudaExecutable()->function;
+            launch_context->config_initialized = true;
+          } else if (stream != launch_context->last_stream) {
+            // Stream changed - only update stream field
+            launch_context->cached_config.hStream = stream;
+            launch_context->last_stream = stream;
+          }
+
           {
             FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
-            CUlaunchConfig config = {};
-            config.gridDimX = launch_params.gdimx();
-            config.gridDimY = launch_params.gdimy();
-            config.gridDimZ = launch_params.gdimz();
-            config.blockDimX = launch_params.bdimx();
-            config.blockDimY = launch_params.bdimy();
-            config.blockDimZ = launch_params.bdimz();
-            config.sharedMemBytes = launch_params.smem();
-            config.hStream = stream;
-
             NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-                &config,
-                compiled_kernel_->cudaExecutable()->function,
+                &launch_context->cached_config,
+                launch_context->kernel_function,
                 executor_entry->arg_ptrs.data(),
                 nullptr));
           }
