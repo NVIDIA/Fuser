@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -1310,59 +1311,52 @@ void HostIrJitImpl::registerExternalFunctions() {
         // Cast to LaunchKernelContext struct
         auto* launch_context = static_cast<LaunchKernelContext*>(launch_context_ptr);
         auto* launch_kernel_ptr = launch_context->launch_kernel;
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
 
-        // Prepare input/output arguments
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
-
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
-        }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
-        }
-        input_args.setDeviceIndex();
-
-        // Get KernelExecutor reference
-        int64_t group_id = launch_kernel_ptr->groupId();
-        KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
-        CompiledKernel* compiled_kernel_ = ke.compiledKernel().get();
-        const LaunchParams& launch_constraints = launch_kernel_ptr->launchParams();
-        CompileParams compile_params = launch_kernel_ptr->compileParams();
+        // Check if we have a cached executor entry (fast path)
+        KernelExecutorEntry* executor_entry = launch_context->executor_entry;
 
         // Profiling setup
+        int64_t group_id = launch_kernel_ptr->groupId();
+
         if (isProfilerEnabled()) {
           NVF_CHECK(
               group_id >= 0,
               "An invalid segment id is passed to FusionProfiler!:",
               group_id);
           SegmentProfiler& sprof = FusionProfiler::segment(group_id);
-          sprof.inputBytesAccessed(computeBytes(input_args));
-          sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
+          //sprof.inputBytesAccessed(computeBytes(input_args));
+          //sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
           FusionProfiler::segment(group_id).setDevice(
-              input_args.getDeviceIndex());
+                int8_t(0)); // just set 0 for now...
+          //    input_args.getDeviceIndex());
           sprof.startKernel();
         }
 
-        // Device and stream setup
-        c10::DeviceGuard dg(compiled_kernel_->device());
-        auto stream = at::cuda::getCurrentCUDAStream();
-        at::cuda::jit::initializeCudaContext();
-        NVF_ERROR(compiled_kernel_->lowered());
-
-        // Check if we have a cached executor entry (fast path)
-        KernelExecutorEntry* executor_entry = launch_context->executor_entry;
-        bool first_init = false;
-
         if (executor_entry == nullptr) {
-          // Slow path: first initialization
-          static thread_local KernelExecutorEntry temporary_executor_entry;
+          // Prepare input/output arguments
+          KernelArgumentHolder input_args, output_args;
+          input_args.setCacheId(cache_id);
 
-          executor_entry = input_args.getCacheId().has_value() &&
-                  !compiled_kernel_->launchParamCacheDisabled()
-              ? &ke.executor_entry_lookup_[*input_args.getCacheId()]
-              : &temporary_executor_entry;
+          for (int64_t i = 0; i < num_inputs; i++) {
+            input_args.push(*input_tensors[i]);
+          }
+          for (int64_t i = 0; i < num_outputs; i++) {
+            output_args.push(*output_tensors[i]);
+          }
+          input_args.setDeviceIndex();
+
+          // Get KernelExecutor reference
+          auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
+          KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+          CompiledKernel* compiled_kernel_ = ke.compiledKernel().get();
+          const LaunchParams& launch_constraints = launch_kernel_ptr->launchParams();
+          CompileParams compile_params = launch_kernel_ptr->compileParams();
+
+          launch_context->kernel_function = compiled_kernel_->cudaExecutable()->function;
+
+          bool first_init = false;
+          // Slow path: first initialization
+          executor_entry = &ke.executor_entry_lookup_[*input_args.getCacheId()];
 
           // Initialize the executor entry if not initialized
           first_init = !executor_entry->init;
@@ -1377,38 +1371,23 @@ void HostIrJitImpl::registerExternalFunctions() {
           }
 
           // Cache the executor_entry pointer for future runs
-          // Only cache if we're using the persistent entry, not the temporary one
-          if (input_args.getCacheId().has_value() &&
-              !compiled_kernel_->launchParamCacheDisabled()) {
-            launch_context->executor_entry = executor_entry;
+          launch_context->executor_entry = executor_entry;
+
+          // Compute kernel arguments
+          input_args.push(output_args);
+          if (first_init) {
+            ke.computeArgs(*executor_entry, input_args);
           }
         }
 
-        // Recompile kernel if needed
-        if (!(executor_entry->launch_params.nThreads() <=
-                  compiled_kernel_->blockSizeHighWatermark() &&
-              compile_params.maxrregcount ==
-                  compiled_kernel_->maxrregcountHighWatermark())) {
-          compiled_kernel_->recompileKernel(
-              executor_entry->launch_params, compile_params);
-          // Invalidate cached config after recompilation
-          launch_context->config_initialized = false;
-        }
-
-        LaunchParams launch_params = executor_entry->launch_params;
-
-        // Compute kernel arguments
-        input_args.push(output_args);
-        if (first_init) {
-          ke.computeArgs(*executor_entry, input_args);
-        }
-
         // Launch the kernel
-        if (!compiled_kernel_->kernel()->topLevelExprs().empty()) {
+        {
           FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
 
+          auto stream = at::cuda::getCurrentCUDAStream();
           // Build or update cached launch configuration
           if (!launch_context->config_initialized) {
+            LaunchParams launch_params = executor_entry->launch_params;
             // First time or after recompilation - build full config
             launch_context->cached_config.gridDimX = launch_params.gdimx();
             launch_context->cached_config.gridDimY = launch_params.gdimy();
@@ -1421,7 +1400,6 @@ void HostIrJitImpl::registerExternalFunctions() {
             launch_context->cached_config.attrs = nullptr;
             launch_context->cached_config.numAttrs = 0;
             launch_context->last_stream = stream;
-            launch_context->kernel_function = compiled_kernel_->cudaExecutable()->function;
             launch_context->config_initialized = true;
           } else if (stream != launch_context->last_stream) {
             // Stream changed - only update stream field
@@ -1443,7 +1421,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         if (isProfilerEnabled()) {
           auto& sprof = FusionProfiler::segment(group_id);
           sprof.stopKernel();
-          sprof.outputBytesAccessed(computeBytes(output_args));
+          //sprof.outputBytesAccessed(computeBytes(output_args));
         }
       });
 
