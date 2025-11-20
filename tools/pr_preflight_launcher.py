@@ -119,16 +119,22 @@ def main() -> int:
    output_dir = context.output_dir or default_dir
 
 
-  
    tool_args = []
-   if context.ai_backend is "gemini":
-      tool_args = ["--yolo"]
+   ok_commands = ["git", "ls", "grep", "ls","stat"]
+
+   if context.ai_backend == "gemini":
+      # e.g. "ShellTool(git),ShellTool(grep)"
+      command_str = ",".join(f"ShellTool({cmd})" for cmd in ok_commands)
+      tool_args = ["--allowed-tools", command_str]
+
+   elif context.ai_backend == "claude":
+      tool_args = ["-p"]
 
    # Invoke Gemini and propagate exit code
    exit_code = launch_ai_cli(
-      prompt=prompt, 
       tool=context.ai_backend,
       tool_args=tool_args,
+      prompt=prompt, 
       verdict_marker=VERDICT_MARKER, 
       output_dir=output_dir)
 

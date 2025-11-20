@@ -2,7 +2,7 @@
 #  Gemini seems to go haywire with older node versions (e.g. 18)
 FROM node:20
 
-COPY pr_preflight_launcher_gemini.py /usr/local/bin/
+COPY pr_preflight_launcher.py /usr/local/bin/
 COPY utils.py /usr/local/bin/tools/
 COPY git_helpers.py /usr/local/bin/tools/
 COPY ai_cli_wrapper.py /usr/local/bin/tools/

@@ -2,21 +2,22 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-name: Claude Code PR Review
+name: Claude CLI PR Review
 on:
   pull_request:
+    types: [opened, synchronize, ready_for_review]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id}}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-run-name: Claude Code review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+run-name: Claude review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
 
 jobs:
   claude-code-review:
     name: Run Claude Code Review
     # Skip if PR is in draft
-    # if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -96,22 +97,16 @@ jobs:
           claude --version || true
           echo "npm prefix bin: $(npm config get prefix)/bin" || true
 
-      - name: Try simple Claude request (to be removed later)
-        env:
-          ANTHROPIC_API_KEY: 'your-secret-here'
-          ANTHROPIC_BASE_URL: http://localhost:3456
-        run: claude -p 'hello!'
-
       - name: Run Claude Code via wrapper
         env:
-          ANTHROPIC_API_KEY: 'your-secret-here'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ANTHROPIC_BASE_URL: http://localhost:3456
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          python -m tools.pr_preflight_launcher
+          python -m tools.pr_preflight_launcher --ai-backend claude --output-dir "${CLAUDE_OUTPUT_DIR}"
       
       - name: Print Claude error (if any)
         if: always()

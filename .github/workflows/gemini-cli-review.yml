@@ -1,4 +1,4 @@
-name: Gemini CLI PR Setup
+name: Gemini CLI PR Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review]
@@ -7,31 +7,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-run-name: Gemini CLI setup for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
+run-name: Gemini review for PR ${{ github.event.pull_request.number }} - ${{ github.event.pull_request.head.sha }}
 
 jobs:
-  gemini-hello:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Setup Gemini CLI
-        uses: ./.github/actions/setup-gemini
-        with:
-          node-version: '20'
-
-      - name: Run Gemini hello prompt
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          echo "=== GEMINI START ==="
-          gemini "hello" | tee /dev/stderr
-          echo "=== GEMINI END ==="
-
   gemini-pr-review:
     # Skip if PR is in draft
     if: github.event.pull_request.draft == false
@@ -44,6 +22,23 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install Gemini CLI
+        shell: bash
+        run: |
+          npm install -g @google/gemini-cli@latest
+          echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
+
+      - name: Verify Gemini CLI
+        shell: bash
+        run: |
+          which gemini
+          gemini --version
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -58,40 +53,17 @@ jobs:
           # If you have a requirements.txt file, you might use this instead:
           # pip install -r requirements.txt --upgrade
 
-      - name: Setup Gemini CLI
-        uses: ./.github/actions/setup-gemini
-        with:
-          node-version: '20'
-
-      - name: Setup Gemini CLI
-        uses: ./.github/actions/setup-gemini
-        with:
-          node-version: '20'
-
-      # --- ADD THIS NEW DEBUG STEP ---
-      - name: Debug Gemini Path (Before Python)
-        shell: bash
-        run: |
-          echo "--- Verifying gemini-cli before Python script ---"
-          echo "Full PATH: $PATH"
-          echo "Location of gemini:"
-          which gemini
-          echo "Version of gemini:"
-          gemini --version
-          echo "------------------------------------------------"
-
       - name: Run Gemini PR review
         env:
           #GEMINI_MODEL: gemini-1.5-flash-latest
           GEMINI_OUTPUT_DIR: artifacts/gemini_review/${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
-
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
-          python -m tools.pr_preflight_launcher_gemini
+          python -m tools.pr_preflight_launcher --ai-backend gemini --output-dir "${GEMINI_OUTPUT_DIR}"
 
       - name: Print Gemini error (if any)
         if: always()
