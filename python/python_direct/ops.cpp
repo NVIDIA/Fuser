@@ -3486,34 +3486,57 @@ tuple[TensorView, TensorView, TensorView]
       py::return_value_policy::reference);
 }
 
+namespace {
+
+// Helper function to apply swizzle transformation to block scaling factors
+// for FP4 quantization. This transforms the memory layout to optimize access
+// patterns.
+void swizzleBlockScale(TensorView* tv_block_scale_fp8) {
+  // auto original_loop = tv_block_scale_fp8->getLoopDomain();
+  tv_block_scale_fp8->split(0, 128);
+  // m/128, 128, k
+  tv_block_scale_fp8->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv_block_scale_fp8->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
+      tv_block_scale_fp8->axis(0),
+      tv_block_scale_fp8->axis(3),
+      tv_block_scale_fp8->axis(2),
+      tv_block_scale_fp8->axis(1),
+      tv_block_scale_fp8->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
+
+  // back to a 2D logical domain.
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k) ->
+  // m/32, 32, k/4, 4(k)
+  tv_block_scale_fp8->merge(0);
+  // m/32, 32, k/4, 4(k) -> m, k/4, 4(k)
+  tv_block_scale_fp8->merge(0);
+  // m, k/4, 4(k) -> m, k
+  tv_block_scale_fp8->merge(-2);
+}
+
+} // namespace
+
 void bindQuantizationOps(py::module_& ops) {
   ops.def(
       "nv_block_quantize",
       [](TensorView* input,
-         ScalarVariant global_scale,
+         TensorView* global_scale,
+         bool swizzle_block_scales,
          int64_t block_size,
          PrimDataType dtype) -> py::tuple {
-        TensorView* global_scale_val = nullptr;
-        if (std::holds_alternative<Val*>(global_scale)) {
-          Val* val = std::get<Val*>(global_scale);
-          if (val != nullptr && val->isA<TensorView>()) {
-            global_scale_val = val->as<TensorView>();
-          }
-        } else {
-          PolymorphicValue::VariantType pv =
-              std::get<PolymorphicValue::VariantType>(global_scale);
-          if (!std::holds_alternative<std::monostate>(pv)) {
-            Val* converted = convertToVal(global_scale);
-            if (converted->isA<TensorView>()) {
-              global_scale_val = converted->as<TensorView>();
-            }
-          }
+        auto output = blockQuantize(input, global_scale, block_size, dtype);
+        if (swizzle_block_scales) {
+          swizzleBlockScale(output.block_scales);
         }
-        auto output = blockQuantize(input, global_scale_val, block_size, dtype);
         return py::make_tuple(output.quantized_tensor, output.block_scales);
       },
       py::arg("input"),
       py::arg("global_scale").none(true) = py::none(),
+      py::arg("swizzle_block_scales") = false,
       py::arg("block_size") = 16,
       py::arg("dtype") = DataType::Float4_e2m1fn,
       R"(

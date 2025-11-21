@@ -35,7 +35,6 @@ def is_pre_blackwell():
 # Check that the result of captured python definition matches original results
 def check_captured_python_definition(reference_outputs, fd, inputs, device=None):
     try:
-        breakpoint()
         fd_str = fd.__repr__()
         func_name = "nvfuser_fusion"
         exec(fd_str)
@@ -59,13 +58,9 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
             # it as int8 and run comparison as-is.
             if ref_out.dtype == torch.float4_e2m1fn_x2:
                 ref_out = ref_out.view(torch.int8)
-            elif ref_out.dtype == torch.float8_e4m3fn:
-                ref_out = ref_out.view(torch.int8)
             elif not ref_out.dtype.is_complex:
                 ref_out = ref_out.to(torch.float64)
             if cap_out.dtype == torch.float4_e2m1fn_x2:
-                cap_out = cap_out.view(torch.int8)
-            elif cap_out.dtype == torch.float8_e4m3fn:
                 cap_out = cap_out.view(torch.int8)
             elif not cap_out.dtype.is_complex:
                 cap_out = cap_out.to(torch.float64)

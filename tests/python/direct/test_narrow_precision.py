@@ -119,8 +119,8 @@ def test_scaled_mm(
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
-def test_nv_block_quantization(nvfuser_direct_test):
-    swizzle_scales = True
+@pytest.mark.parametrize("swizzle_scales", [False])
+def test_nv_block_quantization(nvfuser_direct_test, swizzle_scales):
     x = torch.randn((1024, 1024), dtype=torch.float32, device="cuda")
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
         torch.float32
@@ -138,26 +138,11 @@ def test_nv_block_quantization(nvfuser_direct_test):
         global_scale_tv = fd.define_tensor(
             shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
-        vals_, scales_ = fd.ops.nv_block_quantize(x_tv, global_scale_tv, 16)
+        vals_, scales_ = fd.ops.nv_block_quantize(
+            x_tv, global_scale_tv, swizzle_scales, 16
+        )
         fd.add_output(vals_)
         fd.add_output(scales_)
-
-        if swizzle_scales:
-            scales_.split(0, 128)
-            scales_.split(1, 32)
-            scales_.split(3, 4)
-            new_order_of_alloc_domain = [
-                scales_.axis(0),
-                scales_.axis(3),
-                scales_.axis(2),
-                scales_.axis(1),
-                scales_.axis(4),
-            ]
-            scales_.set_allocation_domain(new_order_of_alloc_domain, True)
-
-            scales_.merge(1, 2)
-            scales_.merge(0, 1)
-            scales_.merge(1, 2)
 
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x, x_global_scale])
 
@@ -194,8 +179,15 @@ def test_nv_block_quantization(nvfuser_direct_test):
         values_match = torch.equal(o0_uint8.flatten(), x_u8_uint8.flatten())
         print(f"Quantized values match: {values_match}")
         if not values_match:
-            diff_count = (o0_uint8.flatten() != x_u8_uint8.flatten()).sum().item()
+            diff_mask = o0_uint8.flatten() != x_u8_uint8.flatten()
+            diff_count = diff_mask.sum().item()
             print(f"Number of differing bytes: {diff_count}")
+            diff_indices = torch.where(diff_mask)[0][:20]  # Show first 20 mismatches
+            print("\n--- Quantized Values Mismatches (first 20) ---")
+            for idx in diff_indices:
+                print(
+                    f"Index {idx.item()}: nvfuser={hex(o0_uint8.flatten()[idx].item())}, reference={hex(x_u8_uint8.flatten()[idx].item())}"
+                )
     else:
         print(
             f"Quantized values have different sizes after flattening: {o0_uint8.flatten().size()} vs {x_u8_uint8.flatten().size()}"
@@ -206,12 +198,101 @@ def test_nv_block_quantization(nvfuser_direct_test):
         scales_match = torch.equal(o1_uint8.flatten(), x_scale_uint8.flatten())
         print(f"Scale values match: {scales_match}")
         if not scales_match:
-            diff_count = (o1_uint8.flatten() != x_scale_uint8.flatten()).sum().item()
+            diff_mask = o1_uint8.flatten() != x_scale_uint8.flatten()
+            diff_count = diff_mask.sum().item()
             print(f"Number of differing bytes: {diff_count}")
+            diff_indices = torch.where(diff_mask)[0][:20]  # Show first 20 mismatches
+            print("\n--- Scale Values Mismatches (first 20) ---")
+            for idx in diff_indices:
+                print(
+                    f"Index {idx.item()}: nvfuser={hex(o1_uint8.flatten()[idx].item())}, reference={hex(x_scale_uint8.flatten()[idx].item())}"
+                )
     else:
         print(
             f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
         )
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("config", [[1024, 1024, 1024]])
+@pytest.mark.parametrize("out_dtype", [torch.float32])
+def test_scaled_mm_new(
+    nvfuser_direct_test,
+    config,
+    out_dtype,
+):
+    in_dtype = torch.float4_e2m1fn_x2
+    quantization = nvfp4_quantize
+
+    m, k, n = config
+    mat1_ref = torch.randn((m, k), dtype=torch.float32, device="cuda")
+    mat2_ref = torch.randn((n, k), dtype=torch.float32, device="cuda")
+
+    mat1, scale1, global_sf1 = quantization(mat1_ref)
+    mat2, scale2, global_sf2 = quantization(mat2_ref)
+    alpha = 1.0 / (global_sf1 * global_sf2)
+
+    inputs = [
+        mat1_ref,
+        mat2.t(),
+        global_sf1,
+        linear_to_swizzled_128_4(scale2),
+        alpha,
+    ]
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        mat1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        mat2_ = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=DataType.Float4_e2m1fn,
+            is_cpu=False,
+            stride_order=[0, 1],
+        )
+
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+
+        mat1_, scale1_ = fd.ops.nv_block_quantize(mat1, global_scale_tv, True, 16)
+
+        scale2_ = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        alpha = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        out, _, _ = fd.ops.scaled_mm(
+            mat1_,
+            mat2_,
+            scale1_,
+            scale2_,
+            alpha,
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
+        )
+        fd.add_output(out)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+
+    ref_o = (
+        torch._scaled_mm(
+            mat1,
+            mat2.t(),
+            linear_to_swizzled_128_4(scale1),
+            linear_to_swizzled_128_4(scale2),
+            None,
+            None,
+            out_dtype,
+        )
+        * alpha
+    )
+    assert o[0].allclose(ref_o, 1e-2, 1e-2)
 
 
 @pytest.mark.skipif(

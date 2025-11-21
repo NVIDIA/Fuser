@@ -118,9 +118,6 @@ __device__ void block_quantize_to_nvfp4(
 
   __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
 
-  // Convert back from FP8 to float using __e4m32float
-  // float clamped_max_converted = __e4m32float(clamped_max_fp8);
-
   if constexpr (USE_GLOBAL_SCALE) {
     clamped_max = clamped_max / global_scale[0];
   }

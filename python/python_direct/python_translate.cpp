@@ -1593,21 +1593,26 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const BlockQuantizationOp* bqop) final {
     NVF_ERROR(bqop != nullptr);
     visited_vals_.insert(bqop->output(0));
-    if (bqop->hasGlobalScale()) {
-      visited_vals_.insert(bqop->output(1));
-    }
+    visited_vals_.insert(bqop->output(1));
 
     static const auto default_args = std::make_tuple(
         KeywordArgument<decltype(bqop->globalScale())>{"global_scale", nullptr},
         KeywordArgument<int64_t>{"block_size", 16},
+        KeywordArgument<bool>{"swizzle_block_scales", false},
         KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
 
     auto dtype = bqop->quantizedOutput()->as<TensorView>()->dtype();
+    auto swizzled_block_scale =
+        bqop->blockScales()->as<TensorView>()->hasAllocation();
     printer_.generateKwargsOperation(
         "fd.ops.nv_block_quantize",
         std::make_tuple(bqop->in()),
         default_args,
-        std::make_tuple(bqop->globalScale(), bqop->blockSize(), dtype),
+        std::make_tuple(
+            bqop->globalScale(),
+            bqop->blockSize(),
+            swizzled_block_scale,
+            dtype),
         std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
   }
 
