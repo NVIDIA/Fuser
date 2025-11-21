@@ -58,38 +58,6 @@ class EVTConverter : OptOutDispatch {
     return model_;
   }
 
-  //! We pass both inputs and output tensors to the launcher code via a vector
-  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
-  //! this function returns something like
-  //!
-  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
-  //!
-  std::string getPointerCode(TensorView* tv) {
-    int64_t index = -1;
-    if (tv->isFusionInput()) {
-      index = fusionInputPosition(fusion_, tv);
-    } else if (tv->isFusionOutput()) {
-      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
-    } else {
-      NVF_CUTLASS_REJECT(
-          "Cannot get pointer for TV ",
-          tv->toString(),
-          " which is not a fusion input or output");
-    }
-    if (auto it = ptr_array_mapping_.find(tv); it != ptr_array_mapping_.end()) {
-      return "reinterpret_cast<" + dtypeToCutlass(tv->dtype()) +
-          "**>(inputs.at(" + std::to_string(index) + ").data_ptr)";
-    } else {
-      return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-          std::to_string(index) + ").data_ptr)";
-    }
-  }
-
-  std::string getPointerArrayPointerCode(TensorView* tv) {
-    // TODO: track
-    return getPointerCode(tv);
-  }
-
   void validatePattern() {
     auto check_input = [](TensorView* inp) {
       if (inp == nullptr) {
@@ -137,8 +105,7 @@ class EVTConverter : OptOutDispatch {
       alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(pattern_.alpha->dtype()) + ">");
-      alpha_bcast_node->arguments.emplace_back(
-          "scalar_ptrs", "{" + getPointerCode(pattern_.alpha) + "}");
+      alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
     } else if (pattern_.alpha->nDims() == 1) {
       NVF_CUTLASS_REJECT_IF(
           !pattern_.is_grouped,
@@ -149,8 +116,7 @@ class EVTConverter : OptOutDispatch {
       alpha_bcast_node->arguments = {
           {"scalars", "{}"},
           {"scalar_ptrs", "{}"},
-          {"scalar_ptr_arrays",
-           "{" + getPointerArrayPointerCode(pattern_.alpha) + "}"},
+          {"scalar_ptr_arrays", "{inputs.alpha}"},
       };
     }
     val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
@@ -179,8 +145,7 @@ class EVTConverter : OptOutDispatch {
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(pattern_.beta->dtype()) + ">");
-      beta_bcast_node->arguments.emplace_back(
-          "scalar_ptrs", "{" + getPointerCode(pattern_.beta) + "}");
+      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -439,8 +404,8 @@ class EVTConverter : OptOutDispatch {
         element_block_scale_factor +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
-        {"norm_constant_ptr", getPointerCode(pattern.global_scale_factor)},
+        {"ptr_scale_factor", "inputs.main_output_block_scale_factor"},
+        {"norm_constant_ptr", "inputs.main_output_global_scale_factor"},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =

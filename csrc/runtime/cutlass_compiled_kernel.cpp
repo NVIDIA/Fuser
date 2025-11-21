@@ -160,8 +160,8 @@ void CutlassCompiledKernel::run(
       temp_tensor_dataptrs.push_back(t.data_ptr());
     }
   }
-
   // Call the kernel
+
   run_kernel_function_(
       tensor_args,
       reinterpret_cast<uint8_t**>(temp_tensor_dataptrs.data()),

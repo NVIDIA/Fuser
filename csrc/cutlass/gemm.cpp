@@ -203,6 +203,8 @@ using namespace cute;
 
     genInputMapping();
 
+    genInputMapping();
+
     genArgumentsFunction();
 
     code_ += "} // namespace\n";
@@ -442,60 +444,147 @@ struct Fp4GemmSm100 {
   //! the problem independent of input position
   void genInputMapping() {
     code_ += R"(
-struct StandardArgs {
-  int64_t m;
-  int64_t n;
-  int64_t k;
-  int64_t num_experts;
-  TensorArg* a;
-  TensorArg* b;
-  TensorArg* a_scale = nullptr;
-  TensorArg* b_scale = nullptr;
-  TensorArg* alpha = nullptr;
-  TensorArg* beta = nullptr;
-  TensorArg* bias = nullptr;
-  TensorArg* main_output = nullptr;
-};
+struct Inputs {
+  int m;
+  int n;
+  int k;
+)";
+    // Generate typed pointer fields for each tensor
+    auto add_field =
+        [&](std::string tv_name, TensorView* tv, bool force_unsigned = false) {
+          if (tv == nullptr) {
+            return;
+          }
+          std::string dtype = dtypeToCutlass(tv->dtype(), force_unsigned);
+          // Determine if this is const or mutable based on whether it's an
+          // output
+          bool is_output = tv->isFusionOutput();
+          code_ += "  " + dtype;
+          if (!is_output) {
+            code_ += " const";
+          }
+          code_ += "* " + tv_name + ";\n";
+        };
 
-// Map vectors of inputs and temp tensors to a StandardArgs struct
-StandardArgs standardize_args(
-  const std::vector<TensorArg>& inputs,
-  uint8_t** temp_tensor_ptrs) {
-  return {
+    add_field("a", pattern_.a);
+    add_field("b", pattern_.b);
+    // Scale factors need to be unsigned for cutlass
+    add_field("a_scale", pattern_.a_scale, /*force_unsigned=*/true);
+    add_field("b_scale", pattern_.b_scale, /*force_unsigned=*/true);
+    add_field("alpha", pattern_.alpha);
+    add_field("beta", pattern_.beta);
+    add_field("bias", pattern_.bias);
+    add_field("main_output", main_output_);
+
+    // Add block scaled output fields if they exist
+    if (!block_scaled_outputs_.empty()) {
+      NVF_ERROR_EQ(
+          block_scaled_outputs_.size(),
+          1,
+          "Currently at most one block scaled output is supported");
+      add_field(
+          "main_output_block_scale_factor",
+          block_scaled_outputs_[0].block_scale_factors);
+      add_field(
+          "main_output_global_scale_factor",
+          block_scaled_outputs_[0].global_scale_factor);
+    }
+
+    code_ += R"(};
+
+// Map vectors of inputs to an Inputs struct
+Inputs standardize_args(const std::vector<TensorArg>& inputs) {
+  Inputs result;
 )";
     auto maybe_add_mapping =
         [&](std::string tv_name, TensorView* tv, bool is_output) {
+          if (tv == nullptr) {
+            return;
+          }
           int64_t pos = is_output
               ? fusionOutputPosition(fusion_, tv) + fusion_->inputs().size()
               : fusionInputPosition(fusion_, tv);
-          code_ += "    ." + tv_name + " = inputs.at(" + std::to_string(pos) +
-              "),\n";
+          std::string dtype = dtypeToCutlass(tv->dtype());
+          code_ += "  result." + tv_name + " = static_cast<" + dtype;
+          if (!is_output) {
+            code_ += " const";
+          }
+          code_ += "*>(inputs.at(" + std::to_string(pos) + ").data_ptr);\n";
         };
     maybe_add_mapping("a", pattern_.a, /*is_output=*/false);
     maybe_add_mapping("b", pattern_.b, /*is_output=*/false);
-    maybe_add_mapping("a_scale", pattern_.a_scale, /*is_output=*/false);
-    maybe_add_mapping("b_scale", pattern_.b_scale, /*is_output=*/false);
+    // Scale factors need special handling to match CUTLASS types
+    if (pattern_.a_scale != nullptr) {
+      int64_t pos = fusionInputPosition(fusion_, pattern_.a_scale);
+      code_ +=
+          "  result.a_scale = static_cast<cutlass::float_ue4m3_t "
+          "const*>(inputs.at(" +
+          std::to_string(pos) + ").data_ptr);\n";
+    }
+    if (pattern_.b_scale != nullptr) {
+      int64_t pos = fusionInputPosition(fusion_, pattern_.b_scale);
+      code_ +=
+          "  result.b_scale = static_cast<cutlass::float_ue4m3_t "
+          "const*>(inputs.at(" +
+          std::to_string(pos) + ").data_ptr);\n";
+    }
     maybe_add_mapping("alpha", pattern_.alpha, /*is_output=*/false);
     maybe_add_mapping("beta", pattern_.beta, /*is_output=*/false);
     maybe_add_mapping("bias", pattern_.bias, /*is_output=*/false);
     maybe_add_mapping("main_output", main_output_, /*is_output=*/true);
 
-    // TODO: Add the temp tensor mapping (hard-coded)
-    code_ += "  }\n}\n";
+    // Add block scaled output mappings if they exist
+    if (!block_scaled_outputs_.empty()) {
+      maybe_add_mapping(
+          "main_output_block_scale_factor",
+          block_scaled_outputs_[0].block_scale_factors,
+          /*is_output=*/true);
+      // The global scale factor is actually a fusion input
+      maybe_add_mapping(
+          "main_output_global_scale_factor",
+          block_scaled_outputs_[0].global_scale_factor,
+          /*is_output=*/false);
+    }
+
+    code_ += R"(
+  // Extract m, n, k from tensor dimensions
+  const TensorArg& a_arg = inputs.at()";
+    code_ += std::to_string(fusionInputPosition(fusion_, pattern_.a));
+    code_ += R"();
+  result.m = static_cast<int>(a_arg.sizes[0]);
+  const TensorArg& b_arg = inputs.at()";
+    code_ += std::to_string(fusionInputPosition(fusion_, pattern_.b));
+    code_ += R"();
+  result.n = static_cast<int>(b_arg.sizes[1]);
+)";
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  int k = static_cast<int>(a.sizes[2]) * 2;
+)";
+    } else {
+      code_ += R"(
+  int k = static_cast<int>(a.sizes[1]) * 2;
+  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
+)";
+    }
+    code_ += R"();
+  return result;
+}
+)";
   }
 
   void genArgumentsFunction() {
     // TODO: Handle other scale factor dtypes
     code_ += R"(
-// Constructs CUTLASS GEMM arguments from PyTorch tensors and dimensions
+// Constructs CUTLASS GEMM arguments from standardized inputs
 //
-// This function converts PyTorch tensor data and metadata into the format
+// This function converts the Inputs struct into the format
 // expected by CUTLASS GEMM kernels, including proper stride calculations
 // and layout configurations for the scaled matrix multiplication.
 //
 // Returns CUTLASS GEMM arguments structure ready for kernel execution
 typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
-  const StandardArgs& args) {
+  const Inputs& args) {
   using T = Fp4GemmSm100;
 
   using ElementA = typename T::Gemm::ElementA;
@@ -511,79 +600,42 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using StrideD = typename T::StrideD;
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
-)";
-    const auto maybe_define =
-        [&](std::string tv_name, TensorView* tv, bool is_output) {
-          if (tv == nullptr) {
-            return;
-          }
-          int64_t pos = is_output
-              ? fusionOutputPosition(fusion_, tv) + fusion_->inputs().size()
-              : fusionInputPosition(fusion_, tv);
-          code_ += "  const TensorArg& " + tv_name + " = inputs.at(" +
-              std::to_string(pos) + ");\n";
-        };
-    maybe_define("a", pattern_.a, /*is_output=*/false);
-    maybe_define("b", pattern_.b, /*is_output=*/false);
-    maybe_define("a_scale", pattern_.a_scale, /*is_output=*/false);
-    maybe_define("b_scale", pattern_.b_scale, /*is_output=*/false);
-    maybe_define("alpha", pattern_.alpha, /*is_output=*/false);
-    maybe_define("beta", pattern_.beta, /*is_output=*/false);
-    maybe_define("bias", pattern_.bias, /*is_output=*/false);
-    maybe_define("output", main_output_, /*is_output=*/true);
 
-    // TODO: handle finding mnk for differently sized dimensions of a and b
-    code_ += R"(
-  int m = static_cast<int>(a.sizes[0]);
-  int n = static_cast<int>(b.sizes[1]);
-)";
-    if (pattern_.is_grouped) {
-      code_ += R"(
-  int k = static_cast<int>(a.sizes[2]) * 2;
-)";
-    } else {
-      code_ += R"(
-  int k = static_cast<int>(a.sizes[1]) * 2;
-  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
-)";
-    }
-    code_ += R"(
-
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {args.m, args.k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {args.n, args.k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {args.m, args.n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {args.m, args.n, 1});
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
 
   // TODO: these should be pointer arrays for grouped GEMM
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-      cute::make_shape(args.m, args.n, args.k, 1));
+      cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
   auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-      cute::make_shape(args.m, args.n, args.k, 1));
+      cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
 
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {args.m, args.n, args.k, 1},
+      {inputs.m, inputs.n, inputs.k, 1},
       {// Mainloop arguments
-       static_cast<ElementA const*>(args.a->data_ptr),
+       inputs.a,
        stride_A,
-       static_cast<ElementB const*>(args.b->data_ptr),
+       inputs.b,
        stride_B,
-       static_cast<ElementSFA const*>(args.a_scale->data_ptr),
+       inputs.a_scale,
        layout_SFA,
-       static_cast<ElementSFB const*>(args.b_scale->data_ptr),
+       inputs.b_scale,
        layout_SFB},
       {// Epilogue arguments
 )";
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       static_cast<ElementC const*>(args.bias->data_ptr),";
+      code_ += "       inputs.bias,";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
     code_ += R"(
        stride_C,
-       static_cast<ElementD*>(args.main_output->data_ptr),
+       inputs.main_output,
        stride_D}};
   return arguments;
 }
@@ -602,25 +654,27 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
 // allocating workspace memory, and running the computation on the GPU.
 // It handles the complete lifecycle from kernel initialization to execution.
 extern "C" void run_kernel(
-    const std::vector<TensorArg>& inputs,
+    const std::vector<TensorArg>& tensor_args,
     uint8_t** temp_tensor_ptrs,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  StandardArgs args = standardize_args(inputs, temp_tensor_ptrs);
-
-  auto cutlass_args = cutlass_args_from_inputs(args);
+  Inputs inputs = standardize_args(tensor_args);
+  auto cutlass_args = cutlass_args_from_inputs(inputs);
 
   auto can_implement_status = gemm.can_implement(cutlass_args);
   NVF_ERROR(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  init_temp_tensors(args, cutlass_args, stream);
+  init_temp_tensors(inputs, cutlass_args, stream);
+
+  auto status = gemm.initialize(cutlass_args, workspace_ptr, stream);
+  NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
   uint8_t* workspace_ptr = temp_tensor_ptrs[0];
 
-  auto status = gemm.run(cutlass_args, workspace_ptr, stream);
+  status = gemm.run(cutlass_args, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 )";
