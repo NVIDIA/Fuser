@@ -203,8 +203,6 @@ using namespace cute;
 
     genInputMapping();
 
-    genInputMapping();
-
     genArgumentsFunction();
 
     code_ += "} // namespace\n";
@@ -551,23 +549,25 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
   const TensorArg& a_arg = inputs.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.a));
     code_ += R"();
-  result.m = static_cast<int>(a_arg.sizes[0]);
   const TensorArg& b_arg = inputs.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.b));
     code_ += R"();
+  result.m = static_cast<int>(a_arg.sizes[0]);
   result.n = static_cast<int>(b_arg.sizes[1]);
+  result.k = static_cast<int>(a.sizes[1]) * 2;
 )";
+    // A has size [M, K] for grouped or ungrouped GEMM
+    // B has size [E, N, K] for grouped GEMM
+    // B has size [K, N] for ungrouped GEMM
+    // In either case, N is b_arg.sizes[1]
     if (pattern_.is_grouped) {
-      code_ += R"(
-  int k = static_cast<int>(a.sizes[2]) * 2;
-)";
+      code_ +=
+          "  NVF_ERROR(b_arg.sizes[2] == a.sizes[1], \"Mismatched K dims\");\n";
     } else {
-      code_ += R"(
-  int k = static_cast<int>(a.sizes[1]) * 2;
-  NVF_ERROR(b.sizes[0] == a.sizes[1], "Mismatched K dims");
-)";
+      code_ +=
+          "  NVF_ERROR(b_arg.sizes[0] == a.sizes[1], \"Mismatched K dims\");\n";
     }
-    code_ += R"();
+    code_ += R"(
   return result;
 }
 )";
