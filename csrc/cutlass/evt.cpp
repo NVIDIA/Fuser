@@ -80,6 +80,10 @@ class EVTConverter : OptOutDispatch {
     // TODO: Grouped gemm entry validation
   }
 
+  std::string inputTvVariable(TensorView* tv) {
+    return "inputs." + tensor_names_.at(tv);
+  }
+
   // Creates a node to represent alpha*acc.
   // Provide DataType::Float here if there is additional fusion required
   EVTModel::Node* makeAlphaAccNode(DataType dtype) {
@@ -105,7 +109,8 @@ class EVTConverter : OptOutDispatch {
       alpha_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(pattern_.alpha->dtype()) + ">");
-      alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + inputTvVariable(pattern_.alpha) + "}");
     } else if (pattern_.alpha->nDims() == 1) {
       NVF_CUTLASS_REJECT_IF(
           !pattern_.is_grouped,
@@ -116,8 +121,10 @@ class EVTConverter : OptOutDispatch {
       alpha_bcast_node->arguments = {
           {"scalars", "{}"},
           {"scalar_ptrs", "{}"},
-          {"scalar_ptr_arrays", "{inputs.alpha}"},
-      };
+          {
+              "scalar_ptr_arrays",
+              "{" + inputTvVariable(pattern_.alpha) + "}",
+          }};
     }
     val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
 
@@ -145,7 +152,8 @@ class EVTConverter : OptOutDispatch {
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(pattern_.beta->dtype()) + ">");
-      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
+      beta_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + inputTvVariable(pattern_.beta) + "}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -455,7 +463,7 @@ class EVTConverter : OptOutDispatch {
   std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
 
   // Maps from a TensorView* to the name of its field in Inputs
-  std::unordered_map<TensorView*, std::string> tensor_names_;
+  const std::unordered_map<TensorView*, std::string>& tensor_names_;
 };
 
 } // namespace

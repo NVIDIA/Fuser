@@ -174,9 +174,9 @@ class CutlassCodeGenerator {
           return;
         }
         int id = std::ssize(temp_tensors_);
-        temp_tensors_.emplace_back(
-            std::make_unique<TempTensorDescriptor>(id, tv, name));
-        temp_tensor_map_.emplace(tv, name);
+        tensor_descriptors_.emplace_back(
+            std::make_unique<TensorDescriptor>(id, tv, name));
+        tensor_name_map_.emplace(tv, name);
       };
       register_temp_tensor(pattern_.a, "a");
       register_temp_tensor(pattern_.b, "b");
@@ -200,15 +200,18 @@ class CutlassCodeGenerator {
       int64_t cur_output = 0;
       for (Val* outp : fusion_->outputs()) {
         if (auto* tv = dynamic_cast<TensorView*>(outp)) {
-          if (temp_tensor_map_.find(tv) == temp_tensor_map_.end()) {
-            register_temp_tensor(tv, "output" + std::to_string(cur_output++));
+          if (tensor_name_map_.find(tv) == tensor_name_map_.end()) {
+            std::string number = fusion_->outputs().size() >= 1
+                ? std::to_string(cur_output++)
+                : "";
+            register_temp_tensor(tv, "output" + number);
           }
         }
       }
     }
 
-    evt_model_ = std::make_unique<EVTModel>(
-        extractEVTModel(fusion_, temp_tensor_name_map_));
+    evt_model_ =
+        std::make_unique<EVTModel>(extractEVTModel(fusion_, tensor_name_map_));
   }
 
   void generateCode() {
@@ -889,7 +892,7 @@ void init_temp_tensors(const Inputs& inputs,
     std::string name;
   };
 
-  std::vector<std::unique_ptr<TempTensorDescriptor>> temp_tensors_;
+  std::vector<std::unique_ptr<TempTensorDescriptor>> tensors_descriptors_;
 
   // Map from TensorView to position of input, output, and temp tensors.
   std::unordered_map<TensorView*, std::string> tensor_name_map_;
