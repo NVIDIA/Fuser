@@ -1010,6 +1010,16 @@ int64_t getInnerTmaDomainSize(
 int64_t getNumElements(
     const TensorView* tv,
     SchedulerRuntimeInfo& runtime_info);
+
+// Returns true if the size of the tensor is suitable for TMA.
+// We only support 2D TMA, which requires at least 2 tiles in
+// the inner dimension, each with  at least 16 bytes. This imposes a minimum
+// inner TMA domain size of 2 * 16 bytes. Additionally, return false if the
+// inner TMA domain size equals the total element count, as this would mean the
+// outer TMA domain is 1, which is not a valid 2D TMA configuration.
+bool isTvSizeSuitableForTma(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info);
 } // namespace scheduler_utils
 
 } // namespace nvfuser

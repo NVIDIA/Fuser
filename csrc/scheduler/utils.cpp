@@ -3460,5 +3460,19 @@ int64_t getNumElements(
   }
   return num_elements;
 }
+
+bool isTvSizeSuitableForTma(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info) {
+  auto dtype_bits =
+      dataTypeSizeBit(tv->getDataType().value(), runtime_info.getIndexType());
+  auto elem_count = getNumElements(tv, runtime_info);
+  const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
+  if (elem_count % min_inner_tma_domain_size == 0 &&
+      elem_count > min_inner_tma_domain_size) {
+    return true;
+  }
+  return false;
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

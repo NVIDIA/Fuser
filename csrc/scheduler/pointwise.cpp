@@ -340,26 +340,7 @@ bool mayHaveTmaCompatibleInputs(
       continue;
     }
 
-    // Condition 1: We only support 2D TMA, which requires at least 2 tiles in
-    // the inner dimension, each with  at least 16 bytes. This imposes a minimum
-    // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
-    // TMA domain size equals the total element count, as this would mean the
-    // outer TMA domain is 1, which is not a valid 2D TMA configuration.
-    auto dtype_bits =
-        dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
-    auto elem_count = scheduler_utils::getNumElements(tv, runtime_info);
-    const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
-    if (elem_count % min_inner_tma_domain_size != 0 ||
-        elem_count == min_inner_tma_domain_size) {
-      scheduler_debug_utils::log(
-          "[Pointwise scheduler] input not suitable for TMA: ", tv->toString());
-      scheduler_debug_utils::log(
-          "[Pointwise scheduler] elem_count: ", elem_count);
-      scheduler_debug_utils::log(
-          "[Pointwise scheduler] min_inner_tma_domain_size: ",
-          min_inner_tma_domain_size);
-      scheduler_debug_utils::log(
-          "[Pointwise scheduler] dtype_bits: ", dtype_bits);
+    if (!scheduler_utils::isTvSizeSuitableForTma(tv, runtime_info)) {
       continue;
     }
 

@@ -20,59 +20,90 @@
 namespace nvfuser {
 namespace pointwise {
 namespace tma {
-// TODO: This can be further relaxed to allow more tensor views with fewer
-// dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA
-// in non-broadcast dimension.
-bool isTvSuitableForTma(
-    TensorView* tv,
-    int64_t n_valid_dims,
-    int64_t break_point) {
-  // check number of logical dimensions
-  if (scheduler_utils::nLogicalDims(tv) != n_valid_dims) {
-    return false;
-  }
-  // check if the tensor has cacheable uses
-  if (scheduler_utils::getCacheableUses(tv).empty()) {
-    return false;
-  }
-  // check if the tensor is contiguous
-  const auto contiguity = tv->domain()->contiguity();
-  if (std::any_of(
-          contiguity.begin(),
-          contiguity.end(),
-          [](const std::optional<bool>& contiguity) {
-            return !contiguity.has_value() || !contiguity.value();
-          })) {
-    return false;
-  }
 
-  // break point separates the reference tv into [lhs, rhs]
-  // then we use 2D tile, [lhs/outer, outer, rhs/inner, inner]
-  // To use TMA, this tv must have both lhs and rhs.
-  // see PointwiseTest.BroadcastAddInner for example.
-  if ((int64_t)tv->getLoopDomain().size() <= break_point) {
-    return false;
+int64_t getMinDtypeBitsOfTmaCompatibleInputs(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<int64_t>& tma_compatible_input_indices) {
+  int64_t min_dtype_bits = std::numeric_limits<int64_t>::max();
+  for (const auto& input_idx : tma_compatible_input_indices) {
+    auto tv = dynamic_cast<TensorView*>(fusion->inputs().at(input_idx));
+    min_dtype_bits = std::min(
+        min_dtype_bits,
+        dataTypeSizeBit(
+            tv->getDataType().value(), runtime_info.getIndexType()));
   }
-  // pass all checks, suitable for TMA
-  return true;
-};
-
+  return min_dtype_bits;
+}
 // Returns the total bits required to load one element from each TMA-loaded
 // input. This is used to determine how many elements should be loaded from each
 // input to achieve the required bits in flight.
 int64_t getInputBitsPerElement(
-    const pointwise_utils::FusionRuntimeProperties& prop,
-    int64_t break_point) {
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<int64_t>& tma_compatible_input_indices) {
   int64_t bits_per_element = 0;
-  int64_t n_valid_dims = scheduler_utils::nLogicalDims(prop.largest_out);
-  for (const auto& tv : prop.vectorizable_inputs_outputs) {
-    if (tv->isFusionInput() &&
-        isTvSuitableForTma(tv, n_valid_dims, break_point)) {
-      bits_per_element +=
-          dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
-    }
+  for (const auto& input_idx : tma_compatible_input_indices) {
+    auto tv = dynamic_cast<TensorView*>(fusion->inputs().at(input_idx));
+    NVF_ERROR(
+        tv != nullptr,
+        "Input tensor at index ",
+        input_idx,
+        " is not a TensorView");
+    bits_per_element +=
+        dataTypeSizeBit(tv->getDataType().value(), runtime_info.getIndexType());
   }
   return bits_per_element;
+}
+
+std::vector<int64_t> getTmaCompatibleInputIndices(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* largest_out,
+    int64_t break_point) {
+  int64_t n_valid_dims = scheduler_utils::nLogicalDims(largest_out);
+  std::vector<int64_t> tma_compatible_input_indices;
+  for (auto [input_idx, input] : enumerate(fusion->inputs())) {
+    auto tv = dynamic_cast<TensorView*>(input);
+    if (!tv) {
+      continue;
+    }
+    // must be cacheable
+    if (scheduler_utils::getCacheableUses(tv).empty()) {
+      continue;
+    }
+
+    // must be suitable for TMA based on the number of elements and dtype size
+    if (!scheduler_utils::isTvSizeSuitableForTma(tv, runtime_info)) {
+      continue;
+    }
+
+    // must have the same number of logical dimensions as the reference tensor
+    // to avoid loading tensors that are smaller than the reference tensor
+    if (scheduler_utils::nLogicalDims(tv) != n_valid_dims) {
+      continue;
+    }
+
+    // must be contiguous
+    const auto contiguity = tv->domain()->contiguity();
+    if (std::any_of(
+            contiguity.begin(),
+            contiguity.end(),
+            [](const std::optional<bool>& contiguity) {
+              return !contiguity.has_value() || !contiguity.value();
+            })) {
+      continue;
+    }
+
+    // break point separates the reference tv into [lhs, rhs]
+    // then we use 2D tile, [lhs/outer, outer, rhs/inner, inner]
+    // To use TMA, this tv must have both lhs and rhs.
+    // see PointwiseTest.BroadcastAddInner for example.
+    if ((int64_t)tv->getLoopDomain().size() <= break_point) {
+      continue;
+    }
+  }
+  return tma_compatible_input_indices;
 }
 
 std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
@@ -88,17 +119,24 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->cparams.index_type = prop.index_type;
   params->use_tma_load = true;
 
-  // Compute TMA inner domain size
+  auto tma_compatible_input_indices = getTmaCompatibleInputIndices(
+      fusion, runtime_info, prop.largest_out, params->break_point);
+  if (tma_compatible_input_indices.empty()) {
+    return nullptr;
+  } else {
+    params->tma_compatible_input_indices = tma_compatible_input_indices;
+  }
+
+  // If element count with the smallest dtype size is suitable for TMA, then
+  // it is also suitable for the other dtype sizes.
   constexpr int64_t target_inner_tma_domain_size = 512;
-  const int64_t min_dtype_bits = prop.min_dtype_size_bit_for_vectorization;
+  const int64_t min_dtype_bits = getMinDtypeBitsOfTmaCompatibleInputs(
+      fusion, runtime_info, tma_compatible_input_indices);
   int64_t tma_domain_inner = scheduler_utils::getInnerTmaDomainSize(
       prop.n_elems, target_inner_tma_domain_size, min_dtype_bits);
-  NVF_ERROR(
-      tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
-      "Illegal TMA inner domain size: ",
-      tma_domain_inner,
-      ", n_elems: ",
-      prop.n_elems);
+  if (tma_domain_inner == 1 || prop.n_elems % tma_domain_inner != 0) {
+    return nullptr;
+  }
   // constexpr int64_t align_bytes = 16;
   // const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
   // if(tma_domain_inner % min_size != 0){
@@ -122,13 +160,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   constexpr int64_t cta_per_sm = 8;
   int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   int64_t bits_per_cta = bits_per_sm / cta_per_sm;
-  int64_t bits_per_element = getInputBitsPerElement(prop, params->break_point);
-  // No suitable inputs found, TMA is not applicable
-  if (bits_per_element == 0) {
-    scheduler_debug_utils::log(
-        "[Pointwise TMA scheduler] no suitable inputs found");
-    return nullptr;
-  }
+  int64_t bits_per_element = getInputBitsPerElement(
+      fusion, runtime_info, params->tma_compatible_input_indices);
   int64_t elements_per_cta = ceilDiv(bits_per_cta, bits_per_element);
   elements_per_cta = scheduler_utils::roundUpToN(elements_per_cta, 1024);
   int64_t max_tma_tile_inner =
@@ -239,8 +272,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   int64_t n_valid_dims = scheduler_utils::nLogicalDims(reference_tv);
   std::vector<TensorView*> tma_tvs;
   std::vector<TensorView*> ldg_tvs;
-  for (const auto& [tv, _] : cached_inputs) {
-    if (!isTvSuitableForTma(tv, n_valid_dims, pparams->break_point)) {
+  const auto& tma_indices = pparams->tma_compatible_input_indices;
+  for (const auto& [tv, input_idx] : cached_inputs) {
+    if (std::find(tma_indices.begin(), tma_indices.end(), input_idx) ==
+        tma_indices.end()) {
       ldg_tvs.push_back(tv);
       continue;
     }
