@@ -43,6 +43,26 @@ std::ostream& operator<<(std::ostream& os, DomainType domain_type) {
   std::unreachable();
 }
 
+namespace {
+
+const std::vector<IterDomain*>& getDomainOf(
+    const TensorView* tv,
+    DomainType domain_type) {
+  switch (domain_type) {
+    case DomainType::kRoot:
+      return tv->getMaybeRootDomain();
+    case DomainType::kLogical:
+      return tv->getLogicalDomain();
+    case DomainType::kLoop:
+      return tv->getLoopDomain();
+    case DomainType::kAllocation:
+      return tv->getMaybeAllocationDomain();
+  }
+  std::unreachable();
+}
+
+} // namespace
+
 bool isSharded(const TensorView* tv) {
   bool is_sharded = false;
   for (IterDomain* id : tv->getLoopDomain()) {
@@ -214,20 +234,7 @@ IterDomain* getShardedIterDomain(
     const TensorView* tv,
     const ParallelType parallel_type,
     const DomainType domain_type) {
-  const std::vector<IterDomain*>& domain =
-      [&]() -> const std::vector<IterDomain*>& {
-    switch (domain_type) {
-      case DomainType::kRoot:
-        return tv->getMaybeRootDomain();
-      case DomainType::kLogical:
-        return tv->getLogicalDomain();
-      case DomainType::kLoop:
-        return tv->getLoopDomain();
-      case DomainType::kAllocation:
-        return tv->getMaybeAllocationDomain();
-    }
-    std::unreachable();
-  }();
+  const auto& domain = getDomainOf(tv, domain_type);
 
   for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {
@@ -318,7 +325,9 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 
 bool haveDifferentShardings(
     const TensorView* producer,
+    DomainType producer_domain_type,
     const TensorView* consumer,
+    DomainType consumer_domain_type,
     const std::unordered_set<ParallelType>& parallel_types) {
   // cpu scalars are not parallelized
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
@@ -341,6 +350,9 @@ bool haveDifferentShardings(
       producer->getDeviceMesh() != consumer->getDeviceMesh()) {
     return true;
   }
+
+  const auto& producer_domain = getDomainOf(producer, producer_domain_type);
+  const auto& consumer_domain = getDomainOf(consumer, consumer_domain_type);
 
   // Special handling of SelectOp for a quick fix
   // TODO: work on a proper implementation
@@ -373,8 +385,8 @@ bool haveDifferentShardings(
             .mapBroadcast(false)
             .mapConsumerToProducer();
     return !std::all_of(
-        consumer->getLoopDomain().begin(),
-        consumer->getLoopDomain().end(),
+        consumer_domain.begin(),
+        consumer_domain.end(),
         [&c2p, &parallel_types](IterDomain* c_id) {
           auto p_id = c2p.at(c_id);
           auto p_id_pt = p_id->getParallelType();
@@ -455,9 +467,9 @@ bool haveDifferentShardings(
   // optimization, we create indices only for those that parallel_types depend
   // on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(producer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(producer_domain);
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapDeviceAndStreamParallelTypeToId(consumer->getLoopDomain());
+      mapDeviceAndStreamParallelTypeToId(consumer_domain);
   for (const auto parallel_type : parallel_types) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
@@ -546,6 +558,14 @@ bool haveDifferentShardings(
   }
 
   return false;
+}
+
+bool haveDifferentShardings(
+    const TensorView* producer,
+    const TensorView* consumer,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  return haveDifferentShardings(
+      producer, DomainType::kLoop, consumer, DomainType::kLoop, parallel_types);
 }
 
 bool isResharding(const Expr* expr) {

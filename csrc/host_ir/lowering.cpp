@@ -84,29 +84,45 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
   return os;
 }
 
-// Finds the TensorView in the group whose loop domain has the most parallel
-// types and returns its loop domain.
-const std::vector<IterDomain*>& findReferenceLoopDomain(
-    const SegmentedGroup& group) {
-  TensorView* reference_tv = nullptr;
+int numParallelIterDomains(const TensorView* tv) {
+  return std::ranges::count_if(
+      tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
+}
+
+template <typename R>
+TensorView* findMostParallelTensorView(const R& range) {
+  TensorView* reference = nullptr;
   int max_parallel_count = -1;
-  for (auto* expr : group.exprs()) {
-    for (auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto loop_domain = tv->getLoopDomain();
-      int parallel_count = 0;
-      for (auto* id : loop_domain) {
-        if (id->isParallelized()) {
-          parallel_count++;
-        }
-      }
-      if (parallel_count > max_parallel_count) {
-        max_parallel_count = parallel_count;
-        reference_tv = tv;
-      }
+  for (TensorView* tv : range) {
+    auto parallel_count = numParallelIterDomains(tv);
+    if (parallel_count > max_parallel_count) {
+      max_parallel_count = parallel_count;
+      reference = tv;
     }
   }
-  NVF_ERROR(reference_tv != nullptr);
-  return reference_tv->getLoopDomain();
+  return reference;
+}
+
+// Finds the TensorView in the group whose loop domain has the most parallel
+// types and returns its loop domain.
+const std::vector<IterDomain*>& findMostParallelLoopDomain(
+    const SegmentedGroup& group) {
+  TensorView* reference = nullptr;
+  int max_parallel_count = -1;
+  for (Expr* expr : group.exprs()) {
+    TensorView* tv = findMostParallelTensorView(
+        ir_utils::filterByType<TensorView>(expr->outputs()));
+    if (tv == nullptr) {
+      continue;
+    }
+    auto parallel_count = numParallelIterDomains(tv);
+    if (parallel_count > max_parallel_count) {
+      max_parallel_count = parallel_count;
+      reference = tv;
+    }
+  }
+  NVF_ERROR(reference != nullptr, "Can't find any TensorView in ", &group);
+  return reference->getLoopDomain();
 }
 
 // Returns a new Expr with the inputs and outputs replaced by the replacement
@@ -217,11 +233,34 @@ void lowerSegment(
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-              getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kAllocation) ==
-                  nullptr) {
+          // A loop domain should go with an Expr rather than each individual
+          // output TensorView. Before this is fixed, pick the most parallel
+          // output TensorView as a proxy.
+          TensorView* out = findMostParallelTensorView(
+              ir_utils::filterByType<TensorView>(e->outputs()));
+          if (out == nullptr) {
+            continue;
+          }
+          // Check whether in's **allocation** and out's loop are sharded on
+          // ParallelType::Stream consistently. If not, insert a ShardByStream.
+          //
+          // Consider the following example:
+          // ```
+          // in: [m, k]    w: [k, n]   # logical/allocation
+          //            |
+          //            | matmul
+          //            v
+          //      out: [m, n]     logical
+          //           / \.
+          //          s  m/s      loop
+          // ```
+          // `in` needs to be sharded by stream regardless of its loop domain.
+          if (haveDifferentShardings(
+                  in,
+                  DomainType::kAllocation,
+                  out,
+                  DomainType::kLoop,
+                  {ParallelType::Stream})) {
             auto [i, inserted] = replacement_map.try_emplace(
                 in, hir::shardByStream(in, for_loop->index()));
             if (inserted) {
@@ -345,7 +384,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
   for (SegmentedGroup* group :
        prepareRuntimeOrder(segmented_fusion).group_run_order) {
     const std::vector<IterDomain*>& curr_ref_loop =
-        findReferenceLoopDomain(*group);
+        findMostParallelLoopDomain(*group);
     const int64_t inline_position =
         computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
     while (loop_nest.size() > inline_position) {
