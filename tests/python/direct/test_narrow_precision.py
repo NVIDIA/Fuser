@@ -121,7 +121,7 @@ def test_scaled_mm(
 )
 @pytest.mark.parametrize("swizzle_scales", [False])
 def test_nv_block_quantization(nvfuser_direct_test, swizzle_scales):
-    x = torch.randn((1024, 1024), dtype=torch.float32, device="cuda")
+    x = torch.randn((1024, 1024), dtype=torch.bfloat16, device="cuda")
     x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
         torch.float32
     )
@@ -133,7 +133,7 @@ def test_nv_block_quantization(nvfuser_direct_test, swizzle_scales):
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
         x_tv = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
         )
         global_scale_tv = fd.define_tensor(
             shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
@@ -227,8 +227,8 @@ def test_scaled_mm_new(
     quantization = nvfp4_quantize
 
     m, k, n = config
-    mat1_ref = torch.randn((m, k), dtype=torch.float32, device="cuda")
-    mat2_ref = torch.randn((n, k), dtype=torch.float32, device="cuda")
+    mat1_ref = torch.randn((m, k), dtype=torch.bfloat16, device="cuda")
+    mat2_ref = torch.randn((n, k), dtype=torch.bfloat16, device="cuda")
 
     mat1, scale1, global_sf1 = quantization(mat1_ref)
     mat2, scale2, global_sf2 = quantization(mat2_ref)
@@ -244,7 +244,7 @@ def test_scaled_mm_new(
 
     def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
         mat1 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
         )
         mat2_ = fd.define_tensor(
             shape=[-1, -1],
@@ -292,6 +292,30 @@ def test_scaled_mm_new(
         )
         * alpha
     )
+
+    # Check for values that don't match the tolerance
+    if not o[0].allclose(ref_o, 1e-2, 1e-2):
+        diff = torch.abs(o[0] - ref_o)
+        tolerance = 1e-2 + 1e-2 * torch.abs(ref_o)
+        mismatch_mask = diff > tolerance
+
+        mismatch_indices = torch.where(mismatch_mask)
+        num_mismatches = mismatch_mask.sum().item()
+        print(
+            f"\n--- Mismatches found: {num_mismatches} out of {o[0].numel()} elements ---"
+        )
+
+        # Show first 20 mismatches
+        for i in range(min(20, num_mismatches)):
+            idx = tuple(ind[i].item() for ind in mismatch_indices)
+            nvfuser_val = o[0][idx].item()
+            ref_val = ref_o[idx].item()
+            diff_val = diff[idx].item()
+            tol_val = tolerance[idx].item()
+            print(
+                f"Index {idx}: nvfuser={nvfuser_val:.6f}, reference={ref_val:.6f}, diff={diff_val:.6f}, tolerance={tol_val:.6f}"
+            )
+
     assert o[0].allclose(ref_o, 1e-2, 1e-2)
 
 
