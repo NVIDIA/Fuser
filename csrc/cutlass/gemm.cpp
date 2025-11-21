@@ -536,7 +536,7 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
 //
 // Returns CUTLASS GEMM arguments structure ready for kernel execution
 typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
-  const Inputs& args) {
+  const Inputs& inputs) {
   using T = Fp4GemmSm100;
 
   using ElementA = typename T::Gemm::ElementA;
@@ -553,40 +553,40 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {args.m, args.k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {args.n, args.k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {args.m, args.n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {args.m, args.n, 1});
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
 
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-      cute::make_shape(args.m, args.n, args.k, 1));
+      cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
   auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-      cute::make_shape(args.m, args.n, args.k, 1));
+      cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
 
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {args.m, args.n, args.k, 1},
+      {inputs.m, inputs.n, inputs.k, 1},
       {// Mainloop arguments
-       args.a,
+       inputs.a,
        stride_A,
-       args.b,
+       inputs.b,
        stride_B,
-       args.a_scale,
+       inputs.a_scale,
        layout_SFA,
-       args.b_scale,
+       inputs.b_scale,
        layout_SFB},
       {// Epilogue arguments
 )";
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
     if (pattern_.bias != nullptr) {
-      code_ += "       args.bias,";
+      code_ += "       inputs.bias,";
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
     code_ += R"(
        stride_C,
-       args.main_output,
+       inputs.main_output,
        stride_D}};
   return arguments;
 }
@@ -597,11 +597,9 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
     code_ += R"(
 
 // Calling code should pass a pointer to a vector of TensorArgs
-extern "C" size_t workspace_size(void* input_ptr) {
-  const std::vector<TensorArg>& inputs =
-      *reinterpret_cast<const std::vector<TensorArg>*>(input_ptr);
-  Inputs args = standardize_args(inputs);
-  auto cutlass_args = cutlass_args_from_inputs(args);
+extern "C" size_t workspace_size(const std::vector<TensorArg>& tensor_args) {
+  Inputs inputs = standardize_args(tensor_args);
+  auto cutlass_args = cutlass_args_from_inputs(inputs);
   return Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);
 }
 
@@ -611,13 +609,13 @@ extern "C" size_t workspace_size(void* input_ptr) {
 // allocating workspace memory, and running the computation on the GPU.
 // It handles the complete lifecycle from kernel initialization to execution.
 extern "C" void run_kernel(
-    const std::vector<TensorArg>& inputs,
+    const std::vector<TensorArg>& tensor_args,
     uint8_t* workspace_ptr,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  Inputs args = standardize_args(inputs);
-  auto cutlass_args = cutlass_args_from_inputs(args);
+  Inputs inputs = standardize_args(tensor_args);
+  auto cutlass_args = cutlass_args_from_inputs(inputs);
 
   auto can_implement_status = gemm.can_implement(cutlass_args);
   NVF_ERROR(

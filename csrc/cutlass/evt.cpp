@@ -138,7 +138,7 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
         "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
         dtypeToCutlass(alpha_->dtype()) + ">");
-    alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{args.alpha}");
+    alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
     val_nodes_.emplace(alpha_, alpha_bcast_node);
 
     return makeBinaryOpNode(
@@ -171,7 +171,7 @@ class EVTConverter : OptInDispatch {
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(beta_->dtype()) + ">");
-      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{args.beta}");
+      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -401,8 +401,8 @@ class EVTConverter : OptInDispatch {
         dtypeToCutlass(pattern.block_scale_factors->dtype()) +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", "args.main_output_block_scale_factor"},
-        {"norm_constant_ptr", "args.main_output_global_scale_factor"},
+        {"ptr_scale_factor", "inputs.main_output_block_scale_factor"},
+        {"norm_constant_ptr", "inputs.main_output_global_scale_factor"},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =
