@@ -993,7 +993,7 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   - Returns 1 if no suitable divisor exists (signaling TMA is not viable)
 //
 // ============================================================================
-int64_t gettma_domain_innerSize(
+int64_t getTmaDomainInner(
     int64_t total_element,
     int64_t tma_domain_inner_target = 512,
     int64_t min_dtype_bits = 8);

@@ -3342,26 +3342,21 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 // Computes the size of the inner TMA domain dimension for 2D TMA operations.
 //
 // Purpose: Split the problem [I0 = total_element] into 2D TMA domain
-/
-    [ tma_domain_outer, tma_domain_inner ]
-        //          where tma_domain_inner = return value
-
-        and tma_domain_outer = total_element /
-    tma_domain_inner
-        //
-        // Parameters:
-        //   total_element: Total number of elements in the flattened problem
-        //   space tma_domain_inner_target: Desired size for tma_domain_inner
-        //   min_dtype_bits: Minimum data type size in bits across all TMA
-        //   inputs
-        //
-        // Returns: The computed tma_domain_inner size, or 1 if no valid size
-        // exists
-        //
-        int64_t
-        getTmaDomainInner(int64_t total_element,
-                          int64_t tma_domain_inner_target,
-                          int64_t min_dtype_bits) {
+//          [tma_domain_outer, tma_domain_inner]
+//          where tma_domain_inner = return value
+//          and tma_domain_outer = total_element / tma_domain_inner
+//
+// Parameters:
+//   total_element: Total number of elements in the flattened problem space
+//   tma_domain_inner_target: Desired size for tma_domain_inner
+//   min_dtype_bits: Minimum data type size in bits across all TMA inputs
+//
+// Returns: The computed tma_domain_inner size, or 1 if no valid size exists
+//
+int64_t getTmaDomainInner(
+    int64_t total_element,
+    int64_t tma_domain_inner_target,
+    int64_t min_dtype_bits) {
   // ========== TMA Hardware Alignment Constraints ==========
   // 1. TMA without interleave: Innermost TMA tile byte size must be divisible
   //    by 16 bytes = 128 bits (hardware alignment requirement)
@@ -3372,34 +3367,27 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   //
   // Example: For float32 (32 bits): min_size = 256/32 = 8 elements
 
-lign_bits:
-  TMA tile alignment requirement(
-      2 * 16 bytes = 256 bits) constexpr int64_t align_bits =
-      2 * 16 * 8; // 56 bits
+  // align_bits: TMA tile alignment requirement (2 * 16 bytes = 256 bits)
+  constexpr int64_t align_bits = 2 * 16 * 8; // 256 bits
 
-_size:
-  Minimum elements required in tma_domain_inner to satisfy const
-      // aints
-      //  s (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned tiles
-      //   const int64_t min_size = align_bits / min_dtype_bits;
-      NVF_ERROR(
-          total_element % min_size == 0,
-          "total_element must be divisible by min_size to satisfy 2D TMA "
-          "alignment requirements, but got ",
-          total_element,
-          " % ",
-          min_size,
-          " = ",
-          total_element % min_size);
+  // min_size: Minimum elements required in tma_domain_inner to satisfy
+  // constraints Ensures (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned
+  // tiles
+  const int64_t min_size = align_bits / min_dtype_bits;
+  NVF_ERROR(
+      total_element % min_size == 0,
+      "total_element must be divisible by min_size to satisfy 2D TMA "
+      "alignment requirements, but got ",
+      total_element,
+      " % ",
+      min_size,
+      " = ",
+      total_element % min_size);
 
-  //
-
-  == == = Fast Path
-      : Check Target Size == ==
-        == == ==
-        // If tma_domain_inner_target is a valid divisor of total_element,
-        // use it directly as the optimal tma_domain_inner size
-        if (total_element % tma_domain_inner_target == 0) {
+  // ========== Fast Path: Check Target Size ==========
+  // If tma_domain_inner_target is a valid divisor of total_element,
+  // use it directly as the optimal tma_domain_inner size
+  if (total_element % tma_domain_inner_target == 0) {
     return tma_domain_inner_target;
   }
 
@@ -3408,24 +3396,19 @@ _size:
   //   1. Is closest to tma_domain_inner_target
   //   2. Satisfies min_size divisibility constraint (for TMA alignment)
   //   3. Is less than total_element (to create valid 2D split
-  //
-  tma_domain_outer, tma_domain_inner])
+  //      [tma_domain_outer, tma_domain_inner])
   //
   // best_divisible_size: Best candidate found so far for tma_domain_inner
   // Initialize to 1 (sentinel value indicating no suitable divisor found)
   int64_t best_divisible_size = 1;
 
-  // be
-
-f: Distance between best candidate and target size
-  int64_t best_diff =
-      std: st_divisible_size - tma_domain_inner_target);
+  // best_diff: Distance between best candidate and target size
+  int64_t best_diff = std::abs(best_divisible_size - tma_domain_inner_target);
 
   // Helper lambda to update the best candidate tma_domain_inner size.
   // Only updates if:
   // - candidate < total_element (ensures valid 2D split:
-  //   [tm
-  main_outer, tma_domain_inner])
+  //   [tma_domain_outer, tma_domain_inner])
   // - candidate is closer to tma_domain_inner_target than current best
   auto update_best = [&](int64_t candidate) {
     if (candidate >= total_element) {
@@ -3441,8 +3424,8 @@ f: Distance between best candidate and target size
   // Efficient divisor search using sqrt optimization:
   // For any divisor i of total_element, we also get total_element/i.
   // We only need to check up to sqrt(total_element) to find all divisor pairs.
-  // Both divisors in each pair are evaluated as candidates for tma_domain_
-  // nner.
+  // Both divisors in each pair are evaluated as candidates for
+  // tma_domain_inner.
   int64_t limit =
       static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
 
@@ -3472,4 +3455,3 @@ f: Distance between best candidate and target size
 
 } // namespace scheduler_utils
 } // namespace nvfuser
-            
