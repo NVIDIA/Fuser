@@ -241,6 +241,9 @@ void lowerSegment(
           // output TensorView as a proxy.
           TensorView* out = findMostParallelTensorView(
               ir_utils::filterByType<TensorView>(e->outputs()));
+          if (out == nullptr) {
+            continue;
+          }
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
           //
@@ -251,8 +254,8 @@ void lowerSegment(
           //            | matmul
           //            v
           //      out: [m, n]     logical
-          //          / \.
-          //         s  m/s      loop
+          //           / \.
+          //          s  m/s      loop
           // ```
           // `in` needs to be sharded by stream regardless of its loop domain.
           if (haveDifferentShardings(
