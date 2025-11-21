@@ -7,6 +7,9 @@ Key metrics:
 - Latency (ms/token)
 - Time to First Token (TTFT)
 - Time Between Output Tokens (TBOT)
+
+Pulled from the lightning-thunder repo. Reference:
+https://github.com/Lightning-AI/lightning-thunder/blob/4d3a3c3a7481efdc6a23cdeea99c3ffd31af5e78/thunder/benchmarks/benchmark_inference.py
 """
 
 # fmt: off

@@ -11,6 +11,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # NOTE: `pytorch_nvfp4_quantize` and `linear_to_swizzled_128_4` are copied from NVIDIA's Fuser's test code.
+#
+# Pulled from the lightning-thunder repo. Reference:
+# https://github.com/Lightning-AI/lightning-thunder/blob/4d3a3c3a7481efdc6a23cdeea99c3ffd31af5e78/thunder/benchmarks/layers_for_inference_benchmark.py
 
 # fmt: off
 
