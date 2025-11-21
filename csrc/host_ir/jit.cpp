@@ -1332,7 +1332,10 @@ void HostIrJitImpl::registerExternalFunctions() {
           sprof.startKernel();
         }
 
-        if (executor_entry == nullptr) {
+        auto stream = at::cuda::getCurrentCUDAStream();
+
+        // What *should* be calculated at compile time...
+        if (!launch_context->config_initialized) {
           // Prepare input/output arguments
           KernelArgumentHolder input_args, output_args;
           input_args.setCacheId(cache_id);
@@ -1378,43 +1381,35 @@ void HostIrJitImpl::registerExternalFunctions() {
           if (first_init) {
             ke.computeArgs(*executor_entry, input_args);
           }
+
+          LaunchParams launch_params = executor_entry->launch_params;
+          // First time or after recompilation - build full config
+          launch_context->cached_config.gridDimX = launch_params.gdimx();
+          launch_context->cached_config.gridDimY = launch_params.gdimy();
+          launch_context->cached_config.gridDimZ = launch_params.gdimz();
+          launch_context->cached_config.blockDimX = launch_params.bdimx();
+          launch_context->cached_config.blockDimY = launch_params.bdimy();
+          launch_context->cached_config.blockDimZ = launch_params.bdimz();
+          launch_context->cached_config.sharedMemBytes = launch_params.smem();
+          launch_context->cached_config.hStream = stream;
+          launch_context->cached_config.attrs = nullptr;
+          launch_context->cached_config.numAttrs = 0;
+          launch_context->last_stream = stream;
+          launch_context->config_initialized = true;
+        } else if (stream != launch_context->last_stream) {
+          // Stream changed - only update stream field
+          launch_context->cached_config.hStream = stream;
+          launch_context->last_stream = stream;
         }
 
         // Launch the kernel
         {
-          FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
-
-          auto stream = at::cuda::getCurrentCUDAStream();
-          // Build or update cached launch configuration
-          if (!launch_context->config_initialized) {
-            LaunchParams launch_params = executor_entry->launch_params;
-            // First time or after recompilation - build full config
-            launch_context->cached_config.gridDimX = launch_params.gdimx();
-            launch_context->cached_config.gridDimY = launch_params.gdimy();
-            launch_context->cached_config.gridDimZ = launch_params.gdimz();
-            launch_context->cached_config.blockDimX = launch_params.bdimx();
-            launch_context->cached_config.blockDimY = launch_params.bdimy();
-            launch_context->cached_config.blockDimZ = launch_params.bdimz();
-            launch_context->cached_config.sharedMemBytes = launch_params.smem();
-            launch_context->cached_config.hStream = stream;
-            launch_context->cached_config.attrs = nullptr;
-            launch_context->cached_config.numAttrs = 0;
-            launch_context->last_stream = stream;
-            launch_context->config_initialized = true;
-          } else if (stream != launch_context->last_stream) {
-            // Stream changed - only update stream field
-            launch_context->cached_config.hStream = stream;
-            launch_context->last_stream = stream;
-          }
-
-          {
-            FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
-            NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-                &launch_context->cached_config,
-                launch_context->kernel_function,
-                executor_entry->arg_ptrs.data(),
-                nullptr));
-          }
+          FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &launch_context->cached_config,
+              launch_context->kernel_function,
+              executor_entry->arg_ptrs.data(),
+              nullptr));
         }
 
         // Profiling cleanup
