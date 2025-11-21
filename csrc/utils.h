@@ -49,9 +49,9 @@ constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 //! TMA hardware limit: maximum elements per dimension in a TMA box
 constexpr int64_t kMaxElementsPerTmaBoxDim = 256;
 
-//! For dense tiles, box is tile, in pointwise scheduler, we always use dense
-//! tiles. To avoid confusion, we will always use tma tile in pointwise
-//! scheduler.
+//! In general TMA terminology, "box" is the dense rectangular region loaded,
+//! while "tile" is a potentially strided subset. The pointwise scheduler uses
+//! dense tiles (tile = box), so we use "tile" terminology for consistency.
 constexpr int64_t kMaxElementsPerTmaTileDim = kMaxElementsPerTmaBoxDim;
 
 //! shared memory alignment in bytes
