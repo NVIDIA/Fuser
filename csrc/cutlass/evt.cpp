@@ -61,26 +61,59 @@ class EVTConverter : OptInDispatch {
     return model_;
   }
 
-  //! We pass both inputs and output tensors to the launcher code via a vector
-  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
-  //! this function returns something like
+  //! We pass both inputs and output tensors to the launcher code via an Inputs
+  //! struct. Given a TV, this function returns something like
   //!
-  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
+  //!   args.alpha
   //!
   std::string getPointerCode(TensorView* tv) {
-    int64_t index = -1;
-    if (tv->isFusionInput()) {
-      index = fusionInputPosition(fusion_, tv);
-    } else if (tv->isFusionOutput()) {
-      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
+    // Map the TensorView to the corresponding field name in the Inputs struct
+    std::string field_name;
+
+    // Check if this is one of the special tensors that have named fields
+    if (tv == alpha_) {
+      field_name = "alpha";
+    } else if (tv == beta_) {
+      field_name = "beta";
+    } else if (tv == bias_) {
+      field_name = "bias";
     } else {
-      NVF_CUTLASS_REJECT(
-          "Cannot get pointer for TV ",
-          tv->toString(),
-          " which is not a fusion input or output");
+      // Check if this is a block scaled output tensor
+      bool found = false;
+      for (const auto& [unquantized_output, pattern] :
+           block_scaling_patterns_) {
+        if (tv == pattern.block_scale_factors) {
+          field_name = "block_scale_factors";
+          found = true;
+          break;
+        } else if (tv == pattern.global_scale_factor) {
+          field_name = "global_scale_factor";
+          found = true;
+          break;
+        }
+      }
+
+      if (!found) {
+        // For other tensors, we need to generate the generic inputs.at(...)
+        // access This shouldn't happen in the EVT context, but we keep it for
+        // safety
+        int64_t index = -1;
+        if (tv->isFusionInput()) {
+          index = fusionInputPosition(fusion_, tv);
+        } else if (tv->isFusionOutput()) {
+          index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
+        } else {
+          NVF_CUTLASS_REJECT(
+              "Cannot get pointer for TV ",
+              tv->toString(),
+              " which is not a fusion input or output");
+        }
+        return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
+            std::to_string(index) + ").data_ptr)";
+      }
     }
-    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-        std::to_string(index) + ").data_ptr)";
+
+    return "args." + field_name;
   }
 
   void findMma() {
