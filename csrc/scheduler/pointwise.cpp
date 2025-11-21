@@ -351,6 +351,15 @@ bool mayHaveTmaCompatibleInputs(
     const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
     if (elem_count % min_inner_tma_domain_size != 0 ||
         elem_count == min_inner_tma_domain_size) {
+      scheduler_debug_utils::log(
+          "[Pointwise scheduler] input not suitable for TMA: ", tv->toString());
+      scheduler_debug_utils::log(
+          "[Pointwise scheduler] elem_count: ", elem_count);
+      scheduler_debug_utils::log(
+          "[Pointwise scheduler] min_inner_tma_domain_size: ",
+          min_inner_tma_domain_size);
+      scheduler_debug_utils::log(
+          "[Pointwise scheduler] dtype_bits: ", dtype_bits);
       continue;
     }
 
@@ -410,6 +419,8 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   // isOptionEnabled(EnableOption::TmaPointwise); for CI testing, use tma always
   // if possible
   bool use_tma = mayUseTma(prop, runtime_info);
+  scheduler_debug_utils::log("[Pointwise scheduler] mayUseTma: ", use_tma);
+
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(

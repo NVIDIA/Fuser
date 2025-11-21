@@ -3456,6 +3456,7 @@ int64_t getNumElements(
         inferred_val.hasValue(),
         "Error inferring extent of: ",
         logical_id->toString());
+    num_elements *= inferred_val.as<int64_t>();
   }
   return num_elements;
 }

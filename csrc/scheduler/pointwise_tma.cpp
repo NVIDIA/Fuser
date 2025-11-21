@@ -125,6 +125,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t bits_per_element = getInputBitsPerElement(prop, params->break_point);
   // No suitable inputs found, TMA is not applicable
   if (bits_per_element == 0) {
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] no suitable inputs found");
     return nullptr;
   }
   int64_t elements_per_cta = ceilDiv(bits_per_cta, bits_per_element);

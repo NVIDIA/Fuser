@@ -1567,7 +1567,7 @@ TEST_P(TmaPointwiseTest, NoBroadcast) {
   // Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
   reference->flatten();
   int64_t D1 = scheduler_utils::getInnerTmaDomainSize(
-      total_elem_count, 512, dtype_bytes);
+      total_elem_count, 512, dataTypeSizeBit(dtype));
   int64_t D0 = total_elem_count / D1;
   NVF_ERROR(
       total_elem_count % D1 == 0,
