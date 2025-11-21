@@ -340,7 +340,8 @@ bool mayHaveTmaCompatibleInputs(
       continue;
     }
 
-    if (!scheduler_utils::isTvSizeSuitableForTma(tv, runtime_info)) {
+    if (!scheduler_utils::isTvSizeSuitableForTma(
+            tv, runtime_info, /*break_point = */ 0)) {
       continue;
     }
 

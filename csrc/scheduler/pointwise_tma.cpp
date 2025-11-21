@@ -70,17 +70,27 @@ std::vector<int64_t> getTmaCompatibleInputIndices(
     }
     // must be cacheable
     if (scheduler_utils::getCacheableUses(tv).empty()) {
+      scheduler_debug_utils::log(
+          "[Pointwise TMA scheduler] no cacheable uses, tv: ", tv->toString());
       continue;
     }
 
     // must be suitable for TMA based on the number of elements and dtype size
-    if (!scheduler_utils::isTvSizeSuitableForTma(tv, runtime_info)) {
+    if (!scheduler_utils::isTvSizeSuitableForTma(
+            tv, runtime_info, break_point)) {
+      scheduler_debug_utils::log(
+          "[Pointwise TMA scheduler] size not suitable for TMA, tv: ",
+          tv->toString());
       continue;
     }
 
     // must have the same number of logical dimensions as the reference tensor
     // to avoid loading tensors that are smaller than the reference tensor
     if (scheduler_utils::nLogicalDims(tv) != n_valid_dims) {
+      scheduler_debug_utils::log(
+          "[Pointwise TMA scheduler] number of logical dimensions not suitable "
+          "for TMA, tv: ",
+          tv->toString());
       continue;
     }
 
@@ -92,6 +102,8 @@ std::vector<int64_t> getTmaCompatibleInputIndices(
             [](const std::optional<bool>& contiguity) {
               return !contiguity.has_value() || !contiguity.value();
             })) {
+      scheduler_debug_utils::log(
+          "[Pointwise TMA scheduler] not contiguous, tv: ", tv->toString());
       continue;
     }
 
@@ -100,8 +112,14 @@ std::vector<int64_t> getTmaCompatibleInputIndices(
     // To use TMA, this tv must have both lhs and rhs.
     // see PointwiseTest.BroadcastAddInner for example.
     if ((int64_t)tv->getLoopDomain().size() <= break_point) {
+      scheduler_debug_utils::log(
+          "[Pointwise TMA scheduler] break point not suitable for TMA, tv: ",
+          tv->toString());
       continue;
     }
+    tma_compatible_input_indices.push_back(input_idx);
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] suitable for TMA, tv: ", tv->toString());
   }
   return tma_compatible_input_indices;
 }
@@ -119,9 +137,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->cparams.index_type = prop.index_type;
   params->use_tma_load = true;
 
+  auto bp_info = pointwise_utils::getBreakPoint(
+      fusion, prop, data_cache, /*is_tma =*/true);
+  params->break_point = bp_info.break_point;
+
   auto tma_compatible_input_indices = getTmaCompatibleInputIndices(
       fusion, runtime_info, prop.largest_out, params->break_point);
   if (tma_compatible_input_indices.empty()) {
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] no suitable inputs found");
     return nullptr;
   } else {
     params->tma_compatible_input_indices = tma_compatible_input_indices;
@@ -135,6 +159,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   int64_t tma_domain_inner = scheduler_utils::getInnerTmaDomainSize(
       prop.n_elems, target_inner_tma_domain_size, min_dtype_bits);
   if (tma_domain_inner == 1 || prop.n_elems % tma_domain_inner != 0) {
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] tma_domain_inner is not suitable for TMA");
     return nullptr;
   }
   // constexpr int64_t align_bytes = 16;
@@ -145,10 +171,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   const int64_t tma_outer_domain_size = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
-
-  auto bp_info = pointwise_utils::getBreakPoint(
-      fusion, prop, data_cache, /*is_tma =*/true);
-  params->break_point = bp_info.break_point;
 
   // Compute elements_per_cta: Each CTA issues one TMA load operation. We
   // calculate the number of elements per TMA load based on the required bits
@@ -205,6 +227,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n==== Pointwise TMA Scheduler Heuristics ====\n";
     debug() << "Domain sizes:\n";
     debug() << "  n_elems: " << prop.n_elems << "\n";
+    debug() << "  elem_counts: ";
+    for (auto element : prop.elem_counts) {
+      debug() << element << ", ";
+    }
+    debug() << "\n";
     debug() << "  break_point: " << bp_info.break_point << "\n";
     debug() << "  tma_domain_inner: " << tma_domain_inner << "\n";
     debug() << "  tma_outer_domain_size: " << tma_outer_domain_size << "\n";

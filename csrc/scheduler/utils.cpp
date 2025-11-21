@@ -3445,10 +3445,12 @@ int64_t getInnerTmaDomainSize(
   return best_divisible_size;
 }
 
-int64_t getNumElements(
+std::pair<std::vector<int64_t>, int64_t> getNumElements(
     const TensorView* tv,
     SchedulerRuntimeInfo& runtime_info) {
   int64_t num_elements = 1;
+  std::vector<int64_t> elem_counts;
+  elem_counts.reserve(tv->getLogicalDomain().size());
   for (auto logical_id : tv->getLogicalDomain()) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(logical_id->extent());
@@ -3456,20 +3458,30 @@ int64_t getNumElements(
         inferred_val.hasValue(),
         "Error inferring extent of: ",
         logical_id->toString());
-    num_elements *= inferred_val.as<int64_t>();
+    auto extent = inferred_val.as<int64_t>();
+    elem_counts.push_back(extent);
+    num_elements *= extent;
   }
-  return num_elements;
+  return {elem_counts, num_elements};
 }
 
 bool isTvSizeSuitableForTma(
     const TensorView* tv,
-    SchedulerRuntimeInfo& runtime_info) {
+    SchedulerRuntimeInfo& runtime_info,
+    int64_t break_point) {
   auto dtype_bits =
       dataTypeSizeBit(tv->getDataType().value(), runtime_info.getIndexType());
-  auto elem_count = getNumElements(tv, runtime_info);
+  auto [elem_counts, total_elem_count] = getNumElements(tv, runtime_info);
+  int64_t inner_elem_count = break_point == 0
+      ? total_elem_count
+      : std::accumulate(
+            elem_counts.begin() + break_point,
+            elem_counts.end(),
+            1,
+            std::multiplies<int64_t>());
   const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
-  if (elem_count % min_inner_tma_domain_size == 0 &&
-      elem_count > min_inner_tma_domain_size) {
+  if (inner_elem_count % min_inner_tma_domain_size == 0 &&
+      inner_elem_count > min_inner_tma_domain_size) {
     return true;
   }
   return false;

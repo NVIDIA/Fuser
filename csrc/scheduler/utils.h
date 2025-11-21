@@ -1007,7 +1007,7 @@ int64_t getInnerTmaDomainSize(
     int64_t min_dtype_bits = 8);
 
 // Get the total number of elements in a given TensorView
-int64_t getNumElements(
+std::pair<std::vector<int64_t>, int64_t> getNumElements(
     const TensorView* tv,
     SchedulerRuntimeInfo& runtime_info);
 
@@ -1019,7 +1019,8 @@ int64_t getNumElements(
 // outer TMA domain is 1, which is not a valid 2D TMA configuration.
 bool isTvSizeSuitableForTma(
     const TensorView* tv,
-    SchedulerRuntimeInfo& runtime_info);
+    SchedulerRuntimeInfo& runtime_info,
+    int64_t break_point);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
