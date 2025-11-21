@@ -163,8 +163,9 @@ jobs:
             core.info(`Found ${checkRuns.check_runs.length} check runs`);
 
             // Check for any failed or error check runs (excluding this workflow itself)
+            // Note: context.job is the job ID, but check names use the job name
             const failedChecks = checkRuns.check_runs.filter(check =>
-              check.name !== context.job && (
+              check.name !== 'Auto-merge PR' && (
                 check.conclusion === 'failure' ||
                 check.conclusion === 'cancelled' ||
                 check.conclusion === 'timed_out' ||
@@ -233,25 +234,27 @@ jobs:
               core.info('✅ PR is mergeable');
             }
 
-            // 5. Check approval status based on mergeable_state and combined status
+            // 5. Check approval status based on mergeable_state
             // mergeable_state values: clean, blocked, unstable, behind, dirty, unknown, draft
-            // - 'blocked': branch protection rules not satisfied (missing approvals, required checks, etc.)
+            // - 'blocked': branch protection rules not satisfied (missing approvals or required checks)
             // - 'clean': all requirements met, ready to merge
-            // - 'unstable': mergeable but some non-required checks failed (we allow this)
+            // - 'unstable'/'behind': mergeable but pending/failed non-required checks
+            // Note: We check approvals separately from check completion status
             if (pr.mergeable_state === 'blocked') {
-              // Explicitly blocked by branch protection
+              // Blocked means branch protection rules aren't satisfied
+              // This could be missing approvals OR required checks not passing
               checks.pr_approved = false;
               checks.pr_approved_reason = 'branch protection rules not satisfied';
               core.info('❌ PR approval: blocked by branch protection');
-            } else if (pr.mergeable_state === 'clean' ||
-                       (pr.mergeable_state === 'unstable' && combinedStatus.state === 'success')) {
-              // Clean state OR unstable with successful required checks
+            } else if (pr.mergeable_state === 'clean' || pr.mergeable_state === 'unstable' || pr.mergeable_state === 'behind') {
+              // These states mean the PR has required approvals (not blocked)
+              // Check completion is validated separately in no_failed_checks
               checks.pr_approved = true;
-              core.info('✅ PR is approved and meets branch protection requirements');
+              core.info('✅ PR is approved');
             } else {
-              // Other states (behind, dirty, unknown, etc.) or failed combined status
+              // Other states (dirty, unknown, draft, etc.)
               checks.pr_approved = false;
-              checks.pr_approved_reason = `mergeable_state: ${pr.mergeable_state}, combined_status: ${combinedStatus.state}`;
+              checks.pr_approved_reason = `mergeable_state: ${pr.mergeable_state}`;
               core.info(`❌ PR approval: ${checks.pr_approved_reason}`);
             }
 
