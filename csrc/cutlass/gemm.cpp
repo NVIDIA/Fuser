@@ -479,15 +479,17 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
     // Scale factors need special handling to match CUTLASS types
     if (pattern_.a_scale != nullptr) {
       int64_t pos = fusionInputPosition(fusion_, pattern_.a_scale);
+      std::string dtype = dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true);
       code_ +=
-          "  result.a_scale = static_cast<cutlass::float_ue4m3_t "
+          "  result.a_scale = static_cast<" + dtype + " "
           "const*>(inputs.at(" +
           std::to_string(pos) + ").data_ptr);\n";
     }
     if (pattern_.b_scale != nullptr) {
       int64_t pos = fusionInputPosition(fusion_, pattern_.b_scale);
+      std::string dtype = dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true);
       code_ +=
-          "  result.b_scale = static_cast<cutlass::float_ue4m3_t "
+          "  result.b_scale = static_cast<" + dtype + " "
           "const*>(inputs.at(" +
           std::to_string(pos) + ").data_ptr);\n";
     }
