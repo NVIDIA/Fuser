@@ -7,6 +7,8 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 
+#include <c10/cuda/CUDAGuard.h>
+
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
@@ -24,8 +26,6 @@
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
-
-#include <c10/cuda/CUDAGuard.h>
 
 namespace nvfuser {
 
