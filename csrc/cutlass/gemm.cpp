@@ -707,11 +707,10 @@ extern "C" void temp_tensor_sizes(
                    fusionInputPosition(fusion_, pattern_.expert_offsets)) +
           ");\n";
       code_ += R"(
-  int64_t num_experts = expert_offsets.sizes[0];
   // All pointer arrays are the same size since they represent an array of
   // base pointers, so they are independent of the dimension of the tensor or
   // the inner dimensions of each group.
-  int64_t ptr_array_bytes = num_experts * sizeof(int64_t);
+  int64_t ptr_array_bytes = inputs.num_experts * sizeof(int64_t);
 )";
       for (auto i : arange(1, num_temp_tensors_)) {
         code_ += "  out_tensor_sizes[" + std::to_string(i) +
@@ -731,51 +730,24 @@ extern "C" void temp_tensor_sizes(
 //
 // This kernel calculates the starting pointers and layout configurations for
 // each expert in a grouped matrix multiplication.
-template <
-    typename ElementAB,
-    typename ElementC,
-    typename ElementSF,
-    typename ElementAccumulator,
-    typename LayoutSFA,
-    typename LayoutSFB,
-    typename ScaleConfig>
-__global__ void get_group_gemm_starts(
-    ElementAB** a_offsets,
-    ElementAB** b_offsets,
-    ElementC** out_offsets,
-    ElementSF** a_scales_offsets,
-    ElementSF** b_scales_offsets,
-    ElementAccumulator** alpha_offsets,
-    LayoutSFA* layout_sfa_base_as_int,
-    LayoutSFB* layout_sfb_base_as_int,
-    ElementAB* a_base_as_int,
-    ElementAB* b_base_as_int,
-    ElementC* out_base_as_int,
-    ElementSF* a_scales_base_as_int,
-    ElementSF* b_scales_base_as_int,
-    ElementAccumulator* alphas_base_as_int,
-    const int32_t* expert_offsets,
-    const int32_t* sf_offsets,
-    const int32_t* problem_sizes_as_shapes,
-    const int K,
-    const int N) {
-  int64_t expert_id = threadIdx.x;
-  if (expert_id >= gridDim.x * blockDim.x) {
+__global__ void get_group_gemm_starts(Inputs inputs) {
+  int64_t expert_id = blockIdx.x * blockDim.x + threadIdx.x;
+  if (expert_id >= inputs.num_experts) {
     return;
   }
   // Upcast from int32_t to int64_t to avoid overflow
   // during offset calculations
-  int64_t expert_offset = static_cast<int64_t>(expert_offsets[expert_id]);
+  int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
   int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
 
   // The block size for nvfp4.
   constexpr int64_t nvfp4_block_size = 16;
 
-  int64_t m = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3]);
-  int64_t n = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3 + 1]);
-  int64_t k = static_cast<int64_t>(problem_sizes_as_shapes[expert_id * 3 + 2]);
+  int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
+  int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
+  int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
   assert(
-      (m >= 0 && n == N && k == K && k % 2 == 0) && "Unexpected problem sizes");
+      (m >= 0 && n == inputs.n && k == inputs.k && k % 2 == 0) && "Unexpected problem sizes");
 
   int64_t half_k = static_cast<int64_t>(k / 2);
   int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
@@ -813,6 +785,10 @@ __global__ void get_group_gemm_starts(
       static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
 }
 
+inline int ceilDiv(int a, int b) {
+  return (a + b - 1) / b;
+}
+
 // Launches the CUDA kernel to compute memory offsets and layout information for
 // grouped GEMM
 //
@@ -820,40 +796,11 @@ __global__ void get_group_gemm_starts(
 // template parameters based on the output data type. It handles the setup and
 // execution of the offset computation kernel for grouped matrix multiplication
 // operations.
-template <typename LayoutSFA, typename LayoutSFB, typename ScaleConfig>
 void run_get_group_gemm_starts(const Inputs& inputs, cudaStream_t stream) {
-  const int num_experts = (int)expert_offsets.size(0);
+  int threads_per_block = 256;
+  int num_blocks = ceilDiv(inputs.num_experts, threads_per_block);
 
-  NVF_CHECK(
-      out_tensors.size(1) == N,
-      "Output tensor shape doesn't match expected shape");
-  NVF_CHECK(
-      K / 2 == b_tensors.size(2),
-      "b_tensors(dim = 2) and a_tensors(dim = 1) trailing"
-      " dimension must match");
-
-  // TODO: handle large number of experts by splitting into multiple CTAs
-
-  get_group_gemm_starts<<<1, num_experts, 0, stream>>>(
-        static_cast<cutlass::float_e2m1_t**>(a_starts.data_ptr()),
-        static_cast<cutlass::float_e2m1_t**>(b_starts.data_ptr()),
-        static_cast<cutlass::half_t**>(out_starts.data_ptr()),
-        static_cast<cutlass::float_ue4m3_t**>(a_scales_starts.data_ptr()),
-        static_cast<cutlass::float_ue4m3_t**>(b_scales_starts.data_ptr()),
-        static_cast<float**>(alpha_starts.data_ptr()),
-        reinterpret_cast<LayoutSFA*>(layout_sfa.data_ptr()),
-        reinterpret_cast<LayoutSFB*>(layout_sfb.data_ptr()),
-        static_cast<cutlass::float_e2m1_t*>(a_tensors.data_ptr()),
-        static_cast<cutlass::float_e2m1_t*>(b_tensors.data_ptr()),
-        static_cast<cutlass::half_t*>(out_tensors.data_ptr()),
-        static_cast<cutlass::float_ue4m3_t*>(a_scales.data_ptr()),
-        static_cast<cutlass::float_ue4m3_t*>(b_scales.data_ptr()),
-        static_cast<float*>(alphas.data_ptr()),
-        static_cast<int32_t*>(expert_offsets.data_ptr()),
-        static_cast<int32_t*>(sf_offsets.data_ptr()),
-        static_cast<int32_t*>(problem_sizes.data_ptr()),
-        K,
-        N);
+  get_group_gemm_starts<<<num_blocks, threads_per_block, 0, stream>>>(inputs);
 }
 )";
   }
@@ -904,6 +851,13 @@ void init_temp_tensors(const Inputs& inputs,
   // We require one temp tensor for the CUTLASS workspace. For grouped gemm, we
   // also need a temp tensor for each pointer array
   int64_t num_temp_tensors_ = -1;
+
+  struct TempTensorDescriptor {
+    int index;
+    TensorView* tv;
+    // This is the name of the attribute in the generated Inputs struct
+    std::string name;
+  };
 
   // Map from TensorView to position of temp tensors. Currently this is only
   // used to map each input and output to a temporary pointer array in grouped
