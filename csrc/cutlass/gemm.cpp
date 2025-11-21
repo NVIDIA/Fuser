@@ -162,26 +162,45 @@ class CutlassCodeGenerator {
       main_output_ = block_scaled_outputs_.front().quantized_output;
     }
 
-    // There is always a workspace tensor, even though it might be empty
-    num_temp_tensors_ = 1;
+    temp_tensors_.emplace_back(0, /*tv=*/nullptr, "cutlass_workspace");
 
     // Build a map from tensors to pointer arrays
     if (pattern_.is_grouped) {
       // There are always going to be pointer arrays for A, B, A_sf, B_sf. There
       // is also one for each output and one for each _epilogue_ input.
-      auto register_temp_tensor = [&](TensorView* tv) {
+      auto register_temp_tensor = [&](TensorView* tv, std::string name) {
+        if (tv == nullptr) {
+          return;
+        }
+
+        temp_tensors_.emplace_back((int)std::ssize(temp_tensors_), tv, name);
         temp_tensor_map_.emplace(tv, num_temp_tensors_++);
       };
-      for (Val* inp : fusion_->inputs()) {
-        if (auto* tv = dynamic_cast<TensorView*>(inp); tv &&
-            inp != pattern_.problem_sizes && inp != pattern_.expert_offsets &&
-            inp != pattern_.scale_factor_offsets && tv->nDims() > 0) {
-          register_temp_tensor(tv);
-        }
+      register_temp_tensor(pattern_.a, "a");
+      register_temp_tensor(pattern_.b, "b");
+      register_temp_tensor(pattern_.a_scale, "a_scale");
+      register_temp_tensor(pattern_.b_scale, "b_scale");
+      register_temp_tensor(pattern_.alpha, "alpha");
+      register_temp_tensor(pattern_.beta, "beta");
+      register_temp_tensor(pattern_.bias, "bias");
+
+      for (const auto& [i, bs_output] : enumerate(block_scaled_outputs_)) {
+        std::string number =
+            block_scaled_outputs_.size() > 1 ? std::to_string(i) : "";
+        register_temp_tensor(
+            bs_output.quantized_output, "quantized_output" + number);
+        register_temp_tensor(
+            bs_output.block_scale_factors, "block_scale_factors" + number);
+        register_temp_tensor(
+            bs_output.global_scale_factor, "global_scale_factor" + number);
       }
+
+      int64_t cur_output = 0;
       for (Val* outp : fusion_->outputs()) {
         if (auto* tv = dynamic_cast<TensorView*>(outp)) {
-          register_temp_tensor(tv);
+          if (temp_tensor_map_.find(tv) == temp_tensor_map_.end()) {
+            register_temp_tensor(tv, "output" + std::to_string(cur_output++));
+          }
         }
       }
     }
@@ -712,7 +731,7 @@ extern "C" void temp_tensor_sizes(
   // the inner dimensions of each group.
   int64_t ptr_array_bytes = inputs.num_experts * sizeof(int64_t);
 )";
-      for (auto i : arange(1, num_temp_tensors_)) {
+      for (auto i : arange(1, temp_tensors_.size())) {
         code_ += "  out_tensor_sizes[" + std::to_string(i) +
             "] = ptr_array_bytes;\n";
       };
@@ -859,6 +878,7 @@ void init_temp_tensors(const Inputs& inputs,
     std::string name;
   };
 
+  std::vector<TempTensorDescriptor> temp_tensors_;
   // Map from TensorView to position of temp tensors. Currently this is only
   // used to map each input and output to a temporary pointer array in grouped
   // GEMM
