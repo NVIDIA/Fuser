@@ -121,9 +121,9 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // Each CTA has 128 threads, round up to 1024 for divisible by 128 and leave 8
   // for vectorization and unroll.
   constexpr int64_t cta_per_sm = 8;
-  int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
-  int64_t bits_per_cta = bits_per_sm / cta_per_sm;
-  int64_t bits_per_element = getInputBitsPerElement(prop);
+  const int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
+  const int64_t bits_per_cta = bits_per_sm / cta_per_sm;
+  const int64_t bits_per_element = getInputBitsPerElement(prop);
   if (bits_per_element == 0) {
     return nullptr;
   }
