@@ -15,7 +15,9 @@ on:
   check_run:
     types:
       - completed
-  status: {}
+  repository_dispatch:
+    types:
+      - nvfuser-ci-success
 
 jobs:
   auto-merge:
@@ -33,7 +35,7 @@ jobs:
       (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success' && github.event.check_run.pull_requests[0] != null) ||
-      (github.event_name == 'status' && github.event.state == 'success' && github.event.context == 'nvfuser-ci')
+      (github.event_name == 'repository_dispatch' && github.event.action == 'nvfuser-ci-success')
 
     steps:
       - name: Get PR details
@@ -44,13 +46,27 @@ jobs:
             let pr;
             if (context.payload.pull_request) {
               pr = context.payload.pull_request;
+            } else if (context.eventName === 'repository_dispatch') {
+              // For repository_dispatch events, get PR number from client_payload
+              const pr_number = context.payload.client_payload.pr_number;
+              if (!pr_number) {
+                core.info('No PR number in repository_dispatch payload');
+                return { should_skip: true };
+              }
+
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr_number,
+              });
+              pr = data;
             } else {
-              // For status/check_run events, we need to find the PR
+              // For check_run events, we need to find the PR
               const prs = await github.rest.pulls.list({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 state: 'open',
-                head: `${context.repo.owner}:${context.payload.check_run?.head_branch || context.payload.branches?.[0]?.name}`,
+                head: `${context.repo.owner}:${context.payload.check_run?.head_branch}`,
               });
 
               if (prs.data.length === 0) {
