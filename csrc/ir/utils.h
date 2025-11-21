@@ -15,7 +15,9 @@
 
 #include <algorithm>
 #include <iterator>
+#include <ranges>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace nvfuser::MmaOpUtils {
@@ -59,76 +61,44 @@ std::unordered_map<Val*, Val*> replaceValue(
 //! represent a scalar set, or a segment_set.
 bool isSimpleTVSet(Expr* expr);
 
-template <typename FilterType, typename Iterator>
-class FilterIterator {
- public:
-  using iterator_category = std::forward_iterator_tag;
-  using difference_type = std::ptrdiff_t;
-  using value_type = FilterType*;
-  using pointer = value_type*;
-  using reference = value_type&;
+namespace detail {
 
-  FilterIterator(Iterator begin, Iterator end) : current_(begin), end_(end) {
-    advance();
+template <typename FilterType>
+struct IsInstanceOf {
+  constexpr bool operator()(const auto val) const {
+    return dynamic_cast<const FilterType*>(val) != nullptr;
   }
-
-  FilterType* operator*() const {
-    return (*current_)->template as<FilterType>();
-  }
-
-  FilterType* operator->() const {
-    return (*this);
-  }
-
-  FilterIterator& operator++() {
-    ++current_;
-    advance();
-    return *this;
-  }
-
-  FilterIterator operator++(int) {
-    const auto before_increment = *this;
-    ++current_;
-    advance();
-    return before_increment;
-  }
-
-  bool operator==(const FilterIterator& other) const {
-    NVF_ERROR(
-        end_ == other.end_,
-        "Comparing two FilteredViews that originate from different containers");
-    return current_ == other.current_;
-  }
-
-  bool operator!=(const FilterIterator& other) const {
-    return !(*this == other);
-  }
-
- private:
-  void advance() {
-    current_ = std::find_if(current_, end_, [](const auto& val) {
-      return dynamic_cast<const FilterType*>(val) != nullptr;
-    });
-  }
-
- private:
-  Iterator current_;
-  Iterator end_;
 };
 
-// An iterable view to a given container of Val pointers. Only returns
-// Vals of a given Val type.
-// NOTE: Add a non-const iterator if needed.
+template <typename FilterType>
+struct AsInstanceOf {
+  constexpr FilterType* operator()(const auto val) const {
+    return val->template as<FilterType>();
+  }
+};
+
+} // namespace detail
+
 template <typename FilterType, typename InputIt>
 class FilteredView {
+ private:
+  using ViewType =
+      decltype(std::ranges::subrange(std::declval<InputIt>(), std::declval<InputIt>()) | std::views::filter(detail::IsInstanceOf<FilterType>{}) | std::views::transform(detail::AsInstanceOf<FilterType>{}));
+
+  static ViewType makeView(InputIt first, InputIt last) {
+    return std::ranges::subrange(first, last) |
+        std::views::filter(detail::IsInstanceOf<FilterType>{}) |
+        std::views::transform(detail::AsInstanceOf<FilterType>{});
+  }
+
  public:
   using value_type = FilterType*;
-  using const_iterator = FilterIterator<FilterType, InputIt>;
+  using const_iterator = std::ranges::iterator_t<const ViewType>;
 
-  FilteredView(InputIt first, InputIt last) : input_it_(first), last_(last) {}
+  FilteredView(InputIt first, InputIt last) : view_(makeView(first, last)) {}
 
   const_iterator cbegin() const {
-    return const_iterator(input_it_, last_);
+    return view_.begin();
   }
 
   const_iterator begin() const {
@@ -136,7 +106,7 @@ class FilteredView {
   }
 
   const_iterator cend() const {
-    return const_iterator(last_, last_);
+    return view_.end();
   }
 
   const_iterator end() const {
@@ -151,17 +121,12 @@ class FilteredView {
     return std::vector<value_type>(begin(), end());
   }
 
-  size_t size() const {
-    size_t s = 0;
-    for (auto it = cbegin(); it != cend(); ++it) {
-      ++s;
-    }
-    return s;
+  int64_t size() const {
+    return std::ranges::distance(view_);
   }
 
  private:
-  const InputIt input_it_;
-  const InputIt last_;
+  ViewType view_;
 };
 
 template <typename FilterType, typename InputIt>
