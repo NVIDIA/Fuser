@@ -408,9 +408,9 @@ struct Fp4GemmSm100 {
   void genInputMapping() {
     code_ += R"(
 struct Inputs {
-  int64_t m;
-  int64_t n;
-  int64_t k;
+  int m;
+  int n;
+  int k;
 )";
     // Generate typed pointer fields for each tensor
     auto add_field = [&](std::string tv_name, TensorView* tv) {
@@ -445,7 +445,7 @@ struct Inputs {
           1,
           "Currently at most one block scaled output is supported");
       add_field(
-          "main_output_block_scale_factors",
+          "main_output_block_scale_factor",
           block_scaled_outputs_[0].block_scale_factors);
       add_field(
           "main_output_global_scale_factor",
@@ -499,13 +499,14 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
     // Add block scaled output mappings if they exist
     if (!block_scaled_outputs_.empty()) {
       maybe_add_mapping(
-          "block_scale_factors",
+          "main_output_block_scale_factor",
           block_scaled_outputs_[0].block_scale_factors,
           /*is_output=*/true);
+      // The global scale factor is actually a fusion input
       maybe_add_mapping(
-          "global_scale_factor",
+          "main_output_global_scale_factor",
           block_scaled_outputs_[0].global_scale_factor,
-          /*is_output=*/true);
+          /*is_output=*/false);
     }
 
     code_ += R"(
@@ -513,12 +514,12 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
   const TensorArg& a_arg = inputs.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.a));
     code_ += R"();
-  result.m = static_cast<int64_t>(a_arg.sizes[0]);
+  result.m = static_cast<int>(a_arg.sizes[0]);
   const TensorArg& b_arg = inputs.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.b));
     code_ += R"();
-  result.n = static_cast<int64_t>(b_arg.sizes[1]);
-  result.k = static_cast<int64_t>(a_arg.sizes[1]) * 2;
+  result.n = static_cast<int>(b_arg.sizes[1]);
+  result.k = static_cast<int>(a_arg.sizes[1]) * 2;
   return result;
 }
 )";
@@ -552,23 +553,19 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using Sm1xxBlkScaledConfig =
       typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
-  int m = static_cast<int>(args.m);
-  int n = static_cast<int>(args.n);
-  int k = static_cast<int>(args.k);
-
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {m, k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {n, k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {m, n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {m, n, 1});
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {args.m, args.k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {args.n, args.k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {args.m, args.n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {args.m, args.n, 1});
 
   auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
-      cute::make_shape(m, n, k, 1));
+      cute::make_shape(args.m, args.n, args.k, 1));
   auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
-      cute::make_shape(m, n, k, 1));
+      cute::make_shape(args.m, args.n, args.k, 1));
 
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
-      {m, n, k, 1},
+      {args.m, args.n, args.k, 1},
       {// Mainloop arguments
        args.a,
        stride_A,
