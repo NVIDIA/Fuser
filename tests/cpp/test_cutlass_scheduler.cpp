@@ -55,6 +55,10 @@ QuantizedTensorView quantizeTv(
     double block_scale_min,
     double block_scale_max,
     bool clamp_before_casts) {
+  // Upcast to Float first if necessary
+  unquantized = maybeCastOp(
+      promoteType(DataType::Float, unquantized->dtype()), unquantized);
+
   TensorView* reshaped =
       reshape(unquantized, [block_size](auto& x) { x.split(-1, block_size); });
 
@@ -97,6 +101,12 @@ QuantizedTensorView quantizeTv(
 QuantizedTensorView quantizeTvNvfp4(
     TensorView* unquantized,
     TensorView* global_scale_factor = nullptr) {
+  std::cout << "quantizeTvNvfp4\n  unquantized=" << unquantized->toString()
+            << "\n  global_scale_factor="
+            << (global_scale_factor == nullptr
+                    ? "nullptr"
+                    : global_scale_factor->toString())
+            << std::endl;
   // max = (2 – 2^(–M)) * 2^(2^(E-1))  (no nans for fp4)
   constexpr double F4E2M1_MAX = 6.0;
   // eps = 2^(1-M-E)
@@ -293,8 +303,11 @@ std::pair<at::Tensor, at::Tensor> pytorchNvfp4Quantize(
   NVF_ERROR(a.is_contiguous(), "Only contiguous tensors are supported.");
 
   const auto& original_shape = a.sizes();
-  const auto a_fp32 =
-      a.to(at::kFloat).reshape({original_shape[0], -1, BLOCK_SIZE});
+  std::vector<int64_t> new_shape = original_shape.vec();
+  new_shape.back() = original_shape.back() / BLOCK_SIZE;
+  new_shape.push_back(BLOCK_SIZE);
+
+  const auto a_fp32 = a.to(at::kFloat).reshape(new_shape);
 
   // Find absolute maximum along blockwise dimension
   const auto max_abs = a_fp32.abs().amax(/*dim=*/-1);
@@ -357,6 +370,28 @@ at::Tensor unpackFp4Bytes(const at::Tensor& a) {
   const at::Tensor lower_half_float = e2m1ToFp32(lower_half_byte);
   return at::stack({lower_half_float, upper_half_float}, /*dim=*/-1)
       .reshape({m, n * 2});
+}
+
+// apply swizzled on block scaling factor:
+// 1. apply padding to [mn_t * 128 , k_t * 4]
+// 2. apply swizzle
+at::Tensor linearToSwizzled128by4(const at::Tensor& a_sf_linear) {
+  NVF_ERROR_EQ(a_sf_linear.dim(), 2);
+  int64_t mn = a_sf_linear.size(0);
+  int64_t sf_k = a_sf_linear.size(1);
+  int64_t m_tiles = ceilDiv(mn, 128);
+  int64_t mn_padded = m_tiles * 128;
+  int64_t k_tiles = ceilDiv(sf_k, 4);
+  int64_t k_padded = k_tiles * 4;
+  at::Tensor a_sf_padded;
+  if (mn_padded != mn || k_padded != sf_k) {
+    a_sf_padded = at::empty({mn_padded, k_padded}, a_sf_linear.options());
+    a_sf_padded.slice(0, 0, mn).slice(1, 0, sf_k) = a_sf_linear;
+  } else {
+    a_sf_padded = a_sf_linear;
+  }
+  at::Tensor tmp = at::reshape(a_sf_padded, {m_tiles, 4, 32, k_tiles, 4});
+  return tmp.transpose(1, 3).reshape({mn_padded, k_padded});
 }
 
 // Test Cutlass scheduler with simple nvfp4 block-scaled GEMM
@@ -835,6 +870,164 @@ TEST_F(CutlassExecutorTest, Nvfp4Matmul_BiasEpilogue) {
         __LINE__,
         __FILE__);
   }
+}
+
+// Test Grouped GEMM + ReLU with nvfp4 block-scaled inputs and output
+TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
+  // Skip if not on SM100 or above
+  if (at::cuda::getCurrentDeviceProperties()->major < 10 ||
+      at::cuda::getCurrentDeviceProperties()->major > 11) {
+    GTEST_SKIP() << "Skipping test on pre-SM100 GPUs";
+  }
+
+  if (!std::getenv("CUTLASS_PATH")) {
+    GTEST_SKIP() << "The CUTLASS_PATH environment variable must be set in "
+                 << "order to run this test";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Input tensors: nvfp4 block-scaled A and B matrices
+  TensorView* a = makeContigTensor(2, DataType::Float4_e2m1fn);
+  TensorView* b = makeContigTensor(3, DataType::Float4_e2m1fn);
+  // B has K inner and is of logical shape [E, K, N]
+  b->setAllocationDomain(
+      {b->axis(0), b->axis(2), b->axis(1)}, /*new_contiguity=*/true);
+  TensorView* a_sf = makeContigTensor(2, DataType::Float8_e4m3fn);
+  TensorView* b_sf = makeContigTensor(3, DataType::Float8_e4m3fn);
+  TensorView* alpha = makeContigTensor(1, DataType::Float);
+  TensorView* problem_sizes = makeContigTensor(2, DataType::Int32);
+  TensorView* expert_offsets = makeContigTensor(1, DataType::Int32);
+  TensorView* sf_offsets = makeContigTensor(1, DataType::Int32);
+
+  TensorView* global_normconst = makeContigTensor(0, DataType::Float);
+
+  fusion->addInput(a);
+  fusion->addInput(b);
+  fusion->addInput(a_sf);
+  fusion->addInput(b_sf);
+  fusion->addInput(alpha);
+  fusion->addInput(problem_sizes);
+  fusion->addInput(expert_offsets);
+  fusion->addInput(sf_offsets);
+  fusion->addInput(global_normconst);
+
+  // Perform block-scaled matmul
+  TensorView* gmmtv = cutlass_nvfp4_grouped_mm(
+      a,
+      b,
+      a_sf,
+      b_sf,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets,
+      /*dtype=*/DataType::BFloat16);
+
+  TensorView* unquantized_output = relu(gmmtv);
+
+  const QuantizedTensorView qtv =
+      quantizeTvNvfp4(unquantized_output, global_normconst);
+
+  fusion->addOutput(qtv.block_scale);
+  fusion->addOutput(qtv.elts);
+
+  EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
+                  ->canScheduleCompileTime(fusion.get()));
+
+  const std::vector<int64_t> tokens_per_expert{115, 144, 8, 757};
+
+  const int64_t M = std::accumulate(
+      tokens_per_expert.begin(),
+      tokens_per_expert.end(),
+      0,
+      std::plus<int64_t>());
+  int64_t num_experts = tokens_per_expert.size();
+  constexpr int64_t N = 128, K = 256;
+
+  // Create test data
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  at::Tensor at_offsets = at::empty({num_experts}, options.dtype(at::kInt));
+  at::Tensor at_sf_offsets = at::empty({num_experts}, options.dtype(at::kInt));
+  at::Tensor at_problem_sizes =
+      at::empty({num_experts, 3}, options.dtype(at::kInt));
+  int32_t accumulated_tokens = 0;
+  int32_t rounded_accumulated_tokens = 0;
+
+  std::vector<at::Tensor> as, bs, a_sfs, b_sfs, alphas;
+  as.reserve(num_experts);
+  bs.reserve(num_experts);
+  a_sfs.reserve(num_experts);
+  b_sfs.reserve(num_experts);
+  alphas.reserve(num_experts);
+  for (auto [i, Mi] : enumerate(tokens_per_expert)) {
+    // Record size of this subproblem Mi, N, K
+    at_problem_sizes.index({(int64_t)i, 0}).fill_(Mi);
+    at_problem_sizes.index({(int64_t)i, 1}).fill_(N);
+    at_problem_sizes.index({(int64_t)i, 2}).fill_(K);
+
+    // Generate A and B with for subproblem
+    const QuantizedTensor qa = quantizeNvfp4(at::randn({Mi, K}, options));
+    const QuantizedTensor qb = quantizeNvfp4(at::randn({N, K}, options));
+
+    // For the A operand we need to swizzle and pad the scale factor
+    at::Tensor a_sf = linearToSwizzled128by4(qa.block_scale);
+
+    as.push_back(qa.elts);
+    bs.push_back(qb.elts);
+    a_sfs.push_back(a_sf);
+    b_sfs.push_back(qb.block_scale);
+    alphas.push_back(1.0 / (qa.global_scale * qb.global_scale));
+
+    at_offsets[i] = accumulated_tokens;
+    at_sf_offsets[i] = rounded_accumulated_tokens;
+
+    accumulated_tokens += Mi;
+    rounded_accumulated_tokens += roundUpToMultiple(Mi, 128);
+  }
+
+  at::Tensor at_a = at::concatenate(as, /*dim=*/0);
+  at::Tensor at_b = at::stack(bs, /*dim=*/0).permute({0, 2, 1});
+  at::Tensor at_a_sf = at::concatenate(a_sfs, /*dim=*/0);
+  at::Tensor at_b_sf = at::stack(b_sfs, /*dim=*/0);
+  at::Tensor at_alpha = at::stack(alphas, /*dim=*/0);
+
+  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
+
+  std::cout << "at_a.sizes()=" << at_a.sizes() << std::endl;
+  std::cout << "at_b.sizes()=" << at_b.sizes() << std::endl;
+  std::cout << "at_a_sf.sizes()=" << at_a_sf.sizes() << std::endl;
+  std::cout << "at_b_sf.sizes()=" << at_b_sf.sizes() << std::endl;
+  std::cout << "at_alpha=" << at_alpha << std::endl;
+  std::cout << "at_problem_sizes=" << at_problem_sizes << std::endl;
+  std::cout << "at_sf_offsets=" << at_sf_offsets << std::endl;
+  std::cout << "at_global_normconst=" << at_global_normconst << std::endl;
+  std::cout << "num_experts=" << num_experts << std::endl;
+  std::cout << "M=" << M << std::endl;
+  std::cout << "N=" << N << std::endl;
+  std::cout << "K=" << K << std::endl;
+
+  std::vector<c10::IValue> inputs{
+      at_a,
+      at_b,
+      at_a_sf,
+      at_b_sf,
+      at_alpha,
+      at_problem_sizes,
+      at_offsets,
+      at_sf_offsets,
+      at_global_normconst};
+
+  // Compile and run
+  CutlassParams params;
+  CutlassExecutor ce;
+  ce.compile(fusion.get(), params);
+
+  KernelArgumentHolder outputs = ce.run(inputs);
+
+  testValidate(fusion.get(), outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
