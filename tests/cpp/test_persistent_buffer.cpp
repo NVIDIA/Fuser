@@ -23,7 +23,14 @@ namespace nvfuser {
 
 using testing::Contains;
 using testing::UnorderedElementsAre;
-using PersistentBufferTest = NVFuserTest;
+
+class PersistentBufferTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
