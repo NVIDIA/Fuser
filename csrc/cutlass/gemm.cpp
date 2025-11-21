@@ -491,7 +491,8 @@ struct Inputs {
     code_ += R"(};
 
 // Map vectors of inputs to an Inputs struct
-Inputs standardize_args(const std::vector<TensorArg>& inputs) {
+Inputs standardize_args(const std::vector<TensorArg>& inputs,
+    uint8_t** temp_tensor_ptrs) {
   Inputs result;
 )";
     auto maybe_add_mapping =
@@ -562,10 +563,12 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
     // In either case, N is b_arg.sizes[1]
     if (pattern_.is_grouped) {
       code_ +=
-          "  NVF_ERROR(b_arg.sizes[2] == a_arg.sizes[1], \"Mismatched K dims\");\n";
+          "  NVF_ERROR(b_arg.sizes[2] == a_arg.sizes[1], \"Mismatched K "
+          "dims\");\n";
     } else {
       code_ +=
-          "  NVF_ERROR(b_arg.sizes[0] == a_arg.sizes[1], \"Mismatched K dims\");\n";
+          "  NVF_ERROR(b_arg.sizes[0] == a_arg.sizes[1], \"Mismatched K "
+          "dims\");\n";
     }
     code_ += R"(
   return result;
@@ -584,7 +587,7 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
 //
 // Returns CUTLASS GEMM arguments structure ready for kernel execution
 typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
-  const Inputs& args) {
+    const Inputs& inputs) {
   using T = Fp4GemmSm100;
 
   using ElementA = typename T::Gemm::ElementA;
@@ -659,7 +662,7 @@ extern "C" void run_kernel(
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
-  Inputs inputs = standardize_args(tensor_args);
+  Inputs inputs = standardize_args(tensor_args, temp_tensor_ptrs);
   auto cutlass_args = cutlass_args_from_inputs(inputs);
 
   auto can_implement_status = gemm.can_implement(cutlass_args);
@@ -667,12 +670,12 @@ extern "C" void run_kernel(
       can_implement_status == cutlass::Status::kSuccess,
       "Failed to implement GEMM");
 
-  init_temp_tensors(inputs, cutlass_args, stream);
+  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
+
+  init_temp_tensors(inputs, workspace_ptr, cutlass_args, stream);
 
   auto status = gemm.initialize(cutlass_args, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
-
-  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
 
   status = gemm.run(cutlass_args, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
@@ -685,10 +688,11 @@ extern "C" void run_kernel(
 // Calling code should pass a pointer to a vector of TensorArgs
 extern "C" void temp_tensor_sizes(
     int64_t* out_tensor_sizes,
-    const std::vector<TensorArg>& inputs,
+    const std::vector<TensorArg>& tensor_args,
     uint8_t** temp_tensor_ptrs) {
-  auto arguments = args_from_inputs(inputs, temp_tensor_ptrs);
-  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(arguments);
+  Inputs inputs = standardize_args(tensor_args, temp_tensor_ptrs);
+  auto cutlass_args = cutlass_args_from_inputs(inputs);
+  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);
 )";
 
     if (pattern_.is_grouped) {
@@ -817,13 +821,8 @@ __global__ void get_group_gemm_starts(
 // execution of the offset computation kernel for grouped matrix multiplication
 // operations.
 template <typename LayoutSFA, typename LayoutSFB, typename ScaleConfig>
-void run_get_group_gemm_starts(uint8_t** temp_tensor_ptrs,
-    const Fp4GemmSm100::Gemm::Arguments& arguments,
-    const std::vector<TensorArg>& inputs,
-    cudaStream_t stream) {
+void run_get_group_gemm_starts(const Inputs& inputs, cudaStream_t stream) {
   const int num_experts = (int)expert_offsets.size(0);
-
-
 
   NVF_CHECK(
       out_tensors.size(1) == N,
@@ -865,9 +864,9 @@ void run_get_group_gemm_starts(uint8_t** temp_tensor_ptrs,
     }
 
     code_ += R"(
-void init_temp_tensors(uint8_t** temp_tensor_ptrs,
-    const Fp4GemmSm100::Gemm::Arguments& arguments,
-    const std::vector<TensorArg>& inputs,
+void init_temp_tensors(const Inputs& inputs,
+    uint8_t* workspace_ptr,
+    const Fp4GemmSm100::Gemm::Arguments& cutlass_args,
     cudaStream_t stream) {
   typename Fp4GemmSm100::Gemm gemm;
 
@@ -876,13 +875,11 @@ void init_temp_tensors(uint8_t** temp_tensor_ptrs,
   // arguments to be built in order to initialize it, I currently left it in
   // run_kernel to avoid needing to call args_from_inputs twice.
 
-  uint8_t* workspace_ptr = temp_tensor_ptrs[0];
-  auto status = gemm.initialize(arguments, workspace_ptr, stream);
+  auto status = gemm.initialize(cutlass_args, workspace_ptr, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 )";
     if (pattern_.is_grouped) {
-      code_ +=
-          "  run_get_group_gemm_starts(temp_tensor_ptrs, inputs, stream);\n";
+      code_ += "  run_get_group_gemm_starts(inputs, stream);\n";
     }
     code_ += "}\n";
   }
