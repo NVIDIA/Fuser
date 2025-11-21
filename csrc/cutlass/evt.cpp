@@ -685,8 +685,8 @@ std::string EVTModel::toString() const {
 
 EVTModel extractEVTModel(
     Fusion* fusion,
-    const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions) {
-  return EVTConverter::convert(fusion, temp_tensor_positions);
+    const std::unordered_map<TensorView*, std::string>& tensor_names) {
+  return EVTConverter::convert(fusion, tensor_names);
 }
 
 } // namespace cutlass_codegen

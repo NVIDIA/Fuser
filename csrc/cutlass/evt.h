@@ -92,7 +92,7 @@ class EVTModel {
 //! those arguments are provided.
 EVTModel extractEVTModel(
     Fusion* fusion,
-    const std::unordered_map<TensorView*, std::string>& temp_tensor_names);
+    const std::unordered_map<TensorView*, std::string>& tensor_names);
 
 } // namespace cutlass_codegen
 

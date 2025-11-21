@@ -880,7 +880,7 @@ void init_temp_tensors(const Inputs& inputs,
   // also need a temp tensor for each pointer array
   int64_t num_temp_tensors_ = -1;
 
-  struct TempTensorDescriptor {
+  struct TensorDescriptor {
     // Position in the temp_tensor_ptrs array
     int index;
 
@@ -890,9 +890,15 @@ void init_temp_tensors(const Inputs& inputs,
 
     // This is the name of the attribute in the generated Inputs struct
     std::string name;
+
+    // Position in the tensor_args array
+    int tensor_args_array_pos = -1;
+
+    // Position in the temp_tensor_ptrs array
+    int temp_tensor_array_pos = -1;
   };
 
-  std::vector<std::unique_ptr<TempTensorDescriptor>> tensors_descriptors_;
+  std::vector<std::unique_ptr<TensorDescriptor>> tensors_descriptors_;
 
   // Map from TensorView to position of input, output, and temp tensors.
   std::unordered_map<TensorView*, std::string> tensor_name_map_;
