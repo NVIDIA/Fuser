@@ -98,7 +98,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // where tma_domain_outer * tma_domain_inner = n_elems
   constexpr int64_t tma_domain_inner_target = 512;
 
-  int64_t tma_domain_inner = scheduler_utils::getTmaDomainInner(
+  const int64_t tma_domain_inner = scheduler_utils::getTmaDomainInner(
       prop.n_elems,
       tma_domain_inner_target,
       prop.min_dtype_size_bit_for_vectorization);
