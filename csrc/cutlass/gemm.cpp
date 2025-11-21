@@ -162,7 +162,8 @@ class CutlassCodeGenerator {
       main_output_ = block_scaled_outputs_.front().quantized_output;
     }
 
-    temp_tensors_.emplace_back(0, /*tv=*/nullptr, "cutlass_workspace");
+    temp_tensors_.emplace_back(std::make_unique<TempTensorDescriptor>(
+        0, /*tv=*/nullptr, "cutlass_workspace"));
 
     // Build a map from tensors to pointer arrays
     if (pattern_.is_grouped) {
@@ -172,9 +173,10 @@ class CutlassCodeGenerator {
         if (tv == nullptr) {
           return;
         }
-
-        temp_tensors_.emplace_back((int)std::ssize(temp_tensors_), tv, name);
-        temp_tensor_map_.emplace(tv, num_temp_tensors_++);
+        int id = std::ssize(temp_tensors_);
+        temp_tensors_.emplace_back(
+            std::make_unique<TempTensorDescriptor>(id, tv, name));
+        temp_tensor_map_.emplace(tv, name);
       };
       register_temp_tensor(pattern_.a, "a");
       register_temp_tensor(pattern_.b, "b");
@@ -205,8 +207,8 @@ class CutlassCodeGenerator {
       }
     }
 
-    evt_model_ =
-        std::make_unique<EVTModel>(extractEVTModel(fusion_, temp_tensor_map_));
+    evt_model_ = std::make_unique<EVTModel>(
+        extractEVTModel(fusion_, temp_tensor_name_map_));
   }
 
   void generateCode() {
@@ -481,6 +483,10 @@ struct Inputs {
             code_ += " const";
           }
           code_ += "* " + tv_name + ";\n";
+
+          // Record the correspondence between this TV and the field so that we
+          // can refer to it in EVT arguments.
+          tensor_name_map_.emplace(tv, tv_name);
         };
 
     add_field("a", pattern_.a);
@@ -872,17 +878,21 @@ void init_temp_tensors(const Inputs& inputs,
   int64_t num_temp_tensors_ = -1;
 
   struct TempTensorDescriptor {
+    // Position in the temp_tensor_ptrs array
     int index;
+
+    // TensorView this temp tensor corresponds to, if it is a temporary pointer
+    // array.
     TensorView* tv;
+
     // This is the name of the attribute in the generated Inputs struct
     std::string name;
   };
 
-  std::vector<TempTensorDescriptor> temp_tensors_;
-  // Map from TensorView to position of temp tensors. Currently this is only
-  // used to map each input and output to a temporary pointer array in grouped
-  // GEMM
-  std::unordered_map<TensorView*, int64_t> temp_tensor_map_;
+  std::vector<std::unique_ptr<TempTensorDescriptor>> temp_tensors_;
+
+  // Map from TensorView to position of input, output, and temp tensors.
+  std::unordered_map<TensorView*, std::string> tensor_name_map_;
 
   std::string code_;
 };

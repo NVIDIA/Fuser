@@ -36,8 +36,8 @@ class EVTConverter : OptOutDispatch {
  public:
   static EVTModel convert(
       Fusion* fusion,
-      const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions) {
-    EVTConverter conv(fusion, temp_tensor_positions);
+      const std::unordered_map<TensorView*, std::string>& tensor_names) {
+    EVTConverter conv(fusion, tensor_names);
     conv.run();
     return std::move(conv.model());
   }
@@ -45,10 +45,10 @@ class EVTConverter : OptOutDispatch {
  private:
   EVTConverter(
       Fusion* fusion,
-      const std::unordered_map<TensorView*, int64_t>& temp_tensor_positions)
+      const std::unordered_map<TensorView*, std::string>& tensor_names)
       : fusion_(fusion),
         pattern_(findCutlassMatmulPattern(fusion)),
-        ptr_array_mapping_(temp_tensor_positions) {
+        tensor_names_(tensor_names) {
     validatePattern();
     NVF_ERROR_EQ(pattern_.mma->outputs().size(), 1);
     mma_out_ = pattern_.mma->output(0)->as<TensorView>();
@@ -454,8 +454,8 @@ class EVTConverter : OptOutDispatch {
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
   std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
 
-  // Maps from a TensorView* to its corresponding pointer array
-  std::unordered_map<TensorView*, int64_t> ptr_array_mapping_;
+  // Maps from a TensorView* to the name of its field in Inputs
+  std::unordered_map<TensorView*, std::string> tensor_names_;
 };
 
 } // namespace
