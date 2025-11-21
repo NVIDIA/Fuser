@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
 """Inference benchmark focusing on throughput and latency metrics of prefill and decode phases.
 
 AutoModelForCausalLM from Hugging Face transformers is used for model implementation.
