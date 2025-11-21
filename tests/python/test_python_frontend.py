@@ -773,6 +773,7 @@ class TestNvFuserFrontend(NVFuserTest):
         for _ in range(1000):
             print(f"Running test_fusion_profiler_with_noncodegen_kernels {_} times...")
             self.test_fusion_profiler_with_noncodegen_kernels()
+            self.test_gather()
 
     def test_take_along_axis(self):
         inputs = [
