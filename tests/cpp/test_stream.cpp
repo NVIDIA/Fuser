@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
