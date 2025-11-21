@@ -33,7 +33,13 @@
 
 namespace nvfuser {
 
-using SerialGridReductionTest = NVFuserTest;
+class SerialGridReductionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(SerialGridReductionTest, Scheduling) {
   for (bool serial : {true, false}) {

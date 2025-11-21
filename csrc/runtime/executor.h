@@ -161,7 +161,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
-    return launch_params_;
+    return last_launch_params_;
   }
 
   static void setGlobalFusionCount(int64_t new_fusion_count) {
@@ -334,7 +334,7 @@ class KernelExecutor : public ExecutorAbstract {
   float kernel_occupancy_ = -1.0f;
 
   // Profiling support: the last launch param used
-  LaunchParams launch_params_;
+  LaunchParams last_launch_params_;
 
   // Lowering hooks that are called after the GpuLower instance is created
   // before running lowering passes.

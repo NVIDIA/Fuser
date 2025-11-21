@@ -21,7 +21,13 @@
 
 namespace nvfuser {
 
-using InliningTest = NVFuserTest;
+class InliningTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(InliningTest, InliningMismatchedDims1) {
   Fusion fusion;

@@ -48,7 +48,8 @@ enum class CompileTimeEntryType {
   CAN_SCHEDULE_TRANSPOSE,
   CAN_SCHEDULE_MUL_SUM_AS_MMA,
   LOGICAL_REORDER_MAP,
-  VECTORIZATION_BREAK_POINT_OF_RED_PROD
+  VECTORIZATION_BREAK_POINT_OF_RED_PROD,
+  HAS_BLOCK_QUANTIZATION_OPS
 };
 
 //! Entry type definition class for `DOMAIN_MAP`,
@@ -140,6 +141,16 @@ class ReductionTVs {
   using DataType = std::vector<TensorView*>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::REDUCTION_TVS;
+};
+
+//! Entry type definition class for `HAS_BLOCK_QUANTIZATION_OPS`,
+//!  stores a boolean flag indicating whether the fusion contains any
+//!  BlockQuantizationOp operations.
+class HasBlockQuantizationOps {
+ public:
+  using DataType = bool;
+  static const CompileTimeEntryType EntryType =
+      CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;
 };
 
 //! Entry type definition class for `PERSISTENT_BUFFER_INFO`,
