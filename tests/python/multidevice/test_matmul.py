@@ -197,10 +197,10 @@ def test_row_parallel_linear_with_bias(multidevice_direct_test):
 def test_linear_reduce_scatter(multidevice_direct_test):
     d = multidevice_direct_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-    e = 768
+    b, s, e = 3, 5, 7
 
     def _definition(fd: FusionDefinition):
-        inp = fd.define_tensor([-1, -1, d * e], dtype=DataType.BFloat16)
+        inp = fd.define_tensor([-1, d * s, d * e], dtype=DataType.BFloat16)
         weight = fd.define_tensor([-1, d * e], dtype=DataType.BFloat16)
         bias = fd.define_tensor([e], dtype=DataType.BFloat16)
         out = fd.ops.linear(inp, weight, bias)
@@ -221,8 +221,7 @@ def test_linear_reduce_scatter(multidevice_direct_test):
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
 
-    b, s = 2, 8
-    unsharded_inp = torch.randint(-2, 3, (b, s, d * e)).to(torch.bfloat16)
+    unsharded_inp = torch.randint(-2, 3, (b, d * s, d * e)).to(torch.bfloat16)
     unsharded_weight = torch.randint(-2, 3, (e, d * e)).to(torch.bfloat16)
     bias = torch.randint(-2, 3, (e,)).to(torch.bfloat16)
     inp = multidevice_direct_test.shard_tensor(unsharded_inp, -1, mesh)
@@ -245,6 +244,8 @@ def test_linear_reduce_scatter(multidevice_direct_test):
             ]
         )
         == 1
+        if d > 1
+        else 0
     )
 
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
