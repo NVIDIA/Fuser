@@ -97,20 +97,12 @@ class FilteredView {
 
   FilteredView(InputIt first, InputIt last) : view_(makeView(first, last)) {}
 
-  const_iterator cbegin() const {
+  const_iterator begin() const {
     return view_.begin();
   }
 
-  const_iterator begin() const {
-    return cbegin();
-  }
-
-  const_iterator cend() const {
-    return view_.end();
-  }
-
   const_iterator end() const {
-    return cend();
+    return view_.end();
   }
 
   bool empty() const {
