@@ -80,4 +80,3 @@ jobs:
             });
 
             core.info(`Triggered auto-merge check for PR #${{ inputs.pr_number }}`);
-
