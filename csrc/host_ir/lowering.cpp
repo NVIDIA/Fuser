@@ -5,16 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <multidevice/allocation_utils.h>
+#include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
 #include <multidevice/utils.h>
+#include <ops/utils.h>
 #include <runtime/executor_abstract.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -262,8 +265,44 @@ void lowerSegment(
                   out,
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
-            auto [i, inserted] = replacement_map.try_emplace(
-                in, hir::shardByStream(in, for_loop->index()));
+            auto shard_by_stream = [&]() -> TensorView* {
+              auto* new_in =
+                  ops::newValLike(in, *in->getDataType())->as<TensorView>();
+              TransformReplay::selfReplay(in->domain(), new_in->domain());
+              shardLoopLike(
+                  out,
+                  new_in,
+                  {ParallelType::Stream},
+                  PropagateDirection::kBackward);
+              shardAllocationAsLoop(new_in, {ParallelType::Stream});
+              // Refine contiguity.
+              std::vector<IterDomain*> out_allocation =
+                  out->getMaybeAllocationDomain();
+              std::vector<std::optional<bool>> out_contiguity =
+                  out->getContiguity();
+              bool next_will_be_noncontiguous = false;
+              for (auto [i, alloc_id] :
+                   enumerate(out_allocation) | std::views::reverse) {
+                std::optional<bool>& contiguity = out_contiguity[i];
+
+                if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
+                  contiguity = std::nullopt;
+                } else if (next_will_be_noncontiguous) {
+                  contiguity = false;
+                  next_will_be_noncontiguous = false;
+                }
+
+                if (alloc_id->isStream()) {
+                  next_will_be_noncontiguous = true;
+                }
+              }
+              out->setContiguity(out_contiguity);
+              IrBuilder::create<hir::ShardByStream>(
+                  new_in, in, for_loop->index());
+              return new_in;
+            };
+            auto [i, inserted] =
+                replacement_map.try_emplace(in, shard_by_stream());
             if (inserted) {
               for_loop->body().push_back(i->second->definition());
             }
