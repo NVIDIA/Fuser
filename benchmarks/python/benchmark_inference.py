@@ -285,7 +285,18 @@ class InferenceBenchmark:
             "*.layers.*.feed_forward.down_proj": RowwiseParallel(use_local_output=True),
         }
 
-        if not self.config.disable_moe_replacement:
+        if self.config.disable_moe_replacement:
+            tp_plan.update(
+                {
+                    # HF MoE
+                    "*.layers.*.feed_forward.shared_expert.gate_proj": ColwiseParallel(use_local_output=False),
+                    "*.layers.*.feed_forward.shared_expert.up_proj": ColwiseParallel(use_local_output=False),
+                    "*.layers.*.feed_forward.shared_expert.down_proj": RowwiseParallel(use_local_output=True),
+                    # TODO:Need to write ParallelStyle for HF's grouped_mm implementation.
+                }
+            )
+
+        else:
             tp_plan.update(
                 {
                     # Custom MoE
@@ -303,17 +314,6 @@ class InferenceBenchmark:
                         use_local_output=False
                     ),
                     "*.layers.*.feed_forward.routed_experts.down_proj": GroupedLinearRowwiseParallel(),
-                }
-            )
-
-        else:
-            tp_plan.update(
-                {
-                    # HF MoE
-                    "*.layers.*.feed_forward.shared_expert.gate_proj": ColwiseParallel(use_local_output=False),
-                    "*.layers.*.feed_forward.shared_expert.up_proj": ColwiseParallel(use_local_output=False),
-                    "*.layers.*.feed_forward.shared_expert.down_proj": RowwiseParallel(use_local_output=True),
-                    # TODO:Need to write ParallelStyle for HF's grouped_mm implementation.
                 }
             )
 
