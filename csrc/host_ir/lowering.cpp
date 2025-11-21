@@ -124,16 +124,21 @@ Expr* cloneWithNewOperands(
     return true;
   };
 
-  int64_t replaced = 0;
-
   std::vector<Val*> new_ins = e->inputs();
-  replaced += std::ranges::count_if(new_ins, maybe_replace);
+  int64_t in_replaced = std::ranges::count_if(new_ins, maybe_replace);
 
   std::vector<Val*> new_outs = e->outputs();
-  replaced += std::ranges::count_if(new_outs, maybe_replace);
+  int64_t out_replaced = std::ranges::count_if(new_outs, maybe_replace);
 
-  if (replaced == 0) {
-    return e;
+  if (in_replaced == 0 && out_replaced == 0) {
+    return 0;
+  }
+
+  if (out_replaced > 0) {
+    if (e->isA<LinearOp>()) {
+      return hir::LinearOut::newObject(
+          e->container(), new_ins, new_outs, e->attributes());
+    }
   }
 
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());

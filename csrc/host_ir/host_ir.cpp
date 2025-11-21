@@ -121,7 +121,7 @@ std::string PostOnStream::toString(int indent_size) const {
 }
 
 std::string PostOnStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Can not be printed inline");
+  NVF_THROW("Can not be printed inline");
 }
 
 // TODO: implement
@@ -159,7 +159,7 @@ std::string LaunchKernel::toString(int indent_size) const {
 }
 
 std::string LaunchKernel::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Can not be printed inline");
+  NVF_THROW("Can not be printed inline");
 }
 
 Deallocate::Deallocate(IrBuilderPasskey passkey, TensorView* tv)
@@ -237,7 +237,7 @@ std::string SetCurrentStream::toString(int indent_size) const {
 
 // TODO: implement better ?
 std::string SetCurrentStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 // TODO: implement
@@ -285,7 +285,7 @@ std::string Wait::toString(int indent_size) const {
 
 // TODO: implement better ?
 std::string Wait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 // TODO: implement
@@ -311,7 +311,7 @@ std::string Synchronize::toString(int indent_size) const {
 }
 
 std::string Synchronize::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 // TODO: implement
@@ -336,7 +336,7 @@ std::string StartCoalescing::toString(int indent_size) const {
 }
 
 std::string StartCoalescing::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
@@ -356,7 +356,7 @@ std::string EndCoalescing::toString(int indent_size) const {
 }
 
 std::string EndCoalescing::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 ShareMemHandles::ShareMemHandles(
@@ -457,7 +457,7 @@ std::string ShardByStream::toString(int indent_size) const {
 }
 
 std::string ShardByStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 TensorView* shardByStream(TensorView* in, Val* stream_index) {
@@ -589,6 +589,48 @@ std::string ForLoop::toInlineString(int indent_size) const {
   auto* index = IrBuilder::create<Val>(DataType::Index);
   return IrBuilder::create<ForLoop>(
       index, iter_domain->start(), iter_domain->stop());
+}
+
+LinearOut::LinearOut(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in,
+    TensorView* weight,
+    TensorView* bias)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+
+  addOutput(out);
+  addInput(in);
+  addInput(weight);
+
+  if (bias != nullptr) {
+    addInput(bias);
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LinearOut)
+
+std::string LinearOut::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "linear_out(" << std::endl;
+  indent(ss, indent_size + 1)
+      << "out=" << out()->toInlineString() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "in=" << in()->toInlineString() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "weight=" << weight()->toInlineString() << "," << std::endl;
+  if (hasBias()) {
+    indent(ss, indent_size + 1)
+        << "bias=" << bias()->toInlineString() << "," << std::endl;
+  }
+  indent(ss, indent_size) << ")";
+  return ss.str();
+}
+
+std::string LinearOut::toInlineString(int indent_size) const {
+  NVF_THROW("Cannot be printed inline");
 }
 
 } // namespace nvfuser::hir
