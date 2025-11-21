@@ -554,7 +554,7 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
     code_ += R"();
   result.m = static_cast<int>(a_arg.sizes[0]);
   result.n = static_cast<int>(b_arg.sizes[1]);
-  result.k = static_cast<int>(a.sizes[1]) * 2;
+  result.k = static_cast<int>(a_arg.sizes[1]) * 2;
 )";
     // A has size [M, K] for grouped or ungrouped GEMM
     // B has size [E, N, K] for grouped GEMM
@@ -562,10 +562,10 @@ Inputs standardize_args(const std::vector<TensorArg>& inputs) {
     // In either case, N is b_arg.sizes[1]
     if (pattern_.is_grouped) {
       code_ +=
-          "  NVF_ERROR(b_arg.sizes[2] == a.sizes[1], \"Mismatched K dims\");\n";
+          "  NVF_ERROR(b_arg.sizes[2] == a_arg.sizes[1], \"Mismatched K dims\");\n";
     } else {
       code_ +=
-          "  NVF_ERROR(b_arg.sizes[0] == a.sizes[1], \"Mismatched K dims\");\n";
+          "  NVF_ERROR(b_arg.sizes[0] == a_arg.sizes[1], \"Mismatched K dims\");\n";
     }
     code_ += R"(
   return result;
