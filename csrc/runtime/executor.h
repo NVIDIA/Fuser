@@ -86,6 +86,24 @@ class GpuLower;
 
 class KernelExecutor : public ExecutorAbstract {
  public:
+  // Creates the initial set of arguments to a kernel, based on the arguments
+  // to we have now.
+  void computeArgs(KernelExecutorEntry& entry, const KernelArgumentHolder& args)
+      const;
+
+  //! TODO: Consider changing this to a constructor of KernelExecutorEntry
+  void initializeExecutorEntry(
+      KernelExecutorEntry& executor_entry,
+      const KernelArgumentHolder& args,
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const KernelArgumentHolder& outputs,
+      DataType index_type);
+
+  // lookup table to take short cut to retrieve recorded information in order to
+  // launch kernels without re-inference parameters.
+  std::unordered_map<size_t, KernelExecutorEntry> executor_entry_lookup_;
+
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
   NVF_API KernelExecutor(
       int64_t fusion_id = 0,
@@ -222,21 +240,7 @@ class KernelExecutor : public ExecutorAbstract {
     return &compile_time_info_cache_;
   }
 
-  //! TODO: Consider changing this to a constructor of KernelExecutorEntry
-  void initializeExecutorEntry(
-      KernelExecutorEntry& executor_entry,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
-      const KernelArgumentHolder& outputs,
-      DataType index_type);
-
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();
-
-  // Creates the initial set of arguments to a kernel, based on the arguments
-  // to we have now.
-  void computeArgs(KernelExecutorEntry& entry, const KernelArgumentHolder& args)
-      const;
 
   KernelArgumentHolder resolveTMA(
       KernelExecutorEntry& entry,
@@ -311,10 +315,6 @@ class KernelExecutor : public ExecutorAbstract {
   // Has a dynamic alias and therefore needs to infer what they are through
   // expression evaluator
   bool has_dynamic_alias_ = false;
-
-  // lookup table to take short cut to retrieve recorded information in order to
-  // launch kernels without re-inference parameters.
-  std::unordered_map<size_t, KernelExecutorEntry> executor_entry_lookup_;
 
   // Compile time information caching. This is used for shape inference
   //  support. The cache stores graph information that are available

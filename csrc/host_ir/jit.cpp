@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -20,11 +21,23 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
+
+#include <driver_api.h>
 
 #include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
+#include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
@@ -62,6 +75,25 @@ constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
+
+// Context struct to cache KernelExecutorEntry and launch config for repeated
+// kernel launches. This is stored in the JIT-compiled code's stack frame and
+// updated after first initialization to enable fast-path execution on
+// subsequent runs within a single invocation (e.g., in loops).
+struct LaunchKernelContext {
+  hir::LaunchKernel* launch_kernel;
+  KernelExecutorEntry* executor_entry;
+
+  // Cached launch configuration to avoid rebuilding CUlaunchConfig each iteration
+  CUlaunchConfig cached_config;
+  bool config_initialized;
+
+  // Track stream to detect changes and invalidate cached config.hStream
+  CUstream last_stream;
+
+  // Cached kernel function pointer
+  CUfunction kernel_function;
+};
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -707,7 +739,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
   // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernel, void* hostIrContainer)
+  // num_outputs, void* launchKernelContext, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
       void_type,
       {int64_type,
@@ -1008,9 +1040,46 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
     llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
 
+    // Create a LaunchKernelContext struct on the stack
+    // This will be initialized on first run and reused on subsequent runs
     llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
         void_ptr_type);
+
+    // Allocate LaunchKernelContext on stack as a raw byte array
+    // This ensures proper alignment and size for the full context struct
+    llvm::Type* i8_type = builder_.getInt8Ty();
+    llvm::ArrayType* context_array_type =
+        llvm::ArrayType::get(i8_type, sizeof(LaunchKernelContext));
+    llvm::Value* launch_context = builder_.CreateAlloca(
+        context_array_type, nullptr, "launch_kernel_context");
+
+    // Zero-initialize the entire context struct
+    llvm::Value* context_ptr = builder_.CreateBitCast(launch_context, void_ptr_type);
+    llvm::Type* size_type = builder_.getInt64Ty();
+    llvm::Value* size_val = builder_.getInt64(sizeof(LaunchKernelContext));
+    llvm::Function* memset_func = module->getFunction("llvm.memset.p0.i64");
+    if (!memset_func) {
+      llvm::Type* memset_params[] = {void_ptr_type, i8_type, size_type, builder_.getInt1Ty()};
+      llvm::FunctionType* memset_type = llvm::FunctionType::get(
+          builder_.getVoidTy(), memset_params, false);
+      memset_func = llvm::Function::Create(
+          memset_type,
+          llvm::Function::ExternalLinkage,
+          "llvm.memset.p0.i64",
+          module);
+    }
+    builder_.CreateCall(
+        memset_func,
+        {context_ptr, builder_.getInt8(0), size_val, builder_.getInt1(false)});
+
+    // Initialize the launch_kernel pointer (first field at offset 0)
+    llvm::Value* launch_kernel_field_ptr = context_ptr;
+    builder_.CreateStore(launch_kernel_ptr, builder_.CreateBitCast(
+        launch_kernel_field_ptr, void_ptr_type->getPointerTo()));
+
+    // Context pointer is already in void* form
+    llvm::Value* launch_context_ptr = context_ptr;
 
     llvm::Value* container_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
@@ -1023,7 +1092,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
-         launch_kernel_ptr,
+         launch_context_ptr,
          container_ptr});
   }
 
@@ -1263,27 +1332,120 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
                                   int64_t num_outputs,
-                                  void* launch_kernel,
+                                  void* launch_context_ptr,
                                   void* container) {
-        auto* launch_kernel_ptr =
-            static_cast<hir::LaunchKernel*>(launch_kernel);
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
+        FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
+        // Cast to LaunchKernelContext struct
+        auto* launch_context = static_cast<LaunchKernelContext*>(launch_context_ptr);
+        auto* launch_kernel_ptr = launch_context->launch_kernel;
+
+        // Check if we have a cached executor entry (fast path)
+        KernelExecutorEntry* executor_entry = launch_context->executor_entry;
+
+        // Profiling setup
+        int64_t group_id = launch_kernel_ptr->groupId();
+
+        if (isProfilerEnabled()) {
+          NVF_CHECK(
+              group_id >= 0,
+              "An invalid segment id is passed to FusionProfiler!:",
+              group_id);
+          SegmentProfiler& sprof = FusionProfiler::segment(group_id);
+          //sprof.inputBytesAccessed(computeBytes(input_args));
+          //sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
+          FusionProfiler::segment(group_id).setDevice(
+                int8_t(0)); // just set 0 for now...
+          //    input_args.getDeviceIndex());
+          sprof.startKernel();
         }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
-        }
-        input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
+
+        auto stream = at::cuda::getCurrentCUDAStream();
+
+        // What *should* be calculated at compile time...
+        if (!launch_context->config_initialized) {
+          // Prepare input/output arguments
+          KernelArgumentHolder input_args, output_args;
+          input_args.setCacheId(cache_id);
+
+          for (int64_t i = 0; i < num_inputs; i++) {
+            input_args.push(*input_tensors[i]);
+          }
+          for (int64_t i = 0; i < num_outputs; i++) {
+            output_args.push(*output_tensors[i]);
+          }
+          input_args.setDeviceIndex();
+
+          // Get KernelExecutor reference
+          auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
+          KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+          CompiledKernel* compiled_kernel_ = ke.compiledKernel().get();
+          const LaunchParams& launch_constraints = launch_kernel_ptr->launchParams();
+          CompileParams compile_params = launch_kernel_ptr->compileParams();
+
+          launch_context->kernel_function = compiled_kernel_->cudaExecutable()->function;
+
+          bool first_init = false;
+          // Slow path: first initialization
+          executor_entry = &ke.executor_entry_lookup_[*input_args.getCacheId()];
+
+          // Initialize the executor entry if not initialized
+          first_init = !executor_entry->init;
+          if (!executor_entry->init) {
+            ke.initializeExecutorEntry(
+                *executor_entry,
                 input_args,
+                launch_constraints,
+                compile_params,
                 output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
+                compiled_kernel_->kernel()->indexType());
+          }
+
+          // Cache the executor_entry pointer for future runs
+          launch_context->executor_entry = executor_entry;
+
+          // Compute kernel arguments
+          input_args.push(output_args);
+          if (first_init) {
+            ke.computeArgs(*executor_entry, input_args);
+          }
+
+          LaunchParams launch_params = executor_entry->launch_params;
+          // First time or after recompilation - build full config
+          launch_context->cached_config.gridDimX = launch_params.gdimx();
+          launch_context->cached_config.gridDimY = launch_params.gdimy();
+          launch_context->cached_config.gridDimZ = launch_params.gdimz();
+          launch_context->cached_config.blockDimX = launch_params.bdimx();
+          launch_context->cached_config.blockDimY = launch_params.bdimy();
+          launch_context->cached_config.blockDimZ = launch_params.bdimz();
+          launch_context->cached_config.sharedMemBytes = launch_params.smem();
+          launch_context->cached_config.hStream = stream;
+          launch_context->cached_config.attrs = nullptr;
+          launch_context->cached_config.numAttrs = 0;
+          launch_context->last_stream = stream;
+          launch_context->config_initialized = true;
+        } else if (stream != launch_context->last_stream) {
+          // Stream changed - only update stream field
+          launch_context->cached_config.hStream = stream;
+          launch_context->last_stream = stream;
+        }
+
+        // Launch the kernel
+        {
+          FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &launch_context->cached_config,
+              launch_context->kernel_function,
+              executor_entry->arg_ptrs.data(),
+              nullptr));
+        }
+
+        // Profiling cleanup
+        if (isProfilerEnabled()) {
+          auto& sprof = FusionProfiler::segment(group_id);
+          sprof.stopKernel();
+          //sprof.outputBytesAccessed(computeBytes(output_args));
+        }
       });
 
   // matmul_out function
