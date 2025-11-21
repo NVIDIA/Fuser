@@ -217,7 +217,7 @@ def test_nv_block_quantization(nvfuser_direct_test, swizzle_scales):
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 @pytest.mark.parametrize("config", [[1024, 1024, 1024]])
-@pytest.mark.parametrize("out_dtype", [torch.float32])
+@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm_new(
     nvfuser_direct_test,
     config,
