@@ -18,7 +18,7 @@ jobs:
       pull-requests: write
 
     # Only run when a PR with the enable-auto-merge label is closed
-    if: github.event_name == 'pull_request' && github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')
+    if: contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')
 
     steps:
       - name: Remove enable-auto-merge label
