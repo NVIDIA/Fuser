@@ -8,6 +8,7 @@ on:
   pull_request:
     types:
       - labeled
+      - closed
   pull_request_review:
     types:
       - submitted
@@ -27,9 +28,9 @@ jobs:
       statuses: read
       checks: read
 
-    # Only run if conditions are met based on event type
+    # Only run if conditions are met based on event type (but NOT on closed events)
     if: |
-      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success' && github.event.check_run.pull_requests[0] != null) ||
       (github.event_name == 'status' && github.event.state == 'success' && github.event.context == 'nvfuser-ci')
@@ -391,6 +392,20 @@ jobs:
               });
 
               core.info(`✅ Successfully merged PR #${pr_number}`);
+
+              // Remove the label after successful merge to prevent stale state
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr_number,
+                  name: 'enable-auto-merge',
+                });
+                core.info('Removed enable-auto-merge label');
+              } catch (labelError) {
+                // Label might already be removed, ignore error
+                core.info(`Could not remove label (may already be removed): ${labelError.message}`);
+              }
             } catch (error) {
               core.setFailed(`Failed to merge PR: ${error.message}`);
 
@@ -406,4 +421,34 @@ jobs:
               } catch (commentError) {
                 core.error(`Failed to post notification comment: ${commentError.message}`);
               }
+            }
+
+  cleanup-label:
+    name: Remove auto-merge label on PR close
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+
+    # Only run when a PR with the enable-auto-merge label is closed
+    if: github.event_name == 'pull_request' && github.event.action == 'closed' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')
+
+    steps:
+      - name: Remove enable-auto-merge label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr_number = context.payload.pull_request.number;
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr_number,
+                name: 'enable-auto-merge',
+              });
+              core.info(`Removed enable-auto-merge label from PR #${pr_number}`);
+            } catch (error) {
+              // Label might have been removed already, log but don't fail
+              core.info(`Could not remove label: ${error.message}`);
             }
