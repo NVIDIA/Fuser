@@ -1546,14 +1546,22 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
 
   TensorView* reference = tv1;
 
-  // Step 1: Create TMA domain by merging all domains into one, then split into
-  // 2 TMA domains. Requirements: all domains must be contiguous and the TMA
-  // domain split must be evenly divisible.
-  // Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
+  // ===== Step 1: Create 2D TMA Domain =====
+  // Merge all logical dimensions into one flat domain, then split into 2D
+  // structure [tma_domain_outer, tma_domain_inner] for TMA operations.
+  // Requirements: Domains must be contiguous and split must be evenly
+  // divisible. Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
+  //   where D0 = tma_domain_outer, D1 = tma_domain_inner
   reference->flatten();
-  int64_t D1 = scheduler_utils::getInnerTmaDomainSize(
-      total_elem_count, 512, dtype_bytes);
+
+  // D1 (tma_domain_inner): Inner dimension size, computed to satisfy TMA
+  // constraints
+  int64_t D1 = scheduler_utils::getTmaDomainInner(
+      total_elem_count, 512, dataTypeSizeBit(dtype));
+
+  // D0 (tma_domain_outer): Outer dimension size (number of "rows")
   int64_t D0 = total_elem_count / D1;
+
   NVF_ERROR(
       total_elem_count % D1 == 0,
       "TMA domain can only be created with divisible split, D1: ",
@@ -1562,16 +1570,26 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
       total_elem_count);
   reference->split(0, D1);
 
-  // Step 2: Define 2D box/tile (using dense tile where box equals tile).
-  // Select an IterDomain in the TMA domain, then split that IterDomain by the
-  // box size for that dimension. Requirement: D1/ti > 1, otherwise to and ti
-  // would be considered as a single box dimension.
+  // ===== Step 2: Create TMA Tiles Within Domain =====
+  // Split the 2D TMA domain into tiles that define the box size loaded by each
+  // TMA operation. Using dense tiles (box ≡ tile).
   // Transformation: [D0, D1] -> [D0/to, to, D1/ti, ti]
+  //   where to = outer tile size, ti = inner tile size
+  //
+  // Constraint: D1/ti > 1 (need at least 2 tiles along inner dimension)
+  // If D1/ti = 1, then [to, ti] would collapse into a single TMA dimension,
+  // breaking the 2D structure.
+
+  // tma_tile_size: Target total elements per tile (to × ti)
   int64_t tma_tile_size = 4096;
+
+  // ti: Inner tile dimension (max 256 by hardware, must be ≤ D1/2 for 2D
+  // structure) to: Outer tile dimension (max 256 by hardware, capped by D0)
   int64_t ti = std::min(256L, std::max(1L, D1 / 2)),
           to = std::min(256L, std::min(tma_tile_size / ti, D0));
-  reference->split(0, to);
-  reference->split(2, ti);
+
+  reference->split(0, to); // Split D0 -> [D0/to, to]
+  reference->split(2, ti); // Split D1 -> [D1/ti, ti]
 
   // Step 3: Propagate TMA transformation to all tensors.
   TransformPropagatorWithCheck propagator(reference);
