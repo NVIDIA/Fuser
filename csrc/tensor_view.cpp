@@ -1286,14 +1286,23 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     // Note:
     //   1. we need to set allocation domain in order to support expr evaluator. e.g. reshape op needed sharding information in order to construct the correct output shape;
     //   2. order of allocation domain also matters, otherwise, vectorized instruction was causing correctness issue. TODO: link the issue.
-    if (conusmer->domain()->hasAllocation()) {
-      std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap logical_map(producer, consumer).mapConsumerToProducer();
+    if (consumer->domain()->hasAllocation()) {
+      std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
       std::vector<IterDomain*> mapped_alloc;
+      std::unordered_set<IterDomain*> mapped_id;
       mapped_alloc.reserve(consumer->getMaybeAllocationDomain().size());
       for (auto* c_id : consumer->getMaybeAllocationDomain()) {
         // TODO: better error message here maybe.
-        mapped_alloc.push_back(logical_map.at(c_id));
+        mapped_alloc.push_back(c2p_map.at(c_id));
+        mapped_id.insert(c2p_map.at(c_id));
       }
+      for (auto* p_id : producer->getLogicalDomain()) {
+        if (mapped_id.count(p_id) == 0) {
+          NVF_ERROR(p_id->isReduction());
+          mapped_alloc.push_back(p_id);
+        }
+      }
+      producer->setAllocationDomain(mapped_alloc, true);
     }
   }
 
