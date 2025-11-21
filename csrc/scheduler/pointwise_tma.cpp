@@ -127,7 +127,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   if (bits_per_element == 0) {
     return nullptr;
   }
-  int64_t elements_per_cta = ceilDiv(bits_per_cta, bits_per_element);
+  const int64_t elements_per_cta = scheduler_utils::roundUpToN(ceilDiv(bits_per_cta, bits_per_element), 1024);
   elements_per_cta = scheduler_utils::roundUpToN(elements_per_cta, 1024);
 
   // ========== Step 3: Compute TMA Tile Dimensions ==========
