@@ -15,8 +15,6 @@
 #include <multidevice/utils.h>
 #include <runtime/executor_abstract.h>
 
-#include <type_traits>
-
 namespace nvfuser {
 
 namespace {
@@ -93,10 +91,6 @@ int numParallelIterDomains(const TensorView* tv) {
 
 template <typename R>
 TensorView* findMostParallelTensorView(const R& range) {
-  using RangeValue = std::remove_reference_t<decltype(*range.begin())>;
-  static_assert(
-      std::is_same_v<RangeValue, TensorView*>,
-      "findMostParallelTensorView expects a range of TensorView*");
   TensorView* reference = nullptr;
   int max_parallel_count = -1;
   for (TensorView* tv : range) {
@@ -127,7 +121,7 @@ const std::vector<IterDomain*>& findMostParallelLoopDomain(
       reference = tv;
     }
   }
-  NVF_ERROR(reference != nullptr);
+  NVF_ERROR(reference != nullptr, "Can't find any TensorView in ", &group);
   return reference->getLoopDomain();
 }
 
