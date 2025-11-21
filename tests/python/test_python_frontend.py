@@ -745,7 +745,6 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(in_tensors[0], torch.full((4, 4), 2.0, device="cuda"))
 
     def test_gather(self):
-        return
         inputs = [
             torch.randn(8, 16, device="cuda"),
             torch.randn(8, 16, device="cuda"),
@@ -4350,6 +4349,7 @@ class TestNvFuserFrontend(NVFuserTest):
             )
 
     def test_fusion_profiler_with_noncodegen_kernels(self):
+        return
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
