@@ -440,10 +440,16 @@ struct Inputs {
 
     // Add block scaled output fields if they exist
     if (!block_scaled_outputs_.empty()) {
+      NVF_ERROR_EQ(
+          block_scaled_outputs_.size(),
+          1,
+          "Currently at most one block scaled output is supported");
       add_field(
-          "block_scale_factors", block_scaled_outputs_[0].block_scale_factors);
+          "main_output_block_scale_factors",
+          block_scaled_outputs_[0].block_scale_factors);
       add_field(
-          "global_scale_factor", block_scaled_outputs_[0].global_scale_factor);
+          "main_output_global_scale_factor",
+          block_scaled_outputs_[0].global_scale_factor);
     }
 
     code_ += R"(

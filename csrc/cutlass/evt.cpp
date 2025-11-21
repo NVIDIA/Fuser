@@ -401,8 +401,8 @@ class EVTConverter : OptInDispatch {
         dtypeToCutlass(pattern.block_scale_factors->dtype()) +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", "args.block_scale_factors"},
-        {"norm_constant_ptr", "args..global_scale_factor"},
+        {"ptr_scale_factor", "args.main_output_block_scale_factor"},
+        {"norm_constant_ptr", "args.main_output_global_scale_factor"},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =
