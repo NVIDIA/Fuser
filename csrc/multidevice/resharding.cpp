@@ -304,9 +304,8 @@ bool haveDifferentShardings(
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
     bool p_mapped = false;
-    std::tie(p_index, p_mapped) =
-        computeLoopIndex(
-            p_id, getDomainOf(producer, DomainType::kLogical), id_to_index);
+    std::tie(p_index, p_mapped) = computeLoopIndex(
+        p_id, getDomainOf(producer, DomainType::kLogical), id_to_index);
     if (!p_mapped) {
       p_index = nullptr;
     }
@@ -314,9 +313,8 @@ bool haveDifferentShardings(
     IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
     Val* c_index = nullptr;
     bool c_mapped = false;
-    std::tie(c_index, c_mapped) =
-        computeLoopIndex(
-            c_id, getDomainOf(consumer, DomainType::kRoot), id_to_index);
+    std::tie(c_index, c_mapped) = computeLoopIndex(
+        c_id, getDomainOf(consumer, DomainType::kRoot), id_to_index);
     if (!c_mapped) {
       c_index = nullptr;
     }
@@ -350,11 +348,7 @@ bool haveDifferentShardings(
     const TensorView* consumer,
     const std::unordered_set<ParallelType>& parallel_types) {
   return haveDifferentShardings(
-      producer,
-      DomainType::kLoop,
-      consumer,
-      DomainType::kLoop,
-      parallel_types);
+      producer, DomainType::kLoop, consumer, DomainType::kLoop, parallel_types);
 }
 
 bool isResharding(const Expr* expr) {
