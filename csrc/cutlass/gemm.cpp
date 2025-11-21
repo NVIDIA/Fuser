@@ -413,26 +413,27 @@ struct Inputs {
   int k;
 )";
     // Generate typed pointer fields for each tensor
-    auto add_field = [&](std::string tv_name, TensorView* tv) {
-      if (tv == nullptr) {
-        return;
-      }
-      std::string dtype = dtypeToCutlass(tv->dtype());
-      // Determine if this is const or mutable based on whether it's an output
-      bool is_output = tv->isFusionOutput();
-      code_ += "  " + dtype;
-      if (!is_output) {
-        code_ += " const";
-      }
-      code_ += "* " + tv_name + ";\n";
-    };
+    auto add_field =
+        [&](std::string tv_name, TensorView* tv, bool force_unsigned = false) {
+          if (tv == nullptr) {
+            return;
+          }
+          std::string dtype = dtypeToCutlass(tv->dtype(), force_unsigned);
+          // Determine if this is const or mutable based on whether it's an
+          // output
+          bool is_output = tv->isFusionOutput();
+          code_ += "  " + dtype;
+          if (!is_output) {
+            code_ += " const";
+          }
+          code_ += "* " + tv_name + ";\n";
+        };
 
     add_field("a", pattern_.a);
     add_field("b", pattern_.b);
-    // Scale factors use special CUTLASS types, hardcoded to match
-    // ElementSFA/ElementSFB
-    code_ += "  cutlass::float_ue4m3_t const* a_scale;\n";
-    code_ += "  cutlass::float_ue4m3_t const* b_scale;\n";
+    // Scale factors need to be unsigned for cutlass
+    add_field("a_scale", pattern_.a_scale, /*force_unsigned=*/true);
+    add_field("b_scale", pattern_.b_scale, /*force_unsigned=*/true);
     add_field("alpha", pattern_.alpha);
     add_field("beta", pattern_.beta);
     add_field("bias", pattern_.bias);
@@ -452,8 +453,7 @@ struct Inputs {
           block_scaled_outputs_[0].global_scale_factor);
     }
 
-    code_ += R"(
-};
+    code_ += R"(};
 
 // Map vectors of inputs to an Inputs struct
 Inputs standardize_args(const std::vector<TensorArg>& inputs) {
