@@ -118,6 +118,9 @@ const std::vector<IterDomain*>& findMostParallelLoopDomain(
   for (Expr* expr : group.exprs()) {
     TensorView* tv = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(expr->outputs()));
+    if (tv == nullptr) {
+      continue;
+    }
     auto parallel_count = numParallelIterDomains(tv);
     if (parallel_count > max_parallel_count) {
       max_parallel_count = parallel_count;
