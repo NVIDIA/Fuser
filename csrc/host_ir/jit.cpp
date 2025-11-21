@@ -135,7 +135,8 @@ llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
   // Create an opaque struct type for at::Tensor
   // This provides better type safety than using void* for tensor pointers
   // while still being compatible with LLVM's type system
-  return llvm::StructType::create(context, kAtTensorType)->getPointerTo();
+  return llvm::PointerType::getUnqual(
+      llvm::StructType::create(context, kAtTensorType));
 }
 
 llvm::ArrayType* getInt64StaticArrayType(
@@ -145,7 +146,7 @@ llvm::ArrayType* getInt64StaticArrayType(
 }
 
 llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
-  return llvm::Type::getInt64Ty(context)->getPointerTo();
+  return llvm::PointerType::getUnqual(llvm::Type::getInt64Ty(context));
 }
 
 // Helper function to insert nvtxRangePush call
@@ -711,9 +712,9 @@ void compileFunctionDeclarations(
   auto* launch_kernel_type = llvm::FunctionType::get(
       void_type,
       {int64_type,
-       tensor_type->getPointerTo(),
+       llvm::PointerType::getUnqual(tensor_type),
        int64_type,
-       tensor_type->getPointerTo(),
+       llvm::PointerType::getUnqual(tensor_type),
        int64_type,
        void_ptr_type,
        void_ptr_type},
