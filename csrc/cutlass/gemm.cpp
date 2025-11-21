@@ -424,15 +424,15 @@ struct Inputs {
       if (!is_output) {
         code_ += " const";
       }
-      code_ += "* " + tv_name + " = nullptr;\n";
+      code_ += "* " + tv_name + ";\n";
     };
 
     add_field("a", pattern_.a);
     add_field("b", pattern_.b);
     // Scale factors use special CUTLASS types, hardcoded to match
     // ElementSFA/ElementSFB
-    code_ += "  cutlass::float_ue4m3_t const* a_scale = nullptr;\n";
-    code_ += "  cutlass::float_ue4m3_t const* b_scale = nullptr;\n";
+    code_ += "  cutlass::float_ue4m3_t const* a_scale;\n";
+    code_ += "  cutlass::float_ue4m3_t const* b_scale;\n";
     add_field("alpha", pattern_.alpha);
     add_field("beta", pattern_.beta);
     add_field("bias", pattern_.bias);
@@ -457,7 +457,7 @@ struct Inputs {
 
 // Map vectors of inputs to an Inputs struct
 Inputs standardize_args(const std::vector<TensorArg>& inputs) {
-  Inputs result = {};
+  Inputs result;
 )";
     auto maybe_add_mapping =
         [&](std::string tv_name, TensorView* tv, bool is_output) {
