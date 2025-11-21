@@ -82,27 +82,29 @@ struct AsInstanceOf {
 template <typename FilterType, typename InputIt>
 class FilteredView {
  private:
-  using ViewType =
-      decltype(std::ranges::subrange(std::declval<InputIt>(), std::declval<InputIt>()) | std::views::filter(detail::IsInstanceOf<FilterType>{}) | std::views::transform(detail::AsInstanceOf<FilterType>{}));
-
-  static ViewType makeView(InputIt first, InputIt last) {
-    return std::ranges::subrange(first, last) |
-        std::views::filter(detail::IsInstanceOf<FilterType>{}) |
-        std::views::transform(detail::AsInstanceOf<FilterType>{});
-  }
+  using BaseViewType = std::ranges::subrange<InputIt>;
+  using FilterPredicate = detail::IsInstanceOf<FilterType>;
+  using TransformOp = detail::AsInstanceOf<FilterType>;
+  using FilterViewType =
+      std::ranges::filter_view<BaseViewType, FilterPredicate>;
+  using TransformViewType =
+      std::ranges::transform_view<FilterViewType, TransformOp>;
 
  public:
   using value_type = FilterType*;
-  using const_iterator = std::ranges::iterator_t<const ViewType>;
+  using const_iterator = std::ranges::iterator_t<const TransformViewType>;
 
-  FilteredView(InputIt first, InputIt last) : view_(makeView(first, last)) {}
+  FilteredView(InputIt first, InputIt last)
+      : view_(
+            FilterViewType(BaseViewType(first, last), FilterPredicate{}),
+            TransformOp{}) {}
 
   const_iterator begin() const {
-    return view_.begin();
+    return std::ranges::begin(view_);
   }
 
   const_iterator end() const {
-    return view_.end();
+    return std::ranges::end(view_);
   }
 
   bool empty() const {
@@ -114,11 +116,11 @@ class FilteredView {
   }
 
   int64_t size() const {
-    return std::ranges::distance(view_);
+    return std::ranges::distance(begin(), end());
   }
 
  private:
-  ViewType view_;
+  mutable TransformViewType view_;
 };
 
 template <typename FilterType, typename InputIt>
@@ -131,7 +133,7 @@ auto filterByType(const ContainerType&& inputs) = delete;
 
 template <typename FilterType, typename ContainerType>
 auto filterByType(const ContainerType& inputs) {
-  return filterByType<FilterType>(inputs.cbegin(), inputs.cend());
+  return filterByType<FilterType>(inputs.begin(), inputs.end());
 }
 
 //! Returns a list of new-to-old mappings.
