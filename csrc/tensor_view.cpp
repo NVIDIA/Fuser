@@ -1281,7 +1281,20 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
     // Note: we are not setting the correct order on allocation domain here.
-    producer->setAllocationDomain(producer->getLoopDomain(), true);
+    // producer->setAllocationDomain(producer->getLoopDomain(), true);
+    // TODO: support transformation on allocation domain.
+    // Note:
+    //   1. we need to set allocation domain in order to support expr evaluator. e.g. reshape op needed sharding information in order to construct the correct output shape;
+    //   2. order of allocation domain also matters, otherwise, vectorized instruction was causing correctness issue. TODO: link the issue.
+    if (conusmer->domain()->hasAllocation()) {
+      std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap logical_map(producer, consumer).mapConsumerToProducer();
+      std::vector<IterDomain*> mapped_alloc;
+      mapped_alloc.reserve(consumer->getMaybeAllocationDomain().size());
+      for (auto* c_id : consumer->getMaybeAllocationDomain()) {
+        // TODO: better error message here maybe.
+        mapped_alloc.push_back(logical_map.at(c_id));
+      }
+    }
   }
 
   return producer;
