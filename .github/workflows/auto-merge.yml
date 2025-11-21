@@ -20,6 +20,7 @@ jobs:
   auto-merge:
     name: Auto-merge PR
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
@@ -98,6 +99,10 @@ jobs:
         with:
           script: |
             const prData = ${{ steps.pr.outputs.result }};
+            if (!prData || prData.should_skip) {
+              core.info('PR data unavailable or should skip');
+              return { ready: false };
+            }
             const pr_number = prData.number;
             const sha = prData.sha;
 
@@ -159,7 +164,7 @@ jobs:
 
             // Check for any failed or error check runs (excluding this workflow itself)
             const failedChecks = checkRuns.check_runs.filter(check =>
-              check.name !== 'Auto-merge PR' && (
+              check.name !== context.job && (
                 check.conclusion === 'failure' ||
                 check.conclusion === 'cancelled' ||
                 check.conclusion === 'timed_out' ||
@@ -193,11 +198,26 @@ jobs:
             core.info(`Combined status state: ${combinedStatus.state}`);
 
             // 4. Check if PR is mergeable (includes branch protection rules like approvals)
-            const { data: pr } = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr_number,
-            });
+            // Note: GitHub computes mergeable status asynchronously, so we may need to refetch
+            // if the initial data was null/undefined. Use cached data if available.
+            let pr;
+            if (prData.mergeable !== null && prData.mergeable !== undefined) {
+              // Use cached PR data to avoid redundant API call
+              pr = {
+                mergeable: prData.mergeable,
+                mergeable_state: prData.mergeable_state,
+              };
+              core.info('Using cached PR mergeable status');
+            } else {
+              // Refetch if mergeable status wasn't computed yet
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr_number,
+              });
+              pr = response.data;
+              core.info('Refetched PR to get mergeable status');
+            }
 
             if (pr.mergeable === false) {
               checks.pr_mergeable = false;
@@ -213,16 +233,26 @@ jobs:
               core.info('✅ PR is mergeable');
             }
 
-            // Check if mergeable_state indicates approval issues
-            // 'blocked' often means branch protection rules (like approvals) aren't satisfied
+            // 5. Check approval status based on mergeable_state and combined status
+            // mergeable_state values: clean, blocked, unstable, behind, dirty, unknown, draft
+            // - 'blocked': branch protection rules not satisfied (missing approvals, required checks, etc.)
+            // - 'clean': all requirements met, ready to merge
+            // - 'unstable': mergeable but some non-required checks failed (we allow this)
             if (pr.mergeable_state === 'blocked') {
+              // Explicitly blocked by branch protection
               checks.pr_approved = false;
               checks.pr_approved_reason = 'branch protection rules not satisfied';
-            } else if (combinedStatus.state === 'success' && checks.pr_mergeable) {
+              core.info('❌ PR approval: blocked by branch protection');
+            } else if (pr.mergeable_state === 'clean' ||
+                       (pr.mergeable_state === 'unstable' && combinedStatus.state === 'success')) {
+              // Clean state OR unstable with successful required checks
               checks.pr_approved = true;
+              core.info('✅ PR is approved and meets branch protection requirements');
             } else {
+              // Other states (behind, dirty, unknown, etc.) or failed combined status
               checks.pr_approved = false;
-              checks.pr_approved_reason = 'requirements not met';
+              checks.pr_approved_reason = `mergeable_state: ${pr.mergeable_state}, combined_status: ${combinedStatus.state}`;
+              core.info(`❌ PR approval: ${checks.pr_approved_reason}`);
             }
 
             // Determine if ready to merge
@@ -243,6 +273,10 @@ jobs:
         with:
           script: |
             const prData = ${{ steps.pr.outputs.result }};
+            if (!prData || prData.should_skip) {
+              core.info('PR data unavailable or should skip');
+              return;
+            }
             const pr_number = prData.number;
 
             // Get check results from previous step
@@ -250,7 +284,7 @@ jobs:
 
             // Build status based on structured check results
             if (!checkResult || !checkResult.checks) {
-              core.error('Check results not available - this should not happen');
+              core.info('Check step was skipped or did not complete - status comment will not be updated');
               return;
             }
 
@@ -337,6 +371,10 @@ jobs:
         with:
           script: |
             const checkResult = ${{ steps.check.outputs.result }};
+            if (!checkResult || !checkResult.pr_number) {
+              core.setFailed('Check results unavailable for merge');
+              return;
+            }
             const pr_number = checkResult.pr_number;
 
             core.info(`All conditions met. Merging PR #${pr_number}`);
@@ -352,4 +390,17 @@ jobs:
               core.info(`✅ Successfully merged PR #${pr_number}`);
             } catch (error) {
               core.setFailed(`Failed to merge PR: ${error.message}`);
+
+              // Notify maintainers about the merge failure
+              try {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr_number,
+                  body: `⚠️ Auto-merge failed. Please review and merge manually. cc @xwang233`,
+                });
+                core.info('Posted merge failure notification comment');
+              } catch (commentError) {
+                core.error(`Failed to post notification comment: ${commentError.message}`);
+              }
             }
