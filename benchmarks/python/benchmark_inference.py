@@ -1,7 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
-
 """Inference benchmark focusing on throughput and latency metrics of prefill and decode phases.
 
 AutoModelForCausalLM from Hugging Face transformers is used for model implementation.
@@ -13,48 +9,48 @@ Key metrics:
 - Time Between Output Tokens (TBOT)
 """
 
+# fmt: off
+
 from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 import argparse
 import json
 import os
 import statistics
-import sys
 import time
 import warnings
+from typing import Any
+from collections.abc import Callable
+from looseversion import LooseVersion
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.distributed_c10d import destroy_process_group
-from torch.distributed.tensor.parallel import (
-    parallelize_module,
-    RowwiseParallel,
-    ColwiseParallel,
-)
+from torch.distributed.tensor.parallel import parallelize_module, RowwiseParallel, ColwiseParallel
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM
-from transformers.models.llama4 import Llama4TextConfig
-from transformers.cache_utils import HybridChunkedCache
+import transformers
+from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.cache_utils import HybridChunkedCache, StaticCache
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
+from torch.distributed.tensor.placement_types import Shard
+from torch.distributed.tensor import DTensor
 
 import thunder
 from thunder.dynamo.compiler import thunderfx
-from thunder.dynamo.report import thunderfx_benchmark_report
-from layers_for_inference_benchmark import (
-    GroupedLinear,
+from thunder.benchmarks.layers_for_inference_benchmark import (
+    GroupedSwiGLU,
     Llama4MoE,
-    NVFP4InferenceGroupedLinear,
-    NVFP4InferenceLinear,
+    NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
-    nvfuser_f16a_nvfp4weight_scaled_mm,
+    FLOAT4_E2M1_MAX,
+    FLOAT8_E4M3_EPS,
+    FLOAT8_E4M3_MAX,
 )
-from thunder.torch.custom_op import _register_custom_op
-
-if TYPE_CHECKING:
-    from typing import Any
+from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
+from thunder.transforms.cudagraph import CUDAGraphTransform
+from thunder.torch.custom_op import _register_custom_op, _register_nvfuser_translator
 
 
 RANK = int(os.environ.get("RANK", 0))
@@ -67,54 +63,77 @@ os.environ["TORCH_NCCL_ASYNC_ERROR_HANDLING"] = "1"
 DEVICE = torch.device("cuda", LOCAL_RANK)
 torch.cuda.set_device(DEVICE)
 
-if WORLD_SIZE > 1:
+if dist.is_torchelastic_launched():
     mesh = init_device_mesh("cuda", (WORLD_SIZE,), mesh_dim_names=("tp",))
+else:
+    mesh = None
 
 LLAMA4_MAVERICK_MODEL_ID: str = "meta-llama/Llama-4-Maverick-17B-128E"
-llama_4_Maverick_17B_128E_cfg_str = r""" {
-  "attention_bias": false,
-  "attention_chunk_size": 8192,
-  "attention_dropout": 0.0,
-  "attn_scale": 0.1,
-  "attn_temperature_tuning": true,
-  "bos_token_id": 200000,
-  "cache_implementation": "hybrid",
-  "eos_token_id": [
-    200001,
-    200007,
-    200008
-  ],
-  "floor_scale": 8192,
-  "for_llm_compressor": false,
-  "head_dim": 128,
-  "hidden_act": "silu",
-  "hidden_size": 5120,
-  "initializer_range": 0.02,
-  "interleave_moe_layer_step": 2,
-  "intermediate_size": 8192,
-  "intermediate_size_mlp": 16384,
-  "max_position_embeddings": 262144,
-  "model_type": "llama4_text",
-  "moe_layers": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47],
-  "no_rope_layers": [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],
-  "num_attention_heads": 40,
-  "num_experts_per_tok": 1,
-  "num_hidden_layers": 48,
-  "num_key_value_heads": 8,
-  "num_local_experts": 128,
-  "output_router_logits": false,
-  "pad_token_id": 200018,
-  "rms_norm_eps": 1e-05,
-  "rope_scaling": null,
-  "rope_theta": 500000.0,
-  "router_aux_loss_coef": 0.001,
-  "router_jitter_noise": 0.0,
-  "torch_dtype": "bfloat16",
-  "use_cache": true,
-  "use_qk_norm": false,
-  "vocab_size": 202048
-}
-"""
+
+
+# TODO: Add mm quantization once nvfuser implements nvfp4 gemm
+# Register nvfp4 custom ops with Thunder and nvFuser
+def _register_nvfp4_ops():
+    """Register nvfp4 custom operations with Thunder."""
+    # Register f16a_nvfp4weight_scaled_grouped_mm with nvfuser translator
+    _nvfp4_grouped_mm_symbol = _register_custom_op(nvfuser_f16a_nvfp4weight_scaled_grouped_mm)
+
+    def nvfp4_grouped_mm_translator(
+        activation,
+        fp4_weight,
+        weight_scaling_factor,
+        global_scale,
+        offsets,
+        blockscale_offsets,
+        problem_sizes,
+        *,
+        fd,
+        lc_to_nv_map,
+    ):
+        from nvfuser_direct import DataType
+        from thunder.executors.nvfuserex_impl import getnv
+
+        nv_act = getnv(activation, fd, lc_to_nv_map)
+        nv_fp4_w = getnv(fp4_weight, fd, lc_to_nv_map)
+        nv_sf_w = getnv(weight_scaling_factor, fd, lc_to_nv_map)
+        nv_alpha = getnv(global_scale, fd, lc_to_nv_map)
+        nv_offsets = getnv(offsets, fd, lc_to_nv_map)
+        nv_blocksf_offsets = getnv(blockscale_offsets, fd, lc_to_nv_map)
+        nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
+        # dynamic shape support has some concretization issue
+        m_size = activation.shape[0]
+        k_size = activation.shape[1]
+        k_tile_size = k_size // 16
+
+        reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
+        scale1 = fd.ops.abs(reshaped_mat1)
+        scale1 = fd.ops.max(scale1, 2)
+        scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
+        scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
+
+        broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
+        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
+        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
+
+        scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
+        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
+        fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+        layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
+        out = fd.ops.cutlass_nvfp4_grouped_mm(
+            fp4_mat1,
+            nv_fp4_w,
+            layout_fp8_scale1,
+            nv_sf_w,
+            nv_alpha,
+            # NOTE: we might need to call contiguous on problem_sizes
+            nv_problem_sizes,
+            nv_offsets,
+            nv_blocksf_offsets,
+            DataType.BFloat16,
+        )
+        return out
+
+    _register_nvfuser_translator(_nvfp4_grouped_mm_symbol, nvfp4_grouped_mm_translator)
 
 
 # The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
@@ -161,16 +180,18 @@ def _replace_llama4_moe(model: nn.Module) -> None:
 
 
 def _quantize_llama4(model: nn.Module) -> None:
-    """Replace linear and moe with nvfp4 inference version."""
+    """Replace linear and/or MoE with nvfp4 inference version.
+
+    Args:
+        model: The model to quantize
+
+    Note: GroupedSwiGLU is always quantized when this function is called.
+    """
+    # Always quantize GroupedSwiGLU when this function is called
     _replace_with_custom_fn_if_matches_filter_with_name(
         model,
-        NVFP4InferenceLinear.from_linear,
-        lambda model, cur_fqn: isinstance(model, nn.Linear),
-    )
-    _replace_with_custom_fn_if_matches_filter_with_name(
-        model,
-        NVFP4InferenceGroupedLinear.from_grouped_linear,
-        lambda model, cur_fqn: isinstance(model, GroupedLinear),
+        NVFP4InferenceGroupedSwiGLU.from_grouped_swiglu,
+        lambda model, cur_fqn: isinstance(model, GroupedSwiGLU),
     )
 
 
@@ -194,12 +215,15 @@ class InferenceBenchmarkConfig:
     num_layers: int | None
     num_iterations: int
     warmup_iterations: int
-    dtensor_single_gpu: bool
-    enable_nvfp4: bool  # Enable NVFP4 quantization
+    enable_nvfp4: bool  # Enable NVFP4 registration and quantize GroupedSwiGLU in MoE
     fx_report_folder: str | None
     enable_nv_linear: bool
     mode: str
     disable_moe_replacement: bool
+    attn_implementation: str | None
+    profile: bool
+    thunder_cache: str | None
+    enable_thunder_cudagraph: bool
 
 
 @dataclass
@@ -234,42 +258,90 @@ class InferenceBenchmark:
         self.config = config
         self.metrics = InferenceMetrics()
 
+        # NOTE: Model resides on meta device
         model = self._load_model()
+        assert all(p.device == torch.device("meta") for p in model.parameters())
+
+        # NOTE: Replacement happens before model is materialized
+        #       otherwise, the memory usage will be increased due to
+        #       additional parameters materialized from the replacement module
+        if not self.config.disable_moe_replacement:
+            _replace_llama4_moe(model)
+        assert all(p.device == torch.device("meta") for p in model.parameters())
 
         tp_plan = {
             "*.layers.*.self_attn.q_proj": ColwiseParallel(use_local_output=True),
             "*.layers.*.self_attn.k_proj": ColwiseParallel(use_local_output=True),
             "*.layers.*.self_attn.v_proj": ColwiseParallel(use_local_output=True),
             "*.layers.*.self_attn.o_proj": RowwiseParallel(use_local_output=True),
-            "*.layers.*.feed_forward.gate_proj": ColwiseParallel(
-                use_local_output=False
-            ),
+            "*.layers.*.feed_forward.gate_proj": ColwiseParallel(use_local_output=False),
             "*.layers.*.feed_forward.up_proj": ColwiseParallel(use_local_output=False),
             "*.layers.*.feed_forward.down_proj": RowwiseParallel(use_local_output=True),
-            "*.layers.*.feed_forward.shared_expert.gate_proj": ColwiseParallel(
-                use_local_output=False
-            ),
-            "*.layers.*.feed_forward.shared_expert.up_proj": ColwiseParallel(
-                use_local_output=False
-            ),
-            "*.layers.*.feed_forward.shared_expert.down_proj": RowwiseParallel(
-                use_local_output=True
-            ),
         }
 
-        if self.config.dtensor_single_gpu or WORLD_SIZE > 1:
+        if not self.config.disable_moe_replacement:
+            tp_plan.update(
+                {
+                    # Custom MoE
+                    "*.layers.*.feed_forward.shared_experts.gate_proj": ColwiseParallel(
+                        use_local_output=False, output_layouts=Shard(2)
+                    ),
+                    "*.layers.*.feed_forward.shared_experts.up_proj": ColwiseParallel(
+                        use_local_output=False, output_layouts=Shard(2)
+                    ),
+                    "*.layers.*.feed_forward.shared_experts.down_proj": RowwiseParallel(),
+                    "*.layers.*.feed_forward.routed_experts.gate_proj": GroupedLinearColwiseParallel(
+                        use_local_output=False
+                    ),
+                    "*.layers.*.feed_forward.routed_experts.up_proj": GroupedLinearColwiseParallel(
+                        use_local_output=False
+                    ),
+                    "*.layers.*.feed_forward.routed_experts.down_proj": GroupedLinearRowwiseParallel(),
+                }
+            )
+
+        else:
+            tp_plan.update(
+                {
+                    # HF MoE
+                    "*.layers.*.feed_forward.shared_expert.gate_proj": ColwiseParallel(use_local_output=False),
+                    "*.layers.*.feed_forward.shared_expert.up_proj": ColwiseParallel(use_local_output=False),
+                    "*.layers.*.feed_forward.shared_expert.down_proj": RowwiseParallel(use_local_output=True),
+                    # TODO:Need to write ParallelStyle for HF's grouped_mm implementation.
+                }
+            )
+
+        if mesh:
             model = parallelize_module(model, mesh, tp_plan)
 
-            # Required as that doesn't understand inference mode
-            for p in model.parameters():
-                p.requires_grad_(False)
+            # Sanity check
+            if not self.config.disable_moe_replacement:
+                assert type(model.model.layers[1].feed_forward.shared_experts.gate_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.shared_experts.up_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.shared_experts.down_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.routed_experts.gate_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.routed_experts.up_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.routed_experts.down_proj.weight) == DTensor
+            else:
+                assert type(model.model.layers[1].feed_forward.shared_expert.gate_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.shared_expert.up_proj.weight) == DTensor
+                assert type(model.model.layers[1].feed_forward.shared_expert.down_proj.weight) == DTensor
+
+        # Materialize the model on the device (after Llama4MoE replacement and sharding)
+        model.to_empty(device=DEVICE)
+        assert all(p.device == DEVICE for p in model.parameters())
+
+        # Required as thunder doesn't understand inference mode
+        # And some prims like `prims._grouped_mm` don't have grad rule defined yet.
+        for p in model.parameters():
+            p.requires_grad_(False)
+
+        assert all(not p.requires_grad for p in model.parameters())
 
         # `thunderfx` seems to hide the access to vocab_size somewhere so
         # store it here before any compiler is applied.
         self.vocab_size = model.vocab_size
 
-        if not self.config.disable_moe_replacement:
-            _replace_llama4_moe(model)
         if self.config.enable_nvfp4:
             _quantize_llama4(model)
         self.model = self._compile_model(model)
@@ -278,13 +350,25 @@ class InferenceBenchmark:
     def _thunder_jit_options(self) -> dict[str, Any]:
         # `nv_enable_linear=True` might fail with distributed run
         # ref: https://github.com/NVIDIA/Fuser/issues/4507
+        res = {"transforms": []}
         if self.config.enable_nv_linear:
-            return {"nv_enable_linear": True, "nv_enable_matmul": True}
-        return {}
+            res["nv_enable_linear"] = True
+            res["nv_enable_matmul"] = True
+        if self.config.mode == "thunderjit":
+            from thunder.recipes.hf_transformers import SDPAMaskTransform
+
+            if not hasattr(self, "_mask_transform"):
+                self._mask_transform = SDPAMaskTransform()
+            res["transforms"].append(self._mask_transform)
+            res["executors"] = [self._mask_transform.get_executor(), *thunder.get_default_executors()]
+        if self.config.enable_thunder_cudagraph:
+            res["transforms"].append(CUDAGraphTransform())
+        if self.config.thunder_cache is not None:
+            res["cache"] = self.config.thunder_cache
+
+        return res
 
     def _compile_model(self, model):
-        if self.config.fx_report_folder is not None:
-            return model
         match self.config.mode:
             case "eager":
                 return model
@@ -300,9 +384,7 @@ class InferenceBenchmark:
     def _load_model(self) -> torch.nn.Module:
         """Load the model based on configuration"""
         model_id = self.config.model_name
-        config = Llama4TextConfig.from_dict(
-            json.loads(llama_4_Maverick_17B_128E_cfg_str)
-        )
+        config = AutoConfig.from_pretrained(model_id)
 
         if hasattr(config, "text_config"):
             config = config.text_config
@@ -311,8 +393,10 @@ class InferenceBenchmark:
 
         self.hf_config = config
 
-        with DEVICE:
-            model = AutoModelForCausalLM.from_config(config, torch_dtype=torch.bfloat16)
+        with torch.device("meta"):
+            model = AutoModelForCausalLM.from_config(
+                config, torch_dtype=torch.bfloat16, attn_implementation=self.config.attn_implementation
+            )
 
         return model
 
@@ -321,36 +405,39 @@ class InferenceBenchmark:
         batch_size = self.config.batch_size
         input_length = self.config.input_length
 
-        input_ids = torch.randint(
-            0, self.vocab_size, (batch_size, input_length), device=DEVICE
-        )
-        past_key_values = HybridChunkedCache(
-            self.hf_config,
-            input_ids.shape[0],
-            input_ids.shape[1] + self.config.output_length,
-        )
-        for layer_idx in range(self.hf_config.num_hidden_layers):
-            # key_states.shape[1] is used to retrieve the number of key value heads, all other dimensions can be 1 and ignored
-            # https://github.com/huggingface/transformers/blob/9300728665aaeb0ebf4db99f9d9fbce916b4a183/src/transformers/cache_utils.py#L1822
-            dummy_key_states = torch.empty(
-                1, self.hf_config.num_key_value_heads // WORLD_SIZE, 1, 1, device=DEVICE
+        input_ids = torch.randint(0, self.vocab_size, (batch_size, input_length), device=DEVICE)
+        if LooseVersion(transformers.__version__) >= LooseVersion("4.55"):
+            # Transformers deprecated HybridChunkedCache in favour of static in 4.55.x
+            past_key_values = StaticCache(
+                config=self.hf_config,
+                max_batch_size=input_ids.shape[0],
+                max_cache_len=input_ids.shape[1] + self.config.output_length,
+                device=DEVICE,
+                dtype=torch.bfloat16,
             )
-            past_key_values.initialise_cache_layer(layer_idx, dummy_key_states)
+        else:
+            past_key_values = HybridChunkedCache(
+                self.hf_config, input_ids.shape[0], input_ids.shape[1] + self.config.output_length
+            )
+            for layer_idx in range(self.hf_config.num_hidden_layers):
+                # key_states.shape[1] is used to retrieve the number of key value heads, all other dimensions can be 1 and ignored
+                # https://github.com/huggingface/transformers/blob/9300728665aaeb0ebf4db99f9d9fbce916b4a183/src/transformers/cache_utils.py#L1822
+                dummy_key_states = torch.empty(1, self.hf_config.num_key_value_heads // WORLD_SIZE, 1, 1, device=DEVICE)
+                past_key_values.initialise_cache_layer(layer_idx, dummy_key_states)
 
         return input_ids, past_key_values
 
     def get_next_token(
-        self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache
+        self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache | StaticCache
     ) -> torch.Tensor:
-        outputs = self.model(input_ids, past_key_values=past_key_values, use_cache=True)
+        with torch.no_grad():
+            outputs = self.model(input_ids, past_key_values=past_key_values, use_cache=True)
         logits = outputs.logits  # [B, seq_len, vocab_size]
         next_token_logits = logits[:, -1, :]
         next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)
         return next_token
 
-    def prefill(
-        self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache
-    ) -> torch.Tensor:
+    def prefill(self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache) -> torch.Tensor:
         """
         Prefill phase: Process the entire input prompt at once.
         Returns the next token.
@@ -359,25 +446,24 @@ class InferenceBenchmark:
         """
         return self.get_next_token(input_ids, past_key_values)
 
-    def decode_one_token(
-        self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache
-    ) -> torch.Tensor:
+    def decode_one_token(self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache) -> torch.Tensor:
         """
         Decode phase: Generate a single token given the current sequence.
         Returns the next token.
         """
         # input_pos: [B, 1] One token at the time
-        assert (
-            input_ids.shape[-1] == 1
-        ), f"Expected shape (B, 1), but found {input_ids.shape}"
+        assert input_ids.shape[-1] == 1, f"Expected shape (B, 1), but found {input_ids.shape}"
         return self.get_next_token(input_ids, past_key_values)
 
-    @torch.inference_mode()
+    # TODO: Running `torchrun --nproc-per-node 2 thunder/benchmarks/benchmark_inference.py --input-length 32 --output-length 32 --mode eager --num-iterations 10`
+    # with inference mode results in
+    # [rank1]:   File "/opt/pytorch/lightning-thunder/thunder/benchmarks/layers_for_inference_benchmark.py", line 358, in grouped_mm
+    # [rank1]:     group_outs.append(group_a @ b[idx])
+    # [rank1]:                                 ~^^^^^
+    # [rank1]: RuntimeError: Cannot set version_counter for inference tensor
+    # @torch.inference_mode()
     def generate(
-        self,
-        input_ids: torch.Tensor,
-        max_new_tokens: int,
-        past_key_values: HybridChunkedCache,
+        self, input_ids: torch.Tensor, max_new_tokens: int, past_key_values: HybridChunkedCache
     ) -> dict[str, Any]:
         """
         Generate tokens using separate prefill and decode phases.
@@ -406,22 +492,15 @@ class InferenceBenchmark:
         }
 
     def measure_inference_step(
-        self,
-        input_ids: torch.Tensor,
-        past_key_values: HybridChunkedCache,
-        max_new_tokens: int,
+        self, input_ids: torch.Tensor, past_key_values: HybridChunkedCache, max_new_tokens: int
     ) -> dict[str, float]:
         """Measure a single inference step with detailed timing using separate prefill/decode"""
         # Generate tokens with separate prefill/decode tracking
         generation_result = self.generate(input_ids, max_new_tokens, past_key_values)
-        total_time = (
-            generation_result["prefill_time_ms"] + generation_result["decode_time_ms"]
-        )
+        total_time = generation_result["prefill_time_ms"] + generation_result["decode_time_ms"]
 
         # Extract metrics
-        ttft = generation_result[
-            "prefill_time_ms"
-        ]  # Time to first token is the prefill time
+        ttft = generation_result["prefill_time_ms"]  # Time to first token is the prefill time
         total_decode_time = generation_result["decode_time_ms"]
         avg_tbot = total_decode_time / (max_new_tokens - 1) if max_new_tokens > 1 else 0
 
@@ -431,14 +510,10 @@ class InferenceBenchmark:
 
         # Calculate separate prefill and decode throughput
         prefill_tokens = self.config.input_length * self.config.batch_size
-        prefill_throughput = (
-            prefill_tokens / generation_result["prefill_time_ms"]
-        ) * 1000
+        prefill_throughput = (prefill_tokens / generation_result["prefill_time_ms"]) * 1000
 
         decode_tokens = (self.config.output_length - 1) * self.config.batch_size
-        decode_throughput = (
-            (decode_tokens / total_decode_time) * 1000 if total_decode_time > 0 else 0
-        )
+        decode_throughput = (decode_tokens / total_decode_time) * 1000 if total_decode_time > 0 else 0
 
         return {
             "ttft": ttft,
@@ -451,25 +526,8 @@ class InferenceBenchmark:
             "total_decode_time": total_decode_time,
         }
 
-    def _run_thunderfx_benchmark_report(self):
-        print(
-            f"Running thunderfx benchmark report for {self.config.model_name} to {self.config.fx_report_folder}"
-        )
-        print(f"Batch size: {self.config.batch_size}")
-        print(f"Input length: {self.config.input_length}")
-        print(f"Output length: {self.config.output_length}")
-        input_ids, past_key_values = self.generate_batch()
-        thunderfx_benchmark_report(
-            self.model,
-            folder_path=self.config.fx_report_folder,
-            compare_fusion=True,
-        )(input_ids, past_key_values)
-
     def run_benchmark(self) -> InferenceMetrics:
         """Run the full benchmark and collect metrics"""
-        if self.config.fx_report_folder is not None:
-            self._run_thunderfx_benchmark_report()
-            return
         print(f"Running inference benchmark for {self.config.model_name}")
 
         print(f"Batch size: {self.config.batch_size}")
@@ -480,20 +538,28 @@ class InferenceBenchmark:
         print(f"\nWarming up with {self.config.warmup_iterations} iterations...")
         input_ids, past_key_values = self.generate_batch()
 
-        for _ in tqdm(range(self.config.warmup_iterations)):
+        for _ in tqdm(range(self.config.warmup_iterations), disable=LOCAL_RANK != 0):
             past_key_values.reset()
-            _ = self.measure_inference_step(
-                input_ids, past_key_values, max_new_tokens=1
-            )
+            # Use output_length to warm up sufficiently. Otherwise, Thunder's
+            # first-run latency is terribly slow due to lack of dynamic shape
+            # support.
+            _ = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
 
         print(f"\nRunning {self.config.num_iterations} benchmark iterations...")
         all_metrics = []
 
-        for _ in tqdm(range(self.config.num_iterations)):
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+
+        for _ in tqdm(range(self.config.num_iterations), disable=LOCAL_RANK != 0):
             past_key_values.reset()
-            iter_metrics = self.measure_inference_step(
-                input_ids, past_key_values, self.config.output_length
-            )
+
+            if self.config.profile:
+                torch.cuda.cudart().cudaProfilerStart()
+            iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
+            if self.config.profile:
+                torch.cuda.cudart().cudaProfilerStop()
+
             all_metrics.append(iter_metrics)
 
             # Track metrics
@@ -507,6 +573,10 @@ class InferenceBenchmark:
         if torch.cuda.is_available():
             self.metrics.memory_used_gb = torch.cuda.memory_allocated() / 1e9
             self.metrics.peak_memory_gb = torch.cuda.max_memory_allocated() / 1e9
+
+        if self.config.fx_report_folder is not None and self.config.mode == "thunder":
+            self.model._backend.save_reproducer_to_folder(self.config.fx_report_folder)
+            return
 
         return self.metrics
 
@@ -526,26 +596,20 @@ class InferenceBenchmark:
         self.metrics.time_to_first_token_ms = statistics.mean(ttfts)
 
         # TBOT
-        self.metrics.time_between_output_tokens_ms = statistics.mean(
-            [m["avg_tbot"] for m in all_metrics]
-        )
+        self.metrics.time_between_output_tokens_ms = statistics.mean([m["avg_tbot"] for m in all_metrics])
 
         # Total time
         self.metrics.total_time_ms = statistics.mean(total_times)
 
         # Prefill metrics
         prefill_throughputs = [m["prefill_throughput"] for m in all_metrics]
-        self.metrics.prefill_throughput_tokens_per_sec = statistics.mean(
-            prefill_throughputs
-        )
+        self.metrics.prefill_throughput_tokens_per_sec = statistics.mean(prefill_throughputs)
         prefill_times = [m["prefill_time"] for m in all_metrics]
         self.metrics.prefill_time_ms = statistics.mean(prefill_times)
 
         # Decode metrics
         decode_throughputs = [m["decode_throughput"] for m in all_metrics]
-        self.metrics.decode_throughput_tokens_per_sec = statistics.mean(
-            decode_throughputs
-        )
+        self.metrics.decode_throughput_tokens_per_sec = statistics.mean(decode_throughputs)
         decode_times = [m["total_decode_time"] for m in all_metrics]
         self.metrics.decode_time_ms = statistics.mean(decode_times)
 
@@ -556,24 +620,14 @@ class InferenceBenchmark:
         print("=" * 60)
 
         print("\nThroughput Metrics:")
-        print(
-            f"  Overall Throughput: {self.metrics.throughput_tokens_per_sec:.2f} tokens/sec"
-        )
-        print(
-            f"  Prefill Throughput: {self.metrics.prefill_throughput_tokens_per_sec:.2f} tokens/sec"
-        )
-        print(
-            f"  Decode Throughput: {self.metrics.decode_throughput_tokens_per_sec:.2f} tokens/sec"
-        )
+        print(f"  Overall Throughput: {self.metrics.throughput_tokens_per_sec:.2f} tokens/sec")
+        print(f"  Prefill Throughput: {self.metrics.prefill_throughput_tokens_per_sec:.2f} tokens/sec")
+        print(f"  Decode Throughput: {self.metrics.decode_throughput_tokens_per_sec:.2f} tokens/sec")
         print(f"  Latency: {self.metrics.latency_ms_per_token:.2f} ms/token")
 
         print("\nLatency Breakdown:")
-        print(
-            f"  Time to First Token (TTFT): {self.metrics.time_to_first_token_ms:.2f} ms"
-        )
-        print(
-            f"  Time Between Output Tokens (TBOT): {self.metrics.time_between_output_tokens_ms:.2f} ms"
-        )
+        print(f"  Time to First Token (TTFT): {self.metrics.time_to_first_token_ms:.2f} ms")
+        print(f"  Time Between Output Tokens (TBOT): {self.metrics.time_between_output_tokens_ms:.2f} ms")
         print(f"  Prefill Time: {self.metrics.prefill_time_ms:.2f} ms")
         print(f"  Decode Time: {self.metrics.decode_time_ms:.2f} ms")
         print(f"  Total Generation Time: {self.metrics.total_time_ms:.2f} ms")
@@ -584,9 +638,7 @@ class InferenceBenchmark:
 
         if len(self.metrics.iteration_times) > 1:
             print("\nVariance Analysis:")
-            print(
-                f"  Throughput Std Dev: {statistics.stdev(self.metrics.iteration_times):.2f} ms"
-            )
+            print(f"  Throughput Std Dev: {statistics.stdev(self.metrics.iteration_times):.2f} ms")
             print(f"  TTFT Std Dev: {statistics.stdev(self.metrics.ttft_times):.2f} ms")
 
     def save_results(self, filename: str):
@@ -620,9 +672,7 @@ class InferenceBenchmark:
         print(f"\nResults saved to {filename}")
 
 
-class CustomFormatter(
-    argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter
-):
+class CustomFormatter(argparse.RawDescriptionHelpFormatter, argparse.ArgumentDefaultsHelpFormatter):
     pass
 
 
@@ -632,11 +682,6 @@ def parse_args() -> argparse.Namespace:
         description="Thunder Inference Benchmark",
         formatter_class=CustomFormatter,
         epilog="""
-Standard Benchmark Scenarios:
-  summarization  - Prefill-Heavy: 4,000 input → 1,000 output tokens
-  chat          - Balanced: 1,000 input → 1,000 output tokens
-  reasoning     - Decode-Heavy: 1,000 input → 4,000 output tokens
-
 Examples:
   python benchmark_inference.py --input-length 2048 --output-length 512 --model-name meta-llama/Llama-4-Maverick-17B-128E --mode eager
         """,
@@ -648,9 +693,7 @@ Examples:
         default=LLAMA4_MAVERICK_MODEL_ID,
         help="Model to benchmark",
     )
-    parser.add_argument(
-        "--batch-size", type=int, default=1, help="Batch size for inference"
-    )
+    parser.add_argument("--batch-size", type=int, default=1, help="Batch size for inference")
     parser.add_argument(
         "--input-length",
         type=int,
@@ -663,12 +706,8 @@ Examples:
         default=128,
         help="Output sequence length",
     )
-    parser.add_argument(
-        "--num-iterations", type=int, default=100, help="Number of benchmark iterations"
-    )
-    parser.add_argument(
-        "--warmup-iterations", type=int, default=10, help="Number of warmup iterations"
-    )
+    parser.add_argument("--num-iterations", type=int, default=100, help="Number of benchmark iterations")
+    parser.add_argument("--warmup-iterations", type=int, default=10, help="Number of warmup iterations")
     parser.add_argument(
         "--num-layers",
         default=2,
@@ -697,14 +736,9 @@ Examples:
     )
 
     parser.add_argument(
-        "--dtensor-single-gpu",
-        action="store_true",
-        help="Use DTensor for single GPU",
-    )
-    parser.add_argument(
         "--enable-nvfp4",
         action="store_true",
-        help="Enable NVFP4 quantization for linear layers",
+        help="Enable NVFP4 quantization for MoE GroupedSwiGLU layers (has nvfuser grouped_mm support)",
     )
     parser.add_argument(
         "--enable-nv-linear",
@@ -712,17 +746,26 @@ Examples:
         help="let nvfuser take care of linear and matmul, note that this might fail with distributed run. See: https://github.com/NVIDIA/Fuser/issues/4507",
     )
     parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Wrap each non-warmup iteration with cudaProfilerStart() and cudaProfilerStop(). This allows us to run `nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<N> ... --profile` to record only the non-warmup iterations.",
+    )
+
+    parser.add_argument(
         "--thunder-trace",
         action="store_true",
         help="Enable debug dump of thunder trace",
     )
-
+    parser.add_argument("--save-results", action="store_true", help="Save results to JSON file")
+    parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save results")
     parser.add_argument(
-        "--save-results", action="store_true", help="Save results to JSON file"
+        "--thunder-cache",
+        type=str,
+        default=None,
+        help="Cache option: no caching, same input, constant values, symbolic values. See `cache` argument of `thunder.jit` for more details.",
     )
-    parser.add_argument(
-        "--output-dir", type=str, default="./results", help="Directory to save results"
-    )
+    parser.add_argument("--enable-thunder-cudagraph", action="store_true", help="Pass CUDAGraphTransform to Thunder")
+    parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation")
 
     args = parser.parse_args()
     return args
@@ -733,17 +776,13 @@ def main():
     if args.save_results:
         os.makedirs(args.output_dir, exist_ok=True)
 
-    # TODO: Override the forward with nvfuser_direct based implementation like
-    # https://github.com/Lightning-AI/lightning-thunder/blob/8b72715d/thunder/tests/test_torch_library_custom_op.py#L250-L266 does.
-    # Note that the linked code is in a draft pull request of https://github.com/Lightning-AI/lightning-thunder/pull/2481
-    # so we might want to do it more clumsily by copying the code in the pull request for now.
+    # Register NVFP4 custom ops with nvfuser translators when enabled
     if args.enable_nvfp4:
-        sym_of_nvfp4_scaled_mm = _register_custom_op(
-            nvfuser_f16a_nvfp4weight_scaled_mm
-        )  # noqa: F841
-        sym_of_nvfp4_scaled_grouped_mm = _register_custom_op(
-            nvfuser_f16a_nvfp4weight_scaled_grouped_mm
-        )  # noqa: F841
+        try:
+            _register_nvfp4_ops()
+        except Exception as e:
+            # If registration fails (e.g., nvfuser not available), warn and continue
+            warnings.warn(f"Failed to register nvfp4 custom ops: {e}")
 
     config = InferenceBenchmarkConfig(
         model_name=args.model_name,
@@ -754,18 +793,16 @@ def main():
         num_iterations=args.num_iterations,
         warmup_iterations=args.warmup_iterations,
         mode=args.mode,
-        dtensor_single_gpu=args.dtensor_single_gpu,
         enable_nvfp4=args.enable_nvfp4,
         fx_report_folder=args.fx_report_folder,
         enable_nv_linear=args.enable_nv_linear,
         disable_moe_replacement=args.disable_moe_replacement,
+        attn_implementation=args.attn_implementation,
+        profile=args.profile,
+        thunder_cache=args.thunder_cache,
+        enable_thunder_cudagraph=args.enable_thunder_cudagraph,
     )
     benchmark = InferenceBenchmark(config)
-
-    if args.enable_nvfp4:
-        msg = "NVFP4 kernels are not yet available. `--enable-nvfp4` runs only quantization but not benchmark"
-        warnings.warn(msg)
-        sys.exit(0)
 
     benchmark.run_benchmark()
     benchmark.print_results()
@@ -780,9 +817,7 @@ def main():
 
     if args.save_results:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
-        filename = (
-            f"thunder_inference_{args.model_name.replace('/', '_')}_{timestamp}.json"
-        )
+        filename = f"thunder_inference_{args.model_name.replace('/', '_')}_{timestamp}.json"
         path = os.path.join(args.output_dir, filename)
         benchmark.save_results(path)
 
@@ -793,6 +828,6 @@ if __name__ == "__main__":
     except Exception:
         raise
     finally:
-        if WORLD_SIZE > 1:
+        if mesh:
             for process_group in mesh.get_all_groups():
-                destroy_process_group(process_group)
+                dist.destroy_process_group(process_group)
