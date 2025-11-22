@@ -59,19 +59,21 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
   NVF_ERROR(producer != nullptr);
   NVF_ERROR(consumer != nullptr);
   NVF_ERROR(producer->fusion() == consumer->fusion());
-  NVF_ERROR(consumer->definition() != nullptr);
-  auto producer_tvs_of_consumer = ir_utils::producerTvsOf(consumer);
-  // Make sure they are really a producer and its consumer
-  NVF_ERROR(
-      std::find(
-          producer_tvs_of_consumer.begin(),
-          producer_tvs_of_consumer.end(),
-          producer) != producer_tvs_of_consumer.end(),
-      "Expected ",
-      producer,
-      " is a producer of ",
-      consumer,
-      " but it is not.");
+  if (producer->fusion()->isSsa()) {
+    NVF_ERROR(consumer->definition() != nullptr);
+    auto producer_tvs_of_consumer = ir_utils::producerTvsOf(consumer);
+    // Make sure they are really a producer and its consumer
+    NVF_ERROR(
+        std::find(
+            producer_tvs_of_consumer.begin(),
+            producer_tvs_of_consumer.end(),
+            producer) != producer_tvs_of_consumer.end(),
+        "Expected ",
+        producer,
+        " is a producer of ",
+        consumer,
+        " but it is not.");
+  }
 }
 
 namespace {
