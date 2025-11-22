@@ -1213,6 +1213,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   }
   // TODO: We also need to clear all rfactor across IDs between logical->loop and logical->allocation.
 
+  TensorDomain* old_domain = domain();
   // Set domain of consumer
   TensorView* consumer = this;
   consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
@@ -1291,19 +1292,19 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     if (consumer->domain()->hasAllocation()) {
       // std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
       std::vector<IterDomain*> mapped_alloc;
-      std::unordered_set<IterDomain*> mapped_id;
-      mapped_alloc.reserve(domain()->allocation().size());
-      for (auto* c_id : domain()->allocation()) {
+      // std::unordered_set<IterDomain*> mapped_id;
+      mapped_alloc.reserve(old_domain->allocation().size());
+      for (auto* c_id : old_domain->allocation()) {
         // TODO: better error message here maybe.
         mapped_alloc.push_back(producer_map.at(c_id));
-        mapped_id.insert(producer_map.at(c_id));
+        // mapped_id.insert(producer_map.at(c_id));
       }
-      for (auto* p_id : producer->getLogicalDomain()) {
-        if (mapped_id.count(p_id) == 0) {
-          NVF_ERROR(p_id->isReduction());
-          mapped_alloc.push_back(p_id);
-        }
-      }
+      // for (auto* p_id : producer->getLogicalDomain()) {
+      //   if (mapped_id.count(p_id) == 0) {
+      //     NVF_ERROR(p_id->isReduction());
+      //     mapped_alloc.push_back(p_id);
+      //   }
+      // }
       producer->setAllocationDomain(mapped_alloc, true);
     }
   }
