@@ -132,8 +132,7 @@ jobs:
               no_failed_checks_reason: '',
               pr_mergeable: false,
               pr_mergeable_reason: '',
-              pr_approved: false,
-              pr_approved_reason: '',
+              pr_mergeable_state: '',
             };
 
             // 1. Get all commit statuses (for nvfuser-ci and other status checks)
@@ -237,6 +236,9 @@ jobs:
               core.info('Refetched PR to get mergeable status');
             }
 
+            // Store mergeable_state for display in status comment
+            checks.pr_mergeable_state = pr.mergeable_state;
+
             if (pr.mergeable === false) {
               checks.pr_mergeable = false;
               checks.pr_mergeable_reason = 'has merge conflicts';
@@ -251,35 +253,10 @@ jobs:
               core.info('✅ PR is mergeable');
             }
 
-            // 5. Check approval status based on mergeable_state
-            // mergeable_state values: clean, blocked, unstable, behind, dirty, unknown, draft
-            // - 'blocked': branch protection rules not satisfied (missing approvals or required checks)
-            // - 'clean': all requirements met, ready to merge
-            // - 'unstable'/'behind': mergeable but pending/failed non-required checks
-            // Note: We check approvals separately from check completion status
-            if (pr.mergeable_state === 'blocked') {
-              // Blocked means branch protection rules aren't satisfied
-              // This could be missing approvals OR required checks not passing
-              checks.pr_approved = false;
-              checks.pr_approved_reason = 'branch protection rules not satisfied';
-              core.info('❌ PR approval: blocked by branch protection');
-            } else if (pr.mergeable_state === 'clean' || pr.mergeable_state === 'unstable' || pr.mergeable_state === 'behind') {
-              // These states mean the PR has required approvals (not blocked)
-              // Check completion is validated separately in no_failed_checks
-              checks.pr_approved = true;
-              core.info('✅ PR is approved');
-            } else {
-              // Other states (dirty, unknown, draft, etc.)
-              checks.pr_approved = false;
-              checks.pr_approved_reason = `mergeable_state: ${pr.mergeable_state}`;
-              core.info(`❌ PR approval: ${checks.pr_approved_reason}`);
-            }
-
             // Determine if ready to merge
             const ready = checks.internal_ci_passed &&
                           checks.no_failed_checks &&
-                          checks.pr_mergeable &&
-                          checks.pr_approved;
+                          checks.pr_mergeable;
 
             return {
               ready: ready,
@@ -311,14 +288,6 @@ jobs:
             const checks = checkResult.checks;
             const statusLines = [];
 
-            // PR approved
-            if (checks.pr_approved) {
-              statusLines.push('✅ PR is approved');
-            } else {
-              const reason = checks.pr_approved_reason ? ` (${checks.pr_approved_reason})` : '';
-              statusLines.push(`❌ PR is approved${reason}`);
-            }
-
             // Internal CI
             if (checks.internal_ci_passed) {
               statusLines.push('✅ Internal CI is finished');
@@ -341,6 +310,11 @@ jobs:
             } else {
               const reason = checks.pr_mergeable_reason ? ` (${checks.pr_mergeable_reason})` : '';
               statusLines.push(`❌ PR is mergeable${reason}`);
+            }
+
+            // Show mergeable_state for transparency
+            if (checks.pr_mergeable_state) {
+              statusLines.push(`ℹ️  PR mergeable_state: \`${checks.pr_mergeable_state}\``);
             }
 
             const statusText = statusLines.join('\n');
