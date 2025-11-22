@@ -176,7 +176,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   //
   // Benefits of bdimx=32 (when possible):
   // (a) Avoids bank conflicts: 32 threads accessing 32 elements = no conflict
-  //     Using fewer threads (e.g., 16) would cause multi-way bank conflicts
+  //     Using fewer threads (e.g., 16) would cause multi-way bank conflicts if
+  //     vectorized load from shared memory to registers is not used.
   // (b) Enables vectorization: With max tma_tile_inner=256, using 32 threads
   //     means each thread processes 8 elements, enabling vectorized writes to
   //     global memory (e.g., 8-element vectors for optimal performance)
