@@ -233,15 +233,17 @@ void lowerSegment(
 
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
+        // A loop domain should go with an Expr rather than each individual
+        // output TensorView. Before this is fixed, pick the most parallel
+        // output TensorView as a proxy.
+        TensorView* ref_out = findMostParallelTensorView(
+            ir_utils::filterByType<TensorView>(e->outputs()));
+        NVF_ERROR(
+            ref_out != nullptr,
+            "Can't find any output TensorView in ",
+            e->toString());
+
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          // A loop domain should go with an Expr rather than each individual
-          // output TensorView. Before this is fixed, pick the most parallel
-          // output TensorView as a proxy.
-          TensorView* out = findMostParallelTensorView(
-              ir_utils::filterByType<TensorView>(e->outputs()));
-          if (out == nullptr) {
-            continue;
-          }
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
           //
@@ -259,7 +261,7 @@ void lowerSegment(
           if (haveDifferentShardings(
                   in,
                   DomainType::kAllocation,
-                  out,
+                  ref_out,
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
             auto [i, inserted] = replacement_map.try_emplace(
