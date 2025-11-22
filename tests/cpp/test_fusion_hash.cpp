@@ -36,6 +36,8 @@ TEST_F(NVFuserTest, FusionHashBasic) {
   size_t first_hash = fusion.hash();
   NVF_ERROR(first_hash != 0, "Fusion hash is 0");
   NVF_ERROR(first_hash == fusion.hash(), "Fusion hash is not stable");
+  NVF_ERROR(
+      fusion.sameDefinition(fusion), "Fusion definition does not match itself");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -71,6 +73,12 @@ TEST_F(NVFuserTest, FusionHashSameDefinition) {
   }
 
   // Check that the fusion definitions match and have the same hash value.
+  NVF_ERROR(
+      fusion_first.sameDefinition(fusion_second),
+      "The fusion definitions do not match.");
+  NVF_ERROR(
+      fusion_second.sameDefinition(fusion_first),
+      "The fusion definitions do not match.");
   NVF_ERROR(
       fusion_first.hash() == fusion_second.hash(),
       "The hash values do not match.");
@@ -110,8 +118,11 @@ TEST_F(NVFuserTest, FusionHashDifferentDefinition) {
 
   // Check that the fusion definitions do not have the same hash value.
   NVF_ERROR(
-      fusion_first.hash() != fusion_second.hash(),
-      "The hash values do not match.");
+      !fusion_first.sameDefinition(fusion_second),
+      "The fusion definitions should not match.");
+  NVF_ERROR(
+      !fusion_second.sameDefinition(fusion_first),
+      "The fusion definitions should not match.");
   NVF_ERROR(
       fusion_first.hash() != fusion_second.hash(),
       "The hash values do not match.");
