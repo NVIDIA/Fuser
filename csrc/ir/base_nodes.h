@@ -605,6 +605,12 @@ class NVF_API Expr : public Statement {
   // TODO: Protect based on being in kernel container
   Expr* withWritePredicate(kir::Predicate* write_predicate);
 
+  bool outputIsPreallocated() const {
+    return output_is_preallocated_;
+  }
+
+  Expr* withOutputPreallocated();
+
   // Get the name of an expression
   virtual const char* getOpString() const = 0;
 
@@ -666,6 +672,8 @@ class NVF_API Expr : public Statement {
 
   // Only used for reduction-related expressions
   kir::Predicate* write_predicate_ = nullptr;
+
+  bool output_is_preallocated_ = false;
 };
 
 template <typename T>
