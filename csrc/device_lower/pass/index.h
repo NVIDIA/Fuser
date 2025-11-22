@@ -71,6 +71,8 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
   void handle(const PreprocessGroupedMatmulInputSf*) final;
+  void handle(const LaunchDependentGridOp*) final;
+  void handle(const WaitForPriorGridOp*) final;
 
   void handle(const kir::Asm*) final;
   void handle(const kir::ForLoop*) final;

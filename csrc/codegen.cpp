@@ -4673,6 +4673,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  void handle(const LaunchDependentGridOp* launch) {
+    indent() << launch->getOpString() << "();\n";
+  }
+
+  void handle(const WaitForPriorGridOp* wait) {
+    indent() << wait->getOpString() << "();\n";
+  }
+
  private:
   // Our generated string has two parts: a utilities section that contains PTX
   // wrappers and other definitions derived from kernel IR, and a kernel section

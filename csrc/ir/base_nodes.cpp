@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -85,6 +86,15 @@ kir::Kernel* Statement::kernel() const {
 }
 
 NVFUSER_DEFINE_CLONE(Val)
+
+void Val::addDependency(Val* dependency) {
+  NVF_ERROR(dependency != nullptr);
+
+  Expr* def = definition();
+  NVF_ERROR(def != nullptr);
+
+  def->addInput(dependency);
+}
 
 const std::vector<Expr*>& Val::uses() const {
   if (vtype_ == ValType::TensorView) {
@@ -443,6 +453,9 @@ std::vector<PolymorphicValue> Expr::evaluate(
   std::vector<PolymorphicValue> expr_inputs;
   expr_inputs.reserve(inputs().size());
   for (auto inp : inputs()) {
+    if (ir_utils::isScheduleOp(inp)) {
+      continue;
+    }
     const auto& eval_i = ee.evaluate(inp, known_values);
     if (!eval_i.hasValue()) {
       return {std::monostate{}};
