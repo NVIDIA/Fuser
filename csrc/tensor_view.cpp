@@ -1292,8 +1292,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       // std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
       std::vector<IterDomain*> mapped_alloc;
       std::unordered_set<IterDomain*> mapped_id;
-      mapped_alloc.reserve(consumer->getMaybeAllocationDomain().size());
-      for (auto* c_id : consumer->getMaybeAllocationDomain()) {
+      mapped_alloc.reserve(domain()->allocation().size());
+      for (auto* c_id : domain()->allocation()) {
         // TODO: better error message here maybe.
         mapped_alloc.push_back(producer_map.at(c_id));
         mapped_id.insert(producer_map.at(c_id));
