@@ -667,6 +667,50 @@ class TestNvFuserFrontend(NVFuserTest):
         )
         self.assertEqual(eager_out, nvf_out[0])
 
+    def test_broadcast_in_dim_no_redundant_set(self):
+        """
+        Test that broadcast_in_dim doesn't introduce redundant Set operations
+        when all input dimensions are in broadcast_dims (i.e., no actual broadcast).
+        
+        This verifies the fix for the issue where broadcast_in_dim would create
+        a redundant float-to-float cast operation via Set when the input already
+        had the correct shape.
+        """
+        inputs = [
+            torch.ones(1, 4, device="cuda"),
+            torch.randn(2, 4, device="cuda"),
+        ]
+
+        def fusion_with_broadcast_in_dim(fd: FusionDefinition):
+            t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
+            t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+            # broadcast_in_dim with broadcast_dims=[0, 1] means no new dims are added
+            t2 = fd.ops.broadcast_in_dim(t0, t1.shape(), [0, 1])
+            t3 = fd.ops.add(t2, t1)
+            fd.add_output(t3)
+
+        def fusion_with_expand(fd: FusionDefinition):
+            t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
+            t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+            # Direct expand without broadcast_in_dim
+            t2 = fd.ops.expand(t0, t1.shape())
+            t3 = fd.ops.add(t2, t1)
+            fd.add_output(t3)
+
+        # Execute both fusions and verify they produce the same result
+        nvf_out_bid, fd_bid = self.exec_nvfuser(fusion_with_broadcast_in_dim, inputs)
+        nvf_out_exp, fd_exp = self.exec_nvfuser(fusion_with_expand, inputs)
+        
+        # Verify correctness
+        eager_out = inputs[0] + inputs[1]
+        self.assertEqual(eager_out, nvf_out_bid[0])
+        self.assertEqual(eager_out, nvf_out_exp[0])
+        
+        # Check that the broadcast_in_dim fusion doesn't have a redundant Set operation
+        # by comparing the IR string representations - they should be identical since
+        # broadcast is a no-op in this case
+        self.assertEqual(str(fd_bid), str(fd_exp))
+
     # Testing a scenario where the broadcast is necessary to realize the output
     def test_tensor_shape_with_output_bcast(self):
         def fusion_func(fd: FusionDefinition):
