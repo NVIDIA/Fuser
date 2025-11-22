@@ -905,6 +905,7 @@ if(BUILD_PYTHON)
   target_link_libraries(nvfuser_direct PRIVATE
     nvf_py_direct_internal
     Python::Module
+    CUDA::cupti
   )
 
   # Add dead code elimination flags to reduce file size
