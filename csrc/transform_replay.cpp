@@ -276,7 +276,8 @@ return domain;
 TensorDomain* TransformReplay::fullSelfReplay(
     const TensorDomain* new_self_root,
     const TensorDomain* self) {
-  return fullSelfReplayImpl(new_self_root, self, createReplay(new_self_root, self));
+  ReplaySelf replay = createReplay(new_self_root, self);
+  return fullSelfReplayImpl(new_self_root, self, replay);
 }
 
 void TransformReplay::selfReplay(
