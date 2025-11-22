@@ -297,6 +297,8 @@ class NVF_API Fusion : public IrContainer {
     return is_during_update_uses_;
   }
 
+  bool isSsa() const;
+
   // NOTE: [Fusion managed data]
   //
   // Fusion-managed data is a mechanism to communicate data that survives fusion

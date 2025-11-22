@@ -236,15 +236,14 @@ void lowerSegment(
 
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
+        // A loop domain should go with an Expr rather than each individual
+        // output TensorView. Before this is fixed, pick the most parallel
+        // output TensorView as a proxy.
+        TensorView* ref_out = findMostParallelTensorView(
+            ir_utils::filterByType<TensorView>(e->outputs()));
+        NVF_ERROR(ref_out != nullptr);
+
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          // A loop domain should go with an Expr rather than each individual
-          // output TensorView. Before this is fixed, pick the most parallel
-          // output TensorView as a proxy.
-          TensorView* out = findMostParallelTensorView(
-              ir_utils::filterByType<TensorView>(e->outputs()));
-          if (out == nullptr) {
-            continue;
-          }
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
           //
@@ -262,28 +261,31 @@ void lowerSegment(
           if (haveDifferentShardings(
                   in,
                   DomainType::kAllocation,
-                  out,
+                  ref_out,
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
             auto shard_by_stream = [&]() -> TensorView* {
               auto* new_in =
                   ops::newValLike(in, *in->getDataType())->as<TensorView>();
               TransformReplay::selfReplay(in->domain(), new_in->domain());
+              // FIXME: this clears DIDx. Need to propagate as well?
+              new_in->setLoopDomain(new_in->getLogicalDomain());
               shardLoopLike(
-                  out,
+                  ref_out,
                   new_in,
                   {ParallelType::Stream},
                   PropagateDirection::kBackward);
               shardAllocationAsLoop(new_in, {ParallelType::Stream});
+              new_in->printTransforms();
               // Refine contiguity.
-              std::vector<IterDomain*> out_allocation =
-                  out->getMaybeAllocationDomain();
-              std::vector<std::optional<bool>> out_contiguity =
-                  out->getContiguity();
+              std::vector<IterDomain*> new_allocation =
+                  new_in->getMaybeAllocationDomain();
+              std::vector<std::optional<bool>> new_contiguity =
+                  new_in->getContiguity();
               bool next_will_be_noncontiguous = false;
               for (auto [i, alloc_id] :
-                   enumerate(out_allocation) | std::views::reverse) {
-                std::optional<bool>& contiguity = out_contiguity[i];
+                   enumerate(new_allocation) | std::views::reverse) {
+                std::optional<bool>& contiguity = new_contiguity[i];
 
                 if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
                   contiguity = std::nullopt;
@@ -296,7 +298,7 @@ void lowerSegment(
                   next_will_be_noncontiguous = true;
                 }
               }
-              out->setContiguity(out_contiguity);
+              new_in->setContiguity(new_contiguity);
               IrBuilder::create<hir::ShardByStream>(
                   new_in, in, for_loop->index());
               return new_in;
