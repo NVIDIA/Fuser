@@ -212,6 +212,7 @@ ReplaySelf createReplay(
 
   // Replay producer dimensions.
   return ReplaySelf(self->loop(), axis_map);
+}
 
 
 TensorDomain* fullSelfReplayImpl(
