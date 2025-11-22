@@ -1288,6 +1288,66 @@ void clearMemorySpace(Fusion* fusion) {
   }
 }
 
+// Returns a vector of expressions (uses) that can be cached for the given
+// TensorView.
+std::vector<Expr*> getCacheableUses(TensorView* tv) {
+  // Can't cache scalar tensors (0-dimensional)
+  if (tv->nDims() == 0) {
+    return {};
+  }
+
+  // Can't cache tensors with no uses
+  if (tv->uses().empty()) {
+    return {};
+  }
+
+  // Right now, tensors that are input to the select, gather and
+  // index_select ops can't be cached as they must be in global memory.
+  if (ir_utils::isIndexSelectLookupTv(tv) ||
+      ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+    return {};
+  }
+
+  // TODO: might need to reverse this when scheduler handles pad directly
+  // Do not insert a cache for pad as vectorization needs to be
+  // done directly.
+  //
+  // Note that this means that if an input is padded and also is
+  // used without padding, it will be read twice, once for pad and
+  // once more for caching load. It would make sense to use the PTX
+  // caching load instructions.
+  // For gatherOp, the lookupTv should stay in global memory, don't replace
+  // the original lookupTv with the cached_tv.
+  auto isGatherLookUpTvInUse = [tv](Expr* use) {
+    if (!use->isA<GatherOp>()) {
+      return false;
+    }
+    return use->as<GatherOp>()->lookupTv() == tv;
+  };
+
+  // TODO: we might need to explicitly promote offsets to global memory
+  // We expect offsets to remain in global memory, so we do not add it to
+  // cache
+  auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
+    if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
+      return false;
+    }
+    auto layout = use->as<PreprocessGroupedMatmulInputSf>();
+    return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+  };
+
+  std::vector<Expr*> cacheable_uses;
+  // Exclude PadOp, SliceOp, GatherOp lookups, and matmul offsets
+  for (auto use : tv->uses()) {
+    if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
+        !isPreprocessGroupedMatmulInputSfOffsets(use)) {
+      cacheable_uses.push_back(use);
+    }
+  }
+
+  return cacheable_uses;
+}
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
@@ -1306,49 +1366,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
       continue;
     }
 
-    if (tv->nDims() == 0 || tv->uses().empty() ||
-        ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
-      // Right now, tensors that are input to the select, gather and
-      // index_select ops can't be cached as they must be in global memory.
-      continue;
-    }
-
-    // TODO: might need to reverse this when scheduler handles pad directly
-    // Do not insert a cache for pad as vectorization needs to be
-    // done directly.
-    //
-    // Note that this means that if an input is padded and also is
-    // used without padding, it will be read twice, once for pad and
-    // once more for caching load. It would make sense to use the PTX
-    // caching load instructions.
-    // For gatherOp, the lookupTv should stay in global memory, don't replace
-    // the original lookupTv with the cached_tv.
-    auto isGatherLookUpTvInUse = [tv](Expr* use) {
-      if (!use->isA<GatherOp>()) {
-        return false;
-      }
-      return use->as<GatherOp>()->lookupTv() == tv;
-    };
-
-    // TODO: we might need to explicitly promote offsets to global memory
-    // We expect offsets to remain in global memory, so we do not add it to
-    // cache
-    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
-      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
-        return false;
-      }
-      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
-      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
-    };
-    std::vector<Expr*> cached_uses;
-    for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
-          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
-        cached_uses.push_back(use);
-      }
-    }
-
+    std::vector<Expr*> cached_uses = getCacheableUses(tv);
     if (cached_uses.empty()) {
       continue;
     }
@@ -3343,16 +3361,16 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
 int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size,
-    int64_t min_dtype_bytes) {
+    int64_t min_dtype_bits) {
   // TMA Hardware Alignment Constraints:
   // - We use TMA without interleave; the byte size of the innermost TMA tile
   //   must be divisible by 16 bytes.
   // - 2D TMA requires at least 2 tiles in the inner dimension to maintain a
   //   proper 2D structure and avoid dimension collapse.
   // - Therefore, InnerTmaDomain must be at least 2 * 16 bytes, which translates
-  //   to (2 * 16 / min_dtype_bytes) elements.
+  //   to (2 * 16 * 8 / min_dtype_bits) elements.
   constexpr int64_t align_bytes = 16;
-  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+  const int64_t min_size = 2 * align_bytes * 8 / min_dtype_bits;
   NVF_ERROR(
       total_element % min_size == 0,
       "total_element must be divisible by min_size to satisfy 2D TMA "
@@ -3428,5 +3446,46 @@ int64_t getInnerTmaDomainSize(
   return best_divisible_size;
 }
 
+std::pair<std::vector<int64_t>, int64_t> getNumElements(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info) {
+  int64_t num_elements = 1;
+  std::vector<int64_t> elem_counts;
+  elem_counts.reserve(tv->getLogicalDomain().size());
+  for (auto logical_id : tv->getLogicalDomain()) {
+    auto inferred_val =
+        runtime_info.expressionEvaluator().evaluate(logical_id->extent());
+    NVF_ERROR(
+        inferred_val.hasValue(),
+        "Error inferring extent of: ",
+        logical_id->toString());
+    auto extent = inferred_val.as<int64_t>();
+    elem_counts.push_back(extent);
+    num_elements *= extent;
+  }
+  return {elem_counts, num_elements};
+}
+
+bool isTvSizeSuitableForTma(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info,
+    int64_t break_point) {
+  auto dtype_bits =
+      dataTypeSizeBit(tv->getDataType().value(), runtime_info.getIndexType());
+  auto [elem_counts, total_elem_count] = getNumElements(tv, runtime_info);
+  int64_t inner_elem_count = break_point == 0
+      ? total_elem_count
+      : std::accumulate(
+            elem_counts.begin() + break_point,
+            elem_counts.end(),
+            1,
+            std::multiplies<int64_t>());
+  const int64_t min_inner_tma_domain_size = 2 * 128 / dtype_bits;
+  if (inner_elem_count % min_inner_tma_domain_size == 0 &&
+      inner_elem_count > min_inner_tma_domain_size) {
+    return true;
+  }
+  return false;
+}
 } // namespace scheduler_utils
 } // namespace nvfuser

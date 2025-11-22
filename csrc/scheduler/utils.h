@@ -397,6 +397,15 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
+// Returns a vector of expressions (uses) that can be cached for the given
+// TensorView. Returns an empty vector if the tensor cannot be cached due to:
+// - Being 0-dimensional (scalar)
+// - Having no uses
+// - Being used by SelectOp, GatherOp (as lookup), or index_select operations
+// - Only being used by operations that require global memory (PadOp, SliceOp,
+//   GatherOp lookups, PreprocessGroupedMatmulInputSf offsets)
+std::vector<Expr*> getCacheableUses(TensorView* tv);
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
@@ -935,14 +944,14 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //
 // total_element:
 //   Total number of elements in the flattened tensor. Must be divisible by
-//   (2 * 16 / min_dtype_bytes) to satisfy 2D TMA alignment requirements.
+//   (2 * 16 * 8 / min_dtype_bits) to satisfy 2D TMA alignment requirements.
 //
 //   Hardware constraint details:
 //   - We use TMA without interleave; the byte size of the innermost TMA tile
 //     must be divisible by 16 bytes.
 //   - 2D TMA requires at least 2 tiles in the inner dimension.
 //   - Therefore, the inner TMA domain size must be at least 2 * 16 bytes,
-//     or (2 * 16 / min_dtype_bytes) elements.
+//     or (2 * 16 * 8 / min_dtype_bits) elements.
 //
 // target_inner_tma_domain_size (default: 512):
 //   Target size for the inner TMA domain. The function finds the divisor of
@@ -977,8 +986,8 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //     We maintain a proper 2D structure with 2 tiles in the inner dimension,
 //     preventing dimension collapse.
 //
-// min_dtype_bytes:
-//   Size in bytes of the smallest data type in TMA-loaded tensors. Used to
+// min_dtype_bits:
+//   Size in bits of the smallest data type in TMA-loaded tensors. Used to
 //   ensure that the innermost TMA box dimension satisfies the 2 x 16-bytes
 //   alignment requirement.
 //
@@ -987,7 +996,7 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 // ============================================================================
 // The size of the inner dimension of the 2D TMA domain. This value:
 //   - Divides total_element evenly
-//   - Is divisible by (2 * 16 / min_dtype_bytes)
+//   - Is divisible by (2 * 16 * 8 / min_dtype_bits)
 //   - Is as close as possible to target_inner_tma_domain_size
 //   - Returns 1 if no suitable divisor exists (signaling TMA is not viable)
 //
@@ -995,7 +1004,23 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 int64_t getInnerTmaDomainSize(
     int64_t total_element,
     int64_t target_inner_tma_domain_size = 512,
-    int64_t min_dtype_bytes = 1);
+    int64_t min_dtype_bits = 8);
+
+// Get the total number of elements in a given TensorView
+std::pair<std::vector<int64_t>, int64_t> getNumElements(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info);
+
+// Returns true if the size of the tensor is suitable for TMA.
+// We only support 2D TMA, which requires at least 2 tiles in
+// the inner dimension, each with  at least 16 bytes. This imposes a minimum
+// inner TMA domain size of 2 * 16 bytes. Additionally, return false if the
+// inner TMA domain size equals the total element count, as this would mean the
+// outer TMA domain is 1, which is not a valid 2D TMA configuration.
+bool isTvSizeSuitableForTma(
+    const TensorView* tv,
+    SchedulerRuntimeInfo& runtime_info,
+    int64_t break_point);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
