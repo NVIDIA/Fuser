@@ -1097,14 +1097,16 @@ const char* noopPtx = R"(
 //! Determine how many CGAs can launch in a single wave with the given cluster
 //! dimensions
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
-  // I don't think we'd ever use a cluster size larger than 8, but we can make
-  // space for 8 just to future-proof this
-  thread_local std::array<int64_t, 16> cached_results;
+  // We can use a cluster size up to 16, indexed from 1 to 16.
+  thread_local std::array<int64_t, 17> cached_results;
 
   const int64_t cluster_size = cluster_dims.m * cluster_dims.n;
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
+
+  // Used in heuristic generation and lowering, ensure that a context exists
+  executor_utils::initializeCudaContext();
 
   CUmodule mod;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));

@@ -881,6 +881,8 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 
+// Return the maximum cluster size that can be used for the current device.
+int64_t getMaxClusterSize();
 // ============================================================================
 // TMA (Tensor Memory Accelerator) Background
 // For details see doc/dev/tma.md
