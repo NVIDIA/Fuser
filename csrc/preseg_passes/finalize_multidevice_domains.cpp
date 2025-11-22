@@ -14,6 +14,7 @@
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <multidevice/allocation_utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <scheduler/utils.h>
 #include <type.h>

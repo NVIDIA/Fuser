@@ -19,6 +19,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser::hir_pass {
