@@ -63,9 +63,23 @@ class CutlassCompiledKernel : public CompiledKernelBase {
 
   bool compiled_ = false;
 
-  void* workspace_size_function_ = nullptr;
-  void* cuda_function_ = nullptr;
   void* shared_library_handle_ = nullptr;
+
+  // This must match the expected type in the generated kernel
+  struct TensorArg {
+    void* data_ptr;
+    int64_t dim;
+    int64_t* sizes;
+    int64_t* strides = nullptr;
+  };
+
+  using WorkspaceSizeFunc = size_t (*)(const std::vector<TensorArg>&);
+  WorkspaceSizeFunc workspace_size_function_ = nullptr;
+
+  // Define the function signature for the kernel
+  using RunKernelFunc =
+      void (*)(const std::vector<TensorArg>&, uint8_t*, cudaStream_t);
+  RunKernelFunc run_kernel_function_ = nullptr;
 };
 
 } // namespace nvfuser
