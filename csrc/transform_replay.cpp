@@ -177,12 +177,10 @@ class ReplaySelf : public ReplayTransformations {
   }
 };
 
-} // namespace
-
-// Self replay.
-TensorDomain* TransformReplay::fullSelfReplay(
+ReplaySelf createReplay(
     const TensorDomain* new_self_root,
-    const TensorDomain* self) {
+    const TensorDomain* self)
+{
   FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
   NVF_ERROR(
@@ -213,7 +211,14 @@ TensorDomain* TransformReplay::fullSelfReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->loop(), axis_map);
+  return ReplaySelf(self->loop(), axis_map);
+
+
+TensorDomain* fullSelfReplayImpl(
+    const TensorDomain* new_self_root,
+    const TensorDomain* self,
+    ReplaySelf& replay)
+{
   std::vector<IterDomain*> new_domain(self->nDims(), nullptr);
 
   {
@@ -251,6 +256,26 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->logical(),
       new_domain,
       new_self_root->contiguity());
+}
+
+
+} // namespace
+
+// Self replay.
+TensorDomain* TransformReplay::fullSelfReplay(
+    const TensorDomain* new_self_root,
+    const TensorDomain* self,
+    IterDomainMap& replay_map) {
+ReplaySelf replay = createReplay(new_self_root, self);
+TensorDomain* domain = fullSelfReplayImpl(new_self_root, self, replay);
+replay_map = replay.getReplay();
+return domain;
+}
+
+TensorDomain* TransformReplay::fullSelfReplay(
+    const TensorDomain* new_self_root,
+    const TensorDomain* self) {
+  return fullSelfReplayImpl(new_self_root, self, createReplay(new_self_root, self));
 }
 
 void TransformReplay::selfReplay(

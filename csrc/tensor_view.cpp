@@ -1134,6 +1134,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // meanwhile, we want consumer Tensor to preserve `logical` & `allocation` (while erasing all reductions).
 
   TensorView* producer;
+  std::unordered_map<IterDomain*, IterDomain*> producer_map;
 
   if (definition()->isA<ScatterOp>()) {
     // TODO: is there any way to replay a scatter op?!
@@ -1174,7 +1175,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         IrBuilder::createInContainer<TensorDomain>(container(), root, root, root, TensorDomain::getContiguityFilledWith(root, true)),
         getDataType().value());
     // replay from `root`->`loop` on producer
-    producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain()));
+    producer->setDomain(TransformReplay::fullSelfReplay(producer->domain(), domain(), producer_map));
   }
 
   // clean up consumer domain to wipe out root and all reduction IDs
@@ -1286,15 +1287,16 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     // Note:
     //   1. we need to set allocation domain in order to support expr evaluator. e.g. reshape op needed sharding information in order to construct the correct output shape;
     //   2. order of allocation domain also matters, otherwise, vectorized instruction was causing correctness issue. TODO: link the issue.
+
     if (consumer->domain()->hasAllocation()) {
-      std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
+      // std::unordered_map<IterDomain*, IterDomain*> c2p_map = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
       std::vector<IterDomain*> mapped_alloc;
       std::unordered_set<IterDomain*> mapped_id;
       mapped_alloc.reserve(consumer->getMaybeAllocationDomain().size());
       for (auto* c_id : consumer->getMaybeAllocationDomain()) {
         // TODO: better error message here maybe.
-        mapped_alloc.push_back(c2p_map.at(c_id));
-        mapped_id.insert(c2p_map.at(c_id));
+        mapped_alloc.push_back(producer_map.at(c_id));
+        mapped_id.insert(producer_map.at(c_id));
       }
       for (auto* p_id : producer->getLogicalDomain()) {
         if (mapped_id.count(p_id) == 0) {
