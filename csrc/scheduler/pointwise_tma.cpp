@@ -127,8 +127,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   if (bits_per_element == 0) {
     return nullptr;
   }
-  const int64_t elements_per_cta = scheduler_utils::roundUpToN(ceilDiv(bits_per_cta, bits_per_element), 1024);
-  elements_per_cta = scheduler_utils::roundUpToN(elements_per_cta, 1024);
+  const int64_t elements_per_cta = scheduler_utils::roundUpToN(
+      ceilDiv(bits_per_cta, bits_per_element), 1024);
 
   // ========== Step 3: Compute TMA Tile Dimensions ==========
   // TMA tiles define the tile size loaded by each TMA operation:
@@ -142,13 +142,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // tma_tile_inner_max: Maximum size for tma tile inner dimension
   // Division by 2 ensures at least 2 tiles fit within tma_domain_inner
   // Don't exceed the hardware limit
-  int64_t tma_tile_inner_max =
+  const int64_t tma_tile_inner_max =
       std::min(tma_domain_inner / 2, kMaxElementsPerTmaTileDim);
 
   // tma_tile_outer_max: Maximum size for tma tile outer dimension
   // Don't exceed the total number of "rows" in tma_domain_outer
   // Don't exceed the hardware limit
-  int64_t tma_tile_outer_max =
+  const int64_t tma_tile_outer_max =
       std::min(tma_domain_outer, kMaxElementsPerTmaTileDim);
 
   // tma_tile_inner: Actual tma tile in inner dimension
@@ -161,7 +161,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   // tma_tile_outer: Actual tma tile in outer dimension
   // Compute to achieve target elements_per_cta, capped by tma_tile_outer_max
-  int64_t tma_tile_outer = std::max(
+  const int64_t tma_tile_outer = std::max(
       1L, std::min(elements_per_cta / tma_tile_inner, tma_tile_outer_max));
 
   params->tma_tile_inner = tma_tile_inner;
@@ -172,8 +172,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // process each TMA tile. Threads cooperate to move data from shared memory
   // to registers and perform computation.
   constexpr int64_t threads_per_cta = 128;
-  int64_t bdimx = std::min(threads_per_warp, tma_tile_inner);
-  int64_t bdimy = std::min(threads_per_cta / bdimx, tma_tile_outer);
+  const int64_t bdimx = std::min(threads_per_warp, tma_tile_inner);
+  const int64_t bdimy = std::min(threads_per_cta / bdimx, tma_tile_outer);
   params->lparams.bindUnsafe(bdimx, ParallelType::TIDx);
   params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
 
@@ -186,7 +186,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // [tma_tile_inner/vect/bdimx, bdimx, vect]
   int64_t vectorization_factor = 1;
   constexpr int64_t max_vectorization_size_in_bit = 128;
-  int64_t vect_factor_max = std::min(
+  const int64_t vect_factor_max = std::min(
       max_vectorization_size_in_bit / prop.max_dtype_size_bit_for_vectorization,
       tma_tile_inner / bdimx);
   while (vectorization_factor * 2 <= vect_factor_max &&
