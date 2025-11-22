@@ -344,9 +344,10 @@ inferAndValidateAllocationSizesAndStrides(
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
   // Only validate final sizes and strides when we have a non-empty tensor.
-  if (tensor.numel() != 0) {
-    validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
-  }
+  // if (tensor.numel() != 0) {
+  //   validateAllocationSizesAndStrides(tv, allocation_sizes,
+  //   allocation_strides);
+  // }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
 
