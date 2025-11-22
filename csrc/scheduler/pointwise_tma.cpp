@@ -168,9 +168,18 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->tma_tile_outer = tma_tile_outer;
 
   // ========== Step 4: Configure Thread Block Dimensions ==========
-  // Thread block (CTA) dimensions determine how threads are organized to
-  // process each TMA tile. Threads cooperate to move data from shared memory
-  // to registers and perform computation.
+  // bdimx strategy:
+  // - Use min(32, tma_tile_inner) to avoid using more threads than elements
+  // - For small tiles (e.g., tma_tile_inner=8 when input is 17x16), bdimx=8
+  //   since it doesn't make sense to use more than 8 threads for 8 elements
+  // - For most cases, tma_tile_inner is a multiple of 32, so bdimx=32
+  //
+  // Benefits of bdimx=32 (when possible):
+  // (a) Avoids bank conflicts: 32 threads accessing 32 elements = no conflict
+  //     Using fewer threads (e.g., 16) would cause multi-way bank conflicts
+  // (b) Enables vectorization: With max tma_tile_inner=256, using 32 threads
+  //     means each thread processes 8 elements, enabling vectorized writes to
+  //     global memory (e.g., 8-element vectors for optimal performance)
   constexpr int64_t threads_per_cta = 128;
   const int64_t bdimx = std::min(threads_per_warp, tma_tile_inner);
   const int64_t bdimy = std::min(threads_per_cta / bdimx, tma_tile_outer);
@@ -178,12 +187,22 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
 
   // ========== Step 5: Determine Vectorization Factor ==========
-  // Start from 1, then grow by powers of 2 until reaching vect_factor_max
-  // vect_factor_max is based on:
-  // 1. Hardware limit: max_vectorization_size_in_bit
-  // 2. Ensure each thread handles at least one element
-  // Ensure divisible by tma_tile_inner since tma_tile_inner is scheduled as:
-  // [tma_tile_inner/vect/bdimx, bdimx, vect]
+  // This is a heuristic parameter for output stores. We have flexibility in
+  // how outputs are written:
+  // - Vectorized store: Use vectorization for efficient memory writes
+  // - TMA store: Use TMA instructions for output writes
+  // - Hybrid: Different outputs can use different methods (e.g., one output
+  //   uses TMA store while another uses vectorized store)
+  //
+  // Note: tma_tile_inner is already selected to be a multiple of 16 bytes,
+  // so no further analysis is needed for memory alignment.
+  //
+  // Strategy: Start from 1, grow by powers of 2 until reaching vect_factor_max
+  // vect_factor_max is constrained by:
+  // 1. Hardware limit: max_vectorization_size_in_bit (128 bits)
+  // 2. Ensure each thread handles at least one element (tma_tile_inner / bdimx)
+  // 3. Ensure divisibility: tma_tile_inner is scheduled as
+  //    [tma_tile_inner/vect/bdimx, bdimx, vect]
   int64_t vectorization_factor = 1;
   constexpr int64_t max_vectorization_size_in_bit = 128;
   const int64_t vect_factor_max = std::min(
