@@ -44,6 +44,7 @@
 #include <runtime/executor_utils.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
+#include <type.h>
 #include <utils.h>
 
 namespace nvfuser {
@@ -337,98 +338,72 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
   LaunchParams launch_params;
 
-  auto data_cache = compileTimeDataCache();
-
   auto lower = compiled_kernel_->lowered().get();
-  if (compiled_kernel_->getUsedTVs().empty()) {
-    compiled_kernel_->setUsedTVs();
-  }
-  auto& used_tvs = compiled_kernel_->getUsedTVs();
 
-  auto parallel_binding_ids_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::ParallelBindingIterDomains>(
-          data_cache, [&used_tvs, &lower]() {
-            return std::make_unique<std::vector<IterDomain*>>(
-                executor_utils::getParallelBindingsIterDomains(
-                    lower, used_tvs));
-          });
-  auto& parallel_binding_ids = parallel_binding_ids_entry.get();
+  const auto& parallel_dim_map = lower->info().parallelDimensionMap().getMap();
 
-  auto parallel_iter_extent_entry =
-      executor_utils::caching::ExecutorCompileTimeEntry<
-          executor_utils::caching::ParallelIterExtentMap>(
-          data_cache, [&parallel_binding_ids]() {
-            return executor_utils::getParallelIterExtents(parallel_binding_ids);
-          });
-  auto& parallel_iter_extents = parallel_iter_extent_entry.get();
-
-  const auto& simplified_parallel_iter_extents =
-      lower->info().parallelDimensionMap().getMap();
-
-  // TODO: Need to redesign this part a bit to
-  //   find the right place to trigger evaluate
-  if (expr_eval.precomputedValues()) {
-    expr_eval.precomputedValues()->bindParallelExtents(
-        parallel_iter_extents, launch_constraints);
-    expr_eval.precomputedValues()->evaluate();
-  }
-  // If any dimension was set in launch constraints we need to run through
-  // IterDomains that have been parallelized, and bind those values. Or make
-  // sure if they could be inferred the inference matches what was set.
-  for (auto& entry : parallel_iter_extents) {
-    auto p_type = entry.first;
+  // First bind any set dimensions in launch_constraints
+  // We do this in a separate loop from the next loop because some extent
+  // expressions might depend on the values we bind here, so we need to bind
+  // them in advance.
+  for (auto [p_type, extent] : parallel_dim_map) {
     if (launch_constraints.hasDim(p_type)) {
-      auto parallel_extents = entry.second;
-      for (auto extent : parallel_extents) {
-        auto inferred_val = expr_eval.evaluate(extent);
-        if (inferred_val.hasValue()) {
-          // This value could have been inferred, make sure it was set right.
-          bool valid =
-              inferred_val.as<int64_t>() == launch_constraints.getDim(p_type) ||
-              launch_constraints.getRawVal(p_type) == -1;
-          if (!useFallback() && !valid) {
-            TORCH_WARN_ONCE(
-                "Cannot validate parallelization scheme, "
-                "this may be due to mixed broadcast axes that are "
-                "parallelized.");
-          }
-        } else if (!expr_eval.precomputedValues()) {
-          expr_eval.bind(extent, launch_constraints.getDim(p_type));
+      // User provided a launch constraint for this parallel type
+      int64_t constraint_value = launch_constraints.getDim(p_type);
+      expr_eval.bind(extent, constraint_value);
+      expr_eval.bind(p_type, constraint_value);
+    }
+  }
+
+  // Process launch constraints and compute launch parameters.
+  // For each parallel type in the ParallelDimensionMap, either use the
+  // launch constraint if provided, or evaluate the extent to infer the size.
+  for (auto [p_type, extent] : parallel_dim_map) {
+    FUSER_PERF_SCOPE("KernelExecutor::ParallelBindingResolution");
+
+    if (launch_constraints.hasDim(p_type)) {
+      // User provided a launch constraint for this parallel type
+      int64_t constraint_val = launch_constraints.getDim(p_type);
+
+      // Try to evaluate the extent to validate the constraint
+      auto inferred_val = expr_eval.evaluate(extent);
+      if (inferred_val.hasValue()) {
+        // We can infer the value - validate it matches the constraint
+        bool valid = inferred_val.as<int64_t>() == constraint_val ||
+            launch_constraints.getRawVal(p_type) == -1;
+        if (!useFallback() && !valid) {
+          TORCH_WARN_ONCE(
+              "Cannot validate parallelization scheme for ",
+              p_type,
+              ": inferred value ",
+              inferred_val.as<int64_t>(),
+              " does not match constraint ",
+              constraint_val,
+              ". This may be due to mixed broadcast axes that are "
+              "parallelized.");
         }
-        if (!launch_params.hasDim(p_type)) {
-          // Bind the launch constraint into our evaluation context
-          launch_params.bind(launch_constraints.getDim(p_type), p_type);
-          // Makes sure the p-types bound to evaluators are the
-          //  final values that will become the actual launch
-          //  param size to ensure accurate smem buffer size
-          //  computation.
-          expr_eval.bind(p_type, launch_constraints.getDim(p_type));
-        }
+      }
+
+      launch_params.bind(constraint_val, p_type);
+    } else {
+      // No launch constraint - infer the parallel dimension size
+      auto val = expr_eval.evaluate(extent);
+      NVF_ERROR(
+          val.hasValue(),
+          "Tried to evaluate the extent, ",
+          extent->toInlineString(),
+          " for the ptype: ",
+          p_type,
+          " to set launch bounds but could not.");
+
+      if (val > 0) {
+        expr_eval.bind(p_type, val);
+        launch_params.bind(val.as<int64_t>(), p_type);
       }
     }
   }
 
-  // Run through the rest of the parallel IterDomains and infer their size
-  for (auto [p_type, extent] : simplified_parallel_iter_extents) {
-    FUSER_PERF_SCOPE("KernelExecutor::ParallelBindingResolution");
-    auto val = expr_eval.evaluate(extent);
-    NVF_ERROR(
-        val.hasValue(),
-        "Tried to evaluate the extent, ",
-        extent->toInlineString(),
-        " for the ptype: ",
-        p_type,
-        " to set launch bounds but could not.");
-
-    if (val > 0) {
-      expr_eval.bind(p_type, val);
-      launch_params.bind(val.as<int64_t>(), p_type);
-    }
-  }
-
-  // Re-run the integer machine with all
-  //  the thread sizes now determined.
+  // Re-run the integer machine with all the thread sizes now determined.
   if (expr_eval.precomputedValues()) {
     expr_eval.precomputedValues()->evaluate();
   }
