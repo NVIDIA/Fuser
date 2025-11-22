@@ -224,6 +224,11 @@ class TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
+  static TensorDomain* fullSelfReplay(
+      const TensorDomain* new_self_root,
+      const TensorDomain* self,
+      std::unordered_map<IterDomain*, IterDomain*>& replay_map);
+
   // Self replay the transformation on `self` from logical to loop and
   // allocation onto `new_self`.
   //
