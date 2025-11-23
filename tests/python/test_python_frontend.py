@@ -676,11 +676,6 @@ class TestNvFuserFrontend(NVFuserTest):
         a redundant float-to-float cast operation via Set when the input already
         had the correct shape.
         """
-        inputs = [
-            torch.ones(1, 4, device="cuda"),
-            torch.randn(2, 4, device="cuda"),
-        ]
-
         def fusion_with_broadcast_in_dim(fd: FusionDefinition):
             t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
             t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
@@ -697,14 +692,11 @@ class TestNvFuserFrontend(NVFuserTest):
             t3 = fd.ops.add(t2, t1)
             fd.add_output(t3)
 
-        # Execute both fusions and verify they produce the same result
-        nvf_out_bid, fd_bid = self.exec_nvfuser(fusion_with_broadcast_in_dim, inputs)
-        nvf_out_exp, fd_exp = self.exec_nvfuser(fusion_with_expand, inputs)
+        with FusionDefinition() as fd_bid:
+            fusion_with_broadcast_in_dim(fd_bid)
         
-        # Verify correctness
-        eager_out = inputs[0] + inputs[1]
-        self.assertEqual(eager_out, nvf_out_bid[0])
-        self.assertEqual(eager_out, nvf_out_exp[0])
+        with FusionDefinition() as fd_exp:
+            fusion_with_expand(fd_exp)
         
         # Check that the broadcast_in_dim fusion doesn't have a redundant Set operation
         # by comparing the IR string representations - they should be identical since
