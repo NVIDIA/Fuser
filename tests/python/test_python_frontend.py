@@ -671,7 +671,7 @@ class TestNvFuserFrontend(NVFuserTest):
         """
         Test that broadcast_in_dim doesn't introduce redundant Set operations
         when all input dimensions are in broadcast_dims (i.e., no actual broadcast).
-        
+
         This verifies the fix for the issue where broadcast_in_dim would create
         a redundant float-to-float cast operation via Set when the input already
         had the correct shape.
@@ -694,10 +694,10 @@ class TestNvFuserFrontend(NVFuserTest):
 
         with FusionDefinition() as fd_bid:
             fusion_with_broadcast_in_dim(fd_bid)
-        
+
         with FusionDefinition() as fd_exp:
             fusion_with_expand(fd_exp)
-        
+
         # Check that the broadcast_in_dim fusion doesn't have a redundant Set operation
         # by comparing the IR string representations - they should be identical since
         # broadcast is a no-op in this case
