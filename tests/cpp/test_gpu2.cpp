@@ -35,6 +35,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
+#include <tensor_metadata.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
@@ -6454,6 +6455,60 @@ TEST_F(NVFuserTest, FusionRfactorIndirectRoot_CUDA) {
   auto cg_outputs = ke.run({at_in});
 
   testValidate(&fusion, cg_outputs, {at_in}, {at_out}, __LINE__, __FILE__);
+}
+
+// Test inferAllocationSizesAndStrides with non-trivial allocation domain
+// This test verifies that inferAllocationSizesAndStrides can handle cases
+// where the tensor's strides don't match the TensorView's contiguity flags,
+// while inferAndValidateAllocationSizesAndStrides would throw an error.
+// The allocation domain is more complex than logical domain with split/merge.
+TEST_F(NVFuserTest, FusionInferAllocationSizesAndStridesNonTrivial_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create a TensorView with logical domain [I1, I2] with sizes [8, 12]
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  // Create a non-trivial allocation domain:
+  // 1. Merge I1 and I2 -> I_merged (size 96)
+  // 2. Split I_merged by factor 3 -> [I_outer(32), I_inner(3)]
+  // So allocation domain: [I_outer, I_inner] with more complex structure
+  tv0->merge(0, 1); // Merge axis 0 and 1
+  tv0->split(0, 3); // Split merged axis by factor 3
+  tv0->setAllocationDomain(
+      tv0->getLoopDomain(), /*new_contiguity=*/{true, true});
+
+  // Create a tensor with non-unit strides
+  // logical domain sizes: [8, 12]
+  // logical strides: [24, 2] (non-contiguous layout)
+  // After merge: size=96, stride=2
+  // After split by 3: sizes=[32, 3], strides=[6, 2]
+  // But we set contiguity to [true, true], which would expect strides=[3, 1]
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor tensor = at::empty_strided({8, 12}, {24, 2}, options);
+
+  ExpressionEvaluator ee;
+
+  // inferAllocationSizesAndStrides should succeed without validation
+  auto [alloc_sizes, alloc_strides] =
+      inferAllocationSizesAndStrides(tensor, tv0, ee);
+
+  // Check that the inferred sizes and strides are correct
+  EXPECT_EQ(alloc_sizes.size(), 2);
+  EXPECT_EQ(alloc_strides.size(), 2);
+  EXPECT_EQ(alloc_sizes[0], 32); // I_outer's size: 96 / 3 = 32
+  EXPECT_EQ(alloc_sizes[1], 3); // I_inner's size: 3
+  EXPECT_EQ(alloc_strides[0], 6); // I_outer's stride: 2 * 3 = 6
+  EXPECT_EQ(alloc_strides[1], 2); // I_inner's stride: 2
+
+  // inferAndValidateAllocationSizesAndStrides should throw because
+  // the actual strides [6, 2] don't match the contiguity flags [true, true]
+  // which would expect strides [3, 1]
+  EXPECT_THAT(
+      [&]() { inferAndValidateAllocationSizesAndStrides(tensor, tv0, ee); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 }
 
 } // namespace nvfuser

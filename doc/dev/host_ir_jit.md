@@ -130,4 +130,4 @@ We plan to follow the steps below to turn on both:
 - Enable Host IR JIT for single gpu with full set of ops coverage
 
 **Link to intern presentation slides**
-http://nv/eS2
+http://nv/nvfuser-host-ir-jit

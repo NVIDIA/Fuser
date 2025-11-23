@@ -22,7 +22,13 @@
 
 namespace nvfuser {
 
-using AllocationDomainTest = NVFuserTest;
+class AllocationDomainTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 using ::testing::ElementsAre;
 
@@ -342,7 +348,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -458,7 +464,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -653,7 +659,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -796,7 +802,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -939,7 +945,7 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
   EXPECT_THAT(
       [&]() { ke.run({t0_wrong_format}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 
   auto cg_outputs = ke.run({t0});
 
@@ -1480,7 +1486,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderContiguous) {
   EXPECT_THAT(
       [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Stride mismatch with contiguity info")));
+          ::testing::HasSubstr("stride mismatch with contiguity info")));
 }
 
 TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {

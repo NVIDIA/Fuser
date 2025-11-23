@@ -15,6 +15,7 @@
 #include <ir/iostream.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 

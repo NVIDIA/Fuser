@@ -6,15 +6,19 @@
  */
 // clang-format on
 
+#include <cutlass/gemm.h>
 #include <device_lower/utils.h>
 #include <exceptions.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <scheduler/cutlass.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/nvmmh.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
+
+#include <ATen/cuda/CUDAContextLight.h>
 
 namespace nvfuser {
 
@@ -67,17 +71,27 @@ bool CutlassScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // Check if fusion has a supported matmul pattern
-  if (!hasSupportedMatmulPattern(fusion)) {
+  const cudaDeviceProp* device_prop = at::cuda::getCurrentDeviceProperties();
+  if (device_prop->major != 10 ||
+      !(device_prop->minor == 0 || device_prop->minor == 3)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Cutlass scheduler only supports GB200 and GB300 (cc 10.0 or 10.3) but "
+        "current device is cc ",
+        device_prop->major,
+        ".",
+        device_prop->minor);
     return false;
   }
 
-  // Check if epilogue is supported
-  if (!hasSupportedEpilogue(fusion)) {
-    return false;
+  const std::string reject_reason =
+      cutlass_codegen::getGemmRejectReason(fusion);
+  if (reject_reason.empty()) {
+    return true;
   }
-
-  return true;
+  scheduler_debug_utils::canScheduleRejectReason(
+      schedulerType(), reject_reason);
+  return false;
 }
 
 bool CutlassScheduler::canScheduleRunTime(
@@ -118,59 +132,7 @@ void CutlassScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       params->isA<CutlassParams>(), "CutlassScheduler expects CutlassParams");
 
   // CUTLASS scheduling doesn't involve traditional scheduling operations
-  // like split, reorder, etc. The scheduler type is already determined
-  // by the time this method is called.
-
-  // We may want to add metadata to the fusion or specific ops to guide CUTLASS
-  // code generation
-}
-
-bool CutlassScheduler::hasSupportedMatmulPattern(Fusion* fusion) {
-  // Only accept ScaledMmaOp for JIT CUTLASS kernels
-  bool has_non_scaled_mma = false;
-  int64_t num_scaled_mmas = 0;
-  for (auto expr : fusion->exprs()) {
-    if (!ir_utils::isTvOp(expr)) {
-      continue;
-    }
-    if (expr->isA<ScaledMmaOp>()) {
-      num_scaled_mmas++;
-    } else {
-      has_non_scaled_mma = true;
-    }
-  }
-  // TODO: accept fusions with epilogue
-  return num_scaled_mmas == 1 && !has_non_scaled_mma;
-}
-
-bool CutlassScheduler::hasSupportedEpilogue(Fusion* fusion) {
-  // For now, we support all epilogues that don't involve complex reductions
-  // or unsupported operations
-
-  auto matmul_output = findMatmulOutput(fusion);
-  if (!matmul_output) {
-    return false;
-  }
-
-  // Check all uses of the matmul output
-  for (auto use : matmul_output->uses()) {
-    if (use->isA<ReductionOp>()) {
-      // Complex reductions not supported yet
-      return false;
-    }
-    // TODO: Add more checks for unsupported operations
-  }
-
-  return true;
-}
-
-TensorView* CutlassScheduler::findMatmulOutput(Fusion* fusion) {
-  for (auto expr : fusion->exprs()) {
-    if (expr->isA<ScaledMmaOp>()) {
-      return expr->output(0)->as<TensorView>();
-    }
-  }
-  return nullptr;
+  // like split, reorder, etc.
 }
 
 } // namespace nvfuser

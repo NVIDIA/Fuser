@@ -457,7 +457,7 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(
-      out_scales, out_quantized, in, idx));
+      out_scales, out_quantized, in, idx, bqop->globalScale()));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 

@@ -469,11 +469,19 @@ class PythonTranslator : public OptInConstDispatch {
   PythonTranslator(std::ostream& os, Fusion* fusion)
       : printer_(os), fusion_(fusion) {}
 
-  // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ReshapeOp.
-  bool checkViewShapeDependency(const ReshapeOp* vop) {
+  // The output TensorView shape can be dynamic for operations like ReshapeOp.
+  // Check that all dynamic scalar dependencies are handled first before
+  // handling the expression.
+  bool checkDynamicShapeDependency(const Expr* op) {
+    // short-circuit: Only check operations with dynamic shapes encoded in the
+    // output TensorView.
+    if (!op->isOneOf<ReshapeOp, ExpandOp, FullOp>()) {
+      return true;
+    }
+
+    NVF_ERROR_EQ(op->outputs().size(), 1);
     const std::vector<IterDomain*>& logical_out_domain =
-        vop->out()->as<TensorView>()->domain()->logical();
+        op->output(0)->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
     std::transform(
         logical_out_domain.begin(),
@@ -545,8 +553,9 @@ class PythonTranslator : public OptInConstDispatch {
 
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
-    // short-circuit: Found a view operation without all its shape dependencies.
-    if (e->isA<ReshapeOp>() && !checkViewShapeDependency(e->as<ReshapeOp>())) {
+    // short-circuit: Found an operation without all its dynamic shape
+    // dependencies.
+    if (!checkDynamicShapeDependency(e)) {
       return false;
     }
     return std::all_of(
@@ -571,7 +580,8 @@ class PythonTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isOneOf<ReshapeOp, ExpandOp, FullOp>()) {
+        NVF_ERROR_EQ(e->outputs().size(), 1);
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
@@ -725,17 +735,12 @@ class PythonTranslator : public OptInConstDispatch {
       return;
     }
 
-    // DataType::Index does not exist in python_frontend, so convert to
-    // DataType::Int
-    DataType scalar_dtype =
-        (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
-
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
         "fd.define_scalar",
         std::make_tuple(v->value()),
         argument_names,
-        std::make_tuple(scalar_dtype),
+        std::make_tuple(v->dtype()),
         {v});
   }
 
@@ -781,7 +786,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ReshapeOp and ExpandOp handlers
+  // Used with ReshapeOp, ExpandOp, and FullOp handlers
   std::vector<Val*> getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
@@ -842,20 +847,12 @@ class PythonTranslator : public OptInConstDispatch {
   void handleCastOp(const UnaryOp* uop) {
     NVF_ERROR(uop->getUnaryOpType() == UnaryOpType::Cast);
     visited_vals_.insert(uop->out());
-
-    // DataType::Index does not exist in python_frontend, so convert to
-    // DataType::Int
-    DataType scalar_dtype = uop->out()->dtype();
-    if (scalar_dtype == DataType::Index) {
-      scalar_dtype = DataType::Int;
-    }
-
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
         "fd.ops.cast",
         std::make_tuple(uop->in()),
         argument_names,
-        std::make_tuple(scalar_dtype),
+        std::make_tuple(uop->out()->dtype()),
         {uop->out()});
   }
 

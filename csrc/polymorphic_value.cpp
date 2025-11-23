@@ -42,6 +42,39 @@ bool StructHandle::operator==(const StructHandle& other) const {
 
 namespace PolymorphicValue_functions {
 
+size_t hash(const PolymorphicValue& v) {
+  constexpr size_t nan_hash_value = 572491308;
+  // NaNs are considered the same, so map all NaN values to same hash value.
+  // This ensures that if a == b, then hash(a) == hash(b).
+
+  size_t hash = 0;
+  if (v.is<std::monostate>()) {
+    return 0;
+  } else if (v.is<std::complex<double>>()) {
+    std::complex<double> val = v.as<std::complex<double>>();
+    std::hash<double> hasher;
+    size_t real_hash =
+        std::isnan(val.real()) ? nan_hash_value : hasher(val.real());
+    size_t imag_hash =
+        std::isnan(val.imag()) ? nan_hash_value : hasher(val.imag());
+    hashCombine(hash, real_hash);
+    hashCombine(hash, imag_hash);
+  } else if (v.is<double>()) {
+    constexpr size_t nan_hash_value = 572491308;
+    size_t hash_value = std::isnan(v.as<double>())
+        ? nan_hash_value
+        : std::hash<double>()(v.as<double>());
+    hashCombine(hash, hash_value);
+  } else if (v.is<int64_t>()) {
+    hashCombine(hash, std::hash<int64_t>()(v.as<int64_t>()));
+  } else if (v.is<bool>()) {
+    hashCombine(hash, std::hash<bool>()(v.as<bool>()));
+  } else {
+    NVF_THROW("Cannot hash PolymorphicValue");
+  }
+  return hash;
+}
+
 std::string toString(const PolymorphicValue& v) {
   std::stringstream ss;
   if (v.is<at::Tensor>()) {

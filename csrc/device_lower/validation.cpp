@@ -25,6 +25,7 @@
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
@@ -273,6 +274,147 @@ bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
   return !frontier.empty() && frontier.back() == maybe_innermost_id;
 }
 
+// Validate the swizzling pattern:
+// We support a very restricted pattern from 2D logical to 5D allocation
+// Expected pattern:
+// m, k -> m, k/4, 4 (split k by 4)
+// m, k/4, 4 -> m/128, 128, k/4, 4 (split m by 128)
+// m/128, 128, k/4, 4 -> m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
+// Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
+void isValidBlockScaleSwizzle(TensorView* block_scale) {
+  auto logical_domain =
+      TensorDomain::noReductions(block_scale->getLogicalDomain());
+  auto allocation_domain =
+      TensorDomain::noReductions(block_scale->getAllocationDomain());
+
+  // check that size of logical domain is 2 and allocation domain is 5
+  NVF_ERROR(
+      logical_domain.size() == 2 && allocation_domain.size() == 5,
+      "Block scale swizzle must have 2D logical domain and 5D allocation "
+      "domain. Found: ",
+      logical_domain.size(),
+      "D logical and ",
+      allocation_domain.size(),
+      "D allocation for TensorView: ",
+      block_scale->toString());
+
+  // keep count of splits
+  int num_splits = 0;
+
+  // keeps track of the split
+  // M -> M/128, 128
+  Split* middle_split = nullptr;
+
+  // A lambda to check the transforms from logical to allocation domain
+  // Each transform must be a split, and there can be only 3 splits.
+  auto check_transform = [block_scale,
+                          &logical_domain,
+                          &num_splits,
+                          &middle_split](Expr* expr) {
+    if (auto split_expr = dynamic_cast<Split*>(expr)) {
+      // Can have a max of 3 splits - checked later
+      num_splits++;
+
+      // If expr and it's input is logical_domain back()
+      // the inner split output should have an extent of 4.
+      // Check K -> K/4, 4
+      if (split_expr->in() == logical_domain.back()) {
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 4,
+            "The innermost split in block scale swizzle must have an extent of "
+            "4. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+      } else if (split_expr->in() == logical_domain.front()) {
+        // Check M -> M/128, 128
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 128,
+            "The outermost split in block scale swizzle must have an extent of "
+            "128. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+
+        // Cache the M -> M/128, 128 split
+        middle_split = split_expr;
+      } else {
+        // Check that the input to this split is the inner output of
+        // middle_split. As we should have 128 -> 4, 32
+        NVF_ERROR(
+            middle_split && split_expr->in() == middle_split->inner(),
+            "The third split in block scale swizzle must split the inner "
+            "output "
+            "(extent 128) of the second split. Expected input to be the inner "
+            "output "
+            "of the M/128, 128 split. Found expr: ",
+            split_expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 32,
+            "The third split in block scale swizzle (128 -> 4, 32) must have "
+            "an "
+            "inner extent of 32. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            split_expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+      }
+    } else {
+      NVF_THROW(
+          "Logical to allocation domain transforms for block scale swizzle "
+          "can only contain split operations");
+    }
+  };
+
+  // Get all exprs between logical and allocation domain
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {logical_domain.begin(), logical_domain.end()},
+      {allocation_domain.begin(), allocation_domain.end()});
+
+  std::vector<IterDomain*> ids_to_transform = logical_domain;
+
+  // Transform the logical domain to the allocation domain
+  // without the permutation.
+  scheduler_utils::applyTransforms(
+      ids_to_transform, transform_exprs, check_transform);
+
+  // Check that there are exactly 3 splits
+  NVF_ERROR_EQ(
+      num_splits,
+      3,
+      "Block scale swizzle must have exactly 3 splits. Found ",
+      num_splits,
+      " splits in TensorView: ",
+      block_scale->toString());
+
+  // Get the permutation.
+  auto permutation =
+      ir_utils::computePermutation(ids_to_transform, allocation_domain);
+
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  // -> m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  // check that permutation has a value and it is 0, 3, 2, 1, 4
+  NVF_ERROR(
+      permutation.has_value() &&
+          permutation.value() == std::vector<int64_t>({0, 3, 2, 1, 4}),
+      "Block scale swizzle permutation is invalid for TensorView: ",
+      block_scale->toString());
+}
+
 // Expr-specific validaion
 //
 // TODO: Move individual validations to here, e.g.,
@@ -492,21 +634,37 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
+    if (bqop->hasGlobalScale()) {
+      auto global_scale = bqop->globalScale()->as<TensorView>();
+
+      NVF_ERROR_EQ(
+          global_scale->getMemoryType(),
+          MemoryType::Global,
+          "Global scaling factor must be a global memory tensor. Found: ",
+          global_scale->getMemoryType());
+
+      NVF_ERROR_EQ(
+          global_scale->dtype(),
+          DataType::Float,
+          "Global scaling factor must be of type float. Found: ",
+          global_scale->dtype());
+    }
+
     // Outputs have the same allocation domain
     // as the logical domain - no allocation domain.
     NVF_ERROR(
         !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
-    // TODO: Relax these for swizzled block scaling factor outputs
-    // When scaling will be swizzled we will need to allow these checks
-    // to be relaxed, but we will need to ensure that the swizzling
+    // When output scales is swizzled we will need to allow these checks
+    // to be relaxed. We will need to ensure that the swizzling
     // allocation allowed is a fixed pattern:
     // 2D logical and 5D allocation domain.
     // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
-    NVF_ERROR(
-        !block_scaling_factor->hasAllocation(),
-        "Block scaling factor must not have an allocation domain.");
+    if (block_scaling_factor->hasAllocation()) {
+      isValidBlockScaleSwizzle(block_scaling_factor);
+    }
+
     NVF_ERROR(
         std::all_of(
             block_scaling_factor->getContiguity().begin(),
@@ -1801,13 +1959,28 @@ void validate1dTmaLoad(Fusion* fusion) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    // ensure there is one and only one domain that is parallelized with
+    // ParallelType::Bulk
+    std::optional<int64_t> tma_axis = std::nullopt;
+    for (auto id_idx : arange(tv->nDims())) {
+      const auto id = tv->axis(id_idx);
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            !tma_axis.has_value(),
+            "Expect one and only one domain that is parallelized with "
+            "ParallelType::Bulk, but found multiple in: ",
+            tv->toString());
+        tma_axis = id_idx;
+      }
+    }
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
-        "Expect TMA load of inner-most dimension, but got: ",
+        tma_axis.has_value(),
+        "Expect one and only one domain that is parallelized with "
+        "ParallelType::Bulk, but found none in: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(tma_axis.value())});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
@@ -1817,6 +1990,23 @@ void validate1dTmaLoad(Fusion* fusion) {
             split->toString());
       }
     }
+    // size must be divisible by 16 bytes
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+    Val* tma_bytes = SimplifyingIrBuilder::mulExpr(
+        tv->axis(tma_axis.value())->extent(), dataTypeSizeByte(tv->dtype()));
+    Val* tma_bytes_is_multiple_of_16 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            tma_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        fusion->zeroVal());
+    NVFUSER_LOWER_VALIDATE(
+        tma_bytes_is_multiple_of_16,
+        "Expect 1dTMA load of inner-most dimension to be divisible by 16 "
+        "bytes, "
+        "but got: ",
+        tma_bytes->toInlineString(),
+        " bytes, ",
+        " tv:",
+        tv->toString());
   }
 }
 
