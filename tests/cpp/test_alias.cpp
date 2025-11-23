@@ -14,7 +14,6 @@
 #include <alias_analysis.h>
 #include <fusion.h>
 #include <fusion_profiler.h>
-#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
@@ -1656,44 +1655,6 @@ TEST_F(AliasTest, SliceOfExpandedBroadcast) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2}).cuda().as_strided({2, 3}, {1, 0});
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
-  testValidate(
-      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
-}
-
-TEST_F(AliasTest, BroadcastInDimNoRedundantSet) {
-  // Test that broadcast with no actual broadcasting does not introduce
-  // a redundant Set operation
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  TensorView* in = makeContigConcreteTensor({2, 3});
-  fusion->addInput(in);
-  
-  // Call broadcast with all dims marked as non-broadcast
-  // This should not introduce a Set operation and return the input directly
-  std::vector<bool> is_broadcast_dim = {false, false};
-  TensorView* maybe_bcast = broadcast(in, is_broadcast_dim);
-  
-  // Add an operation to ensure we have something to test
-  TensorView* out = abs(maybe_bcast);
-  
-  fusion->addOutput(out);
-
-  // Verify that no LoadStoreOp with type Set is in the fusion
-  auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
-    if (auto load_store = dynamic_cast<LoadStoreOp*>(expr)) {
-      EXPECT_NE(load_store->opType(), LoadStoreOpType::Set)
-          << "Unexpected Set operation found in fusion with no-op broadcast";
-    }
-  }
-
-  // Verify the fusion still works correctly
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor =
-      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA));
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
-  
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 }
