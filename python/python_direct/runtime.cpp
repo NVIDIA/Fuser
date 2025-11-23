@@ -162,6 +162,24 @@ Notes
 the fusion.
 )")
       .def(
+          "print",
+          [](Fusion& f) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.print(ss);
+            return ss.str();
+          },
+          R"(
+Return a string representing the expressions in the fusion.
+
+Returns
+-------
+str
+    The fusion intermediate representation (IR) as a string.
+)")
+      .def(
           "print_math",
           [](Fusion& f, bool from_outputs_only) {
             // Send debug messages to stringstream
