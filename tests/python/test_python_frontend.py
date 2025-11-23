@@ -676,6 +676,7 @@ class TestNvFuserFrontend(NVFuserTest):
         a redundant float-to-float cast operation via Set when the input already
         had the correct shape.
         """
+
         def fusion_with_broadcast_in_dim(fd: FusionDefinition):
             t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
             t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
