@@ -41,8 +41,6 @@ std::string dtypeToCutlass(const DataType& dtype, bool force_unsigned) {
         return "cutlass::half_t";
       case (DataType::BFloat16):
         return "cutlass::bfloat16_t";
-      case (DataType::Float):
-        return "float";
       case (DataType::Float8_e5m2):
         return "cutlass::float_e5m2_t";
       case (DataType::Float8_e4m3fn):
@@ -58,11 +56,15 @@ std::string dtypeToCutlass(const DataType& dtype, bool force_unsigned) {
         // TODO: if block scaling is tied to element type in nvFuser in the
         // future we can update this mapping
         return "cutlass::float_e2m1_t";
-      default:
-        NVF_THROW(
-            "nvFuser DataType ",
-            dtype,
-            " is not supported in our CUTLASS executor");
+      case (DataType::ComplexFloat):
+        return "cutlass::complex<float>";
+      case (DataType::ComplexDouble):
+        return "cutlass::complex<double>";
+      default: {
+        std::stringstream ss;
+        ss << dtype;
+        return ss.str();
+      }
     }
   }
 }

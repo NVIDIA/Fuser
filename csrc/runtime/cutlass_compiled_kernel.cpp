@@ -139,9 +139,9 @@ void CutlassCompiledKernel::run(
     }
   }
 
+  // Temporary tensors are appended after outputs in the tensor_args vector
   std::vector<at::Tensor> temp_tensors;
   temp_tensors.reserve(num_temp_tensors_);
-  std::vector<void*> temp_tensor_dataptrs(num_temp_tensors_);
   {
     std::vector<int64_t> temp_tensor_sizes(num_temp_tensors_);
 
@@ -157,15 +157,15 @@ void CutlassCompiledKernel::run(
       }
       at::Tensor t = at::empty({sz}, temp_tensor_options);
       temp_tensors.push_back(t);
-      temp_tensor_dataptrs.push_back(t.data_ptr());
+      tensor_args.emplace_back(
+          t.data_ptr(),
+          t.dim(),
+          (int64_t*)t.sizes().data(),
+          (int64_t*)t.strides().data());
     }
   }
-  // Call the kernel
 
-  run_kernel_function_(
-      tensor_args,
-      reinterpret_cast<uint8_t**>(temp_tensor_dataptrs.data()),
-      stream);
+  run_kernel_function_(tensor_args, stream);
 }
 
 void CutlassCompiledKernel::generateCode() {

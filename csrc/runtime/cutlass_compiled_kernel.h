@@ -80,7 +80,7 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   //!   4) Run the kernel using the dlsym'ed run_kernel function
 
   // This is set when generating the kernel
-  int64_t num_temp_tensors_ = 32;
+  int64_t num_temp_tensors_ = 0;
 
   //! Signature for the function for getting the workspace size
   using TempTensorSizesFunc = void (*)(
@@ -89,10 +89,7 @@ class CutlassCompiledKernel : public CompiledKernelBase {
   TempTensorSizesFunc temp_tensor_sizes_function_ = nullptr;
 
   //! Signature for the function to run the kernel
-  using RunKernelFunc = void (*)(
-      const std::vector<TensorArg>&,
-      /*temp_tensors*/ uint8_t**,
-      cudaStream_t);
+  using RunKernelFunc = void (*)(const std::vector<TensorArg>&, cudaStream_t);
   RunKernelFunc run_kernel_function_ = nullptr;
 
   void* shared_library_handle_ = nullptr;
