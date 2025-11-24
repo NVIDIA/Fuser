@@ -21,16 +21,19 @@ namespace {
 
 // To analyze a single min or max reduction op, the "target" op, we perform
 // a downstream dataflow analysis to detect whether a NAN squelched by the
-// promotion will reach any fusion outputs, or if it will be repaired by a
-// downstream "safe" reductions.
+// promotion will reach any outputs of a restricted "subgraph" we form around
+// the max() expression being analyzed for promotion.
 //
-// The entire analysis happens on TensorViews, not IterDomains.
+// Thanks to the simplifying assumptions described in fmin_fmax_promotion.h,
+// this analysis works by attaching states to TensorViews, avoiding the need
+// to track data at the level of IterDomains.
 enum class NanStatus {
-  // "None" status corresponds to a lack of relevant information. This status is
-  // the default when looking up an un-tracked node in the NanStatusMap. This
-  // can happen when checking e.g. an input to a binary op, which is a TV from
-  // some other part of the fusion not traversed during analysis. "None" is the
-  // lowest precedence state, everything else overwrites it.
+  // "None" status corresponds to a lack of relevant information. "None" state
+  // will be found on inputs of a BinaryOp, when one input comes from inside the
+  // subgraph, and the other does not (it has the "None" state). In terms of
+  // interactions with other states, "None" has low precedence and gets
+  // overwritten. You could imagine a binary op with a "None" input as a UnaryOp
+  // with its other input.
   None = 0,
 
   // "Unreduced" is the state attached to the input of the target reduction op.
@@ -61,8 +64,8 @@ enum class NanStatus {
 // An example of what each status looks like is below, with *max* reduction:
 //
 // [0.0  1.0  2.0  3.0  NAN  5.0] <- Unreduced
-// [5.0, 5.0, 5.0, 5.0, 5.0, 5.0] <- BadReduced
-// [NAN, NAN, NAN, NAN, NAN, NAN] <- GoodReduced
+// [5.0] <- BadReduced
+// [NAN] <- GoodReduced
 // [5.0  5.0  5.0  5.0  NAN  5.0] <- Mixed
 //
 // Note that "Mixed" appears the same as "Unreduced" - what is the difference?
