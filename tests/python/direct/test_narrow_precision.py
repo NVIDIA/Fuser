@@ -198,14 +198,19 @@ def test_scaled_mm(
 @pytest.mark.parametrize("swizzle_scales", [False])
 def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales):
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
-    x = torch.randn((1024, 1024), dtype=torch.float32, device="cuda")
-    x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
-        torch.float32
-    )
+    x = torch.randn((1024, 1024), dtype=torch.bfloat16, device="cuda")
+    # x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+    #     torch.float32
+    # )
+
+    x_new = torch.max(torch.abs(x)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
         x_tv = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
         )
         global_scale_tv = fd.define_tensor(
             shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
@@ -238,12 +243,25 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales):
     nvfp4_rowwise_scale_inv_uint8 = nvfp4_rowwise_scale_inv_cpu.view(torch.uint8)
 
     # Compare against TE NVFP4
-    assert torch.equal(
-        o1_uint8, nvfp4_rowwise_scale_inv_uint8
-    ), "NVFP4 rowwise scale inv does not match nvfuser scales"
-    assert torch.equal(
-        o0_uint8, nvfp4_rowwise_data_uint8
-    ), "NVFP4 rowwise data does not match nvfuser quantized values"
+    scales_match = torch.equal(o1_uint8, nvfp4_rowwise_scale_inv_uint8)
+    if not scales_match:
+        diff_mask = o1_uint8 != nvfp4_rowwise_scale_inv_uint8
+        num_different = diff_mask.sum().item()
+        total_elements = o1_uint8.numel()
+        print(
+            f"\nScale mismatch: {num_different} / {total_elements} elements differ ({100 * num_different / total_elements:.2f}%)"
+        )
+    assert scales_match, "NVFP4 rowwise scale inv does not match nvfuser scales"
+
+    data_match = torch.equal(o0_uint8, nvfp4_rowwise_data_uint8)
+    if not data_match:
+        diff_mask = o0_uint8 != nvfp4_rowwise_data_uint8
+        num_different = diff_mask.sum().item()
+        total_elements = o0_uint8.numel()
+        print(
+            f"\nData mismatch: {num_different} / {total_elements} elements differ ({100 * num_different / total_elements:.2f}%)"
+        )
+    assert data_match, "NVFP4 rowwise data does not match nvfuser quantized values"
 
 
 @pytest.mark.skipif(

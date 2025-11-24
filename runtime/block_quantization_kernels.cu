@@ -86,7 +86,7 @@ __device__ void block_quantize_to_nvfp4(
     if constexpr (std::is_same<T, float>::value) {
       vec_in[i] = input[i];
     } else if constexpr (std::is_same<T, __bfloat>::value) {
-      vec_in[i] = __bfloat2float(input[i]);
+      vec_in[i] = __bfloat2float(__float2bfloat(__bfloat2float(input[i])));
     } else if constexpr (std::is_same<T, __half>::value) {
       vec_in[i] = __half2float(input[i]);
     }
@@ -107,19 +107,23 @@ __device__ void block_quantize_to_nvfp4(
 
   // This division should be replaced with a multiplication
   // by a reciprocal for better performance.
-  float scaled_max = block_max / 6.000000000e+00f;
+  // float scaled_max = block_max / 6.000000000e+00f;
 
+  constexpr float rcp_6f = 1.0f / 6.0f;
+
+  float scaled_max = 0.0f;
   if constexpr (USE_GLOBAL_SCALE) {
-    scaled_max = scaled_max * global_scale[0];
+    scaled_max = block_max * global_scale[0] * rcp_6f;
+  } else {
+    scaled_max = block_max / 6.000000000e+00f;
   }
 
-  float clamped_max = clamp(
-      scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
+  __e4m3 clamped_max_fp8 = __float2e4m3(scaled_max);
 
-  __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
+  float clamped_max = __e4m32float(clamped_max_fp8);
 
   if constexpr (USE_GLOBAL_SCALE) {
-    clamped_max = clamped_max / global_scale[0];
+    clamped_max = global_scale[0] / clamped_max;
   }
 
   // Write out the block scaling factor to global memory.
@@ -162,8 +166,8 @@ __device__ void block_quantize_to_nvfp4(
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    float scaled_val = vec_in[i] / clamped_max;
-    clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
+    // float scaled_val = vec_in[i] / clamped_max;
+    clamped_vals[i] = vec_in[i] * clamped_max;
   }
 
   Array<__e2m1, ITEMS_PER_THREAD, 1> fp4_vals;
