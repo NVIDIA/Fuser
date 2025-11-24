@@ -412,8 +412,8 @@ class EVTConverter : OptOutDispatch {
         element_block_scale_factor +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", "inputs.main_output_block_scale_factor"},
-        {"norm_constant_ptr", "inputs.main_output_global_scale_factor"},
+        {"ptr_scale_factor", inputTvVariable(pattern.block_scale_factors)},
+        {"norm_constant_ptr", inputTvVariable(pattern.global_scale_factor)},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =

@@ -178,7 +178,8 @@ class CutlassCodeGenerator {
       std::string name,
       TensorView* tv = nullptr,
       bool needs_ptr_array = false,
-      std::string dtype_str = "") {
+      std::string dtype_str = "",
+      bool ptr_array_dtype_is_same = false) {
     auto new_temp_tensor_pos = [&]() {
       return fusion_->inputs().size() + fusion_->outputs().size() +
           num_temp_tensors_++;
@@ -204,12 +205,14 @@ class CutlassCodeGenerator {
           "We should never call registerGlobalBuffer on intermediate tensors");
     }
 
+    std::string ptr_array_dtype_str =
+        ptr_array_dtype_is_same ? dtype_str : dtype_str + "*";
     TensorDescriptor* pointer_array_desc = needs_ptr_array
         ? registerGlobalBuffer(
               name + "_ptrs",
               /*tv=*/nullptr,
               /*needs_ptr_array=*/false,
-              dtype_str + "*")
+              ptr_array_dtype_str)
         : nullptr;
 
     tensor_name_map_.emplace(
@@ -240,8 +243,6 @@ class CutlassCodeGenerator {
 
     MAYBE_REGISTER(a)
     MAYBE_REGISTER(b)
-    MAYBE_REGISTER(a_scale)
-    MAYBE_REGISTER(b_scale)
     MAYBE_REGISTER(alpha)
     MAYBE_REGISTER(beta)
     MAYBE_REGISTER(bias)
@@ -251,6 +252,19 @@ class CutlassCodeGenerator {
     MAYBE_REGISTER_NO_PTR_ARRAY(expert_offsets)
     MAYBE_REGISTER_NO_PTR_ARRAY(scale_factor_offsets)
 #undef MAYBE_REGISTER
+
+    // We handle a_scale and b_scale separately so we can specify that their
+    // dtypes are unsigned
+    registerGlobalBuffer(
+        "a_scale",
+        pattern_.a_scale,
+        /*needs_ptr_array=*/pattern_.is_grouped,
+        dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true));
+    registerGlobalBuffer(
+        "b_scale",
+        pattern_.b_scale,
+        /*needs_ptr_array=*/pattern_.is_grouped,
+        dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true));
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
@@ -265,14 +279,17 @@ class CutlassCodeGenerator {
         "main_output", main_output_, /*needs_ptr_array=*/pattern_.is_grouped);
 
     auto register_multiple = [&](const std::vector<TensorView*>& tvs,
-                                 const std::string& base_name) {
+                                 const std::string& base_name,
+                                 bool ptr_array_dtype_is_same = false) {
       size_t cur_tv = 0;
       for (TensorView* tv : tvs) {
-        std::string number = tvs.size() >= 1 ? std::to_string(cur_tv++) : "";
+        std::string number = tvs.size() > 1 ? std::to_string(cur_tv++) : "";
         registerGlobalBuffer(
             base_name + number,
             tv,
-            /*needs_ptr_array=*/pattern_.is_grouped);
+            /*needs_ptr_array=*/pattern_.is_grouped,
+            "",
+            ptr_array_dtype_is_same);
       }
     };
 
@@ -288,7 +305,10 @@ class CutlassCodeGenerator {
     }
     register_multiple(quantized_outputs, "quantized_output");
     register_multiple(block_scale_factors, "block_scale_factors");
-    register_multiple(global_scale_factors, "global_scale_factor");
+    register_multiple(
+        global_scale_factors,
+        "global_scale_factor",
+        /*ptr_array_dtype_is_same=*/true);
 
     // Register other epilogue inputs
     std::vector<TensorView*> epilogue_inputs;
@@ -591,16 +611,16 @@ Inputs standardize_args(const std::vector<TensorArg>& tensor_args) {
 )";
     for (const std::unique_ptr<TensorDescriptor>& td_ptr :
          tensor_descriptors_) {
-      code_ += "  result." + td_ptr->name + " = static_cast<" +
+      code_ += "  result." + td_ptr->name + " = reinterpret_cast<" +
           td_ptr->dtype_str + "*>(tensor_args.at(" +
           std::to_string(td_ptr->tensor_args_pos) + ").data_ptr);\n";
     }
     code_ += R"(
   // Extract m, n, k from tensor dimensions
-  const TensorArg& a_arg = inputs.at()";
+  const TensorArg& a_arg = tensor_args.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.a));
     code_ += R"();
-  const TensorArg& b_arg = inputs.at()";
+  const TensorArg& b_arg = tensor_args.at()";
     code_ += std::to_string(fusionInputPosition(fusion_, pattern_.b));
     code_ += R"();
   result.m = static_cast<int>(a_arg.sizes[0]);
@@ -622,7 +642,7 @@ Inputs standardize_args(const std::vector<TensorArg>& tensor_args) {
     }
     if (pattern_.is_grouped) {
       code_ += R"(
-  const TensorArg& expert_offsets_arg = inputs.at()";
+  const TensorArg& expert_offsets_arg = tensor_args.at()";
       code_ +=
           std::to_string(fusionInputPosition(fusion_, pattern_.expert_offsets));
       code_ += R"();
@@ -744,7 +764,8 @@ extern "C" void temp_tensor_sizes(
     const std::vector<TensorArg>& tensor_args) {
   Inputs inputs = standardize_args(tensor_args);
   auto cutlass_args = cutlass_args_from_inputs(inputs);
-  inputs.cutlass_workspace = Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);
+
+  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);
 )";
 
     if (pattern_.is_grouped) {
