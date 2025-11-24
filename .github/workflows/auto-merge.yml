@@ -163,6 +163,12 @@ jobs:
 
             core.info(`After deduplication: ${statuses.length} unique commit statuses`);
 
+            // Log all unique commit statuses for debugging
+            core.info('Unique commit statuses:');
+            statuses.forEach(s => {
+              core.info(`  - ${s.context}: ${s.state} (updated: ${s.updated_at || s.created_at})`);
+            });
+
             // Check for nvfuser-ci status
             const nvfuserCiStatus = statuses.find(s => s.context === 'nvfuser-ci');
             if (!nvfuserCiStatus) {
@@ -186,6 +192,13 @@ jobs:
             const failedStatuses = statuses.filter(s =>
               s.state === 'failure' || s.state === 'error'
             );
+
+            if (failedStatuses.length > 0) {
+              core.info(`❌ Found ${failedStatuses.length} failed commit statuses:`);
+              failedStatuses.forEach(s => core.info(`  - ${s.context}: ${s.state}`));
+            } else {
+              core.info('✅ No failed commit statuses');
+            }
 
             // 2. Get all check runs
             const checkRunsData = await github.paginate(github.rest.checks.listForRef, {
@@ -216,6 +229,20 @@ jobs:
 
             core.info(`After deduplication: ${latestCheckRuns.length} unique check runs`);
 
+            // Log check runs grouped by status for debugging
+            const checksByStatus = latestCheckRuns.reduce((acc, check) => {
+              const key = check.status === 'completed' ? check.conclusion : check.status;
+              if (!acc[key]) acc[key] = [];
+              acc[key].push(check.name);
+              return acc;
+            }, {});
+
+            core.info('Check runs by status:');
+            Object.entries(checksByStatus).forEach(([status, checks]) => {
+              core.info(`  ${status}: ${checks.length} checks`);
+              checks.forEach(name => core.info(`    - ${name}`));
+            });
+
             // Check for any failed or error check runs (excluding this workflow itself)
             // Note: context.job is the job ID, but check names use the job name
             const failedChecks = latestCheckRuns.filter(check =>
@@ -237,10 +264,15 @@ jobs:
                 failedNames.push(...failedChecks.map(c => c.name));
               }
               checks.no_failed_checks_reason = failedNames.join(', ');
+              core.info(`❌ Found ${failedChecks.length} failed/pending check runs:`);
+              failedChecks.forEach(c => {
+                const reason = c.status !== 'completed' ? c.status : c.conclusion;
+                core.info(`  - ${c.name}: ${reason}`);
+              });
               core.setFailed(`Failed checks: ${checks.no_failed_checks_reason}`);
             } else {
               checks.no_failed_checks = true;
-              core.info('✅ No failed checks');
+              core.info('✅ No failed or pending check runs');
             }
 
             // 3. Get combined status (this checks required checks)
