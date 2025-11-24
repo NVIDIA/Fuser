@@ -40,6 +40,7 @@
 #include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
+#include <runtime/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -1338,11 +1339,9 @@ void HostIrJitImpl::registerExternalFunctions() {
         FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
         // Cast to LaunchKernelContext struct
-        auto* launch_context = static_cast<LaunchKernelContext*>(launch_context_ptr);
+        auto* launch_context =
+            static_cast<LaunchKernelContext*>(launch_context_ptr);
         auto* launch_kernel_ptr = launch_context->launch_kernel;
-
-        // Check if we have a cached executor entry (fast path)
-        KernelExecutorEntry* executor_entry = launch_context->executor_entry;
 
         // Profiling setup
         int64_t group_id = launch_kernel_ptr->groupId();
@@ -1353,91 +1352,93 @@ void HostIrJitImpl::registerExternalFunctions() {
               "An invalid segment id is passed to FusionProfiler!:",
               group_id);
           SegmentProfiler& sprof = FusionProfiler::segment(group_id);
-          //sprof.inputBytesAccessed(computeBytes(input_args));
-          //sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
+          // sprof.inputBytesAccessed(computeBytes(input_args));
+          // sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
           FusionProfiler::segment(group_id).setDevice(
-                int8_t(0)); // just set 0 for now...
+              int8_t(0)); // just set 0 for now...
           //    input_args.getDeviceIndex());
           sprof.startKernel();
         }
 
         auto stream = at::cuda::getCurrentCUDAStream();
 
-        // What *should* be calculated at compile time...
-        if (!launch_context->config_initialized) {
-          // Prepare input/output arguments
-          KernelArgumentHolder input_args, output_args;
-          input_args.setCacheId(cache_id);
+        // Get KernelExecutor reference
+        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
+        KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+        CompiledKernel* compiled_kernel = ke.compiledKernel().get();
+        const LaunchParams& launch_constraints =
+            launch_kernel_ptr->launchParams();
 
-          for (int64_t i = 0; i < num_inputs; i++) {
-            input_args.push(*input_tensors[i]);
-          }
-          for (int64_t i = 0; i < num_outputs; i++) {
-            output_args.push(*output_tensors[i]);
-          }
-          input_args.setDeviceIndex();
+        auto kernel = compiled_kernel->kernel();
+        auto index_type = kernel->indexType();
 
-          // Get KernelExecutor reference
-          auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-          KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
-          CompiledKernel* compiled_kernel_ = ke.compiledKernel().get();
-          const LaunchParams& launch_constraints = launch_kernel_ptr->launchParams();
-          CompileParams compile_params = launch_kernel_ptr->compileParams();
+        // Storage for argument bytes (must be kept alive for the duration of the
+        // launch call)
+        std::vector<std::vector<std::byte>> arg_bytes;
+        arg_bytes.reserve(num_inputs + num_outputs);
 
-          launch_context->kernel_function = compiled_kernel_->cudaExecutable()->function;
+        std::vector<void*> kernel_args;
+        kernel_args.reserve(num_inputs + num_outputs);
 
-          bool first_init = false;
-          // Slow path: first initialization
-          executor_entry = &ke.executor_entry_lookup_[*input_args.getCacheId()];
+        // Process Inputs
+        for (int64_t i = 0; i < num_inputs; ++i) {
+          at::Tensor* tensor = input_tensors[i];
+          std::vector<int64_t> sizes = tensor->sizes().vec();
+          std::vector<int64_t> strides = tensor->strides().vec();
 
-          // Initialize the executor entry if not initialized
-          first_init = !executor_entry->init;
-          if (!executor_entry->init) {
-            ke.initializeExecutorEntry(
-                *executor_entry,
-                input_args,
-                launch_constraints,
-                compile_params,
-                output_args,
-                compiled_kernel_->kernel()->indexType());
-          }
+          auto bytes = tensorToBytes(
+              PolymorphicValue(*tensor),
+              sizes,
+              strides,
+              index_type,
+              getLastDimAdjustment(kernel->inputs()[i]->dtype()),
+              sizes);
 
-          // Cache the executor_entry pointer for future runs
-          launch_context->executor_entry = executor_entry;
-
-          // Compute kernel arguments
-          input_args.push(output_args);
-          if (first_init) {
-            ke.computeArgs(*executor_entry, input_args);
-          }
-
-          LaunchParams launch_params = executor_entry->launch_params;
-          // First time or after recompilation - build full config
-          launch_context->cached_config.gridDimX = launch_params.gdimx();
-          launch_context->cached_config.gridDimY = launch_params.gdimy();
-          launch_context->cached_config.gridDimZ = launch_params.gdimz();
-          launch_context->cached_config.blockDimX = launch_params.bdimx();
-          launch_context->cached_config.blockDimY = launch_params.bdimy();
-          launch_context->cached_config.blockDimZ = launch_params.bdimz();
-          launch_context->cached_config.sharedMemBytes = launch_params.smem();
-          launch_context->cached_config.hStream = stream;
-          launch_context->cached_config.attrs = nullptr;
-          launch_context->cached_config.numAttrs = 0;
-          launch_context->last_stream = stream;
-          launch_context->config_initialized = true;
-        } else if (stream != launch_context->last_stream) {
-          // Stream changed - only update stream field
-          launch_context->cached_config.hStream = stream;
-          launch_context->last_stream = stream;
+          arg_bytes.push_back(std::move(bytes));
+          kernel_args.push_back(arg_bytes.back().data());
         }
+
+        // Process Outputs
+        for (int64_t i = 0; i < num_outputs; ++i) {
+          at::Tensor* tensor = output_tensors[i];
+          std::vector<int64_t> sizes = tensor->sizes().vec();
+          std::vector<int64_t> strides = tensor->strides().vec();
+
+          auto bytes = tensorToBytes(
+              PolymorphicValue(*tensor),
+              sizes,
+              strides,
+              index_type,
+              getLastDimAdjustment(kernel->outputs()[i]->dtype()),
+              sizes);
+
+          arg_bytes.push_back(std::move(bytes));
+          kernel_args.push_back(arg_bytes.back().data());
+        }
+
+        // Launch Config
+        CUlaunchConfig config;
+        config.gridDimX = launch_constraints.gdimx();
+        config.gridDimY = launch_constraints.gdimy();
+        config.gridDimZ = launch_constraints.gdimz();
+        config.blockDimX = launch_constraints.bdimx();
+        config.blockDimY = launch_constraints.bdimy();
+        config.blockDimZ = launch_constraints.bdimz();
+        config.sharedMemBytes = launch_constraints.smem();
+        config.hStream = stream;
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+
+        launch_context->kernel_function =
+            compiled_kernel->cudaExecutable()->function;
 
         // Launch the kernel
         {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
           NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-              &launch_context->cached_config,
+              &config,
               launch_context->kernel_function,
-              executor_entry->arg_ptrs.data(),
+              kernel_args.data(),
               nullptr));
         }
 
@@ -1445,7 +1446,7 @@ void HostIrJitImpl::registerExternalFunctions() {
         if (isProfilerEnabled()) {
           auto& sprof = FusionProfiler::segment(group_id);
           sprof.stopKernel();
-          //sprof.outputBytesAccessed(computeBytes(output_args));
+          // sprof.outputBytesAccessed(computeBytes(output_args));
         }
       });
 
