@@ -22,7 +22,13 @@
 
 namespace nvfuser {
 
-using RemoveBcastSqueezeTest = NVFuserTest;
+class RemoveBcastSqueezeTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 namespace {
 

@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <fusion_guard.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/pre_segmenter.h>
@@ -78,8 +79,6 @@ TEST_F(StreamTest, Matmul) {
     fusion->addInput(w);
     fusion->addOutput(out);
 
-    w->outer_split(1, c);
-    w->axis(1)->parallelize(ParallelType::Stream);
     out->outer_split(1, c);
     out->axis(1)->parallelize(ParallelType::Stream);
   }

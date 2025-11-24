@@ -18,7 +18,7 @@
 namespace nvfuser {
 
 // Identifies which TensorView domain to inspect.
-enum class DomainType {
+enum class DomainType : int {
   kRoot,
   kLogical,
   kLoop,
@@ -43,21 +43,6 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);
-
-// Returns whether an Expr embeds multi-device resharding
-NVF_API bool isResharding(const Expr* expr);
-
-// Returns whether two tensors have different shardings. Expect a
-// producer/consumer relationship between the arguments.
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const std::unordered_set<ParallelType>& parallel_types);
-
-// Returns a set that contains DIDs and Stream.
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
-
-std::unordered_set<ParallelType> deviceParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.

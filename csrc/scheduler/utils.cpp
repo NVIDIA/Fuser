@@ -26,6 +26,7 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/allocation_utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>

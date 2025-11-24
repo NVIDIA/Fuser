@@ -17,6 +17,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/decompose_reshardings.h>

@@ -1,0 +1,415 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# Auto-merge PRs when all CI checks pass and the "enable-auto-merge" label is present
+name: Auto-merge PR
+on:
+  pull_request:
+    types:
+      - labeled
+  pull_request_review:
+    types:
+      - submitted
+  check_run:
+    types:
+      - completed
+  repository_dispatch:
+    types:
+      - nvfuser-ci-success
+
+jobs:
+  auto-merge:
+    name: Auto-merge PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: read
+      checks: read
+
+    # Only run if conditions are met based on event type
+    if: |
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
+      (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
+      (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success' && github.event.check_run.pull_requests[0] != null) ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'nvfuser-ci-success')
+
+    steps:
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let pr;
+            if (context.payload.pull_request) {
+              pr = context.payload.pull_request;
+            } else if (context.eventName === 'repository_dispatch') {
+              // For repository_dispatch events, get PR number from client_payload
+              const pr_number = context.payload.client_payload.pr_number;
+              if (!pr_number) {
+                core.info('No PR number in repository_dispatch payload');
+                return { should_skip: true };
+              }
+
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr_number,
+              });
+              pr = data;
+            } else {
+              // For check_run events, we need to find the PR
+              const prsData = await github.paginate(github.rest.pulls.list, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                head: `${context.repo.owner}:${context.payload.check_run?.head_branch}`,
+              });
+
+              if (prsData.length === 0) {
+                core.info('No open PR found for this commit');
+                return { should_skip: true };
+              }
+
+              pr = prsData[0];
+            }
+
+            // Defensive checks: skip if PR is from a fork
+            if (pr.head.repo.full_name !== pr.base.repo.full_name) {
+              core.info(`PR is from fork (${pr.head.repo.full_name}), auto-merge only works for same-repo PRs`);
+              return { should_skip: true };
+            }
+
+            // Defensive checks: skip if PR is closed or draft
+            if (pr.state === 'closed') {
+              core.info('PR is closed, skipping auto-merge checks');
+              return { should_skip: true };
+            }
+
+            if (pr.draft === true) {
+              core.info('PR is a draft, skipping auto-merge checks');
+              return { should_skip: true };
+            }
+
+            // Check if PR has the enable-auto-merge label
+            const hasLabel = pr.labels.some(label => label.name === 'enable-auto-merge');
+            if (!hasLabel) {
+              core.info('PR does not have enable-auto-merge label');
+              return { should_skip: true };
+            }
+
+            return {
+              should_skip: false,
+              number: pr.number,
+              sha: pr.head.sha,
+              mergeable: pr.mergeable,
+              mergeable_state: pr.mergeable_state,
+            };
+
+      - name: Check all conditions for auto-merge
+        id: check
+        if: fromJSON(steps.pr.outputs.result).should_skip == false
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prData = ${{ steps.pr.outputs.result }};
+            if (!prData || prData.should_skip) {
+              core.info('PR data unavailable or should skip');
+              return { ready: false };
+            }
+            const pr_number = prData.number;
+            const sha = prData.sha;
+
+            core.info(`Checking PR #${pr_number} at commit ${sha}`);
+
+            // Initialize check results
+            const checks = {
+              internal_ci_passed: false,
+              internal_ci_reason: '',
+              no_failed_checks: false,
+              no_failed_checks_reason: '',
+              pr_mergeable: false,
+              pr_mergeable_reason: '',
+              pr_mergeable_state: '',
+            };
+
+            // 1. Get all commit statuses (for nvfuser-ci and other status checks)
+            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+            });
+
+            core.info(`Found ${statuses.length} commit statuses`);
+
+            // Check for nvfuser-ci status
+            const nvfuserCiStatus = statuses.find(s => s.context === 'nvfuser-ci');
+            if (!nvfuserCiStatus) {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = 'nvfuser-ci status not found';
+              core.setFailed('nvfuser-ci status not found');
+            } else if (nvfuserCiStatus.state === 'pending') {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = 'pending';
+              core.info('nvfuser-ci is still pending');
+            } else if (nvfuserCiStatus.state !== 'success') {
+              checks.internal_ci_passed = false;
+              checks.internal_ci_reason = nvfuserCiStatus.state;
+              core.setFailed(`nvfuser-ci status is ${nvfuserCiStatus.state}`);
+            } else {
+              checks.internal_ci_passed = true;
+              core.info('✅ nvfuser-ci is success');
+            }
+
+            // Check for any failed or error statuses
+            const failedStatuses = statuses.filter(s =>
+              s.state === 'failure' || s.state === 'error'
+            );
+
+            // 2. Get all check runs
+            const checkRunsData = await github.paginate(github.rest.checks.listForRef, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+            });
+            const checkRuns = { check_runs: checkRunsData };
+
+            core.info(`Found ${checkRuns.check_runs.length} check runs`);
+
+            // Check for any failed or error check runs (excluding this workflow itself)
+            // Note: context.job is the job ID, but check names use the job name
+            const failedChecks = checkRuns.check_runs.filter(check =>
+              check.name !== 'Auto-merge PR' && (
+                check.conclusion === 'failure' ||
+                check.conclusion === 'cancelled' ||
+                check.conclusion === 'timed_out' ||
+                check.status !== 'completed'
+              )
+            );
+
+            if (failedStatuses.length > 0 || failedChecks.length > 0) {
+              checks.no_failed_checks = false;
+              const failedNames = [];
+              if (failedStatuses.length > 0) {
+                failedNames.push(...failedStatuses.map(s => s.context));
+              }
+              if (failedChecks.length > 0) {
+                failedNames.push(...failedChecks.map(c => c.name));
+              }
+              checks.no_failed_checks_reason = failedNames.join(', ');
+              core.setFailed(`Failed checks: ${checks.no_failed_checks_reason}`);
+            } else {
+              checks.no_failed_checks = true;
+              core.info('✅ No failed checks');
+            }
+
+            // 3. Get combined status (this checks required checks)
+            const { data: combinedStatus } = await github.rest.repos.getCombinedStatusForRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: sha,
+            });
+
+            core.info(`Combined status state: ${combinedStatus.state}`);
+
+            // 4. Check if PR is mergeable (includes branch protection rules like approvals)
+            // Note: GitHub computes mergeable status asynchronously, so we may need to refetch
+            // if the initial data was null/undefined. Use cached data if available.
+            let pr;
+            if (prData.mergeable !== null && prData.mergeable !== undefined) {
+              // Use cached PR data to avoid redundant API call
+              pr = {
+                mergeable: prData.mergeable,
+                mergeable_state: prData.mergeable_state,
+              };
+              core.info('Using cached PR mergeable status');
+            } else {
+              // Refetch if mergeable status wasn't computed yet
+              const response = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr_number,
+              });
+              pr = response.data;
+              core.info('Refetched PR to get mergeable status');
+            }
+
+            // Store mergeable_state for display in status comment
+            checks.pr_mergeable_state = pr.mergeable_state;
+
+            if (pr.mergeable === false) {
+              checks.pr_mergeable = false;
+              checks.pr_mergeable_reason = 'has merge conflicts';
+              core.setFailed('PR is not mergeable (conflicts or other issues)');
+            } else if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
+              checks.pr_mergeable = false;
+              checks.pr_mergeable_reason = pr.mergeable_state;
+              core.info(`PR mergeable_state: ${pr.mergeable_state}`);
+              core.setFailed(`PR mergeable_state is ${pr.mergeable_state}`);
+            } else {
+              checks.pr_mergeable = true;
+              core.info('✅ PR is mergeable');
+            }
+
+            // Determine if ready to merge
+            const ready = checks.internal_ci_passed &&
+                          checks.no_failed_checks &&
+                          checks.pr_mergeable;
+
+            return {
+              ready: ready,
+              pr_number: pr_number,
+              checks: checks,
+            };
+
+      - name: Update auto-merge status comment
+        if: always() && fromJSON(steps.pr.outputs.result).should_skip == false
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prData = ${{ steps.pr.outputs.result }};
+            if (!prData || prData.should_skip) {
+              core.info('PR data unavailable or should skip');
+              return;
+            }
+            const pr_number = prData.number;
+
+            // Get check results from previous step
+            const checkResult = ${{ steps.check.outputs.result }};
+
+            // Build status based on structured check results
+            if (!checkResult || !checkResult.checks) {
+              core.info('Check step was skipped or did not complete - status comment will not be updated');
+              return;
+            }
+
+            const checks = checkResult.checks;
+            const statusLines = [];
+
+            // Internal CI
+            if (checks.internal_ci_passed) {
+              statusLines.push('✅ Internal CI is finished');
+            } else {
+              const reason = checks.internal_ci_reason ? ` (${checks.internal_ci_reason})` : '';
+              statusLines.push(`❌ Internal CI is finished${reason}`);
+            }
+
+            // No failed checks
+            if (checks.no_failed_checks) {
+              statusLines.push('✅ No failed checks');
+            } else {
+              const reason = checks.no_failed_checks_reason ? ` (${checks.no_failed_checks_reason})` : '';
+              statusLines.push(`❌ No failed checks${reason}`);
+            }
+
+            // PR mergeable
+            if (checks.pr_mergeable) {
+              statusLines.push('✅ PR is mergeable');
+            } else {
+              const reason = checks.pr_mergeable_reason ? ` (${checks.pr_mergeable_reason})` : '';
+              statusLines.push(`❌ PR is mergeable${reason}`);
+            }
+
+            // Show mergeable_state for transparency
+            if (checks.pr_mergeable_state) {
+              statusLines.push(`ℹ️  PR mergeable_state: \`${checks.pr_mergeable_state}\``);
+            }
+
+            const statusText = statusLines.join('\n');
+
+            // Find the comment with placeholders
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr_number,
+            });
+
+            const placeholder_start = '<!-- BEGIN AUTO MERGE PLACEHOLDER -->';
+            const placeholder_end = '<!-- END AUTO MERGE PLACEHOLDER -->';
+
+            const targetComment = comments.find(comment =>
+              comment.body.includes(placeholder_start) &&
+              comment.body.includes(placeholder_end)
+            );
+
+            if (!targetComment) {
+              core.info('No comment with auto-merge placeholders found');
+              return;
+            }
+
+            // Update the comment content between placeholders
+            const beforePlaceholder = targetComment.body.substring(
+              0,
+              targetComment.body.indexOf(placeholder_start) + placeholder_start.length
+            );
+            const afterPlaceholder = targetComment.body.substring(
+              targetComment.body.indexOf(placeholder_end)
+            );
+
+            const newBody = `${beforePlaceholder}\n### Auto-merge Status\n${statusText}\n${afterPlaceholder}`;
+
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: targetComment.id,
+              body: newBody,
+            });
+
+            core.info('✅ Updated auto-merge status comment');
+
+      - name: Merge PR
+        if: fromJSON(steps.check.outputs.result).ready == true
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const checkResult = ${{ steps.check.outputs.result }};
+            if (!checkResult || !checkResult.pr_number) {
+              core.setFailed('Check results unavailable for merge');
+              return;
+            }
+            const pr_number = checkResult.pr_number;
+
+            core.info(`All conditions met. Merging PR #${pr_number}`);
+
+            try {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr_number,
+                merge_method: 'squash',
+              });
+
+              core.info(`✅ Successfully merged PR #${pr_number}`);
+
+              // Remove the label after successful merge to prevent stale state
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr_number,
+                  name: 'enable-auto-merge',
+                });
+                core.info('Removed enable-auto-merge label');
+              } catch (labelError) {
+                // Label might already be removed, ignore error
+                core.info(`Could not remove label (may already be removed): ${labelError.message}`);
+              }
+            } catch (error) {
+              core.setFailed(`Failed to merge PR: ${error.message}`);
+
+              // Notify maintainers about the merge failure
+              try {
+                const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr_number,
+                  body: `⚠️ Auto-merge failed. Please review and merge manually.\n\nWorkflow run: ${runUrl}\n\ncc @xwang233`,
+                });
+                core.info('Posted merge failure notification comment');
+              } catch (commentError) {
+                core.error(`Failed to post notification comment: ${commentError.message}`);
+              }
+            }
