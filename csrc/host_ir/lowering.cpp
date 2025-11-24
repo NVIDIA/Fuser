@@ -18,6 +18,7 @@
 #include <ops/utils.h>
 #include <runtime/executor_abstract.h>
 #include <transform_replay.h>
+#include "ir/utils.h"
 
 namespace nvfuser {
 
@@ -243,6 +244,7 @@ void lowerSegment(
             ir_utils::filterByType<TensorView>(e->outputs()));
         NVF_ERROR(ref_out != nullptr);
 
+        // FIXME: e may be replaced so the old inputs may not be valid anymore.
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
@@ -270,13 +272,22 @@ void lowerSegment(
               TransformReplay::selfReplay(in->domain(), new_in->domain());
               // FIXME: this clears DIDx. Need to propagate as well?
               new_in->setLoopDomain(new_in->getLogicalDomain());
+
+              e = ir_utils::replaceValInExprInputs(e, in, new_in);
+              // FIXME: setDefinition for all or just ref_out?
+              for (Val* out : e->outputs()) {
+                out->setDefinition(e);
+              }
+
               shardLoopLike(
                   ref_out,
                   new_in,
                   {ParallelType::Stream},
                   PropagateDirection::kBackward);
+
               shardAllocationAsLoop(new_in, {ParallelType::Stream});
               new_in->printTransforms();
+
               // Refine contiguity.
               std::vector<IterDomain*> new_allocation =
                   new_in->getMaybeAllocationDomain();
@@ -330,8 +341,8 @@ void lowerSegment(
           }
         }
 
-        Expr* new_e = cloneWithNewOperands(e, replacement_map);
-        for_loop->body().push_back(new_e);
+        e = cloneWithNewOperands(e, replacement_map);
+        for_loop->body().push_back(e);
       }
       break;
     }
