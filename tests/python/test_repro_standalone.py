@@ -17,7 +17,8 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import torch
-from nvfuser import FusionDefinition
+from copy import deepcopy
+from nvfuser import FusionDefinition, FusionCache
 
 # Import the test utilities
 sys.path.insert(0, os.path.join(project_root, 'tests', 'python'))
@@ -79,7 +80,22 @@ class TestRepro(NVFuserTest):
                     t4 = fd.ops.gather(t3, t2, dim)
                     fd.add_output(t4)
 
-                nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+                # Inlined exec_nvfuser
+                # fc = FusionCache.get()
+                # before_fusions = fc.num_fusions()
+                # inputs_captured = deepcopy(inputs)
+                # inputs_cloned = deepcopy(inputs)
+
+                with FusionDefinition() as fd:
+                    fusion_func(fd)
+                # torch.manual_seed(0)
+                # _enable_options = ["id_model_extra_validation"]
+                nvf_out = fd.execute(
+                    inputs,
+                    # device=None,
+                    # _enable_options=_enable_options,
+                    # _disable_options=[],
+                )
 
                 eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
                 torch.equal(eager_out, nvf_out[0])
