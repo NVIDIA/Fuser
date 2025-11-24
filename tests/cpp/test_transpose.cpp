@@ -1101,7 +1101,7 @@ TEST_F(TransposeTest, ViewTransposeReshape) {
 }
 
 TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
-  // This is extracted from CSA in nanogpt
+  // This is extracted from CSA in nanogpt, where we want transpose scheduler
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1110,7 +1110,6 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   auto tv0 = makeSymbolicTensor(3);
   fusion->addInput(tv0);
 
-  // NOTE: the two reshape can be handled by aliasing
   auto tv1 = reshape(tv0, {8, 1024, 1024}, {8, 1024, 16, 64});
   auto tv2 = transpose(tv1, 1, 2);
   auto tv3 = transpose(tv2, 2, 3);

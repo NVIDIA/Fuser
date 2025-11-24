@@ -70,7 +70,7 @@ class ReplaySelf : public ReplayTransformations {
         s->outer()->getIterType(),
         s->inner()->getIterType());
 
-    // Parallelize type could include device from split.
+    // Parallelize type should be preserved during transformation.
     ido->parallelize(s->outer()->getParallelType());
     idi->parallelize(s->inner()->getParallelType());
 
@@ -178,10 +178,9 @@ class ReplaySelf : public ReplayTransformations {
   }
 };
 
-ReplaySelf createReplay(
+ReplaySelf createReplaySelf(
     const TensorDomain* new_self_root,
     const TensorDomain* self) {
-  FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
 
   NVF_ERROR(
       new_self_root->maybeRoot().size() == self->maybeRoot().size(),
@@ -214,7 +213,7 @@ ReplaySelf createReplay(
   return ReplaySelf(self->loop(), axis_map);
 }
 
-TensorDomain* fullSelfReplayImpl(
+TensorDomain* applyFullSelfReplay(
     const TensorDomain* new_self_root,
     const TensorDomain* self,
     ReplaySelf& replay) {
@@ -264,8 +263,9 @@ TensorDomain* TransformReplay::fullSelfReplay(
     const TensorDomain* new_self_root,
     const TensorDomain* self,
     IterDomainMap& replay_map) {
-  ReplaySelf replay = createReplay(new_self_root, self);
-  TensorDomain* domain = fullSelfReplayImpl(new_self_root, self, replay);
+  FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
+  ReplaySelf replay = createReplaySelf(new_self_root, self);
+  TensorDomain* domain = applyFullSelfReplay(new_self_root, self, replay);
   replay_map = replay.getReplay();
   return domain;
 }
@@ -273,8 +273,9 @@ TensorDomain* TransformReplay::fullSelfReplay(
 TensorDomain* TransformReplay::fullSelfReplay(
     const TensorDomain* new_self_root,
     const TensorDomain* self) {
-  ReplaySelf replay = createReplay(new_self_root, self);
-  return fullSelfReplayImpl(new_self_root, self, replay);
+  FUSER_PERF_SCOPE("TransformReplay::fullSelfReplay");
+  ReplaySelf replay = createReplaySelf(new_self_root, self);
+  return applyFullSelfReplay(new_self_root, self, replay);
 }
 
 void TransformReplay::selfReplay(
