@@ -1747,7 +1747,9 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
-bool canUsePresetAllocationDomain(const TensorView* tv, bool ignore_empty_alloc) {
+bool canUsePresetAllocationDomain(
+    const TensorView* tv,
+    bool ignore_empty_alloc) {
   if (ignore_empty_alloc && !tv->hasAllocation()) {
     return false;
   }
@@ -1768,8 +1770,8 @@ bool canUsePresetAllocationDomain(const TensorView* tv, bool ignore_empty_alloc)
             tv->getAllocationDomain().begin(),
             tv->getAllocationDomain().end(),
             [](IterDomain* allocation_domain) {
-              return dynamic_cast<Swizzle*>(
-                         allocation_domain->definition()) != nullptr ||
+              return dynamic_cast<Swizzle*>(allocation_domain->definition()) !=
+                  nullptr ||
                   allocation_domain->getParallelType() == ParallelType::Bulk;
             }) ||
         std::is_permutation(
@@ -1791,8 +1793,7 @@ bool canUsePresetAllocationDomain(const TensorView* tv, bool ignore_empty_alloc)
     // If a shared memory output produced by scatter has an
     // allocation domain explicitly set, it's likely to be the
     // valid allocation domain.
-    if (auto def = tv->definition();
-        def != nullptr && def->isA<ScatterOp>()) {
+    if (auto def = tv->definition(); def != nullptr && def->isA<ScatterOp>()) {
       return true;
     }
   }

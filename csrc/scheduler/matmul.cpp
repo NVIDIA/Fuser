@@ -197,7 +197,9 @@ void Common::updateIdModel() {
     // IdModel
     std::unordered_map<ValGroup, MatmulDimRole> new_id_roles;
     for (auto& [k, v] : id_roles_) {
-      // We need to traverse the ValGroup to find the remaining IDs that remains in the new id_model. This is because that cacheBefore could have eliminated the reduction ID.
+      // We need to traverse the ValGroup to find the remaining IDs that remains
+      // in the new id_model. This is because that cacheBefore could have
+      // eliminated the reduction ID.
 
       // e.g.
       // output [m4, n5, rk6] = mma(A [m0, k1], B [n2, k3])
@@ -206,11 +208,12 @@ void Common::updateIdModel() {
       // output [m4, n5 ] = set(cache [m6, n7, rk8])
       //
       // So the old role rK6 wouldn't be mapped in new_graph.
-      auto old_vg = std::ranges::find_if(k->vector(), [&new_graph](Val* vg){return new_graph.hasGroup(vg);});
+      auto old_vg = std::ranges::find_if(k->vector(), [&new_graph](Val* vg) {
+        return new_graph.hasGroup(vg);
+      });
       NVF_ERROR(
-        old_vg != k->vector().end(),
-        "Old ValGroup not found in new ValGraph"
-      );
+          old_vg != k->vector().end(),
+          "Old ValGroup not found in new ValGraph");
       new_id_roles.emplace(new_graph.toGroup(*old_vg), v);
     }
     id_roles_ = new_id_roles;

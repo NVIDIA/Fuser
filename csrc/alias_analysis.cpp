@@ -60,8 +60,10 @@ bool okToRelayout(
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
   // we can merge this with the one below
-  // when using logical domain as the allocation domain, we can basically ignore the layout when it's not used by codegen
-  if (empty_allocation_as == EmptyAllocationAs::kLogical && !ir_utils::canUsePresetAllocationDomain(tv, false)) {
+  // when using logical domain as the allocation domain, we can basically ignore
+  // the layout when it's not used by codegen
+  if (empty_allocation_as == EmptyAllocationAs::kLogical &&
+      !ir_utils::canUsePresetAllocationDomain(tv, false)) {
     return true;
   }
 
