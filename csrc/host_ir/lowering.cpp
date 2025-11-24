@@ -12,9 +12,13 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <multidevice/allocation_utils.h>
+#include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
 #include <multidevice/utils.h>
+#include <ops/utils.h>
 #include <runtime/executor_abstract.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -153,7 +157,12 @@ Expr* cloneWithNewOperands(
     return e;
   }
 
-  return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  Expr* new_e =
+      e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
+  for (Val* new_out : new_outs) {
+    new_out->setDefinition(new_e);
+  }
+  return new_e;
 }
 
 void lowerSegment(
@@ -243,6 +252,7 @@ void lowerSegment(
             "Can't find any output TensorView in ",
             e->toString());
 
+        std::vector<hir::ShardByStream*> shard_by_streams;
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
@@ -264,8 +274,18 @@ void lowerSegment(
                   ref_out,
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
-            auto [i, inserted] = replacement_map.try_emplace(
-                in, hir::shardByStream(in, for_loop->index()));
+            auto shard_by_stream = [&]() -> TensorView* {
+              auto* out =
+                  ops::newValLike(in, *in->getDataType())->as<TensorView>();
+              TransformReplay::selfReplay(in->domain(), out->domain());
+              out->setLoopDomain(out->getLogicalDomain());
+              auto* shard_by_stream = IrBuilder::create<hir::ShardByStream>(
+                  out, in, for_loop->index());
+              shard_by_streams.push_back(shard_by_stream);
+              return out;
+            };
+            auto [i, inserted] =
+                replacement_map.try_emplace(in, shard_by_stream());
             if (inserted) {
               for_loop->body().push_back(i->second->definition());
             }
@@ -293,6 +313,42 @@ void lowerSegment(
 
         Expr* new_e = cloneWithNewOperands(e, replacement_map);
         for_loop->body().push_back(new_e);
+
+        for (auto* shard_by_stream : shard_by_streams) {
+          TensorView* sharded_in = shard_by_stream->out();
+          TensorView* ref_out = findMostParallelTensorView(
+              ir_utils::filterByType<TensorView>(new_e->outputs()));
+          shardLoopLike(
+              ref_out,
+              sharded_in,
+              deviceAndStreamParallelTypes(),
+              PropagateDirection::kBackward);
+          shardAllocationAsLoop(sharded_in, {ParallelType::Stream});
+          std::vector<IterDomain*> new_allocation =
+              sharded_in->getMaybeAllocationDomain();
+          std::vector<std::optional<bool>> new_contiguity =
+              sharded_in->getContiguity();
+          bool next_will_be_noncontiguous = false;
+          for (auto [i, alloc_id] :
+               enumerate(new_allocation) | std::views::reverse) {
+            std::optional<bool>& contiguity = new_contiguity[i];
+
+            if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
+              contiguity = std::nullopt;
+            } else if (next_will_be_noncontiguous) {
+              contiguity = false;
+              next_will_be_noncontiguous = false;
+            }
+
+            if (alloc_id->isStream()) {
+              next_will_be_noncontiguous = true;
+            }
+          }
+          sharded_in->setContiguity(new_contiguity);
+
+          std::cout << "sharded_in: " << sharded_in->toString() << std::endl;
+          sharded_in->printTransforms();
+        }
       }
       break;
     }
