@@ -139,6 +139,9 @@ void CutlassCompiledKernel::run(
     }
   }
 
+  size_t num_inputs_and_outputs = tensor_args.size();
+  tensor_args.resize(num_inputs_and_outputs + num_temp_tensors_);
+
   // Temporary tensors are appended after outputs in the tensor_args vector
   std::vector<at::Tensor> temp_tensors;
   temp_tensors.reserve(num_temp_tensors_);
@@ -150,18 +153,18 @@ void CutlassCompiledKernel::run(
     auto const temp_tensor_options =
         at::TensorOptions().dtype(at::kByte).device(
             at::kCUDA, args.getDeviceIndex());
-    for (int64_t sz : temp_tensor_sizes) {
+    for (auto [i, sz] : enumerate(temp_tensor_sizes)) {
       if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
         debug() << "Allocating " << sz
                 << " bytes to use for CUTLASS temporary space" << std::endl;
       }
       at::Tensor t = at::empty({sz}, temp_tensor_options);
       temp_tensors.push_back(t);
-      tensor_args.emplace_back(
-          t.data_ptr(),
-          t.dim(),
-          (int64_t*)t.sizes().data(),
-          (int64_t*)t.strides().data());
+      TensorArg& targ = tensor_args.at(num_inputs_and_outputs + i);
+      targ.data_ptr = t.data_ptr();
+      targ.dim = t.dim();
+      targ.sizes = (int64_t*)t.sizes().data();
+      targ.strides = (int64_t*)t.strides().data();
     }
   }
 

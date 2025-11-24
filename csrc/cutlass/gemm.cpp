@@ -341,7 +341,6 @@ class CutlassCodeGenerator {
     genPreamble();
 
     code_ += R"(
-namespace {
 using namespace cute;
 )";
     genParams();
@@ -351,8 +350,6 @@ using namespace cute;
     genInputMapping();
 
     genArgumentsFunction();
-
-    code_ += "} // namespace\n";
 
     genRunKernel();
   }
