@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <multidevice/propagation.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
