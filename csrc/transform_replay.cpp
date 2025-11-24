@@ -181,7 +181,6 @@ class ReplaySelf : public ReplayTransformations {
 ReplaySelf createReplaySelf(
     const TensorDomain* new_self_root,
     const TensorDomain* self) {
-
   NVF_ERROR(
       new_self_root->maybeRoot().size() == self->maybeRoot().size(),
       "Invalid number of IterDomains provided: ",
