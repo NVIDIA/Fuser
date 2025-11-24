@@ -1979,44 +1979,78 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
 }
 
+// Test TMA-based inner persistent reduction with manual scheduling
+// This test demonstrates how to manually schedule a persistent buffer kernel
+// using TMA (Tensor Memory Accelerator) for efficient data loading.
+// Pattern: input -> cast -> reduction -> broadcast -> add -> cast -> output
 TEST_F(PersistentBufferTest, TmaInnerPersistent) {
   DataType dtype = DataType::BFloat16;
   int x = 1024;
-  int y = 2048;
+  int y = 10240;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
+
+  // Create fusion: tv0 -> tv1(cast) -> tv2(sum) -> tv3(bcast) -> tv4(add) ->
+  // tv5(cast)
   auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
-  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0); // tv1 is the persistent buffer
   auto tv2 = sum(tv1, {1});
   auto tv3 = broadcast(tv2, {false, true});
   auto tv4 = add(tv3, tv1);
   auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
   fusion.addOutput(tv5);
+
   auto unscheduled_fusion_copy = fusion;
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
 
-  // tv1 is the persistent buffer, project it to inputs
-  // in this case `tv4 = add(tv3, tv1);` becomes:
-  // `tv4 = add(tv3, castOp(tv0));`, basically   // which means replace all
-  // except the first use of tv1 with tv1 recomputed from inputs,
-  // After project to inputs, we have:
-  // T0 -> T8(bulk) -> T10(ref) -> T2 (reduce) -> T3 ->
-  // |                                                |->  T4 -> T5
-  // |------------------------------------------> T6 ->
-  // The transformation in T10 can't be propagated to T0 due to the bulk
-  // parallelism in T8. It also can't be propagated to T3 due to the reduced
-  // domains in T2. To make the propagation work, we need to add a dummy
-  // output to link T1 and T6. Note: dummpy output was added for a different
-  // reason but it happens to work for this case as well. T0 -> T8(bulk) ->
-  // T10(ref) -> T2 (reduce) -> T3 -> |             | |->  T4 -> T5
-  // |-------------|-----------------------------> T6 ->|
-  // |             |                                    |-> dummpy output
-  // |             ------------------------------> T1 ->|
+  // Option to test with auto-scheduler (set to true to compare)
+  bool is_auto_schedule = false;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+
+  // Project persistent buffer tv1 to inputs.
+  // This replaces all uses of tv1 (except the first use in the reduction path)
+  // with tv1 recomputed from the fusion inputs.
+  // clang-format off
   //
+  // Before projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) -> T4 = T3 + T1
+  //                    └────────────────────────────────────────────┘
+  //
+  // After projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) ┐
+  //            |                                            ├─> T4 = T3 + T6 -> T5(output)
+  //            └─> T6(cast, recomputed from T0) ──────────┘
+  //
+  // After scheduling (adding T8 bulk load, T9 register cache, T10 rfactor):
+  //   T0 -> T8(bulk) -> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //         |                                                 ├─> T4 -> T9 -> T5
+  //         └─> T6 (recomputed cast) ───────────────────────┘
+  //
+  // Transform Propagation Challenge:
+  // Transformations from T10(reference_tv) cannot reach T3:
+  //   - Path through T0: blocked by unscheduled bulk domain in T8
+  //   - Path through T2: blocked by reduced domain in T2
+  //
+  // Solution - Add dummy output T7 = T6 + T1:
+  //   T0 -> T8(bulk) ──┬─> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //                    │    │                                    ├─> T4 -> T9 -> T5
+  //                    └─> T6 ────────────────────────────────> ─┘
+  //                         │
+  //                         └────┴─> T7 = T6 + T1 (dummy output)
+  //
+  // The dummy output creates a propagation path: T10 -> T1 -> T7 -> T6 -> T4
+  // This allows transforms to flow from the reference_tv to the entire fusion.
+  // Note: T7 is removed after transform propagation but before inlining.
+  // clang-format on
   std::vector<TensorView*> dummy_outputs;
   if (dtype == DataType::BFloat16) {
     dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
@@ -2029,69 +2063,82 @@ TEST_F(PersistentBufferTest, TmaInnerPersistent) {
     }
   }
 
-  // cache tv0 in shared memory using tma load
+  // Cache input tv0 in shared memory using TMA load (CpAsyncBulk)
   auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0_smem->setMemoryType(MemoryType::Shared);
 
-  // cache output in registers
+  // Cache output tv5 in registers to enable vectorized write to global memory
   tv5->cacheBefore();
 
   std::vector<TensorView*> tma_tvs = {tv0_smem};
 
-  // schedule the reference tv, [I, R]
+  // Use the reduction tensor tv2 as the starting point for scheduling
+  // Its transformations will be propagated to all non-TMA tensors
   TensorView* reduction_tv = tv2;
 
+  // Scheduling parameters
   struct TmaInnerPersistentParams {
-    int64_t vectorization_factor = 1;
-    int64_t persistent_batch = 1;
+    int64_t vectorization_factor = 1; // Elements per vectorized memory access
+    int64_t bdimx = 1; // Number of threads per block (TIDx)
   };
   TmaInnerPersistentParams params;
-  params.vectorization_factor = 128 / dataTypeSizeBit(dtype);
-  params.persistent_batch = 2;
+  params.vectorization_factor =
+      128 / dataTypeSizeBit(dtype); // 128 bits / element size
+  params.bdimx = 128; // Use 128 threads per block for reduction
 
-  // schedule the TMA part, [I, R] do nothing, directly parallelize with [BIDx,
-  // Bulk] schedule the iteration domain, [I, R], do nothing, [I] is
-  // parallelized with [BIDx]
+  // Schedule TMA load: [I, R]
+  // - No transformation is needed as we assume each block handles one row
+  // - axis(0): parallelize with BIDx (each block handles one batch)
+  // - axis(1): parallelize with Bulk (TMA async copy entire reduction
+  // dimension)
   reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
   reduction_tv->axis(1)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
+  // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
   reduction_tv->axis(1)->parallelize(ParallelType::Serial);
 
-  // schedule the reduction domain, [I, R] -> [I, pb, R/v/pb, v]
-  // pb: persistent batch, number of iterations each thread block will process
-  // on top of vectorization
+  // Schedule the reduction domain: [I, R] -> [I, R/v/x, us, x, v]
+  // Split R into multiple dimensions for efficient reduction:
+  //   - v: vectorization factor (elements processed per vector instruction)
+  //   - x: thread dimension (bdimx threads cooperate on reduction)
+  //   - us: unswitch dimension (for loop optimization)
   int64_t rpos = 1;
   reduction_tv->split(rpos, params.vectorization_factor);
-  reduction_tv->split(rpos, params.persistent_batch, false);
+  reduction_tv->split(rpos, params.bdimx);
+  reduction_tv->split(rpos, 1);
+  reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
+  reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
 
-  // finish thread local reduction
-  auto reference_tv = reduction_tv->rFactor({rpos, rpos + 2});
+  // Create rfactor tv to separate thread-local vectorized reduction from block
+  // reduction rfactor axes: {rpos, vectorize_pos} = {1, 4} corresponding to
+  // R/v/x and v dimensions
+  int64_t vectorize_pos = rpos + 3;
+  auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
 
   std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
   std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
 
+  // Propagate transformations from reference_tv to all non-TMA tensors
+  // TMA tensors keep their simple [BIDx, Bulk] schedule
   std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
       fusion_ptr.get(), {tma_tvs.begin(), tma_tvs.end()});
   TransformPropagator non_tma_propagator(reference_tv);
   SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
   MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
       .traverse(&non_tma_propagator);
-  fusion.print();
-  reference_tv->axis(rpos + 1)->parallelize(ParallelType::TIDx);
 
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
-  // vectorize regs to gmem
-  int64_t vectorize_pos = rpos + 2;
+  // Vectorize output write to global memory
   tv5->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
 
+  // Remove dummy outputs before inlining (they were only needed for scheduling)
   for (auto output : dummy_outputs) {
     fusion.removeOutput(output);
   }
-  // inline
-  inlineMost();
 
-  fusion.print();
+  // Inline all tensors to minimize register usage
+  inlineMost();
 
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0});
