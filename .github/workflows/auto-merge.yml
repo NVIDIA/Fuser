@@ -136,13 +136,32 @@ jobs:
             };
 
             // 1. Get all commit statuses (for nvfuser-ci and other status checks)
-            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+            const allStatuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: sha,
             });
 
-            core.info(`Found ${statuses.length} commit statuses`);
+            core.info(`Found ${allStatuses.length} commit statuses`);
+
+            // Group statuses by context and keep only the most recent status for each context
+            // This handles cases where statuses are updated multiple times
+            const statuses = Object.values(
+              allStatuses.reduce((acc, status) => {
+                const existing = acc[status.context];
+                // Keep the status with the latest created_at or updated_at time
+                const statusTime = status.updated_at || status.created_at || '';
+                const existingTime = existing ? (existing.updated_at || existing.created_at || '') : '';
+
+                // Use ID as tiebreaker for timestamp collisions (higher ID = newer)
+                if (!existing || statusTime > existingTime || (statusTime === existingTime && status.id > existing.id)) {
+                  acc[status.context] = status;
+                }
+                return acc;
+              }, {})
+            );
+
+            core.info(`After deduplication: ${statuses.length} unique commit statuses`);
 
             // Check for nvfuser-ci status
             const nvfuserCiStatus = statuses.find(s => s.context === 'nvfuser-ci');
@@ -178,9 +197,28 @@ jobs:
 
             core.info(`Found ${checkRuns.check_runs.length} check runs`);
 
+            // Group check runs by name and keep only the most recent run for each check
+            // This handles cases where checks are cancelled and rerun
+            const latestCheckRuns = Object.values(
+              checkRuns.check_runs.reduce((acc, check) => {
+                const existing = acc[check.name];
+                // Keep the check with the latest completed_at time, or started_at if not completed
+                const checkTime = check.completed_at || check.started_at || '';
+                const existingTime = existing ? (existing.completed_at || existing.started_at || '') : '';
+
+                // Use ID as tiebreaker for timestamp collisions (higher ID = newer)
+                if (!existing || checkTime > existingTime || (checkTime === existingTime && check.id > existing.id)) {
+                  acc[check.name] = check;
+                }
+                return acc;
+              }, {})
+            );
+
+            core.info(`After deduplication: ${latestCheckRuns.length} unique check runs`);
+
             // Check for any failed or error check runs (excluding this workflow itself)
             // Note: context.job is the job ID, but check names use the job name
-            const failedChecks = checkRuns.check_runs.filter(check =>
+            const failedChecks = latestCheckRuns.filter(check =>
               check.name !== 'Auto-merge PR' && (
                 check.conclusion === 'failure' ||
                 check.conclusion === 'cancelled' ||
