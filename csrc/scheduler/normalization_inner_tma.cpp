@@ -176,6 +176,7 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   reduction_tv->split(rpos, 1);
   reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
   reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
+  reduction_tv->axis(rpos + 2)->padToMultipleOfWarp();
 
   // Create rfactor tv to separate thread-local vectorized reduction from block
   // reduction rfactor axes: {rpos, vectorize_pos} = {1, 4} corresponding to
