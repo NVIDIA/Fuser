@@ -16,6 +16,8 @@
 
 #include <sys/prctl.h>
 #include <sys/syscall.h>
+#include <cerrno>
+#include <cstring>
 
 namespace nvfuser {
 
@@ -303,7 +305,9 @@ TEST_F(IpcTest, IpcP2pWithVmm) {
                        << peer_pid;
 
   int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
-  ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+  ASSERT_GE(peer_fd, 0) << "rank " << rank
+                        << " failed to get peer fd, errno: " << errno << " ("
+                        << strerror(errno) << ")";
 
   // Import the peer's memory handle
   CUmemGenericAllocationHandle peer_mem_handle = 0;
@@ -474,7 +478,9 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
                          << root_pid;
 
     peer_fd = syscall(SYS_pidfd_getfd, pid_fd, shared_handle, /*flags=*/0);
-    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+    ASSERT_GE(peer_fd, 0) << "rank " << rank
+                          << " failed to get peer fd, errno: " << errno << " ("
+                          << strerror(errno) << ")";
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle, (void*)((uint64_t)peer_fd), handle_type));
     close(pid_fd);
@@ -719,7 +725,9 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
     pid_fds.push_back(pid_fd);
 
     int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
-    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+    ASSERT_GE(peer_fd, 0) << "rank " << rank
+                          << " failed to get peer fd, errno: " << errno << " ("
+                          << strerror(errno) << ")";
     peer_fds.push_back(peer_fd);
 
     // Import the peer's memory handle
