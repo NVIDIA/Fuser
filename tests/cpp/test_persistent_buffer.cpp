@@ -14,11 +14,13 @@
 #include <scheduler/all_schedulers.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include "ir/internal_nodes.h"
 #include "ir/utils.h"
+#include "type.h"
 namespace nvfuser {
 
 using testing::Contains;
@@ -1975,5 +1977,82 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   EXPECT_TRUE(index_tv_uses.at(0)->isA<LoadStoreOp>());
 
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
+}
+
+TEST_F(PersistentBufferTest, TmaInnerPersistent) {
+  DataType dtype = DataType::BFloat16;
+  int x = 1024;
+  int y = 2048;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+
+  // cache tv0 in shared memory using tma load
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // cache output in registers
+  auto tv5_regs = tv5->cacheBefore();
+
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+  std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
+      fusion_ptr.get(), {tma_tvs.begin(), tma_tvs.end()});
+
+  // schedule the reference tv, [I, R]
+  TensorView* reference_tv = tv1;
+
+  struct TmaInnerPersistentParams {
+    int64_t vectorization_factor = 1;
+    int64_t static_bdimx = 1;
+  };
+  TmaInnerPersistentParams params;
+  params.vectorization_factor = 128 / dataTypeSizeBit(dtype);
+  params.static_bdimx = 128;
+
+  // schedule the TMA part, [I, R] do nothing, directly parallelize with [BIDx,
+  // Bulk] schedule the iteration domain, [I, R], do nothing, [I] is
+  // parallelized with [BIDx]
+  reference_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(1)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(reference_tv, tma_tvs);
+  reference_tv->axis(1)->parallelize(ParallelType::Serial);
+
+  // schedule the reduction domain, [I, R] -> [I, R/v/x, x, v]
+  int64_t rpos = 1;
+  reference_tv->split(rpos, params.vectorization_factor);
+  reference_tv->split(rpos, params.static_bdimx);
+  TransformPropagator non_tma_propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&non_tma_propagator);
+  reference_tv->axis(rpos + 1)->parallelize(ParallelType::TIDx);
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // vectorize regs to gmem
+  int64_t vectorize_pos = rpos + 2;
+  tv5_regs->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+
+  // inline
+  inlineMost();
+
+  fusion.print();
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs = ke.run({t0}, {}, {});
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
 } // namespace nvfuser
