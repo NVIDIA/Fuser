@@ -102,9 +102,14 @@ def functional_nvfp4_quantize(input_tensor):
 
 
 def nvfp4_quantize(x):
-    x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
-        torch.float32
-    )
+    # x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+    #     torch.float32
+    # )
+
+    x_new = torch.max(torch.abs(x)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
 
     x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
     return x_u8, x_scale, x_global_scale
@@ -364,7 +369,16 @@ def test_scaled_mm_new(
     mat1_ref = torch.randn((m, k), dtype=torch.bfloat16, device="cuda")
     mat2_ref = torch.randn((n, k), dtype=torch.bfloat16, device="cuda")
 
-    mat1, scale1, global_sf1 = quantization(mat1_ref)
+    mat1_nvfp4 = functional_nvfp4_quantize(mat1_ref)
+    mat1_metadata = mat1_nvfp4.get_metadata()
+    mat1 = mat1_metadata["rowwise_data"]
+    scale1 = mat1_metadata["rowwise_scale_inv"]
+
+    x_new = torch.max(torch.abs(mat1_ref)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=mat1_ref.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=mat1_ref.device, dtype=torch.float32)
+    global_sf1 = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
+
     mat2, scale2, global_sf2 = quantization(mat2_ref)
     alpha = 1.0 / (global_sf1 * global_sf2)
 
@@ -413,6 +427,9 @@ def test_scaled_mm_new(
         fd.add_output(out)
 
     o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+
+    mat1 = mat1_metadata["rowwise_data"].view(torch.float4_e2m1fn_x2)
+    scale1 = mat1_metadata["rowwise_scale_inv"].view(torch.float8_e4m3fn)
 
     ref_o = (
         torch._scaled_mm(
