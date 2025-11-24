@@ -803,8 +803,6 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
 
-  int64_t sf_offset = static_cast<int64_t>(inputs.scale_factor_offsets[expert_id]);
-
   int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
   int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
   int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
@@ -881,10 +879,9 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       if (td_ptr->tv == pattern_.a_scale) {
         offset_idx = "inputs.scale_factor_offsets[expert_id]";
       }
-      code_ += "inputs." + td_ptr->name + " + " + offset_idx + " * (";
+      code_ += "inputs." + td_ptr->name + " + " + offset_idx;
       // expert_offset takes the place of the "M" dimension. We must multiply
       // the size of each other dimension
-      bool first = true;
       for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
         if (!id->isIteration()) {
           continue;
@@ -906,13 +903,9 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
             "Could not find dimension size map entry for ",
             group);
             */
-        if (!first) {
-          code_ += " * ";
-        }
-        first = false;
-        code_ += it->second;
+        code_ += " * " + it->second;
       }
-      code_ += ");\n";
+      code_ += ";\n";
     }
 
     code_ += R"(
