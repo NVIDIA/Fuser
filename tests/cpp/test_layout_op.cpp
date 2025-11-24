@@ -102,17 +102,7 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   // padding output to multiple of 16 on allocation domain
   auto&& [io, ii] = IterDomain::split(
       out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
-  // NOTE: this doesn't feel right, we have to mark contiguity on axis(0) as
-  // `false` to avoid accidntal indexing collapsing, this should be figured out
-  // by indexing from the ceilDiv.
-  out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
-
-  // Two issues with split and merge approach:
-  // 1. This causes predication to expand to the padded region.
-  // 2. Indexing with allocation domain set as `true` is wrong.
-  // out->split(1, 16);  // padding output to multiple of 16
-  // out->setAllocationDomain(out->getLoopDomain(), true);
-  // out->merge(1);  // restore loop domain
+  out->setAllocationDomain({out->axis(0), io, ii}, {true, true, true});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
@@ -121,17 +111,15 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // output should remain the correct logical size
+  EXPECT_EQ(
+      cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512, 9}));
   // padding on the inner dimension is represented as stride on the outer
   // dimension
   EXPECT_EQ(
       cg_outputs[0].as<at::Tensor>().strides(), std::vector<int64_t>({16, 1}));
   // We need to slice because output buffer shape is not right
   EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>().slice(1, 0, k)));
-  // TODO: enable this when output buffer shape is fixed.
-  // output should remain the correct logical size
-  // EXPECT_EQ(
-  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512,
-  //     9}));
 }
 
 TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
