@@ -1105,38 +1105,37 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         "before computeAt.");
   }
 
-  // TODO: 1. test reshape; 2. test reduction
-  // We want the producer domain to preserve `root` & `logical`
-  // meanwhile, we want consumer Tensor to preserve `logical` & `allocation`
-  // (while erasing all reductions).
-
+  // We want the producer domain to preserve `root` & `logical`. Meanwhile, we
+  // want consumer Tensor to preserve `logical` & `allocation`, while erasing
+  // all reductions.
   TensorView* producer;
+  // producer_map keeps the mapping of ID from consumer to producer.
   std::unordered_map<IterDomain*, IterDomain*> producer_map;
 
+  // step 1. replicating transformation from `this` to producer
   if (definition()->isA<ScatterOp>()) {
-    // TODO: is there any way to replay a scatter op?!
-    // scatter output's loop is not connected to its root.
+    // scatter output's loop is not connected to its root, we cannot support it
+    // in replay
     NVF_ERROR(
         !domain()->hasRoot(),
-        "scatter output's root is not replayed in cacheBefore");
-
+        "scatter output's with root domain is not supported in cacheBefore");
     std::vector<IterDomain*> logical;
     std::vector<IterDomain*> loop;
-    std::unordered_map<IterDomain*, IterDomain*> map_cloned_ids;
 
     std::ranges::transform(
         domain()->logical(), std::back_inserter(logical), [&](IterDomain* id) {
           IterDomain* cloned_id =
               IrBuilder::createInContainer<IterDomain>(container(), id);
-          map_cloned_ids[id] = cloned_id;
+          producer_map[id] = cloned_id;
           return cloned_id;
         });
     std::ranges::transform(
         domain()->loop(), std::back_inserter(loop), [&](IterDomain* id) {
-          if (auto it = map_cloned_ids.find(id); it != map_cloned_ids.end()) {
+          if (auto it = producer_map.find(id); it != producer_map.end()) {
             // reuse cloned_ids
             return it->second;
           }
+          // for scatter dimension, create new ID
           return IrBuilder::createInContainer<IterDomain>(container(), id);
         });
     producer = IrBuilder::createInContainer<TensorView>(
@@ -1148,11 +1147,8 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
             TensorDomain::getContiguityFilledWith(logical, true),
             /*skip_loop_validation=*/true),
         getDataType().value());
-    // TODO:  we are not replaying the loop domain from consumer to producer, is
-    // that the right thing to do?!
   } else {
-    // Create Producer Domain
-    // We only need root for full self replay.
+    // Create Producer Domain, we construct new root for full self replay.
     std::vector<IterDomain*> root;
     std::ranges::transform(
         domain()->hasRoot() ? domain()->root() : domain()->logical(),
@@ -1160,7 +1156,6 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         [&](IterDomain* id) {
           return IrBuilder::createInContainer<IterDomain>(container(), id);
         });
-
     producer = IrBuilder::createInContainer<TensorView>(
         container(),
         IrBuilder::createInContainer<TensorDomain>(
@@ -1170,10 +1165,12 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
             root,
             TensorDomain::getContiguityFilledWith(root, true)),
         getDataType().value());
-    // replay from `root`->`loop` on producer
+
     producer->setDomain(TransformReplay::fullSelfReplay(
         producer->domain(), domain(), producer_map));
   }
+
+  // step 2. clean up domains on `this` that should preserve in `consumer`
 
   // clean up consumer domain to wipe out root and all reduction IDs
   std::vector<IterDomain*> logical_dom;
@@ -1181,11 +1178,10 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   std::vector<IterDomain*> loop_dom;
   std::vector<std::optional<bool>> contiguity;
 
-  // NOTE: I need to clear definition otherwise BestEffortReplay will not work
-  // with dangling sources create an issue for this, use the example from
-  // ./bin/test_nvfuser
-  // --gtest_filter="PointwiseTest.VectorizeWithBroadcastAndReshape1" copy
-  // non-reduction IDs onto logical and loop
+  // Copy non-reduction IDs onto logical and remove RFactorProduct field. NOTE:
+  // I need to clear definition otherwise BestEffortReplay will not work with
+  // dangling sources create an issue for this, use the example from test
+  // PointwiseTest.VectorizeWithBroadcastAndReshape1
   std::ranges::copy_if(
       domain()->logical() | std::views::transform([](IterDomain* id) {
         id->setDefinition(nullptr);
@@ -1193,10 +1189,14 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       }),
       std::back_inserter(logical_dom),
       [](IterDomain* id) { return !id->isReduction(); });
+
+  // Construct loop domain
   if (definition()->isA<ScatterOp>()) {
-    // NOTE: this doesn't feel right. we would still want to replay the loop
-    // domain we are basically dropping transformations on loop domain for
-    // scatter op during cacheBefore
+    // We do not want to reproduce the loop domain if it's for scatter. Recall
+    // that the loop domain of the scatter op is derived from the logical domain
+    // of the scatter index tensor. Here, the consumer tensor needs to copy the
+    // whole producer tensor, so the loop domain must be based on the logical
+    // domain.
     loop_dom = logical_dom;
   } else {
     std::ranges::copy_if(
@@ -1206,6 +1206,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
         std::back_inserter(loop_dom),
         [](IterDomain* id) { return !id->isReduction(); });
   }
+  // Construct allocation domain and contiguity.
   for (auto&& [id, c] :
        zip(domain()->hasAllocation() ? domain()->allocation()
                                      : domain()->logical(),
@@ -1219,9 +1220,9 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
     }
     contiguity.push_back(c);
   }
-  // TODO: We also need to clear all rfactor across IDs between logical->loop
-  // and logical->allocation.
 
+  // store original `domain()`, this could be used later when updating
+  // allocation domain on consumer
   TensorDomain* old_domain = domain();
   // Set domain of consumer
   TensorView* consumer = this;
@@ -1232,26 +1233,6 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
       alloc_dom,
       loop_dom,
       contiguity));
-
-  // TODO: figure out scatter special handling.
-  // if (!producer->definition()->isA<ScatterOp>()) {
-  // } else {
-  // }
-
-  /* FIXME
-  std::vector<IterDomain*> new_logical_domain;
-  new_logical_domain.reserve(getLogicalDomain().size());
-  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
-    new_logical_domain.push_back(dom->cloneWithoutRFactor());
-  }
-
-  // Warning: allocation domain is temporarily discarded. It will be recovered
-  // later.
-  consumer->setDomain(IrBuilder::createInContainer<TensorDomain>(
-      container(),
-      new_logical_domain,
-      TensorDomain::getContiguityFilledWith(new_logical_domain, true)));
-   */
 
   // Insert producer - Cache_Before (CB) - before this TV.
   // Before: Prev TV -> [Definition Op] -> This TV
@@ -1267,57 +1248,22 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   IrBuilder::createInContainer<LoadStoreOp>(
       container(), op_type, consumer, producer);
 
-  // definition_ is no longer valid
-  // setDefinition(nullptr);
-
-  /* FIXME
-  // We do not want to reproduce the loop domain if it's for
-  // scatter. Recall that the loop domain of the scatter op is derived
-  // from the logical domain of the scatter index tensor. Here, the
-  // consumer tensor needs to copy the whole producer tensor, so the
-  // loop domain must be based on the logical domain.
-  if (!producer->definition()->isA<ScatterOp>()) {
-    auto replayed_consumer_pair = TransformReplay::replayCasP(
-        consumer, producer, -1, TransformReplayOptions().replayAllocation());
-
-    consumer->setDomain(replayed_consumer_pair.first);
-  } else if (producer->hasAllocation()) {
-    consumer->setAllocationDomain(
-        ir_utils::propagateScatterAllocationDomain(
-            producer, consumer->getLogicalDomain()),
-        true);
-  }
-   */
-
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
     // Note: we are not setting the correct order on allocation domain here.
     // producer->setAllocationDomain(producer->getLoopDomain(), true);
-    // TODO: support transformation on allocation domain.
     // Note:
     //   1. we need to set allocation domain in order to support expr evaluator.
     //   e.g. reshape op needed sharding information in order to construct the
     //   correct output shape;
     //   2. order of allocation domain also matters, otherwise, vectorized
     //   instruction was causing correctness issue. TODO: link the issue.
-
     if (consumer->domain()->hasAllocation()) {
-      // std::unordered_map<IterDomain*, IterDomain*> c2p_map =
-      // PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
       std::vector<IterDomain*> mapped_alloc;
-      // std::unordered_set<IterDomain*> mapped_id;
       mapped_alloc.reserve(old_domain->allocation().size());
       for (auto* c_id : old_domain->allocation()) {
-        // TODO: better error message here maybe.
         mapped_alloc.push_back(producer_map.at(c_id));
-        // mapped_id.insert(producer_map.at(c_id));
       }
-      // for (auto* p_id : producer->getLogicalDomain()) {
-      //   if (mapped_id.count(p_id) == 0) {
-      //     NVF_ERROR(p_id->isReduction());
-      //     mapped_alloc.push_back(p_id);
-      //   }
-      // }
       producer->setAllocationDomain(mapped_alloc, true);
     }
   }
