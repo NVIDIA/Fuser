@@ -304,10 +304,10 @@ class CutlassCodeGenerator {
       global_scale_factors.push_back(bs_output.global_scale_factor);
     }
     register_multiple(quantized_outputs, "quantized_output");
-    register_multiple(block_scale_factors, "block_scale_factors");
+    register_multiple(block_scale_factors, "output_block_scale_factors");
     register_multiple(
         global_scale_factors,
-        "global_scale_factor",
+        "output_global_scale_factor",
         /*ptr_array_dtype_is_same=*/true);
 
     // Register other epilogue inputs
@@ -750,7 +750,7 @@ extern "C" void run_kernel(
 
   init_temp_tensors(inputs, cutlass_args, stream);
 
-  status = gemm.run(cutlass_args, inputs.cutlass_workspace, stream);
+  auto status = gemm.run(cutlass_args, inputs.cutlass_workspace, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 )";
@@ -805,7 +805,6 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // Upcast from int32_t to int64_t to avoid overflow
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
-  int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
 
   // The block size for nvfp4.
   constexpr int64_t nvfp4_block_size = 16;
@@ -818,9 +817,10 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
 
   int64_t half_k = static_cast<int64_t>(k / 2);
   int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
+  /*
 
   // Shape of A as uint8/byte = [M, K // 2]
-  a_offsets[expert_id] = a_base_as_int + expert_offset * half_k;
+  inputs.a_offsets[expert_id] = a_base_as_int + expert_offset * half_k;
 
   // Shape of B as uint8/byte = [E, N, K // 2]
   b_offsets[expert_id] = b_base_as_int + expert_id * n * half_k;
@@ -829,6 +829,7 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   out_offsets[expert_id] = out_base_as_int + expert_offset * n;
 
   // Shape of a_scale = [sum(sf_sizes), K // nvfp4_block_size]
+  int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
   a_scales_offsets[expert_id] = a_scales_base_as_int + sf_offset * group_k;
   assert(
       (reinterpret_cast<uintptr_t>(a_scales_offsets[expert_id]) % 128) == 0 &&
@@ -850,6 +851,9 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
   *layout_sfb_ptr = ScaleConfig::tile_atom_to_shape_SFB(cute::make_shape(
       static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
+  */
+)";
+    code_ += R"(
 }
 
 inline int ceilDiv(int a, int b) {
