@@ -102,7 +102,7 @@ TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
   // padding output to multiple of 16 on allocation domain
   auto&& [io, ii] = IterDomain::split(
       out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
-  out->setAllocationDomain({out->axis(0), io, ii}, {true, true, true});
+  out->setAllocationDomain({out->axis(0), io, ii}, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
@@ -134,8 +134,7 @@ TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
   // split would prevent vectorization
   auto&& [io, ii] = IterDomain::split(
       out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
-  out->setAllocationDomain(
-      {out->axis(0), io, ii, out->axis(2)}, {false, true, true, true});
+  out->setAllocationDomain({out->axis(0), io, ii, out->axis(2)}, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   // because of the split on the middle dimension, we only have the fastest
