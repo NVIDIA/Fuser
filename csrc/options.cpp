@@ -177,6 +177,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
           {"tma_pointwise", EnableOption::TmaPointwise},
+          {"tma_inner_persistent", EnableOption::TmaInnerPersistent},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
           {"host_ir_jit", EnableOption::HostIrJit},

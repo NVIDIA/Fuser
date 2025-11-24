@@ -7,28 +7,193 @@
 // clang-format on
 
 #include <scheduler/normalization_inner_tma.h>
+#include <scheduler/normalization_utils.h>
+#include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 
+#include <ATen/cuda/CUDAContext.h>
+
+#include <algorithm>
+#include <cstdint>
 #include <memory>
 
 namespace nvfuser {
 namespace normalization_inner {
 namespace tma {
 
-std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
+std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
-  auto params = std::make_unique<ReductionParams>(
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t warp_size = dev_prop->warpSize;
+  const int64_t sm_count = dev_prop->multiProcessorCount;
+  const int64_t max_threads_per_cta = dev_prop->maxThreadsPerBlock;
+  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
+  // Create TMA-specific parameters
+  auto params = std::make_unique<InnerNormTmaParams>(
       InnerPersistentKernelScheduler::schedulerType());
   params->tag = "Inner Persistent TMA heuristics";
-  NVF_THROW("Schedule inner persistent using TMA");
+
+  // Get properties of the fusion
+  const auto& prop =
+      normalization_scheduler_utils::getPersistentKernelProperties(
+          fusion,
+          runtime_info,
+          data_cache,
+          InnerPersistentKernelScheduler::schedulerType());
+
+  params->project_persistent_buffers = prop.project_persistent_buffers;
+  params->vectorize_load_smem_to_regs = true;
+
+  // reduction domain heuristics: vectorization factor and bdimx
+  const int64_t total_redu_count = prop.inner_most_dimension_numel;
+  const int64_t max_vect = prop.vectorize_factor;
+
+  // start from bdimx = 4 warps, vect = 1, then increase vect to maximum
+  int64_t bdimx = std::min(4 * warp_size, total_redu_count);
+  int64_t vect = 1;
+  while (vect * 2 <= max_vect && vect * 2 * bdimx <= total_redu_count) {
+    vect *= 2;
+  }
+  params->vectorization_factor = vect;
+  params->project_persistent_buffers = prop.project_persistent_buffers;
+
+  // further increase bdimx when iteration domain gdimx is too small
+  const int64_t target_wave = 8;
+  const int64_t gdimx = prop.total_iteration_numel;
+  int64_t cta_per_sm = max_threads_per_sm / bdimx;
+  int64_t n_waves = ceilDiv(gdimx, cta_per_sm * sm_count);
+  if (n_waves < target_wave && bdimx * 2 <= max_threads_per_cta) {
+    bdimx *= 2;
+    cta_per_sm = max_threads_per_sm / bdimx;
+    n_waves = ceilDiv(gdimx, cta_per_sm * sm_count);
+  }
+
+  // Set index type
+  params->cparams.index_type = prop.index_type;
+
+  // Set launch parameters
+  params->lparams = LaunchParams(
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL,
+      bdimx,
+      LaunchParams::UNINITIALIZED_VAL,
+      LaunchParams::UNINITIALIZED_VAL);
   return params;
 }
 
-void scheduleInnerPersistent(Fusion* fusion, const ReductionParams* rparams) {
+void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   FusionGuard fg(fusion);
-  NVF_THROW("Schedule inner persistent using TMA");
+  std::vector<TensorView*> dummy_outputs;
+  if (params->project_persistent_buffers) {
+    const scheduler_utils::PersistentBufferInfo persistent_info =
+        scheduler_utils::persistentBuffers(fusion);
+
+    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+        fusion, persistent_info, params->project_persistent_buffers);
+    for (auto output : dummy_outputs) {
+      fusion->addOutput(output);
+    }
+  }
+  // Cache input tv0 in shared memory using TMA load (CpAsyncBulk)
+  std::vector<TensorView*> tma_tvs, smem2reg_tvs;
+  const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  for (auto [tv, _] : cached_inputs) {
+    if (auto load_op = dynamic_cast<LoadStoreOp*>(tv->definition())) {
+      load_op->setOpType(LoadStoreOpType::CpAsyncBulk);
+      tv->setMemoryType(MemoryType::Shared);
+      tma_tvs.push_back(tv);
+      if (params->vectorize_load_smem_to_regs) {
+        auto regs_cache = tv->cacheAfter();
+        smem2reg_tvs.push_back(regs_cache);
+        const auto& consumers = ir_utils::consumerTvsOf(regs_cache);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          auto cached_tv_replicate = RecomputeTv::recompute(regs_cache, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), regs_cache, cached_tv_replicate);
+          smem2reg_tvs.push_back(cached_tv_replicate);
+        }
+      }
+    }
+  }
+
+  // Cache output tv5 in registers to enable vectorized write to global memory
+  const auto& cached_outputs =
+      scheduler_utils::cacheAndForkOutputs(fusion, /*unroll=*/true);
+
+  // Use the reduction tensor tv2 as the starting point for scheduling
+  // Its transformations will be propagated to all non-TMA tensors
+  TensorView* reduction_tv = scheduler_utils::getReductionTvs(fusion).at(0);
+
+  // Schedule TMA load: [I, R]
+  // - No transformation is needed as we assume each block handles one row
+  // - axis(0): parallelize with BIDx (each block handles one batch)
+  // - axis(1): parallelize with Bulk (TMA async copy entire reduction
+  // dimension)
+  reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reduction_tv->axis(1)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
+  // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
+  reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+
+  // Schedule the reduction domain: [I, R] -> [I, R/v/x, us, x, v]
+  // Split R into multiple dimensions for efficient reduction:
+  //   - v: vectorization factor (elements processed per vector instruction)
+  //   - x: thread dimension (bdimx threads cooperate on reduction)
+  //   - us: unswitch dimension (for loop optimization)
+  int64_t rpos = 1;
+  reduction_tv->split(rpos, params->vectorization_factor);
+  reduction_tv->split(rpos, params->lparams.bdimx());
+  reduction_tv->split(rpos, 1);
+  reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
+  reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
+
+  // Create rfactor tv to separate thread-local vectorized reduction from block
+  // reduction rfactor axes: {rpos, vectorize_pos} = {1, 4} corresponding to
+  // R/v/x and v dimensions
+  int64_t vectorize_pos = rpos + 3;
+  auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
+
+  std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
+  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+
+  // Propagate transformations from reference_tv to all non-TMA tensors
+  // TMA tensors keep their simple [BIDx, Bulk] schedule
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator non_tma_propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&non_tma_propagator);
+
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // Vectorize output write to global memory
+  for (auto [_, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
+    output->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+  }
+  if (params->vectorize_load_smem_to_regs) {
+    for (auto tv : smem2reg_tvs) {
+      tv->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // Inline all tensors to minimize register usage
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+  inlineMost();
+
+  // if (params->vectorize_load_smem_to_regs) {
+  //   for (auto tv : smem2reg_tvs) {
+  //     tv->computeWith(-1, /*best_effort=*/true);
+  //   }
+  // }
 }
 
 } // namespace tma

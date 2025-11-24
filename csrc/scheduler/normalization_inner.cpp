@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <instrumentation.h>
+#include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_inner.h>
 #include <scheduler/normalization_inner_non_tma.h>
@@ -175,8 +176,16 @@ std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
         SchedulerRuntimeInfo& runtime_info,
         HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
-  // TODO: Add TMA dispatch logic here when TMA is implemented
-  // For now, always use non-TMA implementation
+
+  // Check if TMA inner persistent is enabled
+  if (isOptionEnabled(EnableOption::TmaInnerPersistent)) {
+    auto tma_params = normalization_inner::tma::getInnerPersistentHeuristics(
+        fusion, runtime_info, data_cache);
+    NVF_ERROR(tma_params != nullptr);
+    return tma_params;
+  }
+
+  // Use non-TMA implementation by default
   auto rparams = normalization_inner::non_tma::getInnerPersistentHeuristics(
       fusion, runtime_info, data_cache);
   NVF_ERROR(rparams != nullptr);
@@ -187,6 +196,17 @@ void InnerPersistentKernelScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
+
+  // Check if this is TMA params
+  if (auto tma_params = dynamic_cast<const InnerNormTmaParams*>(params)) {
+    NVF_ERROR(
+        tma_params->scheduler_type == schedulerType(),
+        "Incorrect scheduler type in InnerNormTmaParams");
+    normalization_inner::tma::scheduleInnerPersistent(fusion, tma_params);
+    return;
+  }
+
+  // Otherwise, use non-TMA implementation with ReductionParams
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
@@ -195,8 +215,6 @@ void InnerPersistentKernelScheduler::schedule(
   NVF_ERROR(
       rparams->scheduler_type ==
       InnerPersistentKernelScheduler::schedulerType());
-  // TODO: Add TMA dispatch logic here when TMA is implemented
-  // For now, always use non-TMA implementation
   normalization_inner::non_tma::scheduleInnerPersistent(fusion, rparams);
 }
 } // namespace nvfuser

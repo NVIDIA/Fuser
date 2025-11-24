@@ -1985,7 +1985,7 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
 // Pattern: input -> cast -> reduction -> broadcast -> add -> cast -> output
 TEST_F(PersistentBufferTest, TmaInnerPersistent) {
   DataType dtype = DataType::BFloat16;
-  int x = 1024;
+  int x = 16384;
   int y = 10240;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -2008,7 +2008,7 @@ TEST_F(PersistentBufferTest, TmaInnerPersistent) {
   auto t0 = at::randn({x, y}, options).clamp(-2, 2);
 
   // Option to test with auto-scheduler (set to true to compare)
-  bool is_auto_schedule = false;
+  bool is_auto_schedule = true;
   if (is_auto_schedule) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({t0});
