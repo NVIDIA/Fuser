@@ -803,9 +803,6 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
 
-  // The block size for nvfp4.
-  constexpr int64_t nvfp4_block_size = 16;
-
   int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
   int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
   int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
@@ -813,7 +810,85 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       (m >= 0 && n == inputs.n && k == inputs.k && k % 2 == 0) && "Unexpected problem sizes");
 
   int64_t half_k = static_cast<int64_t>(k / 2);
-  int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
+)";
+    IdModel id_model(fusion_, /*build_graphs=*/false);
+    id_model.buildGraph(IdMappingMode::EXACT);
+    ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+    // All domains in the fusion must be m, n, k, k/2 for packed fp4 tensors, or
+    // specific sizes for scale factors. Here we build a mapping for all the
+    // known size ValGroups in the problem.
+    NVF_ERROR_EQ(pattern_.a->nDims(), 2);
+    ValGroup m_group = graph.toGroup(pattern_.a->getLogicalDomain().front());
+    ValGroup half_k_group =
+        graph.toGroup(pattern_.a->getLogicalDomain().back());
+
+    // For grouped GEMM, B is [E, N, K/2] while for ungrouped it is [N, K/2]
+    NVF_ERROR_EQ(pattern_.b->nDims(), 3);
+    ValGroup num_experts_group =
+        graph.toGroup(pattern_.b->getLogicalDomain().at(0));
+    ValGroup n_group = graph.toGroup(pattern_.b->getLogicalDomain().at(1));
+    // TODO: We should have exact mappings for ScaledMmaOp and
+    // CutlassNvfp4GroupedMmaOp but these were not created when the ops were
+    // made, so here we correct the exact graph.
+    graph.mapVals(pattern_.b->getLogicalDomain().at(2), half_k_group->front());
+
+    graph.mapVals(pattern_.a_scale->getLogicalDomain().at(0), m_group->front());
+
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(0), num_experts_group->front());
+    graph.mapVals(pattern_.b_scale->getLogicalDomain().at(1), n_group->front());
+    // TODO: set up K dimension of scale factors
+
+    std::cout << id_model.toString() << std::endl;
+
+    NVF_ERROR(
+        graph.toGroup(pattern_.b->getLogicalDomain().at(2)) == half_k_group,
+        "Last dimension of B, ",
+        pattern_.b->getLogicalDomain().at(2)->toString(),
+        ", is not mapped to half k group derived from A, ",
+        half_k_group->front()->toString());
+
+    std::unordered_map<ValGroup, std::string> dim_size;
+    dim_size.emplace(num_experts_group, "num_experts");
+    dim_size.emplace(n_group, "n");
+    dim_size.emplace(half_k_group, "half_k");
+
+    for (const std::unique_ptr<TensorDescriptor>& td_ptr :
+         tensor_descriptors_) {
+      TensorDescriptor* pa_desc = td_ptr->pointer_array_desc;
+      if (pa_desc == nullptr) {
+        continue;
+      }
+      code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
+      // base pointer
+      code_ += "inputs." + td_ptr->name + " + expert_offset * (";
+      // expert_offset takes the place of the "M" dimension. We must multiply
+      // the size of each other dimension
+      bool first = true;
+      for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
+        if (!id->isIteration()) {
+          continue;
+        }
+        ValGroup group = graph.toGroup(id);
+        if (group == m_group || group == num_experts_group) {
+          continue;
+        }
+        const auto it = dim_size.find(group);
+        NVF_ERROR(
+            it != dim_size.end(),
+            "Could not find dimension size map entry for ",
+            group);
+        if (!first) {
+          code_ += " * ";
+        }
+        first = false;
+        code_ += it->second;
+      }
+      code_ += ");\n";
+    }
+
+    code_ += R"(
   /*
 
   // Shape of A as uint8/byte = [M, K // 2]
@@ -827,6 +902,11 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
 
   // Shape of a_scale = [sum(sf_sizes), K // nvfp4_block_size]
   int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
+
+  // The block size for nvfp4.
+  constexpr int64_t nvfp4_block_size = 16;
+  int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
+
   a_scales_offsets[expert_id] = a_scales_base_as_int + sf_offset * group_k;
   assert(
       (reinterpret_cast<uintptr_t>(a_scales_offsets[expert_id]) % 128) == 0 &&
