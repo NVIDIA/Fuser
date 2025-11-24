@@ -47,6 +47,8 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
 
   params->project_persistent_buffers = prop.project_persistent_buffers;
   params->vectorize_load_smem_to_regs = true;
+  params->pre_load_ldg_tvs = true;
+  params->tma_load_non_persistent_buffers = false;
 
   // reduction domain heuristics: vectorization factor and bdimx
   const int64_t total_redu_count = prop.inner_most_dimension_numel;
@@ -72,6 +74,9 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     n_waves = ceilDiv(gdimx, cta_per_sm * sm_count);
   }
 
+  // set persistent batch size
+  params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
+
   // Set index type
   params->cparams.index_type = prop.index_type;
 
@@ -80,7 +85,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      bdimx,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
   return params;
@@ -88,11 +93,10 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
 
 void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   FusionGuard fg(fusion);
+  const scheduler_utils::PersistentBufferInfo persistent_info =
+      scheduler_utils::persistentBuffers(fusion);
   std::vector<TensorView*> dummy_outputs;
   if (params->project_persistent_buffers) {
-    const scheduler_utils::PersistentBufferInfo persistent_info =
-        scheduler_utils::persistentBuffers(fusion);
-
     dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
         fusion, persistent_info, params->project_persistent_buffers);
     for (auto output : dummy_outputs) {
@@ -100,9 +104,24 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
     }
   }
   // Cache input tv0 in shared memory using TMA load (CpAsyncBulk)
-  std::vector<TensorView*> tma_tvs, smem2reg_tvs;
+  std::unordered_set<TensorView*> persistent_inputs{
+      persistent_info.projectable_buffer_inputs.begin(),
+      persistent_info.projectable_buffer_inputs.end()};
+  for (auto tv : persistent_info.projectable_buffer_inputs) {
+    std::cout << "projectable_buffer_inputs tv: " << tv->toString()
+              << std::endl;
+  }
+  std::vector<TensorView*> ldg_tvs, tma_tvs, smem2reg_tvs;
   const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
-  for (auto [tv, _] : cached_inputs) {
+  for (auto [tv, input_idx] : cached_inputs) {
+    auto input = fusion->inputs()[input_idx]->as<TensorView>();
+    std::cout << "cached input: " << tv->toString() << std::endl;
+    std::cout << "xxxxxx input: " << input->toString() << std::endl;
+    if (!params->tma_load_non_persistent_buffers &&
+        !persistent_inputs.contains(input)) {
+      ldg_tvs.push_back(tv);
+      continue;
+    }
     if (auto load_op = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       load_op->setOpType(LoadStoreOpType::CpAsyncBulk);
       tv->setMemoryType(MemoryType::Shared);
@@ -110,6 +129,7 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       if (params->vectorize_load_smem_to_regs) {
         auto regs_cache = tv->cacheAfter();
         smem2reg_tvs.push_back(regs_cache);
+        // TODO: just repalce persistent uses insead of all uses
         const auto& consumers = ir_utils::consumerTvsOf(regs_cache);
         for (auto i = 1; i < (int)consumers.size(); i++) {
           auto consumer = consumers.at(i);
@@ -119,6 +139,8 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
           smem2reg_tvs.push_back(cached_tv_replicate);
         }
       }
+    } else {
+      ldg_tvs.push_back(tv);
     }
   }
 
@@ -141,14 +163,16 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
   reduction_tv->axis(1)->parallelize(ParallelType::Serial);
 
-  // Schedule the reduction domain: [I, R] -> [I, R/v/x, us, x, v]
+  // Schedule the reduction domain:
+  // [I, R] -> [I, b, us, x, v]
   // Split R into multiple dimensions for efficient reduction:
   //   - v: vectorization factor (elements processed per vector instruction)
   //   - x: thread dimension (bdimx threads cooperate on reduction)
+  //   - b: persistent batch size
   //   - us: unswitch dimension (for loop optimization)
   int64_t rpos = 1;
   reduction_tv->split(rpos, params->vectorization_factor);
-  reduction_tv->split(rpos, params->lparams.bdimx());
+  reduction_tv->split(rpos, params->persistent_batch_size, false);
   reduction_tv->split(rpos, 1);
   reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
   reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
@@ -161,6 +185,9 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
 
   std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
   std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+  for (auto tma_tv : tma_tvs) {
+    std::cout << "tma_tv: " << tma_tv->toString() << std::endl;
+  }
 
   // Propagate transformations from reference_tv to all non-TMA tensors
   // TMA tensors keep their simple [BIDx, Bulk] schedule
@@ -173,6 +200,26 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
 
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
+  auto get_vect_pos = [](TensorView* tv) {
+    auto it = std::find_if(
+        tv->domain()->loop().begin(),
+        tv->domain()->loop().end(),
+        [](const IterDomain* id) {
+          return id->getParallelType() == ParallelType::TIDx;
+        });
+
+    if (it == tv->domain()->loop().end()) {
+      return -1;
+    }
+    return int(it - tv->domain()->loop().begin()) + 1;
+  };
+  // vectorize ldg tvs
+  for (auto tv : ldg_tvs) {
+    auto vect_pos = get_vect_pos(tv);
+    if (vect_pos > 0) {
+      tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
   // Vectorize output write to global memory
   for (auto [_, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
@@ -180,14 +227,23 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   }
   if (params->vectorize_load_smem_to_regs) {
     for (auto tv : smem2reg_tvs) {
-      tv->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+      auto vect_pos = get_vect_pos(tv);
+      if (vect_pos > 0) {
+        tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+      }
     }
   }
   // Inline all tensors to minimize register usage
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  inlineMost();
+  if (params->pre_load_ldg_tvs) {
+    std::vector<TensorView*> non_ldg_tvs =
+        ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
+    inlineMost(non_ldg_tvs);
+  } else {
+    inlineMost();
+  }
 
   // if (params->vectorize_load_smem_to_regs) {
   //   for (auto tv : smem2reg_tvs) {

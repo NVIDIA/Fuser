@@ -2146,4 +2146,41 @@ TEST_F(PersistentBufferTest, TmaInnerPersistent) {
 
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
+
+TEST_F(PersistentBufferTest, TmaInnerPersistentRmsNorm) {
+  DataType dtype = DataType::BFloat16;
+  int x = 16384;
+  int y = 10240;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+
+  // Option to test with auto-scheduler (set to true to compare)
+  bool is_auto_schedule = true;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+    testValidate(
+        &unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+    return;
+  }
+}
 } // namespace nvfuser
