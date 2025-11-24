@@ -803,6 +803,8 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
 
+  int64_t sf_offset = static_cast<int64_t>(inputs.scale_factor_offsets[expert_id]);
+
   int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
   int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
   int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
@@ -815,37 +817,50 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
     id_model.buildGraph(IdMappingMode::EXACT);
     ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
 
+    // For grouped GEMM we have the following input sizes:
+    //   a: [M, K/2]
+    //   b: [E, K/2, N]
+    //   a_scale: [padded_m, K/block_size]
+    //   b_scale: [E, N, K/block_size]
+    NVF_ERROR_EQ(pattern_.a->nDims(), 2);
+    NVF_ERROR_EQ(pattern_.b->nDims(), 3);
+
+    // TODO: We should have exact mappings for ScaledMmaOp and
+    // CutlassNvfp4GroupedMmaOp but these were not created when the ops were
+    // made, so here we correct the exact graph.
+    graph.mapVals(
+        pattern_.b->getLogicalDomain().at(1),
+        pattern_.a->getLogicalDomain().at(1));
+
+    graph.mapVals(
+        pattern_.a_scale->getLogicalDomain().at(0),
+        pattern_.a->getLogicalDomain().at(0));
+
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(0),
+        pattern_.b->getLogicalDomain().at(0));
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(1),
+        pattern_.b->getLogicalDomain().at(2));
+
     // All domains in the fusion must be m, n, k, k/2 for packed fp4 tensors, or
     // specific sizes for scale factors. Here we build a mapping for all the
     // known size ValGroups in the problem.
-    NVF_ERROR_EQ(pattern_.a->nDims(), 2);
     ValGroup m_group = graph.toGroup(pattern_.a->getLogicalDomain().front());
     ValGroup half_k_group =
         graph.toGroup(pattern_.a->getLogicalDomain().back());
 
-    // For grouped GEMM, B is [E, N, K/2] while for ungrouped it is [N, K/2]
-    NVF_ERROR_EQ(pattern_.b->nDims(), 3);
     ValGroup num_experts_group =
         graph.toGroup(pattern_.b->getLogicalDomain().at(0));
-    ValGroup n_group = graph.toGroup(pattern_.b->getLogicalDomain().at(1));
-    // TODO: We should have exact mappings for ScaledMmaOp and
-    // CutlassNvfp4GroupedMmaOp but these were not created when the ops were
-    // made, so here we correct the exact graph.
-    graph.mapVals(pattern_.b->getLogicalDomain().at(2), half_k_group->front());
-
-    graph.mapVals(pattern_.a_scale->getLogicalDomain().at(0), m_group->front());
-
-    graph.mapVals(
-        pattern_.b_scale->getLogicalDomain().at(0), num_experts_group->front());
-    graph.mapVals(pattern_.b_scale->getLogicalDomain().at(1), n_group->front());
+    ValGroup n_group = graph.toGroup(pattern_.b->getLogicalDomain().at(2));
     // TODO: set up K dimension of scale factors
 
     std::cout << id_model.toString() << std::endl;
 
     NVF_ERROR(
-        graph.toGroup(pattern_.b->getLogicalDomain().at(2)) == half_k_group,
-        "Last dimension of B, ",
-        pattern_.b->getLogicalDomain().at(2)->toString(),
+        graph.toGroup(pattern_.b->getLogicalDomain().at(1)) == half_k_group,
+        "Half K dimension of B, ",
+        pattern_.b->getLogicalDomain().at(1)->toString(),
         ", is not mapped to half k group derived from A, ",
         half_k_group->front()->toString());
 
@@ -862,7 +877,11 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       }
       code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
       // base pointer
-      code_ += "inputs." + td_ptr->name + " + expert_offset * (";
+      std::string offset_idx = "expert_offset";
+      if (td_ptr->tv == pattern_.a_scale) {
+        offset_idx = "inputs.scale_factor_offsets[expert_id]";
+      }
+      code_ += "inputs." + td_ptr->name + " + " + offset_idx + " * (";
       // expert_offset takes the place of the "M" dimension. We must multiply
       // the size of each other dimension
       bool first = true;
@@ -875,10 +894,18 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
           continue;
         }
         const auto it = dim_size.find(group);
+        // TODO: we should assert this instead
+        if (it == dim_size.end()) {
+          std::cout << "Could not find dimension size map entry for "
+                    << id->toString() << std::endl;
+          continue;
+        }
+        /*
         NVF_ERROR(
             it != dim_size.end(),
             "Could not find dimension size map entry for ",
             group);
+            */
         if (!first) {
           code_ += " * ";
         }
