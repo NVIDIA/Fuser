@@ -11,7 +11,8 @@ on:
   pull_request_review:
     types:
       - submitted
-  check_run:
+  workflow_run:
+    workflows: ["Build", "Lint"]
     types:
       - completed
   repository_dispatch:
@@ -33,7 +34,7 @@ jobs:
     if: |
       (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
-      (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success' && github.event.check_run.pull_requests[0] != null) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'nvfuser-ci-success')
 
     steps:
@@ -59,21 +60,24 @@ jobs:
                 pull_number: pr_number,
               });
               pr = data;
-            } else {
-              // For check_run events, we need to find the PR
+            } else if (context.eventName === 'workflow_run') {
+              // For workflow_run events, find PR by head branch
               const prsData = await github.paginate(github.rest.pulls.list, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 state: 'open',
-                head: `${context.repo.owner}:${context.payload.check_run?.head_branch}`,
+                head: `${context.repo.owner}:${context.payload.workflow_run.head_branch}`,
               });
 
               if (prsData.length === 0) {
-                core.info('No open PR found for this commit');
+                core.info('No open PR found for this workflow run');
                 return { should_skip: true };
               }
 
               pr = prsData[0];
+            } else {
+              core.info('Unexpected event type, skipping');
+              return { should_skip: true };
             }
 
             // Defensive checks: skip if PR is from a fork
