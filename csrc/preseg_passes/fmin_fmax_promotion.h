@@ -35,24 +35,24 @@ namespace nvfuser::preseg_passes {
 // The purpose of this pass is to identify situations like this, and "promote"
 // max and min ops into fmax and fmin where possible.
 //
-// The scope of this analysis can be quite large, and could e.g. apply to
-// pointwise min/max as well as reductions. However this pass currently only
-// targets normalization-style cases, so the promotion algorithm is simplified
-// with the following restrictions:
+// Discovering these cases using full IterDomain analysis is quite complicated,
+// instead of doing that, this pass currently relies on a couple of restrictions
+// to achieve simpler, conservative analysis.
+// This means we won't always do the promotion, even when it is safe to do so.
 //
-// 1. Only promotes min() and max() reduction ops, not pointwise min and max.
-// 2. Analyzes a restricted subgraph around the "target" min/max reduction.
-//    Specifically, we only analyze UnaryOp, BinaryOp, ReductionOp and
-//    BroadcastOp.
-// 3. Limited support for reduction and broadcast axes. All ReductionOps in the
-//    subgraph must match the target reduction axes. Likewise with BroadcastOps,
-//    if we encounter a single broadcast, it becomes the structure that all
-//    broadcasts in the subgraph must conform to. This simplifies the analysis
-//    and avoids the need for a complicated IterDomain propagation and
-//    interaction tracker.
-// 4. Restricted subgraph-input analysis. We start from the input of the target
+// The restrictions work like this:
+// 1. We form a subgraph around the "target" min/max reduction. This subgraph
+//    only contains a few operators: UnaryOp, BinaryOp, ReductionOp BroadcastOp.
+//    Any other expression types are considered "outputs" of the subgraph.
+// 2. Restrictions on reduction and broadcast shapes. All reductions in the
+//    subgraph must match the target reduction shape. Likewise, all broadcasts
+//    must broadcast between the same shapes (if there are any in the subgraph).
+//    These restrictions ensure that data doesn't move around domains in ways
+//    which would require more fine-grained tracking.
+// 3. Restricted subgraph-input analysis. We start from the input of the target
 //    ReductionOp, and we do not look any further upstream. This means we
-//    conservatively reject the following example:
+//    conservatively reject the following example where a repair happens,
+//    although the data comes from a distant parent:
 //      tv1 = abs(tv0)
 //      tv2 = max(tv1, {0})
 //      tv3 = sum(tv0, {0})
