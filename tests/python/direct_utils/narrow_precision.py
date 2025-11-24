@@ -134,7 +134,6 @@ def pytorch_nvfp4_quantize(a, a_global_scale):
 
     # Find absolute maximum along blockwise dimension
     max_abs = torch.amax(torch.abs(a_fp32), dim=-1)
-    print("Data type of max_abs:", max_abs.dtype)
     block_scale_fp32 = (max_abs / FLOAT4_E2M1_MAX).float()
 
     scaled_block_scale_fp32 = block_scale_fp32 * a_global_scale
@@ -144,10 +143,7 @@ def pytorch_nvfp4_quantize(a, a_global_scale):
     scaled_block_scale_fp8 = scaled_block_scale_fp32.to(torch.float8_e4m3fn)
     total_scale = scaled_block_scale_fp32 / a_global_scale
     a_scaled = a_fp32 / total_scale.unsqueeze(-1)
-    print("Data type of a_scaled:", a_scaled.dtype)
     a_scaled = torch.clamp(a_scaled, -FLOAT4_E2M1_MAX, FLOAT4_E2M1_MAX)
-    print("Data type of a_scaled:", a_scaled.dtype)
-    print("FLOAT4_E2M1_MAX:", FLOAT4_E2M1_MAX)
     a_scaled = a_scaled.view(original_shape)
     return to_fp4(a_scaled), scaled_block_scale_fp8
 
