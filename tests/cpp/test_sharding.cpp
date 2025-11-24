@@ -10,6 +10,7 @@
 
 #include <fusion.h>
 #include <multidevice/executor.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/decompose_reshardings.h>

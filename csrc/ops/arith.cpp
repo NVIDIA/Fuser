@@ -2636,6 +2636,7 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
 // block scales to global memory.
 BlockQuantizationResults blockQuantize(
     TensorView* input,
+    TensorView* global_scaling_factor,
     int64_t block_size,
     DataType out_dtype) {
   NVF_CHECK(
@@ -2655,6 +2656,19 @@ BlockQuantizationResults blockQuantize(
           input->getDataType().value() == DataType::Half,
       "Block quantization expects floating point input but got ",
       input->getDataType().value());
+
+  // Check that if global_scaling_factor in non-null
+  // then it is a scalar float TensorView
+  if (global_scaling_factor != nullptr) {
+    NVF_CHECK(
+        TensorDomain::noReductions(global_scaling_factor->getLogicalDomain())
+            .empty(),
+        "Global scaling factor for block quantization must be a scalar tensor");
+    NVF_CHECK(
+        global_scaling_factor->getDataType().value() == DataType::Float,
+        "Global scaling factor for block quantization must be of float data "
+        "type");
+  }
 
   auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
 
@@ -2707,7 +2721,12 @@ BlockQuantizationResults blockQuantize(
       DataType::Float8_e4m3fn);
 
   // Create the block quantization operation
-  IrBuilder::create<BlockQuantizationOp>(block_scales, quantized_tensor, input);
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      /*logical_index=*/nullptr,
+      global_scaling_factor);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

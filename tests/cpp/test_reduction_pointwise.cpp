@@ -16,7 +16,13 @@
 #include <tests/cpp/validator.h>
 namespace nvfuser {
 
-using PointwiseFusedReductionTest = NVFuserTest;
+class PointwiseFusedReductionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 // inner reduction + non-broadcast epilogue, can't be fused
 // outer reduction + non-broadcast epilogue, can be fused
