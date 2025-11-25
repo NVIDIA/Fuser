@@ -182,7 +182,12 @@ class LaunchKernel : public Expr {
   std::vector<ArgInfo> input_arg_info_;
   std::vector<ArgInfo> output_arg_info_;
   PrimDataType index_type_ = PrimDataType::Int;
-  mutable CompiledKernel* compiled_kernel_ = nullptr;
+  // Non-owning pointer to CompiledKernel. The CompiledKernel is owned by
+  // KernelExecutor, which is owned by HostIrContainer. Since LaunchKernel
+  // nodes are registered to the HostIrContainer (via Fusion base class),
+  // the CompiledKernel is guaranteed to outlive this LaunchKernel node.
+  // This pointer must not be null after construction.
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {
