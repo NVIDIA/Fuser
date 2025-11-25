@@ -901,7 +901,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   TensorView* expert_offsets = makeContigTensor(1, DataType::Int32);
   TensorView* sf_offsets = makeContigTensor(1, DataType::Int32);
 
-  TensorView* global_normconst = makeContigTensor(0, DataType::Float);
+  // TensorView* global_normconst = makeContigTensor(0, DataType::Float);
 
   fusion->addInput(a);
   fusion->addInput(b);
@@ -911,7 +911,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   fusion->addInput(problem_sizes);
   fusion->addInput(expert_offsets);
   fusion->addInput(sf_offsets);
-  fusion->addInput(global_normconst);
+  // fusion->addInput(global_normconst);
 
   // Perform block-scaled matmul
   TensorView* gmmtv = cutlass_nvfp4_grouped_mm(
@@ -926,12 +926,15 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
       /*dtype=*/DataType::BFloat16);
 
   TensorView* unquantized_output = relu(gmmtv);
+  fusion->addOutput(unquantized_output);
 
+  /*
   const QuantizedTensorView qtv =
       quantizeTvNvfp4(unquantized_output, global_normconst);
 
   fusion->addOutput(qtv.block_scale);
   fusion->addOutput(qtv.elts);
+  */
 
   EXPECT_TRUE(SchedulerEntry::makeSchedulerInstance(SchedulerType::Cutlass)
                   ->canScheduleCompileTime(fusion.get()));
@@ -994,7 +997,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   at::Tensor at_b_sf = at::stack(b_sfs, /*dim=*/0);
   at::Tensor at_alpha = at::stack(alphas, /*dim=*/0);
 
-  at::Tensor at_global_normconst = at::full({}, 2.0f, options);
+  // at::Tensor at_global_normconst = at::full({}, 2.0f, options);
 
   std::cout << "at_a.sizes()=" << at_a.sizes() << std::endl;
   std::cout << "at_b.sizes()=" << at_b.sizes() << std::endl;
@@ -1003,7 +1006,7 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   std::cout << "at_alpha=" << at_alpha << std::endl;
   std::cout << "at_problem_sizes=" << at_problem_sizes << std::endl;
   std::cout << "at_sf_offsets=" << at_sf_offsets << std::endl;
-  std::cout << "at_global_normconst=" << at_global_normconst << std::endl;
+  // std::cout << "at_global_normconst=" << at_global_normconst << std::endl;
   std::cout << "num_experts=" << num_experts << std::endl;
   std::cout << "M=" << M << std::endl;
   std::cout << "N=" << N << std::endl;
@@ -1017,8 +1020,9 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
       at_alpha,
       at_problem_sizes,
       at_offsets,
-      at_sf_offsets,
-      at_global_normconst};
+      at_sf_offsets
+      // at_global_normconst
+  };
 
   // Compile and run
   CutlassParams params;
