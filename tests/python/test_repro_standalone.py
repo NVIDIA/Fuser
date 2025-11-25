@@ -84,10 +84,10 @@ class TestRepro(NVFuserTest):
             _enable_options = ["id_model_extra_validation"]
             out = fd.execute(inputs, device=None, _enable_options=_enable_options, _disable_options=[])
             nvf_out = out
-            # _ = fd
+            _ = fd
 
-            # eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
-            # torch.equal(eager_out, nvf_out[0])
+            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            torch.equal(eager_out, nvf_out[0])
 
         test_fn(0)
         test_fn(1)
