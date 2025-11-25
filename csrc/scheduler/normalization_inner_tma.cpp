@@ -31,7 +31,6 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   const int64_t warp_size = dev_prop->warpSize;
   const int64_t sm_count = dev_prop->multiProcessorCount;
   const int64_t max_threads_per_cta = dev_prop->maxThreadsPerBlock;
-  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   // Create TMA-specific parameters
   auto params = std::make_unique<InnerNormTmaParams>(
       InnerPersistentKernelScheduler::schedulerType());
@@ -54,26 +53,56 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   const int64_t total_redu_count = prop.inner_most_dimension_numel;
   const int64_t max_vect = prop.vectorize_factor;
 
-  // start from bdimx = 4 warps, vect = 1, then increase vect to maximum
-  int64_t bdimx = std::min(4 * warp_size, total_redu_count);
+  // start from bdimx = warp size, vect = 1, then increase vect to maximum
+  int64_t bdimx = std::min(warp_size, total_redu_count);
   int64_t vect = 1;
   while (vect * 2 <= max_vect && vect * 2 * bdimx <= total_redu_count) {
     vect *= 2;
   }
   params->vectorization_factor = vect;
-  params->project_persistent_buffers = prop.project_persistent_buffers;
 
-  // further increase bdimx when iteration domain gdimx is too small
-  const int64_t target_wave = 8;
-  const int64_t gdimx = prop.total_iteration_numel;
-  int64_t cta_per_sm = max_threads_per_sm / bdimx;
-  int64_t n_waves = ceilDiv(gdimx, cta_per_sm * sm_count);
-  if (n_waves < target_wave && bdimx * 2 <= max_threads_per_cta) {
-    bdimx *= 2;
-    cta_per_sm = max_threads_per_sm / bdimx;
-    n_waves = ceilDiv(gdimx, cta_per_sm * sm_count);
+  // set persistent batch size, start from 1, then increase until maximum,
+  // ensure divisible. bdimx is kept at warp size to benefit from single warp
+  // reduction which doesn't require shared memory data exchange.
+  const int64_t after_vect = total_redu_count / vect;
+  const int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
+  int64_t max_pbs = std::min(after_vect_bdimx, 16L);
+  std::cout << "max_pbs: " << max_pbs << std::endl;
+  int64_t pbs = 1;
+  for (int ipbs = pbs + 1; ipbs <= max_pbs; ipbs++) {
+    if (after_vect % ipbs == 0) {
+      pbs = ipbs;
+    }
   }
 
+  // if there are still some reduction elements left, increase
+  // bdimx to target threads per cta, prioritize divisible by bdimx, leave pbs
+  // to at least 2.
+  if (bdimx * pbs < after_vect) {
+    max_pbs =
+        normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
+    bdimx = 4 * warp_size;
+    pbs = ceilDiv(after_vect, bdimx);
+    while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
+      bdimx *= 2;
+      pbs = ceilDiv(after_vect, bdimx);
+    }
+  }
+
+  // For iteration domain, use BIDx and TIDy
+  // TIDy is only used when bdimx = warp size and BIDx is larger than sm count
+  if (bdimx == warp_size) {
+    const int64_t total_iter_count = prop.total_iteration_numel;
+    const int64_t target_waves = 4;
+    const int64_t target_threads_per_cta = 128;
+    const int64_t target_bdimy = target_threads_per_cta / bdimx;
+    int64_t bdimy = 1;
+    while (bdimy * 2 <= target_bdimy &&
+           ceilDiv(total_iter_count, bdimy * 2) > sm_count * target_waves) {
+      bdimy *= 2;
+    }
+    params->rows_per_block = bdimy;
+  }
   // set persistent batch size
   params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
   if (std::getenv("PBS")) {
