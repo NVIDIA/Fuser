@@ -17,8 +17,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import torch
-from copy import deepcopy
-from nvfuser import FusionDefinition, FusionCache
+from nvfuser import FusionDefinition
 
 # Import the test utilities
 sys.path.insert(0, os.path.join(project_root, 'tests', 'python'))
@@ -47,27 +46,7 @@ def test_repro():
     fd = MyFusion()
     fd.execute(inputs, profile=True)
 
-
-def main():
-    """Main entry point for running the standalone test"""
-    # Check if CUDA is available
-    if not torch.cuda.is_available():
-        print("ERROR: CUDA is not available. This test requires a CUDA device.")
-        sys.exit(1)
-    
-    # Check GPU architecture (test requires Volta or newer)
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if prop.major < 7:
-        print(f"SKIPPED: Test requires Volta or newer GPU (major >= 7), found compute capability {prop.major}.{prop.minor}")
-        sys.exit(0)
-    
-    # Run the test
-    print("Starting test_repro...")
-    test_instance = NVFuserTest()
-    test_instance.setup_class()
-    test_repro()
-    test_repro()
-
-if __name__ == "__main__":
-    main()
+NVFuserTest().setup_class()
+test_repro()
+test_repro()
 
