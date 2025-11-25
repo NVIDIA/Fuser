@@ -116,7 +116,8 @@ class LaunchKernel : public Expr {
       const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
-      Val* cache_id);
+      Val* cache_id,
+      PrimDataType index_type = PrimDataType::Int);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -150,6 +151,33 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  struct ArgInfo {
+    DataType dtype;
+    AdjustLastDim last_dim_adj;
+    bool is_tensor;
+  };
+
+  const auto& inputArgInfo() const {
+    return input_arg_info_;
+  }
+
+  const auto& outputArgInfo() const {
+    return output_arg_info_;
+  }
+
+  PrimDataType indexType() const {
+    return index_type_;
+  }
+
+  void setIndexType(PrimDataType index_type) {
+    index_type_ = index_type;
+  }
+
+ private:
+  std::vector<ArgInfo> input_arg_info_;
+  std::vector<ArgInfo> output_arg_info_;
+  PrimDataType index_type_ = PrimDataType::Int;
 };
 
 class Deallocate : public Expr {

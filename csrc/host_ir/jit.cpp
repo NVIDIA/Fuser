@@ -23,6 +23,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "runtime/compiled_kernel.h"
 #include "runtime/executor.h"
+#include "type.h"
 
 #include <driver_api.h>
 
@@ -1363,14 +1364,12 @@ void HostIrJitImpl::registerExternalFunctions() {
         auto stream = at::cuda::getCurrentCUDAStream();
 
         // Get KernelExecutor reference
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+        KernelExecutor& ke = static_cast<hir::HostIrContainer*>(container)->getKernelExecutor(group_id);
         CompiledKernel* compiled_kernel = ke.compiledKernel().get();
         const LaunchParams& launch_constraints =
             launch_kernel_ptr->launchParams();
 
-        auto kernel = compiled_kernel->kernel();
-        auto index_type = kernel->indexType();
+        PrimDataType index_type = launch_kernel_ptr->indexType();
 
         // Storage for argument bytes (must be kept alive for the duration of the
         // launch call)
@@ -1381,38 +1380,58 @@ void HostIrJitImpl::registerExternalFunctions() {
         kernel_args.reserve(num_inputs + num_outputs);
 
         // Process Inputs
+        const auto& input_infos = launch_kernel_ptr->inputArgInfo();
         for (int64_t i = 0; i < num_inputs; ++i) {
           at::Tensor* tensor = input_tensors[i];
-          std::vector<int64_t> sizes = tensor->sizes().vec();
-          std::vector<int64_t> strides = tensor->strides().vec();
+          const auto& info = input_infos[i];
 
-          auto bytes = tensorToBytes(
-              PolymorphicValue(*tensor),
-              sizes,
-              strides,
-              index_type,
-              getLastDimAdjustment(kernel->inputs()[i]->dtype()),
-              sizes);
+          if (info.is_tensor) {
+            std::vector<int64_t> sizes = tensor->sizes().vec();
+            std::vector<int64_t> strides = tensor->strides().vec();
 
-          arg_bytes.push_back(std::move(bytes));
+            auto bytes = tensorToBytes(
+                PolymorphicValue(*tensor),
+                sizes,
+                strides,
+                index_type,
+                info.last_dim_adj,
+                sizes);
+            arg_bytes.push_back(std::move(bytes));
+          } else {
+            auto bytes = polymorphicValueToBytes(
+                PolymorphicValue(*tensor), info.dtype, index_type);
+            arg_bytes.push_back(std::move(bytes));
+          }
+
           kernel_args.push_back(arg_bytes.back().data());
         }
 
         // Process Outputs
+        const auto& output_infos = launch_kernel_ptr->outputArgInfo();
         for (int64_t i = 0; i < num_outputs; ++i) {
           at::Tensor* tensor = output_tensors[i];
-          std::vector<int64_t> sizes = tensor->sizes().vec();
-          std::vector<int64_t> strides = tensor->strides().vec();
+          const auto& info = output_infos[i];
 
-          auto bytes = tensorToBytes(
-              PolymorphicValue(*tensor),
-              sizes,
-              strides,
-              index_type,
-              getLastDimAdjustment(kernel->outputs()[i]->dtype()),
-              sizes);
+          // Outputs are always tensors (for now?)
+          if (info.is_tensor) {
+            std::vector<int64_t> sizes = tensor->sizes().vec();
+            std::vector<int64_t> strides = tensor->strides().vec();
 
-          arg_bytes.push_back(std::move(bytes));
+            auto bytes = tensorToBytes(
+                PolymorphicValue(*tensor),
+                sizes,
+                strides,
+                index_type,
+                info.last_dim_adj,
+                sizes);
+            arg_bytes.push_back(std::move(bytes));
+          } else {
+            // Should not happen for outputs typically, but symmetry is good
+            auto bytes = polymorphicValueToBytes(
+                PolymorphicValue(*tensor), info.dtype, index_type);
+            arg_bytes.push_back(std::move(bytes));
+          }
+
           kernel_args.push_back(arg_bytes.back().data());
         }
 

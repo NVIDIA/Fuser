@@ -137,12 +137,29 @@ LaunchKernel::LaunchKernel(
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
-    Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    Val* cache_id,
+    PrimDataType index_type)
+    : Expr(passkey, inputs, outputs, {}), index_type_(index_type) {
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);
   addAttribute(cache_id);
+
+  for (auto* val : inputs) {
+    ArgInfo info;
+    info.dtype = val->dtype();
+    info.last_dim_adj = getLastDimAdjustment(info.dtype);
+    info.is_tensor = val->isA<TensorView>();
+    input_arg_info_.push_back(info);
+  }
+
+  for (auto* val : outputs) {
+    ArgInfo info;
+    info.dtype = val->dtype();
+    info.last_dim_adj = getLastDimAdjustment(info.dtype);
+    info.is_tensor = val->isA<TensorView>();
+    output_arg_info_.push_back(info);
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
