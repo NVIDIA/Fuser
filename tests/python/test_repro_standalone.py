@@ -47,14 +47,14 @@ def test_repro():
     fd.execute(inputs, profile=True)
 
 # Inlined from atexit_serde_check()
-if not disable_serde:
-    if not debug_serde:
-        enable_automatic_serialization()
-    fc = FusionCache.get()
-    FusionCache.reset()
+# if not disable_serde:
+#     if not debug_serde:
+#         enable_automatic_serialization()
+#     fc = FusionCache.get()
+#     FusionCache.reset()
 
-# FusionCache.get()
-# FusionCache.reset()
+FusionCache.get()
+FusionCache.reset()
 test_repro()
 test_repro()
 
