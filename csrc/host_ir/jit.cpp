@@ -1361,15 +1361,15 @@ void HostIrJitImpl::registerExternalFunctions() {
           sprof.startKernel();
         }
 
-        auto stream = at::cuda::getCurrentCUDAStream();
 
-        // Get KernelExecutor reference
-        KernelExecutor& ke = static_cast<hir::HostIrContainer*>(container)->getKernelExecutor(group_id);
-        CompiledKernel* compiled_kernel = ke.compiledKernel().get();
-        const LaunchParams& launch_constraints =
-            launch_kernel_ptr->launchParams();
-
-        PrimDataType index_type = launch_kernel_ptr->indexType();
+        // Get CompiledKernel reference (cached in LaunchKernel)
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        //if (compiled_kernel == nullptr) {
+        //  auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
+        //  KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
+        //  compiled_kernel = ke.compiledKernel().get();
+        //  launch_kernel_ptr->setCompiledKernel(compiled_kernel);
+        //}
 
         // Storage for argument bytes (must be kept alive for the duration of the
         // launch call)
@@ -1379,64 +1379,51 @@ void HostIrJitImpl::registerExternalFunctions() {
         std::vector<void*> kernel_args;
         kernel_args.reserve(num_inputs + num_outputs);
 
-        // Process Inputs
-        const auto& input_infos = launch_kernel_ptr->inputArgInfo();
-        for (int64_t i = 0; i < num_inputs; ++i) {
-          at::Tensor* tensor = input_tensors[i];
-          const auto& info = input_infos[i];
+        PrimDataType index_type = launch_kernel_ptr->indexType();
 
-          if (info.is_tensor) {
-            std::vector<int64_t> sizes = tensor->sizes().vec();
-            std::vector<int64_t> strides = tensor->strides().vec();
+        // Process Inputs & Outputs
+        auto push_args = [&](at::Tensor** tensors, int64_t num,
+                             const auto& arg_infos) {
+          for (int64_t i = 0; i < num; ++i) {
+            at::Tensor* tensor = tensors[i];
+            const auto& info = arg_infos[i];
 
-            auto bytes = tensorToBytes(
-                PolymorphicValue(*tensor),
-                sizes,
-                strides,
-                index_type,
-                info.last_dim_adj,
-                sizes);
-            arg_bytes.push_back(std::move(bytes));
-          } else {
-            auto bytes = polymorphicValueToBytes(
-                PolymorphicValue(*tensor), info.dtype, index_type);
-            arg_bytes.push_back(std::move(bytes));
+            if (info.is_tensor) {
+              std::vector<int64_t> sizes = tensor->sizes().vec();
+              std::vector<int64_t> strides = tensor->strides().vec();
+
+              auto bytes = tensorToBytes(
+                  PolymorphicValue(*tensor),
+                  sizes,
+                  strides,
+                  index_type,
+                  info.last_dim_adj,
+                  sizes);
+              arg_bytes.push_back(std::move(bytes));
+            } else {
+              auto bytes = polymorphicValueToBytes(
+                  PolymorphicValue(*tensor), info.dtype, index_type);
+              arg_bytes.push_back(std::move(bytes));
+            }
+
+            kernel_args.push_back(arg_bytes.back().data());
           }
+        };
 
-          kernel_args.push_back(arg_bytes.back().data());
-        }
+        push_args(input_tensors, num_inputs, launch_kernel_ptr->inputArgInfo());
+        push_args(
+            output_tensors, num_outputs, launch_kernel_ptr->outputArgInfo());
 
-        // Process Outputs
-        const auto& output_infos = launch_kernel_ptr->outputArgInfo();
-        for (int64_t i = 0; i < num_outputs; ++i) {
-          at::Tensor* tensor = output_tensors[i];
-          const auto& info = output_infos[i];
 
-          // Outputs are always tensors (for now?)
-          if (info.is_tensor) {
-            std::vector<int64_t> sizes = tensor->sizes().vec();
-            std::vector<int64_t> strides = tensor->strides().vec();
-
-            auto bytes = tensorToBytes(
-                PolymorphicValue(*tensor),
-                sizes,
-                strides,
-                index_type,
-                info.last_dim_adj,
-                sizes);
-            arg_bytes.push_back(std::move(bytes));
-          } else {
-            // Should not happen for outputs typically, but symmetry is good
-            auto bytes = polymorphicValueToBytes(
-                PolymorphicValue(*tensor), info.dtype, index_type);
-            arg_bytes.push_back(std::move(bytes));
-          }
-
-          kernel_args.push_back(arg_bytes.back().data());
-        }
 
         // Launch Config
         CUlaunchConfig config;
+
+        const LaunchParams& launch_constraints =
+            launch_kernel_ptr->launchParams();
+
+        auto stream = at::cuda::getCurrentCUDAStream();
+
         config.gridDimX = launch_constraints.gdimx();
         config.gridDimY = launch_constraints.gdimy();
         config.gridDimZ = launch_constraints.gdimz();
@@ -1448,18 +1435,17 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.attrs = nullptr;
         config.numAttrs = 0;
 
-        launch_context->kernel_function =
-            compiled_kernel->cudaExecutable()->function;
-
         // Launch the kernel
         {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
           NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
               &config,
-              launch_context->kernel_function,
+              compiled_kernel->cudaExecutable()->function,
               kernel_args.data(),
               nullptr));
         }
+
+
 
         // Profiling cleanup
         if (isProfilerEnabled()) {
