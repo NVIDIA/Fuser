@@ -177,7 +177,7 @@ jobs:
             if (!nvfuserCiStatus) {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = 'nvfuser-ci status not found';
-              core.setFailed('nvfuser-ci status not found');
+              core.info('⏸️  Auto-merge paused: nvfuser-ci status not found');
             } else if (nvfuserCiStatus.state === 'pending') {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = 'pending';
@@ -185,7 +185,7 @@ jobs:
             } else if (nvfuserCiStatus.state !== 'success') {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = nvfuserCiStatus.state;
-              core.setFailed(`nvfuser-ci status is ${nvfuserCiStatus.state}`);
+              core.info(`⏸️  Auto-merge paused: nvfuser-ci status is ${nvfuserCiStatus.state}`);
             } else {
               checks.internal_ci_passed = true;
               core.info('✅ nvfuser-ci is success');
@@ -272,7 +272,7 @@ jobs:
                 const reason = c.status !== 'completed' ? c.status : c.conclusion;
                 core.info(`  - ${c.name}: ${reason}`);
               });
-              core.setFailed(`Failed checks: ${checks.no_failed_checks_reason}`);
+              core.info(`⏸️  Auto-merge paused: Failed checks: ${checks.no_failed_checks_reason}`);
             } else {
               checks.no_failed_checks = true;
               core.info('✅ No failed or pending check runs');
@@ -315,12 +315,11 @@ jobs:
             if (pr.mergeable === false) {
               checks.pr_mergeable = false;
               checks.pr_mergeable_reason = 'has merge conflicts';
-              core.setFailed('PR is not mergeable (conflicts or other issues)');
+              core.warning('⚠️  Auto-merge blocked: PR is not mergeable (conflicts or other issues)');
             } else if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
               checks.pr_mergeable = false;
               checks.pr_mergeable_reason = pr.mergeable_state;
-              core.info(`PR mergeable_state: ${pr.mergeable_state}`);
-              core.setFailed(`PR mergeable_state is ${pr.mergeable_state}`);
+              core.info(`⏸️  Auto-merge paused: PR mergeable_state is ${pr.mergeable_state}`);
             } else {
               checks.pr_mergeable = true;
               core.info('✅ PR is mergeable');
@@ -439,7 +438,7 @@ jobs:
           script: |
             const checkResult = ${{ steps.check.outputs.result }};
             if (!checkResult || !checkResult.pr_number) {
-              core.setFailed('Check results unavailable for merge');
+              core.info('⏸️  Auto-merge paused: Check results unavailable for merge');
               return;
             }
             const pr_number = checkResult.pr_number;
