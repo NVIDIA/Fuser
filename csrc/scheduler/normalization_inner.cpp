@@ -1215,7 +1215,7 @@ bool InnerPersistentKernelScheduler::canScheduleRunTime(
   // reduction using shared memory persistent.
   bool can_use_smem_persistent = (properties.total_reduction_numel ==
                                   properties.inner_most_dimension_numel) &&
-      scheduler_utils::getMaxClusterSize() == 1;
+      at::cuda::getCurrentDeviceProperties()->major < 9;
   bool is_3d_reduction =
       properties.total_reduction_numel != properties.inner_most_dimension_numel;
   // pair of persistent_buffer_size_bit and available_persistent_buffer_size_bit
