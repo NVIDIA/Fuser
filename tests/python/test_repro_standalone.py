@@ -86,8 +86,7 @@ class TestRepro(NVFuserTest):
             # nvf_out = out
             # _ = fd
 
-            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
-            torch.equal(eager_out, nvf_out[0])
+            # eager_out = torch.gather(inputs[0]sav
 
         test_fn(0)
         test_fn(1)
