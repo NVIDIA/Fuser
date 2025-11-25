@@ -39,7 +39,10 @@ FusionDefinition::FusionDefinition(
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
-      fusion_cache_(FusionCache::get()),
+      fusion_cache_([&]() {
+        std::cout << "[DEBUG] About to call FusionCache::get() from FusionDefinition initializer list" << std::endl;
+        return FusionCache::get();
+      }()),
       trie_node_(nullptr),
       prev_fusion_(nullptr),
       user_sched_(nullptr),
@@ -47,7 +50,7 @@ FusionDefinition::FusionDefinition(
       sched(this),
       use_multidevice_executor_(use_multidevice_executor),
       backend_type_(backend_type) {
-  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() called" << std::endl;
+  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() BODY called" << std::endl;
   std::cout << "[DEBUG]   - id: " << (id.has_value() ? std::to_string(id.value()) : "none") << std::endl;
   std::cout << "[DEBUG]   - max_length: " << max_length << std::endl;
   std::cout << "[DEBUG]   - use_multidevice_executor: " << use_multidevice_executor << std::endl;
