@@ -181,6 +181,7 @@ class CutlassCodeGenerator {
       std::string dtype_str = "",
       bool ptr_array_dtype_is_same = false) {
     auto new_temp_tensor_pos = [&]() {
+      std::cout << "new_temp_tensor_pos" << std::endl;
       return fusion_->inputs().size() + fusion_->outputs().size() +
           num_temp_tensors_++;
     };
