@@ -28,15 +28,22 @@ def test_repro():
     2. test_gather
     """
     for iteration in range(1000):
-        print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
+        print(f"\n[Iteration {iteration}] Starting iteration...")
+        sys.stdout.flush()
         
         # Inlined from test_fusion_profiler_with_noncodegen_kernels
+        print(f"[Iteration {iteration}] Step 1: Creating inputs for fusion_profiler test...")
+        sys.stdout.flush()
+        
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
             torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
         ]
 
+        print(f"[Iteration {iteration}] Step 2: Defining fusion function...")
+        sys.stdout.flush()
+        
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.from_pytorch(inputs[0])
             T1 = fd.from_pytorch(inputs[1])
@@ -45,11 +52,18 @@ def test_repro():
             T4 = fd.ops.add(T3, T1)
             fd.add_output(T4)
 
+        print(f"[Iteration {iteration}] Step 3: Creating MyFusion class...")
+        sys.stdout.flush()
+        
         class MyFusion(FusionDefinition):
             def definition(self):
                 fusion_func(fd)
 
         fd = MyFusion()
+        
+        print(f"[Iteration {iteration}] Step 4: Executing fusion with profile=True...")
+        sys.stdout.flush()
+        
         try:
             fd.execute(inputs, profile=True)
         except Exception as e:
@@ -57,7 +71,13 @@ def test_repro():
                 "FusionDefinition's execute() did not run correctly with profile enabled!"
             )
         
+        print(f"[Iteration {iteration}] Step 5: Fusion profiler test completed.")
+        sys.stdout.flush()
+        
         # Inlined from test_gather
+        print(f"[Iteration {iteration}] Step 6: Creating inputs for gather test...")
+        sys.stdout.flush()
+        
         inputs = [
             torch.randn(8, 16, device="cuda"),
             torch.randn(8, 16, device="cuda"),
@@ -83,8 +103,18 @@ def test_repro():
             eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             torch.equal(eager_out, nvf_out[0])
 
+        print(f"[Iteration {iteration}] Step 7: Running test_fn(0)...")
+        sys.stdout.flush()
+        
         test_fn(0)
+        
+        print(f"[Iteration {iteration}] Step 8: test_fn(0) completed. Running test_fn(1)...")
+        sys.stdout.flush()
+        
         test_fn(1)
+        
+        print(f"[Iteration {iteration}] Step 9: test_fn(1) completed. Iteration finished.")
+        sys.stdout.flush()
 
 
 def main():
