@@ -50,7 +50,8 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   const int64_t max_vect = prop.vectorize_factor;
   const bool has_expensive_op = prop.has_exp_op || prop.has_rng_op;
 
-  if (prop.disable_project_to_avoid_recompute && total_redu_count <= 1024 * 8) {
+  if (prop.disable_project_to_avoid_recompute &&
+      total_redu_count <= 1024 * 12) {
     params->project_persistent_buffers = false;
   } else {
     params->project_persistent_buffers = true;
@@ -73,6 +74,9 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   auto useMultipleWarps = [&]() {
     int64_t max_pbs =
         normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
+    if (has_expensive_op && !params->project_persistent_buffers) {
+      max_pbs /= 2;
+    }
     bdimx = 4 * warp_size;
     pbs = ceilDiv(after_vect, bdimx);
     while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
