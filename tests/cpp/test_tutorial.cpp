@@ -12,6 +12,7 @@
 #include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1558,8 +1559,8 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   // T3 = linear(T0, T2)  # equivalent to T0 @ T2.T
   // T4 = T3 + T1
   
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   // Create input tensors matching the Python test:
   // T0: (2, 4, 16) - bfloat16
@@ -1569,9 +1570,9 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);
   auto tv2 = makeSymbolicTensor(2, DataType::BFloat16);
   
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
   
   // Linear operation: T3 = linear(T0, T2)
   // In nvFuser C++ API, linear(input, weight) computes: input @ weight.T
@@ -1580,11 +1581,10 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   // Add operation: T4 = T3 + T1
   auto tv4 = add(tv3, tv1);
   
-  fusion.addOutput(tv4);
+  fusion->addOutput(tv4);
   
   if (verbose_) {
-    fusion.printMath();
-    fusion.printKernel();
+    fusion->printMath();
   }
   
   // Create actual tensors with the same shapes and dtype as Python test
@@ -1593,15 +1593,18 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   at::Tensor t1 = at::randn({2, 4, 16}, options);
   at::Tensor t2 = at::randn({16, 16}, options);
   
-  // Compile and run the fusion
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
-  auto outputs = ke.run({t0, t1, t2});
-  // auto outputs = ke.run({t0, t1, t2});
+  // Use FusionExecutorCache for automatic scheduling
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  
+  if (verbose_) {
+    executor_cache.fusion()->printKernel();
+  }
   
   // Validate: reference computation is (t0 @ t2.T) + t1
   // at::Tensor ref = at::linear(t0, t2) + t1;
-  // testValidate(&fusion, outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
+  // testValidate(
+  //     executor_cache.fusion(), outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
