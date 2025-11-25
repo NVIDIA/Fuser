@@ -1026,6 +1026,11 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
 
   // Compile and run
   CutlassParams params;
+
+  // We cannot use 2SM for grouped GEMM currently
+  params.mma_tile = {128, 128, 128};
+  params.per_sm_tile = params.mma_tile;
+
   CutlassExecutor ce;
   ce.compile(fusion.get(), params);
 
