@@ -86,4 +86,24 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
 
+// IPC Utils for sharing file descriptors
+
+// Creates a listening Unix domain socket bound to path.
+// If path starts with '@', it uses the abstract namespace (replaced with \0).
+// Returns the socket file descriptor.
+int createIpcSocket(const std::string& path);
+
+// Connects to the Unix domain socket at path and sends the file descriptor fd.
+// Optionally sends header_data of size header_len along with the FD.
+void sendFd(
+    const std::string& path,
+    int fd,
+    const void* header_data = nullptr,
+    size_t header_len = 0);
+
+// Accepts a connection on the listening socket_fd and receives a file
+// descriptor. Optionally receives header_data of size header_len. Returns the
+// received file descriptor.
+int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
+
 } // namespace nvfuser
