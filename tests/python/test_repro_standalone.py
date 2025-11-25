@@ -95,8 +95,6 @@ class TestRepro(NVFuserTest):
 
 def main():
     """Main entry point for running the standalone test"""
-    import pytest
-    
     # Check if CUDA is available
     if not torch.cuda.is_available():
         print("ERROR: CUDA is not available. This test requires a CUDA device.")
