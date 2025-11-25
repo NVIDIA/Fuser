@@ -588,6 +588,263 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
 }
 
+TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t world_size = communicator_->size();
+  const int64_t rank = communicator_->deviceId();
+  const int64_t local_rank = communicator_->local_rank();
+
+  constexpr int64_t exporter_rank = 0;
+  constexpr int64_t root_rank = 1;
+
+  // Multicast parameters
+  constexpr size_t kNumElems = 524288;
+  constexpr size_t kSizeBytes = kNumElems * sizeof(uint32_t);
+
+  // Query support for Virtual Memory Management
+  int is_vmm_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_vmm_supported,
+      CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+      local_rank));
+  if (is_vmm_supported == 0) {
+    GTEST_SKIP()
+        << "Device does not support Virtual Memory Management; skipping.";
+  }
+
+  // Query support for IPC handles
+  int is_ipc_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_ipc_supported,
+      CU_DEVICE_ATTRIBUTE_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR_SUPPORTED,
+      local_rank));
+  if (is_ipc_supported == 0) {
+    GTEST_SKIP() << "Device does not support IPC handles; skipping.";
+  }
+
+  // Query support for Multicast Objects
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported,
+      CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+      local_rank));
+  if (is_multicast_supported == 0) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
+  }
+
+#define use_file_descriptor \
+  true // Set to false to use fabric handles, required for multinode NVLS
+#if use_file_descriptor
+  using handle_typename = int;
+  auto handle_type = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+#else
+  using handle_typename = CUmemFabricHandle;
+  auto handle_type = CU_MEM_HANDLE_TYPE_FABRIC;
+#endif
+
+  // Query Multicast granularity
+  CUmulticastObjectProp mcast_prop{};
+  mcast_prop.flags = 0;
+  mcast_prop.handleTypes = handle_type;
+  mcast_prop.numDevices = world_size;
+  mcast_prop.size = kSizeBytes;
+
+  size_t mcast_min_granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
+      &mcast_min_granularity, &mcast_prop, CU_MULTICAST_GRANULARITY_MINIMUM));
+  if (mcast_min_granularity > kSizeBytes) {
+    GTEST_SKIP() << "Device does not support the required multicast "
+                    "granularity; skipping."
+                 << "Minimum Granularity: " << mcast_min_granularity
+                 << ", required: " << kSizeBytes;
+  }
+
+  size_t mcast_granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
+      &mcast_granularity, &mcast_prop, CU_MULTICAST_GRANULARITY_RECOMMENDED));
+  if (mcast_granularity > kSizeBytes) {
+    GTEST_SKIP() << "Device does not recommend the required multicast "
+                    "granularity; skipping."
+                 << "Recommended Granularity: " << mcast_granularity
+                 << ", required: " << kSizeBytes;
+  }
+
+  // Create a multicast object at root rank and export it to a shareable mem
+  // handled. Put it in the store
+  CUmemGenericAllocationHandle mcast_handle{};
+
+  handle_typename shared_handle;
+  int listener_fd = -1;
+
+  if (rank == exporter_rank) {
+    NVFUSER_CUDA_SAFE_CALL(cuMulticastCreate(&mcast_handle, &mcast_prop));
+    NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
+        &shared_handle, mcast_handle, handle_type, /*flags=*/0));
+  } else {
+    // Non-exporters prepare to receive
+    std::string my_path = "@nvfuser_test_nvls_ptr_recv_" + std::to_string(rank);
+    listener_fd = nvfuser::createIpcSocket(my_path);
+  }
+
+  communicator_->barrier();
+
+  // Transfer handle via Unix Socket
+  if (rank != exporter_rank) {
+    // Receiver side
+    // Wait for connection from Exporter
+    int received_fd = nvfuser::recvFd(listener_fd);
+    // Cast to handle_typename (int)
+    shared_handle = received_fd;
+    close(listener_fd);
+  } else {
+    // Exporter side: Connect to all other ranks and send FD
+    for (int i = 0; i < world_size; ++i) {
+      if (i == rank) {
+        continue;
+      }
+      std::string peer_path = "@nvfuser_test_nvls_ptr_recv_" + std::to_string(i);
+      nvfuser::sendFd(peer_path, shared_handle);
+    }
+    close(shared_handle);
+  }
+
+  if (rank != exporter_rank) {
+    NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
+        &mcast_handle, (void*)((uint64_t)shared_handle), handle_type));
+    close(shared_handle);
+  }
+
+  // All ranks add their device to multicast group
+  CUdevice cu_dev;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&cu_dev, static_cast<int>(local_rank)));
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastAddDevice(mcast_handle, cu_dev));
+
+  // Local memory allocation using Virtual Memory Management
+  // All ranks prepare their per-device allocation handle
+  CUmemAllocationProp prop{};
+  prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  prop.location.id = static_cast<int>(local_rank);
+  prop.requestedHandleTypes = handle_type; // any shareable type
+
+  size_t granularity = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAllocationGranularity(
+      &granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
+  if (granularity > kSizeBytes) {
+    GTEST_SKIP() << "Device does not support the required allocation "
+                    "granularity; skipping."
+                 << "Granularity: " << granularity
+                 << ", required: " << kSizeBytes;
+  }
+
+  CUmemGenericAllocationHandle local_buffer = 0;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemCreate(&local_buffer, kSizeBytes, &prop, /*flags=*/0));
+
+  // Bind the local memory to the multicast object
+  NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
+      mcast_handle,
+      /*mcOffset=*/0,
+      local_buffer,
+      /*memOffset=*/0,
+      kSizeBytes,
+      /*flags=*/0));
+
+  // MC Mapping
+  CUdeviceptr mc_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &mc_ptr,
+      kSizeBytes,
+      /*alignment=*/mcast_granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(mc_ptr, kSizeBytes, /*offset=*/0, mcast_handle, /*flags=*/0));
+  CUmemAccessDesc mc_mapping_desc{};
+  mc_mapping_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  mc_mapping_desc.location.id = static_cast<int>(local_rank);
+  mc_mapping_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(mc_ptr, kSizeBytes, &mc_mapping_desc, /*count=*/1));
+
+  // UC Mapping
+  CUdeviceptr uc_ptr = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressReserve(
+      &uc_ptr,
+      kSizeBytes,
+      /*alignment=*/granularity,
+      /*baseVA=*/0,
+      /*flags=*/0));
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemMap(uc_ptr, kSizeBytes, /*offset=*/0, local_buffer, /*flags=*/0));
+  CUmemAccessDesc uc_mapping_desc{};
+  uc_mapping_desc.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+  uc_mapping_desc.location.id = static_cast<int>(local_rank);
+  uc_mapping_desc.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemSetAccess(uc_ptr, kSizeBytes, &uc_mapping_desc, /*count=*/1));
+
+  // Initialize local memory to 0
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(reinterpret_cast<void*>(uc_ptr), 0, kSizeBytes));
+  communicator_->barrier();
+
+  // Pointer arithmetic on Multicast Pointer
+  // Root rank writes to mc address + offset
+  // Offset is chosen to be non-zero and aligned to element size
+  size_t offset_elems = 1024;
+  size_t offset_bytes = offset_elems * sizeof(uint32_t);
+  
+  if (offset_bytes < kSizeBytes) {
+    if (rank == root_rank) {
+      // Write a pattern at offset
+      std::vector<uint32_t> host_data(kNumElems - offset_elems);
+      for (size_t i = 0; i < host_data.size(); ++i) {
+        host_data[i] = static_cast<uint32_t>(i + 12345);
+      }
+      
+      // Use mc_ptr + offset_bytes
+      // This verifies that we can do pointer arithmetic on the multicast handle
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+          reinterpret_cast<void*>(mc_ptr + offset_bytes),
+          host_data.data(),
+          host_data.size() * sizeof(uint32_t),
+          cudaMemcpyHostToDevice));
+    }
+
+    communicator_->barrier();
+
+    // Verify on all ranks via UC pointer
+    std::vector<uint32_t> read_back(kNumElems);
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        read_back.data(),
+        reinterpret_cast<void*>(uc_ptr),
+        kSizeBytes,
+        cudaMemcpyDeviceToHost));
+
+    // Check first part is still 0
+    for (size_t i = 0; i < offset_elems; ++i) {
+      EXPECT_EQ(read_back[i], 0) << "Rank " << rank << " found non-zero at index " << i;
+    }
+
+    // Check second part matches written data
+    for (size_t i = offset_elems; i < kNumElems; ++i) {
+      uint32_t expected = static_cast<uint32_t>((i - offset_elems) + 12345);
+      EXPECT_EQ(read_back[i], expected) << "Rank " << rank << " mismatch at index " << i;
+    }
+  }
+
+  // Cleanup
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(mc_ptr, kSizeBytes));
+  NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(uc_ptr, kSizeBytes));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mc_ptr, kSizeBytes));
+  NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(uc_ptr, kSizeBytes));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(local_buffer));
+  NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
+}
+
 #endif
 
 TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {

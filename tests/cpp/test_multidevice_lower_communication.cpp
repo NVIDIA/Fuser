@@ -6,8 +6,13 @@
  */
 // clang-format on
 
+#include <cuda_profiler_api.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+
+#include <utility>
+#include <tuple>
+#include <algorithm>
 
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
@@ -769,10 +774,126 @@ INSTANTIATE_TEST_SUITE_P(
       return ss.str();
     }));
 
-class LowerCollectiveCudaTest : public MultiDeviceTest {};
+class LowerCollectiveCudaTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<
+          std::tuple<CommunicatorBackend, int64_t, std::string>> {
+ protected:
+  // Run complete benchmark: warmup, timing, reduce results, and return output
+  at::Tensor runBenchmark(
+      MultiDeviceExecutor& executor,
+      const std::vector<c10::IValue>& inputs,
+      int64_t msg_size_bytes,
+      CommunicatorBackend backend_type,
+      const std::string& test_name,
+      float bandwidth_multiplier = 1.0f,
+      int warmup_iters = 50,
+      int profiling_iters = 50,
+      int timing_iters = 500) {
+    // Warm-up iterations
+    at::Tensor out_tensor;
+    for (int i = 0; i < warmup_iters; ++i) {
+      out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
+    }
 
-TEST_F(LowerCollectiveCudaTest, Allgather) {
-  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+    cudaDeviceSynchronize();
+
+    cudaProfilerStart();
+    for (int i = 0; i < profiling_iters; ++i) {
+      out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
+    }
+    cudaDeviceSynchronize();
+    communicator_->barrier();
+    cudaProfilerStop();
+
+    cudaDeviceSynchronize();
+    communicator_->barrier();
+
+    // Timing iterations with CUDA events
+    std::vector<cudaEvent_t> start_events(timing_iters);
+    std::vector<cudaEvent_t> stop_events(timing_iters);
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventCreate(&start_events[i]);
+      cudaEventCreate(&stop_events[i]);
+    }
+
+    // Reduce mean time across all ranks
+    at::Tensor x = at::tensor(
+        {0},
+        at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
+    std::vector<at::Tensor> x_tensors = {x};
+
+    for (int i = 0; i < timing_iters; ++i) {
+      communicator_->getWorld(backend_type)->allreduce(x_tensors, {c10d::ReduceOp::MAX})->wait();
+      cudaEventRecord(start_events[i]);
+      out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
+      cudaEventRecord(stop_events[i]);
+    }
+
+    std::vector<float> elapsed_ms_vec;
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventSynchronize(stop_events[i]);
+      float elapsed_ms = 0;
+      cudaEventElapsedTime(&elapsed_ms, start_events[i], stop_events[i]);
+      elapsed_ms_vec.push_back(elapsed_ms);
+    }
+    float avg_time_ms = std::accumulate(elapsed_ms_vec.begin(), elapsed_ms_vec.end(), 0.0) / elapsed_ms_vec.size();
+
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventDestroy(start_events[i]);
+      cudaEventDestroy(stop_events[i]);
+    }
+
+    // Reduce mean time across all ranks
+    at::Tensor time_tensor = at::tensor(
+        {avg_time_ms},
+        at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
+    std::vector<at::Tensor> time_tensors = {time_tensor};
+
+    communicator_->getWorld(backend_type)
+        ->allreduce(time_tensors, {c10d::ReduceOp::MAX})
+        ->wait();
+
+    // Print results on rank 0
+    if (communicator_->deviceId() == 0) {
+      float mean_time_ms = time_tensor.item<float>();
+      float bandwidth_gbps =
+          (msg_size_bytes * bandwidth_multiplier / (mean_time_ms / 1000.0)) /
+          1e9;
+      std::cout << test_name << " - Backend: " << backend_type
+                << ", Size: " << (msg_size_bytes / (1024.0 * 1024.0)) << " MB"
+                << ", Avg time: " << mean_time_ms << " ms"
+                << ", Bandwidth: " << bandwidth_gbps << " GB/s" << std::endl;
+    }
+
+    return out_tensor;
+  }
+};
+
+TEST_P(LowerCollectiveCudaTest, Allgather) {
+  const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
+  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  if (protocol == "batch_memcpy") {
+    // cudaMemcpyBatchAsync requires a non-default stream
+    c10::cuda::CUDAStream stream =
+        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+    c10::cuda::setCurrentCUDAStream(stream);
+  }
+
+  EnableOptionsGuard guard;
+  if (protocol == "multimem") {
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    if (prop.major < 9) {
+      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+    }
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
+  } else if (protocol == "batch_memcpy") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"batch_memcpy"});
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -782,7 +903,10 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
-  out->setMemoryType(MemoryType::Symmetric);
+
+  if (backend_type == CommunicatorBackend::kCuda) {
+    out->setMemoryType(MemoryType::Symmetric);
+  }
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   in->setDeviceMesh(mesh);
@@ -794,21 +918,48 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   MultiDeviceExecutorParams params;
-  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.lower.communicator_backend = backend_type;
   params.executor.use_allocation_cache = true;
   MultiDeviceExecutor executor(
       std::move(fusion), Communicator::getInstance(), params);
 
-  at::Tensor out_tensor;
-  for (int i = 0; i < 10; ++i) {
-    out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
-  }
+  // Run benchmark and validate correctness
+  at::Tensor out_tensor = runBenchmark(
+      executor,
+      {in_tensor},
+      msg_size_bytes,
+      backend_type,
+      "Allgather/" + protocol,
+      static_cast<float>(communicator_->size()));
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveCudaTest, Broadcast) {
-  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+TEST_P(LowerCollectiveCudaTest, Broadcast) {
+  const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
+
+  if (protocol == "batch_memcpy") {
+    // cudaMemcpyBatchAsync requires a non-default stream
+    c10::cuda::CUDAStream stream =
+        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+    c10::cuda::setCurrentCUDAStream(stream);
+  }
+
+  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  EnableOptionsGuard guard;
+  if (protocol == "multimem") {
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    if (prop.major < 9) {
+      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+    }
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
+  } else if (protocol == "batch_memcpy") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"batch_memcpy"});
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -818,7 +969,10 @@ TEST_F(LowerCollectiveCudaTest, Broadcast) {
   TensorView* out = set(in);
   fusion->addInput(in);
   fusion->addOutput(out);
-  out->setMemoryType(MemoryType::Symmetric);
+
+  if (backend_type == CommunicatorBackend::kCuda) {
+    out->setMemoryType(MemoryType::Symmetric);
+  }
 
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
   constexpr DeviceIdxType kRoot = 0;
@@ -826,7 +980,7 @@ TEST_F(LowerCollectiveCudaTest, Broadcast) {
   out->setDeviceMesh(mesh);
 
   MultiDeviceExecutorParams params;
-  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.lower.communicator_backend = backend_type;
   params.executor.use_allocation_cache = true;
   MultiDeviceExecutor executor(
       std::move(fusion), Communicator::getInstance(), params);
@@ -836,11 +990,69 @@ TEST_F(LowerCollectiveCudaTest, Broadcast) {
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
-  at::Tensor out_tensor =
-      executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  // Run benchmark and validate correctness
+  at::Tensor out_tensor = runBenchmark(
+      executor,
+      {in_tensor},
+      msg_size_bytes,
+      backend_type,
+      "Broadcast/" + protocol,
+      1.0f);
 
   EXPECT_TRUE(
       at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
+
+namespace {
+std::string paramToStringLowerCollectiveCudaTest(
+    const testing::TestParamInfo<
+        std::tuple<CommunicatorBackend, int64_t, std::string>>& info) {
+  const auto& [backend_type, msg_size_bytes, protocol] = info.param;
+  std::stringstream ss;
+  ss << backend_type << "_";
+  int64_t size_mb = msg_size_bytes / (1024 * 1024);
+  if (size_mb >= 1024) {
+    ss << (size_mb / 1024) << "GB";
+  } else {
+    ss << size_mb << "MB";
+  }
+  if (protocol != "default") {
+    ss << "_" << protocol;
+  }
+  return ss.str();
+}
+} // namespace
+
+INSTANTIATE_TEST_SUITE_P(
+    CudaBackend,
+    LowerCollectiveCudaTest,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::kCuda),
+        testing::Values(
+            2 * 1024 * 1024LL,     // 2 MB
+            8 * 1024 * 1024LL,     // 8 MB
+            32 * 1024 * 1024LL,    // 32 MB
+            128 * 1024 * 1024LL,   // 128 MB
+            512 * 1024 * 1024LL,   // 512 MB
+            1024 * 1024 * 1024LL   // 1 GB
+            ),
+        testing::Values("memcpy", "multimem", "batch_memcpy")),
+    paramToStringLowerCollectiveCudaTest);
+
+INSTANTIATE_TEST_SUITE_P(
+    NcclBackend,
+    LowerCollectiveCudaTest,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(
+            2 * 1024 * 1024LL,     // 2 MB
+            8 * 1024 * 1024LL,     // 8 MB
+            32 * 1024 * 1024LL,    // 32 MB
+            128 * 1024 * 1024LL,   // 128 MB
+            512 * 1024 * 1024LL,   // 512 MB
+            1024 * 1024 * 1024LL   // 1 GB
+            ),
+        testing::Values("default")),
+    paramToStringLowerCollectiveCudaTest);
 
 } // namespace nvfuser
