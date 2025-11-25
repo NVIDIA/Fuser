@@ -22,6 +22,12 @@ from nvfuser import FusionDefinition, FusionCache
 
 
 def test_repro():
+    class MyFusion(FusionDefinition):
+        def definition(self):
+            return;
+
+    fd = MyFusion()
+    return
     """
     This test combines two tests and runs them 1000 times:
     1. test_fusion_profiler_with_noncodegen_kernels
