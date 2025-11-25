@@ -20,18 +20,6 @@
 
 namespace nvfuser {
 
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
 using IpcTest = MultiDeviceTest;
 
 TEST_F(IpcTest, IpcMemHandle) {
@@ -594,8 +582,12 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(mc_ptr, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(uc_ptr, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(local_buffer));
-  NVFUSER_CUDA_SAFE_CALL(
-      cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, kSizeBytes));
+  // On some driver versions, cuMulticastUnbind is sometimes failing with
+  // CUDA_ERROR_INVALID_VALUE, as seen in CI (but not on my system)
+  // According to docs, call to cuMulticastUnbind is not required, and
+  // destroying the object unbinds it. Therefore, we simply skip the call for
+  // now. NVFUSER_CUDA_SAFE_CALL(
+  //    cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
 }
 
