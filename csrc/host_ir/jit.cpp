@@ -1361,18 +1361,7 @@ void HostIrJitImpl::registerExternalFunctions() {
           sprof.startKernel();
         }
 
-
-        // Get CompiledKernel reference (cached in LaunchKernel)
-        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
-        //if (compiled_kernel == nullptr) {
-        //  auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        //  KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
-        //  compiled_kernel = ke.compiledKernel().get();
-        //  launch_kernel_ptr->setCompiledKernel(compiled_kernel);
-        //}
-
-        // Storage for argument bytes (must be kept alive for the duration of the
-        // launch call)
+        // Process input & output arguments.
         std::vector<std::vector<std::byte>> arg_bytes;
         arg_bytes.reserve(num_inputs + num_outputs);
 
@@ -1381,8 +1370,8 @@ void HostIrJitImpl::registerExternalFunctions() {
 
         PrimDataType index_type = launch_kernel_ptr->indexType();
 
-        // Process Inputs & Outputs
-        auto push_args = [&](at::Tensor** tensors, int64_t num,
+        auto push_kernel_args = [&](at::Tensor** tensors,
+                             int64_t num,
                              const auto& arg_infos) {
           for (int64_t i = 0; i < num; ++i) {
             at::Tensor* tensor = tensors[i];
@@ -1410,11 +1399,10 @@ void HostIrJitImpl::registerExternalFunctions() {
           }
         };
 
-        push_args(input_tensors, num_inputs, launch_kernel_ptr->inputArgInfo());
-        push_args(
+        push_kernel_args(
+            input_tensors, num_inputs, launch_kernel_ptr->inputArgInfo());
+        push_kernel_args(
             output_tensors, num_outputs, launch_kernel_ptr->outputArgInfo());
-
-
 
         // Launch Config
         CUlaunchConfig config;
@@ -1435,17 +1423,18 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.attrs = nullptr;
         config.numAttrs = 0;
 
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+
         // Launch the kernel
         {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+
           NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
               &config,
               compiled_kernel->cudaExecutable()->function,
               kernel_args.data(),
               nullptr));
         }
-
-
 
         // Profiling cleanup
         if (isProfilerEnabled()) {
