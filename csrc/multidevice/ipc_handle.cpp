@@ -187,6 +187,10 @@ void* SymMemForBroadcast::bufferMulticastPtr() const {
   return buffer_sym_tensor_->multicastPtr();
 }
 
+void* SymMemForBroadcast::bufferUnicastPtr(int64_t rank) const {
+  return buffer_sym_tensor_->remoteTensor(rank).data_ptr();
+}
+
 void* SymMemForBroadcast::semaphoreMulticastPtr() const {
   return semaphore_sym_tensor_->multicastPtr();
 }
@@ -226,6 +230,11 @@ SymMemForAllgather::SymMemForAllgather(
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
   return broadcast_handles_[root_rank]->bufferMulticastPtr();
+}
+
+void* SymMemForAllgather::bufferUnicastPtr(int64_t root_rank, int64_t rank)
+    const {
+  return broadcast_handles_[root_rank]->bufferUnicastPtr(rank);
 }
 
 void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {

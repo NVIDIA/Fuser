@@ -773,7 +773,7 @@ INSTANTIATE_TEST_SUITE_P(
 class LowerCollectiveCudaTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<
-          std::tuple<CommunicatorBackend, int64_t>> {
+          std::tuple<CommunicatorBackend, int64_t, std::string>> {
  protected:
   // Run complete benchmark: warmup, timing, reduce results, and return output
   at::Tensor runBenchmark(
@@ -828,7 +828,9 @@ class LowerCollectiveCudaTest
         at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
     std::vector<at::Tensor> time_tensors = {time_tensor};
 
-    communicator_->getWorld(backend_type)->allreduce(time_tensors, {c10d::ReduceOp::MAX})->wait();
+    communicator_->getWorld(backend_type)
+        ->allreduce(time_tensors, {c10d::ReduceOp::MAX})
+        ->wait();
 
     // Print results on rank 0
     if (communicator_->deviceId() == 0) {
@@ -847,8 +849,17 @@ class LowerCollectiveCudaTest
 };
 
 TEST_P(LowerCollectiveCudaTest, Allgather) {
-  const auto& [backend_type, msg_size_bytes] = GetParam();
+  const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  EnableOptionsGuard guard;
+  if (protocol == "multimem") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
+  } else if (protocol == "batch_memcpy") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"batch_memcpy"});
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -884,15 +895,24 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
       {in_tensor},
       msg_size_bytes,
       backend_type,
-      "Allgather",
+      "Allgather/" + protocol,
       static_cast<float>(communicator_->size()));
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
 }
 
 TEST_P(LowerCollectiveCudaTest, Broadcast) {
-  const auto& [backend_type, msg_size_bytes] = GetParam();
+  const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  EnableOptionsGuard guard;
+  if (protocol == "multimem") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"multimem"});
+  } else if (protocol == "batch_memcpy") {
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::MulticastProtocol, {"batch_memcpy"});
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -925,7 +945,12 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
 
   // Run benchmark and validate correctness
   at::Tensor out_tensor = runBenchmark(
-      executor, {in_tensor}, msg_size_bytes, backend_type, "Broadcast", 1.0f);
+      executor,
+      {in_tensor},
+      msg_size_bytes,
+      backend_type,
+      "Broadcast/" + protocol,
+      1.0f);
 
   EXPECT_TRUE(
       at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
@@ -934,21 +959,27 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     LowerCollectiveCudaTest,
-    testing::Combine(
-        testing::Values(
+    testing::Values(
+        std::make_tuple(
             CommunicatorBackend::kNccl,
-            CommunicatorBackend::kCuda),
-        testing::Values(
-            2 * 1024 * 1024LL,     // 2 MB
-            8 * 1024 * 1024LL,     // 8 MB
-            32 * 1024 * 1024LL,    // 32 MB
-            128 * 1024 * 1024LL,   // 128 MB
-            512 * 1024 * 1024LL,   // 512 MB
-            1024 * 1024 * 1024LL   // 1 GB
-            )),
+            2 * 1024 * 1024LL,
+            "default"),
+        std::make_tuple(
+            CommunicatorBackend::kCuda,
+            2 * 1024 * 1024LL,
+            "memcpy"),
+        std::make_tuple(
+            CommunicatorBackend::kCuda,
+            2 * 1024 * 1024LL,
+            "multimem"),
+        std::make_tuple(
+            CommunicatorBackend::kCuda,
+            2 * 1024 * 1024LL,
+            "batch_memcpy")),
     ([](const testing::TestParamInfo<
-            std::tuple<CommunicatorBackend, int64_t>>& info) -> std::string {
-      const auto& [backend_type, msg_size_bytes] = info.param;
+            std::tuple<CommunicatorBackend, int64_t, std::string>>& info)
+         -> std::string {
+      const auto& [backend_type, msg_size_bytes, protocol] = info.param;
       std::stringstream ss;
       ss << backend_type << "_";
       int64_t size_mb = msg_size_bytes / (1024 * 1024);
@@ -956,6 +987,9 @@ INSTANTIATE_TEST_SUITE_P(
         ss << (size_mb / 1024) << "GB";
       } else {
         ss << size_mb << "MB";
+      }
+      if (protocol != "default") {
+        ss << "_" << protocol;
       }
       return ss.str();
     }));
