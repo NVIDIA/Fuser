@@ -23,33 +23,29 @@ from nvfuser import FusionDefinition, FusionCache
 # Import the test utilities
 sys.path.insert(0, os.path.join(project_root, 'tests', 'python'))
 from python.utils import NVFuserTest
-
-
-class TestRepro(NVFuserTest):
-    """Standalone test class for reproducing the issue"""
     
-    def test_repro(self):
-        # Inlined from test_fusion_profiler_with_noncodegen_kernels
-        inputs = [
-            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
-        ]
+def test_repro():
+    # Inlined from test_fusion_profiler_with_noncodegen_kernels
+    inputs = [
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+    ]
 
-        def fusion_func(fd: FusionDefinition) -> None:
-            T0 = fd.from_pytorch(inputs[0])
-            T1 = fd.from_pytorch(inputs[1])
-            T2 = fd.from_pytorch(inputs[2])
-            T3 = fd.ops.linear(T0, T2)
-            T4 = fd.ops.add(T3, T1)
-            fd.add_output(T4)
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.from_pytorch(inputs[0])
+        T1 = fd.from_pytorch(inputs[1])
+        T2 = fd.from_pytorch(inputs[2])
+        T3 = fd.ops.linear(T0, T2)
+        T4 = fd.ops.add(T3, T1)
+        fd.add_output(T4)
 
-        class MyFusion(FusionDefinition):
-            def definition(self):
-                fusion_func(fd)
+    class MyFusion(FusionDefinition):
+        def definition(self):
+            fusion_func(fd)
 
-        fd = MyFusion()
-        fd.execute(inputs, profile=True)
+    fd = MyFusion()
+    fd.execute(inputs, profile=True)
 
 
 def main():
@@ -67,20 +63,10 @@ def main():
     
     # Run the test
     print("Starting test_repro...")
-    test_instance = TestRepro()
+    test_instance = NVFuserTest()
     test_instance.setup_class()
-    
-    try:
-        test_instance.test_repro()
-        print("\n" + "="*70)
-        print("TEST PASSED: All 1000 iterations completed successfully!")
-        print("="*70)
-    except Exception as e:
-        print("\n" + "="*70)
-        print(f"TEST FAILED: {e}")
-        print("="*70)
-        raise
-
+    test_repro()
+    test_repro()
 
 if __name__ == "__main__":
     main()
