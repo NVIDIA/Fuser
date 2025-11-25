@@ -78,24 +78,6 @@ constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
 
-// Context struct to cache KernelExecutorEntry and launch config for repeated
-// kernel launches. This is stored in the JIT-compiled code's stack frame and
-// updated after first initialization to enable fast-path execution on
-// subsequent runs within a single invocation (e.g., in loops).
-struct LaunchKernelContext {
-  hir::LaunchKernel* launch_kernel;
-  KernelExecutorEntry* executor_entry;
-
-  // Cached launch configuration to avoid rebuilding CUlaunchConfig each iteration
-  CUlaunchConfig cached_config;
-  bool config_initialized;
-
-  // Track stream to detect changes and invalidate cached config.hStream
-  CUstream last_stream;
-
-  // Cached kernel function pointer
-  CUfunction kernel_function;
-};
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -1043,46 +1025,10 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
     llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
 
-    // Create a LaunchKernelContext struct on the stack
-    // This will be initialized on first run and reused on subsequent runs
+    // Pass LaunchKernel pointer directly
     llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
         void_ptr_type);
-
-    // Allocate LaunchKernelContext on stack as a raw byte array
-    // This ensures proper alignment and size for the full context struct
-    llvm::Type* i8_type = builder_.getInt8Ty();
-    llvm::ArrayType* context_array_type =
-        llvm::ArrayType::get(i8_type, sizeof(LaunchKernelContext));
-    llvm::Value* launch_context = builder_.CreateAlloca(
-        context_array_type, nullptr, "launch_kernel_context");
-
-    // Zero-initialize the entire context struct
-    llvm::Value* context_ptr = builder_.CreateBitCast(launch_context, void_ptr_type);
-    llvm::Type* size_type = builder_.getInt64Ty();
-    llvm::Value* size_val = builder_.getInt64(sizeof(LaunchKernelContext));
-    llvm::Function* memset_func = module->getFunction("llvm.memset.p0.i64");
-    if (!memset_func) {
-      llvm::Type* memset_params[] = {void_ptr_type, i8_type, size_type, builder_.getInt1Ty()};
-      llvm::FunctionType* memset_type = llvm::FunctionType::get(
-          builder_.getVoidTy(), memset_params, false);
-      memset_func = llvm::Function::Create(
-          memset_type,
-          llvm::Function::ExternalLinkage,
-          "llvm.memset.p0.i64",
-          module);
-    }
-    builder_.CreateCall(
-        memset_func,
-        {context_ptr, builder_.getInt8(0), size_val, builder_.getInt1(false)});
-
-    // Initialize the launch_kernel pointer (first field at offset 0)
-    llvm::Value* launch_kernel_field_ptr = context_ptr;
-    builder_.CreateStore(launch_kernel_ptr, builder_.CreateBitCast(
-        launch_kernel_field_ptr, void_ptr_type->getPointerTo()));
-
-    // Context pointer is already in void* form
-    llvm::Value* launch_context_ptr = context_ptr;
 
     llvm::Value* container_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
@@ -1095,7 +1041,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
          num_inputs_constant,
          output_array_ptr,
          num_outputs_constant,
-         launch_context_ptr,
+         launch_kernel_ptr,
          container_ptr});
   }
 
@@ -1339,10 +1285,9 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   void* container) {
         FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
-        // Cast to LaunchKernelContext struct
-        auto* launch_context =
-            static_cast<LaunchKernelContext*>(launch_context_ptr);
-        auto* launch_kernel_ptr = launch_context->launch_kernel;
+        // Cast to LaunchKernel struct
+        auto* launch_kernel_ptr =
+            static_cast<hir::LaunchKernel*>(launch_context_ptr);
 
         // Profiling setup
         int64_t group_id = launch_kernel_ptr->groupId();
