@@ -89,11 +89,11 @@ class TestRepro(NVFuserTest):
                 with FusionDefinition() as fd:
                     fusion_func(fd)
                 # torch.manual_seed(0)
-                # _enable_options = ["id_model_extra_validation"]
+                _enable_options = ["id_model_extra_validation"]
                 nvf_out = fd.execute(
                     inputs,
                     # device=None,
-                    # _enable_options=_enable_options,
+                    _enable_options=_enable_options,
                     # _disable_options=[],
                 )
 
