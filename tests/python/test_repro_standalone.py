@@ -47,5 +47,3 @@ def test_repro():
 
 enable_automatic_serialization()
 test_repro()
-test_repro()
-
