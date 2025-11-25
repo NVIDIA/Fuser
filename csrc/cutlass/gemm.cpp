@@ -804,8 +804,7 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // Upcast from int32_t to int64_t to avoid overflow
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
-
-  int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
+  int64_t sf_offset = static_cast<int64_t>(inputs.scale_factor_offsets[expert_id]);
   int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
   int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
   assert(
@@ -828,17 +827,31 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
     // TODO: We should have exact mappings for ScaledMmaOp and
     // CutlassNvfp4GroupedMmaOp but these were not created when the ops were
     // made, so here we correct the exact graph.
+
+    // K/2 dimension
     graph.mapVals(
         pattern_.b->getLogicalDomain().at(1),
         pattern_.a->getLogicalDomain().at(1));
 
+    // K/16 dimension for block scale factors
     graph.mapVals(
-        pattern_.a_scale->getLogicalDomain().at(0),
-        pattern_.a->getLogicalDomain().at(0));
+        pattern_.b_scale->getLogicalDomain().at(2),
+        pattern_.a_scale->getLogicalDomain().at(1));
 
+    // num_experts (E) dim
     graph.mapVals(
         pattern_.b_scale->getLogicalDomain().at(0),
         pattern_.b->getLogicalDomain().at(0));
+    graph.mapVals(
+        pattern_.b->getLogicalDomain().at(0),
+        pattern_.expert_offsets->getLogicalDomain().at(0));
+    if (pattern_.alpha != nullptr) {
+      graph.mapVals(
+          pattern_.b->getLogicalDomain().at(0),
+          pattern_.alpha->getLogicalDomain().at(0));
+    }
+
+    // N dimension
     graph.mapVals(
         pattern_.b_scale->getLogicalDomain().at(1),
         pattern_.b->getLogicalDomain().at(2));
@@ -853,7 +866,15 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
     ValGroup num_experts_group =
         graph.toGroup(pattern_.b->getLogicalDomain().at(0));
     ValGroup n_group = graph.toGroup(pattern_.b->getLogicalDomain().at(2));
-    // TODO: set up K dimension of scale factors
+
+    // NOTE: the M dimension of a_scale is not exact mapped to that of a because
+    // of padding required for the scale factor array. For this reason, we use
+    // different offsets to index these different dimensions.
+    ValGroup scale_m_offset_group =
+        graph.toGroup(pattern_.a_scale->getLogicalDomain().at(0));
+
+    ValGroup group_k_group =
+        graph.toGroup(pattern_.b_scale->getLogicalDomain().at(2));
 
     std::cout << id_model.toString() << std::endl;
 
@@ -865,9 +886,14 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
         half_k_group->front()->toString());
 
     std::unordered_map<ValGroup, std::string> dim_size;
-    dim_size.emplace(num_experts_group, "num_experts");
+    // These two are not the size of the expert dimension but rather the index
+    // into that dimension.
+    dim_size.emplace(num_experts_group, "expert_id");
+    dim_size.emplace(m_group, "expert_offset");
     dim_size.emplace(n_group, "n");
     dim_size.emplace(half_k_group, "half_k");
+    dim_size.emplace(scale_m_offset_group, "sf_offset");
+    dim_size.emplace(group_k_group, "(k / 16)");
 
     for (const std::unique_ptr<TensorDescriptor>& td_ptr :
          tensor_descriptors_) {
@@ -877,21 +903,13 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       }
       code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
       // base pointer
-      std::string offset_idx = "expert_offset";
-      if (td_ptr->tv == pattern_.a_scale) {
-        offset_idx = "inputs.scale_factor_offsets[expert_id]";
-      }
-      code_ += "inputs." + td_ptr->name + " + " + offset_idx;
-      // expert_offset takes the place of the "M" dimension. We must multiply
-      // the size of each other dimension
+      code_ += "inputs." + td_ptr->name + " + ";
+      bool first = true;
       for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
         if (!id->isIteration()) {
           continue;
         }
         ValGroup group = graph.toGroup(id);
-        if (group == m_group || group == num_experts_group) {
-          continue;
-        }
         const auto it = dim_size.find(group);
         // TODO: we should assert this instead
         if (it == dim_size.end()) {
@@ -905,7 +923,11 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
             "Could not find dimension size map entry for ",
             group);
             */
-        code_ += " * " + it->second;
+        if (!first) {
+          code_ += " * ";
+        }
+        first = false;
+        code_ += it->second;
       }
       code_ += ";\n";
     }
