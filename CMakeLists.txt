@@ -311,6 +311,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/propagation.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/resharding.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/symmetric_tensor.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
@@ -947,6 +948,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_fusion_hash.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp

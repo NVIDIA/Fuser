@@ -12,7 +12,9 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_non_tma.h>
 #include <scheduler/pointwise_tma.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
 #include <ranges>
@@ -332,6 +334,18 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
+
+  auto prop_opt = pointwise_utils::getFusionRuntimeProperties(
+      fusion, runtime_info, data_cache);
+  // Return default parameters if the fusion is zero-dimensional or zero-size
+  if (!prop_opt.has_value()) {
+    auto pwise_params = std::make_unique<PointwiseParams>();
+    pwise_params->tag = "Pointwise heuristics";
+    pwise_params->cparams.index_type = runtime_info.getIndexType();
+    return pwise_params;
+  }
+  const auto& prop = prop_opt.value();
+
   bool use_tma = false;
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
@@ -339,7 +353,7 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
         fusion, runtime_info, data_cache);
   } else {
     pparams = pointwise::non_tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, prop);
   }
   NVF_ERROR(pparams != nullptr);
   return pparams;

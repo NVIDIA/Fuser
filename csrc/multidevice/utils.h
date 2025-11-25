@@ -18,7 +18,7 @@
 namespace nvfuser {
 
 // Identifies which TensorView domain to inspect.
-enum class DomainType {
+enum class DomainType : int {
   kRoot,
   kLogical,
   kLoop,
@@ -43,21 +43,6 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);
-
-// Returns whether an Expr embeds multi-device resharding
-NVF_API bool isResharding(const Expr* expr);
-
-// Returns whether two tensors have different shardings. Expect a
-// producer/consumer relationship between the arguments.
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const std::unordered_set<ParallelType>& parallel_types);
-
-// Returns a set that contains DIDs and Stream.
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
-
-std::unordered_set<ParallelType> deviceParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
@@ -113,5 +98,25 @@ template <typename T>
 const T& fromBytes(const std::vector<uint8_t>& bytes) {
   return *reinterpret_cast<const T*>(bytes.data());
 }
+
+// IPC Utils for sharing file descriptors
+
+// Creates a listening Unix domain socket bound to path.
+// If path starts with '@', it uses the abstract namespace (replaced with \0).
+// Returns the socket file descriptor.
+int createIpcSocket(const std::string& path);
+
+// Connects to the Unix domain socket at path and sends the file descriptor fd.
+// Optionally sends header_data of size header_len along with the FD.
+void sendFd(
+    const std::string& path,
+    int fd,
+    const void* header_data = nullptr,
+    size_t header_len = 0);
+
+// Accepts a connection on the listening socket_fd and receives a file
+// descriptor. Optionally receives header_data of size header_len. Returns the
+// received file descriptor.
+int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
 
 } // namespace nvfuser

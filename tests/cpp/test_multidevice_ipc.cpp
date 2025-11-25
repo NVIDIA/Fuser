@@ -11,6 +11,7 @@
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 
@@ -266,32 +267,26 @@ TEST_F(IpcTest, IpcP2pWithVmm) {
       CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
       /*flags=*/0));
 
-  // Allow peer processes to use pidfd_getfd on this process
-  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+  // Setup Ipc Listener (with abstract namespace to avoid cleanup issues)
+  std::string my_socket_path = "@nvfuser_test_ipc_p2p_" + std::to_string(rank);
+  int listener_fd = nvfuser::createIpcSocket(my_socket_path);
 
-  // Share the file descriptor and PID via TCP store
-  auto store = communicator_->getTcpStore();
-  store->set("vmm_ipc_fd_" + std::to_string(rank), toBytes(shared_fd));
-  pid_t my_pid = getpid();
-  store->set("vmm_ipc_pid_" + std::to_string(rank), toBytes(my_pid));
-
-  // Wait for all ranks to finish exporting
+  // Wait for all ranks to finish exporting and setting up listeners
   communicator_->barrier();
 
-  // Import peer's VMM handle
-  const int64_t peer_rank = (rank + 1) % num_devices;
-  int peer_shared_fd =
-      fromBytes<int>(store->get("vmm_ipc_fd_" + std::to_string(peer_rank)));
-  pid_t peer_pid =
-      fromBytes<pid_t>(store->get("vmm_ipc_pid_" + std::to_string(peer_rank)));
+  // Exchange FDs
+  const int64_t receiver_rank = (rank - 1 + num_devices) % num_devices;
+  std::string receiver_path =
+      "@nvfuser_test_ipc_p2p_" + std::to_string(receiver_rank);
 
-  // Get the peer's file descriptor using pidfd_open and pidfd_getfd
-  int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
-  ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
-                       << peer_pid;
+  // Send my FD to my target receiver
+  nvfuser::sendFd(receiver_path, shared_fd);
 
-  int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
-  ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+  // Receive FD from my sender
+  int peer_fd = nvfuser::recvFd(listener_fd);
+
+  close(listener_fd);
+  close(shared_fd);
 
   // Import the peer's memory handle
   CUmemGenericAllocationHandle peer_mem_handle = 0;
@@ -333,7 +328,6 @@ TEST_F(IpcTest, IpcP2pWithVmm) {
   NVFUSER_CUDA_SAFE_CALL(cuMemAddressFree(peer_d_ptr, aligned_size));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(peer_mem_handle));
   close(peer_fd);
-  close(pid_fd);
 
   // Clean up local memory
   NVFUSER_CUDA_SAFE_CALL(cuMemUnmap(d_ptr, aligned_size));
@@ -430,43 +424,46 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   // Create a multicast object at root rank and export it to a shareable mem
   // handled. Put it in the store
   CUmemGenericAllocationHandle mcast_handle{};
-  auto store = communicator_->getTcpStore();
-  pid_t root_pid;
+
   handle_typename shared_handle;
+  int listener_fd = -1;
+
   if (rank == exporter_rank) {
     NVFUSER_CUDA_SAFE_CALL(cuMulticastCreate(&mcast_handle, &mcast_prop));
     NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
         &shared_handle, mcast_handle, handle_type, /*flags=*/0));
-    // Allow peer processes to use pidfd_getfd on this process
-    // A more aggressive solution would be to modify Yama ptrace policy by
-    // running `echo 0 | sudo tee /proc/sys/kernel/yama/ptrace_scope` or to run
-    // the docker container with `--cap-add=SYS_PTRACE` and `--sysctl
-    // kernel.yama.ptrace_scope=0`.
-    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
-    store->set(
-        std::string("nvls_export_fd_mcast_handle"), toBytes(shared_handle));
-    root_pid = getpid();
-    store->set(std::string("nvls_export_pid_mcast_handle"), toBytes(root_pid));
+  } else {
+    // Non-exporters prepare to receive
+    std::string my_path = "@nvfuser_test_nvls_recv_" + std::to_string(rank);
+    listener_fd = nvfuser::createIpcSocket(my_path);
   }
+
   communicator_->barrier();
-  // Import the multicast object at other ranks
+
+  // Transfer handle via Unix Socket
   if (rank != exporter_rank) {
-    shared_handle = fromBytes<handle_typename>(
-        store->get(std::string("nvls_export_fd_mcast_handle")));
-    root_pid = fromBytes<pid_t>(
-        store->get(std::string("nvls_export_pid_mcast_handle")));
+    // Receiver side
+    // Wait for connection from Exporter
+    int received_fd = nvfuser::recvFd(listener_fd);
+    // Cast to handle_typename (int)
+    shared_handle = received_fd;
+    close(listener_fd);
+  } else {
+    // Exporter side: Connect to all other ranks and send FD
+    for (int i = 0; i < world_size; ++i) {
+      if (i == rank) {
+        continue;
+      }
+      std::string peer_path = "@nvfuser_test_nvls_recv_" + std::to_string(i);
+      nvfuser::sendFd(peer_path, shared_handle);
+    }
+    close(shared_handle);
+  }
 
-    int pid_fd, peer_fd;
-    pid_fd = syscall(SYS_pidfd_open, root_pid, /*flags=*/0);
-    ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
-                         << root_pid;
-
-    peer_fd = syscall(SYS_pidfd_getfd, pid_fd, shared_handle, /*flags=*/0);
-    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
+  if (rank != exporter_rank) {
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
-        &mcast_handle, (void*)((uint64_t)peer_fd), handle_type));
-    close(pid_fd);
-    close(peer_fd);
+        &mcast_handle, (void*)((uint64_t)shared_handle), handle_type));
+    close(shared_handle);
   }
 
   // All ranks add their device to multicast group
@@ -588,11 +585,6 @@ TEST_F(IpcTest, IpcNvlsMulticastBroadcast) {
   NVFUSER_CUDA_SAFE_CALL(
       cuMulticastUnbind(mcast_handle, cu_dev, /*offset=*/0, kSizeBytes));
   NVFUSER_CUDA_SAFE_CALL(cuMemRelease(mcast_handle));
-
-  // Restore ptracer setting to default (clear the PR_SET_PTRACER_ANY exception)
-  if (rank == exporter_rank) {
-    prctl(PR_SET_PTRACER, 0);
-  }
 }
 
 #endif
@@ -671,54 +663,52 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
       CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
       /*flags=*/0));
 
-  // Allow peer processes to use pidfd_getfd on this process
-  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
+  // Share FD with all ranks
+  std::string my_socket_path =
+      "@nvfuser_test_vmm_multi_" + std::to_string(rank);
+  int listener_fd = nvfuser::createIpcSocket(my_socket_path);
 
-  // Share the file descriptor and PID via TCP store
-  auto store = communicator_->getTcpStore();
-  store->set("vmm_multi_fd_" + std::to_string(rank), toBytes(shared_fd));
-  pid_t my_pid = getpid();
-  store->set("vmm_multi_pid_" + std::to_string(rank), toBytes(my_pid));
-
-  // Wait for all ranks to finish exporting
   communicator_->barrier();
 
-  // Import all other ranks' allocation handles
   std::vector<CUmemGenericAllocationHandle> all_alloc_handles(num_devices);
   std::vector<int> peer_fds;
-  std::vector<int> pid_fds;
 
   all_alloc_handles[rank] = local_alloc_handle;
 
+  // Send my FD to everyone else
   for (int64_t peer_rank = 0; peer_rank < num_devices; ++peer_rank) {
     if (peer_rank == rank) {
-      continue; // Skip self
+      continue;
     }
+    std::string peer_path =
+        "@nvfuser_test_vmm_multi_" + std::to_string(peer_rank);
+    // Send my rank as header so receiver knows who this FD belongs to
+    int my_rank_data = (int)rank;
+    nvfuser::sendFd(peer_path, shared_fd, &my_rank_data, sizeof(my_rank_data));
+  }
 
-    int peer_shared_fd =
-        fromBytes<int>(store->get("vmm_multi_fd_" + std::to_string(peer_rank)));
-    pid_t peer_pid = fromBytes<pid_t>(
-        store->get("vmm_multi_pid_" + std::to_string(peer_rank)));
+  // Receive from everyone else
+  for (int i = 0; i < num_devices - 1; ++i) {
+    int sender_rank = -1;
+    int fd = nvfuser::recvFd(listener_fd, &sender_rank, sizeof(sender_rank));
+    ASSERT_GE(sender_rank, 0);
+    ASSERT_LT(sender_rank, num_devices);
+    ASSERT_NE(sender_rank, rank);
 
-    // Get the peer's file descriptor using pidfd_open and pidfd_getfd
-    int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
-    ASSERT_GE(pid_fd, 0) << "rank " << rank << " failed to open pidfd for pid "
-                         << peer_pid;
-    pid_fds.push_back(pid_fd);
-
-    int peer_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_shared_fd, /*flags=*/0);
-    ASSERT_GE(peer_fd, 0) << "rank " << rank << " failed to get peer fd";
-    peer_fds.push_back(peer_fd);
+    peer_fds.push_back(fd);
 
     // Import the peer's memory handle
     CUmemGenericAllocationHandle peer_alloc_handle = 0;
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &peer_alloc_handle,
-        (void*)((uint64_t)peer_fd),
+        (void*)((uint64_t)fd),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
-    all_alloc_handles[peer_rank] = peer_alloc_handle;
+    all_alloc_handles[sender_rank] = peer_alloc_handle;
   }
+
+  close(listener_fd);
+  close(shared_fd);
 
   // Now create one contiguous virtual address range for all allocations
   size_t total_size = aligned_size * num_devices;
@@ -811,9 +801,6 @@ TEST_F(IpcTest, VmmMultiRankContiguousMappingTest) {
 
   // Close file descriptors
   for (int fd : peer_fds) {
-    close(fd);
-  }
-  for (int fd : pid_fds) {
     close(fd);
   }
 }

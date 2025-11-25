@@ -392,3 +392,33 @@ def test_insert_resharding_after(multidevice_direct_test):
     sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
     (out,) = fd.execute([sharded])
     torch.testing.assert_close(out.cpu(), unsharded.relu())
+
+
+@pytest.mark.mpi
+def test_welford(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    b, s, e = 1, 2048, 12288
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor(shape=[b, s, e], contiguity=True)
+        var, mean = fd.ops.var_mean(inp, dims=[2], correction=0, keepdim=False)
+        fd.add_output(var)
+        fd.add_output(mean)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        (inp,) = fd.fusion.inputs()
+        inp.set_device_mesh(mesh)
+        inp.split(1, d, inner_split=False)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.randn(b, s, e)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 1, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+    var, mean = fd.execute([sharded])
+
+    torch.testing.assert_close(var, sharded.var(2), rtol=1e-3, atol=1e-3)
+    torch.testing.assert_close(mean, sharded.mean(2), rtol=1e-3, atol=1e-3)
