@@ -2226,4 +2226,34 @@ TEST_F(PersistentBufferTest, TmaInnerPersistentLayerNorm) {
     return;
   }
 }
+
+TEST_F(PersistentBufferTest, TmaInnerPersistentSoftmax) {
+  DataType dtype = DataType::BFloat16;
+  int x = 16384;
+  int y = 4096;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto res = softmax(tv0, 1);
+  auto output = maybeCastOp(DataType::BFloat16, res);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  // Option to test with auto-scheduler (set to true to compare)
+  bool is_auto_schedule = true;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+}
 } // namespace nvfuser

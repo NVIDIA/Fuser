@@ -44,15 +44,20 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
           runtime_info,
           data_cache,
           InnerPersistentKernelScheduler::schedulerType());
+  // reduction domain heuristics: vectorization factor and bdimx
+  const int64_t total_redu_count = prop.inner_most_dimension_numel;
+  const int64_t total_iter_count = prop.total_iteration_numel;
+  const int64_t max_vect = prop.vectorize_factor;
+  const bool has_expensive_op = prop.has_exp_op || prop.has_rng_op;
 
-  params->project_persistent_buffers = prop.project_persistent_buffers;
+  if (prop.disable_project_to_avoid_recompute && total_redu_count <= 1024 * 8) {
+    params->project_persistent_buffers = false;
+  } else {
+    params->project_persistent_buffers = true;
+  }
   params->vectorize_load_smem_to_regs = true;
   params->may_pre_load_ldg_tvs = true;
   params->tma_load_non_persistent_buffers = false;
-
-  // reduction domain heuristics: vectorization factor and bdimx
-  const int64_t total_redu_count = prop.inner_most_dimension_numel;
-  const int64_t max_vect = prop.vectorize_factor;
 
   // start from bdimx = warp size, vect = 1, then increase vect to maximum
   int64_t bdimx = std::min(warp_size, total_redu_count);
@@ -61,35 +66,12 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     vect *= 2;
   }
   params->vectorization_factor = vect;
-
-  // set persistent batch size, start from 1, then increase until maximum,
-  // ensure divisible. bdimx is kept at warp size to benefit from single warp
-  // reduction which doesn't require shared memory data exchange.
   const int64_t after_vect = total_redu_count / vect;
-  const int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
-  int64_t max_pbs = std::min(after_vect_bdimx, 16L);
-  std::cout << "max_pbs: " << max_pbs << std::endl;
-  int64_t pbs = 1;
-  for (int ipbs = pbs + 1; ipbs <= max_pbs; ipbs++) {
-    if (after_vect % ipbs == 0) {
-      pbs = ipbs;
-    }
-  }
-  if (bdimx * pbs >= after_vect) {
-    NVF_ERROR(
-        bdimx <= warp_size, "bdimx should be less than or equal to warp size");
-    const int64_t total_iter_count = prop.total_iteration_numel;
-    const int64_t target_waves = 4;
-    const int64_t target_threads_per_cta = 128;
-    const int64_t target_bdimy = target_threads_per_cta / bdimx;
-    int64_t bdimy = 1;
-    while (bdimy * 2 <= target_bdimy &&
-           ceilDiv(total_iter_count, bdimy * 2) > sm_count * target_waves) {
-      bdimy *= 2;
-    }
-    params->rows_per_block = bdimy;
-  } else {
-    max_pbs =
+
+  int64_t pbs = 1, bdimy = -1;
+
+  auto useMultipleWarps = [&]() {
+    int64_t max_pbs =
         normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
     bdimx = 4 * warp_size;
     pbs = ceilDiv(after_vect, bdimx);
@@ -97,8 +79,36 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       bdimx *= 2;
       pbs = ceilDiv(after_vect, bdimx);
     }
-  }
+  };
 
+  auto trySingleWarp = [&]() {
+    const int64_t after_vect_bdimx = ceilDiv(after_vect, bdimx);
+    int64_t max_pbs = std::min(after_vect_bdimx, 16L);
+    for (int ipbs = pbs + 1; ipbs <= max_pbs; ipbs++) {
+      if (after_vect % ipbs == 0) {
+        pbs = ipbs;
+      }
+    }
+    if (bdimx * pbs >= after_vect) {
+      bdimy = 1;
+      const int64_t target_waves = 4;
+      const int64_t target_bdimy = 128 / bdimx;
+      while (bdimy * 2 <= target_bdimy &&
+             ceilDiv(total_iter_count, bdimy * 2) > sm_count * target_waves) {
+        bdimy *= 2;
+      }
+    }
+  };
+
+  if (!has_expensive_op) {
+    trySingleWarp();
+  }
+  // single warp failed, try large bdimx
+  if (bdimy > 0) {
+    params->rows_per_block = bdimy;
+  } else {
+    useMultipleWarps();
+  }
   // set persistent batch size
   params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
   if (std::getenv("PBS")) {
@@ -248,9 +258,12 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       .traverse(&non_tma_propagator);
 
   // If reduction_tv is rfactored, rfactor all reductions.
+  // Also needs to update non_tma_tvs to include newly rfactored tvs.
   if (reference_tv != reduction_tv) {
     reduction_scheduler_utils::propagateRFactor(
         reference_tv, reduction_tv, reduction_tvs);
+    non_tma_tvs =
+        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   }
 
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
