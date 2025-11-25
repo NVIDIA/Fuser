@@ -200,7 +200,8 @@ class CutlassCodeGenerator {
     } else if (tv->isFusionInput()) {
       tensor_arg_pos = fusionInputPosition(fusion_, tv);
     } else if (tv->isFusionOutput()) {
-      tensor_arg_pos = fusionOutputPosition(fusion_, tv);
+      tensor_arg_pos =
+          fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
     } else {
       NVF_ERROR(
           "We should never call registerGlobalBuffer on intermediate tensors");
