@@ -11,13 +11,16 @@
 
 using namespace cute;
 
-__global__ void cute_bulk_copy(float const* g_in, float* g_out) {
-  auto smem_layout = make_layout(Shape<_32, _32>{}, GenRowMajor{});
-  auto gmem_layout = smem_layout;
+template <class T, class GmemLayout, class SmemLayout>
+__global__ void cute_bulk_copy(
+    T const* g_in,
+    T* g_out,
+    GmemLayout gmem_layout,
+    SmemLayout smem_layout) {
   // Use Shared Storage structure to allocate and distribute aligned SMEM
   // addresses
   extern __shared__ char shared_memory[];
-  using SharedStorage = SharedStorage<float, decltype(smem_layout)>;
+  using SharedStorage = SharedStorage<T, SmemLayout>;
   SharedStorage& shared_storage =
       *reinterpret_cast<SharedStorage*>(shared_memory);
 
