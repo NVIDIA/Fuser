@@ -189,16 +189,18 @@ void CutlassCompiledKernel::run(
 void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
-  cutlass_code_ = getStructuredCodeFromExternalFiles(getGlobalFusionCount());
-  if (!cutlass_code_.empty()) {
-    return;
-  }
-
   // Generate CUTLASS kernel code using the code generator
   const cutlass_codegen::CutlassGeneratedCode ck =
       cutlass_codegen::generateCode(fusion_, params_);
   cutlass_code_ = ck.code;
   num_temp_tensors_ = ck.num_temp_tensors;
+
+  std::string external_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!external_code.empty()) {
+    cutlass_code_ = external_code;
+    return;
+  }
 
   // Dump the kernel if requested. Note that we do not currently distinguish
   // between the kernel and the entire CUTLASS source file.
