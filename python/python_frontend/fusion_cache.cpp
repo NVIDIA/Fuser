@@ -784,6 +784,8 @@ void FusionCache::serialize(std::string filename) const {
 }
 
 void FusionCache::deserialize(std::string filename) {
+  std::cout << "[DEBUG] ========== FusionCache::deserialize() STARTING ==========" << std::endl;
+  std::cout << "[DEBUG]   - Deserializing from file: " << filename << std::endl;
   // See table definition for FusionCache in serde/fusion_cache.fbs
   // 0. Load flatbuffer binary from file
   FUSER_PERF_SCOPE("FusionCache::deserialize");
@@ -838,8 +840,12 @@ void FusionCache::deserialize(std::string filename) {
 
   // Starting from the root node, we build the Trie structure in breadth-first
   // (BFS) order.
+  std::cout << "[DEBUG] FusionCache::deserialize() - Starting BFS traversal of Trie" << std::endl;
+  size_t bfs_iteration = 0;
   while (!queue.empty()) {
     auto& [trie_ptr, structure_idx] = queue.front();
+    std::cout << "[DEBUG] FusionCache::deserialize() - BFS iteration " << bfs_iteration++ 
+              << ", processing TrieNode at structure_idx=" << structure_idx << std::endl;
 
     // Update BFS order
     bfs_order.push_back(trie_ptr);
@@ -887,7 +893,12 @@ void FusionCache::deserialize(std::string filename) {
 
     // Table TrieNode => Field: children: [ulong]
     // Create Children TrieNode
+    size_t num_children = fb_trie_node->children()->size();
+    std::cout << "[DEBUG] FusionCache::deserialize() - Current node has " << num_children << " children" << std::endl;
+    size_t child_idx = 0;
     for (auto child_bfs_idx : *fb_trie_node->children()) {
+      std::cout << "[DEBUG] FusionCache::deserialize() - Processing child " << child_idx++ << "/" << num_children 
+                << " (child_bfs_idx=" << child_bfs_idx << ")" << std::endl;
       auto fb_child_trie_node =
           fusion_cache_buffer->structure()->Get(child_bfs_idx);
 
@@ -909,13 +920,16 @@ void FusionCache::deserialize(std::string filename) {
       // Add child TrieNode to BFS queue
       queue.emplace_back(
           status.first->second.get() /* TrieNode pointer */, child_bfs_idx);
+      std::cout << "[DEBUG] FusionCache::deserialize() - About to clone FusionState for child node" << std::endl;
       state_queue.emplace_back(state->clone());
+      std::cout << "[DEBUG] FusionCache::deserialize() - Clone completed for child node" << std::endl;
     }
 
     // Destroy current fusion state
     queue.pop_front();
     state_queue.pop_front();
   }
+  std::cout << "[DEBUG] FusionCache::deserialize() - BFS traversal completed, processed " << bfs_iteration << " nodes" << std::endl;
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
@@ -958,6 +972,7 @@ void FusionCache::deserialize(std::string filename) {
         "Detected exception while deserializing fusions in parallel.\n",
         "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
   }
+  std::cout << "[DEBUG] ========== FusionCache::deserialize() COMPLETED ==========" << std::endl;
 }
 
 } // namespace nvfuser::python_frontend
