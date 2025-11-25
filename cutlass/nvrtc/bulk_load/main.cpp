@@ -17,6 +17,29 @@
 #include "cute.cuh"
 #include "utils.h"
 
+// GCC/Clang/CUDA (Linux)
+#if defined(__GNUC__) || defined(__clang__)
+#include <cxxabi.h>
+
+template <typename T>
+std::string type_to_string() {
+  int status = 0;
+  // abi::__cxa_demangle converts the internal compiler ID to human C++ code
+  std::unique_ptr<char, void (*)(void*)> res{
+      abi::__cxa_demangle(typeid(T).name(), NULL, NULL, &status), std::free};
+  return (status == 0) ? res.get() : typeid(T).name();
+}
+
+// MSVC (Windows)
+#elif defined(_MSC_VER)
+template <typename T>
+std::string type_to_string() {
+  // MSVC name() is already human readable usually, but struct/class might
+  // differ
+  return typeid(T).name();
+}
+#endif
+
 std::string read_file(const std::string& filename) {
   std::ifstream file(filename);
   if (!file.is_open()) {
@@ -34,6 +57,15 @@ std::vector<std::byte> convertTensorToBytes(at::Tensor& tensor) {
   buffer.reserve(sizeof(void*));
   buffer.insert(
       buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+  return buffer;
+}
+
+template <class T>
+std::vector<std::byte> convertToBytes(T data) {
+  std::vector<std::byte> buffer;
+  buffer.reserve(sizeof(data));
+  buffer.insert(
+      buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(data));
   return buffer;
 }
 
@@ -55,8 +87,16 @@ int main() {
   nvrtcCreateProgram(
       &prog, cuda_source.c_str(), filename.c_str(), 0, NULL, NULL);
 
-  const char* name_expression = "cute_bulk_copy";
-  nvrtcAddNameExpression(prog, name_expression);
+  auto smem_layout = cute::make_layout(
+      cute::Shape<cute::_32, cute::_32>{}, cute::GenRowMajor{});
+  auto gmem_layout = smem_layout;
+  int32_t smem_size =
+      static_cast<int32_t>(sizeof(SharedStorage<float, decltype(smem_layout)>));
+
+  std::string name_expression = "cute_bulk_copy<float," +
+      type_to_string<decltype(gmem_layout)>() + "," +
+      type_to_string<decltype(smem_layout)>() + ">";
+  nvrtcAddNameExpression(prog, name_expression.c_str());
 
   std::string gpu_arch = "--gpu-architecture=compute_" + getGpuArch() + "a";
   std::string cutlass_arch = "-DCUTLASS_NVCC_ARCHS=" + getGpuArch() + "a\"";
@@ -74,7 +114,7 @@ int main() {
   NVRTC_CHECK(nvrtcCompileProgram(prog, opts.size(), opts.data()));
 
   const char* mangled_name;
-  nvrtcGetLoweredName(prog, name_expression, &mangled_name);
+  nvrtcGetLoweredName(prog, name_expression.c_str(), &mangled_name);
 
   // 5. Get the PTX (The compiled binary)
   size_t ptx_size;
@@ -101,6 +141,12 @@ int main() {
   data.push_back(convertTensorToBytes(d_out));
   pointers.emplace_back(data.back().data());
 
+  data.push_back(convertToBytes(gmem_layout));
+  pointers.emplace_back(data.back().data());
+
+  data.push_back(convertToBytes(smem_layout));
+  pointers.emplace_back(data.back().data());
+
   // Create module from binary file (FATBIN)
   CUmodule cu_module;
   CUDA_CHECK(cuModuleLoadData(&cu_module, (void*)ptx.data()));
@@ -113,12 +159,6 @@ int main() {
   nvrtcDestroyProgram(&prog);
 
   CUDA_RUNTIME_CHECK(cudaDeviceSynchronize());
-
-  auto smem_layout = cute::make_layout(
-      cute::Shape<cute::_32, cute::_32>{}, cute::GenRowMajor{});
-  auto gmem_layout = smem_layout;
-  int32_t smem_size =
-      static_cast<int32_t>(sizeof(SharedStorage<float, decltype(smem_layout)>));
 
   CUlaunchConfig config = {};
   config.gridDimX = 1;
