@@ -7,6 +7,7 @@
 // clang-format on
 #include <instrumentation.h>
 #include <ir/interface_nodes.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
