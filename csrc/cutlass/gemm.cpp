@@ -169,6 +169,16 @@ class CutlassCodeGenerator {
 
     // If there is a pointer array associated with this
     TensorDescriptor* pointer_array_desc = nullptr;
+
+    // Input block scale factors require layouts to be passed (outputs do not).
+    // In the case of grouped GEMM these are arrays of layouts. In either case,
+    // this records which type of layout to use.
+    enum class LayoutType { SFA, SFB };
+    std::optional<LayoutType> layout = std::nullopt;
+
+    // For grouped GEMM input block scale factors, this holds the array of
+    // layouts.
+    TensorDescriptor* layout_array_desc = nullptr;
   };
 
   // We track every global tensor. If tv is non-null and we detect that this is
@@ -179,7 +189,8 @@ class CutlassCodeGenerator {
       TensorView* tv = nullptr,
       bool needs_ptr_array = false,
       std::string dtype_str = "",
-      bool ptr_array_dtype_is_same = false) {
+      bool ptr_array_dtype_is_same = false,
+      std::optional<TensorDescriptor::LayoutType> layout = std::nullopt) {
     auto new_temp_tensor_pos = [&]() {
       std::cout << "new_temp_tensor_pos" << std::endl;
       return fusion_->inputs().size() + fusion_->outputs().size() +
@@ -217,12 +228,36 @@ class CutlassCodeGenerator {
               ptr_array_dtype_str)
         : nullptr;
 
+    TensorDescriptor* layout_array_desc = nullptr;
+    if (layout.has_value()) {
+      std::string layout_dtype_str = "Fp4GemmSm100::Layout";
+      switch (layout.value()) {
+        case TensorDescriptor::LayoutType::SFA:
+          layout_dtype_str += "SFA";
+          break;
+        case TensorDescriptor::LayoutType::SFB:
+          layout_dtype_str += "SFB";
+          break;
+      }
+      layout_array_desc = registerGlobalBuffer(
+          name + "_layouts",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          layout_dtype_str);
+    }
+
     tensor_name_map_.emplace(
         tv, needs_ptr_array ? pointer_array_desc->name : name);
 
     return tensor_descriptors_
         .emplace_back(std::make_unique<TensorDescriptor>(
-            name, dtype_str, tv, tensor_arg_pos, pointer_array_desc))
+            name,
+            dtype_str,
+            tv,
+            tensor_arg_pos,
+            pointer_array_desc,
+            layout,
+            layout_array_desc))
         .get();
   }
 
@@ -259,14 +294,20 @@ class CutlassCodeGenerator {
     // dtypes are unsigned
     registerGlobalBuffer(
         "a_scale",
-        pattern_.a_scale,
+        /*tv=*/pattern_.a_scale,
         /*needs_ptr_array=*/pattern_.is_grouped,
-        dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true));
+        /*dtype_str=*/
+        dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true),
+        /*ptr_array_dtype_is_same=*/false,
+        /*layout=*/TensorDescriptor::LayoutType::SFA);
     registerGlobalBuffer(
         "b_scale",
-        pattern_.b_scale,
+        /*tv=*/pattern_.b_scale,
         /*needs_ptr_array=*/pattern_.is_grouped,
-        dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true));
+        /*dtype_str=*/
+        dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
+        /*ptr_array_dtype_is_same=*/false,
+        /*layout=*/TensorDescriptor::LayoutType::SFB);
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
@@ -763,24 +804,30 @@ extern "C" void temp_tensor_sizes(
     const std::vector<TensorArg>& tensor_args) {
   Inputs inputs = standardize_args(tensor_args);
   auto cutlass_args = cutlass_args_from_inputs(inputs);
-
-  out_tensor_sizes[0] = Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);
 )";
 
     if (pattern_.is_grouped) {
       // TODO: For grouped gemm, we need one temp tensor for each grouped input
       // and output. These are the pointer arrays and they are all the same
       // size: [num_experts].
-      code_ += R"(
-  // All pointer arrays are the same size since they represent an array of
-  // base pointers, so they are independent of the dimension of the tensor or
-  // the inner dimensions of each group.
-  int64_t ptr_array_bytes = inputs.num_experts * sizeof(void*);
-)";
-      for (auto i : arange(1, num_temp_tensors_)) {
-        code_ += "  out_tensor_sizes[" + std::to_string(i) +
-            "] = ptr_array_bytes;\n";
-      };
+      for (const std::unique_ptr<TensorDescriptor>& td_ptr :
+           tensor_descriptors_) {
+        if (td_ptr->tv != nullptr) {
+          continue;
+        }
+        const int64_t pos = td_ptr->tensor_args_pos;
+        const int64_t tensor_sizes_pos =
+            pos - fusion_->inputs().size() - fusion_->outputs().size();
+        code_ +=
+            "  out_tensor_sizes[" + std::to_string(tensor_sizes_pos) + "] = ";
+        // All temp tensors for grouped gemm (other than the cutlass workspace)
+        // are vectors of length num_experts.
+        if (td_ptr->name == "cutlass_workspace") {
+          code_ += "Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);\n";
+        } else {
+          code_ += "inputs.num_experts * sizeof(" + td_ptr->dtype_str + ");\n";
+        }
+      }
     }
     code_ += R"(
 }
