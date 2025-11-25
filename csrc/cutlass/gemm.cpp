@@ -606,7 +606,13 @@ struct Fp4GemmSm100 {
           ClusterShape,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
-          cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
+          )";
+    if (pattern_.is_grouped) {
+      code_ += "cutlass::gemm::KernelPtrArrayTmaWarpSpecialized1SmNvf4Sm100";
+    } else {
+      code_ += "cutlass::gemm::collective::KernelScheduleAuto";
+    }
+    code_ += R"(>::CollectiveOp;
 
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
       Shape<int, int, int, int>,
