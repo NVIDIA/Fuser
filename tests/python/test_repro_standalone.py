@@ -17,11 +17,10 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 import torch
-from nvfuser import FusionDefinition, FusionCache, enable_automatic_serialization
+from nvfuser import FusionDefinition, enable_automatic_serialization
 
 # Import the test utilities
 sys.path.insert(0, os.path.join(project_root, 'tests', 'python'))
-from python.utils import debug_serde, disable_serde
     
 def test_repro():
     # Inlined from test_fusion_profiler_with_noncodegen_kernels
@@ -46,16 +45,7 @@ def test_repro():
     fd = MyFusion()
     fd.execute(inputs, profile=True)
 
-# Inlined from atexit_serde_check()
-# if not disable_serde:
-#     if not debug_serde:
-#         enable_automatic_serialization()
-#     fc = FusionCache.get()
-#     FusionCache.reset()
-
 enable_automatic_serialization()
-# FusionCache.get()
-# FusionCache.reset()
 test_repro()
 test_repro()
 
