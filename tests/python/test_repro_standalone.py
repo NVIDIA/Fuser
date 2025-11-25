@@ -80,6 +80,7 @@ def test_repro():
         
         class MyFusion(FusionDefinition):
             def definition(self):
+                return;
                 fusion_func(fd)
 
         fd = MyFusion()
