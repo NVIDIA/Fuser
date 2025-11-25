@@ -61,28 +61,6 @@ class EVTConverter : OptInDispatch {
     return model_;
   }
 
-  //! We pass both inputs and output tensors to the launcher code via a vector
-  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
-  //! this function returns something like
-  //!
-  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
-  //!
-  std::string getPointerCode(TensorView* tv) {
-    int64_t index = -1;
-    if (tv->isFusionInput()) {
-      index = fusionInputPosition(fusion_, tv);
-    } else if (tv->isFusionOutput()) {
-      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
-    } else {
-      NVF_CUTLASS_REJECT(
-          "Cannot get pointer for TV ",
-          tv->toString(),
-          " which is not a fusion input or output");
-    }
-    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-        std::to_string(index) + ").data_ptr)";
-  }
-
   void findMma() {
     mma_ = getGemmExpr(fusion_);
 
@@ -160,8 +138,7 @@ class EVTConverter : OptInDispatch {
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
         "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
         dtypeToCutlass(alpha_->dtype()) + ">");
-    alpha_bcast_node->arguments.emplace_back(
-        "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
+    alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
     val_nodes_.emplace(alpha_, alpha_bcast_node);
 
     return makeBinaryOpNode(
@@ -194,8 +171,7 @@ class EVTConverter : OptInDispatch {
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(beta_->dtype()) + ">");
-      beta_bcast_node->arguments.emplace_back(
-          "scalar_ptrs", "{" + getPointerCode(beta_) + "}");
+      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -425,8 +401,8 @@ class EVTConverter : OptInDispatch {
         dtypeToCutlass(pattern.block_scale_factors->dtype()) +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
-        {"norm_constant_ptr", getPointerCode(pattern.global_scale_factor)},
+        {"ptr_scale_factor", "inputs.main_output_block_scale_factor"},
+        {"norm_constant_ptr", "inputs.main_output_global_scale_factor"},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =
