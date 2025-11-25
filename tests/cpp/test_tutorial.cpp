@@ -1599,6 +1599,7 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1, t2});
   auto outputs = ke.run({t0, t1, t2});
+  // auto outputs = ke.run({t0, t1, t2});
   
   // Validate: reference computation is (t0 @ t2.T) + t1
   // at::Tensor ref = at::linear(t0, t2) + t1;
