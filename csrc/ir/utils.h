@@ -868,6 +868,6 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 // m, k/4, 4 -> m/128, 128, k/4, 4 (split m by 128)
 // m/128, 128, k/4, 4 -> m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
 // Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
-void swizzleBlockScales(TensorView* tv);
+NVF_API void swizzleBlockScales(TensorView* tv);
 
 } // namespace nvfuser::ir_utils
