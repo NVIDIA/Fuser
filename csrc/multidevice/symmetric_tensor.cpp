@@ -242,7 +242,11 @@ SymmetricTensor::~SymmetricTensor() {
       cuMemAddressFree(reinterpret_cast<CUdeviceptr>(mc_ptr_), aligned_size_);
     }
     if (mcast_handle_) {
-      cuMulticastUnbind(mcast_handle_, cu_dev_, 0, aligned_size_);
+      // On some driver versions, cuMulticastUnbind is sometimes failing with
+      // CUDA_ERROR_INVALID_VALUE, as seen in CI (but not on my system)
+      // According to docs, call to cuMulticastUnbind is not required, and
+      // destroying the object unbinds it. Therefore, we simply skip the call
+      // for now. cuMulticastUnbind(mcast_handle_, cu_dev_, 0, aligned_size_);
       cuMemRelease(mcast_handle_);
     }
     if (peer_fd_ >= 0)
