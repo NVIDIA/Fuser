@@ -19,7 +19,6 @@
 #include <transform_view.h>
 #include <utils.h>
 
-#include <functional>
 #include <memory>
 #include <vector>
 

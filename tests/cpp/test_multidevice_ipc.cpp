@@ -6,7 +6,6 @@
 */
 // clang-format on
 #include <cuda.h>
-#include <cuda_profiler_api.h>
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
