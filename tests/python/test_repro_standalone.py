@@ -77,7 +77,7 @@ class TestRepro(NVFuserTest):
 
             fd = FusionDefinition()
             fusion_func(fd)
-            nvf_out = fd.execute(inputs)
+            nvf_out = fd.execute(inputs, _enable_options=["id_model_extra_validation"])
 
             # eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
             # self.assertEqual(eager_out, nvf_out[0])
