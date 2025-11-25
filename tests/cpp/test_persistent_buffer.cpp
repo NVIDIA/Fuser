@@ -1263,10 +1263,6 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
 }
 
 TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
-  // Skip hopper and above as they use cluster reduction
-  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
-    GTEST_SKIP();
-  }
   // 1024 elements is added to ensure the buffer size is larger than
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
@@ -1304,24 +1300,30 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion.get(), runtime_info);
-  EXPECT_FALSE(
-      heuristic_params->as<ReductionParams>()->smem_persistent_buffers.empty());
+  // shared memory persistent is used for Ampere and lower architectures.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_FALSE(heuristic_params->as<ReductionParams>()
+                     ->smem_persistent_buffers.empty());
+  }
+
   scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
-  // Shared memory access should be vectorized.
-  // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
-  // "std::get: wrong index for variant" when trying to evaluate index with:
-  // `expr_eval.evaluate(ti->index()).as<int64_t>();`
-  for (auto tv : fusion->allTvs()) {
-    if (tv->getMemoryType() == MemoryType::Shared) {
-      // check self
-      EXPECT_TRUE(isVectorized(tv));
-      // check consumers
-      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-        EXPECT_TRUE(isVectorized(consumer));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    // Shared memory access should be vectorized.
+    // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
+    // "std::get: wrong index for variant" when trying to evaluate index with:
+    // `expr_eval.evaluate(ti->index()).as<int64_t>();`
+    for (auto tv : fusion->allTvs()) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        // check self
+        EXPECT_TRUE(isVectorized(tv));
+        // check consumers
+        for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+          EXPECT_TRUE(isVectorized(consumer));
+        }
       }
     }
   }
@@ -1364,10 +1366,6 @@ TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
 }
 
 TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
-  // Skip hopper and above as they use cluster reduction
-  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
-    GTEST_SKIP();
-  }
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -1449,12 +1447,14 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // check segmentation, if not segmented, further check shared memory
   // persistence
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_EQ(is_segmented, runtime->isSegmented());
-  if (!is_segmented) {
-    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
-    ASSERT_TRUE(params->isA<ReductionParams>());
-    ASSERT_TRUE(
-        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    ASSERT_EQ(is_segmented, runtime->isSegmented());
+    if (!is_segmented) {
+      auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+      ASSERT_TRUE(params->isA<ReductionParams>());
+      ASSERT_TRUE(
+          params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+    }
   }
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -1462,10 +1462,6 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
 using TestParam = std::tuple<DataType, int64_t>;
 using LayerNormSharedMemoryTest = NVFuserFixtureParamTest<TestParam>;
 TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
-  // Skip hopper and above as they use cluster reduction
-  if (at::cuda::getCurrentDeviceProperties()->major >= 9) {
-    GTEST_SKIP();
-  }
   auto [dtype, hidden_size] = GetParam();
 
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -1538,30 +1534,32 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto cg_outputs =
       executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  if (has_enough_regs_smem) {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
-    Fusion* scheduled_fusion = runtime->executors()
-                                   .back()
-                                   ->as<KernelExecutor>()
-                                   ->compiledKernel()
-                                   ->kernel();
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    if (has_enough_regs_smem) {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+      Fusion* scheduled_fusion = runtime->executors()
+                                     .back()
+                                     ->as<KernelExecutor>()
+                                     ->compiledKernel()
+                                     ->kernel();
 
-    if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
-      bool has_smem_tv = false;
-      for (auto tv : scheduled_fusion->allTvs()) {
-        if (tv->getMemoryType() == MemoryType::Shared) {
-          has_smem_tv = true;
-          break;
+      if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
+        bool has_smem_tv = false;
+        for (auto tv : scheduled_fusion->allTvs()) {
+          if (tv->getMemoryType() == MemoryType::Shared) {
+            has_smem_tv = true;
+            break;
+          }
         }
+        EXPECT_TRUE(has_smem_tv);
       }
-      EXPECT_TRUE(has_smem_tv);
+    } else {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          Contains(HeuristicIs(SchedulerType::Reduction)));
     }
-  } else {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        Contains(HeuristicIs(SchedulerType::Reduction)));
   }
   testValidate(
       &fusion_copy,

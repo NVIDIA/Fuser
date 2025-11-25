@@ -541,11 +541,11 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL);
 }
 
-// This heuristic is only tuned for cross entropy loss since it is the only layer
-// that uses cluster reduction due to the large vocabulary size, e.g. 256000 in
-// Gemma2. For other layers, the reduction domain is the hidden size dimension,
-// which is usually smaller than 64K and block reduction is used.
-// The reduction domain is parallelized by vectorization, bdimx, gdimx, and
+// This heuristic is only tuned for cross entropy loss since it is the only
+// layer that uses cluster reduction due to the large vocabulary size, e.g.
+// 256000 in Gemma2. For other layers, the reduction domain is the hidden size
+// dimension, which is usually smaller than 64K and block reduction is used. The
+// reduction domain is parallelized by vectorization, bdimx, gdimx, and
 // persistent batch size. The logic is based on empirical tests:
 // (1) Fixed vectorization of 128 bit
 // (2) Fixed bdimx of 256
@@ -587,10 +587,12 @@ void innerPersistentHeuristicCluster(
   rparams->cross_cluster_reduction = true;
   rparams->grid_dim_inner_reduction = ParallelType::BIDx;
 
-  // Iter
+  // Iter domain parameters
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
   rparams->multiple_reds_per_blk = false;
   rparams->unroll_factor_iter_dom = 1;
+
+  // launch parameters
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
