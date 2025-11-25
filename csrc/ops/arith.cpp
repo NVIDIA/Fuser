@@ -1947,23 +1947,36 @@ TensorView* threshold(TensorView* in, Val* thresh, Val* value) {
 }
 
 Val* clamp(Val* in, Val* min_val, Val* max_val) {
+  // Allow TensorView, Others (scalars), and NamedScalar types for min/max
   NVF_CHECK(
       (min_val == nullptr || min_val->getValType().value() == ValType::Others ||
-       min_val->getValType().value() == ValType::NamedScalar) &&
+       min_val->getValType().value() == ValType::NamedScalar ||
+       min_val->getValType().value() == ValType::TensorView) &&
           (max_val == nullptr ||
            max_val->getValType().value() == ValType::Others ||
-           max_val->getValType().value() == ValType::NamedScalar),
-      "For Clamp operation: Min and Max values should be Scalars.");
+           max_val->getValType().value() == ValType::NamedScalar ||
+           max_val->getValType().value() == ValType::TensorView),
+      "For Clamp operation: Min and Max values should be Scalars or "
+      "TensorViews.");
 
-  min_val = (min_val == nullptr)
-      ? ops::getMinimumValue(in->getDataType().value())
-      : optionalCast(in->getDataType().value(), min_val);
-  NVF_CHECK(min_val != nullptr, "Missing minimum value");
+  // Only perform casting and default value substitution for scalar inputs
+  if (min_val != nullptr &&
+      min_val->getValType().value() != ValType::TensorView) {
+    min_val = optionalCast(in->getDataType().value(), min_val);
+    NVF_CHECK(min_val != nullptr, "Failed to cast minimum value");
+  } else if (min_val == nullptr) {
+    min_val = ops::getMinimumValue(in->getDataType().value());
+    NVF_CHECK(min_val != nullptr, "Missing minimum value");
+  }
 
-  max_val = (max_val == nullptr)
-      ? ops::getMaximumValue(in->getDataType().value())
-      : optionalCast(in->getDataType().value(), max_val);
-  NVF_CHECK(max_val != nullptr, "Missing maximum value");
+  if (max_val != nullptr &&
+      max_val->getValType().value() != ValType::TensorView) {
+    max_val = optionalCast(in->getDataType().value(), max_val);
+    NVF_CHECK(max_val != nullptr, "Failed to cast maximum value");
+  } else if (max_val == nullptr) {
+    max_val = ops::getMaximumValue(in->getDataType().value());
+    NVF_CHECK(max_val != nullptr, "Missing maximum value");
+  }
 
   Val* out = ops::newValLike(in, in->getDataType().value());
   IrBuilder::create<TernaryOp>(TernaryOpType::Clamp, out, in, min_val, max_val);

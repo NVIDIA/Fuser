@@ -896,7 +896,7 @@ std::vector<PolymorphicValue> TernaryOp::evaluate(
   const auto& c = inputs.at(2);
   switch (getTernaryOpType()) {
     case TernaryOpType::Clamp:
-      return {std::min(std::max(a, b), c)};
+      return {min(max(a, b), c)};
       break;
     case TernaryOpType::Lerp:
       // This is the same lerp computed in helpers.cu

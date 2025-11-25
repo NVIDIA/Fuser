@@ -341,6 +341,20 @@ inline PolymorphicValue ceildiv(
 inline PolymorphicValue max(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  // Handle tensor inputs
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor || b_is_tensor) {
+    if (a_is_tensor && b_is_tensor) {
+      return PolymorphicValue(
+          at::maximum(a.as<at::Tensor>(), b.as<at::Tensor>()));
+    } else if (a_is_tensor) {
+      return PolymorphicValue(at::maximum(a.as<at::Tensor>(), toScalar(b)));
+    } else {
+      return PolymorphicValue(at::maximum(toScalar(a), b.as<at::Tensor>()));
+    }
+  }
+  // Scalar path
   if (a != a) {
     return PolymorphicValue(a);
   }
@@ -359,6 +373,20 @@ inline PolymorphicValue fmax(
 inline PolymorphicValue min(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  // Handle tensor inputs
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor || b_is_tensor) {
+    if (a_is_tensor && b_is_tensor) {
+      return PolymorphicValue(
+          at::minimum(a.as<at::Tensor>(), b.as<at::Tensor>()));
+    } else if (a_is_tensor) {
+      return PolymorphicValue(at::minimum(a.as<at::Tensor>(), toScalar(b)));
+    } else {
+      return PolymorphicValue(at::minimum(toScalar(a), b.as<at::Tensor>()));
+    }
+  }
+  // Scalar path
   if (a != a) {
     return PolymorphicValue(a);
   }

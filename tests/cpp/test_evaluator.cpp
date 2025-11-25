@@ -561,6 +561,78 @@ TEST_F(ExprEvalTest, TernaryOps) {
   }
 }
 
+//! Test evaluating clamp with tensor inputs
+TEST_F(ExprEvalTest, TernaryOpsWithTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  auto tv0 = makeContigTensor(1);
+  auto tv1 = makeContigTensor(1);
+  auto tv2 = makeContigTensor(1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({5}, options);
+  auto t1 = at::randn({5}, options);
+  auto t2 = at::randn({5}, options);
+
+  evaluator.bind(tv0, t0);
+  evaluator.bind(tv1, t1);
+  evaluator.bind(tv2, t2);
+
+  // Test all tensor inputs
+  auto result_all_tensors = evaluator.evaluate(clamp(tv0, tv1, tv2));
+  auto expected_all_tensors = at::minimum(at::maximum(t0, t1), t2);
+  EXPECT_TRUE(expected_all_tensors.equal(result_all_tensors.as<at::Tensor>()));
+
+  // Test mixed tensor and scalar inputs
+  auto scalar_min = IrBuilder::create<Val>(0.0);
+  auto scalar_max = IrBuilder::create<Val>(1.0);
+
+  // tensor, scalar, scalar
+  auto result_tensor_scalar_scalar =
+      evaluator.evaluate(clamp(tv0, scalar_min, scalar_max));
+  auto expected_tensor_scalar_scalar = at::minimum(
+      at::maximum(t0, at::scalar_tensor(0.0, options)),
+      at::scalar_tensor(1.0, options));
+  EXPECT_TRUE(expected_tensor_scalar_scalar.equal(
+      result_tensor_scalar_scalar.as<at::Tensor>()));
+
+  // tensor, tensor, scalar
+  auto result_tensor_tensor_scalar =
+      evaluator.evaluate(clamp(tv0, tv1, scalar_max));
+  auto expected_tensor_tensor_scalar =
+      at::minimum(at::maximum(t0, t1), at::scalar_tensor(1.0, options));
+  EXPECT_TRUE(expected_tensor_tensor_scalar.equal(
+      result_tensor_tensor_scalar.as<at::Tensor>()));
+
+  // tensor, scalar, tensor
+  auto result_tensor_scalar_tensor =
+      evaluator.evaluate(clamp(tv0, scalar_min, tv2));
+  auto expected_tensor_scalar_tensor =
+      at::minimum(at::maximum(t0, at::scalar_tensor(0.0, options)), t2);
+  EXPECT_TRUE(expected_tensor_scalar_tensor.equal(
+      result_tensor_scalar_tensor.as<at::Tensor>()));
+
+  // scalar, tensor, tensor
+  auto scalar_input = IrBuilder::create<Val>(0.5);
+  auto result_scalar_tensor_tensor =
+      evaluator.evaluate(clamp(scalar_input, tv1, tv2));
+  auto expected_scalar_tensor_tensor =
+      at::minimum(at::maximum(at::scalar_tensor(0.5, options), t1), t2);
+  EXPECT_TRUE(expected_scalar_tensor_tensor.equal(
+      result_scalar_tensor_tensor.as<at::Tensor>()));
+
+  // Test that scalar-only path still works
+  auto scalar_a = IrBuilder::create<Val>(5.0);
+  auto scalar_b = IrBuilder::create<Val>(0.0);
+  auto scalar_c = IrBuilder::create<Val>(3.0);
+  auto result_all_scalars =
+      evaluator.evaluate(clamp(scalar_a, scalar_b, scalar_c));
+  EXPECT_EQ(result_all_scalars, 3.0);
+}
+
 TEST_F(ExprEvalTest, Permute) {
   Fusion fusion;
   FusionGuard fg(&fusion);
