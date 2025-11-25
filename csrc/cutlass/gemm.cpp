@@ -568,6 +568,15 @@ struct Fp4GemmSm100 {
     NVF_ERROR(evt_model_.get() != nullptr);
     code_ += "  using EVTOp =\n" +
         evt_model_->defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
+    if (pattern_.is_grouped) {
+      code_ +=
+          "  using EpilogueSchedule = "
+          "cutlass::epilogue::PtrArrayTmaWarpSpecialized1Sm;\n";
+    } else {
+      code_ +=
+          "  using EpilogueSchedule = "
+          "cutlass::epilogue::collective::EpilogueScheduleAuto;\n";
+    }
     code_ += R"(
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
@@ -584,7 +593,7 @@ struct Fp4GemmSm100 {
           ElementD,
           LayoutDTag,
           AlignmentD,
-          cutlass::epilogue::collective::EpilogueScheduleAuto,
+          EpilogueSchedule,
           EVTOp>::CollectiveOp;
 )";
   }
