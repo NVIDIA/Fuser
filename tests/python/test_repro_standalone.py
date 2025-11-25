@@ -28,6 +28,8 @@ class TestRepro(NVFuserTest):
     """Standalone test class for reproducing the issue"""
     
     def test_repro(self):
+        print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
+        
         # Inlined from test_fusion_profiler_with_noncodegen_kernels
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
@@ -75,11 +77,10 @@ class TestRepro(NVFuserTest):
                 t4 = fd.ops.gather(t3, t2, dim)
                 fd.add_output(t4)
 
-            fd = FusionDefinition()
-            fusion_func(fd)
-            nvf_out = fd.execute(inputs, _enable_options=["id_model_extra_validation"])
+            nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
-            # eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            torch.equal(eager_out, nvf_out[0])
             # self.assertEqual(eager_out, nvf_out[0])
 
         test_fn(0)
