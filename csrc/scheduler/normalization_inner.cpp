@@ -541,7 +541,7 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL);
 }
 
-// This heuristic is only tuned for cross entroy loss since it is the only layer
+// This heuristic is only tuned for cross entropy loss since it is the only layer
 // that uses cluster reduction due to the large vocabulary size, e.g. 256000 in
 // Gemma2. For other layers, the reduction domain is the hidden size dimension,
 // which is usually smaller than 64K and block reduction is used.
