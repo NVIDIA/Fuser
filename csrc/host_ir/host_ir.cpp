@@ -478,8 +478,8 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     destination->setLoopDomain(destination->getLogicalDomain());
 
     Expr* temp_e = ir_utils::replaceValInExprInputs(e, source, destination);
-    // FIXME: findMostParallelTensorView
-    auto* ref_out = e->outputs().at(0)->as<TensorView>();
+    auto* ref_out = findMostParallelTensorView(
+        ir_utils::filterByType<TensorView>(e->outputs()));
     ref_out->setDefinition(temp_e);
     shardLoopLike(
         ref_out,

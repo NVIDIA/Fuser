@@ -89,25 +89,6 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
   return os;
 }
 
-int numParallelIterDomains(const TensorView* tv) {
-  return std::ranges::count_if(
-      tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
-}
-
-template <typename R>
-TensorView* findMostParallelTensorView(const R& range) {
-  TensorView* reference = nullptr;
-  int max_parallel_count = -1;
-  for (TensorView* tv : range) {
-    auto parallel_count = numParallelIterDomains(tv);
-    if (parallel_count > max_parallel_count) {
-      max_parallel_count = parallel_count;
-      reference = tv;
-    }
-  }
-  return reference;
-}
-
 // Finds the TensorView in the group whose loop domain has the most parallel
 // types and returns its loop domain.
 const std::vector<IterDomain*>& findMostParallelLoopDomain(
