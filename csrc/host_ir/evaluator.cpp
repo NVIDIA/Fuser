@@ -493,10 +493,14 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
+  if (params_.mode == HostIrEvaluatorParams::Mode::kFusionExecutorCache) {
+    unhandled(linear);
+    return;
+  }
+
   auto* in = linear->inA()->as<TensorView>();
   auto* weight = linear->inB()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
-
   if (!expr_evaluator_.isKnown(out)) {
     unhandled(linear);
     return;
@@ -514,6 +518,26 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   } else {
     at::linear_out(out_tensor, in_tensor, weight_tensor.squeeze());
   }
+}
+
+void HostIrEvaluator::handle(LinearOut* linear) {
+  auto* in = linear->in()->as<TensorView>();
+  auto* weight = linear->weight()->as<TensorView>();
+  auto* out = linear->out()->as<TensorView>();
+  TensorView* bias = nullptr;
+  if (linear->hasBias()) {
+    bias = linear->bias()->as<TensorView>();
+  }
+
+  auto in_tensor = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_tensor = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_tensor = getKnownConcreteValue(out).as<at::Tensor>();
+  std::optional<at::Tensor> bias_tensor = std::nullopt;
+  if (bias != nullptr) {
+    bias_tensor = getKnownConcreteValue(bias).as<at::Tensor>();
+  }
+
+  at::linear_out(out_tensor, in_tensor, weight_tensor, bias_tensor);
 }
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {

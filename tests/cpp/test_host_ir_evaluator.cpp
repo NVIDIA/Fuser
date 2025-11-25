@@ -73,7 +73,11 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     hic->pushBackTopLevelExprs(launch_kernel);
   }
 
-  HostIrEvaluator hie(std::move(hic));
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*communicator=*/nullptr,
+      HostIrEvaluatorParams{
+          .mode = HostIrEvaluatorParams::Mode::kFusionExecutorCache});
   KernelArgumentHolder ins(in_tensor);
   ins.setCacheId(0);
   KernelArgumentHolder outs = hie.runWithInputs(ins);
@@ -173,7 +177,11 @@ TEST_F(HostIrEvaluatorTest, MatmulInLoop) {
   at::Tensor expected_out_tensor = at::matmul(in_tensor, w_tensor);
   expected_out_tensor.chunk(c, 1)[0].zero_();
 
-  HostIrEvaluator hie(std::move(hic));
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*communicator=*/nullptr,
+      HostIrEvaluatorParams{
+          .mode = HostIrEvaluatorParams::Mode::kFusionExecutorCache});
   KernelArgumentHolder ins({in_tensor, w_tensor});
   ins.setCacheId(0);
   KernelArgumentHolder outs = hie.runWithInputs(ins);
@@ -244,7 +252,11 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
     hic->pushBackTopLevelExprs(for_loop);
   }
 
-  HostIrEvaluator hie(std::move(hic));
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*communicator=*/nullptr,
+      HostIrEvaluatorParams{
+          .mode = HostIrEvaluatorParams::Mode::kFusionExecutorCache});
   KernelArgumentHolder ins(in_tensor);
   ins.setCacheId(0);
   KernelArgumentHolder outs = hie.runWithInputs(ins);
@@ -311,7 +323,11 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     hic->pushBackTopLevelExprs(for_loop);
   }
 
-  HostIrEvaluator hie(std::move(hic));
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*communicator=*/nullptr,
+      HostIrEvaluatorParams{
+          .mode = HostIrEvaluatorParams::Mode::kFusionExecutorCache});
   KernelArgumentHolder ins(in_tensor);
   ins.setCacheId(0);
   KernelArgumentHolder outs = hie.runWithInputs(ins);

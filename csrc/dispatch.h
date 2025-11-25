@@ -122,7 +122,8 @@ class Val;
   f(SdpaBwdOp);                      \
   f(EmbeddingFwdOp);                 \
   f(Communication);                  \
-  f(P2PCommunication);
+  f(P2PCommunication)
+
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
   f(AllocTMem);                       \
@@ -160,22 +161,24 @@ class Val;
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
   f(EncodeTensorMapTiled);            \
-  f(RNGOp);
+  f(RNGOp)
+
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
-  f(HostUnit);                        \
-  f(PostOnStream);                    \
-  f(LaunchKernel);                    \
-  f(SetCurrentStream);                \
-  f(GetCurrentStream);                \
-  f(Wait);                            \
-  f(Synchronize);                     \
-  f(StartCoalescing);                 \
-  f(EndCoalescing);                   \
-  f(ShareMemHandles);                 \
-  f(HirAliasSelect);                  \
-  f(ShardByStream);                   \
   f(Deallocate);                      \
-  f(ForLoop);
+  f(EndCoalescing);                   \
+  f(ForLoop);                         \
+  f(GetCurrentStream);                \
+  f(HirAliasSelect);                  \
+  f(HostUnit);                        \
+  f(LaunchKernel);                    \
+  f(LinearOut);                       \
+  f(PostOnStream);                    \
+  f(SetCurrentStream);                \
+  f(ShardByStream);                   \
+  f(ShareMemHandles);                 \
+  f(StartCoalescing);                 \
+  f(Synchronize);                     \
+  f(Wait)
 
 // Forward declarations for all Val and Expr types
 
@@ -187,8 +190,8 @@ DISPATCH_FOR_ALL_EXPRS(M);
 namespace kir {
 
 #define M(e) class e;
-DISPATCH_FOR_ALL_KIR_VALS(M)
-DISPATCH_FOR_ALL_KIR_EXPRS(M)
+DISPATCH_FOR_ALL_KIR_VALS(M);
+DISPATCH_FOR_ALL_KIR_EXPRS(M);
 #undef M
 
 } // namespace kir
@@ -196,8 +199,8 @@ DISPATCH_FOR_ALL_KIR_EXPRS(M)
 namespace hir {
 
 #define M(e) class e;
-DISPATCH_FOR_ALL_HIR_VALS(M)
-DISPATCH_FOR_ALL_HIR_EXPRS(M)
+DISPATCH_FOR_ALL_HIR_VALS(M);
+DISPATCH_FOR_ALL_HIR_EXPRS(M);
 #undef M
 
 } // namespace hir
