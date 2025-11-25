@@ -1258,10 +1258,12 @@ void HostIrJitImpl::registerExternalFunctions() {
         // Cast to LaunchKernel struct
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_context_ptr);
+        NVF_CHECK(
+            launch_kernel_ptr != nullptr, "launch_context_ptr cannot be null");
 
-        // Profiling setup
         int64_t group_id = launch_kernel_ptr->groupId();
 
+        // Profiling
         if (isProfilerEnabled()) {
           NVF_CHECK(
               group_id >= 0,
