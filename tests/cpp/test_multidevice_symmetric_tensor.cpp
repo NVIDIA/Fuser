@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda.h>
 #include <multidevice/symmetric_tensor.h>
 #include <tests/cpp/multidevice.h>
 
@@ -20,7 +19,6 @@ TEST_F(SymmetricTensorTest, BasicAllocation) {
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Create a symmetric tensor
   at::Tensor local_tensor = SymmetricTensor::allocate(
@@ -63,7 +61,6 @@ TEST_F(SymmetricTensorTest, PreallocatedTensor) {
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Allocate tensor with symmetric memory
   at::Tensor local_tensor = SymmetricTensor::allocate(
@@ -109,7 +106,6 @@ TEST_F(SymmetricTensorTest, Multicast) {
 
   const int64_t rank = communicator_->deviceId();
   const int64_t root = 0;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Check multicast support
   int is_multicast_supported;
@@ -175,7 +171,6 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
 
   const int64_t rank = communicator_->deviceId();
   const int64_t world_size = communicator_->size();
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
 
   // Create symmetric tensor
   at::Tensor local_tensor = SymmetricTensor::allocate(

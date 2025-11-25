@@ -11,9 +11,6 @@
 #include <driver_api.h>
 #include <multidevice/communicator.h>
 #include <multidevice/utils.h>
-#include <sys/prctl.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 
 namespace nvfuser {
 
@@ -278,7 +275,6 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
     return;
   }
   Communicator& comm = Communicator::getInstance();
-  auto store = comm.getTcpStore();
   CUmemGenericAllocationHandle local_handle = alloc_handles_[my_device_id_];
 
   int shared_fd;
@@ -288,14 +284,9 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
       CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
       /*flags=*/0));
 
-  prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
-
-  std::string key_prefix =
-      "sym_tensor_" + std::to_string(my_device_id_) + "_" + tag;
-
-  pid_t my_pid = getpid();
-  store->set(key_prefix + "_fd", toBytes(shared_fd));
-  store->set(key_prefix + "_pid", toBytes(my_pid));
+  std::string my_socket_path =
+      "@nvfuser_sym_p2p_" + std::to_string(my_device_id_) + "_" + tag;
+  int listener_fd = createIpcSocket(my_socket_path);
 
   comm.barrier();
 
@@ -303,16 +294,17 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
     if (peer == my_device_id_) {
       continue;
     }
+    std::string peer_path =
+        "@nvfuser_sym_p2p_" + std::to_string(peer) + "_" + tag;
+    int my_rank_data = (int)my_device_id_;
+    sendFd(peer_path, shared_fd, &my_rank_data, sizeof(my_rank_data));
+  }
 
-    std::string peer_key = "sym_tensor_" + std::to_string(peer) + "_" + tag;
-    int peer_fd = fromBytes<int>(store->get(peer_key + "_fd"));
-    pid_t peer_pid = fromBytes<pid_t>(store->get(peer_key + "_pid"));
-
-    int pid_fd = syscall(SYS_pidfd_open, peer_pid, /*flags=*/0);
-    NVF_CHECK(pid_fd >= 0, "pidfd_open failed for rank ", peer);
-
-    int local_fd = syscall(SYS_pidfd_getfd, pid_fd, peer_fd, /*flags=*/0);
-    NVF_CHECK(local_fd >= 0, "pidfd_getfd failed for rank ", peer);
+  for (int64_t i = 0; i < world_size_ - 1; ++i) {
+    int sender_rank = -1;
+    int local_fd = recvFd(listener_fd, &sender_rank, sizeof(sender_rank));
+    NVF_CHECK(
+        sender_rank >= 0 && sender_rank < world_size_, "Invalid sender rank");
 
     CUmemGenericAllocationHandle peer_handle;
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
@@ -320,7 +312,7 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
         reinterpret_cast<void*>(static_cast<uint64_t>(local_fd)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
 
-    alloc_handles_[peer] = peer_handle;
+    alloc_handles_[sender_rank] = peer_handle;
 
     CUdeviceptr peer_ptr = 0;
     NVFUSER_CUDA_SAFE_CALL(
@@ -334,10 +326,12 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
     access.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
     NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(peer_ptr, aligned_size_, &access, 1));
 
-    remote_ptrs_[peer] = peer_ptr;
+    remote_ptrs_[sender_rank] = peer_ptr;
     close(local_fd);
-    close(pid_fd);
   }
+
+  close(listener_fd);
+  close(shared_fd);
 
   comm.barrier();
   are_remote_tensors_setup_ = true;
@@ -458,39 +452,42 @@ void SymmetricTensor::setupMulticast(
   mcast_prop.numDevices = world_size_;
   mcast_prop.size = aligned_size_;
 
-  int shared_handle;
-  auto store = comm.getTcpStore();
-  pid_t root_pid;
+  int shared_handle_fd = -1;
+  int listener_fd = -1;
 
   if (my_rank == exporter_rank) {
     NVFUSER_CUDA_SAFE_CALL(cuMulticastCreate(&mcast_handle_, &mcast_prop));
     NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
-        &shared_handle,
+        &shared_handle_fd,
         mcast_handle_,
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
         0));
-    prctl(PR_SET_PTRACER, PR_SET_PTRACER_ANY);
-    root_pid = getpid();
-
-    store->set(tag + "_fd", toBytes(shared_handle));
-    store->set(tag + "_pid", toBytes(root_pid));
+  } else {
+    std::string my_path =
+        "@nvfuser_sym_mcast_" + std::to_string(my_rank) + "_" + tag;
+    listener_fd = createIpcSocket(my_path);
   }
 
   comm.barrier();
 
   if (my_rank != exporter_rank) {
-    shared_handle = fromBytes<int>(store->get(tag + "_fd"));
-    root_pid = fromBytes<pid_t>(store->get(tag + "_pid"));
-
-    pid_fd_ = syscall(SYS_pidfd_open, root_pid, 0);
-    NVF_CHECK(pid_fd_ >= 0, "pidfd_open failed");
-    peer_fd_ = syscall(SYS_pidfd_getfd, pid_fd_, shared_handle, 0);
-    NVF_CHECK(peer_fd_ >= 0, "pidfd_getfd failed");
+    peer_fd_ = recvFd(listener_fd);
+    close(listener_fd);
 
     NVFUSER_CUDA_SAFE_CALL(cuMemImportFromShareableHandle(
         &mcast_handle_,
         reinterpret_cast<void*>(static_cast<uint64_t>(peer_fd_)),
         CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR));
+  } else {
+    for (int i = 0; i < world_size_; ++i) {
+      if (i == my_rank) {
+        continue;
+      }
+      std::string peer_path =
+          "@nvfuser_sym_mcast_" + std::to_string(i) + "_" + tag;
+      sendFd(peer_path, shared_handle_fd);
+    }
+    close(shared_handle_fd);
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&cu_dev_, static_cast<int>(local_rank)));
@@ -526,11 +523,6 @@ void SymmetricTensor::setupMulticast(
   is_multicast_setup_ = true;
 
   comm.barrier();
-
-  if (my_rank == exporter_rank) {
-    store->deleteKey(tag + "_fd");
-    store->deleteKey(tag + "_pid");
-  }
 #else
   (void)exporter_rank;
   (void)tag;
