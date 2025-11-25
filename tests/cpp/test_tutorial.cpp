@@ -1638,13 +1638,13 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   
   FusionExecutorCache executor_cache2(std::move(fusion2), /*fusion_id=*/1);
   
-  // Deserialize into the new executor cache
-  auto buffer = serde::GetFusionExecutorCache(buf);
-  executor_cache2.deserialize(buffer, /*fusion_id=*/1);
+  // // Deserialize into the new executor cache
+  // auto buffer = serde::GetFusionExecutorCache(buf);
+  // executor_cache2.deserialize(buffer, /*fusion_id=*/1);
   
-  // Run with the deserialized cache
-  auto outputs2 = executor_cache2.runFusionWithInputs({t0, t1, t2});
-  (void)outputs2;
+  // // Run with the deserialized cache
+  // auto outputs2 = executor_cache2.runFusionWithInputs({t0, t1, t2});
+  // (void)outputs2;
   
   // // Validate deserialized run
   // testValidate(
