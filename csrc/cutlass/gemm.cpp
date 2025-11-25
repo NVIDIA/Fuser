@@ -181,6 +181,17 @@ class CutlassCodeGenerator {
     TensorDescriptor* layout_array_desc = nullptr;
   };
 
+  static std::string toString(TensorDescriptor::LayoutType layout) {
+    switch (layout) {
+      case TensorDescriptor::LayoutType::SFA:
+        return "SFA";
+        break;
+      case TensorDescriptor::LayoutType::SFB:
+        return "SFB";
+        break;
+    }
+  }
+
   // We track every global tensor. If tv is non-null and we detect that this is
   // a grouped GEMM, then we will also register a temporary pointer array and
   // associate it with tv
@@ -230,15 +241,8 @@ class CutlassCodeGenerator {
 
     TensorDescriptor* layout_array_desc = nullptr;
     if (layout.has_value()) {
-      std::string layout_dtype_str = "Fp4GemmSm100::Layout";
-      switch (layout.value()) {
-        case TensorDescriptor::LayoutType::SFA:
-          layout_dtype_str += "SFA";
-          break;
-        case TensorDescriptor::LayoutType::SFB:
-          layout_dtype_str += "SFB";
-          break;
-      }
+      std::string layout_dtype_str =
+          "Fp4GemmSm100::Layout" + toString(layout.value());
       layout_array_desc = registerGlobalBuffer(
           name + "_layouts",
           /*tv=*/nullptr,
@@ -623,6 +627,12 @@ struct Fp4GemmSm100 {
   using StrideD = typename Gemm::GemmKernel::StrideD;
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
 )";
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  using ScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
+    }
   }
 
   //! Generates a function mapping from vector<TensorArg> to a struct describing
@@ -720,20 +730,28 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using StrideB = typename T::StrideB;
   using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
-  using Sm1xxBlkScaledConfig =
-      typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
   auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
+)";
 
-  // TODO: these should be pointer arrays for grouped GEMM
-  auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  auto layout_SFA = inputs.a_scale_layouts;
+  auto layout_SFB = inputs.b_scale_layouts;
+)";
+    } else {
+      code_ += R"(
+  auto layout_SFA = T::ScaledConfig::tile_atom_to_shape_SFA(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
-  auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
+  auto layout_SFB = T::ScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
+)";
+    }
 
+    code_ += R"(
   typename T::Gemm::Arguments arguments{
       cutlass::gemm::GemmUniversalMode::kGemm,
       {inputs.m, inputs.n, inputs.k, 1},
@@ -852,6 +870,7 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
   // during offset calculations
   int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
   int64_t sf_offset = static_cast<int64_t>(inputs.scale_factor_offsets[expert_id]);
+  int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
   int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
   int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
   assert(
@@ -945,84 +964,50 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
     for (const std::unique_ptr<TensorDescriptor>& td_ptr :
          tensor_descriptors_) {
       TensorDescriptor* pa_desc = td_ptr->pointer_array_desc;
-      if (pa_desc == nullptr) {
-        continue;
+      if (pa_desc != nullptr) {
+        code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
+        // base pointer
+        code_ += "inputs." + td_ptr->name + " + ";
+        bool first = true;
+        for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
+          if (!id->isIteration()) {
+            continue;
+          }
+          ValGroup group = graph.toGroup(id);
+          const auto it = dim_size.find(group);
+          // TODO: we should assert this instead
+          if (it == dim_size.end()) {
+            std::cout << "Could not find dimension size map entry for "
+                      << id->toString() << std::endl;
+            continue;
+          }
+          /*
+          NVF_ERROR(
+              it != dim_size.end(),
+              "Could not find dimension size map entry for ",
+              group);
+              */
+          if (!first) {
+            code_ += " * ";
+          }
+          first = false;
+          code_ += it->second;
+        }
+        code_ += ";\n";
       }
-      code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
-      // base pointer
-      code_ += "inputs." + td_ptr->name + " + ";
-      bool first = true;
-      for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
-        if (!id->isIteration()) {
-          continue;
-        }
-        ValGroup group = graph.toGroup(id);
-        const auto it = dim_size.find(group);
-        // TODO: we should assert this instead
-        if (it == dim_size.end()) {
-          std::cout << "Could not find dimension size map entry for "
-                    << id->toString() << std::endl;
-          continue;
-        }
-        /*
-        NVF_ERROR(
-            it != dim_size.end(),
-            "Could not find dimension size map entry for ",
-            group);
-            */
-        if (!first) {
-          code_ += " * ";
-        }
-        first = false;
-        code_ += it->second;
-      }
-      code_ += ";\n";
-    }
 
-    code_ += R"(
-  /*
-
-  // Shape of A as uint8/byte = [M, K // 2]
-  inputs.a_offsets[expert_id] = a_base_as_int + expert_offset * half_k;
-
-  // Shape of B as uint8/byte = [E, N, K // 2]
-  b_offsets[expert_id] = b_base_as_int + expert_id * n * half_k;
-
-  // Shape of C = [M, N]
-  out_offsets[expert_id] = out_base_as_int + expert_offset * n;
-
-  // Shape of a_scale = [sum(sf_sizes), K // nvfp4_block_size]
-  int64_t sf_offset = static_cast<int64_t>(sf_offsets[expert_id]);
-
-  // The block size for nvfp4.
-  constexpr int64_t nvfp4_block_size = 16;
-  int64_t group_k = static_cast<int64_t>(k / nvfp4_block_size);
-
-  a_scales_offsets[expert_id] = a_scales_base_as_int + sf_offset * group_k;
-  assert(
-      (reinterpret_cast<uintptr_t>(a_scales_offsets[expert_id]) % 128) == 0 &&
-      "TMA requires 128-byte alignment");
-
-  // Shape of B scale = [E, N, K // nvfp4_block_size]
-  b_scales_offsets[expert_id] = b_scales_base_as_int + expert_id * n * group_k;
-  assert(
-      (reinterpret_cast<uintptr_t>(b_scales_offsets[expert_id]) % 128) == 0 &&
-      "TMA requires 128-byte alignment");
-
-  // Shape of alpha = [E]
-  alpha_offsets[expert_id] = alphas_base_as_int + expert_id;
-
-  LayoutSFA* layout_sfa_ptr = layout_sfa_base_as_int + expert_id;
-  LayoutSFB* layout_sfb_ptr = layout_sfb_base_as_int + expert_id;
-
-  *layout_sfa_ptr = ScaleConfig::tile_atom_to_shape_SFA(cute::make_shape(
-      static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
-  *layout_sfb_ptr = ScaleConfig::tile_atom_to_shape_SFB(cute::make_shape(
-      static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
-  */
+      TensorDescriptor* la_desc = td_ptr->layout_array_desc;
+      if (la_desc != nullptr) {
+        code_ += "  inputs." + la_desc->name + "[expert_id] = ";
+        NVF_ERROR(td_ptr->layout.has_value());
+        code_ += "Fp4GemmSm100::ScaleConfig::tile_atom_to_shape_" +
+            toString(td_ptr->layout.value());
+        code_ += R"(cute::make_shape(
+    static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
 )";
-    code_ += R"(
-}
+      }
+    }
+    code_ += R"(}
 
 inline int ceilDiv(int a, int b) {
   return (a + b - 1) / b;
