@@ -1554,4 +1554,55 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
 }
 
+TEST_F(Tutorial, ReproLinearAddFusion) {
+  // Reproduces tests/python/test_repro_standalone.py
+  // This test performs a linear operation followed by an add:
+  // T3 = linear(T0, T2)  # equivalent to T0 @ T2.T
+  // T4 = T3 + T1
+  
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensors matching the Python test:
+  // T0: (2, 4, 16) - bfloat16
+  // T1: (2, 4, 16) - bfloat16
+  // T2: (16, 16) - bfloat16
+  auto tv0 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv2 = makeSymbolicTensor(2, DataType::BFloat16);
+  
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  
+  // Linear operation: T3 = linear(T0, T2)
+  // In nvFuser C++ API, linear(input, weight) computes: input @ weight.T
+  auto tv3 = linear(tv0, tv2);
+  
+  // Add operation: T4 = T3 + T1
+  auto tv4 = add(tv3, tv1);
+  
+  fusion.addOutput(tv4);
+  
+  if (verbose_) {
+    fusion.printMath();
+    fusion.printKernel();
+  }
+  
+  // Create actual tensors with the same shapes and dtype as Python test
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 4, 16}, options);
+  at::Tensor t1 = at::randn({2, 4, 16}, options);
+  at::Tensor t2 = at::randn({16, 16}, options);
+  
+  // Compile and run the fusion
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1, t2});
+  auto outputs = ke.run({t0, t1, t2});
+  
+  // Validate: reference computation is (t0 @ t2.T) + t1
+  at::Tensor ref = at::linear(t0, t2) + t1;
+  testValidate(&fusion, outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
