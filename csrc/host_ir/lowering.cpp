@@ -244,8 +244,11 @@ void lowerSegment(
             ir_utils::filterByType<TensorView>(e->outputs()));
         NVF_ERROR(ref_out != nullptr);
 
-        // FIXME: e may be replaced so the old inputs may not be valid anymore.
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
+          if (replacement_map.contains(in)) {
+            continue;
+          }
+
           // Check whether in's **allocation** and out's loop are sharded on
           // ParallelType::Stream consistently. If not, insert a ShardByStream.
           //
@@ -266,63 +269,17 @@ void lowerSegment(
                   ref_out,
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
-            auto shard_by_stream = [&]() -> TensorView* {
-              auto* new_in =
-                  ops::newValLike(in, *in->getDataType())->as<TensorView>();
-              TransformReplay::selfReplay(in->domain(), new_in->domain());
-              // FIXME: this clears DIDx. Need to propagate as well?
-              new_in->setLoopDomain(new_in->getLogicalDomain());
-
-              e = ir_utils::replaceValInExprInputs(e, in, new_in);
-              // FIXME: setDefinition for all or just ref_out?
-              for (Val* out : e->outputs()) {
-                out->setDefinition(e);
-              }
-
-              shardLoopLike(
-                  ref_out,
-                  new_in,
-                  {ParallelType::Stream},
-                  PropagateDirection::kBackward);
-
-              shardAllocationAsLoop(new_in, {ParallelType::Stream});
-              new_in->printTransforms();
-
-              // Refine contiguity.
-              std::vector<IterDomain*> new_allocation =
-                  new_in->getMaybeAllocationDomain();
-              std::vector<std::optional<bool>> new_contiguity =
-                  new_in->getContiguity();
-              bool next_will_be_noncontiguous = false;
-              for (auto [i, alloc_id] :
-                   enumerate(new_allocation) | std::views::reverse) {
-                std::optional<bool>& contiguity = new_contiguity[i];
-
-                if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
-                  contiguity = std::nullopt;
-                } else if (next_will_be_noncontiguous) {
-                  contiguity = false;
-                  next_will_be_noncontiguous = false;
-                }
-
-                if (alloc_id->isStream()) {
-                  next_will_be_noncontiguous = true;
-                }
-              }
-              new_in->setContiguity(new_contiguity);
-              IrBuilder::create<hir::ShardByStream>(
-                  new_in, in, for_loop->index());
-              return new_in;
-            };
-            auto [i, inserted] =
-                replacement_map.try_emplace(in, shard_by_stream());
-            if (inserted) {
-              for_loop->body().push_back(i->second->definition());
-            }
+            TensorView* sharded_in =
+                hir::shardByStream(in, for_loop->index(), e);
+            replacement_map[in] = sharded_in;
+            for_loop->body().push_back(sharded_in->definition());
           }
         }
 
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+          NVF_ERROR(
+              !replacement_map.contains(out),
+              "The input segmented fusion should be SSA.");
           if (getShardedIterDomain(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
@@ -334,15 +291,15 @@ void lowerSegment(
             //
             // I use try_emplace here so shardByStream is called only when `out`
             // is missing.
-            auto [i, inserted] = replacement_map.try_emplace(
-                out, hir::shardByStream(out, for_loop->index()));
-            NVF_ERROR(inserted);
-            for_loop->body().push_back(i->second->definition());
+            TensorView* sharded_out =
+                hir::shardByStream(out, for_loop->index(), e);
+            replacement_map[out] = sharded_out;
+            for_loop->body().push_back(sharded_out->definition());
           }
         }
 
-        e = cloneWithNewOperands(e, replacement_map);
-        for_loop->body().push_back(e);
+        Expr* new_e = cloneWithNewOperands(e, replacement_map);
+        for_loop->body().push_back(new_e);
       }
       break;
     }

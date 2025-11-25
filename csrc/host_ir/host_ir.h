@@ -481,7 +481,7 @@ class ShardByStream : public Expr {
 // output TensorView.
 //
 // Should this be moved to csrc/ops? It's not a host IR expr but a wrapper.
-TensorView* shardByStream(TensorView* in, Val* stream_index);
+TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e);
 
 class ForLoop : public Expr {
  public:

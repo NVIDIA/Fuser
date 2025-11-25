@@ -24,6 +24,7 @@
 #include <kernel_ir.h>
 #include <multidevice/allocation_utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/propagation.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <transform_replay.h>
@@ -460,15 +461,42 @@ std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-TensorView* shardByStream(TensorView* in, Val* stream_index) {
-  auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
-
+// FIXME: rename `in` to something else
+TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e) {
   NVF_ERROR(
       getShardedIterDomain(in, ParallelType::Stream, DomainType::kAllocation) ==
           nullptr,
       "Input allocation shouldn't be sharded on stream: ",
       in);
+
+  auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
   TransformReplay::selfReplay(in->domain(), out->domain());
+
+  const bool is_input_of_e =
+      std::ranges::find(e->inputs(), in) != e->inputs().end();
+  if (!is_input_of_e) {
+    NVF_ERROR(
+        std::ranges::find(e->outputs(), in) != e->outputs().end(),
+        "`in` ",
+        in->toInlineString(),
+        " is neither an input nor an output of `e`: ",
+        e);
+  }
+
+  if (is_input_of_e) {
+    out->setLoopDomain(out->getLogicalDomain());
+    Expr* temp_e = ir_utils::replaceValInExprInputs(e, in, out);
+    // FIXME: findMostParallelTensorView
+    auto* ref_out = e->outputs().at(0)->as<TensorView>();
+    ref_out->setDefinition(temp_e);
+    shardLoopLike(
+        ref_out,
+        out,
+        deviceAndStreamParallelTypes(),
+        PropagateDirection::kBackward);
+    ref_out->setDefinition(e);
+    // FIXME: remove temp_e
+  }
 
   shardAllocationAsLoop(out, {ParallelType::Stream});
   NVF_ERROR(
@@ -478,11 +506,11 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
       "shardAllocationAsLoop: ",
       out);
 
-  // Refine the contiguity flags so `out` aliases `in`. This is done similar to
-  // AliasFinder::handle(const SliceOp*). We scan through the allocation domain
-  // in minor-to-major order. If an IterDomain is parallelized on Stream (thus
-  // "sliced"), the next non-broadcast-non-reduction IterDomain has to be marked
-  // non-contiguous. For example,
+  // Refine the contiguity flags so `out` aliases `in`. This is done similar
+  // to AliasFinder::handle(const SliceOp*). We scan through the allocation
+  // domain in minor-to-major order. If an IterDomain is parallelized on
+  // Stream (thus "sliced"), the next non-broadcast-non-reduction IterDomain
+  // has to be marked non-contiguous. For example,
   //
   //   [m, n]
   //      /\.
@@ -526,14 +554,14 @@ TensorView* shardByStream(TensorView* in, Val* stream_index) {
   // code below would refine the contiguity to `[f, t, t]`.
   //
   // The issue stems from a time-dependent contract on allocation domains:
-  // pre-finalization we treat allocations as unsharded, while post-finalization
-  // we commit them to the target sharding. Because shardByStream runs after
-  // finalization, it follows a different set of assumptions than the
-  // finalization pass.  We anticipated that a "when" in the contract could
-  // cause mismatches; this example validates that concern.  I don't see an
-  // easy fix. The principled approach is to remove the "when" and pay the cost
-  // to make sharding propagation and decomposition reason about both loop and
-  // allocation consistently.
+  // pre-finalization we treat allocations as unsharded, while
+  // post-finalization we commit them to the target sharding. Because
+  // shardByStream runs after finalization, it follows a different set of
+  // assumptions than the finalization pass.  We anticipated that a "when" in
+  // the contract could cause mismatches; this example validates that concern.
+  // I don't see an easy fix. The principled approach is to remove the "when"
+  // and pay the cost to make sharding propagation and decomposition reason
+  // about both loop and allocation consistently.
   std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
   std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
   bool next_will_be_noncontiguous = false;
