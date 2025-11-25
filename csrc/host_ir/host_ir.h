@@ -477,11 +477,13 @@ class ShardByStream : public Expr {
   }
 };
 
-// Creates a ShardByStream without needing the output TensorView. Returns the
-// output TensorView.
+// Creates a ShardByStream without needing the destination TensorView. Returns
+// the destination TensorView. `e` is the Expr from which we propagate the loop
+// domain from. `source` must be either an input or an output of `e`.
 //
-// Should this be moved to csrc/ops? It's not a host IR expr but a wrapper.
-TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e);
+// TODO(wujingyue): Move this to csrc/ops. It's not a host IR expr but a
+// wrapper.
+TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e);
 
 class ForLoop : public Expr {
  public:

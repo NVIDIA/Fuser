@@ -461,50 +461,51 @@ std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-// FIXME: rename `in` to something else
-TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e) {
+TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
   NVF_ERROR(
-      getShardedIterDomain(in, ParallelType::Stream, DomainType::kAllocation) ==
-          nullptr,
-      "Input allocation shouldn't be sharded on stream: ",
-      in);
+      getShardedIterDomain(
+          source, ParallelType::Stream, DomainType::kAllocation) == nullptr,
+      "Source allocation shouldn't be sharded on stream: ",
+      source);
 
-  auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
-  TransformReplay::selfReplay(in->domain(), out->domain());
+  auto* destination =
+      ops::newValLike(source, *source->getDataType())->as<TensorView>();
 
-  const bool is_input_of_e =
-      std::ranges::find(e->inputs(), in) != e->inputs().end();
-  if (!is_input_of_e) {
-    NVF_ERROR(
-        std::ranges::find(e->outputs(), in) != e->outputs().end(),
-        "`in` ",
-        in->toInlineString(),
-        " is neither an input nor an output of `e`: ",
-        e);
-  }
+  if (std::ranges::find(e->inputs(), source) != e->inputs().end()) {
+    // Consider adding a config to TransformReplay::selfReplay to control what
+    // to propagate.
+    TransformReplay::selfReplay(source->domain(), destination->domain());
+    destination->setLoopDomain(destination->getLogicalDomain());
 
-  if (is_input_of_e) {
-    out->setLoopDomain(out->getLogicalDomain());
-    Expr* temp_e = ir_utils::replaceValInExprInputs(e, in, out);
+    Expr* temp_e = ir_utils::replaceValInExprInputs(e, source, destination);
     // FIXME: findMostParallelTensorView
     auto* ref_out = e->outputs().at(0)->as<TensorView>();
     ref_out->setDefinition(temp_e);
     shardLoopLike(
         ref_out,
-        out,
+        destination,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kBackward);
     ref_out->setDefinition(e);
     // FIXME: remove temp_e
+  } else {
+    NVF_ERROR(
+        std::ranges::find(e->outputs(), source) != e->outputs().end(),
+        "`source` ",
+        source->toInlineString(),
+        " is neither an input nor an output of `e`: ",
+        e);
+    TransformReplay::selfReplay(source->domain(), destination->domain());
   }
 
-  shardAllocationAsLoop(out, {ParallelType::Stream});
+  shardAllocationAsLoop(destination, {ParallelType::Stream});
   NVF_ERROR(
       getShardedIterDomain(
-          out, ParallelType::Stream, DomainType::kAllocation) != nullptr,
-      "Output allocation should be sharded on stream after "
+          destination, ParallelType::Stream, DomainType::kAllocation) !=
+          nullptr,
+      "Destination allocation should be sharded on stream after "
       "shardAllocationAsLoop: ",
-      out);
+      destination);
 
   // Refine the contiguity flags so `out` aliases `in`. This is done similar
   // to AliasFinder::handle(const SliceOp*). We scan through the allocation
@@ -562,11 +563,13 @@ TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e) {
   // I don't see an easy fix. The principled approach is to remove the "when"
   // and pay the cost to make sharding propagation and decomposition reason
   // about both loop and allocation consistently.
-  std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
-  std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
+  std::vector<IterDomain*> new_allocation =
+      destination->getMaybeAllocationDomain();
+  std::vector<std::optional<bool>> new_contiguity =
+      destination->getContiguity();
   bool next_will_be_noncontiguous = false;
-  for (auto [i, alloc_id] : enumerate(out_allocation) | std::views::reverse) {
-    std::optional<bool>& contiguity = out_contiguity[i];
+  for (auto [i, alloc_id] : enumerate(new_allocation) | std::views::reverse) {
+    std::optional<bool>& contiguity = new_contiguity[i];
 
     if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
       contiguity = std::nullopt;
@@ -579,10 +582,10 @@ TensorView* shardByStream(TensorView* in, Val* stream_index, Expr* e) {
       next_will_be_noncontiguous = true;
     }
   }
-  out->setContiguity(out_contiguity);
+  destination->setContiguity(new_contiguity);
 
-  IrBuilder::create<ShardByStream>(out, in, stream_index);
-  return out;
+  IrBuilder::create<ShardByStream>(destination, source, stream_index);
+  return destination;
 }
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
