@@ -37,7 +37,7 @@ class InnerNormTmaParams : public HeuristicParams {
   int64_t persistent_batch_size = 1;
 
   // Pre-load non-persistent buffers (ldg_tvs) before computing
-  bool pre_load_ldg_tvs = true;
+  bool may_pre_load_ldg_tvs = true;
 
   // Use TMA to load non-persistent buffers
   bool tma_load_non_persistent_buffers = false;
@@ -55,7 +55,7 @@ class InnerNormTmaParams : public HeuristicParams {
         other->project_persistent_buffers == project_persistent_buffers &&
         other->vectorize_load_smem_to_regs == vectorize_load_smem_to_regs &&
         other->persistent_batch_size == persistent_batch_size &&
-        other->pre_load_ldg_tvs == pre_load_ldg_tvs &&
+        other->may_pre_load_ldg_tvs == may_pre_load_ldg_tvs &&
         other->tma_load_non_persistent_buffers ==
         tma_load_non_persistent_buffers &&
         other->rows_per_block == rows_per_block;
@@ -69,7 +69,7 @@ class InnerNormTmaParams : public HeuristicParams {
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "")
        << (vectorize_load_smem_to_regs ? "Vectorize load smem to regs\n" : "")
        << "Persistent batch size: " << persistent_batch_size << "\n"
-       << (pre_load_ldg_tvs ? "Pre-load ldg tvs\n" : "")
+       << (may_pre_load_ldg_tvs ? "Pre-load ldg tvs\n" : "")
        << (tma_load_non_persistent_buffers ? "TMA load non-persistent buffers\n"
                                            : "")
        << "Rows per block: " << rows_per_block << "\n"
@@ -84,7 +84,7 @@ class InnerNormTmaParams : public HeuristicParams {
         static_cast<size_t>(project_persistent_buffers) << (bits - 2) ^
         static_cast<size_t>(vectorize_load_smem_to_regs) << (bits - 3) ^
         static_cast<size_t>(persistent_batch_size) << (bits - 4) ^
-        static_cast<size_t>(pre_load_ldg_tvs) << (bits - 5) ^
+        static_cast<size_t>(may_pre_load_ldg_tvs) << (bits - 5) ^
         static_cast<size_t>(tma_load_non_persistent_buffers) << (bits - 6) ^
         static_cast<size_t>(rows_per_block) << (bits - 7);
     return attr_hash;

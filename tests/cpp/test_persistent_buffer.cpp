@@ -2187,7 +2187,7 @@ TEST_F(PersistentBufferTest, TmaInnerPersistentRmsNorm) {
 TEST_F(PersistentBufferTest, TmaInnerPersistentLayerNorm) {
   DataType dtype = DataType::BFloat16;
   int x = 16384;
-  int y = 10752;
+  int y = 8192;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

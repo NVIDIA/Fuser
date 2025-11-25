@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
@@ -46,7 +47,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
 
   params->project_persistent_buffers = prop.project_persistent_buffers;
   params->vectorize_load_smem_to_regs = true;
-  params->pre_load_ldg_tvs = true;
+  params->may_pre_load_ldg_tvs = true;
   params->tma_load_non_persistent_buffers = false;
 
   // reduction domain heuristics: vectorization factor and bdimx
@@ -74,24 +75,9 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       pbs = ipbs;
     }
   }
-
-  // if there are still some reduction elements left, increase
-  // bdimx to target threads per cta, prioritize divisible by bdimx, leave pbs
-  // to at least 2.
-  if (bdimx * pbs < after_vect) {
-    max_pbs =
-        normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
-    bdimx = 4 * warp_size;
-    pbs = ceilDiv(after_vect, bdimx);
-    while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
-      bdimx *= 2;
-      pbs = ceilDiv(after_vect, bdimx);
-    }
-  }
-
-  // For iteration domain, use BIDx and TIDy
-  // TIDy is only used when bdimx = warp size and BIDx is larger than sm count
-  if (bdimx == warp_size) {
+  if (bdimx * pbs >= after_vect) {
+    NVF_ERROR(
+        bdimx <= warp_size, "bdimx should be less than or equal to warp size");
     const int64_t total_iter_count = prop.total_iteration_numel;
     const int64_t target_waves = 4;
     const int64_t target_threads_per_cta = 128;
@@ -102,7 +88,17 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       bdimy *= 2;
     }
     params->rows_per_block = bdimy;
+  } else {
+    max_pbs =
+        normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
+    bdimx = 4 * warp_size;
+    pbs = ceilDiv(after_vect, bdimx);
+    while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
+      bdimx *= 2;
+      pbs = ceilDiv(after_vect, bdimx);
+    }
   }
+
   // set persistent batch size
   params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
   if (std::getenv("PBS")) {
@@ -191,7 +187,11 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
 
   // Use the reduction tensor tv2 as the starting point for scheduling
   // Its transformations will be propagated to all non-TMA tensors
-  TensorView* reduction_tv = scheduler_utils::getReductionTvs(fusion).at(0);
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  for (auto tv : reduction_tvs) {
+    std::cout << "reduction_tv: " << tv->toString() << std::endl;
+  }
+  TensorView* reduction_tv = reduction_tvs.at(0);
 
   // Schedule TMA load: [I, R]
   // - No transformation is needed as we assume each block handles one row
@@ -247,6 +247,12 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
       .traverse(&non_tma_propagator);
 
+  // If reduction_tv is rfactored, rfactor all reductions.
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
+  }
+
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
   auto get_vect_pos = [](TensorView* tv) {
@@ -272,7 +278,10 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // Vectorize output write to global memory
   for (auto [_, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
-    output->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+    auto vect_pos = get_vect_pos(output);
+    if (vect_pos > 0) {
+      output->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
   }
   if (params->vectorize_load_smem_to_regs) {
     for (auto tv : smem2reg_tvs) {
@@ -286,13 +295,16 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  if (params->pre_load_ldg_tvs) {
+  if (params->may_pre_load_ldg_tvs && (int)ldg_tvs.size() == 1) {
     std::vector<TensorView*> non_ldg_tvs =
         ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
     inlineMost(non_ldg_tvs);
   } else {
     inlineMost();
   }
+
+  // refine caching
+  refineCachePolicy(fusion);
 
   // if (params->vectorize_load_smem_to_regs) {
   //   for (auto tv : smem2reg_tvs) {
