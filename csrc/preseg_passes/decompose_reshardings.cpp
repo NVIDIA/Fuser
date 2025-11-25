@@ -222,12 +222,8 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     TensorView* resharding_input = nullptr;
     for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (haveDifferentShardings(input, output, deviceParallelTypes())) {
-        NVF_CHECK(
-            resharding_input == nullptr,
-            "Expected at most one input with different sharding than output "
-            "for expression: ",
-            expr);
         resharding_input = input;
+        break;
       }
     }
 
