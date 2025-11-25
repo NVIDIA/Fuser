@@ -1120,6 +1120,11 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       std::string name,
       int64_t vector_word_size_bit) {
+    // No need to validate allocation domain if it's getting ignored in codegen.
+    if (!ir_utils::canUsePresetAllocationDomain(tv)) {
+      return;
+    }
+
     // aten_element_size_bit is the minimum unit (one element) of tv's
     // corresponding at::Tensor. It may or may not be the same as
     // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as

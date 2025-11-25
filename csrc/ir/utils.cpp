@@ -1747,4 +1747,57 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
+bool canUsePresetAllocationDomain(
+    const TensorView* tv,
+    bool ignore_empty_alloc) {
+  if (ignore_empty_alloc && !tv->hasAllocation()) {
+    return false;
+  }
+  // Honor the allocation domain if the tensor is global or Hopper MMA's
+  // output
+  if (tv->getMemoryType() == MemoryType::Global ||
+      (tv->definition()->isA<MmaOp>() &&
+       isHopper(tv->definition()->as<MmaOp>()->macro()))) {
+    return true;
+  }
+  // If it's a shared memory tensor, the set domain is likely
+  // valid if Swizzle or Bulk is used. Also, if the allocation
+  // domain is just a permutation of the loop domain, use the
+  // set allocation domain. This seems to happen only with
+  // AllocationDomainTest.TransposedIntermediate.
+  if (tv->getMemoryType() == MemoryType::Shared) {
+    if (std::any_of(
+            tv->getAllocationDomain().begin(),
+            tv->getAllocationDomain().end(),
+            [](IterDomain* allocation_domain) {
+              return dynamic_cast<Swizzle*>(allocation_domain->definition()) !=
+                  nullptr ||
+                  allocation_domain->getParallelType() == ParallelType::Bulk;
+            }) ||
+        std::is_permutation(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            tv->getAllocationDomain().begin(),
+            tv->getAllocationDomain().end())) {
+      return true;
+    }
+
+    // Honor the set allocation domain if the tensor is used by a
+    // TMA store or MmaOp
+    if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+          return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+        })) {
+      return true;
+    }
+
+    // If a shared memory output produced by scatter has an
+    // allocation domain explicitly set, it's likely to be the
+    // valid allocation domain.
+    if (auto def = tv->definition(); def != nullptr && def->isA<ScatterOp>()) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace nvfuser::ir_utils
