@@ -1331,19 +1331,7 @@ void HostIrJitImpl::registerExternalFunctions() {
           sprof.startKernel();
         }
 
-        auto stream = at::cuda::getCurrentCUDAStream();
-
-        // Get KernelExecutor reference
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelExecutor& ke = container_ptr->getKernelExecutor(group_id);
-        CompiledKernel* compiled_kernel = ke.compiledKernel().get();
-        const LaunchParams& launch_constraints =
-            launch_kernel_ptr->launchParams();
-
-        auto kernel = compiled_kernel->kernel();
-        auto index_type = kernel->indexType();
-        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
-        auto index_type = compiled_kernel->indexType();
+        auto index_type = launch_kernel_ptr->indexType();
 
         std::vector<std::vector<std::byte>> arg_bytes;
         arg_bytes.reserve(num_inputs + num_outputs);
@@ -1408,12 +1396,12 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.attrs = nullptr;
         config.numAttrs = 0;
 
-        launch_context->kernel_function =
-            compiled_kernel->cudaExecutable()->function;
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
 
         // Launch the kernel
         {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+
           NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
               &config,
               compiled_kernel->cudaExecutable()->function,
