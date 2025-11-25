@@ -447,8 +447,7 @@ struct Inputs {
           "Currently at most one block scaled output is supported");
       add_field(
           "main_output_block_scale_factor",
-          block_scaled_outputs_[0].block_scale_factors,
-          /*forcue_unsigned=*/true);
+          block_scaled_outputs_[0].block_scale_factors);
       add_field(
           "main_output_global_scale_factor",
           block_scaled_outputs_[0].global_scale_factor);
