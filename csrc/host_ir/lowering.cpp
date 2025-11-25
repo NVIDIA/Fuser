@@ -11,6 +11,7 @@
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <host_ir/pass/insert_deallocations.h>
+#include <ir/utils.h>
 #include <multidevice/allocation_utils.h>
 #include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
@@ -18,7 +19,6 @@
 #include <ops/utils.h>
 #include <runtime/executor_abstract.h>
 #include <transform_replay.h>
-#include "ir/utils.h"
 
 namespace nvfuser {
 
