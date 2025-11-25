@@ -3,10 +3,9 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 CUDA_HOME?=/usr/local/cuda
-ARCH=sm_100
 CCBIN?=$(shell which g++)
 
-NVCC_FLAGS=-lcuda -ccbin "$(CCBIN)" -g -lineinfo -std=c++20 --expt-relaxed-constexpr -arch=$(ARCH) -uumn --ptxas-options="--warn-on-local-memory-usage --warn-on-spills"
+NVCC_FLAGS=-lcuda -ccbin "$(CCBIN)" -g -lineinfo -std=c++20 --expt-relaxed-constexpr -uumn --ptxas-options="--warn-on-local-memory-usage --warn-on-spills"
 
 # Path to the extracted LibTorch
 LIBTORCH_PATH := /usr/local/lib/python3.12/dist-packages/torch
@@ -18,7 +17,7 @@ CXXFLAGS += -I../../third_party/cutlass/include -I../../third_party/cutlass/incl
 LDFLAGS := -L$(LIBTORCH_PATH)/lib
 
 # Libraries to link against
-LDLIBS := -ltorch -ltorch_cpu -lc10 -lnvrtc
+LDLIBS := -ltorch_cuda -lc10_cuda -ltorch -ltorch_cpu -lc10 -lnvrtc
 
 RUNTIME_PATH := -Xlinker -rpath -Xlinker $(LIBTORCH_PATH)/lib
 

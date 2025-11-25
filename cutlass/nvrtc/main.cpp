@@ -9,6 +9,8 @@
 #include <fstream>
 
 #include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+
 #include <cute/tensor.hpp>
 #include <nvrtc.h>
 
@@ -35,6 +37,12 @@ std::vector<std::byte> convertTensorToBytes(at::Tensor& tensor) {
   return buffer;
 }
 
+std::string getGpuArch() {
+  constexpr int device_index = 0;
+  auto properties = at::cuda::getDeviceProperties(device_index);
+  return std::to_string(properties->major) + std::to_string(properties->minor);
+}
+
 int main() {
   // 1. Read the CUDA source file
   std::string filename = "bulk_load.cu";
@@ -50,12 +58,15 @@ int main() {
   const char* name_expression = "cute_bulk_copy";
   nvrtcAddNameExpression(prog, name_expression);
 
+  std::string gpu_arch = "--gpu-architecture=compute_" + getGpuArch() + "a";
+  std::string cutlass_arch = "-DCUTLASS_NVCC_ARCHS=" + getGpuArch() + "a\"";
+
   // 3. Compile the Program
   std::vector<const char*> opts;
   opts.push_back("-std=c++20");
   opts.push_back("-default-device");
-  opts.push_back("--gpu-architecture=compute_100a");
-  opts.push_back("-DCUTLASS_NVCC_ARCHS=\"100a\"");
+  opts.push_back(gpu_arch.c_str());
+  opts.push_back(cutlass_arch.c_str());
   opts.push_back("-I/usr/local/cuda/include/");
   opts.push_back("-I/usr/local/cuda/include/cccl/");
   opts.push_back("-I../../third_party/cutlass/include");
