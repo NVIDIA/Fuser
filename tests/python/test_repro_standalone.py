@@ -46,7 +46,7 @@ def test_repro():
     fd = MyFusion()
     fd.execute(inputs, profile=True)
 
-# NVFuserTest().setup_class()
+NVFuserTest().setup_class()
 test_repro()
 test_repro()
 
