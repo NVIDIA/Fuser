@@ -1000,9 +1000,9 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
       if (la_desc != nullptr) {
         code_ += "  inputs." + la_desc->name + "[expert_id] = ";
         NVF_ERROR(td_ptr->layout.has_value());
-        code_ += "Fp4GemmSm100::ScaleConfig::tile_atom_to_shape_" +
+        code_ += "Fp4GemmSm100::ScaledConfig::tile_atom_to_shape_" +
             toString(td_ptr->layout.value());
-        code_ += R"(cute::make_shape(
+        code_ += R"((cute::make_shape(
     static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
 )";
       }
