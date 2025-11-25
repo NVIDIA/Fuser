@@ -1747,4 +1747,26 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
       ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
 }
 
+void swizzleBlockScales(TensorView* tv) {
+  // auto original_loop = tv_block_scale_fp8->getLoopDomain();
+  tv->split(0, 128);
+  // m/128, 128, k
+  tv->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_alloc{
+      tv->axis(0), tv->axis(3), tv->axis(2), tv->axis(1), tv->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv->setAllocationDomain(tv_alloc, true);
+  // back to a 2D logical domain.
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k) ->
+  // m/32, 32, k/4, 4(k)
+  tv->merge(0);
+  // m/32, 32, k/4, 4(k) -> m, k/4, 4(k)
+  tv->merge(0);
+  // m, k/4, 4(k) -> m, k
+  tv->merge(-2);
+}
+
 } // namespace nvfuser::ir_utils

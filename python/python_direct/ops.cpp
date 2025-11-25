@@ -3521,6 +3521,46 @@ TensorView* random_dist_op_fn(
       /*maybe_symbolic=*/true);
 }
 
+void bindQuantizationOps(py::module_& ops) {
+  ops.def(
+      "nv_block_quantize",
+      [](TensorView* input,
+         TensorView* global_scale,
+         bool swizzle_block_scales,
+         int64_t block_size,
+         PrimDataType dtype) -> py::tuple {
+        auto output = blockQuantize(input, global_scale, block_size, dtype);
+        if (swizzle_block_scales) {
+          nvfuser::ir_utils::swizzleBlockScales(output.block_scales);
+        }
+        return py::make_tuple(output.quantized_tensor, output.block_scales);
+      },
+      py::arg("input"),
+      py::arg("global_scale").none(true) = py::none(),
+      py::arg("swizzle_block_scales") = false,
+      py::arg("block_size") = 16,
+      py::arg("dtype") = DataType::Float4_e2m1fn,
+      R"(
+Block quantize tensor to NVFP4 format.
+Parameters
+----------
+input : TensorView
+    Input tensor to quantize. Must be a floating point tensor.
+global_scale : TensorView, optional
+block_size : int, optional
+    Block size for quantization. Default is 16.
+dtype : PrimDataType, optional
+    Data type of quantized output. Default is DataType::Float4_e2m1fn
+Returns
+-------
+tuple[TensorView, TensorView]
+    A tuple containing (block_scales, quantized_tensor) where:
+    - block_scales: Per-block scaling factors
+    - quantized_tensor: Quantized tensor in NVFP4 format
+      )",
+      py::return_value_policy::reference);
+}
+
 void bindRandomOps(py::module_& ops) {
   ops.def(
       "normal",
@@ -3638,6 +3678,7 @@ void bindOperations(py::module& nvfuser) {
   bindSearchOps(nvf_ops);
   bindSdpaOps(nvf_ops);
   bindRandomOps(nvf_ops);
+  bindQuantizationOps(nvf_ops);
 }
 
 } // namespace nvfuser::python
