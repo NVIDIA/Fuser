@@ -15,6 +15,10 @@
 
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
+namespace nvfuser {
+class CompiledKernel;
+}
+
 namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
@@ -113,7 +117,7 @@ class LaunchKernel : public Expr {
       IrBuilderPasskey passkey,
       int64_t group_id,
       const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
+      CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
       Val* cache_id,
@@ -170,14 +174,15 @@ class LaunchKernel : public Expr {
     return index_type_;
   }
 
-  void setIndexType(PrimDataType index_type) {
-    index_type_ = index_type;
+  CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
   }
 
  private:
   std::vector<ArgInfo> input_arg_info_;
   std::vector<ArgInfo> output_arg_info_;
   PrimDataType index_type_ = PrimDataType::Int;
+  mutable CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {

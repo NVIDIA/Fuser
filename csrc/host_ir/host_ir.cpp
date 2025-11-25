@@ -134,15 +134,15 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t group_id,
     const LaunchParams& launch_constraints,
-    const CompileParams& compile_params,
+    CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     Val* cache_id,
     PrimDataType index_type)
-    : Expr(passkey, inputs, outputs, {}), index_type_(index_type) {
+    : Expr(passkey, inputs, outputs, {}), index_type_(index_type), compiled_kernel_(compiled_kernel) {
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
-  addDataAttribute(compile_params);
+  addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
 
   for (auto* val : inputs) {
