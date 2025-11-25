@@ -472,12 +472,22 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
       ops::newValLike(source, *source->getDataType())->as<TensorView>();
 
   if (std::ranges::find(e->inputs(), source) != e->inputs().end()) {
+    // Propagate the allocation domain from `source` to `destination`.
     // Consider adding a config to TransformReplay::selfReplay to control what
-    // to propagate.
+    // to propagate, so we don't have to reset the loop domain.
     TransformReplay::selfReplay(source->domain(), destination->domain());
     destination->setLoopDomain(destination->getLogicalDomain());
 
+    // Propagate the loop domain from `e` to `destination`. There are two
+    // technical challenges:
+    // 1. Loop domains are associated with TensorViews, not Exprs. So we
+    // find e's reference output, `ref_out`, and propagate its loop domain.
+    // 2. shardLoopLike requires the source and destination to be connected by
+    // an Expr. So we create a temporary Expr to connect them and then
+    // remove it right after.
     Expr* temp_e = ir_utils::replaceValInExprInputs(e, source, destination);
+    // Note that `e->outputs()`'s definition is `e` at this point because
+    // HostIrContainer is non-SSA.
     auto* ref_out = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(e->outputs()));
     ref_out->setDefinition(temp_e);
@@ -486,8 +496,14 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
         destination,
         deviceAndStreamParallelTypes(),
         PropagateDirection::kBackward);
-    ref_out->setDefinition(e);
-    // FIXME: remove temp_e
+    temp_e->fusion()->removeExpr(temp_e);
+    // Fusion::removeExpr sets all outputs' definitions to nullptr, so we need
+    // to restore them. Use-defs are important for haveDifferentShardings to
+    // work.  Alternative, we could have Fusion::removeExpr(expr) not to set the
+    // definition to nullptr if the definition is not `expr`.
+    for (auto* out : e->outputs()) {
+      out->setDefinition(e);
+    }
   } else {
     NVF_ERROR(
         std::ranges::find(e->outputs(), source) != e->outputs().end(),
@@ -495,6 +511,11 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
         source->toInlineString(),
         " is neither an input nor an output of `e`: ",
         e);
+    // When `source` is an output of `e`, we simply propagate `source`'s loop
+    // domain (and therefore `e`'s loop domain) to `destination`.
+    // TransformReplay::selfReplay doesn't require the two TensorDomains to form
+    // a producer-consumer relationship, so the logic is much simpler than when
+    // `source` is an input of `e`.
     TransformReplay::selfReplay(source->domain(), destination->domain());
   }
 
