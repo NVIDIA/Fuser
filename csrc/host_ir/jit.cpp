@@ -1288,10 +1288,12 @@ void HostIrJitImpl::registerExternalFunctions() {
         // Cast to LaunchKernel struct
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_context_ptr);
+        NVF_CHECK(
+            launch_kernel_ptr != nullptr, "launch_context_ptr cannot be null");
 
-        // Profiling setup
         int64_t group_id = launch_kernel_ptr->groupId();
 
+        // Profiling
         if (isProfilerEnabled()) {
           NVF_CHECK(
               group_id >= 0,
@@ -1316,9 +1318,19 @@ void HostIrJitImpl::registerExternalFunctions() {
         PrimDataType index_type = launch_kernel_ptr->indexType();
 
         auto push_kernel_args = [&](at::Tensor** tensors,
-                             int64_t num,
-                             const auto& arg_infos) {
+                                    int64_t num,
+                                    const auto& arg_infos) {
+          NVF_CHECK(num >= 0, "Number of tensors cannot be negative: ", num);
+          NVF_CHECK(
+              static_cast<size_t>(num) == arg_infos.size(),
+              "Tensor count mismatch: expected ", arg_infos.size(),
+              " but got ", num);
+
           for (int64_t i = 0; i < num; ++i) {
+            NVF_CHECK(
+                tensors[i] != nullptr,
+                "Tensor pointer at index ", i, " is null");
+
             at::Tensor* tensor = tensors[i];
             const auto& info = arg_infos[i];
 
@@ -1369,6 +1381,14 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.numAttrs = 0;
 
         CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        NVF_CHECK(
+            compiled_kernel != nullptr,
+            "CompiledKernel pointer is null for group_id ",
+            group_id);
+        NVF_CHECK(
+            compiled_kernel->cudaExecutable() != nullptr,
+            "CUDA executable is null for group_id ",
+            group_id);
 
         // Launch the kernel
         {
