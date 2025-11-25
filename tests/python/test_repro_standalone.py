@@ -54,8 +54,8 @@ def test_repro():
 #     FusionCache.reset()
 
 enable_automatic_serialization()
-FusionCache.get()
-FusionCache.reset()
+# FusionCache.get()
+# FusionCache.reset()
 test_repro()
 test_repro()
 
