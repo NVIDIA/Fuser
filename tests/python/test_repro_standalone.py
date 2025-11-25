@@ -45,12 +45,35 @@ def test_repro():
         sys.stdout.flush()
         
         def fusion_func(fd: FusionDefinition) -> None:
+            print(f"[Iteration {iteration}]   fusion_func: START")
+            sys.stdout.flush()
+            
+            print(f"[Iteration {iteration}]   fusion_func: Loading T0 from inputs[0]")
+            sys.stdout.flush()
             T0 = fd.from_pytorch(inputs[0])
+            
+            print(f"[Iteration {iteration}]   fusion_func: Loading T1 from inputs[1]")
+            sys.stdout.flush()
             T1 = fd.from_pytorch(inputs[1])
+            
+            print(f"[Iteration {iteration}]   fusion_func: Loading T2 from inputs[2]")
+            sys.stdout.flush()
             T2 = fd.from_pytorch(inputs[2])
+            
+            print(f"[Iteration {iteration}]   fusion_func: Performing linear operation")
+            sys.stdout.flush()
             T3 = fd.ops.linear(T0, T2)
+            
+            print(f"[Iteration {iteration}]   fusion_func: Performing add operation")
+            sys.stdout.flush()
             T4 = fd.ops.add(T3, T1)
+            
+            print(f"[Iteration {iteration}]   fusion_func: Adding output")
+            sys.stdout.flush()
             fd.add_output(T4)
+            
+            print(f"[Iteration {iteration}]   fusion_func: END")
+            sys.stdout.flush()
 
         print(f"[Iteration {iteration}] Step 3: Creating MyFusion class...")
         sys.stdout.flush()
