@@ -1105,9 +1105,6 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
     return cached_results.at(cluster_size);
   }
 
-  // Used in heuristic generation and lowering, ensure that a context exists
-  executor_utils::initializeCudaContext();
-
   CUmodule mod;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));
   CUfunction func;
