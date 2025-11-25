@@ -60,6 +60,8 @@ def test_repro():
                 fusion_func(fd)
 
         fd = MyFusion()
+
+        return
         
         print(f"[Iteration {iteration}] Step 4: Executing fusion with profile=True...")
         sys.stdout.flush()
