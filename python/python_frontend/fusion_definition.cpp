@@ -50,11 +50,11 @@ FusionDefinition::FusionDefinition(
       sched(this),
       use_multidevice_executor_(use_multidevice_executor),
       backend_type_(backend_type) {
-  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() BODY called" << std::endl;
+  std::cout << "[DEBUG] ========== FusionDefinition CONSTRUCTOR BODY ==========" << std::endl;
   std::cout << "[DEBUG]   - id: " << (id.has_value() ? std::to_string(id.value()) : "none") << std::endl;
   std::cout << "[DEBUG]   - max_length: " << max_length << std::endl;
   std::cout << "[DEBUG]   - use_multidevice_executor: " << use_multidevice_executor << std::endl;
-  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() completed" << std::endl;
+  std::cout << "[DEBUG] ========== FusionDefinition CONSTRUCTOR COMPLETED ==========" << std::endl;
 }
 
 FusionCache* FusionDefinition::fusionCache() const {

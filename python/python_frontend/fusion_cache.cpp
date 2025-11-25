@@ -827,7 +827,9 @@ void FusionCache::deserialize(std::string filename) {
   std::deque<std::unique_ptr<FusionState>> state_queue;
 
   // Create empty fusion container for root node
+  std::cout << "[DEBUG] FusionCache::deserialize() - About to create FusionState for root node" << std::endl;
   state_queue.emplace_back(std::make_unique<FusionState>());
+  std::cout << "[DEBUG] FusionCache::deserialize() - FusionState for root node created" << std::endl;
 
   // bfs_order is used to map indices in the structure field to their
   // corresponding TrieNode pointers. It is used to reconstruct the

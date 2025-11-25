@@ -105,7 +105,9 @@ FusionState::FusionState()
 }
 
 std::unique_ptr<FusionState> FusionState::clone() {
+  std::cout << "[DEBUG] FusionState::clone() - About to create new FusionState" << std::endl;
   auto state = std::make_unique<FusionState>();
+  std::cout << "[DEBUG] FusionState::clone() - New FusionState created" << std::endl;
   for (auto&& rf : recording_) {
     state->recording_.emplace_back(rf->clone());
   }
