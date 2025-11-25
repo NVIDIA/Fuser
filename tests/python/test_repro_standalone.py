@@ -44,9 +44,9 @@ def test_repro():
             fusion_func(fd)
 
     fd = MyFusion()
-    # fd.execute(inputs, profile=True)
+    fd.execute(inputs, profile=True)
 
-NVFuserTest().setup_class()
+# NVFuserTest().setup_class()
 test_repro()
 test_repro()
 
