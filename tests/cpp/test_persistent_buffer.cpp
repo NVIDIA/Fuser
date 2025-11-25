@@ -1986,7 +1986,7 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
 TEST_F(PersistentBufferTest, TmaInnerPersistent) {
   DataType dtype = DataType::BFloat16;
   int x = 16384;
-  int y = 10240;
+  int y = 2048;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());

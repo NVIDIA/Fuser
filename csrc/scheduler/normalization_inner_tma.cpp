@@ -76,7 +76,12 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
 
   // set persistent batch size
   params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
-
+  if (std::getenv("PBS")) {
+    params->persistent_batch_size = std::stoi(std::getenv("PBS"));
+  }
+  if (std::getenv("RPB")) {
+    params->rows_per_block = std::stoi(std::getenv("RPB"));
+  }
   // Set index type
   params->cparams.index_type = prop.index_type;
 
@@ -88,6 +93,13 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
+
+  // debug print
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << prop.toString() << std::endl;
+    debug() << params->toString() << std::endl;
+  }
+
   return params;
 }
 
@@ -157,11 +169,19 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // - axis(0): parallelize with BIDx (each block handles one batch)
   // - axis(1): parallelize with Bulk (TMA async copy entire reduction
   // dimension)
-  reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
-  reduction_tv->axis(1)->parallelize(ParallelType::Bulk);
+  int64_t ipos = 0, rpos = 1;
+  if (params->rows_per_block > 1) {
+    reduction_tv->split(ipos, params->rows_per_block);
+    rpos++;
+    TransformPropagator propagator(reduction_tv);
+    MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+    reduction_tv->axis(ipos + 1)->parallelize(ParallelType::TIDy);
+  }
+  reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
+  reduction_tv->axis(rpos)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
   // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
-  reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+  reduction_tv->axis(rpos)->parallelize(ParallelType::Serial);
 
   // Schedule the reduction domain:
   // [I, R] -> [I, b, us, x, v]
@@ -170,7 +190,6 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   //   - x: thread dimension (bdimx threads cooperate on reduction)
   //   - b: persistent batch size
   //   - us: unswitch dimension (for loop optimization)
-  int64_t rpos = 1;
   reduction_tv->split(rpos, params->vectorization_factor);
   reduction_tv->split(rpos, params->persistent_batch_size, false);
   reduction_tv->split(rpos, 1);
