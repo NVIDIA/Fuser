@@ -5,7 +5,8 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
+import torch
+from nvfuser import FusionDefinition
 
 # Inlined from test_fusion_profiler_with_noncodegen_kernels
 inputs = [
