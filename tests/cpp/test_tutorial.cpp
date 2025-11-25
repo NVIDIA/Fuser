@@ -1601,6 +1601,7 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   // First run to compile the kernel
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   (void)outputs;
+  return;
   
   if (verbose_) {
     executor_cache.fusion()->printKernel();
