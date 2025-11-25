@@ -31,6 +31,8 @@
 #include <scheduler/registry.h>
 #include <utils.h>
 
+#include <iostream>
+
 namespace nvfuser {
 
 FusionExecutorCache::FusionExecutorCache(
@@ -408,6 +410,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 void FusionExecutorCache::deserialize(
     const serde::FusionExecutorCache* buffer,
     int64_t fusion_id) {
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - START for fusion_id " << fusion_id << std::endl;
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
@@ -418,14 +421,20 @@ void FusionExecutorCache::deserialize(
 
   fusion_id_ = buffer->fusion_id();
 
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Deserializing inputs_id_lookup" << std::endl;
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - inputs_id_lookup deserialized" << std::endl;
 
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
   // FusionKernelRuntime objects.
   std::vector<FusionKernelRuntime*> all_runtimes;
 
   // 1. Deserialize kernel_runtimes_ unordered_map
+  size_t num_device_runtimes = buffer->kernel_runtimes_map()->size();
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Deserializing " << num_device_runtimes << " device runtime(s)" << std::endl;
+  size_t device_runtime_idx = 0;
   for (auto fb_device_runtimes : *buffer->kernel_runtimes_map()) {
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Processing device runtime " << device_runtime_idx << "/" << num_device_runtimes << std::endl;
     const auto& initial_info = initialInfo();
     NVF_ERROR(
         initial_info.isDynamic() ==
@@ -455,7 +464,11 @@ void FusionExecutorCache::deserialize(
       deterministic_conc_info_.emplace_back(config);
     }
 
+    size_t num_kernel_runtimes = fb_device_runtimes->runtimes()->size();
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Device runtime has " << num_kernel_runtimes << " kernel runtime(s)" << std::endl;
+    size_t kernel_runtime_idx = 0;
     for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Processing kernel runtime " << kernel_runtime_idx << "/" << num_kernel_runtimes << std::endl;
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 
@@ -498,19 +511,27 @@ void FusionExecutorCache::deserialize(
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the KernelExecutor objects.
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Calling FusionKernelRuntime::deserialize()" << std::endl;
       device_runtimes.back()->deserialize(
           fb_fusion_kernel_runtime, args.getDeviceIndex());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - FusionKernelRuntime::deserialize() completed" << std::endl;
 
       all_runtimes.emplace_back(device_runtimes.back().get());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Finished kernel runtime " << kernel_runtime_idx << "/" << num_kernel_runtimes << std::endl;
+      kernel_runtime_idx++;
     }
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Finished device runtime " << device_runtime_idx << "/" << num_device_runtimes << std::endl;
+    device_runtime_idx++;
   }
 
   // 2. Rebuild input id to kernel cache
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Rebuilding kernel cache" << std::endl;
   for (auto idx : arange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
   }
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - COMPLETED for fusion_id " << fusion_id << std::endl;
 }
 
 void FusionExecutorCache::evictCache(size_t cache_id) {

@@ -292,10 +292,15 @@ Fusion* FusionSchedules::preschedFusion() {
 }
 
 void FusionSchedules::createExecutorIfNotExists() {
+  std::cout << "[DEBUG] FusionSchedules::createExecutorIfNotExists() - Called for fusion_id " << fusion_id_ << std::endl;
   if (auto_gen_schedules == nullptr) {
+    std::cout << "[DEBUG] FusionSchedules::createExecutorIfNotExists() - Creating new FusionExecutorCache" << std::endl;
     auto_gen_schedules = std::make_unique<FusionExecutorCache>(
         std::move(presched_fusion_), fusion_id_);
     presched_fusion_ = nullptr;
+    std::cout << "[DEBUG] FusionSchedules::createExecutorIfNotExists() - FusionExecutorCache created" << std::endl;
+  } else {
+    std::cout << "[DEBUG] FusionSchedules::createExecutorIfNotExists() - FusionExecutorCache already exists" << std::endl;
   }
 }
 
@@ -931,46 +936,82 @@ void FusionCache::deserialize(std::string filename) {
   }
   std::cout << "[DEBUG] FusionCache::deserialize() - BFS traversal completed, processed " << bfs_iteration << " nodes" << std::endl;
 
+  std::cout << "[DEBUG] FusionCache::deserialize() - Starting terminal nodes deserialization" << std::endl;
+  size_t num_terminal_nodes = fusion_cache_buffer->terminal_nodes()->size();
+  std::cout << "[DEBUG] FusionCache::deserialize() - Number of terminal nodes: " << num_terminal_nodes << std::endl;
+  
   std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
+  size_t terminal_idx = 0;
   for (auto idx : arange(fusion_cache_buffer->terminal_nodes()->size())) {
+    std::cout << "[DEBUG] FusionCache::deserialize() - Processing terminal node " << terminal_idx << "/" << num_terminal_nodes << std::endl;
+    
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
+    std::cout << "[DEBUG] FusionCache::deserialize() - Getting trie_node at bfs_order index " << node_idx << std::endl;
+    
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);
+    std::cout << "[DEBUG] FusionCache::deserialize() - trie_node fusion_id: " << trie_node->fusion_id << std::endl;
 
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
+    std::cout << "[DEBUG] FusionCache::deserialize() - Querying fusion schedules for fusion_id " << trie_node->fusion_id << std::endl;
+    
     FusionSchedules* fusion_schedule =
         queryFusionSchedules(trie_node->fusion_id);
+    std::cout << "[DEBUG] FusionCache::deserialize() - Creating executor if not exists" << std::endl;
+    
     // Create an executor so the following code can deserialize it.
     fusion_schedule->createExecutorIfNotExists();
+    std::cout << "[DEBUG] FusionCache::deserialize() - Executor created/verified" << std::endl;
 
-    if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+    bool use_parallel = !isOptionDisabled(DisableOption::ParallelSerde);
+    std::cout << "[DEBUG] FusionCache::deserialize() - Using " << (use_parallel ? "PARALLEL" : "SERIAL") << " deserialization" << std::endl;
+    
+    if (use_parallel) {
       // Parallelize the deserialization of each FusionExecutorCache.
+      std::cout << "[DEBUG] FusionCache::deserialize() - Submitting parallel task for terminal node " << terminal_idx << std::endl;
       getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
+        std::cout << "[DEBUG] FusionCache::deserialize() - [THREAD] Starting parallel deserialization for fusion_id " << trie_node->fusion_id << std::endl;
         try {
           fusion_schedule->auto_gen_schedules->deserialize(
               fb_fec_node, (int64_t)trie_node->fusion_id);
+          std::cout << "[DEBUG] FusionCache::deserialize() - [THREAD] Completed parallel deserialization for fusion_id " << trie_node->fusion_id << std::endl;
         } catch (const std::exception& e) {
+          std::cout << "[DEBUG] FusionCache::deserialize() - [THREAD] EXCEPTION in parallel deserialization: " << e.what() << std::endl;
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
           detect_exception_in_thread_pool.store(true);
         }
       });
+      std::cout << "[DEBUG] FusionCache::deserialize() - Parallel task submitted for terminal node " << terminal_idx << std::endl;
     } else {
+      std::cout << "[DEBUG] FusionCache::deserialize() - Starting SERIAL deserialization for fusion_id " << trie_node->fusion_id << std::endl;
       FUSER_PERF_SCOPE("FusionCache::deserializeFusionSerial");
       fusion_schedule->auto_gen_schedules->deserialize(
           fb_fec_node, (int64_t)trie_node->fusion_id);
+      std::cout << "[DEBUG] FusionCache::deserialize() - Completed SERIAL deserialization for fusion_id " << trie_node->fusion_id << std::endl;
     }
+    
+    std::cout << "[DEBUG] FusionCache::deserialize() - Finished processing terminal node " << terminal_idx << "/" << num_terminal_nodes << std::endl;
+    terminal_idx++;
   }
+  
+  std::cout << "[DEBUG] FusionCache::deserialize() - Finished submitting all terminal nodes for deserialization" << std::endl;
 
   if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+    std::cout << "[DEBUG] FusionCache::deserialize() - Waiting for thread pool to complete (THIS MAY TAKE A WHILE)..." << std::endl;
+    std::cout << "[DEBUG] FusionCache::deserialize() - About to call getThreadPool()->waitWorkComplete()" << std::endl;
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
+    std::cout << "[DEBUG] FusionCache::deserialize() - Thread pool completed!" << std::endl;
+    
+    std::cout << "[DEBUG] FusionCache::deserialize() - Checking for exceptions in thread pool" << std::endl;
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while deserializing fusions in parallel.\n",
         "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
+    std::cout << "[DEBUG] FusionCache::deserialize() - No exceptions detected" << std::endl;
   }
   std::cout << "[DEBUG] ========== FusionCache::deserialize() COMPLETED ==========" << std::endl;
 }
