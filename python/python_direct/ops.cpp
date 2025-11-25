@@ -3554,9 +3554,9 @@ dtype : PrimDataType, optional
 Returns
 -------
 tuple[TensorView, TensorView]
-    A tuple containing (block_scales, quantized_tensor) where:
-    - block_scales: Per-block scaling factors
+    A tuple containing (quantized_tensor, block_scales) where:
     - quantized_tensor: Quantized tensor in NVFP4 format
+    - block_scales: Per-block scaling factors
       )",
       py::return_value_policy::reference);
 }
