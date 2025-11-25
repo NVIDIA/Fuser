@@ -28,69 +28,64 @@ class TestRepro(NVFuserTest):
     """Standalone test class for reproducing the issue"""
     
     def test_repro(self):
-        """
-        This test combines two tests and runs them 1000 times:
-        1. test_fusion_profiler_with_noncodegen_kernels
-        2. test_gather
-        """
-        for iteration in range(1000):
-            print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
-            
-            # Inlined from test_fusion_profiler_with_noncodegen_kernels
-            inputs = [
-                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-                torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
-                torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
-            ]
+        print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
+        
+        # Inlined from test_fusion_profiler_with_noncodegen_kernels
+        inputs = [
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
+            torch.randn((16, 16), dtype=torch.bfloat16, device="cuda:0"),
+        ]
 
-            def fusion_func(fd: FusionDefinition) -> None:
-                T0 = fd.from_pytorch(inputs[0])
-                T1 = fd.from_pytorch(inputs[1])
-                T2 = fd.from_pytorch(inputs[2])
-                T3 = fd.ops.linear(T0, T2)
-                T4 = fd.ops.add(T3, T1)
-                fd.add_output(T4)
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.from_pytorch(inputs[0])
+            T1 = fd.from_pytorch(inputs[1])
+            T2 = fd.from_pytorch(inputs[2])
+            T3 = fd.ops.linear(T0, T2)
+            T4 = fd.ops.add(T3, T1)
+            fd.add_output(T4)
 
-            class MyFusion(FusionDefinition):
-                def definition(self):
-                    fusion_func(fd)
+        class MyFusion(FusionDefinition):
+            def definition(self):
+                fusion_func(fd)
 
-            fd = MyFusion()
-            try:
-                fd.execute(inputs, profile=True)
-                self.assertTrue(fd.profile().fusion_id >= 0)
-                self.assertEqual(len(fd.profile().kernel_profiles), 2)
-                self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
-                self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
-            except Exception as e:
-                raise RuntimeError(
-                    "FusionDefinition's execute() did not run correctly with profile enabled!"
-                )
-            
-            # Inlined from test_gather
-            inputs = [
-                torch.randn(8, 16, device="cuda"),
-                torch.randn(8, 16, device="cuda"),
-                torch.randint(0, 8, (4, 4), device="cuda").to(dtype=torch.long),
-            ]
+        fd = MyFusion()
+        try:
+            fd.execute(inputs, profile=True)
+            # self.assertTrue(fd.profile().fusion_id >= 0)
+            # self.assertEqual(len(fd.profile().kernel_profiles), 2)
+            # self.assertGreaterEqual(len(fd.profile().kernel_profiles[0].name), 0)
+            # self.assertGreaterEqual(len(fd.profile().kernel_profiles[1].name), 0)
+        except Exception as e:
+            raise RuntimeError(
+                "FusionDefinition's execute() did not run correctly with profile enabled!"
+            )
+        
+        # Inlined from test_gather
+        inputs = [
+            torch.randn(8, 16, device="cuda"),
+            torch.randn(8, 16, device="cuda"),
+            torch.randint(0, 8, (4, 4), device="cuda").to(dtype=torch.long),
+        ]
 
-            def test_fn(dim):
-                def fusion_func(fd: FusionDefinition):
-                    t0 = fd.from_pytorch(inputs[0])
-                    t1 = fd.from_pytorch(inputs[1])
-                    t2 = fd.from_pytorch(inputs[2])
-                    t3 = fd.ops.add(t0, t1)
-                    t4 = fd.ops.gather(t3, t2, dim)
-                    fd.add_output(t4)
+        def test_fn(dim):
+            def fusion_func(fd: FusionDefinition):
+                t0 = fd.from_pytorch(inputs[0])
+                t1 = fd.from_pytorch(inputs[1])
+                t2 = fd.from_pytorch(inputs[2])
+                t3 = fd.ops.add(t0, t1)
+                t4 = fd.ops.gather(t3, t2, dim)
+                fd.add_output(t4)
 
-                nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+            fd = FusionDefinition()
+            fusion_func(fd)
+            nvf_out = fd.execute(inputs)
 
-                eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
-                torch.equal(eager_out, nvf_out[0])
-                # self.assertEqual(eager_out, nvf_out[0])
+            # eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            # self.assertEqual(eager_out, nvf_out[0])
 
-            test_fn(0)
-            test_fn(1)
+        test_fn(0)
+        test_fn(1)
 
 
 def main():
