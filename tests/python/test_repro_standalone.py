@@ -62,61 +62,6 @@ def test_repro():
         fd = MyFusion()
 
         return
-        
-        print(f"[Iteration {iteration}] Step 4: Executing fusion with profile=True...")
-        sys.stdout.flush()
-        
-        try:
-            fd.execute(inputs, profile=True)
-        except Exception as e:
-            raise RuntimeError(
-                "FusionDefinition's execute() did not run correctly with profile enabled!"
-            )
-        
-        print(f"[Iteration {iteration}] Step 5: Fusion profiler test completed.")
-        sys.stdout.flush()
-        
-        # Inlined from test_gather
-        print(f"[Iteration {iteration}] Step 6: Creating inputs for gather test...")
-        sys.stdout.flush()
-        
-        inputs = [
-            torch.randn(8, 16, device="cuda"),
-            torch.randn(8, 16, device="cuda"),
-            torch.randint(0, 8, (4, 4), device="cuda").to(dtype=torch.long),
-        ]
-
-        def test_fn(dim):
-            def fusion_func(fd: FusionDefinition):
-                t0 = fd.from_pytorch(inputs[0])
-                t1 = fd.from_pytorch(inputs[1])
-                t2 = fd.from_pytorch(inputs[2])
-                t3 = fd.ops.add(t0, t1)
-                t4 = fd.ops.gather(t3, t2, dim)
-                fd.add_output(t4)
-
-            with FusionDefinition() as fd:
-                fusion_func(fd)
-            nvf_out = fd.execute(
-                inputs,
-                # _enable_options=["id_model_extra_validation"],
-            )
-
-            eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
-            torch.equal(eager_out, nvf_out[0])
-
-        print(f"[Iteration {iteration}] Step 7: Running test_fn(0)...")
-        sys.stdout.flush()
-        
-        test_fn(0)
-        
-        print(f"[Iteration {iteration}] Step 8: test_fn(0) completed. Running test_fn(1)...")
-        sys.stdout.flush()
-        
-        test_fn(1)
-        
-        print(f"[Iteration {iteration}] Step 9: test_fn(1) completed. Iteration finished.")
-        sys.stdout.flush()
 
 
 def main():
