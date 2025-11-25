@@ -1600,52 +1600,51 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   
   // First run to compile the kernel
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
-  (void)outputs;
-  return;
   
   if (verbose_) {
     executor_cache.fusion()->printKernel();
   }
   
-  // // Validate first run
-  // // at::Tensor ref = at::linear(t0, t2) + t1;
-  // // testValidate(
-  // //     executor_cache.fusion(), outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
+  // Validate first run
+  at::Tensor ref = at::linear(t0, t2) + t1;
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
   
-  // // Serialize the FusionExecutorCache to test serde path
-  // // This reproduces the serialization behavior when enable_automatic_serialization() is used
-  // flatbuffers::FlatBufferBuilder builder(1024);
-  // auto serialized = executor_cache.serialize(builder);
-  // builder.Finish(serialized);
+  // Serialize the FusionExecutorCache to test serde path
+  // This reproduces the serialization behavior when enable_automatic_serialization() is used
+  flatbuffers::FlatBufferBuilder builder(1024);
+  auto serialized = executor_cache.serialize(builder);
+  builder.Finish(serialized);
   
-  // // Get the serialized buffer
-  // uint8_t* buf = builder.GetBufferPointer();
+  // Get the serialized buffer
+  uint8_t* buf = builder.GetBufferPointer();
   
-  // // Create a new fusion and executor cache for deserialization
-  // auto fusion2 = std::make_unique<Fusion>();
-  // FusionGuard fg2(fusion2.get());
+  // Create a new fusion and executor cache for deserialization
+  auto fusion2 = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion2.get());
   
-  // auto tv0_2 = makeSymbolicTensor(3, DataType::BFloat16);
-  // auto tv1_2 = makeSymbolicTensor(3, DataType::BFloat16);
-  // auto tv2_2 = makeSymbolicTensor(2, DataType::BFloat16);
+  auto tv0_2 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv1_2 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv2_2 = makeSymbolicTensor(2, DataType::BFloat16);
   
-  // fusion2->addInput(tv0_2);
-  // fusion2->addInput(tv1_2);
-  // fusion2->addInput(tv2_2);
+  fusion2->addInput(tv0_2);
+  fusion2->addInput(tv1_2);
+  fusion2->addInput(tv2_2);
   
-  // auto tv3_2 = linear(tv0_2, tv2_2);
-  // auto tv4_2 = add(tv3_2, tv1_2);
-  // fusion2->addOutput(tv4_2);
+  auto tv3_2 = linear(tv0_2, tv2_2);
+  auto tv4_2 = add(tv3_2, tv1_2);
+  fusion2->addOutput(tv4_2);
   
-  // FusionExecutorCache executor_cache2(std::move(fusion2), /*fusion_id=*/1);
+  FusionExecutorCache executor_cache2(std::move(fusion2), /*fusion_id=*/1);
   
-  // // Deserialize into the new executor cache
-  // auto buffer = serde::GetFusionExecutorCache(buf);
-  // executor_cache2.deserialize(buffer, /*fusion_id=*/1);
+  // Deserialize into the new executor cache
+  // Cast the buffer to the FusionExecutorCache flatbuffer type
+  auto buffer = flatbuffers::GetRoot<serde::FusionExecutorCache>(buf);
+  executor_cache2.deserialize(buffer, /*fusion_id=*/1);
   
-  // // Run with the deserialized cache
-  // auto outputs2 = executor_cache2.runFusionWithInputs({t0, t1, t2});
-  // (void)outputs2;
+  // Run with the deserialized cache
+  auto outputs2 = executor_cache2.runFusionWithInputs({t0, t1, t2});
+  (void)outputs2;
   
   // // Validate deserialized run
   // testValidate(
