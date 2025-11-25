@@ -69,8 +69,8 @@ int main() {
   opts.push_back(cutlass_arch.c_str());
   opts.push_back("-I/usr/local/cuda/include/");
   opts.push_back("-I/usr/local/cuda/include/cccl/");
-  opts.push_back("-I../../third_party/cutlass/include");
-  opts.push_back("-I../../third_party/cutlass/include/tools/util/include");
+  opts.push_back("-I../../../third_party/cutlass/include");
+  opts.push_back("-I../../../third_party/cutlass/include/tools/util/include");
   NVRTC_CHECK(nvrtcCompileProgram(prog, opts.size(), opts.data()));
 
   const char* mangled_name;

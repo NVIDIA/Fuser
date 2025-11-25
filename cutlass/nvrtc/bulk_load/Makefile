@@ -13,7 +13,7 @@ LIBTORCH_PATH := /usr/local/lib/python3.12/dist-packages/torch
 # Include and library paths
 # Install pytorch nightly
 CXXFLAGS := -I$(LIBTORCH_PATH)/include -I$(LIBTORCH_PATH)/include/torch/csrc/api/include
-CXXFLAGS += -I../../third_party/cutlass/include -I../../third_party/cutlass/include/tools/util/include
+CXXFLAGS += -I../../../third_party/cutlass/include -I../../../third_party/cutlass/include/tools/util/include
 LDFLAGS := -L$(LIBTORCH_PATH)/lib
 
 # Libraries to link against
