@@ -28,8 +28,6 @@ class TestRepro(NVFuserTest):
     """Standalone test class for reproducing the issue"""
     
     def test_repro(self):
-        print(f"Running test_fusion_profiler_with_noncodegen_kernels {iteration} times...")
-        
         # Inlined from test_fusion_profiler_with_noncodegen_kernels
         inputs = [
             torch.randn((2, 4, 16), dtype=torch.bfloat16, device="cuda:0"),
