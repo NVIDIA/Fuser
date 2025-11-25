@@ -1300,11 +1300,31 @@ void HostIrJitImpl::registerExternalFunctions() {
               "An invalid segment id is passed to FusionProfiler!:",
               group_id);
           SegmentProfiler& sprof = FusionProfiler::segment(group_id);
-          // sprof.inputBytesAccessed(computeBytes(input_args));
-          // sprof.scheduler(toString(ke.compiledKernel()->schedulerType()));
-          FusionProfiler::segment(group_id).setDevice(
-              int8_t(0)); // just set 0 for now...
-          //    input_args.getDeviceIndex());
+
+          // Compute input bytes
+          int64_t input_bytes = 0;
+          for (int64_t i = 0; i < num_inputs; ++i) {
+            if (input_tensors[i] != nullptr) {
+              input_bytes += static_cast<int64_t>(input_tensors[i]->storage().nbytes());
+            }
+          }
+          sprof.inputBytesAccessed(input_bytes);
+
+          // Set scheduler type from compiled kernel
+          CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
+          if (ck != nullptr) {
+            sprof.scheduler(toString(ck->schedulerType()));
+          }
+
+          // Get device index from the first input tensor if available
+          int8_t device_index = 0;
+          if (num_inputs > 0 && input_tensors[0] != nullptr) {
+            device_index = static_cast<int8_t>(input_tensors[0]->device().index());
+          } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
+            device_index = static_cast<int8_t>(output_tensors[0]->device().index());
+          }
+
+          FusionProfiler::segment(group_id).setDevice(device_index);
           sprof.startKernel();
         }
 
@@ -1405,7 +1425,16 @@ void HostIrJitImpl::registerExternalFunctions() {
         if (isProfilerEnabled()) {
           auto& sprof = FusionProfiler::segment(group_id);
           sprof.stopKernel();
-          // sprof.outputBytesAccessed(computeBytes(output_args));
+
+          // Compute output bytes
+          int64_t output_bytes = 0;
+          for (int64_t i = 0; i < num_outputs; ++i) {
+            if (output_tensors[i] != nullptr) {
+              output_bytes += static_cast<int64_t>(output_tensors[i]->storage().nbytes());
+            }
+          }
+
+          sprof.outputBytesAccessed(output_bytes);
         }
       });
 
