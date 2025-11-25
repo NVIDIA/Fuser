@@ -73,20 +73,21 @@ class TestRepro(NVFuserTest):
                 fd.add_output(t4)
 
             # Inlined exec_nvfuser to remove self dependency
-            # fc = FusionCache.get()
-            # before_fusions = fc.num_fusions()
-            # inputs_captured = deepcopy(inputs)
-            # inputs_cloned = deepcopy(inputs)
+            fc = FusionCache.get()
+            before_fusions = fc.num_fusions()
+            inputs_captured = deepcopy(inputs)
+            inputs_cloned = deepcopy(inputs)
             
             with FusionDefinition() as fd:
                 fusion_func(fd)
-            # torch.manual_seed(0)
+            torch.manual_seed(0)
             _enable_options = ["id_model_extra_validation"]
             out = fd.execute(inputs, device=None, _enable_options=_enable_options, _disable_options=[])
-            # nvf_out = out
+            nvf_out = out
             # _ = fd
 
-            # eager_out = torch.gather(inputs[0]sav
+            # eager_out = torch.gather(inputs[0] + inputs[1], dim, inputs[2])
+            # torch.equal(eager_out, nvf_out[0])
 
         test_fn(0)
         test_fn(1)
