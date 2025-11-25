@@ -10,6 +10,8 @@
 #include <python_frontend/fusion_state.h>
 #include <utils.h>
 
+#include <iostream>
+
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;
 
@@ -97,7 +99,10 @@ FusionState::FusionState()
       recording_state_(),
       fusion_(nullptr),
       fusion_state_(),
-      num_recording_states_(0) {}
+      num_recording_states_(0) {
+  std::cout << "[DEBUG] FusionState::FusionState() called" << std::endl;
+  std::cout << "[DEBUG] FusionState::FusionState() completed" << std::endl;
+}
 
 std::unique_ptr<FusionState> FusionState::clone() {
   auto state = std::make_unique<FusionState>();

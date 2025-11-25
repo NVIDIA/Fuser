@@ -23,6 +23,9 @@
 #include <utils.h>
 #include <validator_utils.h>
 
+#include <iostream>
+#include <string>
+
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;
 
@@ -43,7 +46,13 @@ FusionDefinition::FusionDefinition(
       ops(this),
       sched(this),
       use_multidevice_executor_(use_multidevice_executor),
-      backend_type_(backend_type) {}
+      backend_type_(backend_type) {
+  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() called" << std::endl;
+  std::cout << "[DEBUG]   - id: " << (id.has_value() ? std::to_string(id.value()) : "none") << std::endl;
+  std::cout << "[DEBUG]   - max_length: " << max_length << std::endl;
+  std::cout << "[DEBUG]   - use_multidevice_executor: " << use_multidevice_executor << std::endl;
+  std::cout << "[DEBUG] FusionDefinition::FusionDefinition() completed" << std::endl;
+}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");

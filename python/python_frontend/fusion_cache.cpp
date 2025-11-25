@@ -17,6 +17,7 @@
 #include <utils.h>
 
 #include <filesystem>
+#include <iostream>
 namespace fs = std::filesystem;
 
 #ifdef _WIN32
@@ -346,8 +347,12 @@ FusionCache* FusionCache::get(
     std::optional<int64_t> selected_device,
     bool load_from_default_workspace) {
   FUSER_PERF_SCOPE("FusionCache::get");
+  std::cout << "[DEBUG] FusionCache::get() called" << std::endl;
+  std::cout << "[DEBUG]   - max_fusions: " << max_fusions << std::endl;
+  std::cout << "[DEBUG]   - selected_device: " << (selected_device.has_value() ? std::to_string(selected_device.value()) : "none") << std::endl;
   std::lock_guard<std::mutex> guard(singleton_lock_);
   if (singleton_ == nullptr) {
+    std::cout << "[DEBUG]   - Creating new FusionCache singleton" << std::endl;
     singleton_ = new FusionCache(max_fusions, selected_device);
 
     // Deserialize cache hierarchy from common workspace automatically
@@ -414,6 +419,7 @@ FusionCache* FusionCache::get(
       max_fusions >= singleton_->fusions_.size(),
       "The max fusions is set less than the number of fusions in the cache.");
   singleton_->max_fusions_ = max_fusions;
+  std::cout << "[DEBUG] FusionCache::get() returning singleton" << std::endl;
   return singleton_;
 }
 
@@ -502,8 +508,12 @@ FusionCache::FusionCache(
       fusions_(),
       terminal_nodes_(),
       user_def_input_encodings_() {
+  std::cout << "[DEBUG] FusionCache::FusionCache() constructor called" << std::endl;
+  std::cout << "[DEBUG]   - max_fusions: " << max_fusions << std::endl;
+  std::cout << "[DEBUG]   - device_id: " << (selected_device.has_value() ? std::to_string(selected_device.value()) : "none") << std::endl;
   RecordFunctor* start = new StartRecord();
   root_ = std::make_unique<TrieNode>(start);
+  std::cout << "[DEBUG] FusionCache::FusionCache() constructor completed" << std::endl;
 }
 
 // In order to keep queries fast, this method does not lock.
