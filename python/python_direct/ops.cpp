@@ -3549,6 +3549,9 @@ input : TensorView
 global_scale : TensorView, optional
 block_size : int, optional
     Block size for quantization. Default is 16.
+swizzle_block_scales : bool, optional
+    Whether to apply swizzling to block scales.
+    Default is False.
 dtype : PrimDataType, optional
     Data type of quantized output. Default is DataType::Float4_e2m1fn
 Returns

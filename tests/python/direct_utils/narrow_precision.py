@@ -3,11 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-# Portions of this code are derived from NVIDIA Transformer Engine
-# https://github.com/NVIDIA/TransformerEngine
-# Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# Licensed under the Apache License, Version 2.0
-
 import torch
 
 FLOAT4_E2M1_MAX = 6.0

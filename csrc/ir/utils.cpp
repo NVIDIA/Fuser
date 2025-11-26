@@ -1748,6 +1748,9 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
 }
 
 void swizzleBlockScales(TensorView* tv) {
+  NVF_ERROR(
+      tv && tv->getLoopDomain().size() == 2,
+      "we can only swizzle 2D block scales tvs");
   tv->split(0, 128);
   // m/128, 128, k
   tv->split(1, 32);
