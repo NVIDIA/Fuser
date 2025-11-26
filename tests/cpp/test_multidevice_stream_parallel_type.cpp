@@ -5,9 +5,6 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <iterator>
-
-#include <cuda_profiler_api.h>
 
 #include <fusion.h>
 #include <host_ir/container.h>
