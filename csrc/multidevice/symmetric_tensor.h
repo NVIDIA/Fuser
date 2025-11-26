@@ -19,6 +19,12 @@ namespace nvfuser {
 //
 // Design: Decouples local allocation from IPC handle exchange for better
 // interoperability and support for pre-allocated user buffers
+//
+// TODO: Long term plan is to integrate pytorch's native symmetric memory as a
+// possible backend. One important reason to use pytorch's allocator is to use
+// pytorch's memory pool to let the framework own the memory stack and not
+// further fragment the memory. On the other hand, having our own implementation
+// allows us to experiment more advanced features like contigous view creation.
 class SymmetricTensor {
  public:
   // Wrap pre-allocated symmetric tensor (must use allocate())

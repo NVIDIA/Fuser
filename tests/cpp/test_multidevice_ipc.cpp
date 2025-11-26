@@ -15,9 +15,6 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>
 
-#include <sys/prctl.h>
-#include <sys/syscall.h>
-
 namespace nvfuser {
 
 using IpcTest = MultiDeviceTest;
