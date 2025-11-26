@@ -4,6 +4,8 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+import transformer_engine.pytorch as te
+import transformer_engine.pytorch.cpp_extensions as tex
 
 from nvfuser_direct import (
     FusionDefinition,
@@ -25,10 +27,89 @@ from python.direct_utils import (
 import pytest
 
 
+def functional_nvfp4_quantize(input_tensor):
+    """
+    Directly quantizes a tensor to NVFP4 using TE NVFP4Quantizer,
+    returning the NVFP4Tensor which contains the quantized values and block scales.
+    Block size is 16 elements per scale.
+    """
+
+    # 1. Validate Input
+    # NVFP4 Block Scaling uses blocks of 16 elements.
+    # Ensure the last dimension is divisible by 16.
+    assert (
+        input_tensor.shape[-1] % 16 == 0
+    ), "Hidden dimension must be divisible by 16 for NVFP4."
+
+    import transformer_engine
+
+    print(f"TE Version: {transformer_engine.__version__}")
+    print(f"Input Shape: {input_tensor.shape}")
+    print(f"Input dtype: {input_tensor.dtype}")
+
+    try:
+        # Create NVFP4Quantizer with block size of 16
+        print("\nCreating NVFP4Quantizer with rowwise block scaling (block_len=16)...")
+        quantizer = te.NVFP4Quantizer(
+            fp4_dtype=tex.DType.kFloat4E2M1,  # NVFP4 format
+            rowwise=True,  # Use rowwise block scaling
+            columnwise=False,  # Disable columnwise
+        )
+
+        # Quantize the input tensor
+        print("Quantizing tensor...")
+        nvfp4_tensor = quantizer.quantize(input_tensor)
+
+        print("\nQuantization successful!")
+        print(f"Result type: {type(nvfp4_tensor)}")
+
+        # Extract the raw packed data and scales using get_metadata()
+        # NVFP4Tensor stores both rowwise and columnwise data internally
+        metadata = nvfp4_tensor.get_metadata()
+
+        print("\n--- Rowwise Data (used for quantization with block_len=16) ---")
+        rowwise_data = metadata["rowwise_data"]
+        rowwise_scale_inv = metadata["rowwise_scale_inv"]
+        print(f"Quantized data shape: {rowwise_data.shape}")
+        print(f"Quantized data dtype: {rowwise_data.dtype}")
+        print(f"Scale inverse shape: {rowwise_scale_inv.shape}")
+        print(f"Scale inverse dtype: {rowwise_scale_inv.dtype}")
+        print(
+            f"Expected scales per row: {input_tensor.shape[-1] // 16} (width {input_tensor.shape[-1]} / block_len 16)"
+        )
+
+        # Columnwise data (only if enabled in quantizer)
+        if metadata["columnwise_data"] is not None:
+            print("\n--- Columnwise Data (also computed) ---")
+            columnwise_data = metadata["columnwise_data"]
+            columnwise_scale_inv = metadata["columnwise_scale_inv"]
+            print(f"Columnwise data shape: {columnwise_data.shape}")
+            print(f"Columnwise scale inverse shape: {columnwise_scale_inv.shape}")
+        else:
+            print(
+                "\n--- Columnwise Data: Disabled (rowwise=True, columnwise=False) ---"
+            )
+
+        return nvfp4_tensor
+
+    except Exception as e:
+        print(f"\nError during quantization: {e}")
+        import traceback
+
+        traceback.print_exc()
+        print("NOTE: This requires an NVIDIA Blackwell GPU and TE >= 1.6.")
+        return None
+
+
 def nvfp4_quantize(x):
-    x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
-        torch.float32
-    )
+    # x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+    #     torch.float32
+    # )
+
+    x_new = torch.max(torch.abs(x)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
 
     x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
     return x_u8, x_scale, x_global_scale
@@ -114,6 +195,279 @@ def test_scaled_mm(
         * alpha
     )
     torch.testing.assert_close(outputs[0], ref_outputs, rtol=1e-1, atol=1e-2)
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("swizzle_scales", [False])
+def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales):
+    """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
+    x = torch.randn((1024, 1024), dtype=torch.bfloat16, device="cuda")
+    # x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+    #     torch.float32
+    # )
+
+    x_new = torch.max(torch.abs(x)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
+        )
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(
+            x_tv, global_scale_tv, swizzle_scales, 16
+        )
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x, x_global_scale])
+
+    # Move tensor from GPU to CPU and get raw data as uint8
+    o0_cpu = o[0].cpu()
+    o1_cpu = o[1].cpu()
+    o0_uint8 = o0_cpu.view(torch.uint8)
+    o1_uint8 = o1_cpu.view(torch.uint8)
+
+    # Get TE NVFP4 reference
+    nvfp4_result = functional_nvfp4_quantize(x)
+    assert nvfp4_result is not None
+    nvfp4_metadata = nvfp4_result.get_metadata()
+    nvfp4_rowwise_data = nvfp4_metadata["rowwise_data"]
+    nvfp4_rowwise_scale_inv = nvfp4_metadata["rowwise_scale_inv"]
+
+    # Move rowwise data to CPU and convert to uint8 for comparison
+    nvfp4_rowwise_data_cpu = nvfp4_rowwise_data.cpu()
+    nvfp4_rowwise_scale_inv_cpu = nvfp4_rowwise_scale_inv.cpu()
+    nvfp4_rowwise_data_uint8 = nvfp4_rowwise_data_cpu.view(torch.uint8)
+    nvfp4_rowwise_scale_inv_uint8 = nvfp4_rowwise_scale_inv_cpu.view(torch.uint8)
+
+    # Compare against TE NVFP4
+    scales_match = torch.equal(o1_uint8, nvfp4_rowwise_scale_inv_uint8)
+    if not scales_match:
+        diff_mask = o1_uint8 != nvfp4_rowwise_scale_inv_uint8
+        num_different = diff_mask.sum().item()
+        total_elements = o1_uint8.numel()
+        print(
+            f"\nScale mismatch: {num_different} / {total_elements} elements differ ({100 * num_different / total_elements:.2f}%)"
+        )
+    assert scales_match, "NVFP4 rowwise scale inv does not match nvfuser scales"
+
+    data_match = torch.equal(o0_uint8, nvfp4_rowwise_data_uint8)
+    if not data_match:
+        diff_mask = o0_uint8 != nvfp4_rowwise_data_uint8
+        num_different = diff_mask.sum().item()
+        total_elements = o0_uint8.numel()
+        print(
+            f"\nData mismatch: {num_different} / {total_elements} elements differ ({100 * num_different / total_elements:.2f}%)"
+        )
+    assert data_match, "NVFP4 rowwise data does not match nvfuser quantized values"
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("swizzle_scales", [False])
+def test_nv_block_quantization_vs_pytorch(nvfuser_direct_test, swizzle_scales):
+    """Compare nvfuser nv_block_quantize output against pytorch_nvfp4_quantize reference."""
+    x = torch.randn((1024, 1024), dtype=torch.float32, device="cuda")
+    x_global_scale = ((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / x.abs().max()).to(
+        torch.float32
+    )
+
+    x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
+
+    if swizzle_scales:
+        x_scale = linear_to_swizzled_128_4(x_scale)
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(
+            x_tv, global_scale_tv, swizzle_scales, 16
+        )
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x, x_global_scale])
+
+    # Move tensor from GPU to CPU and get raw data as uint8
+    o0_cpu = o[0].cpu()
+    o1_cpu = o[1].cpu()
+    o0_uint8 = o0_cpu.view(torch.uint8)
+    o1_uint8 = o1_cpu.view(torch.uint8)
+
+    # Move reference tensors to CPU and convert to uint8 for comparison
+    x_u8_cpu = x_u8.cpu()
+    x_scale_cpu = x_scale.cpu()
+    x_u8_uint8 = x_u8_cpu.view(torch.uint8)
+    x_scale_uint8 = x_scale_cpu.view(torch.uint8)
+
+    # Compare against pytorch reference
+    # Check if quantized values match
+    if o0_uint8.flatten().size() == x_u8_uint8.flatten().size():
+        values_match = torch.equal(o0_uint8.flatten(), x_u8_uint8.flatten())
+        print(f"Quantized values match: {values_match}")
+        if not values_match:
+            diff_mask = o0_uint8.flatten() != x_u8_uint8.flatten()
+            diff_count = diff_mask.sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+            diff_indices = torch.where(diff_mask)[0][:20]  # Show first 20 mismatches
+            print("\n--- Quantized Values Mismatches (first 20) ---")
+            for idx in diff_indices:
+                print(
+                    f"Index {idx.item()}: nvfuser={hex(o0_uint8.flatten()[idx].item())}, reference={hex(x_u8_uint8.flatten()[idx].item())}"
+                )
+    else:
+        print(
+            f"Quantized values have different sizes after flattening: {o0_uint8.flatten().size()} vs {x_u8_uint8.flatten().size()}"
+        )
+
+    # Check if scale values match
+    if o1_uint8.flatten().size() == x_scale_uint8.flatten().size():
+        scales_match = torch.equal(o1_uint8.flatten(), x_scale_uint8.flatten())
+        print(f"Scale values match: {scales_match}")
+        if not scales_match:
+            diff_mask = o1_uint8.flatten() != x_scale_uint8.flatten()
+            diff_count = diff_mask.sum().item()
+            print(f"Number of differing bytes: {diff_count}")
+            diff_indices = torch.where(diff_mask)[0][:20]  # Show first 20 mismatches
+            print("\n--- Scale Values Mismatches (first 20) ---")
+            for idx in diff_indices:
+                print(
+                    f"Index {idx.item()}: nvfuser={hex(o1_uint8.flatten()[idx].item())}, reference={hex(x_scale_uint8.flatten()[idx].item())}"
+                )
+    else:
+        print(
+            f"Scale values have different sizes after flattening: {o1_uint8.flatten().size()} vs {x_scale_uint8.flatten().size()}"
+        )
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("config", [[1024, 1024, 1024]])
+@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
+def test_scaled_mm_new(
+    nvfuser_direct_test,
+    config,
+    out_dtype,
+):
+    in_dtype = torch.float4_e2m1fn_x2
+    quantization = nvfp4_quantize
+
+    m, k, n = config
+    mat1_ref = torch.randn((m, k), dtype=torch.bfloat16, device="cuda")
+    mat2_ref = torch.randn((n, k), dtype=torch.bfloat16, device="cuda")
+
+    mat1_nvfp4 = functional_nvfp4_quantize(mat1_ref)
+    mat1_metadata = mat1_nvfp4.get_metadata()
+    mat1 = mat1_metadata["rowwise_data"]
+    scale1 = mat1_metadata["rowwise_scale_inv"]
+
+    x_new = torch.max(torch.abs(mat1_ref)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=mat1_ref.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=mat1_ref.device, dtype=torch.float32)
+    global_sf1 = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
+
+    mat2, scale2, global_sf2 = quantization(mat2_ref)
+    alpha = 1.0 / (global_sf1 * global_sf2)
+
+    inputs = [
+        mat1_ref,
+        mat2.t(),
+        global_sf1,
+        linear_to_swizzled_128_4(scale2),
+        alpha,
+    ]
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        mat1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
+        )
+        mat2_ = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=DataType.Float4_e2m1fn,
+            is_cpu=False,
+            stride_order=[0, 1],
+        )
+
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+
+        mat1_, scale1_ = fd.ops.nv_block_quantize(mat1, global_scale_tv, True, 16)
+
+        scale2_ = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        alpha = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        out, _, _ = fd.ops.scaled_mm(
+            mat1_,
+            mat2_,
+            scale1_,
+            scale2_,
+            alpha,
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
+        )
+        fd.add_output(out)
+
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+
+    mat1 = mat1_metadata["rowwise_data"].view(torch.float4_e2m1fn_x2)
+    scale1 = mat1_metadata["rowwise_scale_inv"].view(torch.float8_e4m3fn)
+
+    ref_o = (
+        torch._scaled_mm(
+            mat1,
+            mat2.t(),
+            linear_to_swizzled_128_4(scale1),
+            linear_to_swizzled_128_4(scale2),
+            None,
+            None,
+            out_dtype,
+        )
+        * alpha
+    )
+
+    # Check for values that don't match the tolerance
+    if not o[0].allclose(ref_o, 1e-2, 1e-2):
+        diff = torch.abs(o[0] - ref_o)
+        tolerance = 1e-2 + 1e-2 * torch.abs(ref_o)
+        mismatch_mask = diff > tolerance
+
+        mismatch_indices = torch.where(mismatch_mask)
+        num_mismatches = mismatch_mask.sum().item()
+        print(
+            f"\n--- Mismatches found: {num_mismatches} out of {o[0].numel()} elements ---"
+        )
+
+        # Show first 20 mismatches
+        for i in range(min(20, num_mismatches)):
+            idx = tuple(ind[i].item() for ind in mismatch_indices)
+            nvfuser_val = o[0][idx].item()
+            ref_val = ref_o[idx].item()
+            diff_val = diff[idx].item()
+            tol_val = tolerance[idx].item()
+            print(
+                f"Index {idx}: nvfuser={nvfuser_val:.6f}, reference={ref_val:.6f}, diff={diff_val:.6f}, tolerance={tol_val:.6f}"
+            )
+
+    assert o[0].allclose(ref_o, 1e-2, 1e-2)
 
 
 @pytest.mark.skipif(
