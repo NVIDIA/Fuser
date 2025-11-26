@@ -279,9 +279,13 @@ class CutlassCodeGenerator {
 
     registerGlobalBuffer("cutlass_workspace");
 
-#define MAYBE_REGISTER(field)                                          \
-  if (pattern_.field != nullptr) {                                     \
-    registerGlobalBuffer(#field, pattern_.field, pattern_.is_grouped); \
+#define MAYBE_REGISTER(field)                                              \
+  if (pattern_.field != nullptr) {                                         \
+    registerGlobalBuffer(                                                  \
+        #field,                                                            \
+        pattern_.field,                                                    \
+        pattern_.is_grouped,                                               \
+        /*dtype_str=*/"const " + dtypeToCutlass(pattern_.field->dtype())); \
   }
 #define MAYBE_REGISTER_NO_PTR_ARRAY(field)               \
   if (pattern_.field != nullptr) {                       \
@@ -307,7 +311,8 @@ class CutlassCodeGenerator {
         /*tv=*/pattern_.a_scale,
         /*needs_ptr_array=*/pattern_.is_grouped,
         /*dtype_str=*/
-        dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true),
+        "const " +
+            dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true),
         /*ptr_array_dtype_is_same=*/false,
         /*layout=*/TensorDescriptor::LayoutType::SFA);
     registerGlobalBuffer(
@@ -315,7 +320,8 @@ class CutlassCodeGenerator {
         /*tv=*/pattern_.b_scale,
         /*needs_ptr_array=*/pattern_.is_grouped,
         /*dtype_str=*/
-        dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
+        "const " +
+            dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
         /*ptr_array_dtype_is_same=*/false,
         /*layout=*/TensorDescriptor::LayoutType::SFB);
 
