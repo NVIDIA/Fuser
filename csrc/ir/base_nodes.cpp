@@ -434,8 +434,11 @@ bool Expr::sameDefinition(const Expr* other) const {
   if (name() != other->name()) {
     return false;
   }
-  // Only check the input argument definitions to avoid infinite recursion
-  // because Val::sameDefinition will check the definition.
+  // Val::sameDefinition checks its definition expression. The value is the
+  // output of its definition expression. Checking the output with
+  // sameDefinition will create a cycle and cause infinite recursion, so only
+  // check the input argument definitions. Fusion::sameDefinition starts from
+  // each output and traverses up the entire Fusion DAG.
   for (const auto i : arange(inputs().size())) {
     if (!input(i)->sameDefinition(other->input(i))) {
       return false;
