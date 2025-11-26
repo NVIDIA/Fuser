@@ -576,7 +576,10 @@ struct Fp4GemmSm100 {
   using MmaTileShape = typename Params::MmaTileShape;
   using ClusterShape = typename Params::ClusterShape;
   using PerSmTileShape_MNK = typename Params::PerSmTileShape_MNK;
-
+)";
+    if (pattern_.is_grouped) {
+    } else {
+      code_ += R"(
   // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
   static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
   using TmemWarpShape_MN =
@@ -596,6 +599,7 @@ struct Fp4GemmSm100 {
                        LayoutDTag,
                        /*IsPerColScaleSupported=*/false>());
 )";
+    }
   }
 
   void genEpilogueConfig() {
@@ -603,15 +607,31 @@ struct Fp4GemmSm100 {
     code_ += "  using EVTOp =\n" +
         evt_model_->defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
     if (pattern_.is_grouped) {
-      code_ +=
-          "  using EpilogueSchedule = "
-          "cutlass::epilogue::PtrArrayTmaWarpSpecialized1Sm;\n";
+      code_ += R"(
+  using EpilogueSchedule = cutlass::epilogue::PtrArrayTmaWarpSpecialized1Sm;
+
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag*,
+          AlignmentC,
+          ElementD,
+          LayoutDTag*,
+          AlignmentD,
+          EpilogueSchedule,
+          EVTOp>::CollectiveOp;
+)";
     } else {
-      code_ +=
-          "  using EpilogueSchedule = "
-          "cutlass::epilogue::collective::EpilogueScheduleAuto;\n";
-    }
-    code_ += R"(
+      code_ += R"(
+  using EpilogueSchedule = cutlass::epilogue::collective::EpilogueScheduleAuto;
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -630,40 +650,31 @@ struct Fp4GemmSm100 {
           EpilogueSchedule,
           EVTOp>::CollectiveOp;
 )";
+    }
   }
 
   void genFinalGemmConfig() {
-    code_ += R"(
+    if (pattern_.is_grouped) {
+      code_ += R"(
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
           OperatorClass,
           ElementA,
-          LayoutATag,
+          LayoutATag*,
           AlignmentA,
           ElementB,
-          LayoutBTag,
+          LayoutBTag*,
           AlignmentB,
           ElementAccumulator,
           MmaTileShape,
           ClusterShape,
           cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
               sizeof(typename CollectiveEpilogue::SharedStorage))>,
-          )";
-    if (pattern_.is_grouped) {
-      code_ += "cutlass::gemm::KernelPtrArrayTmaWarpSpecialized1SmNvf4Sm100";
-    } else {
-      code_ += "cutlass::gemm::collective::KernelScheduleAuto";
-    }
-    code_ += R"(>::CollectiveOp;
+          cutlass::gemm::KernelPtrArrayTmaWarpSpecialized1SmNvf4Sm100>::CollectiveOp;
 
-)";
-    if (pattern_.is_grouped) {
-      // For grouped GEMM:
-      //  1) Use GroupProblemShape<...> instead of Shape<...>
-      code_ += R"(
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
-      cutlass::gemm::GroupProblemShape<int, int, int>,
+      cutlass::gemm::GroupProblemShape<Shape<int, int, int>>,
       CollectiveMainloop,
       CollectiveEpilogue,
       void>;
@@ -687,6 +698,23 @@ struct Fp4GemmSm100 {
 )";
     } else {
       code_ += R"(
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          ElementA,
+          LayoutATag,
+          AlignmentA,
+          ElementB,
+          LayoutBTag,
+          AlignmentB,
+          ElementAccumulator,
+          MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          cutlass::gemm::collective::KernelScheduleAuto>::CollectiveOp;
+
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
       Shape<int, int, int, int>,
       CollectiveMainloop,
@@ -812,11 +840,18 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   auto layout_SFA = inputs.a_scale_layouts;
   auto layout_SFB = inputs.b_scale_layouts;
 
+  auto GemmMode = cutlass::gemm::GemmUniversalMode::kGrouped;
+  using ProblemShapeType = cutlass::gemm::GroupProblemShape<Shape<int, int, int>>;
+  ProblemShapeType overall_problem_shape{
+      inputs.num_experts,
+      reinterpret_cast<typename ProblemShapeType::UnderlyingProblemShape*>(inputs.problem_sizes),
+      nullptr
+    };
+
   auto stride_A = inputs.a_strides;
   auto stride_B = inputs.b_strides;
   auto stride_D = inputs.d_strides;
 
-  using GemmMode = typename cutlass::gemm::GemmUniversalMode::kGrouped,
 )";
       if (pattern_.bias == nullptr) {
         code_ += "  auto stride_C = nullptr;\n";
@@ -825,6 +860,19 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
         // assuming same N-inner layout as D
         code_ += "  auto stride_C = inputs.d_stride;\n";
       }
+      code_ += R"(
+  // Set up hardware info
+  cutlass::KernelHardwareInfo hw_info;
+  hw_info.device_id = 0;  // Will be set correctly by the test framework
+  hw_info.sm_count = 128; // Default for testing, should query actual count in production
+
+  // Set up scheduler
+  using RasterOrderOptions = typename cutlass::gemm::kernel::detail::
+      PersistentTileSchedulerSm100GroupParams<
+          typename ProblemShapeType::UnderlyingProblemShape>::RasterOrderOptions;
+  typename T::Gemm::GemmKernel::TileSchedulerArguments scheduler;
+  scheduler.raster_order = RasterOrderOptions::AlongM;
+)";
     } else {
       code_ += R"(
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
@@ -837,14 +885,15 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   auto layout_SFB = T::ScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
 
-  using GemmMode = typename cutlass::gemm::GemmUniversalMode::kGemm,
+  auto GemmMode = cutlass::gemm::GemmUniversalMode::kGemm;
+  Shape<int, int, int> overall_problem_shape{inputs.m, inputs.n, inputs.k, 1};
 )";
     }
 
     code_ += R"(
   typename T::Gemm::Arguments arguments{
       GemmMode,
-      {inputs.m, inputs.n, inputs.k, 1},
+      overall_problem_shape,
       {// Mainloop arguments
        inputs.a,
        stride_A,
@@ -866,7 +915,16 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
     code_ += R"(
        stride_C,
        inputs.main_output,
-       stride_D}};
+       stride_D}
+)";
+    if (pattern_.is_grouped) {
+      // We need to pass hw_info and scheduler also for grouped gemm. This is
+      // not necessary for the ungrouped case
+      code_ += R"(,
+       hw_info,
+       scheduler)";
+    }
+    code_ += R"(};
   return arguments;
 }
 )";
