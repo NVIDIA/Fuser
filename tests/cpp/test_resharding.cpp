@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <algorithm>
-#include <iostream>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
