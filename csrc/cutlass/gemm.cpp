@@ -699,8 +699,6 @@ struct Fp4GemmSm100 {
       typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFA;
   using LayoutSFB =
       typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFB;
-  using ScaleConfig =
-      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 
   using ScaledConfig =
       typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
@@ -743,6 +741,9 @@ struct Fp4GemmSm100 {
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
   using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
+
+  using ScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 )";
     }
   }
@@ -904,7 +905,7 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
 
   auto GemmMode = cutlass::gemm::GemmUniversalMode::kGemm;
-  Shape<int, int, int> overall_problem_shape{inputs.m, inputs.n, inputs.k, 1};
+  Shape<int, int, int, int> overall_problem_shape{inputs.m, inputs.n, inputs.k, 1};
 
   typename T::Gemm::GemmKernel::MainloopArguments mainloop_args{
        inputs.a,
