@@ -893,19 +893,20 @@ if(BUILD_PYTHON)
       nvf_cutlass
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
+      CUDA::cupti
     )
   else()
     target_link_libraries(nvf_py_direct_internal PRIVATE
       nvfuser_codegen
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
+      CUDA::cupti
     )
   endif()
 
   target_link_libraries(nvfuser_direct PRIVATE
     nvf_py_direct_internal
     Python::Module
-    CUDA::cupti
   )
 
   # Add dead code elimination flags to reduce file size
