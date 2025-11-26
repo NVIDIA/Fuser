@@ -815,6 +815,8 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   auto stride_A = inputs.a_strides;
   auto stride_B = inputs.b_strides;
   auto stride_D = inputs.d_strides;
+
+  using GemmMode = typename cutlass::gemm::GemmUniversalMode::kGrouped,
 )";
       if (pattern_.bias == nullptr) {
         code_ += "  auto stride_C = nullptr;\n";
@@ -834,12 +836,14 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
   auto layout_SFB = T::ScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
+
+  using GemmMode = typename cutlass::gemm::GemmUniversalMode::kGemm,
 )";
     }
 
     code_ += R"(
   typename T::Gemm::Arguments arguments{
-      cutlass::gemm::GemmUniversalMode::kGemm,
+      GemmMode,
       {inputs.m, inputs.n, inputs.k, 1},
       {// Mainloop arguments
        inputs.a,
