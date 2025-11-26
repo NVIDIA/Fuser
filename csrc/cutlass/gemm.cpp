@@ -321,30 +321,37 @@ class CutlassCodeGenerator {
 
     if (pattern_.is_grouped) {
       // Grouped GEMMs require stride arrays for A, B, C and D
+
       registerGlobalBuffer(
           "a_strides",
           /*tv=*/nullptr,
           /*needs_ptr_array=*/false,
-          /*dtype_str=*/"int64_t",
+          /*dtype_str=*/"Fp4GemmSm100::StrideA",
           /*ptr_array_dtype_is_same=*/false,
           /*layout=*/std::nullopt,
-          /*stride_value=*/"k");
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideA{}, "
+          "{static_cast<int>(m), static_cast<int>(k), 1})");
       registerGlobalBuffer(
           "b_strides",
           /*tv=*/nullptr,
           /*needs_ptr_array=*/false,
-          /*dtype_str=*/"int64_t",
+          /*dtype_str=*/"Fp4GemmSm100::StrideB",
           /*ptr_array_dtype_is_same=*/false,
           /*layout=*/std::nullopt,
-          /*stride_value=*/"k");
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideB{}, "
+          "{static_cast<int>(n), static_cast<int>(k), 1})");
       registerGlobalBuffer(
           "d_strides",
           /*tv=*/nullptr,
           /*needs_ptr_array=*/false,
-          /*dtype_str=*/"int64_t",
+          /*dtype_str=*/"Fp4GemmSm100::StrideD",
           /*ptr_array_dtype_is_same=*/false,
           /*layout=*/std::nullopt,
-          /*stride_value=*/"n");
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideD{}, "
+          "{static_cast<int>(m), static_cast<int>(n), 1})");
     }
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
@@ -845,8 +852,7 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   ProblemShapeType overall_problem_shape{
       inputs.num_experts,
       reinterpret_cast<typename ProblemShapeType::UnderlyingProblemShape*>(inputs.problem_sizes),
-      nullptr
-    };
+      nullptr};
 
   auto stride_A = inputs.a_strides;
   auto stride_B = inputs.b_strides;
@@ -872,6 +878,16 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
           typename ProblemShapeType::UnderlyingProblemShape>::RasterOrderOptions;
   typename T::Gemm::GemmKernel::TileSchedulerArguments scheduler;
   scheduler.raster_order = RasterOrderOptions::AlongM;
+
+  typename T::Gemm::GemmKernel::MainloopArguments mainloop_args{
+       inputs.a_ptrs,
+       stride_A,
+       inputs.b_ptrs,
+       stride_B,
+       inputs.a_scale_ptrs,
+       layout_SFA,
+       inputs.b_scale_ptrs,
+       layout_SFB};
 )";
     } else {
       code_ += R"(
@@ -887,14 +903,8 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
 
   auto GemmMode = cutlass::gemm::GemmUniversalMode::kGemm;
   Shape<int, int, int> overall_problem_shape{inputs.m, inputs.n, inputs.k, 1};
-)";
-    }
 
-    code_ += R"(
-  typename T::Gemm::Arguments arguments{
-      GemmMode,
-      overall_problem_shape,
-      {// Mainloop arguments
+  typename T::Gemm::GemmKernel::MainloopArguments mainloop_args{
        inputs.a,
        stride_A,
        inputs.b,
@@ -902,8 +912,11 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
        inputs.a_scale,
        layout_SFA,
        inputs.b_scale,
-       layout_SFB},
-      {// Epilogue arguments
+       layout_SFB};
+ )";
+    }
+    code_ += R"(
+  typename T::Gemm::GemmKernel::EpilogueArguments epilogue_args{
 )";
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
@@ -912,17 +925,32 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
-    code_ += R"(
+    if (pattern_.is_grouped) {
+      code_ += R"(
+       stride_C,
+       inputs.main_output_ptrs,
+       stride_D};
+ )";
+    } else {
+      code_ += R"(
        stride_C,
        inputs.main_output,
-       stride_D}
-)";
+       stride_D};
+ )";
+    }
+
+    code_ += R"(
+  typename T::Gemm::Arguments arguments{
+      GemmMode,
+      overall_problem_shape,
+      mainloop_args,
+      epilogue_args)";
     if (pattern_.is_grouped) {
       // We need to pass hw_info and scheduler also for grouped gemm. This is
       // not necessary for the ungrouped case
       code_ += R"(,
-       hw_info,
-       scheduler)";
+      hw_info,
+      scheduler)";
     }
     code_ += R"(};
   return arguments;
