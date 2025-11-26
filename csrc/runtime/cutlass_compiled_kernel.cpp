@@ -139,25 +139,9 @@ void CutlassCompiledKernel::run(
     }
   }
 
+  // Temporary tensors are appended after outputs in the tensor_args vector
   size_t num_inputs_and_outputs = tensor_args.size();
   tensor_args.resize(num_inputs_and_outputs + num_temp_tensors_);
-  std::cout << "num_temp_tensors_=" << num_temp_tensors_ << std::endl;
-  std::cout << "num_inputs_and_outputs=" << num_inputs_and_outputs << std::endl;
-  std::cout << "tensor_args.size()=" << tensor_args.size() << std::endl;
-  for (auto ta : tensor_args) {
-    std::cout << " " << ta.data_ptr << std::endl;
-    std::cout << " dim=" << ta.dim << std::endl;
-    std::cout << " sizes=";
-    for (size_t i : arange(ta.dim)) {
-      std::cout << " " << ta.sizes[i];
-    }
-    std::cout << "\n strides=";
-    for (size_t i : arange(ta.dim)) {
-      std::cout << " " << ta.strides[i];
-    }
-  }
-
-  // Temporary tensors are appended after outputs in the tensor_args vector
   std::vector<at::Tensor> temp_tensors;
   temp_tensors.reserve(num_temp_tensors_);
   {

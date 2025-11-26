@@ -101,12 +101,6 @@ QuantizedTensorView quantizeTv(
 QuantizedTensorView quantizeTvNvfp4(
     TensorView* unquantized,
     TensorView* global_scale_factor = nullptr) {
-  std::cout << "quantizeTvNvfp4\n  unquantized=" << unquantized->toString()
-            << "\n  global_scale_factor="
-            << (global_scale_factor == nullptr
-                    ? "nullptr"
-                    : global_scale_factor->toString())
-            << std::endl;
   // max = (2 – 2^(–M)) * 2^(2^(E-1))  (no nans for fp4)
   constexpr double F4E2M1_MAX = 6.0;
   // eps = 2^(1-M-E)
@@ -941,11 +935,6 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
 
   const std::vector<int64_t> tokens_per_expert{115, 144, 8, 757};
 
-  const int64_t M = std::accumulate(
-      tokens_per_expert.begin(),
-      tokens_per_expert.end(),
-      0,
-      std::plus<int64_t>());
   int64_t num_experts = tokens_per_expert.size();
   constexpr int64_t N = 128, K = 256;
 
@@ -998,19 +987,6 @@ TEST_F(CutlassExecutorTest, Nvfp4BlockScaledGroupedGemmReLU) {
   at::Tensor at_alpha = at::stack(alphas, /*dim=*/0);
 
   // at::Tensor at_global_normconst = at::full({}, 2.0f, options);
-
-  std::cout << "at_a.sizes()=" << at_a.sizes() << std::endl;
-  std::cout << "at_b.sizes()=" << at_b.sizes() << std::endl;
-  std::cout << "at_a_sf.sizes()=" << at_a_sf.sizes() << std::endl;
-  std::cout << "at_b_sf.sizes()=" << at_b_sf.sizes() << std::endl;
-  std::cout << "at_alpha=" << at_alpha << std::endl;
-  std::cout << "at_problem_sizes=" << at_problem_sizes << std::endl;
-  std::cout << "at_sf_offsets=" << at_sf_offsets << std::endl;
-  // std::cout << "at_global_normconst=" << at_global_normconst << std::endl;
-  std::cout << "num_experts=" << num_experts << std::endl;
-  std::cout << "M=" << M << std::endl;
-  std::cout << "N=" << N << std::endl;
-  std::cout << "K=" << K << std::endl;
 
   std::vector<c10::IValue> inputs{
       at_a,

@@ -82,9 +82,6 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
-    fusion_->printMath();
-    std::cout << pattern_.toString() << std::endl;
-
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
@@ -208,7 +205,6 @@ class CutlassCodeGenerator {
       std::optional<TensorDescriptor::LayoutType> layout = std::nullopt,
       std::string stride_value = "") {
     auto new_temp_tensor_pos = [&]() {
-      std::cout << "new_temp_tensor_pos" << std::endl;
       return fusion_->inputs().size() + fusion_->outputs().size() +
           num_temp_tensors_++;
     };
@@ -1124,8 +1120,6 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
     ValGroup group_k_group =
         graph.toGroup(pattern_.b_scale->getLogicalDomain().at(2));
 
-    std::cout << id_model.toString() << std::endl;
-
     NVF_ERROR(
         graph.toGroup(pattern_.b->getLogicalDomain().at(1)) == half_k_group,
         "Half K dimension of B, ",
@@ -1157,18 +1151,10 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
           }
           ValGroup group = graph.toGroup(id);
           const auto it = dim_size.find(group);
-          // TODO: we should assert this instead
-          if (it == dim_size.end()) {
-            std::cout << "Could not find dimension size map entry for "
-                      << id->toString() << std::endl;
-            continue;
-          }
-          /*
           NVF_ERROR(
               it != dim_size.end(),
               "Could not find dimension size map entry for ",
               group);
-              */
           if (!first) {
             code_ += " * ";
           }
