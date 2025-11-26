@@ -1251,13 +1251,13 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_inputs,
                                   at::Tensor** output_tensors,
                                   int64_t num_outputs,
-                                  void* launch_context_ptr,
+                                  void* launch_kernel,
                                   void* container) {
         FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
         // Cast to LaunchKernel struct
         auto* launch_kernel_ptr =
-            static_cast<hir::LaunchKernel*>(launch_context_ptr);
+            static_cast<hir::LaunchKernel*>(launch_kernel);
         NVF_CHECK(
             launch_kernel_ptr != nullptr, "launch_context_ptr cannot be null");
 
