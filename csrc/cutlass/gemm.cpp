@@ -179,6 +179,10 @@ class CutlassCodeGenerator {
     // For grouped GEMM input block scale factors, this holds the array of
     // layouts.
     TensorDescriptor* layout_array_desc = nullptr;
+
+    // For grouped GEMM we require arrays of strides. This is a string like "k"
+    // or "n" that will be used to set each entry of the temporary array.
+    std::string stride_value = "";
   };
 
   static std::string toString(TensorDescriptor::LayoutType layout) {
@@ -201,7 +205,8 @@ class CutlassCodeGenerator {
       bool needs_ptr_array = false,
       std::string dtype_str = "",
       bool ptr_array_dtype_is_same = false,
-      std::optional<TensorDescriptor::LayoutType> layout = std::nullopt) {
+      std::optional<TensorDescriptor::LayoutType> layout = std::nullopt,
+      std::string stride_value = "") {
     auto new_temp_tensor_pos = [&]() {
       std::cout << "new_temp_tensor_pos" << std::endl;
       return fusion_->inputs().size() + fusion_->outputs().size() +
@@ -261,7 +266,8 @@ class CutlassCodeGenerator {
             tensor_arg_pos,
             pointer_array_desc,
             layout,
-            layout_array_desc))
+            layout_array_desc,
+            stride_value))
         .get();
   }
 
@@ -312,6 +318,34 @@ class CutlassCodeGenerator {
         dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
         /*ptr_array_dtype_is_same=*/false,
         /*layout=*/TensorDescriptor::LayoutType::SFB);
+
+    if (pattern_.is_grouped) {
+      // Grouped GEMMs require stride arrays for A, B, C and D
+      registerGlobalBuffer(
+          "a_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"int64_t",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/"k");
+      registerGlobalBuffer(
+          "b_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"int64_t",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/"k");
+      registerGlobalBuffer(
+          "d_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"int64_t",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/"n");
+    }
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
@@ -623,6 +657,36 @@ struct Fp4GemmSm100 {
     }
     code_ += R"(>::CollectiveOp;
 
+)";
+    if (pattern_.is_grouped) {
+      // For grouped GEMM:
+      //  1) Use GroupProblemShape<...> instead of Shape<...>
+      code_ += R"(
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      cutlass::gemm::GroupProblemShape<int, int, int>,
+      CollectiveMainloop,
+      CollectiveEpilogue,
+      void>;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+  using StrideA = typename Gemm::GemmKernel::InternalStrideA;
+  using StrideB = typename Gemm::GemmKernel::InternalStrideB;
+  using StrideC = typename Gemm::GemmKernel::InternalStrideC;
+  using StrideD = typename Gemm::GemmKernel::InternalStrideD;
+
+  using LayoutSFA =
+      typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFA;
+  using LayoutSFB =
+      typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFB;
+  using ScaleConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+
+  using ScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
+    } else {
+      code_ += R"(
   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
       Shape<int, int, int, int>,
       CollectiveMainloop,
@@ -632,20 +696,16 @@ struct Fp4GemmSm100 {
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 
   using StrideA = typename Gemm::GemmKernel::StrideA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using StrideC = typename Gemm::GemmKernel::StrideC;
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+
   using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
-  using StrideB = typename Gemm::GemmKernel::StrideB;
   using LayoutB = decltype(cute::make_layout(make_shape(0, 0, 0), StrideB{}));
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using StrideC = typename Gemm::GemmKernel::StrideC;
   using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
-  using StrideD = typename Gemm::GemmKernel::StrideD;
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
-)";
-    if (pattern_.is_grouped) {
-      code_ += R"(
-  using ScaledConfig =
-      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 )";
     }
   }
@@ -745,20 +805,31 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using StrideB = typename T::StrideB;
   using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
-
-  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
-  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
-  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
-  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
 )";
 
     if (pattern_.is_grouped) {
       code_ += R"(
   auto layout_SFA = inputs.a_scale_layouts;
   auto layout_SFB = inputs.b_scale_layouts;
+
+  auto stride_A = inputs.a_strides;
+  auto stride_B = inputs.b_strides;
+  auto stride_D = inputs.d_strides;
 )";
+      if (pattern_.bias == nullptr) {
+        code_ += "  auto stride_C = nullptr;\n";
+      } else {
+        // TODO: compute actual stride array for bias if present instead of
+        // assuming same N-inner layout as D
+        code_ += "  auto stride_C = inputs.d_stride;\n";
+      }
     } else {
       code_ += R"(
+  auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
+  auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
+  auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
+  auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
+
   auto layout_SFA = T::ScaledConfig::tile_atom_to_shape_SFA(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
   auto layout_SFB = T::ScaledConfig::tile_atom_to_shape_SFB(
@@ -1020,6 +1091,11 @@ __global__ void get_group_gemm_starts(Inputs inputs) {
         code_ += R"((cute::make_shape(
     static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
 )";
+      }
+
+      if (!td_ptr->stride_value.empty()) {
+        code_ += "  inputs." + td_ptr->name +
+            "[expert_id] = " + td_ptr->stride_value + ";\n";
       }
     }
     code_ += R"(}
