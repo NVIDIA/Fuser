@@ -444,9 +444,10 @@ class NVF_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
-  // The sameVal helper function checks if the other Val has the same
-  // definition, ValType, and DType.
-  bool sameVal(const Val* other_val) const;
+  // The maybeSameVal helper function checks if the other Val has the same
+  // definition, ValType, and DType. If it returns false, then other_val cannot
+  // match with this val.
+  bool maybeSameVal(const Val* other_val) const;
 
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for

@@ -115,7 +115,7 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
-bool Val::sameVal(const Val* other_val) const {
+bool Val::maybeSameVal(const Val* other_val) const {
   if (other_val == nullptr) {
     return false;
   }
@@ -135,7 +135,8 @@ bool Val::sameVal(const Val* other_val) const {
     return false;
   }
   if (definition_ == nullptr) {
-    // Check this condition in Val::sameAs and Val::sameDefinition
+    // The other_val might be the same as this Val. This condition is check
+    // further in Val::sameAs and Val::sameDefinition.
     return true;
   }
 
@@ -161,7 +162,7 @@ bool Val::sameAs(const Statement* other) const {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (!sameVal(other_val)) {
+    if (!maybeSameVal(other_val)) {
       return false;
     }
     if (definition_ == nullptr) {
@@ -193,7 +194,7 @@ bool isComplexNan(const std::complex<double>& a) {
 } // namespace
 
 bool Val::sameDefinition(const Val* other_val) const {
-  if (!sameVal(other_val)) {
+  if (!maybeSameVal(other_val)) {
     return false;
   }
   // This condition is not checked in sameAs. It ensures the correct argument
