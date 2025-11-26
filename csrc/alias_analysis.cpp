@@ -64,6 +64,11 @@ bool okToRelayout(
     return true;
   }
 
+  if (empty_allocation_as == EmptyAllocationAs::kLogical &&
+      tv->getMemoryType() != MemoryType::Global) {
+    return true;
+  }
+
   std::optional<Layout> old_layout = canonicalizeLayout(tv);
   if (!old_layout.has_value()) {
     return false;
