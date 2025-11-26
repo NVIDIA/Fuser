@@ -1012,9 +1012,9 @@ extern "C" void temp_tensor_sizes(
 )";
 
     if (pattern_.is_grouped) {
-      // TODO: For grouped gemm, we need one temp tensor for each grouped input
-      // and output. These are the pointer arrays and they are all the same
-      // size: [num_experts].
+      // For grouped gemm, we need one temp tensor for each grouped input and
+      // output. These are the pointer arrays and they are all the same size:
+      // [num_experts].
       for (const std::unique_ptr<TensorDescriptor>& td_ptr :
            tensor_descriptors_) {
         if (td_ptr->tv != nullptr) {
