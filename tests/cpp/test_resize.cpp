@@ -2712,13 +2712,15 @@ TEST_F(ResizeTest, Slice1DVectorize3) {
   auto cg_results = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
   auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
   // check vectorization
-  ASSERT_EQ(pparams->vectorization_factor, 4)
-      << "Unexpected factor of vectorization";
-  EXPECT_THAT(
-      tv1->getLoopDomain(),
-      Contains(Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
-      << "Failed to vectorize: " << tv1;
-
+  if (!pparams->use_tma_load) {
+    ASSERT_EQ(pparams->vectorization_factor, 4)
+        << "Unexpected factor of vectorization";
+    EXPECT_THAT(
+        tv1->getLoopDomain(),
+        Contains(
+            Property(&IterDomain::getParallelType, ParallelType::Vectorize)))
+        << "Failed to vectorize: " << tv1;
+  }
   testValidate(&fusion, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 

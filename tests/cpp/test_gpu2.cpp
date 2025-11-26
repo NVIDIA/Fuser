@@ -53,6 +53,7 @@
 #include <algorithm>
 #include <sstream>
 #include <thread>
+#include "type.h"
 
 namespace nvfuser {
 
@@ -5657,13 +5658,20 @@ TEST_F(NVFuserTest, FusionPointwiseVectorize_CUDA) {
 
   for (auto x_consumer : ir_utils::consumerTvsOf(x)) {
     bool found_vec_in_input = false;
+    bool found_tma_in_input = false;
     for (auto id : x_consumer->getLoopDomain()) {
       if (isParallelTypeVectorize(id->getParallelType())) {
         found_vec_in_input = true;
         break;
       }
+      if (id->getParallelType() == ParallelType::Bulk) {
+        found_tma_in_input = true;
+        break;
+      }
     }
-    NVF_CHECK(found_vec_in_input, "Expect input to be vectorized");
+    NVF_CHECK(
+        found_vec_in_input || found_tma_in_input,
+        "Expect input to be vectorized or TMA");
   }
 
   for (auto id : y->getLoopDomain()) {

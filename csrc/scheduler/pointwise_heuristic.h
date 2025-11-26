@@ -67,6 +67,13 @@ class PointwiseParams : public HeuristicParams {
   int64_t tma_tile_outer = -1;
   int64_t tma_tile_inner = -1;
 
+  // index of input tensors that are suitable for TMA
+  // Other two options are:
+  // 1. save input tensors instead of indices
+  // 2. pass runtime info to schedule function to recheck which inputs are
+  //    suitable for TMA
+  std::vector<int64_t> tma_compatible_input_indices;
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!

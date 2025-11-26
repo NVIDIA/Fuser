@@ -8,6 +8,7 @@
 
 #include <scheduler/pointwise.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_non_tma.h>
@@ -16,7 +17,6 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
-
 #include <ranges>
 
 namespace nvfuser {
@@ -329,6 +329,57 @@ bool PointWiseScheduler::canScheduleRunTime(
   return true;
 }
 
+namespace {
+
+// TODO: Refine this function to check contiguity, broadcasts, reshapes, etc.
+bool mayHaveTmaCompatibleInputs(
+    const pointwise_utils::FusionRuntimeProperties& prop,
+    SchedulerRuntimeInfo& runtime_info) {
+  for (auto tv : prop.vectorizable_inputs_outputs) {
+    if (!tv->isFusionInput()) {
+      continue;
+    }
+
+    if (!scheduler_utils::isTvSizeSuitableForTma(
+            tv, runtime_info, /*break_point = */ 0)) {
+      continue;
+    }
+
+    // Condition 2: the input tensor must have cacheable uses
+    if (scheduler_utils::getCacheableUses(tv).empty()) {
+      continue;
+    }
+
+    // TODO: Add checks for reshape, contiguity, allocation domain, etc.
+    // TODO: Add performance checks:
+    //   - Skip if input size is too small
+    //   - Skip if inner TMA domain size is too small
+
+    // Passed all preliminary checks, may be suitable for TMA
+    return true;
+  }
+  return false;
+}
+
+// Preliminary check to determine if TMA can be used for this fusion. This
+// serves as a fast path to avoid computing full heuristics if TMA is clearly
+// not applicable. Passing this check does not guarantee that TMA will be used;
+// the final decision is made during heuristics computation.
+bool mayUseTma(
+    const pointwise_utils::FusionRuntimeProperties& prop,
+    SchedulerRuntimeInfo& runtime_info) {
+  // Hardware requirement: Don't use TMA for pre-Hopper GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return false;
+  }
+  // Check if there are TMA-compatible inputs
+  if (!mayHaveTmaCompatibleInputs(prop, runtime_info)) {
+    return false;
+  }
+  return true;
+}
+} // namespace
+
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
@@ -346,12 +397,19 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
   }
   const auto& prop = prop_opt.value();
 
-  bool use_tma = false;
+  // bool use_tma = mayUseTma(prop, runtime_info) &&
+  // isOptionEnabled(EnableOption::TmaPointwise); for CI testing, use tma always
+  // if possible
+  bool use_tma = mayUseTma(prop, runtime_info);
+  scheduler_debug_utils::log("[Pointwise scheduler] mayUseTma: ", use_tma);
+
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
-  } else {
+        fusion, runtime_info, data_cache, prop);
+  }
+  // Fallback to non-TMA scheduler if TMA is not applicable
+  if (pparams == nullptr) {
     pparams = pointwise::non_tma::getPointwiseHeuristics(
         fusion, runtime_info, data_cache, prop);
   }
