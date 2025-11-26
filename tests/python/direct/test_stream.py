@@ -16,7 +16,7 @@ def test_matmul(nvfuser_direct_test):
         out = fd.ops.matmul(inp, w)
         fd.add_output(out)
 
-        out.split(1, c, inner_split=False)
+        out.outer_split(1, c)
         out.axis(1).parallelize(ParallelType.stream)
         # With NVFUSER_DUMP=host_ir, you'll see the host IR container like the
         # following:
@@ -55,7 +55,7 @@ def test_two_matmuls(nvfuser_direct_test):
         out = fd.ops.matmul(out, w2)
         fd.add_output(out)
 
-        inp.split(0, c, inner_split=False)
+        inp.outer_split(0, c)
         inp.axis(0).parallelize(ParallelType.stream)
         # With NVFUSER_DUMP=host_ir, you'll see the host IR container like the
         # following:
