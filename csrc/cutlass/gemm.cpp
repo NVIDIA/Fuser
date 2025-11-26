@@ -19,6 +19,8 @@
 #include <scheduler/cutlass.h>
 #include <type.h>
 
+#include <ATen/cuda/CUDAContextLight.h>
+
 #include <algorithm>
 #include <format>
 #include <ranges>
@@ -872,9 +874,15 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
       code_ += R"(
   // Set up hardware info
   cutlass::KernelHardwareInfo hw_info;
-  hw_info.device_id = 0;  // Will be set correctly by the test framework
-  hw_info.sm_count = 128; // Default for testing, should query actual count in production
-
+)";
+      const int device_id = params_.cparams.device.has_value()
+          ? (int)params_.cparams.device.value().index()
+          : 0;
+      const cudaDeviceProp* dev_prop = at::cuda::getDeviceProperties(device_id);
+      const int num_sms = dev_prop->multiProcessorCount;
+      code_ += "  hw_info.device_id = " + std::to_string(device_id) + ";\n";
+      code_ += "  hw_info.sm_count = " + std::to_string(num_sms) + ";\n";
+      code_ += R"(
   // Set up scheduler
   using RasterOrderOptions = typename cutlass::gemm::kernel::detail::
       PersistentTileSchedulerSm100GroupParams<
