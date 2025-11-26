@@ -9233,5 +9233,35 @@ TEST_F(NVFuserTest, RegisterAliasingNestedLoopRAW_CUDA) {
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
+TEST_F(NVFuserTest, Playground) {
+  std::vector<int64_t> shape{1, 32, 1024*64};
+  
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const auto mesh = DeviceMesh::createForNumDevices(1);
+  
+  auto tv0 = makeContigTensor(shape.size());
+  fusion.addInput(tv0);
+  auto tv0_1 = sin(tv0);
+  auto tv0_2 = set(tv0_1);
+  
+  auto tv1 = sum(tv0_1, {1});
+  fusion.addOutput(tv1);
+  auto tv2 = permute(tv0_2, {0, 2, 1});
+  fusion.addOutput(tv2);
+  if (true) {
+    tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
+  }
+  
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = t0.sum({1});
+  
+  auto cg_results = scheduleAndRun(&fusion, SchedulerType::Reduction, {t0});
+  auto o = cg_results.outputs[1].as<at::Tensor>();
+  assert(t0.sin().transpose(1, 2).equal(o));
+}
+
+// Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
