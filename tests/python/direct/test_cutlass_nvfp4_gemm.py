@@ -20,9 +20,10 @@ from python.direct_utils import (
     dequantize_to_dtype,
     linear_to_swizzled_128_4,
     pytorch_nvfp4_quantize,
-    unpack_fp4_bytes,
     round_up,
     activation_scale_to_nvfp4,
+    fp4_to_fp32,
+    unpack_fp4,
 )
 
 
@@ -152,8 +153,8 @@ def test_nvfp4_gemm_epilogue(
     )
 
     # Convert to unpacked fp32 to check nvfp4 tensors.
-    expected_out_fp32 = unpack_fp4_bytes(expected_out_fp4, torch.float32)
-    out_fp32 = unpack_fp4_bytes(out_fp4, torch.float32)
+    expected_out_fp32 = fp4_to_fp32(unpack_fp4(expected_out_fp4.view(torch.uint8)))
+    out_fp32 = fp4_to_fp32(unpack_fp4(out_fp4.view(torch.uint8)))
 
     # The absolute max difference is 2.0.
     abs_diff = torch.abs(expected_out_fp32 - out_fp32)

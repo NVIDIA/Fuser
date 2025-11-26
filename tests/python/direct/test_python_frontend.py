@@ -25,7 +25,8 @@ from python.direct_utils import (
 
 from python.direct_utils.narrow_precision import (
     pytorch_nvfp4_quantize,
-    unpack_fp4_bytes,
+    fp4_to_fp32,
+    unpack_fp4,
 )
 
 
@@ -2697,7 +2698,7 @@ def test_packed_fp4(nvfuser_direct_test):
         fd.add_output(T2)
 
     out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    ref = unpack_fp4_bytes(t0_fp4, torch.float32).relu()
+    ref = fp4_to_fp32(unpack_fp4(t0_fp4.view(torch.uint8))).relu()
     nvfuser_direct_test.assertEqual(out[0], ref)
 
 
