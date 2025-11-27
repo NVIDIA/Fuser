@@ -373,8 +373,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   philox_offset = []
     //
     // N* are the dimensions that are treated batch, e.g., the actual batch
-    // dimension, the head dimension and the extra sequence dimension in
-    // [Triangle
+    // dimension, the DIDx dimension for DID logical split, the head dimension
+    // and/or the extra sequence dimension in [Triangle
     // Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
     //
     // S, E are not mapped together in the producers and do not have any

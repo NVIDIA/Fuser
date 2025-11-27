@@ -1,6 +1,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+
+
+# This file contains certain building blocks of the AlphaFold3 model.
+
 from dataclasses import dataclass
 
 import torch
