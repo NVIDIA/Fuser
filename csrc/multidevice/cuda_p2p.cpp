@@ -102,13 +102,23 @@ void postBroadcastWithCudaBackend(
         cudaMemcpyDeviceToDevice,
         stream));
 
-    // Root writes kIdle to all semaphores using multicast handle
-    NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-        stream,
-        reinterpret_cast<CUdeviceptr>(
-            multicast_handle->semaphoreMulticastPtr()),
-        static_cast<cuuint32_t>(IpcSemaphore::kIdle),
-        CU_STREAM_WRITE_VALUE_DEFAULT));
+    // Root writes kIdle to all non-root semaphores using batched unicast writes
+    std::vector<CUstreamBatchMemOpParams> write_idle_ops(world_size - 1);
+    op_idx = 0;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      if (rank == root)
+        continue;
+      write_idle_ops[op_idx].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+      write_idle_ops[op_idx].writeValue.address = reinterpret_cast<CUdeviceptr>(
+          multicast_handle->semaphoreUnicastPtr(rank));
+      write_idle_ops[op_idx].writeValue.value =
+          static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+      write_idle_ops[op_idx].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+      op_idx++;
+    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuStreamBatchMemOp(stream, world_size - 1, write_idle_ops.data(), 0));
+
   }
 }
 
@@ -187,13 +197,19 @@ void postAllgatherWithCudaBackend(
       cudaMemcpyDeviceToDevice,
       stream));
 
-  // Step 4: Each rank signals completion by writing kIdle to its semaphore
-  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
-      stream,
-      reinterpret_cast<CUdeviceptr>(
-          allgather_handle->semaphoreMulticastPtr(my_device_index)),
-      static_cast<cuuint32_t>(IpcSemaphore::kIdle),
-      CU_STREAM_WRITE_VALUE_DEFAULT));
+  // Step 4: Each rank signals completion by writing kIdle to all peer
+  // semaphores using batched unicast writes
+  std::vector<CUstreamBatchMemOpParams> write_complete_ops(world_size);
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    write_complete_ops[rank].operation = CU_STREAM_MEM_OP_WRITE_VALUE_32;
+    write_complete_ops[rank].writeValue.address = reinterpret_cast<CUdeviceptr>(
+        allgather_handle->semaphoreUnicastPtr(my_device_index, rank));
+    write_complete_ops[rank].writeValue.value =
+        static_cast<cuuint32_t>(IpcSemaphore::kIdle);
+    write_complete_ops[rank].writeValue.flags = CU_STREAM_WRITE_VALUE_DEFAULT;
+  }
+  NVFUSER_CUDA_SAFE_CALL(
+      cuStreamBatchMemOp(stream, world_size, write_complete_ops.data(), 0));
 }
 
 void waitAllgatherWithCudaBackend(
