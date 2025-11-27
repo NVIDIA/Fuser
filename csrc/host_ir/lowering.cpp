@@ -184,7 +184,7 @@ void lowerSegment(
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(device_id)) {
           auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           // TODO: allocation may have to go to the top level. See how
           // SchedulerType::ExprEval handles allocations.
           loop_nest.innermostScope().push_back(allocate);
@@ -314,7 +314,7 @@ void lowerSegment(
             alias);
         auto* tv = out->as<TensorView>();
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
         loop_nest.innermostScope().push_back(allocate);
       }
 
