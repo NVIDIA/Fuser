@@ -26,6 +26,7 @@ def test_triangle_updates_incoming():
     pass
 
 
+# https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention
 def test_triangle_attention_starting_node():
     c_z, c_hidden, h = (
         _DEFAULT_CONFIG.c_z,
@@ -68,7 +69,9 @@ def test_triangle_attention_starting_node():
         v_h = fd.ops.permute(v_h, [0, 1, 3, 2, 4])  # [b, i, h, j, c_hidden]
 
         # TODO: b_h should be added here. fd.ops.sdpfa_fwd hasn't yet supported custom masks.
-        o_h, _, _, _ = fd.ops.sdpfa_fwd(q_h, k_h, v_h)  # [b, i, h, j, c_hidden]
+        o_h, _, _, _ = fd.ops.sdpfa_fwd(
+            q_h, k_h, v_h, is_causal=False
+        )  # [b, i, h, j, c_hidden]
 
         g = fd.ops.linear(z_in, w_g)
         g_h = fd.ops.reshape(
@@ -108,7 +111,7 @@ def test_triangle_attention_starting_node():
     w_o = torch.testing.make_tensor(
         c_z, h * c_hidden, dtype=torch.bfloat16, device="cuda"
     )
-    z_out = fd.execute([z_in, w_q, w_k, w_b, w_v, w_g, w_o])
+    (z_out,) = fd.execute([z_in, w_q, w_k, w_b, w_v, w_g, w_o])
     assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
