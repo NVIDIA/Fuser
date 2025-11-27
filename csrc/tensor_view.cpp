@@ -48,6 +48,18 @@ TensorView::TensorView(
 
 NVFUSER_DEFINE_CLONE(TensorView)
 
+bool TensorView::sameDefinition(const Val* other) const {
+  // Val::sameDefinition checks nullptr, dtype, vtype, and definition.
+  if (!Val::sameDefinition(other)) {
+    return false;
+  }
+  const TensorView* other_tv = other->as<TensorView>();
+  if (isCpuScalar() != other_tv->isCpuScalar()) {
+    return false;
+  }
+  return domain()->sameDefinition(other_tv->domain());
+}
+
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << ir_utils::varName(this);
