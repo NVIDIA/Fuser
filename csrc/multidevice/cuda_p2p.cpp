@@ -12,6 +12,10 @@
 #include <nvfuser_resources/multicast.h>
 #include <options.h>
 
+#include <iostream>
+#include <vector>
+
+
 namespace nvfuser {
 
 std::ostream& operator<<(std::ostream& os, P2pProtocol protocol) {
@@ -74,11 +78,32 @@ void launchMulticastKernel(
     major = prop.major;
     minor = prop.minor;
 
+    NVF_CHECK(
+        major >= 9,
+        "Multicast kernel using 'multimem' protocol requires Compute Capability >= 9.0 (Hopper+). ",
+        "Current device ",
+        device,
+        " is Compute Capability ",
+        major,
+        ".",
+        minor);
+
     std::string arch_arg = "--gpu-architecture=compute_" +
         std::to_string(major) + std::to_string(minor);
-    const char* opts[] = {arch_arg.c_str(), "--std=c++17"};
+    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
 
-    nvrtcResult res = nvrtcCompileProgram(prog, 2, opts);
+    // st.multimem requires PTX ISA 8.0+
+    if (major >= 9) {
+      opts.push_back("--ptx-isa-version=8.0");
+    }
+
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    if (res != NVRTC_SUCCESS && major >= 9) {
+      // If 8.0 is not supported (e.g. older NVRTC), try without it
+       opts.pop_back();
+       res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    }
+
     if (res != NVRTC_SUCCESS) {
       size_t logSize;
       NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
@@ -93,7 +118,37 @@ void launchMulticastKernel(
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
-    NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, ptx.data()));
+    // Use cuModuleLoadDataEx to capture JIT errors
+    constexpr size_t kLogSize = 8192;
+    char error_log[kLogSize];
+    char info_log[kLogSize];
+    CUjit_option options[] = {
+        CU_JIT_ERROR_LOG_BUFFER,
+        CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+        CU_JIT_INFO_LOG_BUFFER,
+        CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+        CU_JIT_LOG_VERBOSE};
+    void* option_values[] = {
+        (void*)error_log,
+        (void*)kLogSize,
+        (void*)info_log,
+        (void*)kLogSize,
+        (void*)1};
+
+    CUresult load_result = cuModuleLoadDataEx(
+        &module, ptx.data(), 5, options, option_values);
+
+    if (load_result != CUDA_SUCCESS) {
+      std::cerr << "JIT Info Log:\n" << info_log << std::endl;
+      std::cerr << "JIT Error Log:\n" << error_log << std::endl;
+      NVF_ERROR(
+          false,
+          "Multicast kernel module load failed with error: ",
+          load_result,
+          "\nError Log: ",
+          error_log);
+    }
+
     NVFUSER_CUDA_SAFE_CALL(
         cuModuleGetFunction(&kernel, module, "multimem_copy_kernel"));
   }

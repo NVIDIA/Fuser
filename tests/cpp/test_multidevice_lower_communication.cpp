@@ -10,6 +10,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <utility>
+#include <tuple>
+#include <algorithm>
+
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -861,6 +865,11 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
 
   EnableOptionsGuard guard;
   if (protocol == "multimem") {
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    if (prop.major < 9) {
+      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+    }
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::MulticastProtocol, {"multimem"});
   } else if (protocol == "batch_memcpy") {
@@ -922,6 +931,11 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
 
   EnableOptionsGuard guard;
   if (protocol == "multimem") {
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    if (prop.major < 9) {
+      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+    }
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::MulticastProtocol, {"multimem"});
   } else if (protocol == "batch_memcpy") {
