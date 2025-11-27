@@ -118,7 +118,6 @@ void postBroadcastWithCudaBackend(
     }
     NVFUSER_CUDA_SAFE_CALL(
         cuStreamBatchMemOp(stream, world_size - 1, write_idle_ops.data(), 0));
-
   }
 }
 
