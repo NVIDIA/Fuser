@@ -201,26 +201,37 @@ void postBroadcastWithCudaBackend(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
 #if CUDA_VERSION >= 12010
-      std::vector<CUdeviceptr> dsts;
-      std::vector<CUdeviceptr> srcs;
-      std::vector<size_t> sizes;
-      dsts.reserve(world_size);
-      srcs.reserve(world_size);
-      sizes.reserve(world_size);
-      for (int rank = 0; rank < world_size; ++rank) {
-        dsts.push_back((CUdeviceptr)multicast_handle->bufferUnicastPtr(rank));
-        srcs.push_back((CUdeviceptr)src_ptr);
-        sizes.push_back(count);
+      std::vector<void*> dsts(world_size);
+      std::vector<const void*> srcs(world_size, src_ptr);
+      std::vector<size_t> counts(world_size, count);
+      std::vector<cudaMemcpyAttributes> attributes(world_size);
+      std::vector<size_t> attrsIdxs(world_size);
+      size_t numAttrs = world_size;
+      for (int64_t rank = 0; rank < world_size; ++rank) {
+        dsts[rank] = multicast_handle->bufferUnicastPtr(rank);
+        attrsIdxs[rank] = rank;
+        struct cudaMemLocation dst_location = {
+            .type = cudaMemLocationTypeDevice, .id = (int)rank};
+        struct cudaMemLocation src_location = {
+            .type = cudaMemLocationTypeDevice, .id = (int)root};
+        unsigned int flags = cudaMemcpyFlagPreferOverlapWithCompute;
+        attributes[rank].dstLocHint = dst_location;
+        attributes[rank].srcLocHint = src_location;
+        attributes[rank].flags = flags;
+        attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
       }
-      NVFUSER_CUDA_SAFE_CALL(cuMemcpyBatchAsync(
+      NVF_CHECK(
+          stream != 0,
+          "cudaMemcpyBatchAsync does not support default stream");
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
           srcs.data(),
-          sizes.data(),
+          counts.data(),
           world_size,
-          nullptr,
-          nullptr,
-          0,
-          stream));
+          attributes.data(),
+          attrsIdxs.data(),
+          numAttrs,
+          (cudaStream_t)stream));
 #else
       NVF_ERROR(false, "cuMemcpyBatchAsync requires CUDA >= 12.1");
 #endif
@@ -332,27 +343,37 @@ void postAllgatherWithCudaBackend(
         stream);
   } else if (protocol == MulticastProtocol::BatchMemcpy) {
 #if CUDA_VERSION >= 12010
-    std::vector<CUdeviceptr> dsts;
-    std::vector<CUdeviceptr> srcs;
-    std::vector<size_t> sizes;
-    dsts.reserve(world_size);
-    srcs.reserve(world_size);
-    sizes.reserve(world_size);
-    for (int rank = 0; rank < world_size; ++rank) {
-      dsts.push_back((CUdeviceptr)allgather_handle->bufferUnicastPtr(
-          my_device_index, rank));
-      srcs.push_back((CUdeviceptr)src_ptr);
-      sizes.push_back(count);
+    std::vector<void*> dsts(world_size);
+    std::vector<const void*> srcs(world_size, src_ptr);
+    std::vector<size_t> counts(world_size, count);
+    std::vector<cudaMemcpyAttributes> attributes(world_size);
+    std::vector<size_t> attrsIdxs(world_size);
+    size_t numAttrs = world_size;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      dsts[rank] =
+          allgather_handle->bufferUnicastPtr(my_device_index, rank);
+      attrsIdxs[rank] = rank;
+      struct cudaMemLocation dst_location = {
+          .type = cudaMemLocationTypeDevice, .id = (int)rank};
+      struct cudaMemLocation src_location = {
+          .type = cudaMemLocationTypeDevice, .id = (int)my_device_index};
+      unsigned int flags = cudaMemcpyFlagPreferOverlapWithCompute;
+      attributes[rank].dstLocHint = dst_location;
+      attributes[rank].srcLocHint = src_location;
+      attributes[rank].flags = flags;
+      attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
     }
-    NVFUSER_CUDA_SAFE_CALL(cuMemcpyBatchAsync(
+    NVF_CHECK(
+        stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
         srcs.data(),
-        sizes.data(),
+        counts.data(),
         world_size,
-        nullptr,
-        nullptr,
-        0,
-        stream));
+        attributes.data(),
+          attrsIdxs.data(),
+          numAttrs,
+          (cudaStream_t)stream));
 #else
     NVF_ERROR(false, "cuMemcpyBatchAsync requires CUDA >= 12.1");
 #endif

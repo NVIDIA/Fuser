@@ -852,6 +852,13 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
   const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
 
+  if (protocol == "batch_memcpy") {
+    // cudaMemcpyBatchAsync requires a non-default stream
+    c10::cuda::CUDAStream stream =
+        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+    c10::cuda::setCurrentCUDAStream(stream);
+  }
+
   EnableOptionsGuard guard;
   if (protocol == "multimem") {
     EnableOptionsGuard::getCurOptions().set(
@@ -903,6 +910,14 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
 
 TEST_P(LowerCollectiveCudaTest, Broadcast) {
   const auto& [backend_type, msg_size_bytes, protocol] = GetParam();
+
+  if (protocol == "batch_memcpy") {
+    // cudaMemcpyBatchAsync requires a non-default stream
+    c10::cuda::CUDAStream stream =
+        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+    c10::cuda::setCurrentCUDAStream(stream);
+  }
+
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
 
   EnableOptionsGuard guard;

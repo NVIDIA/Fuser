@@ -156,6 +156,9 @@ SymMemForBroadcast::SymMemForBroadcast(
   buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
 
   // Setup multicast for the buffer
+  buffer_sym_tensor_->setupRemoteHandles(store_key_prefix + "_buffer_unicast");
+
+  // Setup multicast for the buffer
   buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
 
   // Create semaphore tensor
