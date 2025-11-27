@@ -238,6 +238,11 @@ void transformLoopDomain(
 
 } // namespace
 
+int numParallelIterDomains(const TensorView* tv) {
+  return std::ranges::count_if(
+      tv->getLoopDomain(), [](IterDomain* id) { return id->isParallelized(); });
+}
+
 void shardLoopLike(
     const TensorView* ref,
     TensorView* tv,

@@ -190,7 +190,7 @@ void Fusion::removeExpr(Expr* expr) {
   // that removing something that doesn't exist simply does nothing. For now,
   // we're going with the strictest model which errors.
 
-  for (auto out : expr->outputs()) {
+  for (auto* out : expr->outputs()) {
     if (out->isA<TensorView>()) {
       invalidateTvsAndUses();
     }
@@ -198,7 +198,7 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   // Remove uses in inputs
-  for (auto inp : expr->inputs()) {
+  for (auto* inp : expr->inputs()) {
     // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
     if (inp->isA<TensorView>()) {
