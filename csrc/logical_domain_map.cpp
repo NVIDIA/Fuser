@@ -386,8 +386,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
 
     const auto num_batch_dims =
         std::ssize(op->attn_out()->getLogicalDomain()) - 2;
-    for (auto [index, id_pair] :
-         enumerate(zip(producer_logical, consumer_root))) {
+    for (auto [i, id_pair] : enumerate(zip(producer_logical, consumer_root))) {
+      auto index = static_cast<int64_t>(i);
       auto [producer_id, consumer_id] = id_pair;
       if (index < num_batch_dims) {
         updatePairwiseLogicalDomainMap(producer_id, consumer_id);
