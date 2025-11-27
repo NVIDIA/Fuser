@@ -3347,8 +3347,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   double scale = inputs.size() > 5 ? inputs.back().as<double>()
                                    : 1.0 / std::sqrt(last_dim_size);
 
-  std::cout << "query before flatten = " << query.sizes() << ", "
-            << query.strides() << std::endl;
   auto batch_dims = query.sizes().slice(0, query.dim() - 3);
   NVF_CHECK_GE(batch_dims.size(), 1);
   if (batch_dims.size() > 1) {
@@ -3357,8 +3355,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     key = key.flatten(0, -4);
     value = value.flatten(0, -4);
   }
-  std::cout << "query after flatten = " << query.sizes() << ", "
-            << query.strides() << std::endl;
 
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
