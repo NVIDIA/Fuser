@@ -109,34 +109,6 @@ class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
 
-// Helper function to apply swizzling to block scales output
-void applyBlockScaleSwizzling(TensorView* tv_block_scale_fp8) {
-  // auto original_loop = tv_block_scale_fp8->getLoopDomain();
-  tv_block_scale_fp8->split(0, 128);
-  // m/128, 128, k
-  tv_block_scale_fp8->split(1, 32);
-  // m/128, 4(m_o), 32(m_i), k
-  tv_block_scale_fp8->split(3, 4);
-  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
-  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
-      tv_block_scale_fp8->axis(0),
-      tv_block_scale_fp8->axis(3),
-      tv_block_scale_fp8->axis(2),
-      tv_block_scale_fp8->axis(1),
-      tv_block_scale_fp8->axis(4)};
-  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
-  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
-
-  // back to a 2D logical domain.
-  // m/128, 4(m_o), 32(m_i), k/4, 4(k) ->
-  // m/32, 32, k/4, 4(k)
-  tv_block_scale_fp8->merge(0);
-  // m/32, 32, k/4, 4(k) -> m, k/4, 4(k)
-  tv_block_scale_fp8->merge(0);
-  // m, k/4, 4(k) -> m, k
-  tv_block_scale_fp8->merge(-2);
-}
-
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
@@ -159,43 +131,33 @@ void createNVFP4QuantizationFusion(
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  // These scales are currently in fp32, we are going to `quantize` them to e4m3
-  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
-  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
-  // input dtype.
-  auto tv_block_scale = div(
-      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  constexpr float rcp_6f = 1.0f / 6.0f;
+  auto tv_block_scale = tv_data_hp_amax;
   if (use_global_scale) {
     tv_block_scale = mul(tv_block_scale, tv_global_scale);
   }
+  tv_block_scale =
+      mul(tv_block_scale, IrBuilder::create<Val>(rcp_6f, DataType::Float));
 
-  auto tv_block_scale_clamp = clamp(
-      tv_block_scale,
-      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
-      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
-  auto tv_block_scale_fp8 =
-      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
+  auto tv_block_scale_fp8 = castOp(DataType::Float8_e4m3fn, tv_block_scale);
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = div(tv_block_scale_fp32, tv_global_scale);
+    tv_block_scale_fp32 = div(tv_global_scale, tv_block_scale_fp32);
   }
 
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
-  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
-  auto tv_data_scaled_clamp = clamp(
-      tv_data_scaled,
-      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
-      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto tv_data_scaled = mul(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
 
-  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
   if (swizzle_block_scales) {
-    applyBlockScaleSwizzling(tv_block_scale_fp8);
+    nvfuser::ir_utils::swizzleBlockScales(tv_block_scale_fp8);
   }
 }
 } // namespace
@@ -913,7 +875,7 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
 
   if (swizzle_block_scales) {
-    applyBlockScaleSwizzling(quantization_results.block_scales);
+    nvfuser::ir_utils::swizzleBlockScales(quantization_results.block_scales);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
@@ -1044,7 +1006,7 @@ TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
-  applyBlockScaleSwizzling(tv_block_scale_fp8);
+  nvfuser::ir_utils::swizzleBlockScales(tv_block_scale_fp8);
 
   FusionExecutorCache fec(std::move(fusion));
 

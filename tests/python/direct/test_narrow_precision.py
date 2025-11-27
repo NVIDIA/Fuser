@@ -20,6 +20,8 @@ from python.direct_utils import (
     round_up,
     activation_scale_to_nvfp4,
     to_fp4,
+    dequantize_fp4,
+    swizzled_to_linear_128_4,
 )
 
 import pytest
@@ -32,6 +34,99 @@ def nvfp4_quantize(x):
 
     x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
     return x_u8, x_scale, x_global_scale
+
+
+def nvfp4_quantize_with_te(input_tensor):
+    """
+    Directly quantizes a tensor to NVFP4 using TE NVFP4Quantizer,
+    returning the NVFP4Tensor which contains the quantized values and block scales.
+    Block size is 16 elements per scale.
+    """
+
+    import transformer_engine.pytorch as te
+    import transformer_engine.pytorch.cpp_extensions as tex
+
+    try:
+        # Create NVFP4Quantizer with block size of 16
+        quantizer = te.NVFP4Quantizer(
+            fp4_dtype=tex.DType.kFloat4E2M1,  # NVFP4 format
+            rowwise=True,  # Use rowwise block scaling
+            columnwise=False,  # Disable columnwise
+        )
+
+        # Quantize the input tensor
+        nvfp4_tensor = quantizer.quantize(input_tensor)
+        return nvfp4_tensor
+
+    except Exception as e:
+        print(f"\nError during quantization: {e}")
+        import traceback
+
+        traceback.print_exc()
+        print("NOTE: This requires an NVIDIA Blackwell GPU and TE >= 1.6.")
+        return None
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("swizzle_scales", [True, False])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype):
+    """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
+    x = torch.randn((1024, 1024), dtype=dtype, device="cuda")
+
+    # Compute global scale for nvfuser block quantization
+    x_new = torch.max(torch.abs(x)).to(torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+            is_cpu=False,
+        )
+        global_scale_tv = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(
+            x_tv, global_scale_tv, swizzle_scales, 16
+        )
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(
+        nvfuser_fusion_id0, [x, x_global_scale]
+    )
+
+    # Get TE NVFP4 reference
+    nvfp4_result = nvfp4_quantize_with_te(x)
+    assert nvfp4_result is not None
+    nvfp4_metadata = nvfp4_result.get_metadata()
+    te_data = nvfp4_metadata["rowwise_data"].view(torch.uint8)
+    te_scales = nvfp4_metadata["rowwise_scale_inv"]
+
+    fuser_data = outputs[0].view(torch.uint8)
+    fuser_scales = outputs[1]
+
+    if swizzle_scales:
+        te_scales = linear_to_swizzled_128_4(te_scales)
+        te_scales = swizzled_to_linear_128_4(te_scales, 1024, 1024)
+        fuser_scales = swizzled_to_linear_128_4(fuser_scales, 1024, 1024)
+
+    ref_fp32 = dequantize_fp4(te_data, te_scales, torch.max(torch.abs(x)).float())
+    fuser_fp32 = dequantize_fp4(
+        fuser_data, fuser_scales, torch.max(torch.abs(x)).float()
+    )
+    abs_diff = torch.abs(ref_fp32 - fuser_fp32)
+    assert torch.max(abs_diff) <= 2.0
+
+    # The percentage of mismatched values is LT 10%.
+    nonzero = torch.count_nonzero(torch.ne(abs_diff, 0.0))
+    assert (nonzero / abs_diff.numel()) < 0.1
 
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
