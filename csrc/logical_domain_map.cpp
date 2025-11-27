@@ -361,35 +361,44 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   if (auto* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
-    // Note: Explicit handling of DIDx(D) until
-    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. Producers:
-    //   query = [DIDx(D)?, N, H, L, E]
-    //   key = [DIDx(D)?, N, H, S, E]
-    //   value = [DIDx(D)?, N, H, S, Ev]
+    // Producers:
+    //   query = [N*, L, E]
+    //   key = [N*, S, E]
+    //   value = [N*, S, Ev]
+    //
     // Consumers:
-    //   output = [DIDx(D)?, N, H, L, Ev]
-    //   logsumexp = [DIDx(D)?, N, H, L]
-    // Note: S, E are not mapped together in the producers and do not have any
+    //   output = [N*, L, Ev]
+    //   logsumexp = [N*, L]
+    //   philox_seed = []
+    //   philox_offset = []
+    //
+    // N* are the dimensions that are treated batch, e.g., the actual batch
+    // dimension, the head dimension and the extra sequence dimension in
+    // [Triangle
+    // Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
+    //
+    // S, E are not mapped together in the producers and do not have any
     // mapping to the consumer.
-    if (consumer_tv_->sameAs(op->philox_seed())) {
+    if (consumer_tv_ == op->philox_seed() ||
+        consumer_tv_ == op->philox_offset()) {
       return dom_map;
     }
-    size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
-    // Map N, H from any input (query/key/value)
-    for (auto idx : arange(consumer_root.size())) {
-      if (idx < (2 + num_device_dim)) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+
+    const auto num_batch_dims =
+        std::ssize(op->attn_out()->getLogicalDomain()) - 2;
+    for (auto [index, id_pair] :
+         enumerate(zip(producer_logical, consumer_root))) {
+      auto [producer_id, consumer_id] = id_pair;
+      if (index < num_batch_dims) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map L, E from query and value respectively
-      if (idx == (2 + num_device_dim) && producer_tv_->sameAs(op->query())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims && producer_tv_->sameAs(op->query())) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map Ev from value to output
-      if (idx == (3 + num_device_dim) && producer_tv_->sameAs(op->value())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims + 1 && producer_tv_->sameAs(op->value())) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
     }
     return dom_map;

@@ -3326,35 +3326,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
 
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool handle_device_dim = false;
-  if (query.dim() == 5) {
-    handle_device_dim = true;
-
-    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
-
-    auto query_domain =
-        TensorDomain::noReductions(this->query()->getLogicalDomain());
-    auto key_domain =
-        TensorDomain::noReductions(this->key()->getLogicalDomain());
-    auto value_domain =
-        TensorDomain::noReductions(this->value()->getLogicalDomain());
-    NVF_CHECK(
-        query_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-
-    query = query.squeeze(0);
-    key = key.squeeze(0);
-    value = value.squeeze(0);
-  }
-
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.size(-1);
@@ -3375,6 +3346,19 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 5 ? inputs.back().as<double>()
                                    : 1.0 / std::sqrt(last_dim_size);
+
+  std::cout << "query before flatten = " << query.sizes() << ", "
+            << query.strides() << std::endl;
+  auto batch_dims = query.sizes().slice(0, query.dim() - 3);
+  NVF_CHECK_GE(batch_dims.size(), 1);
+  if (batch_dims.size() > 1) {
+    query = query.flatten(0, -4);
+    NVF_ERROR_EQ(query.dim(), 4);
+    key = key.flatten(0, -4);
+    value = value.flatten(0, -4);
+  }
+  std::cout << "query after flatten = " << query.sizes() << ", "
+            << query.strides() << std::endl;
 
   // ATen reference:
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
@@ -3404,10 +3388,17 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     output = output.slice(-1, 0, last_dim_size);
   }
 
-  // Add back the device dim axis for output.
-  if (handle_device_dim) {
-    output = output.unsqueeze(0);
-    log_sumexp = log_sumexp.unsqueeze(0);
+  auto unflatten_batch_dim = [](at::Tensor t,
+                                at::IntArrayRef batch_dims) -> at::Tensor {
+    at::DimVector new_shape(batch_dims);
+    auto non_batch_dims = t.sizes().slice(1);
+    new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
+    return t.reshape(new_shape);
+  };
+
+  if (batch_dims.size() > 1) {
+    output = unflatten_batch_dim(output, batch_dims);
+    log_sumexp = unflatten_batch_dim(log_sumexp, batch_dims);
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
