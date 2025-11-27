@@ -12,8 +12,10 @@
 #include <nvfuser_resources/multicast.h>
 #include <options.h>
 
-#include <iostream>
+#include <algorithm>
+#include <string>
 #include <vector>
+#include <ostream>
 
 
 namespace nvfuser {
@@ -118,34 +120,36 @@ void launchMulticastKernel(
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
 
-    // Use cuModuleLoadDataEx to capture JIT errors
-    constexpr size_t kLogSize = 8192;
-    char error_log[kLogSize];
-    char info_log[kLogSize];
-    CUjit_option options[] = {
-        CU_JIT_ERROR_LOG_BUFFER,
-        CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
-        CU_JIT_INFO_LOG_BUFFER,
-        CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
-        CU_JIT_LOG_VERBOSE};
-    void* option_values[] = {
-        (void*)error_log,
-        (void*)kLogSize,
-        (void*)info_log,
-        (void*)kLogSize,
-        (void*)1};
-
-    CUresult load_result = cuModuleLoadDataEx(
-        &module, ptx.data(), 5, options, option_values);
+    CUresult load_result = cuModuleLoadData(&module, ptx.data());
 
     if (load_result != CUDA_SUCCESS) {
-      std::cerr << "JIT Info Log:\n" << info_log << std::endl;
-      std::cerr << "JIT Error Log:\n" << error_log << std::endl;
+      // Fallback to extensive logging only on failure
+      constexpr size_t kLogSize = 8192;
+      char error_log[kLogSize];
+      char info_log[kLogSize];
+      CUjit_option options[] = {
+          CU_JIT_ERROR_LOG_BUFFER,
+          CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_INFO_LOG_BUFFER,
+          CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_LOG_VERBOSE};
+      void* option_values[] = {
+          (void*)error_log,
+          (void*)kLogSize,
+          (void*)info_log,
+          (void*)kLogSize,
+          (void*)1};
+      
+      // Reload to capture logs
+      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
+      
       NVF_ERROR(
           false,
           "Multicast kernel module load failed with error: ",
           load_result,
-          "\nError Log: ",
+          "\nInfo Log:\n",
+          info_log,
+          "\nError Log:\n",
           error_log);
     }
 
@@ -155,6 +159,29 @@ void launchMulticastKernel(
 
   int threads = 128;
   int blocks = 1;
+
+  int device;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+  int num_sms;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
+
+  // Maximize occupancy
+  int max_blocks_per_sm;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_blocks_per_sm, kernel, threads, 0));
+  
+  blocks = num_sms * max_blocks_per_sm;
+
+  // Limit number of blocks so that we don't launch more threads than needed
+  // to cover the message size (vectorized 16 bytes per thread).
+  size_t vec_size = 16;
+  size_t total_work_units = (size + vec_size - 1) / vec_size;
+  size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
+  
+  if ((size_t)blocks > max_needed_blocks) {
+      blocks = std::max(1, (int)max_needed_blocks);
+  }
   const auto& args = getEnableOptionArguments(EnableOption::MulticastProtocol);
   if (args.size() >= 2) {
     try {

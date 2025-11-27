@@ -985,42 +985,56 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
       at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
+namespace {
+std::string paramToStringLowerCollectiveCudaTest(
+    const testing::TestParamInfo<
+        std::tuple<CommunicatorBackend, int64_t, std::string>>& info) {
+  const auto& [backend_type, msg_size_bytes, protocol] = info.param;
+  std::stringstream ss;
+  ss << backend_type << "_";
+  int64_t size_mb = msg_size_bytes / (1024 * 1024);
+  if (size_mb >= 1024) {
+    ss << (size_mb / 1024) << "GB";
+  } else {
+    ss << size_mb << "MB";
+  }
+  if (protocol != "default") {
+    ss << "_" << protocol;
+  }
+  return ss.str();
+}
+} // namespace
+
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    CudaBackend,
     LowerCollectiveCudaTest,
-    testing::Values(
-        std::make_tuple(
-            CommunicatorBackend::kNccl,
-            2 * 1024 * 1024LL,
-            "default"),
-        std::make_tuple(
-            CommunicatorBackend::kCuda,
-            2 * 1024 * 1024LL,
-            "memcpy"),
-        std::make_tuple(
-            CommunicatorBackend::kCuda,
-            2 * 1024 * 1024LL,
-            "multimem"),
-        std::make_tuple(
-            CommunicatorBackend::kCuda,
-            2 * 1024 * 1024LL,
-            "batch_memcpy")),
-    ([](const testing::TestParamInfo<
-            std::tuple<CommunicatorBackend, int64_t, std::string>>& info)
-         -> std::string {
-      const auto& [backend_type, msg_size_bytes, protocol] = info.param;
-      std::stringstream ss;
-      ss << backend_type << "_";
-      int64_t size_mb = msg_size_bytes / (1024 * 1024);
-      if (size_mb >= 1024) {
-        ss << (size_mb / 1024) << "GB";
-      } else {
-        ss << size_mb << "MB";
-      }
-      if (protocol != "default") {
-        ss << "_" << protocol;
-      }
-      return ss.str();
-    }));
+    testing::Combine(
+        testing::Values(CommunicatorBackend::kCuda),
+        testing::Values(
+            2 * 1024 * 1024LL,     // 2 MB
+            8 * 1024 * 1024LL,     // 8 MB
+            32 * 1024 * 1024LL,    // 32 MB
+            128 * 1024 * 1024LL,   // 128 MB
+            512 * 1024 * 1024LL,   // 512 MB
+            1024 * 1024 * 1024LL   // 1 GB
+            ),
+        testing::Values("memcpy", "multimem", "batch_memcpy")),
+    paramToStringLowerCollectiveCudaTest);
+
+INSTANTIATE_TEST_SUITE_P(
+    NcclBackend,
+    LowerCollectiveCudaTest,
+    testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl),
+        testing::Values(
+            2 * 1024 * 1024LL,     // 2 MB
+            8 * 1024 * 1024LL,     // 8 MB
+            32 * 1024 * 1024LL,    // 32 MB
+            128 * 1024 * 1024LL,   // 128 MB
+            512 * 1024 * 1024LL,   // 512 MB
+            1024 * 1024 * 1024LL   // 1 GB
+            ),
+        testing::Values("default")),
+    paramToStringLowerCollectiveCudaTest);
 
 } // namespace nvfuser
