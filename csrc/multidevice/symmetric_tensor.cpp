@@ -327,7 +327,7 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
     CUmemAccessDesc access{};
     access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     access.location.id = static_cast<int>(comm.local_rank());
-    access.flags = CU_MEM_ACCESS_FLAGS_PROT_READ;
+    access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
     NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(peer_ptr, aligned_size_, &access, 1));
 
     remote_ptrs_[sender_rank] = peer_ptr;
