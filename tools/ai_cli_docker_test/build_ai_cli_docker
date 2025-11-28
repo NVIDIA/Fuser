@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# run me from the 'ai_cli_docker_test' directory
+
+(cd .. && docker build -f ai_cli_docker_test/Dockerfile -t ai_cli_docker_test_shell .)
