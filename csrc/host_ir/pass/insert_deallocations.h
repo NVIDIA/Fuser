@@ -15,9 +15,8 @@ namespace nvfuser::hir {
 /* For each input in every expression in the container, find the index of its
  * last use and insert a deallocate directly after, except for fusion inputs and
  * outputs */
-class InsertDeallocations
-    : public nvfuser::OptimizationPass<InsertDeallocations> {
-  friend class nvfuser::OptimizationPass<InsertDeallocations>;
+class InsertDeallocations : public OptimizationPass<InsertDeallocations> {
+  friend class OptimizationPass<InsertDeallocations>;
 
  protected:
   static void runPass(Fusion* fusion);

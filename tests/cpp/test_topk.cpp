@@ -470,7 +470,7 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
   // SimplyfingIrBuilder::addExpr and that introduces casting to the
   // index type. However, the preseg pass should detect the empty topk
   // output and the use of the output should be converted to fullop
-  nvfuser::OptimizationPass<preseg_passes::RemoveEmptyPass>::runPass(&fusion);
+  OptimizationPass<preseg_passes::RemoveEmptyPass>::runPass(&fusion);
   tv3 = fusion.outputs().at(1)->as<TensorView>();
   EXPECT_TRUE(tv3->definition()->isA<FullOp>())
       << tv3->definition()->toString();
@@ -705,7 +705,7 @@ TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
   // Avoid using magic zero to make the estimation simpler
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
   // Avoid insertion of segmenter_set
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto [size, batch, has_dulicate, has_extra] = GetParam();

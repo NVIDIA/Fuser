@@ -673,7 +673,7 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
   // Avoid using magic zero to make the estimation simpler
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
   // Avoid insertion of segmenter_set
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto [size, batch, has_duplicate, has_extra] = GetParam();

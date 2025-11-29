@@ -62,7 +62,7 @@ void setupMatmul(Fusion* fusion, MmaLayout layout, MatmulParams* mparams) {
 
   fusion->addOutput(d);
 
-  nvfuser::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
+  OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion);
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion, mparams);

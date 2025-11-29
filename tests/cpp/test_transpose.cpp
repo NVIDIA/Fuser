@@ -60,9 +60,9 @@ class TransposeTest : public NVFuserTest {
   }
 
  private:
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard_;
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       allocation_order_guard_;
 };
 

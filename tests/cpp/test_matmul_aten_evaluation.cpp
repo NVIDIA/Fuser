@@ -34,7 +34,7 @@ class MatmulNodeParameterizedTest
   MatmulNodeParameterizedTest() : optimization_guard_(false) {}
 
  private:
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -47,7 +47,7 @@ class LinearNodeParametrizedTest
   LinearNodeParametrizedTest() : optimization_guard_(false) {}
 
  private:
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 

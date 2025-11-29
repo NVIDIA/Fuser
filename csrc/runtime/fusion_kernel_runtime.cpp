@@ -77,7 +77,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  nvfuser::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
     const auto& communicator = Communicator::getInstance();

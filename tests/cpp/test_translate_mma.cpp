@@ -337,8 +337,8 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
 
   int batch_size = 3, M = 504, N = 136, K = 248;
   auto fusion = std::make_unique<Fusion>();
@@ -474,8 +474,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const int64_t bias_dim = std::get<2>(GetParam());

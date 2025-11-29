@@ -97,7 +97,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_Forward) {
   // Fusion inputs/outputs can't be allocated per stream because the
   // user of a FusionDefinition can't inline external ops into a loop inside.
 
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
 
   EXPECT_THAT(
@@ -174,7 +174,7 @@ TEST_F(RingBasedOverlapTest, ColumnAndSequenceParallelLinear_WeightGrad) {
   // clear to me how to implement this in host IR lowering, so I recommend we
   // go with `s*` for now for simplicity.
 
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
 
   EXPECT_THAT(
@@ -350,7 +350,7 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_WeightGrad) {
   //                       /\.
   //                      d
 
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
 
   // Due to lack of DecomposeReshardingsPass, `w` looks like the following:
@@ -398,7 +398,7 @@ TEST_F(RingBasedOverlapTest, RowAndSequenceParallelLinear_InputGrad) {
 
   // Fusion IR before segmentation will be similar to
   // `ColumnAndSequenceParallelLinear_Forward`.
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
   EXPECT_THAT(
       in->getLoopDomain(),
@@ -472,9 +472,9 @@ TEST_F(CollectiveBasedOverlapTest, RowParallelLinear_Forward) {
   //                  /\.
   //                 s*
 
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
-  nvfuser::OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
       fusion.get());
 
   EXPECT_THAT(

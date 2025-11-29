@@ -985,7 +985,7 @@ class GreedySchedulerTestShmemSize : public GreedySchedulerTest,
 TEST_P(GreedySchedulerTestShmemSize, Argsort) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();
@@ -1035,7 +1035,7 @@ TEST_P(GreedySchedulerTestShmemSize, Argsort) {
 TEST_P(GreedySchedulerTestShmemSize, TopK) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();
@@ -1090,7 +1090,7 @@ TEST_P(GreedySchedulerTestShmemSize, TopK) {
 TEST_P(GreedySchedulerTestShmemSize, Scan) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();

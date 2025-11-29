@@ -1942,7 +1942,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 TEST_F(ResizeTest, SliceForNanoGPT3) {
   // To verify input caching condition in this test, disable aliasing as that
   // will skip compilation and no kernel will exist.
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   auto fusion = std::make_unique<Fusion>();

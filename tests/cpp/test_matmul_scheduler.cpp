@@ -33,7 +33,7 @@ class MatmulSchedulerTest : public NVFuserTest {
  private:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -62,7 +62,7 @@ class PrecisionParametrizedTest
   PrecisionParametrizedTest() : optimization_guard_(false) {}
 
  private:
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -2485,7 +2485,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
  private:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
   matmul_heuristic_plugin::KernelConfigFactoryGuard factory_guard_;
 };
@@ -2954,7 +2954,7 @@ class AllocationDomainTest
   MatmulParams mparams;
 
  private:
-  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 

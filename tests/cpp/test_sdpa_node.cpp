@@ -1117,7 +1117,7 @@ TEST_F(SDPATest, ComputeAt) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
 
   checkSdpaFwdMapping(fusion.get(), output.output->definition());

@@ -670,7 +670,7 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
 
 TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
   // Disable mark aliases prepare pass, which might insert more segment_set
-  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   auto fusion = std::make_unique<Fusion>();
