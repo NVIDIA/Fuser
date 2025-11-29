@@ -8,9 +8,50 @@ Validates that required Python packages (pybind11, PyTorch) are installed with
 correct versions and features. This module handles pybind11 and PyTorch validation.
 """
 
-from typing import Tuple
+import re
+import shutil
+import subprocess
+from typing import Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
+
+
+def _detect_system_cuda() -> Optional[str]:
+    """
+    Detect system CUDA toolkit version via nvcc.
+    
+    Returns:
+        Optional[str]: CUDA version string (e.g., "12.5", "13.0"), or None if not found
+        
+    Example:
+        >>> version = _detect_system_cuda()
+        >>> version
+        '12.5'
+    """
+    # Check if nvcc exists
+    if not shutil.which('nvcc'):
+        return None
+    
+    try:
+        result = subprocess.run(
+            ['nvcc', '--version'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        # Parse version from output
+        # Example: "Cuda compilation tools, release 12.5, V12.5.40"
+        # or: "release 13.0, V13.0.76"
+        for line in result.stdout.splitlines():
+            match = re.search(r'release (\d+\.\d+)', line.lower())
+            if match:
+                return match.group(1)
+        
+        return None
+        
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
 
 
 def _get_torch_install_instructions(upgrade: bool = False, force_reinstall: bool = False) -> str:
@@ -217,8 +258,67 @@ def check_torch_installed() -> Tuple[str, str]:
             f"{_get_torch_install_instructions(upgrade=True)}"
         )
     
-    # Success: print confirmation
+    # Detect and validate system CUDA toolkit
+    system_cuda = _detect_system_cuda()
+    
+    if system_cuda is None:
+        # System CUDA not found - this is a problem
+        raise PrerequisiteMissingError(
+            f"ERROR: System CUDA toolkit not found.\n\n"
+            f"PyTorch has CUDA {cuda_version_str} support, but nvcc is not in PATH.\n"
+            f"nvFuser needs the CUDA toolkit (nvcc compiler) to build.\n\n"
+            f"Install CUDA toolkit {cuda_major}.x (major version must match PyTorch):\n"
+            f"  # Check available versions:\n"
+            f"  # https://developer.nvidia.com/cuda-downloads\n"
+            f"  # For Ubuntu 22.04 with CUDA {cuda_major}.x:\n"
+            f"  wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb\n"
+            f"  sudo dpkg -i cuda-keyring_1.0-1_all.deb\n"
+            f"  sudo apt update\n"
+            f"  sudo apt install cuda-toolkit-{cuda_major}-8  # Match PyTorch CUDA major version\n"
+        )
+    
+    # Parse system CUDA version
+    try:
+        torch_cuda_major = int(cuda_version_str.split('.')[0])
+        torch_cuda_minor = int(cuda_version_str.split('.')[1]) if '.' in cuda_version_str else 0
+        
+        system_cuda_major = int(system_cuda.split('.')[0])
+        system_cuda_minor = int(system_cuda.split('.')[1]) if '.' in system_cuda else 0
+    except (ValueError, IndexError):
+        raise PrerequisiteMissingError(
+            f"ERROR: Could not parse CUDA versions.\n"
+            f"PyTorch CUDA: {cuda_version_str}\n"
+            f"System CUDA: {system_cuda}\n\n"
+            f"Please verify your CUDA installations are correct."
+        )
+    
+    # Validate major version match (REQUIRED)
+    if torch_cuda_major != system_cuda_major:
+        raise PrerequisiteMissingError(
+            f"ERROR: CUDA version mismatch between PyTorch and system.\n\n"
+            f"PyTorch CUDA: {cuda_version_str} (major: {torch_cuda_major})\n"
+            f"System CUDA: {system_cuda} (major: {system_cuda_major})\n\n"
+            f"nvFuser requires the CUDA major versions to match.\n"
+            f"Code compiled with CUDA {system_cuda_major} cannot link with PyTorch built for CUDA {torch_cuda_major}.\n\n"
+            f"Solutions:\n"
+            f"  1. Install PyTorch matching your system CUDA {system_cuda_major}:\n"
+            f"     pip install torch --index-url https://download.pytorch.org/whl/cu{system_cuda_major}{'8' if system_cuda_major == 12 else '0'}\n"
+            f"  OR\n"
+            f"  2. Install system CUDA toolkit matching PyTorch CUDA {torch_cuda_major}:\n"
+            f"     See: https://developer.nvidia.com/cuda-downloads\n"
+        )
+    
+    # Check minor version (WARNING only, not error)
+    if torch_cuda_minor != system_cuda_minor:
+        print(f"[nvFuser] WARNING: CUDA minor version mismatch")
+        print(f"  PyTorch CUDA: {cuda_version_str}")
+        print(f"  System CUDA: {system_cuda}")
+        print(f"  Major versions match ({torch_cuda_major}), but minor versions differ.")
+        print(f"  Build should work, but consider matching minor versions for best compatibility.")
+    
+    # Success: print confirmation with both versions
     print(f"[nvFuser] PyTorch: {torch_version} with CUDA {cuda_version_str} ✓")
+    print(f"[nvFuser] System CUDA toolkit: {system_cuda} ✓")
     
     return torch_version, cuda_version_str
 
