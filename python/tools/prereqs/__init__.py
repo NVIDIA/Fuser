@@ -17,6 +17,8 @@ Key Components:
     - check_ninja_installed(): Validate Ninja build system
     - check_pybind11_installed(): Validate pybind11 with CMake support
     - check_torch_installed(): Validate PyTorch 2.0+ with CUDA 12+
+    - check_git_submodules_initialized(): Validate git submodules are initialized
+    - validate_gcc(): Validate GCC 13+ with C++20 <format> header support
 
 Usage:
     from tools.prereqs import PrerequisiteMissingError, detect_platform
@@ -31,6 +33,8 @@ from .platform import detect_platform, format_platform_info
 from .python_version import check_python_version
 from .build_tools import check_cmake_version, check_ninja_installed
 from .python_packages import check_pybind11_installed, check_torch_installed
+from .git import check_git_submodules_initialized
+from .gcc import validate_gcc
 
 __all__ = [
     "PrerequisiteMissingError",
@@ -41,5 +45,7 @@ __all__ = [
     "check_ninja_installed",
     "check_pybind11_installed",
     "check_torch_installed",
+    "check_git_submodules_initialized",
+    "validate_gcc",
 ]
 
