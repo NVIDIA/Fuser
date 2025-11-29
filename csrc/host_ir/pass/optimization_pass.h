@@ -18,6 +18,11 @@
 
 namespace nvfuser::hir_pass {
 
+//! This is used only by MultiDeviceExecutor -- FusionExecutorCache uses
+//! nvfuser::OptimizationPass instead. nvfuser::OptimizationPass requires
+//! runPass to be static, but some host IR passes used by MultiDeviceExecutor
+//! require runPass to be non-static.
+//!
 //! Base class to unify host IR optimization pass APIs.
 //! OptimizationPass can be turned on/off programmatically with the `setEnabled`
 //! API. There's helper template OptimizationPassGuard to temporarily switch the
