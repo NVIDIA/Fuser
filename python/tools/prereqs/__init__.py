@@ -12,6 +12,7 @@ Key Components:
     - PrerequisiteMissingError: Exception raised when prerequisites are missing
     - detect_platform(): Detect OS, architecture, and Linux distribution
     - format_platform_info(): Format platform information as readable string
+    - check_python_version(): Validate Python version (3.8+)
 
 Usage:
     from tools.prereqs import PrerequisiteMissingError, detect_platform
@@ -23,10 +24,12 @@ Usage:
 
 from .exceptions import PrerequisiteMissingError
 from .platform import detect_platform, format_platform_info
+from .python_version import check_python_version
 
 __all__ = [
     "PrerequisiteMissingError",
     "detect_platform",
     "format_platform_info",
+    "check_python_version",
 ]
 
