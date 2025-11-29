@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/pass/insert_deallocations.h>
+#include <host_ir/pass/allocate_and_deallocate.h>
 
 #include <list>
 #include <unordered_set>
@@ -16,7 +16,7 @@
 
 namespace nvfuser::hir_pass {
 
-void InsertDeallocations::passImplementation(Fusion* fusion) {
+void AllocateAndDeallocate::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
   auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
