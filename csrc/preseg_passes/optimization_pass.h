@@ -6,20 +6,20 @@
  */
 // clang-format on
 #pragma once
+
+#include <atomic>
+
 #include <debug.h>
 #include <exceptions.h>
 #include <instrumentation.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
-#include <string_view>
-
-#include <atomic>
 
 namespace nvfuser::preseg_passes {
 
-//! [experimental API]
 //! Base class to unify optimization pass APIs.
+
 //! OptimizationPass can be turned on/off programmatically with the `setEnabled`
 //! API. There's helper template OptimizationPassGuard to temporarily switch the
 //! enablement within the context. Note the we are using a curiously recurring
