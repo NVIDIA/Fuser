@@ -25,11 +25,16 @@ Usage:
 from .exceptions import PrerequisiteMissingError
 from .platform import detect_platform, format_platform_info
 from .python_version import check_python_version
+from .build_tools import check_cmake_version, check_ninja_installed
+from .python_packages import check_pybind11_installed
 
 __all__ = [
     "PrerequisiteMissingError",
     "detect_platform",
     "format_platform_info",
     "check_python_version",
+    "check_cmake_version",
+    "check_ninja_installed",
+    "check_pybind11_installed",
 ]
 
