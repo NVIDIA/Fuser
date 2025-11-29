@@ -125,6 +125,16 @@ void insertSegmentSetAfter(
 } // namespace
 
 void MarkAliasesPreparePass::runPass(Fusion* fusion) {
+  for (TensorView* tv : fusion->allTvs()) {
+    if (tv->hasAllocation()) {
+      // Alternatively, we could hold as a contract that all TVs pre
+      // segmentation are global. If you prefer this, I can try it in a separate
+      // PR. This sounds natural to me because without scheduling every TV is
+      // indeed stored globally.
+      tv->setMemoryType(MemoryType::Global);
+    }
+  }
+
   const AliasAnalysisResult analysis =
       findAliases(fusion, EmptyAllocationAs::kUndetermined);
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
