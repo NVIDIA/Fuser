@@ -415,7 +415,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     prev_ref_loop = std::move(curr_ref_loop);
   }
 
-  hir_pass::InsertDeallocations().runPass(hic.get());
+  preseg_passes::OptimizationPass<hir::InsertDeallocations>::runPass(hic.get());
 
   return hic;
 }

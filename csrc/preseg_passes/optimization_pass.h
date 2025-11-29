@@ -11,6 +11,7 @@
 
 #include <debug.h>
 #include <exceptions.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -56,24 +57,29 @@ class OptimizationPass {
     DerivedClass::runPass(fusion);
 
     // TODO: skip the logging of the pass where the fusion has not been changed.
-    if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
-      debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
-      fusion->printMath();
-      debug() << "========================================" << std::endl;
-    }
+    if (fusion->isA<hir::HostIrContainer>()) {
+      if (isDebugDumpEnabled(DebugDumpOption::HostIrLowering)) {
+        fusion->as<hir::HostIrContainer>()->print(debug());
+      }
+    } else {
+      if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+        debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
+        fusion->printMath();
+        debug() << "========================================" << std::endl;
+      }
 
 #ifndef NDEBUG
-    // cycle detection is only enabled on debug run
-    NVF_ERROR(
-        ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
+      // cycle detection is only enabled on debug run
+      NVF_ERROR(
+          ir_utils::checkCycle(fusion).empty(), "cycle detected in fusion IR");
 #endif
+    }
   }
 
  protected:
   static inline std::atomic<bool> flag_{true};
 };
 
-//! [experimental API]
 //! OptimizationPassGuard is used to temporarily switch enable/disable on a
 //! certain pass. Original status will be restored at destruction.
 template <typename OptPass>
