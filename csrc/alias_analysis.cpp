@@ -59,13 +59,29 @@ bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
-  if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
-      !tv->hasAllocation()) {
+  // Alias analysis only cares about maintaining allocation of global TVs.
+  // Consider the following pattern after scheduling:
+  // ```
+  //   tv0: global
+  //       |
+  //   [permute]
+  //       |
+  //   tv1: local
+  //       |
+  //   [permute]
+  //       |
+  //   tv2: global
+  // ```
+  // Regardless of `tv1`'s allocation domain, `tv2` can still be evaluated as an
+  // alias of `tv0`. However, if `tv1` is global (especially when it's also a
+  // fusion output), `tv1`'s allocation domain can't be ignored because it's
+  // visible to the caller of the fusion.
+  if (tv->getMemoryType() != MemoryType::Global) {
     return true;
   }
 
-  if (empty_allocation_as == EmptyAllocationAs::kLogical &&
-      tv->getMemoryType() != MemoryType::Global) {
+  if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
+      !tv->hasAllocation()) {
     return true;
   }
 
