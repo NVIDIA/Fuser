@@ -52,7 +52,7 @@ class OptimizationPass {
     FUSER_PERF_SCOPE(DerivedClass::name().data());
     static_cast<DerivedClass*>(this)->passImplementation(fusion);
 
-    if (isDebugDumpEnabled(DebugDumpOption::HostIrLoweringLogging)) {
+    if (isDebugDumpEnabled(DebugDumpOption::HostIrLowering)) {
       debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
       if (fusion->isA<hir::HostIrContainer>()) {
         fusion->as<hir::HostIrContainer>()->print(debug());
