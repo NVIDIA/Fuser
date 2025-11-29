@@ -16,9 +16,9 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/move_gather.h>
-#include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>

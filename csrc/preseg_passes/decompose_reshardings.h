@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <preseg_passes/optimization_pass.h>
+#include <optimization_pass.h>
 
 #include <string>
 

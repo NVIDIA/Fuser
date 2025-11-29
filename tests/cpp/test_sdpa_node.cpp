@@ -12,9 +12,9 @@
 #include <multidevice/device_mesh.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <optimization_pass.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1117,8 +1117,8 @@ TEST_F(SDPATest, ComputeAt) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   checkSdpaFwdMapping(fusion.get(), output.output->definition());
 

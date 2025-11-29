@@ -70,7 +70,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
-  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
+  HostIrLowering, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.

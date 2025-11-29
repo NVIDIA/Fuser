@@ -12,8 +12,8 @@
 #include <fusion.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
@@ -34,7 +34,7 @@ class MatmulNodeParameterizedTest
   MatmulNodeParameterizedTest() : optimization_guard_(false) {}
 
  private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 
@@ -47,7 +47,7 @@ class LinearNodeParametrizedTest
   LinearNodeParametrizedTest() : optimization_guard_(false) {}
 
  private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       optimization_guard_;
 };
 

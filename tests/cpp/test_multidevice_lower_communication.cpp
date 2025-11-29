@@ -11,8 +11,8 @@
 
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
