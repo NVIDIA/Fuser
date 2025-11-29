@@ -147,6 +147,26 @@ size_t merge_3d(TensorView* tv) {
   }
 }
 
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads) {
+  constexpr int64_t reg_per_async_thread = 32L;
+  constexpr int64_t regs_granularity = 8L;
+  int64_t tma_branch_regs = reg_per_async_thread;
+  int64_t compute_branch_regs = reg_per_thread +
+      (reg_per_thread - tma_branch_regs) * padded_threads / computation_threads;
+  if (compute_branch_regs % regs_granularity != 0) {
+    compute_branch_regs -= compute_branch_regs % regs_granularity;
+    tma_branch_regs = reg_per_thread -
+        (compute_branch_regs - reg_per_thread) * computation_threads /
+            padded_threads;
+  }
+  compute_branch_regs =
+      std::min(compute_branch_regs, scheduler_utils::max_registers_per_thread);
+  return std::make_pair(tma_branch_regs, compute_branch_regs);
+}
+
 void splitDims(
     TensorView* tv,
     std::vector<std::pair<int64_t, int64_t>> to_split, // (dim, size)

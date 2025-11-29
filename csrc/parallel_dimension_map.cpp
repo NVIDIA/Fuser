@@ -200,6 +200,9 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
       "divisible with 128 threads.");
   int64_t ws_num_threads_pad = 128 / other_active_pts_threads;
   int64_t after_pad = getThreadCountInDim(ws_pt) + ws_num_threads_pad;
+  std::cout << "after_pad: " << after_pad
+            << ", other_active_pts_threads: " << other_active_pts_threads
+            << ", ws_num_threads_pad: " << ws_num_threads_pad << std::endl;
   NVF_ERROR(
       (after_pad * other_active_pts_threads) % 128 == 0,
       "Illegal register sharing on ",

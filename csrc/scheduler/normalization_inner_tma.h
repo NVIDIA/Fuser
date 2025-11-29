@@ -45,6 +45,9 @@ class InnerNormTmaParams : public HeuristicParams {
   // Number of rows per block
   int64_t rows_per_block = 1;
 
+  // Circular buffer options
+  CircularBufferOptions circular_buffer_options;
+
   bool sameAs(const HeuristicParams* other_base) const override {
     auto other = dynamic_cast<const InnerNormTmaParams*>(other_base);
     if (other == nullptr) {
@@ -58,7 +61,8 @@ class InnerNormTmaParams : public HeuristicParams {
         other->may_pre_load_ldg_tvs == may_pre_load_ldg_tvs &&
         other->tma_load_non_persistent_buffers ==
         tma_load_non_persistent_buffers &&
-        other->rows_per_block == rows_per_block;
+        other->rows_per_block == rows_per_block &&
+        other->circular_buffer_options == circular_buffer_options;
   }
 
   std::string toString() const override {
@@ -72,8 +76,13 @@ class InnerNormTmaParams : public HeuristicParams {
        << (may_pre_load_ldg_tvs ? "Pre-load ldg tvs\n" : "")
        << (tma_load_non_persistent_buffers ? "TMA load non-persistent buffers\n"
                                            : "")
-       << "Rows per block: " << rows_per_block << "\n"
-       << lparams.toString() << cparams.toString() << "\n"
+       << "Rows per block: " << rows_per_block << "\n";
+    if (circular_buffer_options.isEnable()) {
+      ss << circular_buffer_options << "\n";
+    } else {
+      ss << "Circular buffer: not used\n";
+    }
+    ss << lparams.toString() << cparams.toString() << "\n"
        << "====================================\n";
     return ss.str();
   }
@@ -86,7 +95,9 @@ class InnerNormTmaParams : public HeuristicParams {
         static_cast<size_t>(persistent_batch_size) << (bits - 4) ^
         static_cast<size_t>(may_pre_load_ldg_tvs) << (bits - 5) ^
         static_cast<size_t>(tma_load_non_persistent_buffers) << (bits - 6) ^
-        static_cast<size_t>(rows_per_block) << (bits - 7);
+        static_cast<size_t>(rows_per_block) << (bits - 7) ^
+        static_cast<size_t>(circular_buffer_options.stage) << (bits - 8) ^
+        static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9);
     return attr_hash;
   }
 

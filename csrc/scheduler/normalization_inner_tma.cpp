@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include "runtime/executor_params.h"
 
 namespace nvfuser {
 namespace normalization_inner {
@@ -113,8 +114,31 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   } else {
     useMultipleWarps();
   }
-  // set persistent batch size
   params->persistent_batch_size = ceilDiv(total_redu_count / vect, bdimx);
+
+  // set warp specialized circular buffer options
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
+  if (bdimx >= 128) {
+    gdimx = sm_count;
+    bdimy = 1;
+    bdimz = 1;
+    int64_t n_stages = 2;
+    ParallelType ws_pt = ParallelType::TIDx;
+    bdimx += kWarpSpecializationPaddedThreads;
+    WarpSpecialized ws(ws_pt);
+    int64_t total_threads = bdimx * bdimy;
+    if (total_threads > 256) {
+      int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
+      ws.num_registers = scheduler_utils::getRegisterSharing(
+          reg_per_thread, bdimx * bdimy, kWarpSpecializationPaddedThreads);
+    }
+    CircularBufferOptions circular_buffer_options{
+        .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
+    params->circular_buffer_options = circular_buffer_options;
+  }
+
+  // set persistent batch size
   if (std::getenv("PBS")) {
     params->persistent_batch_size = std::stoi(std::getenv("PBS"));
   }
@@ -126,12 +150,12 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
 
   // Set launch parameters
   params->lparams = LaunchParams(
+      gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL);
+      bdimx,
+      bdimy,
+      bdimz);
 
   // debug print
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
@@ -213,14 +237,24 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // - axis(1): parallelize with Bulk (TMA async copy entire reduction
   // dimension)
   int64_t ipos = 0, rpos = 1;
-  if (params->rows_per_block > 1) {
-    reduction_tv->split(ipos, params->rows_per_block);
-    rpos++;
+  if (params->circular_buffer_options.isEnable()) {
+    // [I, R] -> [I/BIDx, BIDx, R]
+    reduction_tv->split(ipos, params->lparams.gdimx());
     TransformPropagator propagator(reduction_tv);
     MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+    reduction_tv->axis(ipos + 1)->parallelize(ParallelType::BIDx);
+    rpos = ipos + 2;
+  } else if (params->rows_per_block > 1) {
+    // [I, R] -> [I/TIDy, TIDy, R]
+    reduction_tv->split(ipos, params->rows_per_block);
+    TransformPropagator propagator(reduction_tv);
+    MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+    reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
     reduction_tv->axis(ipos + 1)->parallelize(ParallelType::TIDy);
+    rpos = ipos + 2;
+  } else {
+    reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
   }
-  reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
   reduction_tv->axis(rpos)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
   // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
@@ -320,6 +354,18 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
     inlineMost();
   }
 
+  if (params->circular_buffer_options.isEnable()) {
+    int64_t number_of_stages = params->circular_buffer_options.stage;
+    int64_t prefetch_distance = params->circular_buffer_options.prefetch;
+    CircularBufferType circular_buffer_type =
+        params->circular_buffer_options.type;
+    for (auto tv : tma_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }
   // refine caching
   refineCachePolicy(fusion);
 

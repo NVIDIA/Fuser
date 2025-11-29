@@ -2150,15 +2150,15 @@ TEST_F(PersistentBufferTest, TmaInnerPersistent) {
 TEST_F(PersistentBufferTest, TmaInnerPersistentRmsNorm) {
   DataType dtype = DataType::BFloat16;
   int x = 16384;
-  int y = 10752;
+  int y = 10240;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
   const float kEps = 1e-6;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
-  auto tv0 = makeContigTensor(2, dtype);
-  auto tv1 = makeContigTensor(1, dtype);
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
