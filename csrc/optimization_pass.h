@@ -17,7 +17,7 @@
 #include <ir/utils.h>
 #include <options.h>
 
-namespace nvfuser::preseg_passes {
+namespace nvfuser {
 
 //! Base class to unify optimization pass APIs.
 
@@ -98,4 +98,4 @@ class OptimizationPassGuard {
   bool prev_status_ = false;
 };
 
-} // namespace nvfuser::preseg_passes
+} // namespace nvfuser

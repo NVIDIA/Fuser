@@ -10,8 +10,8 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -670,7 +670,7 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
 
 TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
   // Disable mark aliases prepare pass, which might insert more segment_set
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   auto fusion = std::make_unique<Fusion>();

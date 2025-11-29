@@ -509,8 +509,7 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
 
     fusion.addOutput(tv2);
 
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        &fusion);
+    nvfuser::OptimizationPass<preseg_passes::PreSegmenter>::runPass(&fusion);
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);

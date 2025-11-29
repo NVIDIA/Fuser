@@ -111,8 +111,8 @@ TEST_F(StreamTest, ForwardPropagation) {
   w->outer_split(1, s);
   w->axis(1)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
   EXPECT_TRUE(out->axis(1)->isStream()) << out;
 }
 
@@ -131,8 +131,8 @@ TEST_F(StreamTest, BackwardPropagation) {
   tv2->outer_split(0, s);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
   for (auto* tv : {tv0, tv1, tv2}) {
     EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
   }
@@ -155,8 +155,7 @@ TEST_F(StreamTest, ShardedAllocation) {
   tv0->outer_split(0, s);
   tv0->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-      fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
 
   for (auto* tv : {tv0, tv1, tv2, tv3}) {
     EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
@@ -187,8 +186,7 @@ TEST_F(StreamTest, ReplicatedAllocation) {
   tv2->outer_split(1, s);
   tv2->axis(1)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-      fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
   for (auto* tv : {tv0, tv1, tv2, tv3}) {
     EXPECT_TRUE(tv->axis(0)->isStream()) << tv;
     EXPECT_EQ(tv->getAllocationDomain(), tv->getLogicalDomain());

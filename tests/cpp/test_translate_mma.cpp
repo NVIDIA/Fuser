@@ -24,9 +24,9 @@
 #include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
@@ -337,7 +337,7 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       alloc_pass_guard(false);
 
   int batch_size = 3, M = 504, N = 136, K = 248;
@@ -474,7 +474,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  nvfuser::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       alloc_pass_guard(false);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());

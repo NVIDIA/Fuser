@@ -11,8 +11,8 @@
 #include <fusion.h>
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -1105,8 +1105,7 @@ TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  nvfuser::OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1144,8 +1143,7 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  nvfuser::OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1183,8 +1181,7 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
     reorderParallelizedToFront(tv);
   }
 
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  nvfuser::OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   at::Tensor input = at::randn({s, h, e / h}, tensor_options_);

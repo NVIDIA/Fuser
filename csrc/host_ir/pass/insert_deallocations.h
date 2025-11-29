@@ -8,7 +8,7 @@
 #pragma once
 
 #include <host_ir/container.h>
-#include <preseg_passes/optimization_pass.h>
+#include <optimization_pass.h>
 
 namespace nvfuser::hir {
 
@@ -16,8 +16,8 @@ namespace nvfuser::hir {
  * last use and insert a deallocate directly after, except for fusion inputs and
  * outputs */
 class InsertDeallocations
-    : public preseg_passes::OptimizationPass<InsertDeallocations> {
-  friend class preseg_passes::OptimizationPass<InsertDeallocations>;
+    : public nvfuser::OptimizationPass<InsertDeallocations> {
+  friend class nvfuser::OptimizationPass<InsertDeallocations>;
 
  protected:
   static void runPass(Fusion* fusion);

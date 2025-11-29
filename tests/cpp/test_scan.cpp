@@ -10,8 +10,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/cub_utils.h>
@@ -673,7 +673,7 @@ TEST_P(ScanParameterizedWithBlock, SharedMemoryRequirement) {
   // Avoid using magic zero to make the estimation simpler
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
   // Avoid insertion of segmenter_set
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  nvfuser::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto [size, batch, has_duplicate, has_extra] = GetParam();

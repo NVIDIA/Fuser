@@ -114,8 +114,8 @@ TEST_F(ShardingTest, PropagateSharding) {
   fusion.addOutput(c);
 
   // Expected behavior: a's shardings propagate to c.
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(&fusion);
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      &fusion);
   std::vector<TensorView*> tvs = {c};
   EXPECT_TRUE(getTvsWithDifferentSharding(a, tvs).empty());
 }
@@ -156,13 +156,13 @@ TEST_F(ShardingTest, ShardedAllocationDomain) {
   fusion.addInput(b);
   fusion.addOutput(d);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(&fusion);
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
-  preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
-  preseg_passes::OptimizationPass<
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      &fusion);
+  nvfuser::OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+      &fusion);
+  nvfuser::OptimizationPass<preseg_passes::ReorderShardedAxisPass>::runPass(
+      &fusion);
+  nvfuser::OptimizationPass<
       preseg_passes::FinalizeMultideviceDomainsPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
@@ -261,8 +261,8 @@ TEST_F(ShardingTest, ResidualAdd) {
   fusion->addOutput(tv1);
   fusion->addOutput(tv2);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   NVF_CHECK(tv1->hasDeviceMesh());
   int64_t expected_sharded_axis =
@@ -295,8 +295,8 @@ TEST_F(ShardingTest, PropagateParallelTypeOnce) {
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
   NVF_CHECK(numDeviceDims(tv2) == 1);
   int64_t expected_sharded_axis =
       getShardedLogicalAxis(tv0, ParallelType::DIDx);
@@ -332,8 +332,8 @@ TEST_F(ShardingTest, ReductionDIDxIsIgnored) {
   fusion->addInput(tv2);
   fusion->addOutput(tv4);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   // tv4 will be sharded similarly as tv2 during forward propagation since tv3
   // is parallelized on r{K} Due to backpropagation of shardings, tv3 should be
@@ -367,8 +367,8 @@ TEST_F(ShardingTest, ShardedNonDivisibleReshape) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
 
   auto run_propagate_shardings = [&]() {
-    preseg_passes::OptimizationPass<
-        preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+    nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+        fusion.get());
   };
 
   // tv1 should be sharded on the outer reshape id i.e. {3}
@@ -395,8 +395,8 @@ TEST_F(ShardingTest, ShardedInnerReshape) {
   tv0->axis(1)->parallelize(ParallelType::DIDx);
 
   auto run_propagate_shardings = [&]() {
-    preseg_passes::OptimizationPass<
-        preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+    nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+        fusion.get());
   };
 
   EXPECT_THAT(
@@ -424,8 +424,8 @@ TEST_F(ShardingTest, ShardedReshapeWithIndependentSplit) {
   tv0->outer_split(3, dy);
   tv0->axis(3)->parallelize(ParallelType::DIDy);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDx), 0);
   EXPECT_EQ(getShardedLogicalAxis(tv1, ParallelType::DIDy), 1);
@@ -453,8 +453,8 @@ TEST_F(ShardingTest, PropagationDoesNotOverwrite) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   // Verify tv3 is sharded like tv0, and tv2 like tv1.
   // Backpropagation should not overwrite tv2's sharding.
@@ -486,8 +486,8 @@ TEST_F(ShardingTest, BackpropagateToShardedTvs) {
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  nvfuser::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   // tv2 should be sharded on DIDx through backpropagation.
   for (auto* tv : {tv2, tv3}) {
