@@ -46,6 +46,25 @@ constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
 constexpr int64_t bits_per_register = 4l * 8;
 
+// Calculate register sharing between TMA async threads and computation threads
+// for warp specialization. Returns a pair of (tma_branch_registers,
+// compute_branch_registers).
+//
+// Assumes padded threads keep [tma_branch_registers] registers and all others
+// are moved to computation threads. The granularity is 8. When estimated
+// compute_branch_regs is not divisible by granularity, it is rounded down and
+// tma_branch_registers is recomputed.
+//
+// For example, assuming 256 computation threads, initial register = 168,
+// tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
+// divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded down to
+// 232. re-calculate [tma_branch_registers] using: borrowed registers = (232 -
+// 168) * 256 / 128 = 128. tma_branch_registers = 168 - 128 = 40
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads);
+
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;

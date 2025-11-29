@@ -27,6 +27,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -414,6 +415,7 @@ std::unique_ptr<SegmentedFusion> SegmentedFusion::fromCompleteFusion(
   };
   SegmentCandidateFinderOptions scfo;
   if (scfo.run_translate_welford && isPersistentScheduler()) {
+    std::cout << "translateWelfordInFusion" << std::endl;
     SegmentCandidateFinder::translateWelfordInFusion(fusion, runtime_inputs);
   }
 
@@ -2834,8 +2836,10 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
-  return heuristic_params->as<ReductionParams>()->persistent_kernel &&
+  bool is_non_tma_persistent =
+      heuristic_params->as<ReductionParams>()->persistent_kernel &&
       !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
+  return is_non_tma_persistent || heuristic_params->isA<InnerNormTmaParams>();
 }
 
 // Note that when segmented it is assumed that insertion of lower

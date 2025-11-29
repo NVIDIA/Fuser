@@ -769,9 +769,10 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
     // domain is divisible.
     replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
     auto id_def = fl->iter_domain()->definition();
-    if (!id_def) {
+    if (!id_def || fl->iter_domain()->isBlockDim()) {
       continue;
     }
+
     if (auto split = dynamic_cast<Split*>(id_def)) {
       GpuLower::current()->validate(
           split->isDivisible(),

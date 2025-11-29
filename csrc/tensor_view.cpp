@@ -811,7 +811,8 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
                ScaledMmaOp>()),
       "Error rfactoring ",
       this,
-      " because its definition is not a reduction.");
+      " because its definition is not a reduction. definition: ",
+      definition()->toString());
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const "
