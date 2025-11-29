@@ -13,6 +13,10 @@ Key Components:
     - detect_platform(): Detect OS, architecture, and Linux distribution
     - format_platform_info(): Format platform information as readable string
     - check_python_version(): Validate Python version (3.8+)
+    - check_cmake_version(): Validate CMake version (3.18+)
+    - check_ninja_installed(): Validate Ninja build system
+    - check_pybind11_installed(): Validate pybind11 with CMake support
+    - check_torch_installed(): Validate PyTorch 2.0+ with CUDA 12+
 
 Usage:
     from tools.prereqs import PrerequisiteMissingError, detect_platform
@@ -26,7 +30,7 @@ from .exceptions import PrerequisiteMissingError
 from .platform import detect_platform, format_platform_info
 from .python_version import check_python_version
 from .build_tools import check_cmake_version, check_ninja_installed
-from .python_packages import check_pybind11_installed
+from .python_packages import check_pybind11_installed, check_torch_installed
 
 __all__ = [
     "PrerequisiteMissingError",
@@ -36,5 +40,6 @@ __all__ = [
     "check_cmake_version",
     "check_ninja_installed",
     "check_pybind11_installed",
+    "check_torch_installed",
 ]
 
