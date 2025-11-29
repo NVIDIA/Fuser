@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/pass/insert_deallocations.h>
+#include <host_ir/pass/allocate_and_deallocate.h>
 
 #include <list>
 #include <unordered_set>
@@ -16,13 +16,13 @@
 
 namespace nvfuser::hir {
 
-void InsertDeallocations::runPass(Fusion* fusion) {
-  NVF_CHECK(fusion->isA<HostIrContainer>());
+void AllocateAndDeallocate::runPass(Fusion* fusion) {
+  auto* hic = dynamic_cast<HostIrContainer*>(fusion);
+  NVF_CHECK(hic != nullptr);
 
-  FusionGuard fg(fusion);
-  auto& hic = *(fusion->as<HostIrContainer>());
+  FusionGuard fg(hic);
 
-  const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
+  const std::list<Expr*>& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
@@ -61,7 +61,7 @@ void InsertDeallocations::runPass(Fusion* fusion) {
       }
 
       auto* deallocate = IrBuilder::create<hir::Deallocate>(in);
-      hic.insertExprBefore(insertion_point, deallocate);
+      hic->insertExprBefore(insertion_point, deallocate);
     }
 
     // Don't `--insertion_point;` because we'd like to skip newly inserted

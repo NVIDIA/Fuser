@@ -8,12 +8,12 @@
 
 #include <host_ir/passes.h>
 
-#include <host_ir/pass/insert_deallocations.h>
+#include <host_ir/pass/allocate_and_deallocate.h>
 
 namespace nvfuser::hir {
 
 void runPasses(HostIrContainer& hic) {
-  OptimizationPass<hir::InsertDeallocations>::runPass(&hic);
+  OptimizationPass<hir::AllocateAndDeallocate>::runPass(&hic);
 }
 
 } // namespace nvfuser::hir
