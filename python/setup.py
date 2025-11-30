@@ -66,7 +66,12 @@
 #   NVFUSER_BUILD_CPP_STANDARD=STANDARD
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
+#   NVFUSER_BUILD_SKIP_VALIDATION
+#     Skip prerequisite validation checks. Use this for CI or when you know
+#     all prerequisites are satisfied. Validation will still run if not set.
+#
 
+import os
 import sys
 
 from utils import (
@@ -95,6 +100,21 @@ def main():
 
     # Override build config from environment variables
     override_build_config_from_env(config)
+
+    # Prerequisite validation (can be skipped with NVFUSER_BUILD_SKIP_VALIDATION)
+    if not os.environ.get('NVFUSER_BUILD_SKIP_VALIDATION'):
+        try:
+            from tools.prereqs import validate_prerequisites
+            validate_prerequisites()
+        except ImportError as e:
+            # Prerequisite validation not available (shouldn't happen in dev)
+            print(f"WARNING: Could not import prerequisite validation: {e}")
+        except Exception as e:
+            # Prerequisite check failed
+            print(f"\n{e}\n", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("[nvFuser] Skipping prerequisite validation (NVFUSER_BUILD_SKIP_VALIDATION set)")
 
     if "clean" in sys.argv:
         # only disables BUILD_SETUP, but keep the argument for setuptools

@@ -37,6 +37,7 @@ from .python_packages import check_pybind11_installed, check_torch_installed
 from .git import check_git_submodules_initialized
 from .gcc import validate_gcc
 from .llvm import check_llvm_installed
+from .validate import validate_prerequisites
 
 __all__ = [
     "PrerequisiteMissingError",
@@ -50,5 +51,6 @@ __all__ = [
     "check_git_submodules_initialized",
     "validate_gcc",
     "check_llvm_installed",
+    "validate_prerequisites",
 ]
 

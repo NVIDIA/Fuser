@@ -427,6 +427,29 @@ list(APPEND NVFUSER_SRCS
 
 # Add LLVM JIT related dependencies
 set(LLVM_MINIMUM_VERSION "18.1")
+
+# Check for project-local LLVM installations first (no sudo required)
+# This searches .llvm/ directory for version-specific installations
+if(NOT LLVM_DIR)
+  file(GLOB LLVM_CANDIDATES 
+    "${CMAKE_SOURCE_DIR}/.llvm/*/lib/cmake/llvm"
+    "${CMAKE_SOURCE_DIR}/third_party/llvm/*/lib/cmake/llvm"
+  )
+  # Sort to get highest version first (assumes version numbers in paths)
+  list(SORT LLVM_CANDIDATES COMPARE NATURAL ORDER DESCENDING)
+  foreach(CANDIDATE ${LLVM_CANDIDATES})
+    if(EXISTS "${CANDIDATE}/LLVMConfig.cmake")
+      # Extract version from path to check if it meets minimum
+      string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" CANDIDATE_VERSION "${CANDIDATE}")
+      if(CANDIDATE_VERSION VERSION_GREATER_EQUAL LLVM_MINIMUM_VERSION)
+        set(LLVM_DIR "${CANDIDATE}" CACHE PATH "Path to LLVM CMake config")
+        message(STATUS "Found project-local LLVM ${CANDIDATE_VERSION} at ${LLVM_DIR}")
+        break()
+      endif()
+    endif()
+  endforeach()
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
