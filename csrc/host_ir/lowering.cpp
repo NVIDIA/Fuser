@@ -11,7 +11,6 @@
 #include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
-#include <host_ir/pass/insert_deallocations.h>
 #include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_abstract.h>
@@ -414,8 +413,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
 
     prev_ref_loop = std::move(curr_ref_loop);
   }
-
-  hir_pass::InsertDeallocations().runPass(hic.get());
 
   return hic;
 }
