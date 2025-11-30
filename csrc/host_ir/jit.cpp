@@ -53,9 +53,7 @@ constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
 constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
-constexpr std::string_view kMatmulFuncName = "matmul";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearFuncName = "linear";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kPermuteFuncName = "permute";
 constexpr std::string_view kReshapeFuncName = "reshape";
@@ -745,19 +743,6 @@ void compileFunctionDeclarations(
       kLinearOutFuncName,
       module);
 
-  // matmul function: at::Tensor* matmul(at::Tensor* a, at::Tensor* b)
-  auto* matmul_type =
-      llvm::FunctionType::get(tensor_type, {tensor_type, tensor_type}, false);
-  llvm::Function::Create(
-      matmul_type, llvm::Function::ExternalLinkage, kMatmulFuncName, module);
-
-  // linear function: at::Tensor* linear(at::Tensor* in, at::Tensor* weight,
-  // at::Tensor* bias)
-  auto* linear_type = llvm::FunctionType::get(
-      tensor_type, {tensor_type, tensor_type, tensor_type}, false);
-  llvm::Function::Create(
-      linear_type, llvm::Function::ExternalLinkage, kLinearFuncName, module);
-
   // permute function: at::Tensor* permute(at::Tensor* in, const int64_t*
   // permutation, int64_t perm_size)
   auto* permute_type = llvm::FunctionType::get(
@@ -894,15 +879,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* a = getOrDefault(val_to_value_, matmul_op->inA());
     llvm::Value* b = getOrDefault(val_to_value_, matmul_op->inB());
     llvm::Value* out = getOrDefault(val_to_value_, matmul_op->out());
-    if (out != nullptr) {
-      // Output tensor exists, use matmul_out
-      builder_.CreateCall(module->getFunction(kMatmulOutFuncName), {out, a, b});
-      return;
-    }
-    // Output tensor doesn't exist, use matmul which returns a new tensor
-    out = builder_.CreateCall(
-        module->getFunction(kMatmulFuncName), {a, b}, "matmul");
-    val_to_value_[matmul_op->out()] = out;
+    NVF_ERROR(out != nullptr);
+    builder_.CreateCall(module->getFunction(kMatmulOutFuncName), {out, a, b});
   }
 
   void handle(LinearOp* linear_op) final {
@@ -925,16 +903,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
       bias = llvm::ConstantPointerNull::get(
           llvm::cast<llvm::PointerType>(tensor_type));
     }
-    if (out != nullptr) {
-      // Output tensor exists, use linear_out
-      builder_.CreateCall(
-          module->getFunction(kLinearOutFuncName), {out, in, weight, bias});
-      return;
-    }
-    // Output tensor doesn't exist, use linear which returns a new tensor
-    out = builder_.CreateCall(
-        module->getFunction(kLinearFuncName), {in, weight, bias}, "linear");
-    val_to_value_[linear_op->out()] = out;
+    NVF_ERROR(out != nullptr);
+    builder_.CreateCall(
+        module->getFunction(kLinearOutFuncName), {out, in, weight, bias});
   }
 
   void handle(hir::LaunchKernel* launch_kernel) final {
@@ -1292,11 +1263,6 @@ void HostIrJitImpl::registerExternalFunctions() {
       +[](at::Tensor* t_out, at::Tensor* t_a, at::Tensor* t_b) {
         at::matmul_out(*t_out, *t_a, *t_b);
       });
-  // matmul function
-  void* matmul_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* a, at::Tensor* b) -> at::Tensor* {
-        return new at::Tensor(at::matmul(*a, *b));
-      });
 
   // linear function in place
   void* linear_out_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* out,
@@ -1309,16 +1275,6 @@ void HostIrJitImpl::registerExternalFunctions() {
     }
     at::linear_out(*out, *in, *weight, bias_opt);
   });
-
-  // linear function a nd return a new tensor
-  void* linear_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* in, at::Tensor* weight, at::Tensor* bias) -> at::Tensor* {
-        std::optional<at::Tensor> bias_opt = std::nullopt;
-        if (bias != nullptr) {
-          bias_opt = *bias;
-        }
-        return new at::Tensor(at::linear(*in, *weight, bias_opt));
-      });
 
   // permute a tensor and return a new tensor
   void* permute_func_ptr = reinterpret_cast<void*>(
@@ -1382,11 +1338,7 @@ void HostIrJitImpl::registerExternalFunctions() {
   registerExternalFunction(
       matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
   registerExternalFunction(
-      matmul_func_ptr, name_to_symbol, mangler, kMatmulFuncName);
-  registerExternalFunction(
       linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
-  registerExternalFunction(
-      linear_func_ptr, name_to_symbol, mangler, kLinearFuncName);
   registerExternalFunction(
       permute_func_ptr, name_to_symbol, mangler, kPermuteFuncName);
   registerExternalFunction(
