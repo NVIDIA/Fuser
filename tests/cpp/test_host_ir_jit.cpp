@@ -316,10 +316,10 @@ TEST_F(HostIrJitTest, LaunchKernel) {
 }
 
 TEST_F(HostIrJitTest, MatmulOut) {
-  constexpr int64_t h = 32;
-  constexpr int64_t m = 64;
-  constexpr int64_t k = 128;
-  constexpr int64_t n = 256;
+  constexpr int64_t kH = 32;
+  constexpr int64_t kM = 64;
+  constexpr int64_t kK = 128;
+  constexpr int64_t kN = 256;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -339,9 +339,9 @@ TEST_F(HostIrJitTest, MatmulOut) {
   HostIrJit jit(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  at::Tensor t0 = at::randn({h, m, k}, options);
-  at::Tensor t1 = at::randn({h, k, n}, options);
-  at::Tensor t2 = at::randn({h, m, n}, options);
+  at::Tensor t0 = at::randn({kH, kM, kK}, options);
+  at::Tensor t1 = at::randn({kH, kK, kN}, options);
+  at::Tensor t2 = at::randn({kH, kM, kN}, options);
 
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
@@ -358,10 +358,10 @@ TEST_F(HostIrJitTest, MatmulOut) {
 }
 
 TEST_F(HostIrJitTest, Matmul) {
-  constexpr int64_t h = 32;
-  constexpr int64_t m = 64;
-  constexpr int64_t k = 128;
-  constexpr int64_t n = 256;
+  constexpr int64_t kH = 32;
+  constexpr int64_t kM = 64;
+  constexpr int64_t kK = 128;
+  constexpr int64_t kN = 256;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -380,8 +380,8 @@ TEST_F(HostIrJitTest, Matmul) {
   HostIrJit jit(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  at::Tensor t0 = at::randn({h, m, k}, options);
-  at::Tensor t1 = at::randn({h, k, n}, options);
+  at::Tensor t0 = at::randn({kH, kM, kK}, options);
+  at::Tensor t1 = at::randn({kH, kK, kN}, options);
 
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
@@ -396,10 +396,10 @@ TEST_F(HostIrJitTest, Matmul) {
 }
 
 TEST_F(HostIrJitTest, Linear) {
-  constexpr int64_t b = 32;
-  constexpr int64_t m = 64;
-  constexpr int64_t k = 128;
-  constexpr int64_t n = 256;
+  constexpr int64_t kB = 32;
+  constexpr int64_t kM = 64;
+  constexpr int64_t kK = 128;
+  constexpr int64_t kN = 256;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -427,11 +427,11 @@ TEST_F(HostIrJitTest, Linear) {
   HostIrJit jit(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  auto in_at = at::randint(5, {b, m, k}, options);
-  auto weight_at = at::randint(5, {n, k}, options);
-  auto bias_at = at::randint(5, {n}, options);
-  auto out_with_bias_at = at::empty({b, m, n}, options);
-  auto out_without_bias_at = at::empty({b, m, n}, options);
+  auto in_at = at::randint(5, {kB, kM, kK}, options);
+  auto weight_at = at::randint(5, {kN, kK}, options);
+  auto bias_at = at::randint(5, {kN}, options);
+  auto out_with_bias_at = at::empty({kB, kM, kN}, options);
+  auto out_without_bias_at = at::empty({kB, kM, kN}, options);
 
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
