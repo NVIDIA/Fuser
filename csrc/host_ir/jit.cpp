@@ -325,11 +325,11 @@ llvm::Value* createValue(
   }
 
   if (Expr* def = val->definition()) {
-    if (auto* binary_op = def->as<BinaryOp>()) {
+    if (auto* binary_op = dynamic_cast<BinaryOp*>(def)) {
       return createValueForBinaryOp(binary_op, val_to_value, builder);
     }
 
-    if (auto* unary_op = def->as<UnaryOp>()) {
+    if (auto* unary_op = dynamic_cast<UnaryOp*>(def)) {
       return createValueForUnaryOp(unary_op, val_to_value, builder);
     }
 
@@ -340,7 +340,7 @@ llvm::Value* createValue(
   }
 
   NVF_THROW(
-      "LLVM Lowering Error: createValueForExtent called with unfounded "
+      "LLVM Lowering Error: createValueForExtent called with undefined "
       "val: ",
       val->toString());
 }
