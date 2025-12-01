@@ -1380,18 +1380,17 @@ void HostIrJitImpl::registerExternalFunctions() {
         // Launch Config
         CUlaunchConfig config;
 
-        const LaunchParams& launch_constraints =
-            launch_kernel_ptr->launchParams();
+        const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
 
         auto stream = at::cuda::getCurrentCUDAStream();
 
-        config.gridDimX = launch_constraints.gdimx();
-        config.gridDimY = launch_constraints.gdimy();
-        config.gridDimZ = launch_constraints.gdimz();
-        config.blockDimX = launch_constraints.bdimx();
-        config.blockDimY = launch_constraints.bdimy();
-        config.blockDimZ = launch_constraints.bdimz();
-        config.sharedMemBytes = launch_constraints.smem();
+        config.gridDimX = launch_params.gdimx();
+        config.gridDimY = launch_params.gdimy();
+        config.gridDimZ = launch_params.gdimz();
+        config.blockDimX = launch_params.bdimx();
+        config.blockDimY = launch_params.bdimy();
+        config.blockDimZ = launch_params.bdimz();
+        config.sharedMemBytes = launch_params.smem();
         config.hStream = stream;
         config.attrs = nullptr;
         config.numAttrs = 0;
