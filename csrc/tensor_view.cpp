@@ -15,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/composite_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>

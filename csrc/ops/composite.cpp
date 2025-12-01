@@ -8,6 +8,7 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <ir/builder.h>
+#include <ir/composite_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ops/all_ops.h>

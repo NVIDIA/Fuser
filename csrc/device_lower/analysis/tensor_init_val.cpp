@@ -8,6 +8,7 @@
 
 #include <device_lower/analysis/tensor_init_val.h>
 #include <fusion.h>
+#include <ir/composite_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
 #include <ops/utils.h>
