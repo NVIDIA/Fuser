@@ -292,6 +292,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/composite_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
