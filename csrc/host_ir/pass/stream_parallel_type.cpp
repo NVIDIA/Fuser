@@ -283,7 +283,7 @@ std::list<Expr*> addTensorAllocations(
 std::list<Expr*> processForLoopBodies(
     std::list<Expr*> top_level_exprs,
     const IdModel& id_model,
-    const CommunicatorBackend& communicator_backend) {
+    const HostIrLowerParams& params) {
   TensorSlicingCache tensor_slicing_cache;
 
   for (auto* expr : top_level_exprs) {
@@ -329,7 +329,7 @@ std::list<Expr*> processForLoopBodies(
     // device 2) our semantics of sharing the memory handles can only express
     // this type of scenario. P2p backend by ProcessGroup can relax condition
     // 2) because there is no explicit need to share the memhandle.
-    auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
+    auto tensor_index = params.do_swizzle_in_stream_lowering
         ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
         : for_loop->index();
 
@@ -364,6 +364,8 @@ std::list<Expr*> processForLoopBodies(
           }
         }
       }
+
+      auto communicator_backend = params.communicator_backend;
 
       if (needs_p2p_handling) {
         NVF_ERROR(
@@ -420,7 +422,7 @@ std::list<Expr*> processForLoopBodies(
             input_tv,
             send_peer,
             communicator_backend);
-        if (communicator_backend == CommunicatorBackend::kNccl) {
+        if (params.do_swizzle_in_stream_lowering == false) {
           // Using Start/EndCoalescing here is important to 1) avoid hangs
           // because of a wrong global order of send/recv and 2) enjoy full
           // bi-directional bandwith.
@@ -433,34 +435,42 @@ std::list<Expr*> processForLoopBodies(
           if_sending_to_self->elseBody().push_back(send);
           if_sending_to_self->elseBody().push_back(end_coalescing);
           if_sending_to_self->elseBody().push_back(wait);
-        } else if (communicator_backend == CommunicatorBackend::kCuda) {
-          auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
-              std::vector<P2PCommunication*>({recv, send}));
-          auto wait_send = IrBuilder::create<hir::Wait>(send);
-          auto wait_recv = IrBuilder::create<hir::Wait>(recv);
-
-          if_sending_to_self->elseBody().push_back(share_mem_handles);
-          if (getP2pProtocol() == P2pProtocol::Put) {
-            if_sending_to_self->elseBody().push_back(recv);
-            if_sending_to_self->elseBody().push_back(send);
-          } else if (getP2pProtocol() == P2pProtocol::Get) {
-            if_sending_to_self->elseBody().push_back(send);
-            if_sending_to_self->elseBody().push_back(recv);
-          } else {
-            NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
-          }
-          if_sending_to_self->elseBody().push_back(wait_recv);
-          // Defer the wait on send to the loop epilogue under the same
-          // predicate
-          auto* deferred_wait_if = IrBuilder::create<kir::IfThenElse>(
-              if_sending_to_self->input(0)->as<kir::Predicate>());
-          deferred_wait_if->elseBody().push_back(wait_send);
-          new_loop_body_epilogue.push_back(deferred_wait_if);
         } else {
-          NVF_THROW(
-              "Unsupported communicator backend for lowering stream parallel "
-              "type into p2p: ",
-              communicator_backend);
+          if (communicator_backend == CommunicatorBackend::kNccl) {
+            auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+            auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+            auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
+            if_sending_to_self->elseBody().push_back(start_coalescing);
+            if_sending_to_self->elseBody().push_back(recv);
+            if_sending_to_self->elseBody().push_back(send);
+            if_sending_to_self->elseBody().push_back(end_coalescing);
+            if_sending_to_self->elseBody().push_back(wait);
+          } else if (communicator_backend == CommunicatorBackend::kCuda) {
+          auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
+                std::vector<P2PCommunication*>({recv, send}));
+            auto wait_send = IrBuilder::create<hir::Wait>(send);
+            auto wait_recv = IrBuilder::create<hir::Wait>(recv);
+            if_sending_to_self->elseBody().push_back(share_mem_handles);
+            if (getP2pProtocol() == P2pProtocol::Put) {
+              if_sending_to_self->elseBody().push_back(recv);
+              if_sending_to_self->elseBody().push_back(send);
+            } else if (getP2pProtocol() == P2pProtocol::Get) {
+              if_sending_to_self->elseBody().push_back(send);
+              if_sending_to_self->elseBody().push_back(recv);
+            } else {
+              NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
+            }
+            if_sending_to_self->elseBody().push_back(wait_recv);
+            // Defer the wait on send to the loop epilogue under the same
+            // predicate
+            auto* deferred_wait_if = IrBuilder::create<kir::IfThenElse>(
+                if_sending_to_self->input(0)->as<kir::Predicate>());
+            deferred_wait_if->elseBody().push_back(wait_send);
+            new_loop_body_epilogue.push_back(deferred_wait_if);
+          } else {
+            NVF_ERROR("Unsupported communicator backend for lowering stream parallel type into p2p: ", communicator_backend);
+          }
+
         }
 
         new_loop_body.push_back(slicing_output);
@@ -617,7 +627,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
 
   // Step 3: Process for-loop bodies by slicing tensors
   top_level_exprs = processForLoopBodies(
-      std::move(top_level_exprs), id_model, params_.communicator_backend);
+      std::move(top_level_exprs), id_model, params_);
 
   // Step 4: Add stream management and synchronization
   top_level_exprs = addStreamManagement(std::move(top_level_exprs));

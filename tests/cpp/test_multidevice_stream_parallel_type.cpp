@@ -397,7 +397,22 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
-TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
+class StreamParallelBackendTest
+    : public MultiDeviceStreamParallelTypeTest,
+      public testing::WithParamInterface<
+          std::tuple<bool, CommunicatorBackend>> {};
+
+TEST_P(StreamParallelBackendTest, AllgatherP2p) {
+  auto [do_swizzle, backend] = GetParam();
+
+//   if (do_swizzle && backend != CommunicatorBackend::kCuda) {
+//     GTEST_SKIP() << "Swizzle=true requires kCuda backend";
+//   }
+
+//   if (!communicator_->isBackendAvailable(backend)) {
+//     GTEST_SKIP() << "Backend not available";
+//   }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -412,7 +427,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  MultiDeviceExecutorParams params;
+  params.lower.do_swizzle_in_stream_lowering = do_swizzle;
+  params.lower.communicator_backend = backend;
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   const hir::HostIrContainer& container =
       executor.hostIrEvaluator()->container();
@@ -435,7 +454,17 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
       << "Output: " << output << "\nExpected: " << unsharded_input;
 }
 
-TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
+TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
+  auto [do_swizzle, backend] = GetParam();
+
+//   if (do_swizzle && backend != CommunicatorBackend::kCuda) {
+//     GTEST_SKIP() << "Swizzle=true requires kCuda backend";
+//   }
+
+//   if (!communicator_->isBackendAvailable(backend)) {
+//     GTEST_SKIP() << "Backend not available";
+//   }
+
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
   constexpr int64_t N = 1024;
@@ -464,7 +493,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  MultiDeviceExecutorParams params;
+  params.lower.do_swizzle_in_stream_lowering = do_swizzle;
+  params.lower.communicator_backend = backend;
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   const hir::HostIrContainer& container =
       executor.hostIrEvaluator()->container();
@@ -489,5 +522,22 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
   auto t2_ref = at::matmul(t0_unsharded, t1);
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    StreamParallelBackendTest,
+    testing::Combine(
+        testing::Bool(),
+        testing::Values(
+            CommunicatorBackend::kNccl,
+            CommunicatorBackend::kCuda)),
+    [](const testing::TestParamInfo<std::tuple<bool, CommunicatorBackend>>&
+           info) {
+      std::string swizzle = std::get<0>(info.param) ? "Swizzle" : "Broadcast";
+      std::string backend =
+          std::get<1>(info.param) == CommunicatorBackend::kNccl ? "Nccl"
+                                                                : "Cuda";
+      return swizzle + "_" + backend;
+    });
 
 } // namespace nvfuser
