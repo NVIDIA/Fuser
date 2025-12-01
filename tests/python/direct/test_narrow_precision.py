@@ -67,6 +67,39 @@ def nvfp4_quantize_with_te(input_tensor):
         return None
 
 
+def compute_nvfp4_global_scale(tensor, device):
+    """Compute global scale factor for NVFP4 quantization.
+
+    Args:
+        tensor: Input tensor to compute scale for
+        device: Device to create constant tensors on
+
+    Returns:
+        Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor))
+    """
+    amax = torch.max(torch.abs(tensor)).to(torch.float32)
+    float4_max = torch.tensor(6.0, device=device, dtype=torch.float32)
+    float8_max = torch.tensor(448.0, device=device, dtype=torch.float32)
+    return torch.div(float8_max * float4_max, amax)
+
+
+def extract_te_nvfp4_metadata(input_tensor):
+    """Quantize tensor with TE and extract quantization metadata.
+
+    Args:
+        input_tensor: Input tensor to quantize
+
+    Returns:
+        Tuple of (quantized_data, scale_inv, global_scale)
+    """
+    nvfp4_tensor = nvfp4_quantize_with_te(input_tensor)
+    metadata = nvfp4_tensor.get_metadata()
+    quantized_data = metadata["rowwise_data"]
+    scale_inv = metadata["rowwise_scale_inv"]
+    global_scale = compute_nvfp4_global_scale(input_tensor, input_tensor.device)
+    return quantized_data, scale_inv, global_scale
+
+
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
@@ -209,6 +242,148 @@ def test_scaled_mm(
         * alpha
     )
     torch.testing.assert_close(outputs[0], ref_outputs, rtol=1e-1, atol=1e-2)
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.parametrize("config", [[1024, 1024, 1024]])
+@pytest.mark.parametrize("out_dtype", [torch.bfloat16])
+def test_scaled_mm_new(
+    nvfuser_direct_test,
+    config,
+    out_dtype,
+):
+    """Test scaled_mm with on-the-fly quantization vs pre-quantized baseline.
+
+    Compares nvfuser's nv_block_quantize (quantizing mat1 on-the-fly) against
+    a baseline using pre-quantized inputs from Transformer Engine.
+    """
+    m, k, n = config
+    mat1_ref = torch.randn((m, k), dtype=torch.bfloat16, device="cuda")
+    mat2_ref = torch.randn((n, k), dtype=torch.bfloat16, device="cuda")
+
+    # Quantize both matrices using Transformer Engine
+    mat1_quantized, mat1_scale_inv, global_sf1 = extract_te_nvfp4_metadata(mat1_ref)
+    mat2_quantized, mat2_scale_inv, global_sf2 = extract_te_nvfp4_metadata(mat2_ref)
+
+    # Convert to appropriate dtypes for scaled_mm
+    mat2_quantized = mat2_quantized.view(torch.float4_e2m1fn_x2)
+    mat2_scale_inv = mat2_scale_inv.view(torch.float8_e4m3fn)
+
+    # Alpha compensates for both quantization scales
+    alpha = 1.0 / (global_sf1 * global_sf2)
+
+    # Prepare inputs for fusion with on-the-fly quantization
+    inputs_with_quantize = [
+        mat1_ref,
+        mat2_quantized.t(),
+        global_sf1,
+        linear_to_swizzled_128_4(mat2_scale_inv),
+        alpha,
+    ]
+
+    # Fusion 1: Quantize mat1 on-the-fly using nv_block_quantize
+    def fusion_with_nv_block_quantize(fd: FusionDefinition) -> None:
+        """Defines fusion that quantizes mat1 on-the-fly before scaled_mm."""
+        mat1_bf16 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
+        )
+        mat2_fp4 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=DataType.Float4_e2m1fn,
+            is_cpu=False,
+            stride_order=[0, 1],
+        )
+        global_scale = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        scale2 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        alpha = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+
+        # Quantize mat1 on-the-fly
+        mat1_fp4, scale1 = fd.ops.nv_block_quantize(mat1_bf16, global_scale, True, 16)
+
+        # Perform scaled matrix multiplication
+        out, _, _ = fd.ops.scaled_mm(
+            mat1_fp4,
+            mat2_fp4,
+            scale1,
+            scale2,
+            alpha,
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
+        )
+        fd.add_output(out)
+
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_with_nv_block_quantize, inputs_with_quantize
+    )
+
+    # Fusion 2: Baseline using pre-quantized inputs
+    inputs_baseline = [
+        mat1_quantized.view(torch.float4_e2m1fn_x2),
+        mat2_quantized.t(),
+        linear_to_swizzled_128_4(mat1_scale_inv.view(torch.float8_e4m3fn)),
+        linear_to_swizzled_128_4(mat2_scale_inv),
+        alpha,
+    ]
+
+    def fusion_baseline(fd: FusionDefinition) -> None:
+        """Defines baseline fusion using pre-quantized inputs."""
+        mat1_fp4 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False
+        )
+        mat2_fp4 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=DataType.Float4_e2m1fn,
+            is_cpu=False,
+            stride_order=[0, 1],
+        )
+        scale1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        scale2 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        alpha = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+
+        out, _, _ = fd.ops.scaled_mm(
+            mat1_fp4,
+            mat2_fp4,
+            scale1,
+            scale2,
+            alpha,
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
+        )
+        fd.add_output(out)
+
+    outputs_baseline, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_baseline, inputs_baseline
+    )
+
+    # Validate: nvfuser quantization should match baseline
+    abs_diff = torch.abs(outputs[0] - outputs_baseline[0])
+    max_diff = torch.max(abs_diff)
+    assert max_diff <= 10.0, f"Max difference {max_diff:.4f} exceeds threshold of 10.0"
+
+    # Check that large differences (> 5.0) are rare (< 10% of elements)
+    large_diff_count = torch.count_nonzero(torch.gt(abs_diff, 5.0))
+    large_diff_ratio = large_diff_count / abs_diff.numel()
+    assert (
+        large_diff_ratio < 0.1
+    ), f"Large diff ratio {large_diff_ratio:.2%} exceeds 10% threshold"
 
 
 @pytest.mark.skipif(
