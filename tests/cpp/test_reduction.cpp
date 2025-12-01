@@ -2627,4 +2627,252 @@ TEST_F(ReductionTest, TensorRankLimit) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Test demonstrating TMA (Tensor Memory Accelerator) based reduction with
+// manual scheduling.
+//
+// This test performs a simple row-wise reduction (sum along dimension 1):
+//   Input:  tv0[16384, 10240] - 2D tensor
+//   Output: tv1[16384] - reduced along the inner dimension
+//
+// The scheduling strategy creates a multi-stage reduction pipeline:
+//   1. TMA load: Global memory -> Shared memory (using CpAsyncBulk, 1D TMA, no
+//   256 size limitation)
+//   2. Local reduction: Shared memory -> Thread-local registers
+//   3. Block reduction: Cross-thread reduction using TIDx parallelization
+//   4. Store: Final results to global memory
+TEST_F(ReductionTest, TmaSimple) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // ===== Fusion Definition =====
+  // Define a simple reduction operation: sum along dimension 1
+  // Input:  tv0[Iteration, Reduction] where:
+  //         - Iteration dimension (dim 0): preserved in output
+  //         - Reduction dimension (dim 1): reduced via summation
+  // Output: tv1[Iteration] - result after reduction
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  fusion->addOutput(tv1);
+  auto fusion_copy = *fusion;
+
+  // ===== Test Input Setup =====
+  // Create a large input tensor (16384 x 10240)
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({16384, 10240}, options);
+
+  // ===== Scheduling Strategy Selection =====
+  // Toggle between automatic scheduling (FusionExecutorCache) and manual
+  // scheduling (explicit transformations below). Manual scheduling demonstrates
+  // fine-grained control over TMA usage and reduction parallelization.
+  bool is_auto_schedule = false;
+  if (is_auto_schedule) {
+    // Auto-schedule path: Let the scheduler automatically determine optimal
+    // transformations and parallelization.
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+
+  // ===== Manual Scheduling: TMA Load Setup =====
+  // Create a shared memory cache stage for TMA loading from global memory.
+  // Data flow transformation:
+  //   Before: tv0(global) -> tv1(global)
+  //   After:  tv0(global) -> tv0smem(shared) -> tv1(global)
+  //
+  // CpAsyncBulk (TMA instruction) efficiently copies entire rows
+  auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0smem->setMemoryType(MemoryType::Shared);
+
+   Parallelization for TMA load:
+  //   - axis(0) [BIDx]: Each block handles one row of the input
+  //   - axis(1) [Bulk]: TMA performs bulk transfer of entire row
+  // No domain transformations needed; TMA operates on the original layout
+  tv0smem->axis(0)->parallelize(ParallelType::BIDx);
+   tv0smem->axis(1)->parallelize(ParallelType::Bulk);
+
+   // ===== Reduction Cache Setup =====
+   // Insert a cache stage before the output to enable register-based reduction.
+   // Data flow transformation:
+   //   Before: tv0 -> tv0smem -> tv1(global)
+   //   After:  tv0 -> tv0smem -> tv1regs(reduction) -> tv1(global)
+   //
+   // tv1regs will hold reduction results in registers before writing to global
+   // m mory.
+   auto tv1regs = tv1->cacheBefore();
+   auto redu_tv = tv1regs;
+   fusion->printMath();
+
+   // ===== Reduction Domain Parallelization =====
+   // Strategy:
+   //   - Iteration domain (axis 0): Parallelize with BIDx (one block per
+   //   output)
+   //   - Reduction domain (axis 1): Split into chunks for parallel processing.
+   // Vectorization and thread parallelization parameters:
+   // Process 4 elements per iteration, can be further used for vectorized load
+   // f om shared memory to registers.3
+  e 256 threads per block for reduction
+  const int64_t vect = 4;
+
+  int64_t tidx = 256;
+
+  //
+
+  transformations for reduction parallelization:
+  // Original: [I, R] where I=16384 (iteration), R=10240 (reduction)
+
+  // Spl
+
+  Separate vectorization dimension
+  // [I, R] -> [I, R/Vect, Vect]
+  redu_tv->split(1, vect);
+
+  // Split
+
+  parate thread parallelization dimension
+      // [I, R/Vect, Vect] -> [I, R/Vect/TIDx, TIDx, Vect]
+      redu_tv->split(1, tidx);
+
+  // Resulting domain structure: [I, R/(Vect*TIDx), TIDx, Vect]
+  //   - axis(0) [I]: Iteration domain, one block per output element
+  //   - axis(1) [R/(Vect*TIDx)]: Serial loop over reduction chunks
+  //   - axis(2) [TIDx]: Parallel reduction across 256 threads
+  //   - axis(3) [Vect]: Serial vectorization (4 elements per thread)
+
+  // Apply p
+
+  lization annotations : redu_tv->axis(0)->parallelize(
+                             ParallelType::BIDx); // Block par lism
+  redu_tv->axis(1)->parallelize(ParallelType::Serial); // Serial redu ion loop
+  redu_tv->axis(2)->parallelize(ParallelType::TIDx); // Thread pa elism
+  redu_tv->axis(3)->parallelize(ParallelType::Serial); // Serial vect ization
+  // Note: We use Serial for axis(3) instead of vectorized ops because
+  // we don't have vectorized computation.
+
+  // ===== rFactor Transformation =====
+  // Apply rFactor to split the reduction into two stages:
+  //   1. Thread-local reduction (ref_tv): Each thread reduces its assigned
+  //      elements into thread-local storage
+  //   2. Cross-thread reduction (tv1regs): Combine results across threads
+  //      using block-level synchronization
+  //
+  // Data flow transformation:
+  //   Before: tv0 -> tv0smem -> tv1regs(full reduction) -> tv1
+  //   After:  tv0 -> tv0smem -> ref_tv(local) -> tv1regs(block) -> tv1
+  //
+  // rFactor axes {1, 3} correspond to the Serial dimensions that will be
+  // reduced in the first stage, leaving cross-thread reduction for stage 2.
+  auto ref_tv = redu_tv->rFactor({1, 3});
+  std::cout << "ref_tv: " << ref_tv->toString() << std::endl;
+  ref_tv->printTransforms();
+
+  // ===== Output Parallelization =====
+  // The final output tv1 has a single dimension (iteration domain after
+  // reduction). Parallelize with BIDx so each block writes its result.
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  fusion->printMath();
+
+  // ===== Kernel Compilation and Execution =====
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ReductionTest, TmaUnrollUnswitch) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Input:  tv0[Iteration, Reduction]
+  // Output: tv1 = sum(tv0, 1)
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = sum(tv0, {1});
+  fusion->addOutput(tv1);
+  auto fusion_copy = *fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({16384, 10240}, options);
+
+  bool is_auto_schedule = false;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion));
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+  // Before: tv0 -> tv1
+  // After:  tv0 -> tv0smem -> tv1
+  // Don't need any transform, just paralellize [BIDx, 1DTMA]
+  auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0smem->setMemoryType(MemoryType::Shared);
+  tv0smem->axis(0)->parallelize(ParallelType::BIDx);
+  tv0smem->axis(1)->parallelize(ParallelType::Bulk);
+
+  // Before tv0 -> tv0smem -> tv1
+  // After:  tv0 -> tv0smem -> tv1regs(Reduction) -> tv1
+  auto tv1regs = tv1->cacheBefore();
+  auto redu_tv = tv1regs;
+  fusion->printMath();
+
+  // For computations:
+  // Iteration domain: parallelize with [BIDx]
+  // Reduction domain: paraleliize with [Serial, TIDx, Vect]
+  const int64_t vect = 4, tidx = 256;
+  const bool is_unswitch = true;
+  const int64_t inner_unroll_factor = 2;
+  int64_t unswitch_pos = 2, vect_pos = 3;
+  // [I, R] -> [I, R/Vect, Vect]
+  redu_tv->split(1, vect);
+  // [I, R/Vect, Vect] -> [I, R/Vect/TIDx, TIDx, Vect]
+  redu_tv->split(1, tidx);
+
+  // [I, R/Vect/TIDx, TIDx, Vect] -> [I, R/Vect/TIDx/Unroll, Unroll, TIDx, Vect]
+  if (inner_unroll_factor > 1) {
+    redu_tv->split(1, inner_unroll_factor);
+    vect_pos++;
+  }
+
+  if (is_unswitch) {
+    // [I, R/Vect/TIDx/Unroll, Unswitch, Unroll, TIDx, Vect]
+    redu_tv->split(1, 1);
+    vect_pos++;
+  }
+
+  // set parallelization
+  redu_tv->axis(0)->parallelize(ParallelType::BIDx);
+  redu_tv->axis(1)->parallelize(ParallelType::Serial);
+  if (is_unswitch) {
+    redu_tv->axis(unswitch_pos)->parallelize(ParallelType::Unswitch);
+  }
+  redu_tv->axis(vect_pos - 1)->parallelize(ParallelType::TIDx);
+  redu_tv->axis(vect_pos)->parallelize(ParallelType::Serial);
+
+  // Before tv0 -> tv0smem -> tv1regs(Reduction) -> tv1
+  // After: tv0 -> tv0smem -> ref_tv (local reduction) -> tv1regs(block
+  // reduction) -> tv1
+  std::vector<int64_t> rfactor_axes;
+  for (int64_t i = 0; i < redu_tv->nDims(); i++) {
+    if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
+      rfactor_axes.push_back(i);
+    }
+  }
+  auto ref_tv = redu_tv->rFactor(rfactor_axes);
+  std::cout << "ref_tv: " << ref_tv->toString() << std::endl;
+  ref_tv->printTransforms();
+
+  // output tv has only one domain, parallelize with [BIDx]
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  fusion->printMath();
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
+                
