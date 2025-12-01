@@ -1747,4 +1747,144 @@ TEST_F(Tutorial, MetaLinearHang) {
   std::cout.flush();
 }
 
+TEST_F(Tutorial, MetaLinearHangViaLinearOp) {
+  // Test to reproduce hanging at::linear call using LinearOp::evaluate
+  // This tests the actual nvfuser code path through LinearOp
+  
+  std::cout << "[TEST] Creating fusion with LinearOp" << std::endl;
+  std::cout.flush();
+  
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  
+  // Create input tensors matching the hanging scenario
+  // Input: [2, 4, 16], Weight: [16, 16], both bfloat16
+  auto tv_input = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv_weight = makeSymbolicTensor(2, DataType::BFloat16);
+  
+  fusion->addInput(tv_input);
+  fusion->addInput(tv_weight);
+  
+  // Create linear operation (no bias)
+  auto tv_output = linear(tv_input, tv_weight);
+  fusion->addOutput(tv_output);
+  
+  if (verbose_) {
+    std::cout << "[TEST] Fusion definition:" << std::endl;
+    fusion->printMath();
+    std::cout.flush();
+  }
+  
+  // Create meta tensors with exact shapes from debug output
+  std::cout << "[TEST] Creating meta tensors with exact shapes" << std::endl;
+  std::cout.flush();
+  
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kMeta);
+  
+  std::cout << "[TEST] Creating input tensor: [2, 4, 16] with strides [64, 16, 1]" << std::endl;
+  std::cout.flush();
+  at::Tensor input_tensor = at::empty_strided(
+      {2, 4, 16},      // sizes
+      {64, 16, 1},     // strides
+      options);
+  
+  std::cout << "[TEST] Input tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < input_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << input_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < input_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << input_tensor.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << input_tensor.dtype() << std::endl;
+  std::cout << "  device: " << input_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[TEST] Creating weight tensor: [16, 16] with strides [16, 1]" << std::endl;
+  std::cout.flush();
+  at::Tensor weight_tensor = at::empty_strided(
+      {16, 16},        // sizes
+      {16, 1},         // strides
+      options);
+  
+  std::cout << "[TEST] Weight tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < weight_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < weight_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight_tensor.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << weight_tensor.dtype() << std::endl;
+  std::cout << "  device: " << weight_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  // Now get the LinearOp and call its evaluate method directly
+  std::cout << "[TEST] Finding LinearOp in fusion" << std::endl;
+  std::cout.flush();
+  
+  // The output tensor's definition should be a LinearOp
+  ASSERT_TRUE(tv_output->definition() != nullptr);
+  ASSERT_TRUE(tv_output->definition()->isA<LinearOp>());
+  
+  auto linear_op = tv_output->definition()->as<LinearOp>();
+  std::cout << "[TEST] Found LinearOp: " << linear_op->toString() << std::endl;
+  std::cout.flush();
+  
+  // Create ExpressionEvaluator (though we won't use it for this test)
+  ExpressionEvaluator ee;
+  
+  // Prepare inputs vector for LinearOp::evaluate
+  std::vector<PolymorphicValue> inputs;
+  inputs.push_back(input_tensor);
+  inputs.push_back(weight_tensor);
+  
+  std::cout << "[TEST] Calling LinearOp::evaluate - THIS MAY HANG!" << std::endl;
+  std::cout << "[TEST] This will internally call at::linear(input, weight)" << std::endl;
+  std::cout << "========================================================================" << std::endl;
+  std::cout.flush();
+  
+  // Call LinearOp::evaluate - this should trigger the hang
+  auto result = linear_op->evaluate(ee, inputs);
+  
+  std::cout << "========================================================================" << std::endl;
+  std::cout << "[TEST] LinearOp::evaluate completed successfully!" << std::endl;
+  std::cout.flush();
+  
+  // Verify result
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_TRUE(result[0].is<at::Tensor>());
+  
+  auto result_tensor = result[0].as<at::Tensor>();
+  std::cout << "[TEST] Result tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < result_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << result_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << result_tensor.dtype() << std::endl;
+  std::cout << "  device: " << result_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  // Verify expected shape [2, 4, 16]
+  ASSERT_EQ(result_tensor.dim(), 3);
+  ASSERT_EQ(result_tensor.size(0), 2);
+  ASSERT_EQ(result_tensor.size(1), 4);
+  ASSERT_EQ(result_tensor.size(2), 16);
+  
+  std::cout << "[TEST] Test completed successfully!" << std::endl;
+  std::cout.flush();
+}
+
 } // namespace nvfuser
