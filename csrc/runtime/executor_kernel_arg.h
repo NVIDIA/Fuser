@@ -7,18 +7,18 @@
 // clang-format on
 #pragma once
 
+#include <cstddef>
+#include <optional>
+#include <vector>
+
 #include <ATen/core/ivalue.h>
+
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
 #include <serde/fusion_cache_generated.h>
-#include <torch/csrc/jit/ir/ir.h>
 #include <type.h>
 #include <visibility.h>
-
-#include <cstddef>
-#include <optional>
-#include <vector>
 
 namespace nvfuser {
 

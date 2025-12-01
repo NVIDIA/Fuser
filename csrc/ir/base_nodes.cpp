@@ -5,11 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/base_nodes.h>
+
+#include <string>
+#include <unordered_map>
+
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
@@ -17,11 +21,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-
-#include <torch/csrc/jit/ir/ir.h>
-
-#include <string>
-#include <unordered_map>
 
 namespace nvfuser {
 
