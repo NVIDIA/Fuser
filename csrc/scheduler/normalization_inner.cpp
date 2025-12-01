@@ -67,7 +67,7 @@ std::pair<int64_t, int64_t> getPersistentBufferSizeBit(
           can_use_smem_persistent,
           project_persistent_buffers);
   // If one SM doesn't have enough persistent buffer size, try multiple SMs.
-  // Current implmentation doesn't support 3D reduction with multiple SMs.
+  // Current implementation doesn't support 3D reduction with multiple SMs.
   if (!is_3d_reduction &&
       available_persistent_buffer_size_bit < persistent_buffer_size_bit) {
     available_persistent_buffer_size_bit *=
