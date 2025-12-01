@@ -4876,8 +4876,30 @@ std::string LinearOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> LinearOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  std::cout << "[DEBUG] LinearOp::evaluate - ENTRY" << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 1: Getting input tensor (inputs.size=" << inputs.size() << ")" << std::endl;
+  std::cout.flush();
   const auto in = inputs.at(0).as<at::Tensor>();
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 1a: Input tensor obtained, shape=[";
+  for (int64_t i = 0; i < in.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << in.size(i);
+  }
+  std::cout << "], device=" << in.device() << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 2: Getting weight tensor" << std::endl;
+  std::cout.flush();
   auto weight = inputs.at(1).as<at::Tensor>();
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 2a: Weight tensor obtained, shape=[";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.size(i);
+  }
+  std::cout << "], device=" << weight.device() << std::endl;
+  std::cout.flush();
 
   auto squeeze_device_dims = [](at::Tensor& t,
                                 int64_t num_device_dims) -> void {
@@ -4896,28 +4918,105 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
 
   // The squeezes and unsqueezes are currently required to support a sharded
   // linear layer. Remove them after #2563.
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 3: Calculating num_device_dims (weight.dim=" << weight.dim() << ")" << std::endl;
+  std::cout.flush();
   auto num_device_dims = weight.dim() - 2;
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 3a: num_device_dims=" << num_device_dims << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 4: Squeezing device dims from weight" << std::endl;
+  std::cout.flush();
   squeeze_device_dims(weight, num_device_dims);
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 4a: Weight squeezed, new shape=[";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 5: Checking hasBias (hasBias=" << hasBias() << ")" << std::endl;
+  std::cout.flush();
   at::Tensor out_tensor;
   if (hasBias()) {
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5a: Getting bias tensor" << std::endl;
+    std::cout.flush();
     auto bias = inputs.at(2).as<at::Tensor>();
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5b: Bias tensor obtained, shape=[";
+    for (int64_t i = 0; i < bias.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << bias.size(i);
+    }
+    std::cout << "], device=" << bias.device() << std::endl;
+    std::cout.flush();
+    
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5c: Squeezing device dims from bias" << std::endl;
+    std::cout.flush();
     squeeze_device_dims(bias, num_device_dims);
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5d: Bias squeezed, new shape=[";
+    for (int64_t i = 0; i < bias.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << bias.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout.flush();
+    
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5e: Calling at::linear with bias" << std::endl;
+    std::cout.flush();
     out_tensor = at::linear(in, weight, bias);
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5f: at::linear completed" << std::endl;
+    std::cout.flush();
   } else {
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5g: Calling at::linear without bias" << std::endl;
+    std::cout.flush();
     out_tensor = at::linear(in, weight);
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 5h: at::linear completed" << std::endl;
+    std::cout.flush();
   }
+  
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 6: at::linear result shape=[";
+  for (int64_t i = 0; i < out_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << out_tensor.size(i);
+  }
+  std::cout << "], device=" << out_tensor.device() << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 7: Unsqueezing output (num_device_dims=" << num_device_dims << ")" << std::endl;
+  std::cout.flush();
   for ([[maybe_unused]] auto _ : arange(num_device_dims)) {
     out_tensor = out_tensor.unsqueeze(0);
   }
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 7a: Unsqueezed output shape=[";
+  for (int64_t i = 0; i < out_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << out_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout.flush();
 
   // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 8: Checking rFactor device dimension index" << std::endl;
+  std::cout.flush();
   if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
       rfactor_did_idx != -1) {
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 8a: rFactor DID index=" << rfactor_did_idx << ", unsqueezing" << std::endl;
+    std::cout.flush();
     out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 8b: Final output shape=[";
+    for (int64_t i = 0; i < out_tensor.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << out_tensor.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout.flush();
+  } else {
+    std::cout << "[DEBUG] LinearOp::evaluate - STEP 8c: No rFactor DID, skipping unsqueeze" << std::endl;
+    std::cout.flush();
   }
 
+  std::cout << "[DEBUG] LinearOp::evaluate - STEP 9: Returning result" << std::endl;
+  std::cout.flush();
   return {out_tensor};
 }
 
