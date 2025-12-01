@@ -16,7 +16,6 @@
 #include <fusion.h>
 #include <ir/composite_nodes.h>
 #include <ir/interface_nodes.h>
-#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <scheduler/mma_utils.h>
