@@ -842,7 +842,11 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4b: Evaluating outputs" << std::endl;
       std::cout.flush();
       for (auto v : fusion_to_run->outputs()) {
-        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4b: Evaluating output" << std::endl;
+        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4b: Evaluating output:" << std::endl;
+        std::cout << v->toString() << std::endl;
+        if (v->definition()) {
+          std::cout << v->definition()->toString() << std::endl;
+        }
         std::cout.flush();
         auto result = eval_fusion.evaluate(v);
         group_runtime_outputs.push(result);

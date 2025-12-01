@@ -1,13 +1,3 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
-# All rights reserved.
-# SPDX-License-Identifier: BSD-3-Clause
-# Owner(s): ["module: nvfuser"]
-
-"""
-Standalone version of test_repro extracted from tests/python/test_python_frontend.py
-This test runs a fusion profiler test with noncodegen kernels and a gather test 1000 times.
-"""
-
 import sys
 import os
 
