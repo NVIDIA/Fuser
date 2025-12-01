@@ -206,9 +206,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   //    [tma_tile_inner/vect/bdimx, bdimx, vect]
   int64_t vectorization_factor = 1;
   constexpr int64_t max_vectorization_size_in_bit = 128;
-  const int64_t vect_factor_max = std::min(
+  int64_t vect_factor_max = std::min(
       max_vectorization_size_in_bit / prop.max_dtype_size_bit_for_vectorization,
       tma_tile_inner / bdimx);
+
+  // Conservatively set max vectorization factor to 1 before adding analsysis
+  // considering reshape operations.
+  vect_factor_max = std::min((int64_t)1, vect_factor_max);
+
   while (vectorization_factor * 2 <= vect_factor_max &&
          tma_tile_inner % (vectorization_factor * 2) == 0) {
     vectorization_factor *= 2;
@@ -274,6 +279,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   auto& schedule_info = schedule_info_opt.value();
 
   auto& cached_inputs = schedule_info.cached_inputs;
+  auto& cached_outputs = schedule_info.cached_outputs;
 
   // reference_tv: The tensor view used as a template for transformations
   TensorView* reference_tv = schedule_info.reference_tv;
@@ -402,12 +408,31 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   reference_tv->axis(3)->parallelize(inner_cord_pt); // Grid inner
   reference_tv->axis(5)->parallelize(ParallelType::TIDx); // Thread X
 
+  int64_t vect_pos = 6; // Position of vectorization axis
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
   // ========== Phase 7: Apply Vectorization ==========
   // Vectorize register <-> global memory transfers for non-TMA tensors
-  // This part will be added in the future. We need to check which outputs and
-  // inputs are vectorizable.
+
+  // Vectorize output stores (register -> global)
+  if (!pparams->use_tma_store && pparams->vectorization_factor > 1) {
+    for (const auto& [_, original_idx] : cached_outputs) {
+      auto output_tv =
+          dynamic_cast<TensorView*>(fusion->outputs().at(original_idx));
+      if (output_tv && vectorizable_io_tvs.contains(output_tv)) {
+        output_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
+
+  // Vectorize LDG input loads (global -> register)
+  if (pparams->vectorization_factor > 1) {
+    for (auto ldg_tv : ldg_tvs) {
+      if (vectorizable_io_tvs.contains(ldg_tv)) {
+        ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
 
   // ========== Phase 8: Inline Intermediate Operations ==========
   // Inline all intermediate computations to minimize register pressure
