@@ -4962,12 +4962,97 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
     std::cout.flush();
     
     std::cout << "[DEBUG] LinearOp::evaluate - STEP 5e: Calling at::linear with bias" << std::endl;
+    std::cout << "[DEBUG] LinearOp::evaluate - INPUT METADATA:" << std::endl;
+    std::cout << "  in.sizes: [";
+    for (int64_t i = 0; i < in.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << in.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  in.strides: [";
+    for (int64_t i = 0; i < in.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << in.stride(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  in.dtype: " << in.dtype() << std::endl;
+    std::cout << "  in.device: " << in.device() << std::endl;
+    std::cout << "  in.is_contiguous: " << in.is_contiguous() << std::endl;
+    std::cout << "  in.numel: " << in.numel() << std::endl;
+    std::cout << "[DEBUG] LinearOp::evaluate - WEIGHT METADATA:" << std::endl;
+    std::cout << "  weight.sizes: [";
+    for (int64_t i = 0; i < weight.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << weight.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  weight.strides: [";
+    for (int64_t i = 0; i < weight.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << weight.stride(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  weight.dtype: " << weight.dtype() << std::endl;
+    std::cout << "  weight.device: " << weight.device() << std::endl;
+    std::cout << "  weight.is_contiguous: " << weight.is_contiguous() << std::endl;
+    std::cout << "  weight.numel: " << weight.numel() << std::endl;
+    std::cout << "[DEBUG] LinearOp::evaluate - BIAS METADATA:" << std::endl;
+    std::cout << "  bias.sizes: [";
+    for (int64_t i = 0; i < bias.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << bias.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  bias.strides: [";
+    for (int64_t i = 0; i < bias.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << bias.stride(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  bias.dtype: " << bias.dtype() << std::endl;
+    std::cout << "  bias.device: " << bias.device() << std::endl;
+    std::cout << "  bias.is_contiguous: " << bias.is_contiguous() << std::endl;
+    std::cout << "  bias.numel: " << bias.numel() << std::endl;
     std::cout.flush();
     out_tensor = at::linear(in, weight, bias);
     std::cout << "[DEBUG] LinearOp::evaluate - STEP 5f: at::linear completed" << std::endl;
     std::cout.flush();
   } else {
     std::cout << "[DEBUG] LinearOp::evaluate - STEP 5g: Calling at::linear without bias" << std::endl;
+    std::cout << "[DEBUG] LinearOp::evaluate - INPUT METADATA:" << std::endl;
+    std::cout << "  in.sizes: [";
+    for (int64_t i = 0; i < in.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << in.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  in.strides: [";
+    for (int64_t i = 0; i < in.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << in.stride(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  in.dtype: " << in.dtype() << std::endl;
+    std::cout << "  in.device: " << in.device() << std::endl;
+    std::cout << "  in.is_contiguous: " << in.is_contiguous() << std::endl;
+    std::cout << "  in.numel: " << in.numel() << std::endl;
+    std::cout << "[DEBUG] LinearOp::evaluate - WEIGHT METADATA:" << std::endl;
+    std::cout << "  weight.sizes: [";
+    for (int64_t i = 0; i < weight.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << weight.size(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  weight.strides: [";
+    for (int64_t i = 0; i < weight.dim(); i++) {
+      if (i > 0) std::cout << ", ";
+      std::cout << weight.stride(i);
+    }
+    std::cout << "]" << std::endl;
+    std::cout << "  weight.dtype: " << weight.dtype() << std::endl;
+    std::cout << "  weight.device: " << weight.device() << std::endl;
+    std::cout << "  weight.is_contiguous: " << weight.is_contiguous() << std::endl;
+    std::cout << "  weight.numel: " << weight.numel() << std::endl;
     std::cout.flush();
     out_tensor = at::linear(in, weight);
     std::cout << "[DEBUG] LinearOp::evaluate - STEP 5h: at::linear completed" << std::endl;
