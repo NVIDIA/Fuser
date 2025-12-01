@@ -60,6 +60,68 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
 // TODO: Refactor this and the allocation lowering pass
 class AllocationDomainSetup : private kir::IrVisitor {
  private:
+  // In general, if the tensor has an allocation domain set, it
+  // should be used with no change. However, set allocation domains
+  // are not always right allocation domains. For example,
+  // AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
+  // is a Local tensor with CA position of 4 but has an allocation
+  // domain that's just a permutation of its logical domain. Such
+  // invalid allocations need to be ignored. If there doesn't seem
+  // to be any clear condition when the set domain can be used, so
+  // it needs to be inferred. Here's what seems to be working
+  // reasonably well.
+  bool canUsePresetAllocationDomain(TensorView* tv) {
+    if (!tv->hasAllocation()) {
+      return false;
+    }
+    // Honor the allocation domain if the tensor is global or Hopper MMA's
+    // output
+    if (tv->getMemoryType() == MemoryType::Global ||
+        (tv->definition()->isA<MmaOp>() &&
+         isHopper(tv->definition()->as<MmaOp>()->macro()))) {
+      return true;
+    }
+    // If it's a shared memory tensor, the set domain is likely
+    // valid if Swizzle or Bulk is used. Also, if the allocation
+    // domain is just a permutation of the loop domain, use the
+    // set allocation domain. This seems to happen only with
+    // AllocationDomainTest.TransposedIntermediate.
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      if (std::any_of(
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end(),
+              [](IterDomain* allocation_domain) {
+                return dynamic_cast<Swizzle*>(
+                           allocation_domain->definition()) != nullptr ||
+                    allocation_domain->getParallelType() == ParallelType::Bulk;
+              }) ||
+          std::is_permutation(
+              tv->getLoopDomain().begin(),
+              tv->getLoopDomain().end(),
+              tv->getAllocationDomain().begin(),
+              tv->getAllocationDomain().end())) {
+        return true;
+      }
+
+      // Honor the set allocation domain if the tensor is used by a
+      // TMA store or MmaOp
+      if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+            return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+          })) {
+        return true;
+      }
+
+      // If a shared memory output produced by scatter has an
+      // allocation domain explicitly set, it's likely to be the
+      // valid allocation domain.
+      if (auto def = tv->definition();
+          def != nullptr && def->isA<ScatterOp>()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // Helper function to check if an allocation domain should be excluded
   // Returns the excluded ID if found, nullptr otherwise.
   // An allocation domain should be excluded if it is not required to be
@@ -240,7 +302,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   getAllocationDomainsAndContiguity(
       TensorView* tv,
       const std::vector<kir::ForLoop*>& for_loops) {
-    if (ir_utils::canUsePresetAllocationDomain(tv)) {
+    if (canUsePresetAllocationDomain(tv)) {
       return usePresetAllocationDomain(tv, for_loops);
     }
     std::vector<IterDomain*> allocation_domains;

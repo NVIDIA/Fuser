@@ -861,18 +861,4 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 
-// In general, if the tensor has an allocation domain set, it
-// should be used with no change. However, set allocation domains
-// are not always right allocation domains. For example,
-// AliasTest.NotAllOutputAlias_Reduction has a tensor, tv6, that
-// is a Local tensor with CA position of 4 but has an allocation
-// domain that's just a permutation of its logical domain. Such
-// invalid allocations need to be ignored. If there doesn't seem
-// to be any clear condition when the set domain can be used, so
-// it needs to be inferred. Here's what seems to be working
-// reasonably well.
-bool canUsePresetAllocationDomain(
-    const TensorView* tv,
-    bool ignore_empty_alloc = true);
-
 } // namespace nvfuser::ir_utils
