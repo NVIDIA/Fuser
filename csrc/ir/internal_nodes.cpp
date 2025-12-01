@@ -18,11 +18,7 @@
 #include <ATen/TensorOptions.h>
 #include <ATen/Utils.h>
 #include <ATen/core/Tensor.h>
-#include <ATen/cuda/CUDAContextLight.h>
 #include <c10/core/SymInt.h>
-#include <c10/cuda/CUDAGraphsC10Utils.h>
-#include <torch/nn/functional/embedding.h>
-#include <torch/nn/options/embedding.h>
 
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -35,13 +31,7 @@
 #include <logical_domain_map.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
-#include <transform_iter.h>
-#include <transform_rfactor.h>
-#include <transform_view.h>
 #include <type.h>
-#if NVFUSER_CUTLASS_KERNEL_ENABLED
-#include <nvf_cutlass.h>
-#endif
 
 namespace nvfuser {
 
