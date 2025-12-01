@@ -149,18 +149,14 @@ SymMemForBroadcast::SymMemForBroadcast(
 SymMemForBroadcast::SymMemForBroadcast(
     at::Tensor buffer,
     int64_t root,
-    const std::string& name_suffix,
-    bool setup_buffer_unicast) {
+    const std::string& name_suffix) {
   std::string store_key_prefix = "nvls_export_mcast_handle_" + name_suffix;
 
   // Create symmetric tensor for the buffer
   buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
 
   // Setup multicast for the buffer
-  if (setup_buffer_unicast) {
-    buffer_sym_tensor_->setupRemoteHandles(
-        store_key_prefix + "_buffer_unicast");
-  }
+  buffer_sym_tensor_->setupRemoteHandles(store_key_prefix + "_buffer_unicast");
 
   // Setup multicast for the buffer
   buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
@@ -219,36 +215,41 @@ SymMemForAllgather::SymMemForAllgather(
   full_buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
   std::string full_buffer_suffix =
       std::to_string(communication->name()) + "_allgather_full";
+
+  // Setup Unicast
   full_buffer_sym_tensor_->setupRemoteHandles(
       "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_unicast");
 
   int64_t slice_numel = buffer.numel() / world_size;
   slice_size_bytes_ = slice_numel * buffer.element_size();
 
-  // Allgather is world_size broadcasts, each broadcasting a different slice
-  // of the output buffer. Create one SymMemForBroadcast per rank.
-  broadcast_handles_.reserve(world_size);
+  // Setup Multicast on full buffer
+  full_buffer_sym_tensor_->setupMulticast(
+      /*exporter_rank=*/0, "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
 
-  for (int64_t root_rank = 0; root_rank < world_size; ++root_rank) {
-    // Each rank gets a slice of the output buffer
-    // Flatten the tensor before slicing to ensure it is 1D
-    at::Tensor sliced_buffer = buffer.view({-1}).slice(
-        /*dim=*/0,
-        /*start=*/root_rank * slice_numel,
-        /*end=*/(root_rank + 1) * slice_numel);
-    // Create unique name suffix for this broadcast
-    std::string name_suffix = std::to_string(communication->name()) +
-        "_allgather_root" + std::to_string(root_rank);
+  // Allocate semaphores (one per rank) in a single symmetric tensor
+  at::Tensor semaphores = SymmetricTensor::allocate(
+      at::IntArrayRef({world_size}), at::ScalarType::Int, buffer.device());
 
-    // Create SymMemForBroadcast for this slice
-    // Pass setup_buffer_unicast=false to avoid setting up unicast on slices
-    broadcast_handles_.push_back(std::make_unique<SymMemForBroadcast>(
-        sliced_buffer, root_rank, name_suffix, /*setup_buffer_unicast=*/false));
-  }
+  // Init semaphores to kIdle
+  std::vector<IpcSemaphore> init_values(world_size, IpcSemaphore::kIdle);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphores.data_ptr(),
+      init_values.data(),
+      world_size * sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
+  semaphores_sym_tensor_->setupRemoteHandles(
+      "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_unicast");
+  semaphores_sym_tensor_->setupMulticast(
+      /*exporter_rank=*/0,
+      "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
 }
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->bufferMulticastPtr();
+  uint_8* base_ptr = (uint_8*)full_buffer_sym_tensor_->multicastPtr();
+  return base_ptr + (root_rank * slice_size_bytes_);
 }
 
 void* SymMemForAllgather::bufferUnicastPtr(int64_t root_rank, int64_t rank)
@@ -259,12 +260,15 @@ void* SymMemForAllgather::bufferUnicastPtr(int64_t root_rank, int64_t rank)
 }
 
 void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->semaphoreMulticastPtr();
+  uint_8* base_ptr = (uint_8*)semaphores_sym_tensor_->multicastPtr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 void* SymMemForAllgather::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
     const {
-  return broadcast_handles_[root_rank]->semaphoreUnicastPtr(rank);
+  uint_8* base_ptr =
+      (uint_8*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
