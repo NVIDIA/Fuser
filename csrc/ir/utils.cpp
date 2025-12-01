@@ -235,9 +235,7 @@ void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
 Expr* transferDefinitionToNewOutputs(
     Expr* expr,
     const std::vector<Val*>& new_outputs) {
-  NVF_ERROR(
-      new_outputs.size() == expr->outputs().size(),
-      "Number of new outputs must match old outputs");
+  NVF_ERROR_EQ(new_outputs.size(), expr->outputs().size());
   OptOutMutator mutator;
   for (const auto i : arange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
@@ -1748,7 +1746,9 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
 }
 
 void swizzleBlockScales(TensorView* tv) {
-  // auto original_loop = tv_block_scale_fp8->getLoopDomain();
+  NVF_ERROR(
+      tv && tv->getLoopDomain().size() == 2,
+      "we can only swizzle 2D block scales tvs");
   tv->split(0, 128);
   // m/128, 128, k
   tv->split(1, 32);

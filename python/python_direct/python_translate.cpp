@@ -1636,10 +1636,6 @@ class PythonTranslator : public OptInConstDispatch {
         KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
 
     auto dtype = bqop->quantizedOutput()->as<TensorView>()->dtype();
-    // If the block scales tensor has an allocation, then it had
-    // to have been swizzled.
-    auto swizzled_block_scale =
-        bqop->blockScales()->as<TensorView>()->hasAllocation();
     printer_.generateKwargsOperation(
         "fd.ops.nv_block_quantize",
         std::make_tuple(bqop->in()),
@@ -1647,7 +1643,7 @@ class PythonTranslator : public OptInConstDispatch {
         std::make_tuple(
             bqop->globalScale(),
             bqop->blockSize(),
-            swizzled_block_scale,
+            bqop->isSwizzledScales(),
             dtype),
         std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
   }

@@ -11,7 +11,7 @@
 #include <ir/all_nodes.h>
 #include <val_graph_nodes.h>
 
-#include <iostream>
+#include <ostream>
 #include <ranges>
 #include <string>
 #include <type_traits>
