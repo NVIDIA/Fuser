@@ -486,8 +486,8 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     // an Expr. So we create a temporary Expr to connect them and then
     // remove it right after.
     Expr* temp_e = ir_utils::replaceValInExprInputs(e, source, destination);
-    // Note that `e->outputs()`'s definition is `e` at this point because
-    // HostIrContainer is non-SSA.
+    // Because HostIrContainer is non-SSA, `e->outputs()`'s definition is still
+    // `e`, not `temp_e`, at this point.
     auto* ref_out = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(e->outputs()));
     ref_out->setDefinition(temp_e);

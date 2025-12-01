@@ -103,6 +103,29 @@ def test_two_matmuls_not_inlinable(nvfuser_direct_test):
         out.split(0, c, inner_split=False)
         out.axis(0).parallelize(ParallelType.stream)
 
+    # After sharding propagation, the IR looks like the following:
+    #
+    # in: [m, k]      w1: [k, n]
+    #                        /\
+    #                       c
+    #             |
+    #             | matmul
+    #             v
+    #          [m, n]      w2: [n, k]
+    #             /\
+    #            c
+    #                  |
+    #                  | matmul
+    #                  v
+    #           out: [m, k]
+    #                /\
+    #               c
+    #
+    # The first matmul is column-wise (dimension n) parallel, and the second
+    # row-wise (dimension m) parallel. They have to stay in different loops.
+    # Therefore, the output of the first matmul (of shape [m, n]) has to be
+    # fully allocated.
+
     inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.float32, device="cuda")
     w1 = torch.testing.make_tensor(3, c * 5, dtype=torch.float32, device="cuda")
     w2 = torch.testing.make_tensor(c * 5, 3, dtype=torch.float32, device="cuda")
