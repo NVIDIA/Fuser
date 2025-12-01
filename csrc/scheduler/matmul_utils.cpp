@@ -31,9 +31,6 @@
 #include <val_graph.h>
 
 #include <algorithm>
-#include <deque>
-#include <iostream>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <sstream>
