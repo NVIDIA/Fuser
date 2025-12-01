@@ -40,11 +40,10 @@ def check_cmake_version() -> Tuple[int, int, int]:
             "ERROR: CMake is not installed.\n\n"
             "CMake 3.18+ is required to configure the nvFuser build.\n"
             "CMake 3.18+ provides modern CUDA support features.\n\n"
-            "Install CMake:\n"
-            "  pip install cmake\n\n"
-            "Alternative (system install):\n"
-            "  sudo apt install cmake  # Ubuntu/Debian\n"
-            "  brew install cmake      # macOS"
+            "Install all build dependencies:\n"
+            "  pip install -r requirements.txt\n\n"
+            "Or install CMake individually:\n"
+            "  pip install 'cmake>=3.18'"
         )
     
     # Get CMake version
@@ -83,8 +82,10 @@ def check_cmake_version() -> Tuple[int, int, int]:
             f"ERROR: CMake 3.18+ is required to build nvFuser.\n"
             f"Found: CMake {major}.{minor}.{patch}\n\n"
             f"CMake 3.18+ is required for modern CUDA support features.\n\n"
-            f"Upgrade CMake:\n"
-            f"  pip install --upgrade cmake"
+            f"Install all build dependencies:\n"
+            f"  pip install -r requirements.txt\n\n"
+            f"Or upgrade CMake individually:\n"
+            f"  pip install --upgrade 'cmake>=3.18'"
         )
     
     # Success: print confirmation
@@ -95,7 +96,7 @@ def check_cmake_version() -> Tuple[int, int, int]:
 
 def check_ninja_installed() -> str:
     """
-    Check that Ninja build system is installed with minimum requirement (1.10+).
+    Check that Ninja build system is installed.
     
     Ninja provides fast parallel builds and is recommended for nvFuser.
     
@@ -103,7 +104,7 @@ def check_ninja_installed() -> str:
         str: Ninja version string
         
     Raises:
-        PrerequisiteMissingError: If Ninja is not installed or version is below 1.10
+        PrerequisiteMissingError: If Ninja is not installed
         
     Example:
         >>> version = check_ninja_installed()
@@ -115,12 +116,11 @@ def check_ninja_installed() -> str:
     if not shutil.which('ninja'):
         raise PrerequisiteMissingError(
             "ERROR: Ninja build system is not installed.\n\n"
-            "Ninja 1.10+ is required for fast parallel builds of nvFuser.\n\n"
-            "Install Ninja:\n"
-            "  pip install ninja\n\n"
-            "Alternative (system install):\n"
-            "  sudo apt install ninja-build  # Ubuntu/Debian\n"
-            "  brew install ninja            # macOS"
+            "Ninja is required for fast parallel builds of nvFuser.\n\n"
+            "Install all build dependencies:\n"
+            "  pip install -r requirements.txt\n\n"
+            "Or install Ninja individually:\n"
+            "  pip install ninja"
         )
     
     # Get Ninja version
@@ -141,31 +141,6 @@ def check_ninja_installed() -> str:
     # Parse version string
     # Expected format: "1.11.1" (just the version number)
     version_str = result.stdout.strip()
-    
-    # Extract version numbers using regex
-    version_match = re.search(r'(\d+)\.(\d+)\.(\d+)', version_str)
-    if not version_match:
-        # Try simpler pattern (major.minor)
-        version_match = re.search(r'(\d+)\.(\d+)', version_str)
-        if not version_match:
-            raise PrerequisiteMissingError(
-                f"ERROR: Could not parse Ninja version from: {version_str}\n\n"
-                f"Please ensure Ninja is installed correctly:\n"
-                f"  pip install ninja"
-            )
-    
-    version_parts = version_match.groups()
-    major = int(version_parts[0])
-    minor = int(version_parts[1])
-    
-    # Check minimum version requirement (1.10+)
-    if (major, minor) < (1, 10):
-        raise PrerequisiteMissingError(
-            f"ERROR: Ninja 1.10+ is required to build nvFuser.\n"
-            f"Found: Ninja {version_str}\n\n"
-            f"Upgrade Ninja:\n"
-            f"  pip install --upgrade ninja"
-        )
     
     # Success: print confirmation
     print(f"[nvFuser] Ninja: {version_str} ✓")

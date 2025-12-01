@@ -110,8 +110,10 @@ def check_pybind11_installed() -> str:
             "ERROR: pybind11 is not installed.\n\n"
             "pybind11 2.0+ is required to build nvFuser's Python bindings.\n"
             "The [global] extra provides CMake integration.\n\n"
-            "Install pybind11 with CMake support:\n"
-            "  pip install 'pybind11[global]'"
+            "Install all build dependencies:\n"
+            "  pip install -r requirements.txt\n\n"
+            "Or install pybind11 individually:\n"
+            "  pip install 'pybind11[global]>=2.0'"
         )
     
     # Check version
@@ -123,8 +125,10 @@ def check_pybind11_installed() -> str:
     except (ValueError, IndexError):
         raise PrerequisiteMissingError(
             f"ERROR: Could not parse pybind11 version: {version}\n\n"
-            f"Please reinstall pybind11:\n"
-            f"  pip install --force-reinstall 'pybind11[global]'"
+            f"Install all build dependencies:\n"
+            f"  pip install -r requirements.txt\n\n"
+            f"Or reinstall pybind11 individually:\n"
+            f"  pip install --force-reinstall 'pybind11[global]>=2.0'"
         )
     
     # Check minimum version requirement (2.0+)
@@ -132,8 +136,10 @@ def check_pybind11_installed() -> str:
         raise PrerequisiteMissingError(
             f"ERROR: pybind11 2.0+ is required to build nvFuser.\n"
             f"Found: pybind11 {version}\n\n"
-            f"Upgrade pybind11:\n"
-            f"  pip install --upgrade 'pybind11[global]'"
+            f"Install all build dependencies:\n"
+            f"  pip install -r requirements.txt\n\n"
+            f"Or upgrade pybind11 individually:\n"
+            f"  pip install --upgrade 'pybind11[global]>=2.0'"
         )
     
     # Check for CMake support
@@ -149,8 +155,10 @@ def check_pybind11_installed() -> str:
         raise PrerequisiteMissingError(
             "ERROR: pybind11 is installed without CMake support.\n\n"
             f"Found: pybind11 {version} (too old)\n\n"
-            "Install pybind11 2.0+ with CMake support:\n"
-            "  pip install --upgrade 'pybind11[global]'"
+            "Install all build dependencies:\n"
+            "  pip install -r requirements.txt\n\n"
+            "Or upgrade pybind11 individually:\n"
+            "  pip install --upgrade 'pybind11[global]>=2.0'"
         )
     
     # Verify the cmake directory exists and contains config files
@@ -159,8 +167,10 @@ def check_pybind11_installed() -> str:
         raise PrerequisiteMissingError(
             "ERROR: pybind11 CMake configuration is missing or invalid.\n\n"
             f"Found: pybind11 {version} (CMake dir: {cmake_dir})\n\n"
-            "Reinstall pybind11 with CMake support:\n"
-            "  pip install --force-reinstall 'pybind11[global]'"
+            "Install all build dependencies:\n"
+            "  pip install -r requirements.txt\n\n"
+            "Or reinstall pybind11 individually:\n"
+            "  pip install --force-reinstall 'pybind11[global]>=2.0'"
         )
     
     # Success: print confirmation
