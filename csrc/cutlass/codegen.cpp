@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <cutlass/codegen.h>
 #include <cutlass/gemm.h>
 #include <exceptions.h>
 #include <type.h>
@@ -57,17 +58,20 @@ std::string dtypeToCutlass(const DataType& dtype, bool force_unsigned) {
         // TODO: if block scaling is tied to element type in nvFuser in the
         // future we can update this mapping
         return "cutlass::float_e2m1_t";
-      default:
-        NVF_THROW(
-            "nvFuser DataType ",
-            dtype,
-            " is not supported in our CUTLASS executor");
+      case (DataType::ComplexFloat):
+        return "cutlass::complex<float>";
+      case (DataType::ComplexDouble):
+        return "cutlass::complex<double>";
+      default: {
+        std::stringstream ss;
+        ss << dtype;
+        return ss.str();
+      }
     }
   }
 }
 
-std::string generateCode(Fusion* fusion, const CutlassParams& params) {
-  // TODO: match patterns and dispatch to different generators here
+CutlassGeneratedCode generateCode(Fusion* fusion, const CutlassParams& params) {
   return generateNvfp4ScaledMmKernel(fusion, params);
 }
 
