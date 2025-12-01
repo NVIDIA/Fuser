@@ -1209,10 +1209,7 @@ void dumpKernelArgs(
   for (int64_t i = 0; i < num_inputs; ++i) {
     if (input_tensors[i] != nullptr) {
       const at::Tensor& tensor = *input_tensors[i];
-      debug() << "  [" << i << "] " << tensor.scalar_type() 
-              << " tensor with sizes " << tensor.sizes()
-              << " and strides " << tensor.strides() 
-              << " on device " << tensor.device() << std::endl;
+      debug() << debug_str(tensor) << std::endl;
     } else {
       debug() << "  [" << i << "] nullptr" << std::endl;
     }
@@ -1221,10 +1218,7 @@ void dumpKernelArgs(
   for (int64_t i = 0; i < num_outputs; ++i) {
     if (output_tensors[i] != nullptr) {
       const at::Tensor& tensor = *output_tensors[i];
-      debug() << "  [" << i << "] " << tensor.scalar_type()
-              << " tensor with sizes " << tensor.sizes()
-              << " and strides " << tensor.strides()
-              << " on device " << tensor.device() << std::endl;
+      debug() << debug_str(tensor) << std::endl;
     } else {
       debug() << "  [" << i << "] nullptr" << std::endl;
     }
@@ -1402,8 +1396,8 @@ void HostIrJitImpl::registerExternalFunctions() {
                   sizes,
                   strides,
                   index_type,
-                  info.last_dim_adj,
-                  sizes);
+                  info.last_dim_adj
+                  );
               arg_bytes.push_back(std::move(bytes));
             } else {
               auto bytes = polymorphicValueToBytes(
