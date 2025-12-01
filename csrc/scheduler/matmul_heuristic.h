@@ -11,7 +11,6 @@
 #include <mma_type.h>
 #include <scheduler/heuristic.h>
 #include <utils.h>
-#include <functional>
 
 #include <sstream>
 #include "type.h"

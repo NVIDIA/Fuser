@@ -5,8 +5,6 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <cuda_profiler_api.h>
-
 #include <torch/torch.h>
 
 #include <fusion.h>
