@@ -32,9 +32,7 @@ def test_matmul(nvfuser_direct_test):
     w = torch.testing.make_tensor(7, c * 2, dtype=torch.float32, device="cuda")
     ref = torch.matmul(inp, w)
 
-    with torch.profiler.profile(
-        activities=[torch.profiler.ProfilerActivity.CPU], record_shapes=True
-    ) as profile:
+    with torch.profiler.profile(record_shapes=True) as profile:
         (out,) = fd.execute([inp, w], _enable_options=["host_ir_lowering"])
     torch.testing.assert_close(out, ref)
 
@@ -44,7 +42,7 @@ def test_matmul(nvfuser_direct_test):
         assert event.input_shapes == [[5, 7], [7, 2], [5, 2]]
 
 
-def test_two_matmuls(nvfuser_direct_test):
+def test_two_matmuls_inlinable(nvfuser_direct_test):
     c = 3
 
     with FusionDefinition() as fd:
@@ -78,14 +76,60 @@ def test_two_matmuls(nvfuser_direct_test):
     w2 = torch.testing.make_tensor(5, 3, dtype=torch.float32, device="cuda")
     ref = torch.matmul(torch.matmul(inp, w1), w2)
 
-    with torch.profiler.profile(
-        activities=[torch.profiler.ProfilerActivity.CPU], record_shapes=True
-    ) as profile:
+    with torch.profiler.profile(record_shapes=True) as profile:
         (out,) = fd.execute([inp, w1, w2], _enable_options=["host_ir_lowering"])
-        torch.testing.assert_close(out, ref)
+    torch.testing.assert_close(out, ref)
 
     matmul_events = [event for event in profile.events() if event.name == "aten::mm"]
     assert len(matmul_events) == c * 2
     for event in matmul_events:
         # The `m` dimension is split into `c` chunks, so each chunk will have `m == 2`.
         assert event.input_shapes[0][0] == 2
+
+
+def test_two_matmuls_not_inlinable(nvfuser_direct_test):
+    c = 3
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, -1], contiguity=True, dtype=DataType.Float)
+        w1 = fd.define_tensor([-1, -1], contiguity=True, dtype=DataType.Float)
+        w2 = fd.define_tensor([-1, -1], contiguity=True, dtype=DataType.Float)
+        out = fd.ops.matmul(inp, w1)
+        out = fd.ops.matmul(out, w2)
+        fd.add_output(out)
+
+        w1.split(1, c, inner_split=False)
+        w1.axis(1).parallelize(ParallelType.stream)
+        out.split(0, c, inner_split=False)
+        out.axis(0).parallelize(ParallelType.stream)
+
+    # After sharding propagation, the IR looks like the following:
+    #
+    # in: [m, k]      w1: [k, n]
+    #                        /\
+    #                       c
+    #             |
+    #             | matmul
+    #             v
+    #          [m, n]      w2: [n, k]
+    #             /\
+    #            c
+    #                  |
+    #                  | matmul
+    #                  v
+    #           out: [m, k]
+    #                /\
+    #               c
+    #
+    # The first matmul is column-wise (dimension n) parallel, and the second
+    # row-wise (dimension m) parallel. They have to stay in different loops.
+    # Therefore, the output of the first matmul (of shape [m, n]) has to be
+    # fully allocated.
+
+    inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.float32, device="cuda")
+    w1 = torch.testing.make_tensor(3, c * 5, dtype=torch.float32, device="cuda")
+    w2 = torch.testing.make_tensor(c * 5, 3, dtype=torch.float32, device="cuda")
+    ref = torch.matmul(torch.matmul(inp, w1), w2)
+
+    (out,) = fd.execute([inp, w1, w2], _enable_options=["host_ir_lowering"])
+    torch.testing.assert_close(out, ref)
