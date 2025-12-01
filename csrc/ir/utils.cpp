@@ -235,9 +235,7 @@ void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
 Expr* transferDefinitionToNewOutputs(
     Expr* expr,
     const std::vector<Val*>& new_outputs) {
-  NVF_ERROR(
-      new_outputs.size() == expr->outputs().size(),
-      "Number of new outputs must match old outputs");
+  NVF_ERROR_EQ(new_outputs.size(), expr->outputs().size());
   OptOutMutator mutator;
   for (const auto i : arange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);

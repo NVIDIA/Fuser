@@ -240,7 +240,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
     def _multidevice_schedule(fd: FusionDefinition) -> None:
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(1, d, inner_split=False)
+            t.outer_split(1, d)
             t.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 1024
@@ -323,7 +323,7 @@ def test_privatize_squeeze(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     with FusionDefinition() as fd:
@@ -351,7 +351,7 @@ def test_inner_reduction(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition) -> None:
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.ones(d * 3, 5)
@@ -378,7 +378,7 @@ def test_insert_resharding_after(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
         (out,) = fd.fusion.outputs()
@@ -409,7 +409,7 @@ def test_welford(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         (inp,) = fd.fusion.inputs()
         inp.set_device_mesh(mesh)
-        inp.split(1, d, inner_split=False)
+        inp.outer_split(1, d)
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(b, s, e)

@@ -25,7 +25,7 @@ def test_allgather(multidevice_direct_test):
 
         for inp in fd.fusion.inputs():
             inp.set_device_mesh(mesh)
-            inp.split(0, d, inner_split=False)
+            inp.outer_split(0, d)
             inp.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d * 4)
@@ -74,7 +74,7 @@ def test_allreduce(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         for inp in fd.fusion.inputs():
             inp.set_device_mesh(mesh)
-            inp.split(1, d, inner_split=False)
+            inp.outer_split(1, d)
             inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 2
@@ -109,7 +109,7 @@ def test_reduce_scatter(multidevice_direct_test):
 
         for out in fd.fusion.outputs():
             out.set_device_mesh(mesh)
-            out.split(-1, d, inner_split=False)
+            out.outer_split(-1, d)
             out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d, d * 4)
@@ -150,7 +150,7 @@ def test_reduce_scatter_noncontiguous(multidevice_direct_test):
 
         for out in fd.fusion.outputs():
             out.set_device_mesh(mesh)
-            out.split(-1, d, inner_split=False)
+            out.outer_split(-1, d)
             out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d, 3, d * 4)

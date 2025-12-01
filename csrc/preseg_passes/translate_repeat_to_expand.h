@@ -8,7 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
-#include <preseg_passes/optimization_pass.h>
+#include <optimization_pass.h>
 
 namespace nvfuser::preseg_passes {
 
