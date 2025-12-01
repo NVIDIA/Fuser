@@ -1162,6 +1162,39 @@ void HostIrJitImpl::compile() {
   main_func_ = reinterpret_cast<main_func_t>(main_func_addr.getValue());
 }
 
+// Debug function to dump kernel arguments for host IR kernel launches
+// Simplified version of the executor.cpp dumpKernelArgs - only shows inputs,
+// outputs, and total argument count
+void dumpKernelArgs(
+    int64_t fusion_id,
+    int64_t group_id,
+    at::Tensor** input_tensors,
+    int64_t num_inputs,
+    at::Tensor** output_tensors,
+    int64_t num_outputs) {
+  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
+          << ":" << std::endl;
+  debug() << "Total arguments: " << (num_inputs + num_outputs) << std::endl;
+  debug() << "Inputs (" << num_inputs << "):" << std::endl;
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    if (input_tensors[i] != nullptr) {
+      const at::Tensor& tensor = *input_tensors[i];
+      debug() << debug_str(tensor) << std::endl;
+    } else {
+      debug() << "  [" << i << "] nullptr" << std::endl;
+    }
+  }
+  debug() << "Outputs (" << num_outputs << "):" << std::endl;
+  for (int64_t i = 0; i < num_outputs; ++i) {
+    if (output_tensors[i] != nullptr) {
+      const at::Tensor& tensor = *output_tensors[i];
+      debug() << debug_str(tensor) << std::endl;
+    } else {
+      debug() << "  [" << i << "] nullptr" << std::endl;
+    }
+  }
+}
+
 // Implementation of HostIrJitImpl
 HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
@@ -1344,10 +1377,24 @@ void HostIrJitImpl::registerExternalFunctions() {
           kernel_args.push_back(arg_bytes.back().data());
         }
 
+        if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+          dumpKernelArgs(
+              -1,
+              -1,
+              input_tensors,
+              num_inputs,
+              output_tensors,
+              num_outputs);
+        }
+
         // Launch Config
         CUlaunchConfig config;
 
         const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
+
+        if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
+          launch_params.print();
+        }
 
         auto stream = at::cuda::getCurrentCUDAStream();
 
@@ -1363,6 +1410,11 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.numAttrs = 0;
 
         CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+
+        if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+          debug() << "Index type: " << launch_kernel_ptr->indexType()
+                  << std::endl;
+        }
 
         // Launch the kernel
         {
