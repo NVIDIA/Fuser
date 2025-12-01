@@ -71,43 +71,86 @@ FusionKernelRuntime::FusionKernelRuntime(
       concrete_id_{concrete_id},
       runtime_id_{runtime_id},
       auto_schedule_{auto_schedule} {
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - ENTRY (fusion_id=" << fusion_id << ", concrete_id=" << concrete_id << ", runtime_id=" << runtime_id << ")" << std::endl;
+  std::cout.flush();
+  
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP A: Checking hasDynamicTransform" << std::endl;
+  std::cout.flush();
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP A: Dynamic transform check passed" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP B: Running PreSegmenter optimization pass" << std::endl;
+  std::cout.flush();
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP B: PreSegmenter pass completed" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C: Checking debug dump enabled" << std::endl;
+  std::cout.flush();
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C1: Debug dump is enabled, getting communicator" << std::endl;
+    std::cout.flush();
     const auto& communicator = Communicator::getInstance();
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
     if (!communicator.is_available() || communicator.local_rank() == 0) {
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C2: Printing fusion IR" << std::endl;
+      std::cout.flush();
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
       fusion->print();
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C3: Fusion IR printed" << std::endl;
+      std::cout.flush();
     }
   }
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C: Debug dump check completed" << std::endl;
+  std::cout.flush();
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP D: Getting all TVs from fusion" << std::endl;
+  std::cout.flush();
   std::vector<TensorView*> all_tvs = fusion->allTvs();
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP D: Got " << all_tvs.size() << " TVs" << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP E: Creating SchedulerRuntimeInfo" << std::endl;
+  std::cout.flush();
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP E: SchedulerRuntimeInfo created" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F: Checking serde_buffer (nullptr=" << (serde_buffer == nullptr) << ")" << std::endl;
+  std::cout.flush();
   if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F1: Default path - calling SegmentCandidateFinder::segment" << std::endl;
+    std::cout.flush();
     segmented_fusion_ =
         SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F1: Segmentation completed" << std::endl;
+    std::cout.flush();
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2: Serde path - getting segmented_groups" << std::endl;
+    std::cout.flush();
     // Convert Welford to two-pass if option is enabled and the original
     // heuristic is persistent
     const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
         segmented_groups = serde_buffer->segmented_fusion()->groups();
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2a: Got " << segmented_groups->size() << " segmented groups" << std::endl;
+    std::cout.flush();
+    
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2b: Checking for persistent heuristics" << std::endl;
+    std::cout.flush();
     bool has_persistent_heuristic = std::any_of(
         segmented_groups->begin(),
         segmented_groups->end(),
@@ -117,34 +160,79 @@ FusionKernelRuntime::FusionKernelRuntime(
               heuristic == SchedulerType::OuterPersistent ||
               heuristic == SchedulerType::InnerOuterPersistent;
         });
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2c: has_persistent_heuristic=" << has_persistent_heuristic << std::endl;
+    std::cout.flush();
 
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2d: Checking for Welford ops" << std::endl;
+    std::cout.flush();
     bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2e: has_welford_ops=" << has_welford_ops << std::endl;
+    std::cout.flush();
+    
     if (has_welford_ops && has_persistent_heuristic) {
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2f: Translating Welford in fusion" << std::endl;
+      std::cout.flush();
       SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2g: Welford translation completed" << std::endl;
+      std::cout.flush();
     }
+    
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2h: Creating SegmentedFusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2i: Deserializing segmented_fusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2j: Deserialization completed" << std::endl;
+    std::cout.flush();
   }
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP G: Preparing runtime order" << std::endl;
+  std::cout.flush();
   runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP G: Runtime order prepared" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP H: Resizing executors (num_groups=" << segmented_fusion_->groups().size() << ")" << std::endl;
+  std::cout.flush();
   executors_.resize(segmented_fusion_->groups().size());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP H: Executors resized" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I: Checking debug dump for segments" << std::endl;
+  std::cout.flush();
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I1: Printing segmented fusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_->print();
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I2: Segmented fusion printed" << std::endl;
+    std::cout.flush();
   }
 
   // Even if we go through the segmented path we may still end up
   //  with a segmented fusion with one group. This case still
   //  counts as un-segmented.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP J: Setting is_segmented flag" << std::endl;
+  std::cout.flush();
   is_segmented_ = segmented_fusion_->groups().size() > 1;
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP J: is_segmented=" << is_segmented_ << std::endl;
+  std::cout.flush();
 
   // Create Initial Heuristics for Segmented Fusion
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K: Getting heuristics" << std::endl;
+  std::cout.flush();
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K1: Got maybe_heuristics, checking if has_value" << std::endl;
+  std::cout.flush();
   NVF_CHECK(maybe_heuristics.has_value());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K2: Heuristics have value, moving" << std::endl;
+  std::cout.flush();
   heuristics_ = std::move(maybe_heuristics.value());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K3: Heuristics moved successfully" << std::endl;
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - EXIT (constructor completed successfully)" << std::endl;
+  std::cout.flush();
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
