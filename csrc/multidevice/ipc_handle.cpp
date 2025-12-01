@@ -248,7 +248,7 @@ SymMemForAllgather::SymMemForAllgather(
 }
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
-  uint_8* base_ptr = (uint_8*)full_buffer_sym_tensor_->multicastPtr();
+  uint8_t* base_ptr = (uint8_t*)full_buffer_sym_tensor_->multicastPtr();
   return base_ptr + (root_rank * slice_size_bytes_);
 }
 
@@ -260,14 +260,14 @@ void* SymMemForAllgather::bufferUnicastPtr(int64_t root_rank, int64_t rank)
 }
 
 void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {
-  uint_8* base_ptr = (uint_8*)semaphores_sym_tensor_->multicastPtr();
+  uint8_t* base_ptr = (uint8_t*)semaphores_sym_tensor_->multicastPtr();
   return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 void* SymMemForAllgather::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
     const {
-  uint_8* base_ptr =
-      (uint_8*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
+  uint8_t* base_ptr =
+      (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
   return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
