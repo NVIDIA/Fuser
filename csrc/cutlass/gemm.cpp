@@ -195,10 +195,7 @@ class CutlassCodeGenerator {
 
     return tensor_descriptors_
         .emplace_back(std::make_unique<TensorDescriptor>(
-            name,
-            dtype_str,
-            tv,
-            tensor_arg_pos))
+            name, dtype_str, tv, tensor_arg_pos))
         .get();
   }
 
@@ -282,9 +279,7 @@ class CutlassCodeGenerator {
     }
     register_multiple(quantized_outputs, "quantized_output");
     register_multiple(block_scale_factors, "output_block_scale_factors");
-    register_multiple(
-        global_scale_factors,
-        "output_global_scale_factor");
+    register_multiple(global_scale_factors, "output_global_scale_factor");
 
     // Register other epilogue inputs
     std::vector<TensorView*> epilogue_inputs;
