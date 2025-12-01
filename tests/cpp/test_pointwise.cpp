@@ -11,8 +11,8 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
@@ -563,7 +563,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -599,7 +599,7 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1145,7 +1145,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 }
 
 TEST_F(PointwiseTest, DomainMapPad0) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1192,7 +1192,7 @@ TEST_F(PointwiseTest, DomainMapPad0) {
 }
 
 TEST_F(PointwiseTest, DomainMapPad1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1241,7 +1241,7 @@ TEST_F(PointwiseTest, DomainMapPad1) {
 }
 
 TEST_F(PointwiseTest, DomainMapSlice0) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1288,7 +1288,7 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
 }
 
 TEST_F(PointwiseTest, DomainMapSlice1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
