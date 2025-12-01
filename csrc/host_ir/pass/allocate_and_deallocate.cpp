@@ -117,6 +117,9 @@ class DominatorTree {
       }
 
       if (auto* loop = dynamic_cast<hir::ForLoop*>(e)) {
+        // `e`, the ForLoop, dominates its body. However, the body doesn't
+        // dominate the instruction after the loop, because the loop could be
+        // executed zero times.
         build(loop->body(), &node);
       }
 
@@ -138,6 +141,20 @@ bool needsOutputPreallocation(Expr* e) {
 }
 
 void insertAllocations(hir::HostIrContainer& hic) {
+  // lowerSegmentedFusionToHostIr inserts **some** allocations. For example, it
+  // inserts `Allocate` and `ShardByStream` for TVs whose loop is stream
+  // parallelized but allocation is not.
+  //
+  // This function inserts more allocations for convenience. For example,
+  // it ensures that after this pass, outputs of LinearOp and
+  // MatmulOp are always preallocated. This allows HostIrEvaluator and
+  // HostIrJit to uniformly handle outputs of LinearOp and MatmulOp, knowing
+  // they will always be preallocated without needing to check for special
+  // cases.
+  //
+  // This is done by traversing the dominator tree in depth-first order. If an
+  // output TV of an Expr needs preallocation but doesn't have a **dominating**
+  // definition, DFS will insert an allocation right before that Expr.
   DominatorTree dom_tree(hic);
   std::unordered_set<TensorView*> defined;
 
