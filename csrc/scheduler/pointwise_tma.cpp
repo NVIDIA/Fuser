@@ -274,7 +274,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   auto& schedule_info = schedule_info_opt.value();
 
   auto& cached_inputs = schedule_info.cached_inputs;
-  auto& cached_outputs = schedule_info.cached_outputs;
 
   // reference_tv: The tensor view used as a template for transformations
   TensorView* reference_tv = schedule_info.reference_tv;
@@ -403,7 +402,6 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   reference_tv->axis(3)->parallelize(inner_cord_pt); // Grid inner
   reference_tv->axis(5)->parallelize(ParallelType::TIDx); // Thread X
 
-  int64_t vect_pos = 6; // Position of vectorization axis
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
   // ========== Phase 7: Apply Vectorization ==========
