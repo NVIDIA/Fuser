@@ -61,7 +61,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     auto launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
-        ke->compiledKernel().get(),
+        hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
         cache_id);
@@ -131,7 +131,7 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
       auto* launch_kernel = IrBuilder::create<LaunchKernel>(
           0,
           LaunchParams(),
-          ke->compiledKernel().get(),
+          hic->getKernelExecutor(0).compiledKernel().get(),
           std::vector<Val*>{x, y},
           std::vector<Val*>{x},
           cache_id);
@@ -200,7 +200,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     auto* launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
-        ke->compiledKernel().get(),
+        hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
         cache_id);
