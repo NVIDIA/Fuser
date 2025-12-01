@@ -123,10 +123,22 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     gdimx = sm_count;
     bdimy = 1;
     bdimz = 1;
-    int64_t n_stages = 2;
-    ParallelType ws_pt = ParallelType::TIDx;
-    bdimx += kWarpSpecializationPaddedThreads;
+    params->rows_per_block = 2;
+    int64_t smem_size_bit =
+        prop.max_persistent_buffer_size_bit * bdimy * params->rows_per_block;
+    int64_t n_stages =
+        (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
+    ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
+    if (ws_pt == ParallelType::TIDy) {
+      bdimy += 1;
+      NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
+    } else {
+      bdimx += kWarpSpecializationPaddedThreads;
+    }
     WarpSpecialized ws(ws_pt);
+    if (bdimy > 1) {
+      ws.stage_slice_position = 3;
+    }
     int64_t total_threads = bdimx * bdimy;
     if (total_threads > 256) {
       int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
@@ -236,14 +248,32 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // - axis(0): parallelize with BIDx (each block handles one batch)
   // - axis(1): parallelize with Bulk (TMA async copy entire reduction
   // dimension)
-  int64_t ipos = 0, rpos = 1;
+  int64_t ipos = 0, rpos = 1, tidy_pos = -1, group_pos = -1;
   if (params->circular_buffer_options.isEnable()) {
-    // [I, R] -> [I/BIDx, BIDx, R]
-    reduction_tv->split(ipos, params->lparams.gdimx());
+    if (params->rows_per_block > 1) {
+      // [I, R] -> [I/Group, Group, R]
+      reduction_tv->split(ipos, params->rows_per_block);
+      group_pos = ipos + 1;
+      rpos++;
+    }
+    if (params->lparams.bdimy() > 2) {
+      // [I/Group, Group, R] -> [I/Group/TIDy, TIDy, Group, R]
+      reduction_tv->split(ipos, params->lparams.bdimy() - 1);
+      tidy_pos = ipos + 1;
+      rpos++;
+      group_pos++;
+    }
+    if (params->lparams.gdimx() > 1) {
+      // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
+      // Group, R]
+      reduction_tv->split(ipos, params->lparams.gdimx());
+      reduction_tv->axis(ipos + 1)->parallelize(ParallelType::BIDx);
+      rpos++;
+      tidy_pos++;
+      group_pos++;
+    }
     TransformPropagator propagator(reduction_tv);
     MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
-    reduction_tv->axis(ipos + 1)->parallelize(ParallelType::BIDx);
-    rpos = ipos + 2;
   } else if (params->rows_per_block > 1) {
     // [I, R] -> [I/TIDy, TIDy, R]
     reduction_tv->split(ipos, params->rows_per_block);
@@ -259,6 +289,11 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
   // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
   reduction_tv->axis(rpos)->parallelize(ParallelType::Serial);
+  // For TMA tvs, we use serial to use 1 producer to serve all consumers
+  // parallelized by TIDy
+  if (tidy_pos > 0) {
+    reduction_tv->axis(tidy_pos)->parallelize(ParallelType::TIDy);
+  }
 
   // Schedule the reduction domain:
   // [I, R] -> [I, b, us, x, v]
@@ -306,6 +341,12 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
 
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
+  if (group_pos > 0) {
+    for (auto reduction_tv : reduction_tvs) {
+      reduction_tv->axis(group_pos)->parallelize(ParallelType::Group);
+    }
+  }
+
   auto get_vect_pos = [](TensorView* tv) {
     auto it = std::find_if(
         tv->domain()->loop().begin(),
@@ -346,13 +387,19 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  if (params->may_pre_load_ldg_tvs && (int)ldg_tvs.size() == 1) {
-    std::vector<TensorView*> non_ldg_tvs =
-        ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
-    inlineMost(non_ldg_tvs);
-  } else {
-    inlineMost();
+
+  // inline
+  std::unordered_set<TensorView*> exclude_tvs;
+  for (auto tv : tma_tvs) {
+    inlineSelectedAt({tv}, tv, 2);
+    exclude_tvs.insert(tv);
   }
+  if (params->may_pre_load_ldg_tvs && (int)ldg_tvs.size() == 1) {
+    exclude_tvs.insert(ldg_tvs.begin(), ldg_tvs.end());
+  }
+  std::vector<TensorView*> inline_most_tvs =
+      ir_utils::allTvsExcept(fusion, exclude_tvs);
+  inlineMost(inline_most_tvs);
 
   if (params->circular_buffer_options.isEnable()) {
     int64_t number_of_stages = params->circular_buffer_options.stage;
@@ -364,6 +411,9 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
         tv->circularBuffer(
             number_of_stages, prefetch_distance, circular_buffer_type);
       }
+      std::cout << "tma_tv: " << tv->toString()
+                << " computeAtPosition: " << tv->getComputeAtPosition()
+                << std::endl;
     }
   }
   // refine caching
