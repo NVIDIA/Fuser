@@ -408,24 +408,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   // ========== Phase 7: Apply Vectorization ==========
   // Vectorize register <-> global memory transfers for non-TMA tensors
-
-  // Vectorize output stores (register -> global)
-  if (!pparams->use_tma_store && pparams->vectorization_factor > 1) {
-    for (const auto& [_, original_idx] : cached_outputs) {
-      auto output_tv =
-          dynamic_cast<TensorView*>(fusion->outputs().at(original_idx));
-      if (output_tv && vectorizable_io_tvs.contains(output_tv)) {
-        output_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
-      }
-    }
-  }
-
-  // Vectorize LDG input loads (global -> register)
-  for (auto ldg_tv : ldg_tvs) {
-    if (vectorizable_io_tvs.contains(ldg_tv)) {
-      ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
-    }
-  }
+  // This part will be added in the future. We need to check which outputs and
+  // inputs are vectorizable.
 
   // ========== Phase 8: Inline Intermediate Operations ==========
   // Inline all intermediate computations to minimize register pressure
