@@ -183,7 +183,8 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
   SymMemForBroadcast(
       at::Tensor buffer,
       int64_t root,
-      const std::string& name_suffix);
+      const std::string& name_suffix,
+      bool setup_buffer_unicast = true);
 
   ~SymMemForBroadcast() = default;
 
@@ -223,6 +224,9 @@ class SymMemForAllgather : public SymmetricMemoryHandle {
  private:
   // One SymMemForBroadcast per rank (each rank acts as root once)
   std::vector<std::unique_ptr<SymMemForBroadcast>> broadcast_handles_;
+  // SymmetricTensor for the full buffer (used for unicast access)
+  std::unique_ptr<SymmetricTensor> full_buffer_sym_tensor_;
+  int64_t slice_size_bytes_ = 0;
 };
 
 // SymmetricMemoryHandle for SymmetricContiguousView
