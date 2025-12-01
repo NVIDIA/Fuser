@@ -1657,4 +1657,94 @@ TEST_F(Tutorial, ReproLinearAddFusion) {
   //     __FILE__);
 }
 
+TEST_F(Tutorial, MetaLinearHang) {
+  // Test to reproduce hanging at::linear call with meta tensors
+  // This test uses the exact shapes, strides, and dtype from the debug output
+  
+  std::cout << "[TEST] Creating meta tensors for at::linear" << std::endl;
+  std::cout.flush();
+  
+  // Create input tensor: [2, 4, 16] with strides [64, 16, 1], bfloat16, meta device
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kMeta);
+  std::cout << "[TEST] Creating input tensor with shape [2, 4, 16]" << std::endl;
+  std::cout.flush();
+  at::Tensor in = at::empty_strided(
+      {2, 4, 16},      // sizes
+      {64, 16, 1},     // strides
+      options);
+  
+  std::cout << "[TEST] Input tensor created:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < in.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << in.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < in.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << in.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << in.dtype() << std::endl;
+  std::cout << "  device: " << in.device() << std::endl;
+  std::cout << "  is_contiguous: " << in.is_contiguous() << std::endl;
+  std::cout << "  numel: " << in.numel() << std::endl;
+  std::cout.flush();
+  
+  // Create weight tensor: [16, 16] with strides [16, 1], bfloat16, meta device
+  std::cout << "[TEST] Creating weight tensor with shape [16, 16]" << std::endl;
+  std::cout.flush();
+  at::Tensor weight = at::empty_strided(
+      {16, 16},        // sizes
+      {16, 1},         // strides
+      options);
+  
+  std::cout << "[TEST] Weight tensor created:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << weight.dtype() << std::endl;
+  std::cout << "  device: " << weight.device() << std::endl;
+  std::cout << "  is_contiguous: " << weight.is_contiguous() << std::endl;
+  std::cout << "  numel: " << weight.numel() << std::endl;
+  std::cout.flush();
+  
+  // Call at::linear - this is where the hang occurs
+  std::cout << "[TEST] Calling at::linear(in, weight) - THIS MAY HANG!" << std::endl;
+  std::cout.flush();
+  at::Tensor result = at::linear(in, weight);
+  std::cout << "[TEST] at::linear completed successfully!" << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[TEST] Result tensor:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < result.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << result.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << result.dtype() << std::endl;
+  std::cout << "  device: " << result.device() << std::endl;
+  std::cout.flush();
+  
+  // Expected output shape should be [2, 4, 16]
+  ASSERT_EQ(result.dim(), 3);
+  ASSERT_EQ(result.size(0), 2);
+  ASSERT_EQ(result.size(1), 4);
+  ASSERT_EQ(result.size(2), 16);
+  
+  std::cout << "[TEST] Test completed successfully!" << std::endl;
+  std::cout.flush();
+}
+
 } // namespace nvfuser
