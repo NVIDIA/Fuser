@@ -11,7 +11,7 @@
 #include <options.h>
 #include <utils.h>
 
-#include <iostream>
+#include <ostream>
 
 namespace nvfuser {
 

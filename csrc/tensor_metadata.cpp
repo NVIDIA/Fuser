@@ -18,7 +18,6 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
-#include <iterator>
 #include <ranges>
 
 namespace nvfuser {
