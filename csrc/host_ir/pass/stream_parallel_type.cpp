@@ -389,7 +389,7 @@ std::list<Expr*> processForLoopBodies(
             "expected a stream parallelized first axis on the output but got ",
             output_tv);
 
-        auto send_peer = (communicator_backend == CommunicatorBackend::kCuda)
+        auto send_peer = params.do_swizzle_in_stream_lowering
             ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())),
                   for_loop->stop())
             : for_loop->index();
