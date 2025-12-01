@@ -810,31 +810,39 @@ class LowerCollectiveCudaTest
     communicator_->barrier();
 
     // Timing iterations with CUDA events
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventCreate(&stop);
+    std::vector<cudaEvent_t> start_events(timing_iters);
+    std::vector<cudaEvent_t> stop_events(timing_iters);
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventCreate(&start_events[i]);
+      cudaEventCreate(&stop_events[i]);
+    }
+
     // Reduce mean time across all ranks
     at::Tensor x = at::tensor(
         {0},
         at::TensorOptions().dtype(at::kFloat).device(communicator_->device()));
     std::vector<at::Tensor> x_tensors = {x};
 
-    std::vector<float> elapsed_ms_vec;
     for (int i = 0; i < timing_iters; ++i) {
       communicator_->getWorld(backend_type)->allreduce(x_tensors, {c10d::ReduceOp::MAX})->wait();
-      cudaEventRecord(start);
+      cudaEventRecord(start_events[i]);
       out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
-      cudaEventRecord(stop);
-      cudaEventSynchronize(stop);
+      cudaEventRecord(stop_events[i]);
+    }
+
+    std::vector<float> elapsed_ms_vec;
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventSynchronize(stop_events[i]);
       float elapsed_ms = 0;
-      cudaEventElapsedTime(&elapsed_ms, start, stop);
+      cudaEventElapsedTime(&elapsed_ms, start_events[i], stop_events[i]);
       elapsed_ms_vec.push_back(elapsed_ms);
     }
     float avg_time_ms = std::accumulate(elapsed_ms_vec.begin(), elapsed_ms_vec.end(), 0.0) / elapsed_ms_vec.size();
 
-
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    for (int i = 0; i < timing_iters; ++i) {
+      cudaEventDestroy(start_events[i]);
+      cudaEventDestroy(stop_events[i]);
+    }
 
     // Reduce mean time across all ranks
     at::Tensor time_tensor = at::tensor(
