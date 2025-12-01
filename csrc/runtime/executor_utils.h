@@ -7,7 +7,10 @@
 // clang-format on
 #pragma once
 
+#include <functional>
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <cuda_runtime.h>
@@ -18,7 +21,6 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir/all_nodes.h>
 #include <kernel.h>
 #include <runtime/executor_kernel_arg.h>
 #include <visibility.h>
