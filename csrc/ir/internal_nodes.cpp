@@ -3343,7 +3343,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   key = pad_last_dim(key, 8);
   value = pad_last_dim(value, 8);
 
-  // Conmpute scale using original size of last dimension
+  // Compute scale using original size of last dimension
   double scale = inputs.size() > 5 ? inputs.back().as<double>()
                                    : 1.0 / std::sqrt(last_dim_size);
 
