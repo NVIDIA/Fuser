@@ -6495,7 +6495,8 @@ BlockQuantizationOp::BlockQuantizationOp(
     Val* input,
     Val* logical_index,
     Val* global_scale,
-    int64_t block_size)
+    int64_t block_size,
+    bool swizzled_scales)
     : Expr(passkey) {
   addOutput(output);
   addOutput(output_scales);
@@ -6505,6 +6506,7 @@ BlockQuantizationOp::BlockQuantizationOp(
   }
   addAttribute(logical_index);
   addDataAttribute(block_size);
+  addDataAttribute(swizzled_scales);
 }
 
 std::string BlockQuantizationOp::toString(int indent_size) const {

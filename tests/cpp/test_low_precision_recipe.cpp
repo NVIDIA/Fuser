@@ -541,6 +541,66 @@ TEST_F(
           "Block scaling factor must be a global memory tensor")));
 }
 
+namespace {
+
+// A helper function to create a BlockQuantizationOp in the IR.
+// It'll set the swizzle scales flag, but won't actually swizzle it.
+// This will help us run the validation tests.
+BlockQuantizationResults createBlockQuantizationOpWithSwizzleFlag(
+    TensorView* input) {
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      DataType::Float4_e2m1fn);
+
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          scales_out_domain,
+          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+      DataType::Float8_e4m3fn);
+
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      /*logical_index=*/nullptr,
+      /*global_scaling_factor=*/nullptr,
+      /*block_size=*/16,
+      /*swizzle_scales=*/true);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
+}
+} // namespace
+
 TEST_F(
     BlockQuantizationValidationTest,
     InvalidSwizzlePermutationOnBlockScales) {
@@ -551,7 +611,8 @@ TEST_F(
   fusion->addInput(tv_data_hp);
 
   tv_data_hp = set(tv_data_hp);
-  auto quantization_results = blockQuantize(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
   auto tv_quantized_out = set(quantization_results.quantized_tensor);
 
   fusion->addOutput(tv_quantized_out);
@@ -587,7 +648,8 @@ TEST_F(
   fusion->addInput(tv_data_hp);
 
   tv_data_hp = set(tv_data_hp);
-  auto quantization_results = blockQuantize(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
   auto tv_quantized_out = set(quantization_results.quantized_tensor);
 
   fusion->addOutput(tv_quantized_out);
@@ -624,7 +686,8 @@ TEST_F(
   fusion->addInput(tv_data_hp);
 
   tv_data_hp = set(tv_data_hp);
-  auto quantization_results = blockQuantize(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
   auto tv_quantized_out = set(quantization_results.quantized_tensor);
 
   fusion->addOutput(tv_quantized_out);
@@ -869,14 +932,11 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
     fusion_new_op->addInput(tv_global_scale);
   }
 
-  auto quantization_results = blockQuantize(tv_in_1, tv_global_scale);
+  auto quantization_results = blockQuantize(
+      tv_in_1, tv_global_scale, /*block_size=*/16, swizzle_block_scales);
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
-
-  if (swizzle_block_scales) {
-    nvfuser::ir_utils::swizzleBlockScales(quantization_results.block_scales);
-  }
 
   FusionExecutorCache executor_cache(std::move(fusion_new_op));
   auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
