@@ -246,7 +246,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (auto* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    int64_t input_position = producer_tv_->sameAs(op->inA()) ? 0 : 1;
+    int64_t input_position = producer_tv_ == op->inA() ? 0 : 1;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily
@@ -393,11 +393,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map L, E from query and value respectively
-      if (index == num_batch_dims && producer_tv_->sameAs(op->query())) {
+      if (index == num_batch_dims && producer_tv_ == op->query()) {
         updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map Ev from value to output
-      if (index == num_batch_dims + 1 && producer_tv_->sameAs(op->value())) {
+      if (index == num_batch_dims + 1 && producer_tv_ == op->value()) {
         updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
     }
@@ -417,19 +417,19 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   grad_key = [DID(D)? N, H, S, E]
     //   grad_value = [DID(D)? N, H, S, Ev]
 
-    if (producer_tv_->sameAs(op->philox_seed())) {
+    if (producer_tv_ == op->philox_seed()) {
       return dom_map;
     }
 
     bool producer_has_s =
-        producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
-    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) ||
-        consumer_tv_->sameAs(op->grad_value());
+        producer_tv_ == op->key() || producer_tv_ == op->value();
+    bool consumer_has_s =
+        consumer_tv_ == op->grad_key() || consumer_tv_ == op->grad_value();
 
     bool producer_has_e =
-        producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
-    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) ||
-        consumer_tv_->sameAs(op->grad_key());
+        producer_tv_ == op->query() || producer_tv_ == op->key();
+    bool consumer_has_e =
+        consumer_tv_ == op->grad_query() || consumer_tv_ == op->grad_key();
 
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
@@ -455,13 +455,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Consumers:
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
-    if (producer_tv_->sameAs(op->in())) {
+    if (producer_tv_ == op->in()) {
       for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
     }
-    if (producer_tv_->sameAs(op->weight())) {
+    if (producer_tv_ == op->weight()) {
       updatePairwiseLogicalDomainMap(
           producer_logical.back(), consumer_root.back());
     }
