@@ -2685,54 +2685,42 @@ TEST_F(ReductionTest, TmaSimple) {
   auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0smem->setMemoryType(MemoryType::Shared);
 
-   Parallelization for TMA load:
+  // Parallelization for TMA load:
   //   - axis(0) [BIDx]: Each block handles one row of the input
   //   - axis(1) [Bulk]: TMA performs bulk transfer of entire row
   // No domain transformations needed; TMA operates on the original layout
   tv0smem->axis(0)->parallelize(ParallelType::BIDx);
-   tv0smem->axis(1)->parallelize(ParallelType::Bulk);
+  tv0smem->axis(1)->parallelize(ParallelType::Bulk);
 
-   // ===== Reduction Cache Setup =====
-   // Insert a cache stage before the output to enable register-based reduction.
-   // Data flow transformation:
-   //   Before: tv0 -> tv0smem -> tv1(global)
-   //   After:  tv0 -> tv0smem -> tv1regs(reduction) -> tv1(global)
-   //
-   // tv1regs will hold reduction results in registers before writing to global
-   // m mory.
-   auto tv1regs = tv1->cacheBefore();
-   auto redu_tv = tv1regs;
-   fusion->printMath();
-
-   // ===== Reduction Domain Parallelization =====
-   // Strategy:
-   //   - Iteration domain (axis 0): Parallelize with BIDx (one block per
-   //   output)
-   //   - Reduction domain (axis 1): Split into chunks for parallel processing.
-   // Vectorization and thread parallelization parameters:
-   // Process 4 elements per iteration, can be further used for vectorized load
-   // f om shared memory to registers.3
-  e 256 threads per block for reduction
-  const int64_t vect = 4;
-
-  int64_t tidx = 256;
-
+  // ===== Reduction Cache Setup =====
+  // Insert a cache stage before the output to enable register-based reduction.
+  // Data flow transformation:
+  //   Before: tv0 -> tv0smem -> tv1(global)
+  //   After:  tv0 -> tv0smem -> tv1regs(reduction) -> tv1(global)
   //
+  // tv1regs will hold reduction results in registers before writing to global
+  // memory.
+  auto tv1regs = tv1->cacheBefore();
+  auto redu_tv = tv1regs;
+  fusion->printMath();
 
-  transformations for reduction parallelization:
+  // ===== Reduction Domain Parallelization =====
+  // Strategy:
+  //   - Iteration domain (axis 0): Parallelize with BIDx (one block per output)
+  //   - Reduction domain (axis 1): Split into chunks for parallel processing.
+  const int64_t vect = 4;
+  const int64_t tidx = 256;
+
+  // Domain transformations for reduction parallelization:
   // Original: [I, R] where I=16384 (iteration), R=10240 (reduction)
 
-  // Spl
-
-  Separate vectorization dimension
+  // Split 1: Separate vectorization dimension
   // [I, R] -> [I, R/Vect, Vect]
   redu_tv->split(1, vect);
 
-  // Split
-
-  parate thread parallelization dimension
-      // [I, R/Vect, Vect] -> [I, R/Vect/TIDx, TIDx, Vect]
-      redu_tv->split(1, tidx);
+  // Split 2: Separate thread parallelization dimension
+  // [I, R/Vect, Vect] -> [I, R/Vect/TIDx, TIDx, Vect]
+  redu_tv->split(1, tidx);
 
   // Resulting domain structure: [I, R/(Vect*TIDx), TIDx, Vect]
   //   - axis(0) [I]: Iteration domain, one block per output element
@@ -2740,13 +2728,11 @@ TEST_F(ReductionTest, TmaSimple) {
   //   - axis(2) [TIDx]: Parallel reduction across 256 threads
   //   - axis(3) [Vect]: Serial vectorization (4 elements per thread)
 
-  // Apply p
-
-  lization annotations : redu_tv->axis(0)->parallelize(
-                             ParallelType::BIDx); // Block par lism
-  redu_tv->axis(1)->parallelize(ParallelType::Serial); // Serial redu ion loop
-  redu_tv->axis(2)->parallelize(ParallelType::TIDx); // Thread pa elism
-  redu_tv->axis(3)->parallelize(ParallelType::Serial); // Serial vect ization
+  // Apply parallelization annotations:
+  redu_tv->axis(0)->parallelize(ParallelType::BIDx); // Block parallelism
+  redu_tv->axis(1)->parallelize(ParallelType::Serial); // Serial reduction loop
+  redu_tv->axis(2)->parallelize(ParallelType::TIDx); // Thread parallelism
+  redu_tv->axis(3)->parallelize(ParallelType::Serial); // Serial vectorization
   // Note: We use Serial for axis(3) instead of vectorized ops because
   // we don't have vectorized computation.
 
@@ -2875,4 +2861,3 @@ TEST_F(ReductionTest, TmaUnrollUnswitch) {
 }
 
 } // namespace nvfuser
-                
