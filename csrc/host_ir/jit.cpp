@@ -1332,6 +1332,16 @@ void HostIrJitImpl::registerExternalFunctions() {
         }
 
         CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+
+        NVF_CHECK(
+            compiled_kernel != nullptr,
+            "CompiledKernel pointer is null for group_id ",
+            group_id);
+        NVF_CHECK(
+            compiled_kernel->cudaExecutable() != nullptr,
+            "CUDA executable is null for group_id ",
+            group_id);
+
         auto index_type = compiled_kernel->kernel()->indexType();
 
         std::vector<std::vector<std::byte>> arg_bytes;
