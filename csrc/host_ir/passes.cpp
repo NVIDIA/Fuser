@@ -13,7 +13,7 @@
 namespace nvfuser::hir {
 
 void runPasses(HostIrContainer& hic) {
-  hir_pass::InsertDeallocations().runPass(&hic);
+  OptimizationPass<hir::InsertDeallocations>::runPass(&hic);
 }
 
 } // namespace nvfuser::hir
