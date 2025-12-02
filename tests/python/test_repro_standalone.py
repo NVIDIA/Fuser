@@ -1,6 +1,9 @@
 import sys
 import os
 
+# Enable dispatcher tracing BEFORE importing torch
+os.environ['TORCH_SHOW_DISPATCH_TRACE'] = '1'
+
 # Add the project root to the path if needed
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
