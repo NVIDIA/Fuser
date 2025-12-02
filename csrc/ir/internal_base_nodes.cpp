@@ -1022,6 +1022,17 @@ bool TensorDomain::sameDefinition(const Val* other) const {
   }
   const TensorDomain* other_td = other->as<TensorDomain>();
 
+  // Check root domains. They are created by ReshapeOp and rFactor to track
+  // transformations to original domain.
+  if (root_domain_.size() != other_td->root_domain_.size()) {
+    return false;
+  }
+  for (auto&& [id, other_id] : zip(root_domain_, other_td->root_domain_)) {
+    if (!id->sameDefinition(other_id)) {
+      return false;
+    }
+  }
+
   // This check is based on the legacy TensorRecord operator== check.
   // Check number of dimensions
   if (logical_domain_.size() != other_td->logical_domain_.size()) {
