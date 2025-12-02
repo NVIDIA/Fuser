@@ -1331,7 +1331,8 @@ void HostIrJitImpl::registerExternalFunctions() {
           sprof.startKernel();
         }
 
-        auto index_type = launch_kernel_ptr->indexType();
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        auto index_type = compiled_kernel->kernel()->indexType();
 
         std::vector<std::vector<std::byte>> arg_bytes;
         arg_bytes.reserve(num_inputs + num_outputs);
@@ -1408,8 +1409,6 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.hStream = stream;
         config.attrs = nullptr;
         config.numAttrs = 0;
-
-        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
 
         if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
           debug() << "Index type: " << launch_kernel_ptr->indexType()
