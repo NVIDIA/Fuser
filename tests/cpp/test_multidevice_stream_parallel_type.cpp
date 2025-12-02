@@ -403,6 +403,8 @@ class StreamParallelBackendTest
           std::tuple<bool, CommunicatorBackend>> {};
 
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
+  constexpr int64_t kTensorSize = 2 * 1024 * 1024;
+
   auto [do_swizzle, backend] = GetParam();
 
 //   if (do_swizzle && backend != CommunicatorBackend::kCuda) {
@@ -419,6 +421,10 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   TensorView* tv1 = set(tv0);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
+
+  if (backend == CommunicatorBackend::kCuda && !do_swizzle) {
+    tv1->setMemoryType(MemoryType::Symmetric);
+  }
 
   const DeviceMesh mesh =
       DeviceMesh::createForNumDevices(communicator_->size());
@@ -445,7 +451,7 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
-  at::Tensor unsharded_input = at::rand({communicator_->size(), 4}, options);
+  at::Tensor unsharded_input = at::rand({communicator_->size(), kTensorSize}, options);
   at::Tensor input = shardTensor(unsharded_input, /*axis=*/0, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
@@ -492,6 +498,10 @@ TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  if (backend == CommunicatorBackend::kCuda && !do_swizzle) {
+    tv2->setMemoryType(MemoryType::Symmetric);
+  }
 
   MultiDeviceExecutorParams params;
   params.lower.do_swizzle_in_stream_lowering = do_swizzle;

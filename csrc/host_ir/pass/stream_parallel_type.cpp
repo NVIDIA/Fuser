@@ -394,10 +394,6 @@ std::list<Expr*> processForLoopBodies(
                   for_loop->stop())
             : for_loop->index();
         auto recv_peer = tensor_index;
-        auto* is_sending_to_self =
-            IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
-        auto if_sending_to_self =
-            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
 
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
             input_tv,
@@ -405,38 +401,45 @@ std::list<Expr*> processForLoopBodies(
             /*index=*/FusionGuard::getCurFusion()->zeroVal());
         auto [slicing_output, is_new_] =
             tensor_slicing_cache.get(output_tv, /*dim=*/0, /*index=*/recv_peer);
+        new_loop_body.push_back(slicing_output);
 
-        auto* local_copy = IrBuilder::create<LoadStoreOp>(
-            LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
-
-        if_sending_to_self->thenBody().push_back(slicing_input);
-        if_sending_to_self->thenBody().push_back(local_copy);
-
-        auto recv = IrBuilder::create<P2PCommunication>(
-            P2PCommunicationType::RECV,
-            slicing_output->out(),
-            recv_peer,
-            communicator_backend);
-        auto send = IrBuilder::create<P2PCommunication>(
-            P2PCommunicationType::SEND,
-            input_tv,
-            send_peer,
-            communicator_backend);
         if (params.do_swizzle_in_stream_lowering == false) {
-          // Using Start/EndCoalescing here is important to 1) avoid hangs
-          // because of a wrong global order of send/recv and 2) enjoy full
-          // bi-directional bandwith.
-          auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
-          auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
-          auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
-
-          if_sending_to_self->elseBody().push_back(start_coalescing);
-          if_sending_to_self->elseBody().push_back(recv);
-          if_sending_to_self->elseBody().push_back(send);
-          if_sending_to_self->elseBody().push_back(end_coalescing);
-          if_sending_to_self->elseBody().push_back(wait);
+          auto broadcast = IrBuilder::create<Communication>(CommunicationType::Broadcast,
+                                                            slicing_output->out(),
+                                                            input_tv,
+                                                            input_tv->getDeviceMesh().vector(),
+                                                            send_peer,
+                                                            c10d::ReduceOp::RedOpType::UNUSED,
+                                                            communicator_backend);
+          auto wait = IrBuilder::create<hir::Wait>(broadcast);
+          new_loop_body.push_back(broadcast);
+          new_loop_body.push_back(wait);
         } else {
+          auto* is_sending_to_self =
+            IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
+          auto if_sending_to_self =
+            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+          auto* local_copy = IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+
+          if_sending_to_self->thenBody().push_back(slicing_input);
+          if_sending_to_self->thenBody().push_back(local_copy);
+
+          auto recv = IrBuilder::create<P2PCommunication>(
+              P2PCommunicationType::RECV,
+              slicing_output->out(),
+              recv_peer,
+              communicator_backend);
+          auto send = IrBuilder::create<P2PCommunication>(
+              P2PCommunicationType::SEND,
+              input_tv,
+              send_peer,
+              communicator_backend);
+
           if (communicator_backend == CommunicatorBackend::kNccl) {
+            // Using Start/EndCoalescing here is important to 1) avoid hangs
+            // because of a wrong global order of send/recv and 2) enjoy full
+            // bi-directional bandwith.
             auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
             auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
             auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
@@ -470,11 +473,8 @@ std::list<Expr*> processForLoopBodies(
           } else {
             NVF_ERROR("Unsupported communicator backend for lowering stream parallel type into p2p: ", communicator_backend);
           }
-
+          new_loop_body.push_back(if_sending_to_self);
         }
-
-        new_loop_body.push_back(slicing_output);
-        new_loop_body.push_back(if_sending_to_self);
       } else {
         // Process inputs and outputs normally
         for (auto* input :

@@ -130,6 +130,7 @@ KernelArgumentHolder CommunicationExecutor::run(
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
+        expr_eval.evaluate(communication->root()).as<int64_t>(),
         backend,
         in_tensor,
         out_tensor);
