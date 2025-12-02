@@ -53,9 +53,6 @@ bool TensorView::sameDefinition(const Val* other) const {
   if (!Val::sameDefinition(other)) {
     return false;
   }
-  if (!other->isA<TensorView>()) {
-    return false;
-  }
   const TensorView* other_tv = other->as<TensorView>();
   if (isCpuScalar() != other_tv->isCpuScalar()) {
     return false;

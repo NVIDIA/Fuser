@@ -1020,9 +1020,6 @@ bool TensorDomain::sameDefinition(const Val* other) const {
   if (!Val::sameDefinition(other)) {
     return false;
   }
-  if (!other->isA<TensorDomain>()) {
-    return false;
-  }
   const TensorDomain* other_td = other->as<TensorDomain>();
 
   // This check is based on the legacy TensorRecord operator== check.
