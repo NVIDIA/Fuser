@@ -31,6 +31,9 @@ void InsertDeallocations::runPass(Fusion* fusion) {
         expr);
   });
 
+  // For each input in every expression in the container, find the position of
+  // its last use and insert a deallocate directly after, except for fusion
+  // inputs and outputs.
   std::unordered_set<TensorView*> last_use_found;
   for (auto insertion_point = top_level_exprs.end();
        insertion_point != top_level_exprs.begin();) {
