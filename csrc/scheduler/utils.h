@@ -915,19 +915,19 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 // ============================================================================
 // Purpose of This Function
 // ============================================================================
-// The TMA pointwise scheduler views tensors as 2D domains: [OuterTmaDomain,
-// InnerTmaDomain]. This function computes the optimal size for the
-// "InnerTmaDomain" dimension of this 2D view, given a flattened tensor of
+// The TMA pointwise scheduler views tensors as 2D domains: [tma_domain_outer,
+// tma_domain_inner]. This function computes the optimal size for the
+// "tma_domain_inner" dimension of this 2D view, given a flattened tensor of
 // total_element items.
 //
 // The transformation flow is:
 //   [total_element]                     # Flattened 1D tensor
-//   -> [OuterTmaDomain, InnerTmaDomain] # Split into 2D TMA domain
+//   -> [tma_domain_outer, tma_domain_inner] # Split into 2D TMA domain
 //
 // Where:
-//   InnerTmaDomain = return value of this function
-//   OuterTmaDomain = total_element / InnerTmaDomain
-//   total_element % InnerTmaDomain == 0
+//   tma_domain_inner = return value of this function
+//   tma_domain_outer = total_element / tma_domain_inner
+//   total_element % tma_domain_inner == 0
 //
 // ============================================================================
 // Parameters
@@ -944,7 +944,7 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   - Therefore, the inner TMA domain size must be at least 2 * 16 bytes,
 //     or (2 * 16 / min_dtype_bytes) elements.
 //
-// target_inner_tma_domain_size (default: 512):
+// tma_domain_inner_target (default: 512):
 //   Target size for the inner TMA domain. The function finds the divisor of
 //   total_element closest to this target that satisfies all constraints.
 //
@@ -956,46 +956,47 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   Example of dimension collapse with 256:
 //     Step 1: [total_element] -> [total_element/256, 256]  # 2D TMA domain
 //     Step 2: Further split both dimensions to create 2D TMA tiles.
-//             After tiling with InnerTmaTile=256:
-//       [total_element/256/OuterTmaTile, OuterTmaTile, 256/256, 256]
-//       = [total_element/256/OuterTmaTile, OuterTmaTile, 1, 256]
+//             After tiling with tma_domain_inner=256:
+//       [total_element/256/tma_domain_outer, tma_domain_outer, 256/256, 256]
+//       = [total_element/256/tma_domain_outer, tma_domain_outer, 1, 256]
 //
-//     Problem: In [..., OuterTmaTile, 1, InnerTmaTile], since the middle
-//     dimension is 1, InnerTmaTile is contiguous with OuterTmaTile in the
-//     original tensor. This effectively creates a single TMA virtual dimension
-//     of size (OuterTmaTile * InnerTmaTile), which is subject to the 256
-//     element limitation and may fail.
-//     Note: It failes when OuterTmaTile * InnerTmaTile > 256, becuase
+//     Problem: In [..., tma_domain_outer, 1, tma_domain_inner], since the
+//     middle dimension is 1, tma_domain_inner is contiguous with
+//     tma_domain_outer in the original tensor. This effectively creates a
+//     single TMA virtual dimension of size (tma_domain_outer *
+//     tma_domain_inner), which is subject to the 256 element limitation and may
+//     fail. Note: It failes when tma_domain_outer * tma_domain_inner > 256,
+//     becuase
 //           MergeTileGroupsByRotation merges contiguous bulk dimensions,
 //           but lacked the 256-element hardware constraint check.
 //
-//   With 512, even if InnerTmaTile=256:
+//   With 512, even if tma_domain_inner=256:
 //     [total_element/512, 512]
-//     -> [total_element/512/OuterTmaTile, OuterTmaTile, 512/256, 256]
-//     = [total_element/512/OuterTmaTile, OuterTmaTile, 2, 256]
+//     -> [total_element/512/tma_domain_outer, tma_domain_outer, 512/256, 256]
+//     = [total_element/512/tma_domain_outer, tma_domain_outer, 2, 256]
 //
 //     We maintain a proper 2D structure with 2 tiles in the inner dimension,
 //     preventing dimension collapse.
 //
-// min_dtype_bytes:
-//   Size in bytes of the smallest data type in TMA-loaded tensors. Used to
+// min_dtype_bits:
+//   Size in bits of the smallest data type in TMA-loaded tensors. Used to
 //   ensure that the innermost TMA box dimension satisfies the 2 x 16-bytes
-//   alignment requirement.
+//   (256-bit) alignment requirement.
 //
 // ============================================================================
 // Returns
 // ============================================================================
 // The size of the inner dimension of the 2D TMA domain. This value:
 //   - Divides total_element evenly
-//   - Is divisible by (2 * 16 / min_dtype_bytes)
-//   - Is as close as possible to target_inner_tma_domain_size
+//   - Is divisible by (256 / min_dtype_bits)
+//   - Is as close as possible to tma_domain_inner_target
 //   - Returns 1 if no suitable divisor exists (signaling TMA is not viable)
 //
 // ============================================================================
-int64_t getInnerTmaDomainSize(
+int64_t getTmaDomainInner(
     int64_t total_element,
-    int64_t target_inner_tma_domain_size = 512,
-    int64_t min_dtype_bytes = 1);
+    int64_t tma_domain_inner_target = 512,
+    int64_t min_dtype_bits = 8);
 } // namespace scheduler_utils
 
 } // namespace nvfuser
