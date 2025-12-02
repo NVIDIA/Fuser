@@ -373,7 +373,8 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(tma_warp_specialized) << (bits - 25) ^
         static_cast<size_t>(is_non_circular_buffer_gmem_to_regs)
             << (bits - 26) ^
-        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 27);
+        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 27) ^
+        static_cast<size_t>(cross_cluster_reduction) << (bits - 28);
     return attr_hash;
   }
 
