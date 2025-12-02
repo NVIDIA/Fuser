@@ -432,7 +432,7 @@ jobs:
             core.info('✅ Updated auto-merge status comment');
 
       - name: Merge PR
-        if: fromJSON(steps.check.outputs.result).ready == true
+        if: steps.check.outputs.result != '' && fromJSON(steps.check.outputs.result).ready == true
         uses: actions/github-script@v7
         with:
           script: |
