@@ -483,6 +483,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .def(py::init<GemmTile, GemmTile>())
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
+      .PARAM(MatMulTileOptions, epilogue_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
   py::class_<MatmulParams::CircularBufferOptions>(
