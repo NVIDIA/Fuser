@@ -82,6 +82,9 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.is_grouped, "Grouped GEMM is not currently supported");
+
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
