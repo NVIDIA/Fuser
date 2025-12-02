@@ -34,8 +34,6 @@ void getHeuristics(
   rparams->cparams.index_type = index_type;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t sm_count = (int64_t)dev_prop->multiProcessorCount;
-  constexpr int64_t reg_per_async_thread = 32L;
-  constexpr int64_t regs_granularity = 8L;
 
   // Params for 1st stage, inner reduction and partial outer reduction.
   // Inner dim: inner_vect, inner_batch, and bdimx
@@ -110,33 +108,6 @@ void getHeuristics(
     int buffer_per_thread = buffer_per_element * elements_per_thread;
     return buffer_per_thread / scheduler_utils::bits_per_register;
   };
-  // Assume each padded threads keep [tma_branch_registers] registers and all
-  // others are moved to computation threads. The granularity is 8.
-  // [tma_branch_registers] is a tunable parameter. When estimated
-  // compute_branch_regs is not divisible by granularity, it is rounded down
-  // and needs to recompute tma_branch_registers.
-  // For example, assuming 256 computation threads, initial register = 168,
-  // tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
-  // divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded
-  // down to 232. re-calculate [tma_branch_registers] using: borrowed
-  // registers = (232 - 168) * 256 / 128 = 128. tma_branch_registers = 168 -
-  // 128 = 40
-  auto get_register_sharing = [&](int64_t reg_per_thread,
-                                  int64_t computation_threads) {
-    int64_t tma_branch_regs = reg_per_async_thread;
-    int64_t compute_branch_regs = reg_per_thread +
-        (reg_per_thread - tma_branch_regs) * kWarpSpecializationPaddedThreads /
-            computation_threads;
-    if (compute_branch_regs % regs_granularity != 0) {
-      compute_branch_regs -= compute_branch_regs % regs_granularity;
-      tma_branch_regs = reg_per_thread -
-          (compute_branch_regs - reg_per_thread) * computation_threads /
-              kWarpSpecializationPaddedThreads;
-    }
-    compute_branch_regs = std::min(
-        compute_branch_regs, scheduler_utils::max_registers_per_thread);
-    return std::make_pair(tma_branch_regs, compute_branch_regs);
-  };
   auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx, int64_t bdimy) {
     int64_t reg_count = 0;
     // cache circular buffered tv
@@ -160,8 +131,8 @@ void getHeuristics(
     reg_count += register_overhead_ws_tma;
     int64_t available_regs = getRegPerThreadGivenThreadsPerSM(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
-    auto [_, compute_branch_regs] =
-        get_register_sharing(available_regs, bdimx * bdimy);
+    auto [_, compute_branch_regs] = scheduler_utils::getRegisterSharing(
+        available_regs, bdimx * bdimy, kWarpSpecializationPaddedThreads);
     return reg_count <= compute_branch_regs;
   };
 
@@ -316,7 +287,8 @@ void getHeuristics(
       kWarpSpecializationPaddedThreads + computation_threads;
   if (total_threads > 256) {
     int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
-    ws.num_registers = get_register_sharing(reg_per_thread, bdimx * bdimy);
+    ws.num_registers = scheduler_utils::getRegisterSharing(
+        reg_per_thread, bdimx * bdimy, kWarpSpecializationPaddedThreads);
   }
   CircularBufferOptions circular_buffer_options{
       .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
@@ -395,8 +367,7 @@ void getHeuristics(
             << is_circular_buffer_regs_cached << "\n"
             << "is_non_circular_buffer_gmem_to_regs: "
             << is_non_circular_buffer_gmem_to_regs << "\n";
-    debug() << "smem_persistent_buffers: "
-            << "\n";
+    debug() << "smem_persistent_buffers: " << "\n";
     for (auto buffer : rparams->smem_persistent_buffers) {
       debug() << buffer->toString() << "\n";
     }
