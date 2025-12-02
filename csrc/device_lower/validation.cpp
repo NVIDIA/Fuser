@@ -663,6 +663,11 @@ class ExprValidator : public OptOutDispatch {
     // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     if (block_scaling_factor->hasAllocation()) {
       isValidBlockScaleSwizzle(block_scaling_factor);
+      NVF_ERROR_EQ(
+          bqop->isSwizzledScales(),
+          true,
+          "Block scaling factor with allocation domain requires swizzled "
+          "scales.");
     }
 
     NVF_ERROR(

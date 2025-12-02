@@ -105,24 +105,21 @@ __device__ void block_quantize_to_nvfp4(
   reduceAcrossThreads<NUM_ELEMENTS>(local_max);
   float block_max = local_max;
 
-  // This division should be replaced with a multiplication
-  // by a reciprocal for better performance.
-  float scaled_max = block_max / 6.000000000e+00f;
-
+  constexpr float rcp_6f = 1.0f / 6.0f;
+  float scaled_max = 0;
   if constexpr (USE_GLOBAL_SCALE) {
-    scaled_max = scaled_max * global_scale[0];
+    scaled_max = block_max * global_scale[0] * rcp_6f;
+  } else {
+    scaled_max = block_max * rcp_6f;
   }
 
-  float clamped_max = clamp(
-      scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
-
-  __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
+  __e4m3 clamped_max_fp8 = __float2e4m3(scaled_max);
 
   // Convert back from FP8 to float using __e4m32float
-  float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  scaled_max = __e4m32float(clamped_max_fp8);
 
   if constexpr (USE_GLOBAL_SCALE) {
-    clamped_max_converted = clamped_max_converted / global_scale[0];
+    scaled_max = global_scale[0] / scaled_max;
   }
 
   // Write out the block scaling factor to global memory.
@@ -162,11 +159,10 @@ __device__ void block_quantize_to_nvfp4(
     block_scales[offset] = clamped_max_fp8;
   }
 
-  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> scaled_vals;
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    float scaled_val = vec_in[i] / clamped_max_converted;
-    clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
+    scaled_vals[i] = vec_in[i] * scaled_max;
   }
 
   Array<__e2m1, ITEMS_PER_THREAD, 1> fp4_vals;
@@ -174,7 +170,7 @@ __device__ void block_quantize_to_nvfp4(
       &fp4_vals[0]) =
       __float2e2m1(
           *reinterpret_cast<Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD>*>(
-              &clamped_vals[0]));
+              &scaled_vals[0]));
 
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
