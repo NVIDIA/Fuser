@@ -214,11 +214,6 @@ class CutlassCodeGenerator {
         pattern_.field,                                                    \
         /*dtype_str=*/"const " + dtypeToCutlass(pattern_.field->dtype())); \
   }
-#define MAYBE_REGISTER_NO_PTR_ARRAY(field)               \
-  if (pattern_.field != nullptr) {                       \
-    registerGlobalBuffer(#field, pattern_.field, false); \
-  }
-
     MAYBE_REGISTER(a)
     MAYBE_REGISTER(b)
     MAYBE_REGISTER(alpha)
