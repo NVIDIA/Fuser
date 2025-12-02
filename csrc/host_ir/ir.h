@@ -116,7 +116,8 @@ class LaunchKernel : public Expr {
       const CompileParams& compile_params,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
-      Val* cache_id);
+      Val* cache_id,
+      PrimDataType index_type = PrimDataType::Int);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -150,6 +151,13 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  PrimDataType indexType() {
+    return index_type_;
+  }
+
+ private:
+  PrimDataType index_type_;
 };
 
 class Deallocate : public Expr {

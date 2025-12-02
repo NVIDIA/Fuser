@@ -137,8 +137,12 @@ LaunchKernel::LaunchKernel(
     const CompileParams& compile_params,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
-    Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    Val* cache_id,
+    PrimDataType index_type)
+    : Expr(passkey, inputs, outputs, {}), index_type_(index_type) {
+  NVF_CHECK(
+      cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
   addDataAttribute(compile_params);

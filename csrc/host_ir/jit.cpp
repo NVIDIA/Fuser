@@ -1362,7 +1362,8 @@ void HostIrJitImpl::registerExternalFunctions() {
               sizes,
               strides,
               index_type,
-              getLastDimAdjustment(kernel->inputs()[i]->dtype()),
+              getLastDimAdjustment(index_type),
+              //getLastDimAdjustment(kernel->inputs()[i]->dtype()),
               sizes);
 
           arg_bytes.push_back(std::move(bytes));
@@ -1380,7 +1381,8 @@ void HostIrJitImpl::registerExternalFunctions() {
               sizes,
               strides,
               index_type,
-              getLastDimAdjustment(kernel->outputs()[i]->dtype()),
+              getLastDimAdjustment(index_type),
+              //getLastDimAdjustment(kernel->outputs()[i]->dtype()),
               sizes);
 
           arg_bytes.push_back(std::move(bytes));
