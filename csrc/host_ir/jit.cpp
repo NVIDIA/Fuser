@@ -1342,9 +1342,9 @@ void HostIrJitImpl::registerExternalFunctions() {
 
         auto kernel = compiled_kernel->kernel();
         auto index_type = kernel->indexType();
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        auto index_type = compiled_kernel->indexType();
 
-        // Storage for argument bytes (must be kept alive for the duration of the
-        // launch call)
         std::vector<std::vector<std::byte>> arg_bytes;
         arg_bytes.reserve(num_inputs + num_outputs);
 
@@ -1391,6 +1391,12 @@ void HostIrJitImpl::registerExternalFunctions() {
 
         // Launch Config
         CUlaunchConfig config;
+
+        const LaunchParams& launch_constraints =
+            launch_kernel_ptr->launchParams();
+
+        auto stream = at::cuda::getCurrentCUDAStream();
+
         config.gridDimX = launch_constraints.gdimx();
         config.gridDimY = launch_constraints.gdimy();
         config.gridDimZ = launch_constraints.gdimz();
@@ -1410,7 +1416,7 @@ void HostIrJitImpl::registerExternalFunctions() {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
           NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
               &config,
-              launch_context->kernel_function,
+              compiled_kernel->cudaExecutable()->function,
               kernel_args.data(),
               nullptr));
         }
