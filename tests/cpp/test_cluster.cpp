@@ -174,7 +174,7 @@ TEST_P(ClusterReductionTestAutoScheduler, Softmax) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  if(hidden_size * dataTypeSizeBit(dtype) <= scheduler_utils::register_file_size_bit * scheduler_utils::getMaxClusterSize()) {
+  if (hidden_size * dataTypeSizeBit(dtype) <= scheduler_utils::register_file_size_bit * scheduler_utils::getMaxClusterSize()) {
     EXPECT_FALSE(runtime->isSegmented());
     EXPECT_TRUE(runtime->schedulerHeuristics()->heuristicsList().at(0)->as<ReductionParams>()->cross_cluster_reduction);
   }
