@@ -23,6 +23,7 @@
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/internal_nodes.h"
 
 namespace nvfuser {
 namespace normalization_scheduler_utils {
@@ -1100,6 +1101,7 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
+      .is_static_reduction_size = properties.is_static_reduction_size,
       .persistent_buffers = buffers};
 }
 
@@ -1645,29 +1647,21 @@ void schedulePersistentKernel(
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim && !rparams->schedule_3D;
+      rparams->fastest_dim && !rparams->schedule_3D &&
+      !rparams->compute_persistent_buffer_with_first_consumer;
   if (unroll_persistent_cached_inputs) {
     for (const auto& [cached_input, input_idx] : cached_inputs) {
       if (std::ranges::find(persistent_buffers, cached_input) ==
           persistent_buffers.end()) {
         continue;
       }
-      // Find PersistentBatch domain to unroll, typical case is:
-      // [..., PersistentBatch, US, TIDx, Vect].
-      // From first principle, the PersistentBatch domain was created from
-      // an outer split and parallelized with Serial, and its content equals
-      // rparams->batches_per_block_inner_reduction, we should have only one
-      // such domain.
+      // Find PersistentBatch domain to unroll.
+      // (1) parallel type must be serial and comes from a split
+      // (2) There should be only one such domain
       int identified_count = 0;
       for (auto id : cached_input->getLoopDomain()) {
         if (id->getParallelType() != ParallelType::Serial ||
             !id->definition() || !id->definition()->isA<Split>()) {
-          continue;
-        }
-        auto split = id->definition()->as<Split>();
-        if (split->innerSplit() ||
-            split->factor()->value().as<int64_t>() !=
-                rparams->batches_per_block_inner_reduction) {
           continue;
         }
         identified_count++;

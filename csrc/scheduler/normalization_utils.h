@@ -222,6 +222,7 @@ struct PersistentKernelProperties {
   bool has_exp_op;
   bool has_rng_op;
   bool disable_project_to_avoid_recompute;
+  bool is_static_reduction_size;
   std::vector<TensorView*> persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
@@ -237,6 +238,7 @@ struct PersistentKernelProperties {
        << "disable_project_to_avoid_recompute: "
        << disable_project_to_avoid_recompute << "\n"
        << "project_persistent_buffers: " << project_persistent_buffers << "\n"
+       << "is_static_reduction_size: " << is_static_reduction_size << "\n"
        << "originally detected persistent_buffers: "
        << toDelimitedString(persistent_buffers) << "\n";
     return ss.str();
