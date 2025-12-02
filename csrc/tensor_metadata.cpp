@@ -342,11 +342,27 @@ inferAndValidateAllocationSizesAndStrides(
     ExpressionEvaluator ee) {
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
-  // Only validate final sizes and strides when we have a non-empty tensor.
-  // if (tensor.numel() != 0) {
-  //   validateAllocationSizesAndStrides(tv, allocation_sizes,
-  //   allocation_strides);
-  // }
+
+  // Skip validation for swizzled scales in ScaledMmaOp.
+  // We only want to skip the validation for the scales
+  // produced by the Block Quantization Op, but since we can't
+  // do that here, we skip both scales
+  bool skip_validation = false;
+  for (auto use : tv->uses()) {
+    if (use->isA<ScaledMmaOp>()) {
+      if (tv == use->as<ScaledMmaOp>()->scale1() ||
+          tv == use->as<ScaledMmaOp>()->scale2()) {
+        skip_validation = true;
+        break;
+      }
+    }
+  }
+
+  // Only validate final sizes and strides when we have a non-empty tensor
+  // or the tensor is a scale input to the scaledMmaOp
+  if (tensor.numel() != 0 && !skip_validation) {
+    validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
+  }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
 
