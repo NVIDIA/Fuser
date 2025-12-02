@@ -370,6 +370,52 @@ inner_split : bool, optional
 
 Returns
 -------
+      TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "inner_split",
+          [](TensorView* self, int64_t axis, int64_t factor) {
+            return self->split(axis, factor, true);
+          },
+          py::arg("axis"),
+          py::arg("factor"),
+          py::return_value_policy::reference,
+          R"(
+Split an axis into inner-first order (alias of split with inner_split=True).
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by (inner size).
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "outer_split",
+          [](TensorView* self, int64_t axis, int64_t factor) {
+            return self->split(axis, factor, false);
+          },
+          py::arg("axis"),
+          py::arg("factor"),
+          py::return_value_policy::reference,
+          R"(
+Split an axis into outer-first order (alias of split with inner_split=False).
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by (outer size).
+
+Returns
+-------
 TensorView
     A TensorView with the split axes in its loop domain.
 )")

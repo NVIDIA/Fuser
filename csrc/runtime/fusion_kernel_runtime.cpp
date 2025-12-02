@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lowering.h>
+#include <host_ir/passes.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -77,8 +78,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-      fusion.get());
+  OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
     const auto& communicator = Communicator::getInstance();
@@ -467,8 +467,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const auto& heuristic_params : schedulers()) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
+
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
+    hir::runPasses(*hic);
+
     if (isOptionEnabled(EnableOption::HostIrJit)) {
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
     } else {

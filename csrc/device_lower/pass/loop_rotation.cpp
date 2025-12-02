@@ -14,7 +14,6 @@
 #include <options.h>
 
 #include <device_lower/lower2device.h>
-#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
