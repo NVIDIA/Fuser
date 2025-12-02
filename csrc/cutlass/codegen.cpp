@@ -52,7 +52,7 @@ std::string dtypeToCutlass(const DataType& dtype, bool force_unsigned) {
         // Note that cutlass also provides cutlass::mx_float4_t<float_e2m1_t>>.
         // The difference between these is that the mxfp4 version uses a block
         // size of 32 while nvfp4 uses a block size of 16. In nvFuser the block
-        // size is represented separately, and here we assume we're using nvfp.
+        // size is represented separately, and here we assume we're using nvfp4.
         // TODO: if block scaling is tied to element type in nvFuser in the
         // future we can update this mapping
         return "cutlass::float_e2m1_t";

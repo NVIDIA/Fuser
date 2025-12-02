@@ -84,6 +84,9 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.is_grouped, "Grouped GEMM is not currently supported");
+
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
@@ -285,11 +288,6 @@ class CutlassCodeGenerator {
         pattern_.is_grouped,                                               \
         /*dtype_str=*/"const " + dtypeToCutlass(pattern_.field->dtype())); \
   }
-#define MAYBE_REGISTER_NO_PTR_ARRAY(field)               \
-  if (pattern_.field != nullptr) {                       \
-    registerGlobalBuffer(#field, pattern_.field, false); \
-  }
-
     MAYBE_REGISTER(a)
     MAYBE_REGISTER(b)
     MAYBE_REGISTER(alpha)
@@ -1011,27 +1009,21 @@ extern "C" void temp_tensor_sizes(
   auto cutlass_args = cutlass_args_from_inputs(inputs);
 )";
 
-    if (pattern_.is_grouped) {
-      // For grouped gemm, we need one temp tensor for each grouped input and
-      // output. These are the pointer arrays and they are all the same size:
-      // [num_experts].
-      for (const std::unique_ptr<TensorDescriptor>& td_ptr :
-           tensor_descriptors_) {
-        if (td_ptr->tv != nullptr) {
-          continue;
-        }
-        const int64_t pos = td_ptr->tensor_args_pos;
-        const int64_t tensor_sizes_pos =
-            pos - fusion_->inputs().size() - fusion_->outputs().size();
-        code_ +=
-            "  out_tensor_sizes[" + std::to_string(tensor_sizes_pos) + "] = ";
-        // All temp tensors for grouped gemm (other than the cutlass workspace)
-        // are vectors of length num_experts.
-        if (td_ptr->name == "cutlass_workspace") {
-          code_ += "Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);\n";
-        } else {
-          code_ += "inputs.num_experts * sizeof(" + td_ptr->dtype_str + ");\n";
-        }
+    NVF_ERROR(!pattern_.is_grouped);
+    for (const std::unique_ptr<TensorDescriptor>& td_ptr :
+         tensor_descriptors_) {
+      const int64_t pos = td_ptr->tensor_args_pos;
+      const int64_t tensor_sizes_pos =
+          pos - fusion_->inputs().size() - fusion_->outputs().size();
+      code_ +=
+          "  out_tensor_sizes[" + std::to_string(tensor_sizes_pos) + "] = ";
+      if (td_ptr->name == "cutlass_workspace") {
+        code_ += "Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);\n";
+      } else {
+        NVF_THROW(
+            "No temporary tensors other than cutlass_workspace are expected "
+            "for ungrouped GEMM but found ",
+            td_ptr->name);
       }
     }
     code_ += R"(
