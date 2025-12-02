@@ -112,6 +112,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const int64_t tma_domain_outer = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
 
+  auto bp_info = pointwise_utils::getBreakPoint(
+      fusion, prop, data_cache, /*is_tma =*/true);
+  params->break_point = bp_info.break_point;
+
   // ========== Step 2: Determine Target Elements Per CTA ==========
   // We calculate how many elements each CTA should load based on memory
   // bandwidth requirements.
@@ -227,6 +231,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n==== Pointwise TMA Scheduler Heuristics ====\n";
     debug() << "Domain sizes:\n";
     debug() << "  n_elems: " << prop.n_elems << "\n";
+    debug() << "  break_point: " << bp_info.break_point << "\n";
     debug() << "  tma_domain_inner: " << tma_domain_inner << "\n";
     debug() << "  tma_domain_outer: " << tma_domain_outer << "\n";
     debug() << "\nMemory and CTA configuration:\n";
@@ -271,7 +276,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Merge all dimensions into a single iteration domain. The TMA domain split
   // will be handled later via domain size parameters.
   auto schedule_info_opt =
-      pointwise_utils::commonPointwiseSchedule(fusion, /*break_point=*/0);
+      pointwise_utils::commonPointwiseSchedule(fusion, pparams->break_point);
   if (!schedule_info_opt.has_value()) {
     // Zero-dimensional tensors, nothing to schedule
     return;
@@ -326,7 +331,14 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Transform the flattened domain through a two-level hierarchy:
   // Step 1: [I0] -> [tma_domain_outer, tma_domain_inner]
   //   Split into outer and inner domains based on tma_domain_inner
-  reference_tv->split(0, pparams->tma_domain_inner);
+  if (pparams->break_point == 0) {
+    reference_tv->split(0, pparams->tma_domain_inner);
+  } else {
+    NVF_ERROR(
+        n_valid_dims >= 2,
+        "Required at least 2 valid dimensions for Tma scheduling, but got ",
+        n_valid_dims);
+  }
 
   // Step 2: [tma_domain_outer, tma_domain_inner] ->
   //         [tma_domain_outer/tma_tile_outer, tma_tile_outer,
