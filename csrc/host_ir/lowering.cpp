@@ -10,9 +10,7 @@
 #include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
-#include <host_ir/pass/insert_deallocations.h>
 #include <ir/utils.h>
-#include <multidevice/allocation_utils.h>
 #include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
 #include <multidevice/utils.h>
@@ -404,8 +402,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
 
     prev_ref_loop = std::move(curr_ref_loop);
   }
-
-  OptimizationPass<hir::InsertDeallocations>::runPass(hic.get());
 
   return hic;
 }
