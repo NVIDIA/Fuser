@@ -38,6 +38,7 @@ def main():
         size=(2, 4, 16),
         stride=(64, 16, 1),
         dtype=torch.bfloat16,
+        requires_grad=True,
         device='meta'
     )
     print_tensor_info("input_tensor", input_tensor)
@@ -50,6 +51,7 @@ def main():
         size=(16, 16),
         stride=(16, 1),
         dtype=torch.bfloat16,
+        requires_grad=True,
         device='meta'
     )
     print_tensor_info("weight_tensor", weight_tensor)
