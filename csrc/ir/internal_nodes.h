@@ -3396,7 +3396,8 @@ class BlockQuantizationOp : public Expr {
       Val* input,
       Val* logical_index = nullptr,
       Val* global_scale = nullptr,
-      int64_t block_size = 16);
+      int64_t block_size = 16,
+      bool swizzled_scales = false);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -3432,6 +3433,10 @@ class BlockQuantizationOp : public Expr {
 
   const char* getOpString() const override {
     return "BlockQuantizationOp";
+  }
+
+  bool isSwizzledScales() const {
+    return attribute<bool>(2);
   }
 
   std::string toString(int indent_size = 0) const override;

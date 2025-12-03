@@ -881,6 +881,13 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 
+// Return the maximum cluster size that can be used for the current device.
+// It calls matmul_utils::getMaxActiveClusters which guarantee that at most a
+// single CTA is resident per SM by requesting the maximum smem per CTA then
+// compute occupancy with the given cluster size. If a positive value is
+// returned, it means the requested cluster size is supported by the device.
+int64_t getMaxClusterSize();
+
 // ============================================================================
 // TMA (Tensor Memory Accelerator) Background
 // For details see doc/dev/tma.md
