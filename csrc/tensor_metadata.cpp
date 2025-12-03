@@ -343,19 +343,21 @@ inferAndValidateAllocationSizesAndStrides(
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
 
-  // Skip validation for swizzled scales in ScaledMmaOp.
-  // We only want to skip the validation for the scales
-  // produced by the Block Quantization Op, but since we can't
-  // do that here, we skip both scales
   bool skip_validation = false;
-  for (auto use : tv->uses()) {
-    if (use->isA<ScaledMmaOp>()) {
-      if (tv == use->as<ScaledMmaOp>()->scale1() ||
-          tv == use->as<ScaledMmaOp>()->scale2()) {
-        skip_validation = true;
-        break;
-      }
+
+  // Skip validation for block scales of BlockQuantizationOp with
+  // swizzled scales.
+  if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<BlockQuantizationOp>();
+    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
     }
+  }
+
+  // Skip validation for scale input to ScaledMmaOp as it will be swizzled.
+  // This check is a bit of an overkill as it will skip all inputs to the op.
+  if (tv->uses().size() == 1 && tv->uses().at(0)->isA<ScaledMmaOp>()) {
+    skip_validation = true;
   }
 
   // Only validate final sizes and strides when we have a non-empty tensor
