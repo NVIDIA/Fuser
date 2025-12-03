@@ -8,12 +8,12 @@
 #include <exceptions.h>
 #include <multidevice/ipc_utils.h>
 
+#include <sys/socket.h>
+#include <sys/un.h>
+
 #include <unistd.h>
 #include <cerrno>
 #include <cstring>
-
-#include <sys/socket.h>
-#include <sys/un.h>
 
 namespace nvfuser {
 
