@@ -10,6 +10,7 @@
 #include <cuda_utils.h>
 #include <driver_api.h>
 #include <multidevice/communicator.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser {
