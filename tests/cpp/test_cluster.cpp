@@ -13,6 +13,7 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -153,6 +154,7 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+
 using ClusterReductionTestAutoScheduler = ClusterReductionTest;
 TEST_P(ClusterReductionTestAutoScheduler, Softmax) {
   auto [hidden_size, dtype] = GetParam();
@@ -258,4 +260,54 @@ TEST_F(ClusterReductionTest, InvalidClusterSize) {
                                "equal to max allowed cluster size and larger "
                                "than 1.")));
 }
+
+// Test the getMaxActiveClusters utility function
+TEST_F(NVFuserTest, GetMaxActiveClusters) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  // Test various cluster configurations from 1 to 17
+  std::vector<MatmulParams::ClusterDims> test_configs = {
+      {1, 1},   // 1x1 cluster (size 1)
+      {1, 2},   // 1x2 cluster (size 2)
+      {1, 3},   // 1x3 cluster (size 3)
+      {1, 4},   // 1x4 cluster (size 4)
+      {1, 5},   // 1x5 cluster (size 5)
+      {1, 6},   // 1x6 cluster (size 6)
+      {1, 7},   // 1x7 cluster (size 7)
+      {1, 8},   // 1x8 cluster (size 8)
+      {1, 9},   // 1x9 cluster (size 9)
+      {1, 10},  // 1x10 cluster (size 10)
+      {1, 11},  // 1x11 cluster (size 11)
+      {1, 12},  // 1x12 cluster (size 12)
+      {1, 13},  // 1x13 cluster (size 13)
+      {1, 14},  // 1x14 cluster (size 14)
+      {1, 15},  // 1x15 cluster (size 15)
+      {1, 16},  // 1x16 cluster (size 16)
+      {1, 17},  // 1x17 cluster (size 17), illegal cluster size
+  };
+
+  int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
+  for (const auto& cluster_dims : test_configs) {
+    if(cluster_dims.m * cluster_dims.n > 16) {
+      EXPECT_THAT(
+          [&]() { matmul_utils::getMaxActiveClusters(cluster_dims); },
+          ::testing::ThrowsMessage<nvfuser::nvfError>(
+              ::testing::HasSubstr("Invalid cluster size")));
+      continue;
+    }
+    int64_t max_active = matmul_utils::getMaxActiveClusters(cluster_dims);
+    if(sm_minor == 0) {
+    EXPECT_GT(max_active, 0)
+        << "Expected positive number of active clusters for "
+        << cluster_dims.m << "x" << cluster_dims.n << " cluster";
+    }
+
+    // Test caching: call again with same parameters and verify same result
+    int64_t max_active_cached = matmul_utils::getMaxActiveClusters(cluster_dims);
+    EXPECT_EQ(max_active, max_active_cached)
+        << "Cached result should match for "
+        << cluster_dims.m << "x" << cluster_dims.n << " cluster";
+  }
+}
+
 } // namespace nvfuser

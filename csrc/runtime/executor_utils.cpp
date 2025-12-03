@@ -683,5 +683,8 @@ void validateIndexCasts(
       "Int32");
 }
 
+void initializeCudaContext() {
+  at::cuda::jit::initializeCudaContext();
+}
 } // namespace executor_utils
 } // namespace nvfuser
