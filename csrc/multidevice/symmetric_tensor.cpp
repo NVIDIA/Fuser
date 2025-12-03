@@ -252,8 +252,6 @@ SymmetricTensor::~SymmetricTensor() {
     }
     if (peer_fd_ >= 0)
       close(peer_fd_);
-    if (pid_fd_ >= 0)
-      close(pid_fd_);
   }
 #endif
 
@@ -275,7 +273,7 @@ SymmetricTensor::~SymmetricTensor() {
   }
 }
 
-void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
+void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   if (are_remote_tensors_setup_ == true) {
     return;
   }
