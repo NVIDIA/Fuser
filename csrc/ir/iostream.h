@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <iostream>
+#include <iosfwd>
 
 #include <dispatch.h>
 #include <exceptions.h>

@@ -16,9 +16,6 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <fstream>
-#include <iostream>
-
 namespace nvfuser {
 
 namespace {

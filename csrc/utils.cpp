@@ -17,7 +17,6 @@
 #include <utils.h>
 
 #include <cstdlib>
-#include <iostream>
 #include <optional>
 
 namespace nvfuser {

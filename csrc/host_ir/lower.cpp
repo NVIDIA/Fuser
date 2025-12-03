@@ -96,10 +96,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   // Note: passes run before PreSegmenter optimization passes.
   // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
   // since they are incompatible with MultiDeviceExecutor.
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+      fusion.get());
+  OptimizationPass<preseg_passes::FinalizeMultideviceDomainsPass>::runPass(
+      fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either

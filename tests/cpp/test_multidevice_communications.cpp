@@ -19,8 +19,6 @@
 #include <ops/arith.h>
 #include <ops/utils.h>
 
-#include <iostream>
-
 namespace nvfuser {
 
 class CommunicationTest
