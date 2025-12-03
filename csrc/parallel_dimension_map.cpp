@@ -338,8 +338,6 @@ struct CodegenExtentInferencePolicy {
 
   static InferenceMap initialize(Fusion* fusion) {
     InferenceMap result = EvalExtentInferencePolicy::initialize(fusion);
-    VectorOfUniqueEntries<PDAndID> all_concrete_ids;
-    auto all_vals = fusion->usedMathVals();
 
     for (ParallelType ptype : kParallelTypeThreads) {
       if (!fusion->hasParallelDim(ptype)) {
@@ -352,7 +350,7 @@ struct CodegenExtentInferencePolicy {
       }
       Val* orig_extent = it->second;
       if (!orig_extent->isConst()) {
-        result[pdim] = NamedScalar::getParallelIndex(ptype);
+        result[pdim] = NamedScalar::getParallelDim(ptype);
       }
     }
 
@@ -364,6 +362,72 @@ struct CodegenExtentInferencePolicy {
       Expr* expr,
       const InferenceMap& known) {
     return inferExtentFromExpr(expr, known);
+  }
+};
+
+struct IndexInferencePolicy {
+  using InferenceMap = std::unordered_map<ParallelDim*, Val*>;
+
+  static InferenceMap initialize(Fusion* fusion) {
+    InferenceMap result;
+
+    for (ParallelType ptype : kParallelTypeThreads) {
+      if (!fusion->hasParallelDim(ptype)) {
+        continue;
+      }
+      ParallelDim* pdim = fusion->getParallelDim(ptype);
+      result[pdim] = NamedScalar::getParallelIndex(ptype);
+    }
+
+    return result;
+  }
+
+  //! Infer indices from ParallelDim expressions
+  static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
+      Expr* expr,
+      const InferenceMap& known) {
+    if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
+      Val* in = mapOrDefault(known, split->in(), /*default=*/(Val*)nullptr);
+      Val* outer =
+          mapOrDefault(known, split->outer(), /*default=*/(Val*)nullptr);
+      Val* inner =
+          mapOrDefault(known, split->inner(), /*default=*/(Val*)nullptr);
+
+      std::vector<std::pair<ParallelDim*, Val*>> inferred;
+      if (in) {
+        // We have an index for the input and need to derive an index for the
+        // outputs
+        if (!outer) {
+          // TODO: how can we access inner_extent which is actually the codegen
+          // extent for split->in() ?
+          inferred.emplace_back(
+              split->in(), SimplifyingIrBuilder::divExpr(in, inner_extent));
+        }
+      } else {
+        // We would like to derive an index for in
+        if (
+      }
+
+      if (in && outer && inner) {
+        return {}; // Nothing to infer
+      } else if (in && !outer && !inner) {
+      } else if (in && outer && !inner) {
+        // inner = in / outer
+        return {{split->inner(), SimplifyingIrBuilder::divExpr(in, outer)}};
+      } else if (in && !outer && inner) {
+        // outer = in / inner
+        return {{split->outer(), SimplifyingIrBuilder::divExpr(in, inner)}};
+      } else if (!in && outer && inner) {
+        // in = outer * inner
+        return {{split->in(), SimplifyingIrBuilder::mulExpr(outer, inner)}};
+      }
+
+      return {}; // Can't infer yet
+    } else {
+      NVF_THROW("Unhandled expression type: ", expr->getOpString());
+    }
+
+    return {};
   }
 };
 
@@ -405,7 +469,16 @@ void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {
   }
 }
 
-void ParallelDimensionMap::inferIndices(Fusion* fusion) {}
+void ParallelDimensionMap::inferIndices(Fusion* fusion) {
+  ParallelDimInference<IndexInferencePolicy> inference(fusion);
+
+  auto result = inference.run();
+
+  // Process results: simplify expressions, evaluate constants, populate map
+  for (auto& [pdim, idx] : result) {
+    dim_index_map_[pdim] = simplifyExpr(idx);
+  }
+}
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   // If TIDx is padded to a multiple of the warp size, mark it as
