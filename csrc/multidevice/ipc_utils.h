@@ -12,8 +12,6 @@
 #include <string>
 #include <vector>
 
-#include <visibility.h>
-
 namespace nvfuser {
 
 // Helper functions for serializing data to bytes for TCP store
@@ -34,11 +32,11 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 // Creates a listening Unix domain socket bound to path.
 // If path starts with '@', it uses the abstract namespace (replaced with \0).
 // Returns the socket file descriptor.
-NVF_API int createIpcSocket(const std::string& path);
+int createIpcSocket(const std::string& path);
 
 // Connects to the Unix domain socket at path and sends the file descriptor fd.
 // Optionally sends header_data of size header_len along with the FD.
-NVF_API void sendFd(
+void sendFd(
     const std::string& path,
     int fd,
     const void* header_data = nullptr,
@@ -47,7 +45,7 @@ NVF_API void sendFd(
 // Accepts a connection on the listening socket_fd and receives a file
 // descriptor. Optionally receives header_data of size header_len. Returns the
 // received file descriptor.
-NVF_API int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
+int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
 
 } // namespace nvfuser
 
