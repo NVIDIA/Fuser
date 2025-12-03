@@ -15,6 +15,10 @@
 
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
+namespace nvfuser {
+class CompiledKernel;
+}
+
 namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
@@ -113,10 +117,11 @@ class LaunchKernel : public Expr {
       IrBuilderPasskey passkey,
       int64_t group_id,
       const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
+      CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
-      Val* cache_id);
+      Val* cache_id,
+      PrimDataType index_type = PrimDataType::Int);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -150,6 +155,39 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  struct ArgInfo {
+    DataType dtype;
+    AdjustLastDim last_dim_adj;
+    bool is_tensor;
+  };
+
+  const auto& inputArgInfo() const {
+    return input_arg_info_;
+  }
+
+  const auto& outputArgInfo() const {
+    return output_arg_info_;
+  }
+
+  PrimDataType indexType() const {
+    return index_type_;
+  }
+
+  CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
+  }
+
+ private:
+  std::vector<ArgInfo> input_arg_info_;
+  std::vector<ArgInfo> output_arg_info_;
+  PrimDataType index_type_ = PrimDataType::Int;
+  // Non-owning pointer to CompiledKernel. The CompiledKernel is owned by
+  // KernelExecutor, which is owned by HostIrContainer. Since LaunchKernel
+  // nodes are registered to the HostIrContainer (via Fusion base class),
+  // the CompiledKernel is guaranteed to outlive this LaunchKernel node.
+  // This pointer must not be null after construction.
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -20,13 +21,27 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
+#include "type.h"
+
+#include <driver_api.h>
 
 #include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
+#include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
+#include <runtime/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
@@ -62,6 +77,7 @@ constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
+
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -708,7 +724,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
   // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernel, void* hostIrContainer)
+  // num_outputs, void* launchKernelContext, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
       void_type,
       {int64_type,
@@ -1009,6 +1025,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
     llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
 
+    // Pass LaunchKernel pointer directly
     llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
         void_ptr_type);
@@ -1175,6 +1192,39 @@ void HostIrJitImpl::compile() {
   main_func_ = reinterpret_cast<main_func_t>(main_func_addr.getValue());
 }
 
+// Debug function to dump kernel arguments for host IR kernel launches
+// Simplified version of the executor.cpp dumpKernelArgs - only shows inputs,
+// outputs, and total argument count
+void dumpKernelArgs(
+    int64_t fusion_id,
+    int64_t group_id,
+    at::Tensor** input_tensors,
+    int64_t num_inputs,
+    at::Tensor** output_tensors,
+    int64_t num_outputs) {
+  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
+          << ":" << std::endl;
+  debug() << "Total arguments: " << (num_inputs + num_outputs) << std::endl;
+  debug() << "Inputs (" << num_inputs << "):" << std::endl;
+  for (int64_t i = 0; i < num_inputs; ++i) {
+    if (input_tensors[i] != nullptr) {
+      const at::Tensor& tensor = *input_tensors[i];
+      debug() << debug_str(tensor) << std::endl;
+    } else {
+      debug() << "  [" << i << "] nullptr" << std::endl;
+    }
+  }
+  debug() << "Outputs (" << num_outputs << "):" << std::endl;
+  for (int64_t i = 0; i < num_outputs; ++i) {
+    if (output_tensors[i] != nullptr) {
+      const at::Tensor& tensor = *output_tensors[i];
+      debug() << debug_str(tensor) << std::endl;
+    } else {
+      debug() << "  [" << i << "] nullptr" << std::endl;
+    }
+  }
+}
+
 // Implementation of HostIrJitImpl
 HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
@@ -1266,25 +1316,177 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   int64_t num_outputs,
                                   void* launch_kernel,
                                   void* container) {
+        FUSER_PERF_SCOPE("launch_kernel_func_ptr");
+
+        // Cast to LaunchKernel struct
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_kernel);
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
+        NVF_CHECK(
+            launch_kernel_ptr != nullptr, "launch_context_ptr cannot be null");
 
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
+        int64_t group_id = launch_kernel_ptr->groupId();
+
+        // Profiling
+        if (isProfilerEnabled()) {
+          NVF_CHECK(
+              group_id >= 0,
+              "An invalid segment id is passed to FusionProfiler!:",
+              group_id);
+          SegmentProfiler& sprof = FusionProfiler::segment(group_id);
+
+          // Compute input bytes
+          int64_t input_bytes = 0;
+          for (int64_t i = 0; i < num_inputs; ++i) {
+            if (input_tensors[i] != nullptr) {
+              input_bytes += static_cast<int64_t>(input_tensors[i]->storage().nbytes());
+            }
+          }
+          sprof.inputBytesAccessed(input_bytes);
+
+          // Set scheduler type from compiled kernel
+          CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
+          if (ck != nullptr) {
+            sprof.scheduler(toString(ck->schedulerType()));
+          }
+
+          // Get device index from the first input tensor if available
+          int8_t device_index = 0;
+          if (num_inputs > 0 && input_tensors[0] != nullptr) {
+            device_index = static_cast<int8_t>(input_tensors[0]->device().index());
+          } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
+            device_index = static_cast<int8_t>(output_tensors[0]->device().index());
+          }
+
+          FusionProfiler::segment(group_id).setDevice(device_index);
+          sprof.startKernel();
         }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
+
+        // Process input & output arguments.
+        std::vector<std::vector<std::byte>> arg_bytes;
+        arg_bytes.reserve(num_inputs + num_outputs);
+
+        std::vector<void*> kernel_args;
+        kernel_args.reserve(num_inputs + num_outputs);
+
+        PrimDataType index_type = launch_kernel_ptr->indexType();
+
+        auto push_kernel_args = [&](at::Tensor** tensors,
+                                    int64_t num,
+                                    const auto& arg_infos) {
+          NVF_CHECK(num >= 0, "Number of tensors cannot be negative: ", num);
+          NVF_CHECK(
+              static_cast<size_t>(num) == arg_infos.size(),
+              "Tensor count mismatch: expected ", arg_infos.size(),
+              " but got ", num);
+
+          for (int64_t i = 0; i < num; ++i) {
+            NVF_CHECK(
+                tensors[i] != nullptr,
+                "Tensor pointer at index ", i, " is null");
+
+            at::Tensor* tensor = tensors[i];
+            const auto& info = arg_infos[i];
+
+            if (info.is_tensor) {
+              std::vector<int64_t> sizes = tensor->sizes().vec();
+              std::vector<int64_t> strides = tensor->strides().vec();
+
+              auto bytes = tensorToBytes(
+                  PolymorphicValue(*tensor),
+                  sizes,
+                  strides,
+                  index_type,
+                  info.last_dim_adj
+                  );
+              arg_bytes.push_back(std::move(bytes));
+            } else {
+              auto bytes = polymorphicValueToBytes(
+                  PolymorphicValue(*tensor), info.dtype, index_type);
+              arg_bytes.push_back(std::move(bytes));
+            }
+
+            kernel_args.push_back(arg_bytes.back().data());
+          }
+        };
+
+        push_kernel_args(
+            input_tensors, num_inputs, launch_kernel_ptr->inputArgInfo());
+        push_kernel_args(
+            output_tensors, num_outputs, launch_kernel_ptr->outputArgInfo());
+
+        if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+          dumpKernelArgs(
+              -1,
+              -1,
+              input_tensors,
+              num_inputs,
+              output_tensors,
+              num_outputs);
         }
-        input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
-                input_args,
-                output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
+
+        // Launch Config
+        CUlaunchConfig config;
+
+        const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
+
+        if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
+          launch_params.print();
+        }
+
+        auto stream = at::cuda::getCurrentCUDAStream();
+
+        config.gridDimX = launch_params.gdimx();
+        config.gridDimY = launch_params.gdimy();
+        config.gridDimZ = launch_params.gdimz();
+        config.blockDimX = launch_params.bdimx();
+        config.blockDimY = launch_params.bdimy();
+        config.blockDimZ = launch_params.bdimz();
+        config.sharedMemBytes = launch_params.smem();
+        config.hStream = stream;
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+
+        CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+        NVF_CHECK(
+            compiled_kernel != nullptr,
+            "CompiledKernel pointer is null for group_id ",
+            group_id);
+        NVF_CHECK(
+            compiled_kernel->cudaExecutable() != nullptr,
+            "CUDA executable is null for group_id ",
+            group_id);
+
+        if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+          debug() << "Index type: " << launch_kernel_ptr->indexType()
+                  << std::endl;
+        }
+
+        // Launch the kernel
+        {
+          FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &config,
+              compiled_kernel->cudaExecutable()->function,
+              kernel_args.data(),
+              nullptr));
+        }
+
+        // Profiling cleanup
+        if (isProfilerEnabled()) {
+          auto& sprof = FusionProfiler::segment(group_id);
+          sprof.stopKernel();
+
+          // Compute output bytes
+          int64_t output_bytes = 0;
+          for (int64_t i = 0; i < num_outputs; ++i) {
+            if (output_tensors[i] != nullptr) {
+              output_bytes += static_cast<int64_t>(output_tensors[i]->storage().nbytes());
+            }
+          }
+
+          sprof.outputBytesAccessed(output_bytes);
+        }
       });
 
   // matmul_out function

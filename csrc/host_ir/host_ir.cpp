@@ -134,15 +134,40 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t group_id,
     const LaunchParams& launch_constraints,
-    const CompileParams& compile_params,
+    CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
-    Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    Val* cache_id,
+    PrimDataType index_type)
+    : Expr(passkey, inputs, outputs, {}), index_type_(index_type), compiled_kernel_(compiled_kernel) {
+  NVF_CHECK(
+      compiled_kernel != nullptr,
+      "LaunchKernel requires a non-null CompiledKernel pointer");
+  NVF_CHECK(
+      cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
-  addDataAttribute(compile_params);
+  addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
+
+  for (auto* val : inputs) {
+    NVF_CHECK(val != nullptr, "LaunchKernel input cannot be null");
+    ArgInfo info;
+    info.dtype = val->dtype();
+    info.last_dim_adj = getLastDimAdjustment(info.dtype);
+    info.is_tensor = val->isA<TensorView>();
+    input_arg_info_.push_back(info);
+  }
+
+  for (auto* val : outputs) {
+    NVF_CHECK(val != nullptr, "LaunchKernel output cannot be null");
+    ArgInfo info;
+    info.dtype = val->dtype();
+    info.last_dim_adj = getLastDimAdjustment(info.dtype);
+    info.is_tensor = val->isA<TensorView>();
+    output_arg_info_.push_back(info);
+  }
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
