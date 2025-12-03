@@ -133,7 +133,8 @@ namespace {
 //!   - Must provide: static InferenceMap initialize(Fusion* fusion);
 //!   - Must provide: static std::vector<std::pair<ParallelDim*, Val*>>
 //!                     inferFromExpr(Expr* expr,
-//!                                   const InferenceMap& known);
+//!                                   const InferenceMap& known,
+//!                                   const ParallelDimensionMap* pdim_map);
 //!
 //! Example usage:
 //!   ParallelDimInference<ExtentInferencePolicy> inference(fusion);
@@ -143,7 +144,10 @@ class ParallelDimInference {
  public:
   using InferenceMap = InferencePolicy::InferenceMap;
 
-  explicit ParallelDimInference(Fusion* fusion) : fusion_(fusion) {}
+  explicit ParallelDimInference(
+      Fusion* fusion,
+      const ParallelDimensionMap* pdim_map = nullptr)
+      : fusion_(fusion), pdim_map_(pdim_map) {}
 
   //! Run inference to completion
   //! 1. Calls InferencePolicy::initialize() to get initial values
@@ -198,7 +202,7 @@ class ParallelDimInference {
       last_num_updates = num_updates;
 
       // Use policy to try inference
-      auto inferred = InferencePolicy::inferFromExpr(expr, values_);
+      auto inferred = InferencePolicy::inferFromExpr(expr, values_, pdim_map_);
 
       if (inferred.empty()) {
         // Couldn't infer yet, re-queue
@@ -225,6 +229,7 @@ class ParallelDimInference {
   }
 
   Fusion* fusion_;
+  const ParallelDimensionMap* pdim_map_;
   InferenceMap values_;
 };
 
@@ -244,7 +249,8 @@ class ParallelDimInference {
 //! inferred or if expression type is not handled.
 inline std::vector<std::pair<ParallelDim*, Val*>> inferExtentFromExpr(
     Expr* expr,
-    const std::unordered_map<ParallelDim*, Val*>& known) {
+    const std::unordered_map<ParallelDim*, Val*>& known,
+    const ParallelDimensionMap* /*pdim_map*/) {
   if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
     Val* in = mapOrDefault(known, split->in(), /*default=*/(Val*)nullptr);
     Val* outer = mapOrDefault(known, split->outer(), /*default=*/(Val*)nullptr);
@@ -324,8 +330,9 @@ struct EvalExtentInferencePolicy {
   //! Infer extents from ParallelDim expressions
   static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
       Expr* expr,
-      const InferenceMap& known) {
-    return inferExtentFromExpr(expr, known);
+      const InferenceMap& known,
+      const ParallelDimensionMap* pdim_map) {
+    return inferExtentFromExpr(expr, known, pdim_map);
   }
 };
 
@@ -360,8 +367,9 @@ struct CodegenExtentInferencePolicy {
   //! Infer extents from ParallelDim expressions
   static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
       Expr* expr,
-      const InferenceMap& known) {
-    return inferExtentFromExpr(expr, known);
+      const InferenceMap& known,
+      const ParallelDimensionMap* pdim_map) {
+    return inferExtentFromExpr(expr, known, pdim_map);
   }
 };
 
@@ -385,7 +393,8 @@ struct IndexInferencePolicy {
   //! Infer indices from ParallelDim expressions
   static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
       Expr* expr,
-      const InferenceMap& known) {
+      const InferenceMap& known,
+      const ParallelDimensionMap* pdim_map) {
     if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
       Val* in = mapOrDefault(known, split->in(), /*default=*/(Val*)nullptr);
       Val* outer =
@@ -393,36 +402,26 @@ struct IndexInferencePolicy {
       Val* inner =
           mapOrDefault(known, split->inner(), /*default=*/(Val*)nullptr);
 
+      Val* inner_extent = pdim_map->getCodegenExtent(split->in());
+
       std::vector<std::pair<ParallelDim*, Val*>> inferred;
       if (in) {
-        // We have an index for the input and need to derive an index for the
-        // outputs
         if (!outer) {
-          // TODO: how can we access inner_extent which is actually the codegen
-          // extent for split->in() ?
           inferred.emplace_back(
-              split->in(), SimplifyingIrBuilder::divExpr(in, inner_extent));
+              split->outer(), SimplifyingIrBuilder::divExpr(in, inner_extent));
         }
-      } else {
-        // We would like to derive an index for in
-        if (
+        if (!inner) {
+          inferred.emplace_back(
+              split->inner(), SimplifyingIrBuilder::modExpr(in, inner_extent));
+        }
+      } else if (outer && inner) {
+        inferred.emplace_back(
+            split->in(),
+            SimplifyingIrBuilder::addExpr(
+                SimplifyingIrBuilder::mulExpr(outer, inner_extent), inner));
       }
 
-      if (in && outer && inner) {
-        return {}; // Nothing to infer
-      } else if (in && !outer && !inner) {
-      } else if (in && outer && !inner) {
-        // inner = in / outer
-        return {{split->inner(), SimplifyingIrBuilder::divExpr(in, outer)}};
-      } else if (in && !outer && inner) {
-        // outer = in / inner
-        return {{split->outer(), SimplifyingIrBuilder::divExpr(in, inner)}};
-      } else if (!in && outer && inner) {
-        // in = outer * inner
-        return {{split->in(), SimplifyingIrBuilder::mulExpr(outer, inner)}};
-      }
-
-      return {}; // Can't infer yet
+      return inferred;
     } else {
       NVF_THROW("Unhandled expression type: ", expr->getOpString());
     }
@@ -470,7 +469,7 @@ void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {
 }
 
 void ParallelDimensionMap::inferIndices(Fusion* fusion) {
-  ParallelDimInference<IndexInferencePolicy> inference(fusion);
+  ParallelDimInference<IndexInferencePolicy> inference(fusion, this);
 
   auto result = inference.run();
 
