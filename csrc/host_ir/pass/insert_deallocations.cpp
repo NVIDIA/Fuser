@@ -14,14 +14,15 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 
-namespace nvfuser::hir_pass {
+namespace nvfuser::hir {
 
-void InsertDeallocations::passImplementation(Fusion* fusion) {
+void InsertDeallocations::runPass(Fusion* fusion) {
+  NVF_CHECK(fusion->isA<HostIrContainer>());
+
   FusionGuard fg(fusion);
-  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
-  NVF_CHECK(hic, "Expected HostIrContainer");
+  auto& hic = *(fusion->as<HostIrContainer>());
 
-  const std::list<Expr*>& top_level_exprs = hic->topLevelExprs();
+  const std::list<Expr*>& top_level_exprs = hic.topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
         !expr->isA<hir::Deallocate>(),
@@ -30,6 +31,9 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
         expr);
   });
 
+  // For each input in every expression in the container, find the position of
+  // its last use and insert a deallocate directly after, except for fusion
+  // inputs and outputs.
   std::unordered_set<TensorView*> last_use_found;
   for (auto insertion_point = top_level_exprs.end();
        insertion_point != top_level_exprs.begin();) {
@@ -57,7 +61,7 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
       }
 
       auto* deallocate = IrBuilder::create<hir::Deallocate>(in);
-      hic->insertExprBefore(insertion_point, deallocate);
+      hic.insertExprBefore(insertion_point, deallocate);
     }
 
     // Don't `--insertion_point;` because we'd like to skip newly inserted
@@ -66,4 +70,4 @@ void InsertDeallocations::passImplementation(Fusion* fusion) {
   }
 }
 
-} // namespace nvfuser::hir_pass
+} // namespace nvfuser::hir

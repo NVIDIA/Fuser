@@ -478,7 +478,7 @@ def cmake(config, relative_path):
         cmake_build_dir,
     ]
     if config.nvmmh_include_dir:
-        f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}",
+        cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
     if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")

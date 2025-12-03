@@ -40,6 +40,7 @@ __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
 // elements (ITEMS_PER_THREAD). Thus n threads are working to quantize 16
 // elements, where n = 16 / ITEMS_PER_THREAD.
 template <
+    bool USE_GLOBAL_SCALE,
     int ITEMS_PER_THREAD,
     typename T,
     int ALIGNMENT_1,
@@ -50,7 +51,14 @@ __device__ void block_quantize_to_nvfp4(
     const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
-    nvfuser_index_t logical_index) {
+    nvfuser_index_t logical_index,
+    Tensor<float, 0, 0> global_scale,
+    int64_t fp8_scaling_factors_inner_dim = -1,
+    int64_t alloc_dim0 = -1,
+    int64_t alloc_dim1 = -1,
+    int64_t alloc_dim2 = -1,
+    int64_t alloc_dim3 = -1,
+    int64_t alloc_dim4 = -1) {
   constexpr bool is_half_or_bfloat =
       std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
   constexpr bool is_float = std::is_same<T, float>::value;
@@ -97,31 +105,64 @@ __device__ void block_quantize_to_nvfp4(
   reduceAcrossThreads<NUM_ELEMENTS>(local_max);
   float block_max = local_max;
 
-  // This division should be replaced with a multiplication
-  // by a reciprocal for better performance.
-  float scaled_max = block_max / 6.000000000e+00f;
-  float clamped_max = clamp(
-      scaled_max, 1.562500000e-02f, 4.480000000e+02f); // Clamp between 0 and 1
+  constexpr float rcp_6f = 1.0f / 6.0f;
+  float scaled_max = 0;
+  if constexpr (USE_GLOBAL_SCALE) {
+    scaled_max = block_max * global_scale[0] * rcp_6f;
+  } else {
+    scaled_max = block_max * rcp_6f;
+  }
 
-  __e4m3 clamped_max_fp8 = __float2e4m3(clamped_max);
+  __e4m3 clamped_max_fp8 = __float2e4m3(scaled_max);
 
   // Convert back from FP8 to float using __e4m32float
-  float clamped_max_converted = __e4m32float(clamped_max_fp8);
+  scaled_max = __e4m32float(clamped_max_fp8);
+
+  if constexpr (USE_GLOBAL_SCALE) {
+    scaled_max = global_scale[0] / scaled_max;
+  }
 
   // Write out the block scaling factor to global memory.
   // This assumes 16 elements in the input were contiguous.
   // Only one block scaling factor is written out per 16(assumed block size)
   // elements.
   int offset = logical_index / 16;
+
+  if (fp8_scaling_factors_inner_dim > 0) {
+    auto stride_4 = 1;
+    auto stride_3 = stride_4 * alloc_dim4;
+    auto stride_2 = stride_3 * alloc_dim3;
+    auto stride_1 = stride_2 * alloc_dim2;
+    auto stride_0 = stride_1 * alloc_dim1;
+
+    auto logical_inner = offset % fp8_scaling_factors_inner_dim;
+    auto logical_outer = offset / fp8_scaling_factors_inner_dim;
+
+    // The allocation domain swizzle logic is:
+    // m, k -> m, k/4, 4
+    // m, k/4, 4 -> m/128, 128, k/4, 4 ->
+    // m/128, 4(m), 32, k/4, 4(k) ->
+    // m/128, k/4, 32, 4(m), 4(k)
+
+    auto pos_4 = logical_inner % 4;
+    auto pos_1 = logical_inner / 4;
+    auto pos_t = logical_outer % 128;
+    auto pos_0 = logical_outer / 128;
+    auto pos_3 = pos_t / 32;
+    auto pos_2 = pos_t % 32;
+
+    offset = pos_4 * stride_4 + pos_3 * stride_3 + pos_2 * stride_2 +
+        pos_1 * stride_1 + pos_0 * stride_0;
+  }
+
   if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
     block_scales[offset] = clamped_max_fp8;
   }
 
-  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> clamped_vals;
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> scaled_vals;
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    float scaled_val = vec_in[i] / clamped_max_converted;
-    clamped_vals[i] = clamp(scaled_val, -6.000000000e+00f, 6.000000000e+00f);
+    scaled_vals[i] = vec_in[i] * scaled_max;
   }
 
   Array<__e2m1, ITEMS_PER_THREAD, 1> fp4_vals;
@@ -129,7 +170,7 @@ __device__ void block_quantize_to_nvfp4(
       &fp4_vals[0]) =
       __float2e2m1(
           *reinterpret_cast<Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD>*>(
-              &clamped_vals[0]));
+              &scaled_vals[0]));
 
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {

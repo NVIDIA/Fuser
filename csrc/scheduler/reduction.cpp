@@ -1564,9 +1564,8 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   auto reduction_tv = reduction_tvs[0];
 
   if (!ir_utils::getReshapeOps(fusion).empty()) {
-    ComputeAtMap ca_map(fusion);
     // Propagate reshape transforms through the graph, expecially the reference.
-    scheduler_utils::propagateReshapeTransforms(fusion, ca_map);
+    scheduler_utils::propagateReshapeTransforms(fusion);
 
     // Reorder reference_tv after propagating the view operation. This will
     // reorder for better merging.
@@ -1647,10 +1646,6 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
-  // TODO(#1401): We could let segmentation split a partially alias-producing
-  // fusion into an alias-only segment and the rest. This way, the rest of the
-  // fusion (which has fewer expressions) can potentially find a better
-  // scheduler and we need to call markAliases only in NoOpScheduler.
   markAliases(fusion);
 }
 

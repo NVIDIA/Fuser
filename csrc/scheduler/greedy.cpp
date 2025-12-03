@@ -32,7 +32,6 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
-#include <functional>
 #include <ranges>
 #include <vector>
 

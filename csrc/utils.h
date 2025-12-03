@@ -46,6 +46,14 @@ namespace nvfuser {
 //! Warp specialization padded threads count
 constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
+//! TMA hardware limit: maximum elements per dimension in a TMA box
+constexpr int64_t kMaxElementsPerTmaBoxDim = 256;
+
+//! In general TMA terminology, "box" is the dense rectangular region loaded,
+//! while "tile" is a potentially strided subset. The pointwise scheduler uses
+//! dense tiles (tile = box), so we use "tile" terminology for consistency.
+constexpr int64_t kMaxElementsPerTmaTileDim = kMaxElementsPerTmaBoxDim;
+
 //! shared memory alignment in bytes
 //! TMA requires 128 bytes alignment, other usage doesn't have such requirement,
 //! but still align to 128 bytes for simplicity and robustness.

@@ -10,9 +10,9 @@
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
@@ -54,10 +54,15 @@ class TransposeTest : public NVFuserTest {
   TransposeTest()
       : optimization_guard_(false), allocation_order_guard_(false) {}
 
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+
  private:
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard_;
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass>
       allocation_order_guard_;
 };
 

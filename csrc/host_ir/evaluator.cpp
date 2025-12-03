@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -495,7 +494,6 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
 void HostIrEvaluator::handle(LinearOp* linear) {
   auto* in = linear->inA()->as<TensorView>();
   auto* weight = linear->inB()->as<TensorView>();
-  auto* bias = linear->bias()->as<TensorView>();
   auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
@@ -503,15 +501,17 @@ void HostIrEvaluator::handle(LinearOp* linear) {
     return;
   }
 
-  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
-  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
-  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
+  auto in_tensor = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_tensor = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_tensor = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->hasBias()) {
-    auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
-    at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
+    auto* bias = linear->bias()->as<TensorView>();
+    auto bias_tensor = getKnownConcreteValue(bias).as<at::Tensor>();
+    at::linear_out(
+        out_tensor, in_tensor, weight_tensor.squeeze(), bias_tensor.squeeze());
   } else {
-    at::linear_out(out_at, in_at, weight_at.squeeze());
+    at::linear_out(out_tensor, in_tensor, weight_tensor.squeeze());
   }
 }
 

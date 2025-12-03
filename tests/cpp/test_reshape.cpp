@@ -46,7 +46,6 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -3012,26 +3011,7 @@ TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSetsMultiSteps) {
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
-// Exact map:
-// {iS12{12}rf* }
-// {iS22{12}*; iS16{12}; iS8{12}rf }
-
-// transformed_disjoint_sets: 4
-//   transformed_disjoint_sets: { iS12{12}rf }
-//   transformed_disjoint_sets: { iS10{24}rf; iS4{24}rf }
-//   transformed_disjoint_sets: { iS6{24}rf; iS2{24}rf }
-//   transformed_disjoint_sets: { iS3{36}rf; iS1{36}rf; iS0{36} }
-// transformPropagateToAllFrom T3_l_float[iS7{2}rf, iS8{12}rf] @ 2
-// In this case, iS8{12}rf in T3 is not in the same disjoint set with
-// transformed id iS12{12}rf, thus, it is treated as a terminating reshape dim,
-// so propagate T3 @ 2. It leads to an error when propagating to T8.
-// TransformPropagator::propagateP2C
-//   from: T4_l_float[iS11{2}rf, iS12{12}rf] @ 2
-//   to: T8_l_float[iS17{2}, iS18{2}, iS19{6}]
-// Could not find axis, iS12{12}rf, since it is not in the same disjoint set
-// with iS16{12} in T8.
 TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsMultiSteps) {
-  GTEST_SKIP() << "Skip due to bug in terminating reshape dim detection.";
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);

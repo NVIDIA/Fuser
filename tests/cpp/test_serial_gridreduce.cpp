@@ -27,13 +27,18 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include <algorithm>
-#include <iostream>
 #include <sstream>
 #include <thread>
 
 namespace nvfuser {
 
-using SerialGridReductionTest = NVFuserTest;
+class SerialGridReductionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(SerialGridReductionTest, Scheduling) {
   for (bool serial : {true, false}) {

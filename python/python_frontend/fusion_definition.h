@@ -7,8 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <functional>
-#include <iostream>
+#include <iosfwd>
 #include <unordered_map>
 
 #include <distributed_tensor.h>

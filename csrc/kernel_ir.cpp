@@ -20,7 +20,6 @@
 #include <type.h>
 
 #include <cctype>
-#include <iostream>
 #include <regex>
 
 namespace nvfuser::kir {

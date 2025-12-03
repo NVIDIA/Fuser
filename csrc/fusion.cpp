@@ -31,6 +31,69 @@
 
 namespace nvfuser {
 
+size_t Fusion::hash() const {
+  size_t hash = 0;
+
+  for (const Val* val : inputs()) {
+    hashCombine(hash, val->hash());
+  }
+
+  for (const Expr* expr : exprs()) {
+    hashCombine(hash, expr->hash());
+  }
+
+  for (const Val* val : outputs()) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+
+namespace {
+//! Check if the alias info is the same between different Fusion objects
+bool checkAliasInfo(
+    const AliasInfo& this_alias_info,
+    const AliasInfo& other_alias_info) {
+  if (this_alias_info.type != other_alias_info.type) {
+    return false;
+  }
+  if (this_alias_info.visibility != other_alias_info.visibility) {
+    return false;
+  }
+  if (this_alias_info.aliased_io == nullptr) {
+    return other_alias_info.aliased_io == nullptr;
+  }
+  return this_alias_info.aliased_io->sameDefinition(
+      other_alias_info.aliased_io);
+}
+} // namespace
+
+bool Fusion::sameDefinition(const Fusion& other) const {
+  if (inputs().size() != other.inputs().size()) {
+    return false;
+  }
+  if (outputs().size() != other.outputs().size()) {
+    return false;
+  }
+
+  // Call sameDefinition on each output traverses the entire Fusion DAG.
+  // First the output is checked, then the output definition, and on to the
+  // definition's inputs. This repeats until fusion inputs are reached.
+  const auto& this_output_aliases = getOutputAliases();
+  const auto& other_output_aliases = other.getOutputAliases();
+  for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
+    if (!output->sameDefinition(other_output)) {
+      return false;
+    }
+    if (!checkAliasInfo(
+            this_output_aliases.get(output),
+            other_output_aliases.get(other_output))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
@@ -173,7 +236,7 @@ void Fusion::removeExpr(Expr* expr) {
   // that removing something that doesn't exist simply does nothing. For now,
   // we're going with the strictest model which errors.
 
-  for (auto out : expr->outputs()) {
+  for (auto* out : expr->outputs()) {
     if (out->isA<TensorView>()) {
       invalidateTvsAndUses();
     }
@@ -181,7 +244,7 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   // Remove uses in inputs
-  for (auto inp : expr->inputs()) {
+  for (auto* inp : expr->inputs()) {
     // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
     if (inp->isA<TensorView>()) {

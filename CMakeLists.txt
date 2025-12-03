@@ -269,6 +269,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/passes.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
@@ -291,7 +292,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
-  ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
@@ -311,7 +313,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/propagation.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/resharding.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/symmetric_tensor.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
   ${NVFUSER_SRCS_DIR}/ops/arith.cpp
@@ -892,12 +896,14 @@ if(BUILD_PYTHON)
       nvf_cutlass
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
+      CUDA::cupti
     )
   else()
     target_link_libraries(nvf_py_direct_internal PRIVATE
       nvfuser_codegen
       "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
       pybind11::pybind11 pybind11::headers
+      CUDA::cupti
     )
   endif()
 
@@ -946,6 +952,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_fusion_hash.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
@@ -1184,6 +1191,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_stream_parallel_type.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_symmetric_tensor.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)

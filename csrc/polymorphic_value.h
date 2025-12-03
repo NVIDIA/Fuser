@@ -11,7 +11,6 @@
 #include <any>
 #include <complex>
 #include <cstddef>
-#include <functional>
 #include <numeric>
 #include <ostream>
 #include <unordered_map>
@@ -225,6 +224,8 @@ using PolymorphicValue = dynamic_type::DynamicType<
     bool>;
 
 namespace PolymorphicValue_functions {
+
+NVF_API size_t hash(const PolymorphicValue& v);
 
 NVF_API std::string toString(const PolymorphicValue& v);
 

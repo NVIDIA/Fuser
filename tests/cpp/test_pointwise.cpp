@@ -11,12 +11,14 @@
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/domain_map.h>
+#include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -561,7 +563,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -597,7 +599,7 @@ TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape1) {
 
 // Repro of issue #657
 TEST_F(PointwiseTest, VectorizeWithBroadcastAndReshape2) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1143,7 +1145,7 @@ TEST_F(PointwiseTest, DomainMapFactory) {
 }
 
 TEST_F(PointwiseTest, DomainMapPad0) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1190,7 +1192,7 @@ TEST_F(PointwiseTest, DomainMapPad0) {
 }
 
 TEST_F(PointwiseTest, DomainMapPad1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1239,7 +1241,7 @@ TEST_F(PointwiseTest, DomainMapPad1) {
 }
 
 TEST_F(PointwiseTest, DomainMapSlice0) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1286,7 +1288,7 @@ TEST_F(PointwiseTest, DomainMapSlice0) {
 }
 
 TEST_F(PointwiseTest, DomainMapSlice1) {
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
@@ -1435,4 +1437,257 @@ TEST_F(
   }
 }
 
+// Test scheduling pointwise kernel with 2D TMA tiles.
+// dim0: Varied input size in the outermost dimension. Ensure we reject cases
+//       that can't use TMA load, e.g., load size is not divisible by 16 bytes.
+// ndims: Test 1, 2, and 3 dimensions. Since we always use 2D tiles, we want to
+//        make sure we can handle cases with fewer than 2 dimensions and cases
+//        with more than 2 dimensions.
+// use_tma_store: Test with and without TMA store.
+using Tma2dTileTestParams =
+    std::tuple<int64_t, int64_t, bool, bool>; // <dim0, ndims, use_tma_store,
+                                              // auto_schedule>
+
+class Tma2dTileTest : public NVFuserFixtureParamTest<Tma2dTileTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<Tma2dTileTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+
+  bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    return runtime->schedulerHeuristics()
+        ->heuristicsList()
+        .at(0)
+        ->as<PointwiseParams>()
+        ->use_tma_load;
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(Tma2dTileTest, NoBroadcast) {
+  // This is a simple test with contiguous inputs, without broadcast, reshapes,
+  // allocation domains, etc. Test that 2D TMA tiles can be used to schedule
+  // inputs with different sizes and dimensions. Demonstrates how to use 2D TMA
+  // tiles and how to handle cases with and without TMA store.
+  auto dtype = DataType::Float;
+  int64_t dtype_bytes = dataTypeSizeByte(dtype);
+  auto [dim0, ndims, use_tma_store, auto_schedule] = GetParam();
+  // test [dim0], [dim0, 2], [dim0, 2, 4]
+  std::vector<int64_t> element_at_each_dim(ndims);
+  element_at_each_dim[0] = dim0;
+  int64_t total_elem_count = dim0;
+  for (int64_t i = 1; i < ndims; i++) {
+    int64_t dim_i = 1 << i;
+    element_at_each_dim[i] = dim_i;
+    total_elem_count *= dim_i;
+  }
+  if (total_elem_count * dtype_bytes % 16 != 0) {
+    GTEST_SKIP() << "Total bytes is not divisible by 16, can't use TMA, "
+                    "total_elem_count: "
+                 << total_elem_count << ", dtype_bytes: " << dtype_bytes;
+    return;
+  }
+
+  const int64_t min_inner_dim = 2 * 16 / dtype_bytes;
+  if (total_elem_count % min_inner_dim != 0 ||
+      total_elem_count == min_inner_dim) {
+    GTEST_SKIP() << "Total elements is not divisible by min_inner_dim or equal "
+                    "to min_inner_dim, can't use TMA, "
+                    "total_elem_count: "
+                 << total_elem_count << ", min_inner_dim: " << min_inner_dim;
+    return;
+  }
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+  auto tv0 = makeContigTensor(ndims);
+  fusion.addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(element_at_each_dim, options);
+
+  if (auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto out_tensors = executor_cache.runFusionWithInputs({t0});
+    // ensure TMA is used
+    EXPECT_TRUE(hasTmaLoad(executor_cache));
+    testValidate(
+        executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+    return;
+  }
+
+  // Create TMA loads from inputs to shared memory
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache loads from shared memory to registers
+  auto tv0_regs = tv0_smem->cacheAfter();
+
+  // Output caching: regs -> [smem ->] global memory
+  TensorView* tv1_smem = nullptr;
+  TensorView* tv1_regs = nullptr;
+  if (use_tma_store) {
+    // TMA store path: regs -> smem -> global memory (via TMA)
+    tv1_smem = tv1->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv1_smem->setMemoryType(MemoryType::Shared);
+    tv1_regs = tv1_smem->cacheBefore();
+  } else {
+    // Regular store path: regs -> global memory (no TMA)
+    tv1_regs = tv1->cacheBefore();
+  }
+
+  TensorView* reference = tv1;
+
+  // ===== Step 1: Create 2D TMA Domain =====
+  // Merge all logical dimensions into one flat domain, then split into 2D
+  // structure [tma_domain_outer, tma_domain_inner] for TMA operations.
+  // Requirements: Domains must be contiguous and split must be evenly
+  // divisible. Transformation: [I0, I1, ...] -> [ALL_DIMS] -> [D0, D1]
+  //   where D0 = tma_domain_outer, D1 = tma_domain_inner
+  reference->flatten();
+
+  // D1 (tma_domain_inner): Inner dimension size, computed to satisfy TMA
+  // constraints
+  int64_t D1 = scheduler_utils::getTmaDomainInner(
+      total_elem_count, 512, dataTypeSizeBit(dtype));
+
+  // D0 (tma_domain_outer): Outer dimension size (number of "rows")
+  int64_t D0 = total_elem_count / D1;
+
+  NVF_ERROR(
+      total_elem_count % D1 == 0,
+      "TMA domain can only be created with divisible split, D1: ",
+      D1,
+      " total_elem_count: ",
+      total_elem_count);
+  reference->split(0, D1);
+
+  // ===== Step 2: Create TMA Tiles Within Domain =====
+  // Split the 2D TMA domain into tiles that define the box size loaded by each
+  // TMA operation. Using dense tiles (box ≡ tile).
+  // Transformation: [D0, D1] -> [D0/to, to, D1/ti, ti]
+  //   where to = outer tile size, ti = inner tile size
+  //
+  // Constraint: D1/ti > 1 (need at least 2 tiles along inner dimension)
+  // If D1/ti = 1, then [to, ti] would collapse into a single TMA dimension,
+  // breaking the 2D structure.
+
+  // tma_tile_size: Target total elements per tile (to × ti)
+  int64_t tma_tile_size = 4096;
+
+  // ti: Inner tile dimension (max 256 by hardware, must be ≤ D1/2 for 2D
+  // structure) to: Outer tile dimension (max 256 by hardware, capped by D0)
+  int64_t ti = std::min(256L, std::max(1L, D1 / 2)),
+          to = std::min(256L, std::min(tma_tile_size / ti, D0));
+
+  reference->split(0, to); // Split D0 -> [D0/to, to]
+  reference->split(2, ti); // Split D1 -> [D1/ti, ti]
+
+  // Step 3: Propagate TMA transformation to all tensors.
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Step 4: Parallelize TMA tensors with block and bulk parallel types.
+  // Check grid dimensions and swap parallel types if needed to avoid exceeding
+  // the maximum grid dimension limit (65535).
+  auto pto = ParallelType::BIDy;
+  auto pti = ParallelType::BIDx;
+  int64_t gdim_y = ceilDiv(D0, to);
+  if (gdim_y > 65535) {
+    std::swap(pto, pti);
+  }
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+  if (use_tma_store) {
+    tma_tvs.push_back(tv1);
+  }
+  for (auto tv : tma_tvs) {
+    tv->axis(0)->parallelize(pto);
+    tv->axis(1)->parallelize(ParallelType::Bulk);
+    tv->axis(2)->parallelize(pti);
+    tv->axis(3)->parallelize(ParallelType::Bulk);
+  }
+
+  // Step 5: Schedule non-TMA tensors.
+  // Calculate vectorization factor based on the inner tile dimension.
+  int64_t vect_factor = 1;
+  while (ti % (vect_factor * 2) == 0) {
+    vect_factor *= 2;
+    if (vect_factor == 4) {
+      break;
+    }
+  }
+  // Calculate thread block dimensions for non-TMA tensors.
+  int64_t tidx = std::min(32L, ti / vect_factor),
+          tidy = std::min(128L / tidx, to);
+  std::vector<TensorView*> compute_tvs = {tv0_regs, tv1_regs};
+  if (use_tma_store) {
+    compute_tvs.push_back(tv1_smem);
+  } else {
+    compute_tvs.push_back(tv1);
+  }
+  for (auto tv : compute_tvs) {
+    // [D0/to, to, D1/ti, ti] -> [D0/to, to/y, y, D1/ti, ti/v/x, x, v]
+    tv->split(3, vect_factor);
+    tv->split(3, tidx);
+    tv->split(1, tidy);
+    // Apply block and thread parallelization.
+    tv->axis(0)->parallelize(pto);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(pti);
+    tv->axis(5)->parallelize(ParallelType::TIDx);
+    // Vectorize write to shared memory or global memory.
+    if (tv == tv0_regs || (!use_tma_store && tv == tv1)) {
+      tv->axis(6)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  // Step 6: Inline
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto out_tensors = ke.run({t0});
+  testValidate(&fusion, out_tensors, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    Tma2dTileTest,
+    ::testing::ValuesIn([] {
+      // Generate dim0 values
+      std::vector<int64_t> dim0_vals(
+          Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+      // Add some irregular numbers
+      dim0_vals.insert(
+          dim0_vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+
+      std::vector<Tma2dTileTestParams> params;
+      for (auto dim0 : dim0_vals) {
+        for (auto ndims : {1, 2, 3}) {
+          // When auto_schedule=true, use_tma_store is ignored, so only test one
+          // value
+          params.emplace_back(dim0, ndims, false, /*auto_schedule=*/true);
+          // When auto_schedule=false, test both use_tma_store values
+          params.emplace_back(dim0, ndims, true, /*auto_schedule=*/false);
+          params.emplace_back(dim0, ndims, false, /*auto_schedule=*/false);
+        }
+      }
+      return params;
+    }()),
+    [](const testing::TestParamInfo<Tma2dTileTestParams>& info) {
+      int64_t dim0 = std::get<0>(info.param);
+      int64_t ndims = std::get<1>(info.param);
+      bool use_tma_store = std::get<2>(info.param);
+      bool auto_schedule = std::get<3>(info.param);
+      return "dim0_" + std::to_string(dim0) + "_ndim_" + std::to_string(ndims) +
+          "_use_tma_store_" + std::to_string(use_tma_store) +
+          "_auto_schedule_" + std::to_string(auto_schedule);
+    });
 } // namespace nvfuser

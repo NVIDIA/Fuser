@@ -26,6 +26,7 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/allocation_utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/mma_utils.h>
@@ -353,6 +354,10 @@ void parallelizeAllLike(
           tv->axis(i)->padToMultipleOfWarp(
               reference_id->getMaybeSizeAfterPadding());
         }
+      }
+      // propagate clustered blocks
+      if (reference_id->isClusteredBlockDim()) {
+        tv->axis(i)->setClusteredBlocks();
       }
     }
   }
@@ -1380,8 +1385,14 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
         // direct write to global memory because of random access.
+        // The output of block quantization has to be in global memory. This is
+        // because this op is implemented via a runtime function that write the
+        // scaling factors to global memory.
         output->definition()
-            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
+        (output->definition()->isA<BlockQuantizationOp>() &&
+         output->definition()->as<BlockQuantizationOp>()->blockScales() ==
+             output)) {
       continue;
     }
     if (!output->uses().empty()) {
@@ -2355,9 +2366,34 @@ std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(
   return reorder_map;
 }
 
-void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
-  std::unordered_set<std::shared_ptr<VectorOfUniqueEntries<IterDomain*>>>
-      transformed_disjoint_sets;
+void propagateReshapeTransforms(Fusion* fusion) {
+  // Transform propagation is based on permissive mappings, so we must use a
+  // permissive-based graph here. Specifically, we use PERMISSIVE_RESIZE which
+  // extends PERMISSIVE by additionally mapping resize inputs to outputs (e.g.,
+  // mapping sliced dimensions back to their source). This is necessary to
+  // propagate transforms across slice boundaries - for example, when tv0[0:24]
+  // and tv0[12:36] are both reshaped, PERMISSIVE_RESIZE maps both slices back
+  // to tv0, allowing the reshapes to be recognized as equivalent operations.
+  IdModel id_model(fusion);
+  const auto permissive_resize_graph = buildPermissiveResizeGraph(
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE));
+
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\n=== propagateReshapeTransforms Debug ===" << std::endl;
+    std::cout << "PERMISSIVE_RESIZE graph disjoint sets: "
+              << permissive_resize_graph.disjointValSets().disjointSets().size()
+              << std::endl;
+    for (const ValGroup& disjoint_set :
+         permissive_resize_graph.disjointValSets().disjointSets()) {
+      std::cout << "  ValGroup: { ";
+      for (auto val : *disjoint_set) {
+        std::cout << val->toString() << "; ";
+      }
+      std::cout << "}" << std::endl;
+    }
+  }
+
+  std::unordered_set<ValGroup> transformed_disjoint_sets;
 
   // If iter domains are involved in any transformation from root domains to
   // logical domains they should be considered "contaminated".
@@ -2366,34 +2402,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
              {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
              {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()})) {
       for (auto id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
-        transformed_disjoint_sets.emplace(
-            ca_map.disjointSetOf(id, IdMappingMode::EXACT));
+        transformed_disjoint_sets.emplace(permissive_resize_graph.toGroup(id));
       }
     }
   }
 
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\ntransformed_disjoint_sets (contaminated): "
+              << transformed_disjoint_sets.size() << std::endl;
+    for (const auto& disjoint_set : transformed_disjoint_sets) {
+      std::cout << "  transformed_disjoint_sets: { ";
+      for (auto val : *disjoint_set) {
+        std::cout << val->toString() << "; ";
+      }
+      std::cout << "}" << std::endl;
+    }
+  }
+
+  // These sets contain RFactorProduct IDs produced by reshape (excluding
+  // resize). Skip sets that were already transformed for view operations. The
+  // collected IDs represent terminating dimensions of reshape operations.
   std::unordered_set<IterDomain*> terminating_reshape_dims;
-  for (const auto& disjoint_set_shared_ptr :
-       ca_map.idGraph().exactNodes().disjointSets()) {
-    // Find a disjoint set that is produced by a reshape
-    // operation. Ignore resize as it isn't reshape
-    if (std::none_of(
-            disjoint_set_shared_ptr->vector().begin(),
-            disjoint_set_shared_ptr->vector().end(),
-            [](IterDomain* id) {
-              return id->isRFactorProduct() && id->definition() &&
-                  !id->definition()->isA<Resize>();
-            })) {
+  for (const ValGroup& disjoint_set :
+       permissive_resize_graph.disjointValSets().disjointSets()) {
+    if (std::none_of(disjoint_set->begin(), disjoint_set->end(), [](Val* val) {
+          auto id = val->as<IterDomain>();
+          return id->isRFactorProduct() && id->definition() &&
+              !id->definition()->isA<Resize>();
+        })) {
       continue;
     }
-    if (transformed_disjoint_sets.find(disjoint_set_shared_ptr) !=
+    if (transformed_disjoint_sets.find(disjoint_set) !=
         transformed_disjoint_sets.end()) {
       // Disjoint set was transformed for view, ignore it
       continue;
     }
-    for (auto id : disjoint_set_shared_ptr->vector()) {
-      terminating_reshape_dims.emplace(id);
+    for (auto val : *disjoint_set) {
+      terminating_reshape_dims.emplace(val->as<IterDomain>());
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    std::cout << "\nterminating_reshape_dims: "
+              << terminating_reshape_dims.size() << std::endl;
+    for (auto id : terminating_reshape_dims) {
+      std::cout << "  terminating_reshape_dim: " << id->toString() << std::endl;
+    }
+    std::cout << "=== End propagateReshapeTransforms Debug ===\n" << std::endl;
   }
 
   // If iter domains are involved in any transformation from root domains to
@@ -3287,6 +3342,138 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     }
     buildAllocationDomainFromLoopIds(tv);
   }
+}
+
+// TODO: move getMaxActiveClusters to here
+// Given a cluster size starting from 16, if we can get at least 1 active
+// cluster, then we can use the given cluster size. Otherwise, reduce by half
+// and try again.
+int64_t getMaxClusterSize() {
+  // return 1 for pre-Hopper devices
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return 1;
+  }
+  int cluster_size = 16;
+  while (cluster_size > 1 &&
+         matmul_utils::getMaxActiveClusters(
+             MatmulParams::ClusterDims{cluster_size, 1}) < 1) {
+    cluster_size /= 2;
+  }
+  return cluster_size;
+}
+
+// Computes the size of the inner TMA domain dimension for 2D TMA operations.
+//
+// Purpose: Split the problem [I0 = total_element] into 2D TMA domain
+//          [tma_domain_outer, tma_domain_inner]
+//          where tma_domain_inner = return value
+//          and tma_domain_outer = total_element / tma_domain_inner
+//
+// Parameters:
+//   total_element: Total number of elements in the flattened problem space
+//   tma_domain_inner_target: Desired size for tma_domain_inner
+//   min_dtype_bits: Minimum data type size in bits across all TMA inputs
+//
+// Returns: The computed tma_domain_inner size, or 1 if no valid size exists
+//
+int64_t getTmaDomainInner(
+    int64_t total_element,
+    int64_t tma_domain_inner_target,
+    int64_t min_dtype_bits) {
+  // ========== TMA Hardware Alignment Constraints ==========
+  // 1. TMA without interleave: Innermost TMA tile byte size must be divisible
+  //    by 16 bytes = 128 bits (hardware alignment requirement)
+  // 2. 2D TMA requirement: Need at least 2 tiles along the inner dimension to
+  //    maintain proper 2D structure (prevents dimension collapse to 1D)
+  // 3. Combined constraint: tma_domain_inner ≥ 2 * 16 bytes = 256 bits
+  //    → tma_domain_inner ≥ (256 / min_dtype_bits) elements
+  //
+  // Example: For float32 (32 bits): min_size = 256/32 = 8 elements
+
+  // align_bits: TMA tile alignment requirement (2 * 16 bytes = 256 bits)
+  constexpr int64_t align_bits = 2 * 16 * 8; // 256 bits
+
+  // min_size: Minimum elements required in tma_domain_inner to satisfy
+  // constraints Ensures (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned
+  // tiles
+  const int64_t min_size = align_bits / min_dtype_bits;
+  NVF_ERROR(
+      total_element % min_size == 0,
+      "total_element must be divisible by min_size to satisfy 2D TMA "
+      "alignment requirements, but got ",
+      total_element,
+      " % ",
+      min_size,
+      " = ",
+      total_element % min_size);
+
+  // ========== Fast Path: Check Target Size ==========
+  // If tma_domain_inner_target is a valid divisor of total_element,
+  // use it directly as the optimal tma_domain_inner size
+  if (total_element % tma_domain_inner_target == 0) {
+    return tma_domain_inner_target;
+  }
+
+  // ========== Search Algorithm: Find Optimal Divisor ==========
+  // Goal: Find a divisor of total_element that:
+  //   1. Is closest to tma_domain_inner_target
+  //   2. Satisfies min_size divisibility constraint (for TMA alignment)
+  //   3. Is less than total_element (to create valid 2D split
+  //      [tma_domain_outer, tma_domain_inner])
+  //
+  // best_divisible_size: Best candidate found so far for tma_domain_inner
+  // Initialize to 1 (sentinel value indicating no suitable divisor found)
+  int64_t best_divisible_size = 1;
+
+  // best_diff: Distance between best candidate and target size
+  int64_t best_diff = std::abs(best_divisible_size - tma_domain_inner_target);
+
+  // Helper lambda to update the best candidate tma_domain_inner size.
+  // Only updates if:
+  // - candidate < total_element (ensures valid 2D split:
+  //   [tma_domain_outer, tma_domain_inner])
+  // - candidate is closer to tma_domain_inner_target than current best
+  auto update_best = [&](int64_t candidate) {
+    if (candidate >= total_element) {
+      return;
+    }
+    int64_t diff = std::abs(candidate - tma_domain_inner_target);
+    if (diff < best_diff) {
+      best_divisible_size = candidate;
+      best_diff = diff;
+    }
+  };
+
+  // Efficient divisor search using sqrt optimization:
+  // For any divisor i of total_element, we also get total_element/i.
+  // We only need to check up to sqrt(total_element) to find all divisor pairs.
+  // Both divisors in each pair are evaluated as candidates for
+  // tma_domain_inner.
+  int64_t limit =
+      static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
+
+  // Important: Check ALL divisors, not just multiples of min_size.
+  // Even if divisor i is not divisible by min_size, its complement
+  // total_element/i might be.
+  //
+  // Example: total_element=8184, target=512, min_size=8
+  // - If we only check multiples of 8, we'd miss i=11
+  // - But 8184/11=744, which IS divisible by 8 (744 % 8 == 0)
+  // - This gives us 744 (diff=232) instead of suboptimal 88 (diff=424)
+  for (int64_t i = 1; i <= limit; i++) {
+    if (total_element % i == 0) {
+      int64_t f1 = i;
+      int64_t f2 = total_element / i;
+      // Check both divisors of the pair if they satisfy min_size constraint
+      if (f1 % min_size == 0) {
+        update_best(f1);
+      }
+      if (f2 % min_size == 0) {
+        update_best(f2);
+      }
+    }
+  }
+  return best_divisible_size;
 }
 
 } // namespace scheduler_utils

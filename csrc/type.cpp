@@ -835,6 +835,25 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
   return s;
 }
 
+std::unordered_set<ParallelType> deviceParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    return s;
+  }();
+  return s;
+}
+
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes() {
+  static auto s = [&] {
+    std::unordered_set<ParallelType> s(
+        {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()});
+    s.insert(ParallelType::Stream);
+    return s;
+  }();
+  return s;
+}
+
 static const char* memory_type2string(MemoryType t) {
   switch (t) {
     case MemoryType::Local:
