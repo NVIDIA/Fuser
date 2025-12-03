@@ -1133,7 +1133,13 @@ class VectorizeValidator : public OptInDispatch {
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
-    std::vector<IterDomain*> alloc_domain = GpuLower().hasCurrent() ? GpuLower()::current()->getAllocationInfo(tv).ids : tv->getMaybeAllocationDomain();
+    std::vector<IterDomain*> alloc_domain;
+    auto it = GpuLower::current()->allocationInfo().find(tv);
+    if (it != GpuLower::current()->allocationInfo().end()) {
+      alloc_domain = it->ids;
+    } else {
+      alloc_domain = tv->getMaybeAllocationDomain();
+    }
 
     for (size_t i = alloc_domain.size(); i > 0; i--) {
       auto r_id = alloc_domain[i - 1];
