@@ -936,19 +936,29 @@ TEST_F(NVFuserTest, CacheBeforeNoAllocationDomainVectorizationValidation) {
   tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
 
   for (auto tv : {tv1, cache}) {
-    // i0, i1/2, 2
-    tv->split(1, 2);
-    // i0/4, 4, i1/2, 2
+    // NOTE: split by 2 here would trigger indexing error on codegen, caused by
+    // the reorder on allocation info. See issue comment:
+    // https://github.com/NVIDIA/Fuser/issues/5611#issuecomment-3604515068
+    //
+    // Split by 1 so we have innermost ID on logical domain of cache not ignored
+    // by vectorization validation.
+    //
+    // i0, i1/1, 1
+    tv->split(1, 1);
+    // i0/4, 4, i1/1, 1
     tv->split(0, 4);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
-    tv->axis(2)->parallelize(ParallelType::TIDx);
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
     tv->axis(1)->parallelize(
         tv == tv1 ? ParallelType::Vectorize : ParallelType::Serial);
     tv->axis(3)->parallelize(ParallelType::Unroll);
     // Note: it's important to order vectorize ID on the innermost, because the
     // loop domain dictates the layout of cache, which needs the vectorized ID
     // on the innermost. i0/4, i1/2, U2, V4
-    tv->reorder({{1, 3}});
+    // The code base as-is today, it doesn't make a difference whether we
+    // re-order the loop domain or not, because we reorder allocation info.
+    // i1/1, i0/4, U1, V/S4
+    tv->reorder({{1, 3}, {2, 0}});
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -958,7 +968,7 @@ TEST_F(NVFuserTest, CacheBeforeNoAllocationDomainVectorizationValidation) {
   ke.compile(&fusion, {t0});
   auto cg_results = ke.run({t0});
 
-  ASSERT_TRUE(cg_results[0].as<at::Tensor>().equal(t0));
+  ASSERT_TRUE(cg_results[0].as<at::Tensor>().equal(t0.sin()));
 }
 
 } // namespace nvfuser
