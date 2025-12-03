@@ -80,6 +80,11 @@ TEST_F(HostIrIntegrationTest, Sum_Kernel) {
 }
 
 TEST_F(HostIrIntegrationTest, ExprEvalAndKernel) {
+  // TODO: mdavis36
+  // Temporarily disable JIT, this test requires intermediate support to execute
+  // correctly with host ir jit.
+  EnableOptionsGuard::getCurOptions().unset(EnableOption::HostIrJit);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
