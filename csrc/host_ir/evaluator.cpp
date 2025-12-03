@@ -481,14 +481,18 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-    at::matmul_out(t_out, t_a, t_b);
-  } else {
+  if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a MatmulOp is
+    // preallocated.
     unhandled(matmul);
+    return;
   }
+
+  auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+  auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+  at::matmul_out(t_out, t_a, t_b);
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
@@ -497,6 +501,9 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a LinearOp is
+    // preallocated.
     unhandled(linear);
     return;
   }
