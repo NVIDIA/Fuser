@@ -17,6 +17,8 @@
 #include <iter_visitor.h>
 #include <scheduler/utils.h>
 
+#include <functional>
+#include <queue>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -121,171 +123,234 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   adjustMappingsForWarpSpecialization();
 }
 
+//! Helper class for inferring ParallelDim scalar values through graph
+//! traversal. Uses policy-based design with static methods for zero-overhead
+//! abstraction.
+//!
+//! InferencePolicy Requirements:
+//!   - Must provide: static InferenceMap initialize(Fusion* fusion);
+//!   - Must provide: static std::vector<std::pair<ParallelDim*, Val*>>
+//!                     inferFromExpr(Expr* expr,
+//!                                   const InferenceMap& known);
+//!
+//! Example usage:
+//!   ParallelDimInference<ExtentInferencePolicy> inference(fusion);
+//!   auto results = inference.run();
+template <typename InferencePolicy>
+class ParallelDimInference {
+ public:
+  using InferenceMap = InferencePolicy::InferenceMap;
+
+  explicit ParallelDimInference(Fusion* fusion) : fusion_(fusion) {}
+
+  //! Run inference to completion
+  //! 1. Calls InferencePolicy::initialize() to get initial values
+  //! 2. Propagates through ParallelDim graph using
+  //! InferencePolicy::inferFromSplit()
+  //! Returns map of all inferred values (initial + propagated)
+  InferenceMap run() {
+    // Get initial values from policy
+    values_ = InferencePolicy::initialize(fusion_);
+
+    // Propagate through graph
+    propagate();
+
+    return values_;
+  }
+
+ private:
+  //! Queue-based traversal with update tracking to propagate values
+  //! through the ParallelDim graph
+  void propagate() {
+    std::queue<std::pair<Expr*, int64_t>> queue;
+    int64_t num_updates = 0;
+    int64_t last_num_updates =
+        -1; // Track the last update count to detect stalls
+
+    // Initialize queue with definitions and uses of all ParallelDims with known
+    // values
+    for (auto& [pdim, val] : values_) {
+      if (pdim->definition() != nullptr) {
+        queue.emplace(pdim->definition(), num_updates);
+      }
+      for (Expr* use : pdim->uses()) {
+        queue.emplace(use, num_updates);
+      }
+    }
+
+    while (!queue.empty()) {
+      NVF_ERROR(
+          queue.size() < (1 << 20),
+          "Maximum ParallelDim processing queue size exceeded");
+
+      auto [expr, num_updates_when_pushed] = queue.front();
+      queue.pop();
+
+      // Only bail if: (1) we haven't made progress since last cycle, AND
+      // (2) this expr was queued before the last progress update
+      if (num_updates_when_pushed < num_updates &&
+          last_num_updates == num_updates) {
+        // We've cycled through all pending expressions without making progress
+        break;
+      }
+      last_num_updates = num_updates;
+
+      // Use policy to try inference
+      auto inferred = InferencePolicy::inferFromExpr(expr, values_);
+
+      if (inferred.empty()) {
+        // Couldn't infer yet, re-queue
+        queue.emplace(expr, num_updates);
+        continue;
+      }
+
+      // Add inferred values to values_ and queue their uses and definitions
+      for (auto [pdim, val] : inferred) {
+        values_[pdim] = val;
+        num_updates++;
+
+        // Queue uses of the inferred dimension
+        for (Expr* use : pdim->uses()) {
+          queue.emplace(use, num_updates);
+        }
+
+        // Queue definition of the inferred dimension (if it has one)
+        if (pdim->definition() != nullptr) {
+          queue.emplace(pdim->definition(), num_updates);
+        }
+      }
+    }
+  }
+
+  Fusion* fusion_;
+  InferenceMap values_;
+};
+
+//! Helper function for inferring ParallelDim extents from expressions
+//! using arithmetic relationships. This can be reused by different policies.
+//!
+//! For ParallelDimSplit (in -> outer, inner), infers unknown values:
+//!   - If in and outer are known: inner = in / outer
+//!   - If in and inner are known: outer = in / inner
+//!   - If outer and inner are known: in = outer * inner
+//!
+//! Example: BIDx split into ClusterIDy (outer) and ClusterCtaIDy (inner)
+//!   - If BIDx=8 and ClusterIDy=2, then ClusterCtaIDy = 8/2 = 4
+//!   - If ClusterIDy=2 and ClusterCtaIDy=4, then BIDx = 2*4 = 8
+//!
+//! Returns vector of inferred (ParallelDim, Val) pairs. Empty if nothing
+//! inferred or if expression type is not handled.
+inline std::vector<std::pair<ParallelDim*, Val*>> inferExtentFromExpr(
+    Expr* expr,
+    const std::unordered_map<ParallelDim*, Val*>& known) {
+  if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
+    Val* in = mapOrDefault(known, split->in(), /*default=*/(Val*)nullptr);
+    Val* outer = mapOrDefault(known, split->outer(), /*default=*/(Val*)nullptr);
+    Val* inner = mapOrDefault(known, split->inner(), /*default=*/(Val*)nullptr);
+
+    if (in && outer && inner) {
+      return {}; // Nothing to infer
+    } else if (in && outer && !inner) {
+      // inner = in / outer
+      // TODO: we should mark in % outer == 0 for later validation somehow
+      return {{split->inner(), SimplifyingIrBuilder::divExpr(in, outer)}};
+    } else if (in && !outer && inner) {
+      // outer = in / inner
+      // TODO: we should mark in % inner == 0 for later validation somehow
+      return {{split->outer(), SimplifyingIrBuilder::divExpr(in, inner)}};
+    } else if (!in && outer && inner) {
+      // in = outer * inner
+      return {{split->in(), SimplifyingIrBuilder::mulExpr(outer, inner)}};
+    }
+
+    return {}; // Can't infer yet
+  } else {
+    NVF_THROW("Unhandled expression type: ", expr->getOpString());
+  }
+
+  // Other expression types could be handled here in the future
+  return {};
+}
+
+//! Policy for inferring extents of ParallelDims from bound IterDomains
+struct ExtentInferencePolicy {
+  using InferenceMap = std::unordered_map<ParallelDim*, Val*>;
+
+  //! Initialize by collecting extents from bound IterDomains in the fusion
+  static InferenceMap initialize(Fusion* fusion) {
+    InferenceMap result;
+    VectorOfUniqueEntries<PDAndID> all_concrete_ids;
+    auto all_vals = fusion->usedMathVals();
+
+    for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+      for (auto id : tv->domain()->allIDs()) {
+        ParallelDim* pdim = id->getParallelDim();
+        ParallelType ptype = id->getParallelType();
+        if (pdim == nullptr) {
+          pdim = fusion->getParallelDim(ptype);
+        }
+        NVF_ERROR_EQ(pdim->parallelType(), ptype);
+
+        if (ptype != ParallelType::Derived && !isParallelTypeThread(ptype)) {
+          continue;
+        }
+        NVF_ERROR(FusionInfoGuard::hasCurrent());
+        IterDomain* concrete_id =
+            FusionInfoGuard::current()->caMap().getConcreteMappedID(
+                id, IdMappingMode::EXACT);
+        // NOTE: Broadcasted concrete id's can inform the shape, especially if
+        // they are broadcast
+        all_concrete_ids.pushBack(std::make_pair(pdim, concrete_id));
+      }
+    }
+
+    // Build initial extent map using max of all bindings
+    for (auto [pdim, concrete_id] : all_concrete_ids) {
+      auto it = result.find(pdim);
+      if (it == result.end()) {
+        result[pdim] = concrete_id->getMaybeExpandedExtent();
+      } else {
+        it->second =
+            SimplifyingIrBuilder::maxExpr(it->second, concrete_id->extent());
+      }
+    }
+
+    return result;
+  }
+
+  //! Infer extents from ParallelDim expressions
+  static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
+      Expr* expr,
+      const InferenceMap& known) {
+    return inferExtentFromExpr(expr, known);
+  }
+};
+
 void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // TODO: I think we still need something like exact_types_ but for
   // ParallelDim. isExact() is currently only used by
   // getThreadParallelTypesMergedByContiguity in tmem analysis, so we should
   // reference that use case when designing exactness around ParallelDim*
   // instead of ParallelType*
-  VectorOfUniqueEntries<PDAndID> all_concrete_ids;
-  auto all_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    for (auto id : tv->domain()->allIDs()) {
-      ParallelDim* pdim = id->getParallelDim();
-      ParallelType ptype = id->getParallelType();
-      if (pdim == nullptr) {
-        pdim = fusion->getParallelDim(ptype);
-      }
-      NVF_ERROR_EQ(pdim->parallelType(), ptype);
 
-      if (ptype != ParallelType::Derived && !isParallelTypeThread(ptype)) {
-        continue;
-      }
-      NVF_ERROR(FusionInfoGuard::hasCurrent());
-      IterDomain* concrete_id =
-          FusionInfoGuard::current()->caMap().getConcreteMappedID(
-              id, IdMappingMode::EXACT);
-      // NOTE: Broadcasted concrete id's can inform the shape, especially if
-      // they are broadcast
-      all_concrete_ids.pushBack(std::make_pair(pdim, concrete_id));
-    }
-  }
+  // Use ParallelDimInference with ExtentInferencePolicy
+  ParallelDimInference<ExtentInferencePolicy> inference(fusion);
 
-  // Scan all TVs to build dim_eval_extent_map_
-  for (auto [pdim, concrete_id] : all_concrete_ids) {
-    auto it = dim_eval_extent_map_.find(pdim);
-    if (it == dim_eval_extent_map_.end()) {
-      dim_eval_extent_map_[pdim] = concrete_id->getMaybeExpandedExtent();
-    } else {
-      it->second =
-          SimplifyingIrBuilder::maxExpr(it->second, concrete_id->extent());
-    }
-  }
+  // Run inference: initialize + propagate
+  auto result = inference.run();
 
-  // Simplify dim_map_
-  for (auto& [pdim, extent] : dim_eval_extent_map_) {
+  // Process results: simplify expressions, evaluate constants, populate map
+  for (auto& [pdim, extent] : result) {
     extent = simplifyExpr(extent);
     if (extent->isConstInt()) {
       pdim->value() = extent->evaluate().as<int64_t>();
     }
-  }
-
-  // At this point, the extents are specified for each _bound_ ParallelDim.
-  // However, we might have only bound the dimensions for derived ParallelDims
-  // but we will also need to evaluate the ones corresponding to ParallelTypes.
-  // Consider a case like this:
-  //
-  //       TIDx
-  //       /  \
-  //   p2(8)  p3(32)
-  //
-  // Here the TIDx dim is split into p2 and p3 and they are both bound. In this
-  // case we should infer that TIDx has extent 8*32=256.
-  //
-  // Now what if we had this:
-  //
-  //              BIDx{64}
-  //              /      \
-  //    ClusterIDx{16}   ClusterCtaIDx
-  //
-  // In this case, although we know that blockDim.x should be 64 we still need
-  // to infer the cluster X dimension (64/16 = 4).
-  //
-  // These examples show that we must propagate in both directions from bound
-  // extents to fill in as much as we can. We should also validate that the
-  // bound values are consistent with the structure of the parallel graph so
-  // that for example we could not have legally bound an ID with extent 15 to
-  // ClusterIDx because that is not divisible by 64.
-
-  // We process ParallelDim Exprs repeatedly until we have inferred all input
-  // and output extents. We also track the number of changes made so far at the
-  // time each item is pushed to the queue. That number allows us to prevent
-  // infinite loops.
-  std::queue<std::pair<Expr*, int64_t>> queue;
-  int64_t num_updates = -1;
-
-  // Initialize queue with definitions and uses of known parallel types
-  for (auto ptype_num : arange(toUnderlying(ParallelType::Count))) {
-    ParallelType ptype{ptype_num};
-    if (ptype == ParallelType::Derived || ptype == ParallelType::Count) {
-      continue;
-    }
-    if (fusion->hasParallelDim(ptype)) {
-      ParallelDim* pdim = fusion->getParallelDim(ptype);
-      NVF_ERROR(pdim != nullptr);
-      if (pdim->definition() != nullptr) {
-        queue.emplace(pdim->definition(), num_updates);
-      }
-      NVF_ERROR_LE(pdim->uses().size(), 1);
-      for (Expr* use : pdim->uses()) {
-        queue.emplace(use, num_updates);
-      }
-    }
-  }
-
-  auto update = [&](ParallelDim* pdim, Val* extent) {
-    if (extent->isConstInt()) {
-      pdim->value() = extent->evaluate();
-    }
-    dim_eval_extent_map_.emplace(pdim, extent);
-    num_updates++;
-  };
-
-  num_updates = 0;
-  while (!queue.empty()) {
-    NVF_ERROR_LT(
-        queue.size(),
-        1 << 20,
-        "Maximum ParallelDim processing queue size exceeded");
-
-    auto [expr, num_updates_when_pushed] = queue.front();
-    queue.pop();
-
-    if (num_updates_when_pushed == num_updates) {
-      // If we have not done any updates since pushing this expression, then
-      // nothing will have changed so to prevent an infinite loop, we bail
-      break;
-    }
-
-    if (auto* split = dynamic_cast<ParallelDimSplit*>(expr)) {
-      Val* in = mapOrDefault(
-          dim_eval_extent_map_, split->in(), /*default=*/(Val*)nullptr);
-      Val* outer = mapOrDefault(
-          dim_eval_extent_map_, split->outer(), /*default=*/(Val*)nullptr);
-      Val* inner = mapOrDefault(
-          dim_eval_extent_map_, split->inner(), /*default=*/(Val*)nullptr);
-      if (in && outer && inner) {
-        // Nothing to infer
-        continue;
-      } else if (in && outer && !inner) {
-        // We know that inner should be  in / outer
-        // TODO: we should mark in % outer == 0 for later validation somehow
-        for (Expr* use : split->inner()->uses()) {
-          queue.emplace(use, num_updates);
-        }
-        update(split->inner(), SimplifyingIrBuilder::divExpr(in, outer));
-      } else if (in && !outer && inner) {
-        for (Expr* use : split->outer()->uses()) {
-          queue.emplace(use, num_updates);
-        }
-        // TODO: we should mark in % inner == 0 for later validation somehow
-        update(split->outer(), SimplifyingIrBuilder::divExpr(in, inner));
-      } else if (!in && outer && inner) {
-        if (split->in()->definition() != nullptr) {
-          queue.emplace(split->in()->definition(), num_updates);
-        }
-        update(split->in(), SimplifyingIrBuilder::mulExpr(outer, inner));
-      } else {
-        // We can't infer anything about this Expr yet
-        queue.emplace(expr, num_updates);
-      }
-    } else {
-      NVF_THROW("Unhandled ParallelDim expression: ", expr->toString());
-    }
+    dim_eval_extent_map_[pdim] = extent;
   }
 }
 
 void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {}
+
 void ParallelDimensionMap::inferIndices(Fusion* fusion) {}
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
