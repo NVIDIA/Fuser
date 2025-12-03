@@ -2641,13 +2641,29 @@ BlockQuantizationResults blockQuantize(
     bool swizzle_scales,
     DataType out_dtype) {
   NVF_CHECK(
-      block_size == 16,
-      "Currently only block size of 16 is supported, got ",
-      block_size);
+      out_dtype == DataType::Float4_e2m1fn ||
+          out_dtype == DataType::Float8_e4m3fn,
+      "Currently only output data type of Float4_e2m1fn or Float8_e4m3fn is "
+      "supported");
 
-  NVF_CHECK(
-      out_dtype == DataType::Float4_e2m1fn,
-      "Currently only output data type of Float4_e2m1fn is supported");
+  if (out_dtype == DataType::Float4_e2m1fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        16,
+        "Block size must be 16 for Float4_e2m1fn, got ",
+        block_size);
+  } else if (out_dtype == DataType::Float8_e4m3fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        32,
+        "Block size must be 32 for Float8_e4m3fn, got ",
+        block_size);
+    NVF_CHECK(
+        !swizzle_scales, "swizzle_scales must be false for Float8_e4m3fn");
+    NVF_CHECK(
+        !global_scaling_factor,
+        "global_scaling_factor must be nullptr for Float8_e4m3fn");
+  }
 
   // Validate input data type
   // We'll only support FP32 or BF16/FP16

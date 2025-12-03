@@ -178,5 +178,92 @@ __device__ void block_quantize_to_nvfp4(
   }
 }
 
+constexpr uint32_t FP32_MANTISSA_BITS = 23;
+__device__ __forceinline__ float exp2f_rcp(uint8_t biased_exp) {
+  return (biased_exp == 0)
+      ? 1
+      : __int_as_float(
+            (254 - biased_exp)
+            << FP32_MANTISSA_BITS); // 127 - (biased_exp - 127)
+}
+
+template <
+    int ITEMS_PER_THREAD,
+    typename T,
+    int ALIGNMENT_1,
+    int ALIGNMENT_2,
+    int BLOCK_SCALE_DIM,
+    int BLOCK_SCALE_ALLOC>
+__device__ void block_quantize_to_mxfp8(
+    const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
+    Array<__e4m3, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
+    Tensor<__e8m0, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
+    nvfuser_index_t logical_index) {
+  constexpr bool is_half_or_bfloat =
+      std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
+  constexpr bool is_float = std::is_same<T, float>::value;
+  static_assert(
+      is_float || is_half_or_bfloat,
+      "Input type must be float, __half or __bfloat");
+
+  static_assert(
+      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
+          (is_half_or_bfloat &&
+           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
+            ITEMS_PER_THREAD == 2)),
+      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
+      "or __half "
+      "type");
+
+  // Number of threads involved in computing one block scaling factor
+  constexpr int THREADS_PER_SCALING_FACTOR = 32 / ITEMS_PER_THREAD;
+
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
+  vec_in.set(0.0f);
+
+#pragma unroll
+  for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
+    if constexpr (std::is_same<T, float>::value) {
+      vec_in[i] = input[i];
+    } else if constexpr (std::is_same<T, __bfloat>::value) {
+      vec_in[i] = __bfloat2float(input[i]);
+    } else if constexpr (std::is_same<T, __half>::value) {
+      vec_in[i] = __half2float(input[i]);
+    }
+  }
+
+  float local_max = NEG_INFINITY;
+#pragma unroll
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    local_max = fmax(local_max, fabsf(vec_in[i]));
+  }
+
+  // Compute the max accross  16/ITEMS_PER_THREAD threads
+  // This assumes each thread has already computed is local max of 2, 4 (fp32)
+  // or 2,4, 8 (bf16/fp16) elements.
+  constexpr int NUM_ELEMENTS = 32 / ITEMS_PER_THREAD;
+  reduceAcrossThreads<NUM_ELEMENTS>(local_max);
+  float block_max = local_max;
+
+  static constexpr float max_norm_rcp = 1.0f / 448;
+  __e8m0 exponent = __float2e8m0(block_max * max_norm_rcp);
+
+  // Write out the block scaling factor to global memory.
+  // This assumes block_size (32) elements in the input were contiguous.
+  // Only one block scaling factor is written out per 32(assumed block size)
+  // elements.
+  int offset = logical_index / 32;
+  if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
+    block_scales[offset] = exponent;
+  }
+
+  const float block_scale_inverse = exp2f_rcp(exponent.raw());
+
+#pragma unroll
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    output[i] = __float2e4m3(vec_in[i] * block_scale_inverse);
+  }
+}
+
 } // namespace bq
 } // namespace nvf

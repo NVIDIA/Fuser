@@ -840,9 +840,12 @@ struct BlockQuantizationResults {
 
 // API for block quantization.
 // Currently We take FP32 or BF16/FP16 input and produce two outputs:
-// nvFP4 outputs and FP8 block scales.
-// We optionally take a block size as an input but currenlty just support 16.
-// TODO: Expose global scaling factor
+// nvFP4 outputs and FP8 block scales. If we are quantizing to mxFP8
+// (DataType::Float8_e4m3fn), then our outputs are DataType::Float8_e4m3fn for
+// quantized outputs and  DataType::Float8_e8m0fnu for block scales. We
+// optionally take a block size as an input but currenlty just support 16 (32
+// for mxFP8). The flag swizzle_scales which generated swizzled block scales
+// is only supported when quantizing to nvFP4.
 NVF_API BlockQuantizationResults blockQuantize(
     TensorView* input,
     TensorView* global_scaling_factor = nullptr,
