@@ -123,6 +123,8 @@ ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   adjustMappingsForWarpSpecialization();
 }
 
+namespace {
+
 //! Helper class for inferring ParallelDim scalar values through graph
 //! traversal. Uses policy-based design with static methods for zero-overhead
 //! abstraction.
@@ -364,6 +366,8 @@ struct CodegenExtentInferencePolicy {
     return inferExtentFromExpr(expr, known);
   }
 };
+
+} // namespace
 
 void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // TODO: I think we still need something like exact_types_ but for
