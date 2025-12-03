@@ -168,7 +168,7 @@ bool KernelExecutor::supported(Fusion* fusion) {
   return !hasCpuScalarOutputs(fusion);
 }
 
-void KernelExecutor::compile(
+LaunchParams KernelExecutor::compile(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
@@ -325,6 +325,7 @@ void KernelExecutor::compile(
       has_dynamic_alias_ = true;
     }
   }
+  return launch_params;
 }
 
 LaunchParams KernelExecutor::computeLaunchParams(
