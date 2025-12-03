@@ -102,17 +102,30 @@ class EVTConverter : OptOutDispatch {
       }
       return acc_node;
     }
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.alpha->nDims() != 0,
-        "Only zero-dimensional alpha is supported for EVT translation");
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.alpha->dtype() != DataType::Float,
-        "Only Float alpha is supported for EVT translation");
-    // Broadcast alpha to the same dimensions as the accumulator
-    EVTModel::Node* alpha_bcast_node = model_.makeNode(
-        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
-        dtypeToCutlass(pattern_.alpha->dtype()) + ">");
-    alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
+
+    EVTModel::Node* alpha_bcast_node = nullptr;
+    if (pattern_.alpha->nDims() == 0) {
+      // Broadcast scalar alpha to the same dimensions as the accumulator
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+          dtypeToCutlass(pattern_.alpha->dtype()) + ">");
+      alpha_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + inputTvVariable(pattern_.alpha) + "}");
+    } else if (pattern_.alpha->nDims() == 1) {
+      NVF_CUTLASS_REJECT_IF(
+          !pattern_.is_grouped,
+          "Non-scalar alpha only supported for grouped GEMM");
+      alpha_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcastPtrArray<" +
+          dtypeToCutlass(pattern_.alpha->dtype()) + ">");
+      alpha_bcast_node->arguments = {
+          {"scalars", "{}"},
+          {"scalar_ptrs", "{}"},
+          {
+              "scalar_ptr_arrays",
+              "{" + inputTvVariable(pattern_.alpha) + "}",
+          }};
+    }
     val_nodes_.emplace(pattern_.alpha, alpha_bcast_node);
 
     return makeBinaryOpNode(
@@ -136,16 +149,11 @@ class EVTConverter : OptOutDispatch {
         dtypeToCutlass(pattern_.bias->dtype()) + ">");
 
     if (pattern_.beta != nullptr) {
-      NVF_CUTLASS_REJECT_IF(
-          pattern_.beta->nDims() != 0,
-          "Only zero-dimensional beta is supported for EVT translation");
-      NVF_CUTLASS_REJECT_IF(
-          pattern_.beta->dtype() != DataType::Float,
-          "Only Float beta is supported for EVT translation");
       EVTModel::Node* beta_bcast_node = model_.makeNode(
           "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
           dtypeToCutlass(pattern_.beta->dtype()) + ">");
-      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
+      beta_bcast_node->arguments.emplace_back(
+          "scalar_ptrs", "{" + inputTvVariable(pattern_.beta) + "}");
       // Note: this casts beta and bias to float then multiplies and outputs
       // float, since we will always be adding it straight to alpha*acc
       // anyway
@@ -163,6 +171,17 @@ class EVTConverter : OptOutDispatch {
   // Make a node to represent alpha*acc + beta*bias with a final cast to the
   // type of mma_out_
   void makeMmaOutNode() {
+    // The default kernel uses EpilogueScheduleAuto, which in turn uses
+    // LinearCombination as the epilogue. That means an epilogue that looks like
+    // this is assumed:
+    //
+    //   alpha * acc + beta * bias
+    //
+    // The ScaledMmaOp node has tensor inputs corresponding to these arguments.
+    // If some of these are null, we can omit them when building our EVT.
+    // Otherwise, we replicate the default EVT defined here:
+    // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
+    //
     // If there is a bias, then alpha*acc should be Float so that we avoid
     // down-casting until after adding it. Otherwise, we should go ahead and
     // cast to mma_out_'s dtype now.

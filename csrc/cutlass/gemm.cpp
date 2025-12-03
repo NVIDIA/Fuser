@@ -19,6 +19,8 @@
 #include <scheduler/cutlass.h>
 #include <type.h>
 
+#include <ATen/cuda/CUDAContextLight.h>
+
 #include <algorithm>
 #include <format>
 #include <ranges>
@@ -38,11 +40,11 @@ std::string mapLayoutToCutlass(const TensorView* tv) {
   const size_t ndims = std::ranges::distance(nored_logical);
 
   NVF_CUTLASS_REJECT_IF(
-      ndims != 2,
+      ndims < 2,
       tv->toString(),
       " has dimension ",
       ndims,
-      " but only dimension 2 tensors are supported");
+      " but only dimension 2 or higher tensors are supported");
 
   auto nored_alloc =
       tv->getMaybeAllocationDomain() | TensorDomain::kNoReductions;
@@ -82,9 +84,6 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.is_grouped, "Grouped GEMM is not currently supported");
-
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
@@ -119,6 +118,13 @@ class CutlassCodeGenerator {
     NVF_CUTLASS_REJECT_IF(
         !pattern_.b_scale->isFusionInput(),
         "Scale factors for B must be a fusion input");
+
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.a_scale->dtype() != DataType::Float8_e4m3fn,
+        "Expected A scale factors to be fp8");
+    NVF_CUTLASS_REJECT_IF(
+        pattern_.b_scale->dtype() != DataType::Float8_e4m3fn,
+        "Expected B scale factors to be fp8");
 
     // Validate that the inputs and scale factors are all contiguous
     for (TensorView* tv :
@@ -159,7 +165,35 @@ class CutlassCodeGenerator {
 
     // Position in the TensorArg array
     int tensor_args_pos = -1;
+
+    // If there is a pointer array associated with this
+    TensorDescriptor* pointer_array_desc = nullptr;
+
+    // Input block scale factors require layouts to be passed (outputs do not).
+    // In the case of grouped GEMM these are arrays of layouts. In either case,
+    // this records which type of layout to use.
+    enum class LayoutType { SFA, SFB };
+    std::optional<LayoutType> layout = std::nullopt;
+
+    // For grouped GEMM input block scale factors, this holds the array of
+    // layouts.
+    TensorDescriptor* layout_array_desc = nullptr;
+
+    // For grouped GEMM we require arrays of strides. This is a string like "k"
+    // or "n" that will be used to set each entry of the temporary array.
+    std::string stride_value = "";
   };
+
+  static std::string toString(TensorDescriptor::LayoutType layout) {
+    switch (layout) {
+      case TensorDescriptor::LayoutType::SFA:
+        return "SFA";
+        break;
+      case TensorDescriptor::LayoutType::SFB:
+        return "SFB";
+        break;
+    }
+  }
 
   // We track every global tensor. If tv is non-null and we detect that this is
   // a grouped GEMM, then we will also register a temporary pointer array and
@@ -167,7 +201,11 @@ class CutlassCodeGenerator {
   TensorDescriptor* registerGlobalBuffer(
       std::string name,
       TensorView* tv = nullptr,
-      std::string dtype_str = "") {
+      bool needs_ptr_array = false,
+      std::string dtype_str = "",
+      bool ptr_array_dtype_is_same = false,
+      std::optional<TensorDescriptor::LayoutType> layout = std::nullopt,
+      std::string stride_value = "") {
     auto new_temp_tensor_pos = [&]() {
       return fusion_->inputs().size() + fusion_->outputs().size() +
           num_temp_tensors_++;
@@ -194,11 +232,40 @@ class CutlassCodeGenerator {
           "We should never call registerGlobalBuffer on intermediate tensors");
     }
 
-    tensor_name_map_.emplace(tv, name);
+    std::string ptr_array_dtype_str =
+        ptr_array_dtype_is_same ? dtype_str : dtype_str + "*";
+    TensorDescriptor* pointer_array_desc = needs_ptr_array
+        ? registerGlobalBuffer(
+              name + "_ptrs",
+              /*tv=*/nullptr,
+              /*needs_ptr_array=*/false,
+              ptr_array_dtype_str)
+        : nullptr;
+
+    TensorDescriptor* layout_array_desc = nullptr;
+    if (layout.has_value()) {
+      std::string layout_dtype_str =
+          "Fp4GemmSm100::Layout" + toString(layout.value());
+      layout_array_desc = registerGlobalBuffer(
+          name + "_layouts",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          layout_dtype_str);
+    }
+
+    tensor_name_map_.emplace(
+        tv, needs_ptr_array ? pointer_array_desc->name : name);
 
     return tensor_descriptors_
         .emplace_back(std::make_unique<TensorDescriptor>(
-            name, dtype_str, tv, tensor_arg_pos))
+            name,
+            dtype_str,
+            tv,
+            tensor_arg_pos,
+            pointer_array_desc,
+            layout,
+            layout_array_desc,
+            stride_value))
         .get();
   }
 
@@ -215,32 +282,86 @@ class CutlassCodeGenerator {
     registerGlobalBuffer(                                                  \
         #field,                                                            \
         pattern_.field,                                                    \
+        pattern_.is_grouped,                                               \
         /*dtype_str=*/"const " + dtypeToCutlass(pattern_.field->dtype())); \
   }
+#define MAYBE_REGISTER_NO_PTR_ARRAY(field)               \
+  if (pattern_.field != nullptr) {                       \
+    registerGlobalBuffer(#field, pattern_.field, false); \
+  }
+
     MAYBE_REGISTER(a)
     MAYBE_REGISTER(b)
     MAYBE_REGISTER(alpha)
     MAYBE_REGISTER(beta)
     MAYBE_REGISTER(bias)
-    MAYBE_REGISTER(problem_sizes)
-    MAYBE_REGISTER(expert_offsets)
-    MAYBE_REGISTER(scale_factor_offsets)
+    // These do not need pointer arrays since they describe the grouping of
+    // grouped GEMM
+    MAYBE_REGISTER_NO_PTR_ARRAY(problem_sizes)
+    MAYBE_REGISTER_NO_PTR_ARRAY(expert_offsets)
+    MAYBE_REGISTER_NO_PTR_ARRAY(scale_factor_offsets)
 #undef MAYBE_REGISTER
 
+    std::optional<TensorDescriptor::LayoutType> layout_sfa, layout_sfb;
+    if (pattern_.is_grouped) {
+      layout_sfa = TensorDescriptor::LayoutType::SFA;
+      layout_sfb = TensorDescriptor::LayoutType::SFB;
+    }
     // We handle a_scale and b_scale separately so we can specify that their
     // dtypes are unsigned
     registerGlobalBuffer(
         "a_scale",
         /*tv=*/pattern_.a_scale,
+        /*needs_ptr_array=*/pattern_.is_grouped,
         /*dtype_str=*/
         "const " +
-            dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true));
+            dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true),
+        /*ptr_array_dtype_is_same=*/false,
+        layout_sfa);
     registerGlobalBuffer(
         "b_scale",
         /*tv=*/pattern_.b_scale,
+        /*needs_ptr_array=*/pattern_.is_grouped,
         /*dtype_str=*/
         "const " +
-            dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true));
+            dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
+        /*ptr_array_dtype_is_same=*/false,
+        layout_sfb);
+
+    if (pattern_.is_grouped) {
+      // Grouped GEMMs require stride arrays for A, B, C and D
+
+      registerGlobalBuffer(
+          "a_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"Fp4GemmSm100::StrideA",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideA{}, "
+          "{static_cast<int>(m), static_cast<int>(k), 1})");
+      registerGlobalBuffer(
+          "b_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"Fp4GemmSm100::StrideB",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideB{}, "
+          "{static_cast<int>(n), static_cast<int>(k), 1})");
+      registerGlobalBuffer(
+          "d_strides",
+          /*tv=*/nullptr,
+          /*needs_ptr_array=*/false,
+          /*dtype_str=*/"Fp4GemmSm100::StrideD",
+          /*ptr_array_dtype_is_same=*/false,
+          /*layout=*/std::nullopt,
+          /*stride_value=*/
+          "cutlass::make_cute_packed_stride(Fp4GemmSm100::StrideD{}, "
+          "{static_cast<int>(m), static_cast<int>(n), 1})");
+    }
 
     block_scaled_outputs_ = findBlockScaledOutputs(fusion_);
     NVF_CUTLASS_REJECT_IF(
@@ -251,17 +372,21 @@ class CutlassCodeGenerator {
     } else {
       main_output_ = block_scaled_outputs_.front().quantized_output;
     }
-    registerGlobalBuffer("main_output", main_output_);
+    registerGlobalBuffer(
+        "main_output", main_output_, /*needs_ptr_array=*/pattern_.is_grouped);
 
     auto register_multiple = [&](const std::vector<TensorView*>& tvs,
-                                 const std::string& base_name) {
+                                 const std::string& base_name,
+                                 bool ptr_array_dtype_is_same = false) {
       size_t cur_tv = 0;
       for (TensorView* tv : tvs) {
         std::string number = tvs.size() > 1 ? std::to_string(cur_tv++) : "";
         registerGlobalBuffer(
             base_name + number,
             tv,
-            /*dtype_str=*/"");
+            /*needs_ptr_array=*/pattern_.is_grouped,
+            "",
+            ptr_array_dtype_is_same);
       }
     };
 
@@ -277,7 +402,10 @@ class CutlassCodeGenerator {
     }
     register_multiple(quantized_outputs, "quantized_output");
     register_multiple(block_scale_factors, "output_block_scale_factors");
-    register_multiple(global_scale_factors, "output_global_scale_factor");
+    register_multiple(
+        global_scale_factors,
+        "output_global_scale_factor",
+        /*ptr_array_dtype_is_same=*/true);
 
     // Register other epilogue inputs
     std::vector<TensorView*> epilogue_inputs;
@@ -464,7 +592,10 @@ struct Fp4GemmSm100 {
   using MmaTileShape = typename Params::MmaTileShape;
   using ClusterShape = typename Params::ClusterShape;
   using PerSmTileShape_MNK = typename Params::PerSmTileShape_MNK;
-
+)";
+    if (pattern_.is_grouped) {
+    } else {
+      code_ += R"(
   // For OpClassBlockScaledTensorOp, Is2SmMma is true when MmaTileM == 256
   static constexpr bool Is2SmMma = (cute::size<0>(MmaTileShape{}) == 256);
   using TmemWarpShape_MN =
@@ -484,14 +615,39 @@ struct Fp4GemmSm100 {
                        LayoutDTag,
                        /*IsPerColScaleSupported=*/false>());
 )";
+    }
   }
 
   void genEpilogueConfig() {
     NVF_ERROR(evt_model_.get() != nullptr);
     code_ += "  using EVTOp =\n" +
         evt_model_->defString(/*node=*/nullptr, /*indent=*/4) + ";\n";
-    code_ += R"(
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  using EpilogueSchedule = cutlass::epilogue::PtrArrayTmaWarpSpecialized1Sm;
+
+  using CollectiveEpilogue =
+      typename cutlass::epilogue::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          PerSmTileShape_MNK,
+          ClusterShape,
+          cutlass::epilogue::collective::EpilogueTileAuto,
+          ElementAccumulator,
+          ElementAccumulator,
+          ElementC,
+          LayoutCTag*,
+          AlignmentC,
+          ElementD,
+          LayoutDTag*,
+          AlignmentD,
+          EpilogueSchedule,
+          EVTOp>::CollectiveOp;
+)";
+    } else {
+      code_ += R"(
   using EpilogueSchedule = cutlass::epilogue::collective::EpilogueScheduleAuto;
+
   using CollectiveEpilogue =
       typename cutlass::epilogue::collective::CollectiveBuilder<
           ArchTag,
@@ -510,10 +666,52 @@ struct Fp4GemmSm100 {
           EpilogueSchedule,
           EVTOp>::CollectiveOp;
 )";
+    }
   }
 
   void genFinalGemmConfig() {
-    code_ += R"(
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  using CollectiveMainloop =
+      typename cutlass::gemm::collective::CollectiveBuilder<
+          ArchTag,
+          OperatorClass,
+          ElementA,
+          LayoutATag*,
+          AlignmentA,
+          ElementB,
+          LayoutBTag*,
+          AlignmentB,
+          ElementAccumulator,
+          MmaTileShape,
+          ClusterShape,
+          cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+              sizeof(typename CollectiveEpilogue::SharedStorage))>,
+          cutlass::gemm::KernelPtrArrayTmaWarpSpecialized1SmNvf4Sm100>::CollectiveOp;
+
+  using GemmKernel = cutlass::gemm::kernel::GemmUniversal<
+      cutlass::gemm::GroupProblemShape<Shape<int, int, int>>,
+      CollectiveMainloop,
+      CollectiveEpilogue,
+      void>;
+
+  using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
+
+  using StrideA = typename Gemm::GemmKernel::InternalStrideA;
+  using StrideB = typename Gemm::GemmKernel::InternalStrideB;
+  using StrideC = typename Gemm::GemmKernel::InternalStrideC;
+  using StrideD = typename Gemm::GemmKernel::InternalStrideD;
+
+  using LayoutSFA =
+      typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFA;
+  using LayoutSFB =
+      typename Gemm::GemmKernel::CollectiveMainloop::InternalLayoutSFB;
+
+  using ScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
+    } else {
+      code_ += R"(
   using CollectiveMainloop =
       typename cutlass::gemm::collective::CollectiveBuilder<
           ArchTag,
@@ -540,16 +738,21 @@ struct Fp4GemmSm100 {
   using Gemm = cutlass::gemm::device::GemmUniversalAdapter<GemmKernel>;
 
   using StrideA = typename Gemm::GemmKernel::StrideA;
+  using StrideB = typename Gemm::GemmKernel::StrideB;
+  using StrideC = typename Gemm::GemmKernel::StrideC;
+  using StrideD = typename Gemm::GemmKernel::StrideD;
+
   using LayoutA = decltype(cute::make_layout(make_shape(0, 0, 0), StrideA{}));
   using LayoutSFA = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFA;
-  using StrideB = typename Gemm::GemmKernel::StrideB;
   using LayoutB = decltype(cute::make_layout(make_shape(0, 0, 0), StrideB{}));
   using LayoutSFB = typename Gemm::GemmKernel::CollectiveMainloop::LayoutSFB;
-  using StrideC = typename Gemm::GemmKernel::StrideC;
   using LayoutC = decltype(cute::make_layout(make_shape(0, 0, 0), StrideC{}));
-  using StrideD = typename Gemm::GemmKernel::StrideD;
   using LayoutD = decltype(cute::make_layout(make_shape(0, 0, 0), StrideD{}));
+
+  using ScaledConfig =
+      typename Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
 )";
+    }
   }
 
   //! Generates a function mapping from vector<TensorArg> to a struct describing
@@ -647,23 +850,77 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
   using StrideB = typename T::StrideB;
   using StrideC = typename T::StrideC;
   using StrideD = typename T::StrideD;
-  using Sm1xxBlkScaledConfig =
-      typename T::Gemm::GemmKernel::CollectiveMainloop::Sm1xxBlkScaledConfig;
+)";
 
+    if (pattern_.is_grouped) {
+      code_ += R"(
+  auto layout_SFA = inputs.a_scale_layouts;
+  auto layout_SFB = inputs.b_scale_layouts;
+
+  auto GemmMode = cutlass::gemm::GemmUniversalMode::kGrouped;
+  using ProblemShapeType = cutlass::gemm::GroupProblemShape<Shape<int, int, int>>;
+  ProblemShapeType overall_problem_shape{
+      inputs.num_experts,
+      reinterpret_cast<typename ProblemShapeType::UnderlyingProblemShape*>(inputs.problem_sizes),
+      nullptr};
+
+  auto stride_A = inputs.a_strides;
+  auto stride_B = inputs.b_strides;
+  auto stride_D = inputs.d_strides;
+
+)";
+      if (pattern_.bias == nullptr) {
+        code_ += "  auto stride_C = nullptr;\n";
+      } else {
+        // TODO: compute actual stride array for bias if present instead of
+        // assuming same N-inner layout as D
+        code_ += "  auto stride_C = inputs.d_stride;\n";
+      }
+      code_ += R"(
+  // Set up hardware info
+  cutlass::KernelHardwareInfo hw_info;
+)";
+      const int device_id = params_.cparams.device.has_value()
+          ? (int)params_.cparams.device.value().index()
+          : 0;
+      const cudaDeviceProp* dev_prop = at::cuda::getDeviceProperties(device_id);
+      const int num_sms = dev_prop->multiProcessorCount;
+      code_ += "  hw_info.device_id = " + std::to_string(device_id) + ";\n";
+      code_ += "  hw_info.sm_count = " + std::to_string(num_sms) + ";\n";
+      code_ += R"(
+  // Set up scheduler
+  using RasterOrderOptions = typename cutlass::gemm::kernel::detail::
+      PersistentTileSchedulerSm100GroupParams<
+          typename ProblemShapeType::UnderlyingProblemShape>::RasterOrderOptions;
+  typename T::Gemm::GemmKernel::TileSchedulerArguments scheduler;
+  scheduler.raster_order = RasterOrderOptions::AlongM;
+
+  typename T::Gemm::GemmKernel::MainloopArguments mainloop_args{
+       inputs.a_ptrs,
+       stride_A,
+       inputs.b_ptrs,
+       stride_B,
+       inputs.a_scale_ptrs,
+       layout_SFA,
+       inputs.b_scale_ptrs,
+       layout_SFB};
+)";
+    } else {
+      code_ += R"(
   auto stride_A = cutlass::make_cute_packed_stride(StrideA{}, {inputs.m, inputs.k, 1});
   auto stride_B = cutlass::make_cute_packed_stride(StrideB{}, {inputs.n, inputs.k, 1});
   auto stride_C = cutlass::make_cute_packed_stride(StrideC{}, {inputs.m, inputs.n, 1});
   auto stride_D = cutlass::make_cute_packed_stride(StrideD{}, {inputs.m, inputs.n, 1});
 
-  auto layout_SFA = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFA(
+  auto layout_SFA = T::ScaledConfig::tile_atom_to_shape_SFA(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
-  auto layout_SFB = Sm1xxBlkScaledConfig::tile_atom_to_shape_SFB(
+  auto layout_SFB = T::ScaledConfig::tile_atom_to_shape_SFB(
       cute::make_shape(inputs.m, inputs.n, inputs.k, 1));
 
-  typename T::Gemm::Arguments arguments{
-      cutlass::gemm::GemmUniversalMode::kGemm,
-      {inputs.m, inputs.n, inputs.k, 1},
-      {// Mainloop arguments
+  auto GemmMode = cutlass::gemm::GemmUniversalMode::kGemm;
+  Shape<int, int, int, int> overall_problem_shape{inputs.m, inputs.n, inputs.k, 1};
+
+  typename T::Gemm::GemmKernel::MainloopArguments mainloop_args{
        inputs.a,
        stride_A,
        inputs.b,
@@ -671,8 +928,11 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
        inputs.a_scale,
        layout_SFA,
        inputs.b_scale,
-       layout_SFB},
-      {// Epilogue arguments
+       layout_SFB};
+ )";
+    }
+    code_ += R"(
+  typename T::Gemm::GemmKernel::EpilogueArguments epilogue_args{
 )";
     code_ += evt_model_->argString(/*node=*/nullptr, /*indent=*/4);
     code_ += ",  // epilogue.thread\n";
@@ -681,11 +941,34 @@ typename Fp4GemmSm100::Gemm::Arguments cutlass_args_from_inputs(
     } else {
       code_ += "       /*bias=*/nullptr,";
     }
-    code_ += R"(
+    if (pattern_.is_grouped) {
+      code_ += R"(
+       stride_C,
+       inputs.main_output_ptrs,
+       stride_D};
+ )";
+    } else {
+      code_ += R"(
        stride_C,
        inputs.main_output,
-       stride_D}
-    };
+       stride_D};
+ )";
+    }
+
+    code_ += R"(
+  typename T::Gemm::Arguments arguments{
+      GemmMode,
+      overall_problem_shape,
+      mainloop_args,
+      epilogue_args)";
+    if (pattern_.is_grouped) {
+      // We need to pass hw_info and scheduler also for grouped gemm. This is
+      // not necessary for the ungrouped case
+      code_ += R"(,
+      hw_info,
+      scheduler)";
+    }
+    code_ += R"(};
   return arguments;
 }
 )";
@@ -733,9 +1016,12 @@ extern "C" void temp_tensor_sizes(
   auto cutlass_args = cutlass_args_from_inputs(inputs);
 )";
 
-    NVF_ERROR(!pattern_.is_grouped);
     for (const std::unique_ptr<TensorDescriptor>& td_ptr :
          tensor_descriptors_) {
+      if (td_ptr->tv != nullptr) {
+        // Skip registered tensors that are not temp tensors
+        continue;
+      }
       const int64_t pos = td_ptr->tensor_args_pos;
       const int64_t tensor_sizes_pos =
           pos - fusion_->inputs().size() - fusion_->outputs().size();
@@ -743,6 +1029,10 @@ extern "C" void temp_tensor_sizes(
           "  out_tensor_sizes[" + std::to_string(tensor_sizes_pos) + "] = ";
       if (td_ptr->name == "cutlass_workspace") {
         code_ += "Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);\n";
+      } else if (pattern_.is_grouped) {
+        // For grouped gemm temporary tensors are the pointer and layout arrays
+        // and they are all the same shape: [num_experts]
+        code_ += "inputs.num_experts * sizeof(" + td_ptr->dtype_str + ");\n";
       } else {
         NVF_THROW(
             "No temporary tensors other than cutlass_workspace are expected "
@@ -755,7 +1045,183 @@ extern "C" void temp_tensor_sizes(
 )";
   }
 
+  void genGetPointerArrays() {
+    NVF_ERROR(pattern_.is_grouped);
+
+    code_ += R"(
+// CUDA kernel to compute memory offsets and layout information for grouped GEMM
+// operations
+//
+// This kernel calculates the starting pointers and layout configurations for
+// each expert in a grouped matrix multiplication.
+__global__ void get_group_gemm_starts(Inputs inputs) {
+  int64_t expert_id = blockIdx.x * blockDim.x + threadIdx.x;
+  if (expert_id >= inputs.num_experts) {
+    return;
+  }
+  // Upcast from int32_t to int64_t to avoid overflow
+  // during offset calculations
+  int64_t expert_offset = static_cast<int64_t>(inputs.expert_offsets[expert_id]);
+  int64_t sf_offset = static_cast<int64_t>(inputs.scale_factor_offsets[expert_id]);
+  int64_t m = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3]);
+  int64_t n = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 1]);
+  int64_t k = static_cast<int64_t>(inputs.problem_sizes[expert_id * 3 + 2]);
+  assert(
+      (m >= 0 && n == inputs.n && k == inputs.k && k % 2 == 0) && "Unexpected problem sizes");
+
+  int64_t half_k = static_cast<int64_t>(k / 2);
+)";
+    IdModel id_model(fusion_, /*build_graphs=*/false);
+    id_model.buildGraph(IdMappingMode::EXACT);
+    ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+
+    // For grouped GEMM we have the following input sizes:
+    //   a: [M, K/2]
+    //   b: [E, K/2, N]
+    //   a_scale: [padded_m, K/block_size]
+    //   b_scale: [E, N, K/block_size]
+    NVF_ERROR_EQ(pattern_.a->nDims(), 2);
+    NVF_ERROR_EQ(pattern_.b->nDims(), 3);
+
+    // TODO: We should have exact mappings for ScaledMmaOp and
+    // CutlassNvfp4GroupedMmaOp but these were not created when the ops were
+    // made, so here we correct the exact graph.
+
+    // K/2 dimension
+    graph.mapVals(
+        pattern_.b->getLogicalDomain().at(1),
+        pattern_.a->getLogicalDomain().at(1));
+
+    // K/16 dimension for block scale factors
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(2),
+        pattern_.a_scale->getLogicalDomain().at(1));
+
+    // num_experts (E) dim
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(0),
+        pattern_.b->getLogicalDomain().at(0));
+    graph.mapVals(
+        pattern_.b->getLogicalDomain().at(0),
+        pattern_.expert_offsets->getLogicalDomain().at(0));
+    if (pattern_.alpha != nullptr) {
+      graph.mapVals(
+          pattern_.b->getLogicalDomain().at(0),
+          pattern_.alpha->getLogicalDomain().at(0));
+    }
+
+    // N dimension
+    graph.mapVals(
+        pattern_.b_scale->getLogicalDomain().at(1),
+        pattern_.b->getLogicalDomain().at(2));
+
+    // All domains in the fusion must be m, n, k, k/2 for packed fp4 tensors, or
+    // specific sizes for scale factors. Here we build a mapping for all the
+    // known size ValGroups in the problem.
+    ValGroup m_group = graph.toGroup(pattern_.a->getLogicalDomain().front());
+    ValGroup half_k_group =
+        graph.toGroup(pattern_.a->getLogicalDomain().back());
+
+    ValGroup num_experts_group =
+        graph.toGroup(pattern_.b->getLogicalDomain().at(0));
+    ValGroup n_group = graph.toGroup(pattern_.b->getLogicalDomain().at(2));
+
+    // NOTE: the M dimension of a_scale is not exact mapped to that of a because
+    // of padding required for the scale factor array. For this reason, we use
+    // different offsets to index these different dimensions.
+    ValGroup scale_m_offset_group =
+        graph.toGroup(pattern_.a_scale->getLogicalDomain().at(0));
+
+    ValGroup group_k_group =
+        graph.toGroup(pattern_.b_scale->getLogicalDomain().at(2));
+
+    NVF_ERROR(
+        graph.toGroup(pattern_.b->getLogicalDomain().at(1)) == half_k_group,
+        "Half K dimension of B, ",
+        pattern_.b->getLogicalDomain().at(1)->toString(),
+        ", is not mapped to half k group derived from A, ",
+        half_k_group->front()->toString());
+
+    std::unordered_map<ValGroup, std::string> dim_size;
+    // These two are not the size of the expert dimension but rather the index
+    // into that dimension.
+    dim_size.emplace(num_experts_group, "expert_id");
+    dim_size.emplace(m_group, "expert_offset");
+    dim_size.emplace(n_group, "n");
+    dim_size.emplace(half_k_group, "half_k");
+    dim_size.emplace(scale_m_offset_group, "sf_offset");
+    dim_size.emplace(group_k_group, "(k / 16)");
+
+    for (const std::unique_ptr<TensorDescriptor>& td_ptr :
+         tensor_descriptors_) {
+      TensorDescriptor* pa_desc = td_ptr->pointer_array_desc;
+      if (pa_desc != nullptr) {
+        code_ += "  inputs." + pa_desc->name + "[expert_id] = ";
+        // base pointer
+        code_ += "inputs." + td_ptr->name + " + ";
+        bool first = true;
+        for (IterDomain* id : td_ptr->tv->getLogicalDomain()) {
+          if (!id->isIteration()) {
+            continue;
+          }
+          ValGroup group = graph.toGroup(id);
+          const auto it = dim_size.find(group);
+          NVF_ERROR(
+              it != dim_size.end(),
+              "Could not find dimension size map entry for ",
+              group);
+          if (!first) {
+            code_ += " * ";
+          }
+          first = false;
+          code_ += it->second;
+        }
+        code_ += ";\n";
+      }
+
+      TensorDescriptor* la_desc = td_ptr->layout_array_desc;
+      if (la_desc != nullptr) {
+        code_ += "  inputs." + la_desc->name + "[expert_id] = ";
+        NVF_ERROR(td_ptr->layout.has_value());
+        code_ += "Fp4GemmSm100::ScaledConfig::tile_atom_to_shape_" +
+            toString(td_ptr->layout.value());
+        code_ += R"((cute::make_shape(
+    static_cast<int>(m), static_cast<int>(n), static_cast<int>(k), 1));
+)";
+      }
+
+      if (!td_ptr->stride_value.empty()) {
+        code_ += "  inputs." + td_ptr->name +
+            "[expert_id] = " + td_ptr->stride_value + ";\n";
+      }
+    }
+    code_ += R"(}
+
+inline int ceilDiv(int a, int b) {
+  return (a + b - 1) / b;
+}
+
+// Launches the CUDA kernel to compute memory offsets and layout information for
+// grouped GEMM
+//
+// This function launches the get_group_gemm_starts kernel with appropriate
+// template parameters based on the output data type. It handles the setup and
+// execution of the offset computation kernel for grouped matrix multiplication
+// operations.
+void run_get_group_gemm_starts(const Inputs& inputs, cudaStream_t stream) {
+  int threads_per_block = 256;
+  int num_blocks = ceilDiv(inputs.num_experts, threads_per_block);
+
+  get_group_gemm_starts<<<num_blocks, threads_per_block, 0, stream>>>(inputs);
+}
+)";
+  }
+
   void genInitTempTensors() {
+    if (pattern_.is_grouped) {
+      genGetPointerArrays();
+    }
+
     code_ += R"(
 void init_temp_tensors(const Inputs& inputs,
     const Fp4GemmSm100::Gemm::Arguments& cutlass_args,
@@ -764,8 +1230,11 @@ void init_temp_tensors(const Inputs& inputs,
 
   auto status = gemm.initialize(cutlass_args, inputs.cutlass_workspace, stream);
   NVF_ERROR(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
-}
 )";
+    if (pattern_.is_grouped) {
+      code_ += "  run_get_group_gemm_starts(inputs, stream);\n";
+    }
+    code_ += "}\n";
   }
 
   void run() {
