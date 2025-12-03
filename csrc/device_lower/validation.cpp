@@ -1120,6 +1120,10 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       std::string name,
       int64_t vector_word_size_bit) {
+    // NOTE: we should use `GpuLower::current()->getAllocationInfo(tv)` instead of getMaybeAllocationDomain() for check here. But since analysis is done before allocation pass, we don't have allocation info available for the check yet. Hence skipping the validation for now.
+    if (!canUsePresetAllocationDomain(tv)) {
+      return;
+    }
     // aten_element_size_bit is the minimum unit (one element) of tv's
     // corresponding at::Tensor. It may or may not be the same as
     // dataTypeSizeBit(tv->dtype()), because we support non-ATen data types as
@@ -1133,13 +1137,7 @@ class VectorizeValidator : public OptInDispatch {
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
-    std::vector<IterDomain*> alloc_domain;
-    auto it = GpuLower::current()->allocationInfo().find(tv);
-    if (it != GpuLower::current()->allocationInfo().end()) {
-      alloc_domain = it->ids;
-    } else {
-      alloc_domain = tv->getMaybeAllocationDomain();
-    }
+    std::vector<IterDomain*> alloc_domain = tv->getMaybeAllocationDomain();
 
     for (size_t i = alloc_domain.size(); i > 0; i--) {
       auto r_id = alloc_domain[i - 1];
