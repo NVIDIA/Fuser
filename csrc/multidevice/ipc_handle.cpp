@@ -140,10 +140,11 @@ void IpcHandleCache::exchangeHandles(
 
 SymMemForBroadcast::SymMemForBroadcast(
     Communication* communication,
+    int64_t root,
     at::Tensor buffer)
     : SymMemForBroadcast(
           buffer,
-          communication->root(),
+          root,
           "for_Communication" + std::to_string(communication->name())) {}
 
 SymMemForBroadcast::SymMemForBroadcast(
@@ -281,10 +282,13 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
+  if (auto* dtca = dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+    // SymmetricContiguousView
+    handle = std::make_unique<SymMemForContiguousView>(key.buffer, dtca);
+  } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
-      handle = std::make_unique<SymMemForBroadcast>(comm, key.buffer);
+      handle = std::make_unique<SymMemForBroadcast>(comm, key.root, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
       handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
     } else {
@@ -300,6 +304,23 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
 
   auto inserted = handles_.emplace(key, std::move(handle));
   return inserted.first->second.get();
+}
+
+SymMemForContiguousView::SymMemForContiguousView(
+    at::Tensor in_tensor,
+    hir::SymmetricContiguousView* unshard) {
+  std::string tag = "unshard_" + std::to_string(unshard->name());
+  sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
+  sym_tensor_->setupContiguousView(tag);
+
+  at::Tensor contiguous = sym_tensor_->getContiguousView();
+
+  // Remove the DIDx dimension (outermost) if it has size 1
+  if (contiguous.size(0) == 1) {
+    contiguous = contiguous.squeeze(0);
+  }
+
+  tensor_ = contiguous;
 }
 
 } // namespace nvfuser

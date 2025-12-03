@@ -177,7 +177,10 @@ class SymmetricMemoryHandle {
 // Provides efficient one-to-many communication with hardware acceleration
 class SymMemForBroadcast : public SymmetricMemoryHandle {
  public:
-  SymMemForBroadcast(Communication* communication, at::Tensor buffer);
+  SymMemForBroadcast(
+      Communication* communication,
+      int64_t root,
+      at::Tensor buffer);
 
   // Constructor for creating multiple broadcasts (e.g., for allgather)
   SymMemForBroadcast(
@@ -226,7 +229,27 @@ class SymMemForAllgather : public SymmetricMemoryHandle {
   std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
 };
 
-// Cache for symmetric memory handles keyed by (buffer tensor, expr)
+// SymmetricMemoryHandle for SymmetricContiguousView
+// Creates a contiguous view across all ranks from a sharded symmetric tensor
+class SymMemForContiguousView : public SymmetricMemoryHandle {
+ public:
+  SymMemForContiguousView(
+      at::Tensor buffer,
+      hir::SymmetricContiguousView* expr);
+
+  ~SymMemForContiguousView() override = default;
+
+  // Returns the contiguous tensor with DIDx dimension removed if size 1
+  at::Tensor tensor() const {
+    return tensor_;
+  }
+
+ private:
+  std::unique_ptr<SymmetricTensor> sym_tensor_;
+  at::Tensor tensor_;
+};
+
+// Cache for symmetric memory handles keyed by (buffer tensor, expr, root)
 // Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {
  public:
@@ -236,14 +259,17 @@ class SymmetricMemoryHandleCache {
   struct KeyType {
     at::Tensor buffer;
     Expr* expr;
+    int64_t root;
 
     bool operator==(const KeyType& other) const {
-      return TensorEqual{}(buffer, other.buffer) && expr == other.expr;
+      return TensorEqual{}(buffer, other.buffer) && expr == other.expr &&
+          root == other.root;
     }
 
     struct Hash {
       std::size_t operator()(const KeyType& key) const {
-        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr));
+        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr)) ^
+            (std::hash<int64_t>()(key.root));
       }
     };
   };

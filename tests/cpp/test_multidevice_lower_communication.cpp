@@ -11,6 +11,10 @@
 #include <gtest/gtest.h>
 #include <chrono>
 
+#include <algorithm>
+#include <tuple>
+#include <utility>
+
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -874,7 +878,8 @@ class LowerCollectiveCudaTest
   }
 
   // Setup protocol options based on CommunicationProtocol enum
-  // The guard must be created by the caller and kept alive for the test duration
+  // The guard must be created by the caller and kept alive for the test
+  // duration
   void setupProtocolOptions(
       CommunicationProtocol protocol_enum,
       EnableOptionsGuard& guard) {
@@ -884,8 +889,8 @@ class LowerCollectiveCudaTest
       NVFUSER_CUDA_RT_SAFE_CALL(
           cudaGetDeviceProperties(&prop, communicator_->device().index()));
       if (prop.major < 9) {
-        GTEST_SKIP()
-            << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+        GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute "
+                        "Capability >= 9.0";
       }
       EnableOptionsGuard::getCurOptions().set(
           EnableOption::MulticastProtocol, {"multimem"});
@@ -894,7 +899,8 @@ class LowerCollectiveCudaTest
           EnableOption::MulticastProtocol, {"batch_memcpy"});
     } else if (protocol_enum == CommunicationProtocol::Memcpy) {
       // Explicitly clear for memcpy to avoid stale values
-      EnableOptionsGuard::getCurOptions().unset(EnableOption::MulticastProtocol);
+      EnableOptionsGuard::getCurOptions().unset(
+          EnableOption::MulticastProtocol);
     }
     // For nccl backend, MulticastProtocol is irrelevant and should not be set
   }
