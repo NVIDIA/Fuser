@@ -499,9 +499,6 @@ TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  if (backend == CommunicatorBackend::kCuda && !do_swizzle) {
-    tv2->setMemoryType(MemoryType::Symmetric);
-  }
 
   MultiDeviceExecutorParams params;
   params.lower.do_swizzle_in_stream_lowering = do_swizzle;

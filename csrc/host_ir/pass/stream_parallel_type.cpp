@@ -19,6 +19,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/cuda_p2p.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
@@ -254,7 +255,8 @@ std::list<Expr*> groupStreamParallelRegions(
 // Helper function to add allocations for tensors that need them
 std::list<Expr*> addTensorAllocations(
     std::list<Expr*> top_level_exprs,
-    const IdModel& id_model) {
+    const IdModel& id_model,
+    const HostIrLowerParams& params) {
   std::list<Expr*> new_top_level_exprs;
 
   for (auto* expr : top_level_exprs) {
@@ -267,6 +269,9 @@ std::list<Expr*> addTensorAllocations(
              ir_utils::filterByType<TensorView>(body_expr->outputs())) {
           if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) !=
               -1) {
+            if (params.communicator_backend == CommunicatorBackend::kCuda && !params.do_swizzle_in_stream_lowering && isResharding(body_expr)) {
+              output->setMemoryType(MemoryType::Symmetric);
+            }
             new_top_level_exprs.push_back(IrBuilder::create<kir::Allocate>(
                 output, output->getMemoryType()));
           }
@@ -623,7 +628,7 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
       groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them
-  top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model);
+  top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model, params_);
 
   // Step 3: Process for-loop bodies by slicing tensors
   top_level_exprs = processForLoopBodies(
