@@ -915,4 +915,64 @@ INSTANTIATE_TEST_SUITE_P(
          << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(NVFuserTest, CacheBeforeNoAllocationDomainVectorizationValidation) {
+  std::vector<int64_t> shape{32, 64};
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const auto mesh = DeviceMesh::createForNumDevices(1);
+
+  auto tv0 = makeContigTensor(shape.size());
+  fusion.addInput(tv0);
+
+  auto cache = sin(tv0);
+#if 0
+  cache->setAllocationDomain({cache->axis(1), cache->axis(0)}, true);
+#endif
+
+  // i0, i1
+  auto tv1 = set(cache);
+  fusion.addOutput(tv1);
+  tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
+
+  // i0, i1/2, 2
+  tv1->split(1, 2);
+  // i0/4, 4, i1/2, 2
+  tv1->split(0, 4);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::TIDx);
+  tv1->axis(1)->parallelize(ParallelType::Vectorize);
+  tv1->axis(3)->parallelize(ParallelType::Unroll);
+  // i0/4, i1/2, U2, V4
+  tv1->reorder({{1, 3}});
+
+  // i0, i1/2, 2
+  cache->split(1, 2);
+  // i0/4, 4, i1/2, 2
+  cache->split(0, 4);
+  cache->axis(0)->parallelize(ParallelType::BIDx);
+  cache->axis(2)->parallelize(ParallelType::TIDx);
+  cache->axis(1)->parallelize(ParallelType::Serial);
+  cache->axis(3)->parallelize(ParallelType::Unroll);
+  // i0/4, i1/2, U2, S4
+  cache->reorder({{1, 3}});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = t0.sum({1});
+
+  fusion.printMath(1);
+  fusion.printTransforms();
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_results = ke.run({t0});
+  auto o = cg_results[0].as<at::Tensor>();
+  std::cout << "output equal: " << t0.sin().equal(o) << std::endl;
+}
+
 } // namespace nvfuser
