@@ -301,9 +301,7 @@ void Fusion::addInput(Val* input) {
 
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
-    if (tv->getMemoryType() != MemoryType::Symmetric) {
-      tv->setMemoryType(MemoryType::Global);
-    }
+    NVF_CHECK(tv->getMemoryType() != MemoryType::Symmetric, "Symmetric memory type needs to be defined after adding input, on tensor ", tv);
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
@@ -329,9 +327,7 @@ void Fusion::addOutputInternal(Val* output) {
       "Non-TensorView outputs are not supported at this point: ",
       output->toString());
   auto* tv = output->as<TensorView>();
-  if (tv->getMemoryType() != MemoryType::Symmetric) {
-    tv->setMemoryType(MemoryType::Global);
-  }
+  NVF_CHECK(tv->getMemoryType() != MemoryType::Symmetric, "Symmetric memory type needs to be defined after adding output, on tensor ", tv);
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);

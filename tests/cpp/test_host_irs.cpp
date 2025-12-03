@@ -1234,10 +1234,11 @@ TEST_F(AllocationTest, SymmetricMemory) {
   FusionGuard fg(hic.get());
 
   auto* tv = makeContigConcreteTensor(sizes);
-  tv->setMemoryType(MemoryType::Symmetric);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Symmetric);
   hic->addOutput(tv);
   hic->pushBackTopLevelExprs(allocate);
+
+  tv->setMemoryType(MemoryType::Symmetric);
 
   HostIrEvaluator hie(std::move(hic));
 
