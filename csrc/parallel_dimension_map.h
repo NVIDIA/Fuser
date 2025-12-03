@@ -97,6 +97,19 @@ class ParallelDimensionMap {
   // elect-sync cannot be used.
   bool canUseElectSyncInAsyncWarp() const;
 
+  Val* getEvalExtent(ParallelDim* pdim) const {
+    return mapOrDefault(dim_eval_extent_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
+  Val* getCodegenExtent(ParallelDim* pdim) const {
+    return mapOrDefault(
+        dim_codegen_extent_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
+  Val* getIndex(ParallelDim* pdim) const {
+    return mapOrDefault(dim_index_map_, pdim, /*default=*/(Val*)nullptr);
+  }
+
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1
@@ -111,22 +124,28 @@ class ParallelDimensionMap {
   //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
+  //! Infers the extents of ParallelDims based on bound dims and algebraic
+  //! operations and creates scalar Vals that can be evaluated on the host. For
+  //! instance, if TIDx is split into two new dims and they are bound to sizes 8
+  //! and 32, then TIDx is inferred to be of size 8*32=256.
   void inferEvalExtents(Fusion* fusion);
+
+  //! Infers the extents of ParallelDims just like inferEvalExtents, but
+  //! generates scalar Vals that are appropriate for evaluation in device code
+  //! instead of on the host. FOr instance, instead of deriving a complicated
+  //! expression for the extent of a dimension based on input tensor's shape, we
+  //! can often use special values like blockIdx.x.
   void inferCodegenExtents(Fusion* fusion);
+
+  //! Infers indices to use for each parallel Dim. For example, TIDx dims will
+  //! have an index which is a NamedScalar with value "threadIdx.x". We traverse
+  //! the ParallelDim graph to assign indices for all dims. For instance, if
+  //! TIDx is split into two dims and the inner dim has extent 32, then we
+  //! assign threadIdx.x / 32 and threadIdx.x % 32 for the indices of those two
+  //! dims.
+  //!
+  //! Note that non-thread parallel dimensions are excluded from this analysis.
   void inferIndices(Fusion* fusion);
-
-  Val* getEvalExtent(ParallelDim* pdim) const {
-    return mapOrDefault(dim_eval_extent_map_, pdim, /*default=*/(Val*)nullptr);
-  }
-
-  Val* getCodegenExtent(ParallelDim* pdim) const {
-    return mapOrDefault(
-        dim_codegen_extent_map_, pdim, /*default=*/(Val*)nullptr);
-  }
-
-  Val* getIndex(ParallelDim* pdim) const {
-    return mapOrDefault(dim_index_map_, pdim, /*default=*/(Val*)nullptr);
-  }
 
  private:
   //! Maps from parallel types to dimensions, which are constant if
