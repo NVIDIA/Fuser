@@ -872,6 +872,32 @@ class LowerCollectiveCudaTest
 
     return out_tensor;
   }
+
+  // Setup protocol options based on CommunicationProtocol enum
+  // The guard must be created by the caller and kept alive for the test duration
+  void setupProtocolOptions(
+      CommunicationProtocol protocol_enum,
+      EnableOptionsGuard& guard) {
+    // Set MulticastProtocol option only for CUDA backend protocols
+    if (protocol_enum == CommunicationProtocol::Multimem) {
+      cudaDeviceProp prop;
+      NVFUSER_CUDA_RT_SAFE_CALL(
+          cudaGetDeviceProperties(&prop, communicator_->device().index()));
+      if (prop.major < 9) {
+        GTEST_SKIP()
+            << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+      }
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::MulticastProtocol, {"multimem"});
+    } else if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::MulticastProtocol, {"batch_memcpy"});
+    } else if (protocol_enum == CommunicationProtocol::Memcpy) {
+      // Explicitly clear for memcpy to avoid stale values
+      EnableOptionsGuard::getCurOptions().unset(EnableOption::MulticastProtocol);
+    }
+    // For nccl backend, MulticastProtocol is irrelevant and should not be set
+  }
 };
 
 TEST_P(LowerCollectiveCudaTest, Allgather) {
@@ -888,25 +914,7 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
   }
 
   EnableOptionsGuard guard;
-  // Set MulticastProtocol option only for CUDA backend protocols
-  if (protocol_enum == CommunicationProtocol::Multimem) {
-    cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaGetDeviceProperties(&prop, communicator_->device().index()));
-    if (prop.major < 9) {
-      GTEST_SKIP()
-          << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
-    }
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::MulticastProtocol, {"multimem"});
-  } else if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::MulticastProtocol, {"batch_memcpy"});
-  } else if (protocol_enum == CommunicationProtocol::Memcpy) {
-    // Explicitly clear for memcpy to avoid stale values
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::MulticastProtocol);
-  }
-  // For nccl backend, MulticastProtocol is irrelevant and should not be set
+  setupProtocolOptions(protocol_enum, guard);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -952,34 +960,15 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
   const auto& [msg_size_bytes, protocol_enum] = GetParam();
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
+  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
 
   // cudaMemcpyBatchAsync requires a non-default stream
   c10::cuda::CUDAStream stream =
       c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
   c10::cuda::setCurrentCUDAStream(stream);
 
-  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
-
   EnableOptionsGuard guard;
-  // Set MulticastProtocol option only for CUDA backend protocols
-  if (protocol_enum == CommunicationProtocol::Multimem) {
-    cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaGetDeviceProperties(&prop, communicator_->device().index()));
-    if (prop.major < 9) {
-      GTEST_SKIP()
-          << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
-    }
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::MulticastProtocol, {"multimem"});
-  } else if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::MulticastProtocol, {"batch_memcpy"});
-  } else if (protocol_enum == CommunicationProtocol::Memcpy) {
-    // Explicitly clear for memcpy to avoid stale values
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::MulticastProtocol);
-  }
-  // For nccl backend, MulticastProtocol is irrelevant and should not be set
+  setupProtocolOptions(protocol_enum, guard);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
