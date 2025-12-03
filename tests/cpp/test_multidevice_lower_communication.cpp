@@ -11,6 +11,10 @@
 #include <gtest/gtest.h>
 #include <chrono>
 
+#include <algorithm>
+#include <tuple>
+#include <utility>
+
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
