@@ -306,6 +306,7 @@ void Fusion::addInput(Val* input) {
         "Symmetric memory type needs to be defined after adding input, on "
         "tensor ",
         tv);
+    tv->setMemoryType(MemoryType::Global);
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
@@ -336,6 +337,7 @@ void Fusion::addOutputInternal(Val* output) {
       "Symmetric memory type needs to be defined after adding output, on "
       "tensor ",
       tv);
+  tv->setMemoryType(MemoryType::Global);
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
