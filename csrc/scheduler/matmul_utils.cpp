@@ -1089,25 +1089,6 @@ const char* noopPtx = R"(
 
 )";
 
-// RAII wrapper to ensure CUDA module is always unloaded
-class CudaModuleGuard {
- public:
-  explicit CudaModuleGuard(CUmodule module) : module_(module) {}
-
-  ~CudaModuleGuard() {
-    if (module_ != nullptr) {
-      cuModuleUnload(module_);
-    }
-  }
-
-  // Non-copyable, non-movable for simplicity
-  CudaModuleGuard(const CudaModuleGuard&) = delete;
-  CudaModuleGuard& operator=(const CudaModuleGuard&) = delete;
-
- private:
-  CUmodule module_;
-};
-
 } // anonymous namespace
 
 //! Determine the maximum number of clusters that can execute in a single wave
@@ -1121,6 +1102,8 @@ class CudaModuleGuard {
 //!
 //! Note: This function uses maximum shared memory (not actual usage) to enable
 //! caching results by cluster size, avoiding redundant queries for each call.
+
+//! TODO: RAII to ensure module is unloaded even if an exception is thrown.
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   // We can use a cluster size up to 16, indexed from 1 to 16.
   thread_local std::array<int64_t, 17> cached_results;
@@ -1139,8 +1122,6 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
 
   CUmodule module;
   NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
-  CudaModuleGuard guard(module); // Ensures module unload on all exit paths
-
   CUfunction func;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 
@@ -1185,7 +1166,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   NVFUSER_CUDA_SAFE_CALL(
       cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
 
-  // Module will be automatically unloaded by CudaModuleGuard destructor
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
 
   cached_results.at(cluster_size) = (int64_t)num_clusters;
   return cached_results.at(cluster_size);
