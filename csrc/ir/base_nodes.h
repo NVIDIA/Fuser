@@ -386,6 +386,12 @@ class NVF_API Val : public Statement {
         getDataType() == other->as<Val>()->getDataType();
   }
 
+  // sameDefinition determines if a two values will create the same fusion
+  // definition.
+  virtual bool sameDefinition(const Val* other_val) const;
+
+  // sameAs determines if a Statement generates the exact same outputs as this
+  // Val.
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
@@ -438,6 +444,11 @@ class NVF_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
+  // The maybeSameVal helper function checks if the other Val has the same
+  // definition, ValType, and DType. If it returns false, then other_val cannot
+  // match with this val.
+  bool maybeSameVal(const Val* other_val) const;
+
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
@@ -528,6 +539,11 @@ class NVF_API Expr : public Statement {
   // Check that if this and other are the same operator. This main difference
   // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
+
+  // Check that if this and other have same definition. This main difference
+  // from sameAs is that sameDefinition checks the inputs with sameDefinition
+  // instead of sameAs.
+  virtual bool sameDefinition(const Expr* other) const;
 
   bool sameAs(const Statement* other) const override;
 
