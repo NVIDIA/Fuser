@@ -84,9 +84,6 @@ class CutlassCodeGenerator {
   void findPattern() {
     pattern_ = findCutlassMatmulPattern(fusion_);
 
-    NVF_CUTLASS_REJECT_IF(
-        pattern_.is_grouped, "Grouped GEMM is not currently supported");
-
     // These must always be set
     NVF_ERROR(pattern_.mma != nullptr);
     NVF_ERROR(pattern_.a != nullptr);
@@ -288,6 +285,11 @@ class CutlassCodeGenerator {
         pattern_.is_grouped,                                               \
         /*dtype_str=*/"const " + dtypeToCutlass(pattern_.field->dtype())); \
   }
+#define MAYBE_REGISTER_NO_PTR_ARRAY(field)               \
+  if (pattern_.field != nullptr) {                       \
+    registerGlobalBuffer(#field, pattern_.field, false); \
+  }
+
     MAYBE_REGISTER(a)
     MAYBE_REGISTER(b)
     MAYBE_REGISTER(alpha)
@@ -300,6 +302,11 @@ class CutlassCodeGenerator {
     MAYBE_REGISTER_NO_PTR_ARRAY(scale_factor_offsets)
 #undef MAYBE_REGISTER
 
+    std::optional<TensorDescriptor::LayoutType> layout_sfa, layout_sfb;
+    if (pattern_.is_grouped) {
+      layout_sfa = TensorDescriptor::LayoutType::SFA;
+      layout_sfb = TensorDescriptor::LayoutType::SFB;
+    }
     // We handle a_scale and b_scale separately so we can specify that their
     // dtypes are unsigned
     registerGlobalBuffer(
@@ -310,7 +317,7 @@ class CutlassCodeGenerator {
         "const " +
             dtypeToCutlass(pattern_.a_scale->dtype(), /*force_unsigned=*/true),
         /*ptr_array_dtype_is_same=*/false,
-        /*layout=*/TensorDescriptor::LayoutType::SFA);
+        layout_sfa);
     registerGlobalBuffer(
         "b_scale",
         /*tv=*/pattern_.b_scale,
@@ -319,7 +326,7 @@ class CutlassCodeGenerator {
         "const " +
             dtypeToCutlass(pattern_.b_scale->dtype(), /*force_unsigned=*/true),
         /*ptr_array_dtype_is_same=*/false,
-        /*layout=*/TensorDescriptor::LayoutType::SFB);
+        layout_sfb);
 
     if (pattern_.is_grouped) {
       // Grouped GEMMs require stride arrays for A, B, C and D
@@ -1009,9 +1016,12 @@ extern "C" void temp_tensor_sizes(
   auto cutlass_args = cutlass_args_from_inputs(inputs);
 )";
 
-    NVF_ERROR(!pattern_.is_grouped);
     for (const std::unique_ptr<TensorDescriptor>& td_ptr :
          tensor_descriptors_) {
+      if (td_ptr->tv != nullptr) {
+        // Skip registered tensors that are not temp tensors
+        continue;
+      }
       const int64_t pos = td_ptr->tensor_args_pos;
       const int64_t tensor_sizes_pos =
           pos - fusion_->inputs().size() - fusion_->outputs().size();
@@ -1019,6 +1029,10 @@ extern "C" void temp_tensor_sizes(
           "  out_tensor_sizes[" + std::to_string(tensor_sizes_pos) + "] = ";
       if (td_ptr->name == "cutlass_workspace") {
         code_ += "Fp4GemmSm100::Gemm::get_workspace_size(cutlass_args);\n";
+      } else if (pattern_.is_grouped) {
+        // For grouped gemm temporary tensors are the pointer and layout arrays
+        // and they are all the same shape: [num_experts]
+        code_ += "inputs.num_experts * sizeof(" + td_ptr->dtype_str + ");\n";
       } else {
         NVF_THROW(
             "No temporary tensors other than cutlass_workspace are expected "
