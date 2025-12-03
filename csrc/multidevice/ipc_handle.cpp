@@ -226,7 +226,8 @@ SymMemForAllgather::SymMemForAllgather(
 
   // Setup Multicast on full buffer
   full_buffer_sym_tensor_->setupMulticast(
-      /*exporter_rank=*/0, "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+      /*exporter_rank=*/0,
+      "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
 
   // Allocate semaphores (one per rank) in a single symmetric tensor
   at::Tensor semaphores = SymmetricTensor::allocate(

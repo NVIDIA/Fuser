@@ -269,7 +269,9 @@ std::list<Expr*> addTensorAllocations(
              ir_utils::filterByType<TensorView>(body_expr->outputs())) {
           if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) !=
               -1) {
-            if (params.communicator_backend == CommunicatorBackend::kCuda && !params.do_swizzle_in_stream_lowering && isResharding(body_expr)) {
+            if (params.communicator_backend == CommunicatorBackend::kCuda &&
+                !params.do_swizzle_in_stream_lowering &&
+                isResharding(body_expr)) {
               output->setMemoryType(MemoryType::Symmetric);
             }
             new_top_level_exprs.push_back(IrBuilder::create<kir::Allocate>(
@@ -409,23 +411,26 @@ std::list<Expr*> processForLoopBodies(
         new_loop_body.push_back(slicing_output);
 
         if (params.do_swizzle_in_stream_lowering == false) {
-          auto broadcast = IrBuilder::create<Communication>(CommunicationType::Broadcast,
-                                                            slicing_output->out(),
-                                                            input_tv,
-                                                            input_tv->getDeviceMesh().vector(),
-                                                            send_peer,
-                                                            c10d::ReduceOp::RedOpType::UNUSED,
-                                                            communicator_backend);
+          auto broadcast = IrBuilder::create<Communication>(
+              CommunicationType::Broadcast,
+              slicing_output->out(),
+              input_tv,
+              input_tv->getDeviceMesh().vector(),
+              send_peer,
+              c10d::ReduceOp::RedOpType::UNUSED,
+              communicator_backend);
           auto wait = IrBuilder::create<hir::Wait>(broadcast);
           new_loop_body.push_back(broadcast);
           new_loop_body.push_back(wait);
         } else {
           auto* is_sending_to_self =
-            IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
+              IrBuilder::create<kir::Predicate>(eq(send_peer, my_device_id));
           auto if_sending_to_self =
-            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+              IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
           auto* local_copy = IrBuilder::create<LoadStoreOp>(
-              LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+              LoadStoreOpType::Set,
+              slicing_output->out(),
+              slicing_input->out());
 
           if_sending_to_self->thenBody().push_back(slicing_input);
           if_sending_to_self->thenBody().push_back(local_copy);
@@ -454,7 +459,7 @@ std::list<Expr*> processForLoopBodies(
             if_sending_to_self->elseBody().push_back(end_coalescing);
             if_sending_to_self->elseBody().push_back(wait);
           } else if (communicator_backend == CommunicatorBackend::kCuda) {
-          auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
+            auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
                 std::vector<P2PCommunication*>({recv, send}));
             auto wait_send = IrBuilder::create<hir::Wait>(send);
             auto wait_recv = IrBuilder::create<hir::Wait>(recv);
@@ -476,7 +481,10 @@ std::list<Expr*> processForLoopBodies(
             deferred_wait_if->elseBody().push_back(wait_send);
             new_loop_body_epilogue.push_back(deferred_wait_if);
           } else {
-            NVF_ERROR("Unsupported communicator backend for lowering stream parallel type into p2p: ", communicator_backend);
+            NVF_ERROR(
+                "Unsupported communicator backend for lowering stream parallel "
+                "type into p2p: ",
+                communicator_backend);
           }
           new_loop_body.push_back(if_sending_to_self);
         }
@@ -628,11 +636,12 @@ void StreamParallelType::passImplementation(Fusion* fusion) {
       groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them
-  top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model, params_);
+  top_level_exprs =
+      addTensorAllocations(std::move(top_level_exprs), id_model, params_);
 
   // Step 3: Process for-loop bodies by slicing tensors
-  top_level_exprs = processForLoopBodies(
-      std::move(top_level_exprs), id_model, params_);
+  top_level_exprs =
+      processForLoopBodies(std::move(top_level_exprs), id_model, params_);
 
   // Step 4: Add stream management and synchronization
   top_level_exprs = addStreamManagement(std::move(top_level_exprs));

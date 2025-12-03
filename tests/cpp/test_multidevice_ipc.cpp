@@ -705,7 +705,8 @@ TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
       if (i == rank) {
         continue;
       }
-      std::string peer_path = "@nvfuser_test_nvls_ptr_recv_" + std::to_string(i);
+      std::string peer_path =
+          "@nvfuser_test_nvls_ptr_recv_" + std::to_string(i);
       nvfuser::sendFd(peer_path, shared_handle);
     }
     close(shared_handle);
@@ -788,7 +789,8 @@ TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
       cuMemSetAccess(uc_ptr, kSizeBytes, &uc_mapping_desc, /*count=*/1));
 
   // Initialize local memory to 0
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemset(reinterpret_cast<void*>(uc_ptr), 0, kSizeBytes));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemset(reinterpret_cast<void*>(uc_ptr), 0, kSizeBytes));
   communicator_->barrier();
 
   // Pointer arithmetic on Multicast Pointer
@@ -796,7 +798,7 @@ TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
   // Offset is chosen to be non-zero and aligned to element size
   size_t offset_elems = 1024;
   size_t offset_bytes = offset_elems * sizeof(uint32_t);
-  
+
   if (offset_bytes < kSizeBytes) {
     if (rank == root_rank) {
       // Write a pattern at offset
@@ -804,7 +806,7 @@ TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
       for (size_t i = 0; i < host_data.size(); ++i) {
         host_data[i] = static_cast<uint32_t>(i + 12345);
       }
-      
+
       // Use mc_ptr + offset_bytes
       // This verifies that we can do pointer arithmetic on the multicast handle
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
@@ -826,13 +828,15 @@ TEST_F(IpcTest, IpcNvlsMulticastPtrArithmetic) {
 
     // Check first part is still 0
     for (size_t i = 0; i < offset_elems; ++i) {
-      EXPECT_EQ(read_back[i], 0) << "Rank " << rank << " found non-zero at index " << i;
+      EXPECT_EQ(read_back[i], 0)
+          << "Rank " << rank << " found non-zero at index " << i;
     }
 
     // Check second part matches written data
     for (size_t i = offset_elems; i < kNumElems; ++i) {
       uint32_t expected = static_cast<uint32_t>((i - offset_elems) + 12345);
-      EXPECT_EQ(read_back[i], expected) << "Rank " << rank << " mismatch at index " << i;
+      EXPECT_EQ(read_back[i], expected)
+          << "Rank " << rank << " mismatch at index " << i;
     }
   }
 

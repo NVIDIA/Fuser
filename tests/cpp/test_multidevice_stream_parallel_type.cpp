@@ -397,23 +397,14 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
-class StreamParallelBackendTest
-    : public MultiDeviceStreamParallelTypeTest,
-      public testing::WithParamInterface<
-          std::tuple<bool, CommunicatorBackend>> {};
+class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
+                                  public testing::WithParamInterface<
+                                      std::tuple<bool, CommunicatorBackend>> {};
 
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   constexpr int64_t kTensorSize = 2 * 1024 * 1024;
 
   auto [do_swizzle, backend] = GetParam();
-
-//   if (do_swizzle && backend != CommunicatorBackend::kCuda) {
-//     GTEST_SKIP() << "Swizzle=true requires kCuda backend";
-//   }
-
-//   if (!communicator_->isBackendAvailable(backend)) {
-//     GTEST_SKIP() << "Backend not available";
-//   }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -451,7 +442,8 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
-  at::Tensor unsharded_input = at::rand({communicator_->size(), kTensorSize}, options);
+  at::Tensor unsharded_input =
+      at::rand({communicator_->size(), kTensorSize}, options);
   at::Tensor input = shardTensor(unsharded_input, /*axis=*/0, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
@@ -462,14 +454,6 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
 
 TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
   auto [do_swizzle, backend] = GetParam();
-
-//   if (do_swizzle && backend != CommunicatorBackend::kCuda) {
-//     GTEST_SKIP() << "Swizzle=true requires kCuda backend";
-//   }
-
-//   if (!communicator_->isBackendAvailable(backend)) {
-//     GTEST_SKIP() << "Backend not available";
-//   }
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
@@ -498,7 +482,6 @@ TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
 
   tv0->axis(0)->parallelize(ParallelType::DIDx);
   tv2->axis(0)->parallelize(ParallelType::Stream);
-
 
   MultiDeviceExecutorParams params;
   params.lower.do_swizzle_in_stream_lowering = do_swizzle;

@@ -13,10 +13,9 @@
 #include <options.h>
 
 #include <algorithm>
+#include <ostream>
 #include <string>
 #include <vector>
-#include <ostream>
-
 
 namespace nvfuser {
 
@@ -82,7 +81,8 @@ void launchMulticastKernel(
 
     NVF_CHECK(
         major >= 9,
-        "Multicast kernel using 'multimem' protocol requires Compute Capability >= 9.0 (Hopper+). ",
+        "Multicast kernel using 'multimem' protocol requires Compute "
+        "Capability >= 9.0 (Hopper+). ",
         "Current device ",
         device,
         " is Compute Capability ",
@@ -102,8 +102,8 @@ void launchMulticastKernel(
     nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     if (res != NVRTC_SUCCESS && major >= 9) {
       // If 8.0 is not supported (e.g. older NVRTC), try without it
-       opts.pop_back();
-       res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+      opts.pop_back();
+      res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
     }
 
     if (res != NVRTC_SUCCESS) {
@@ -139,10 +139,10 @@ void launchMulticastKernel(
           (void*)info_log,
           (void*)kLogSize,
           (void*)1};
-      
+
       // Reload to capture logs
       cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
-      
+
       NVF_ERROR(
           false,
           "Multicast kernel module load failed with error: ",
@@ -170,7 +170,7 @@ void launchMulticastKernel(
   int max_blocks_per_sm;
   NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
       &max_blocks_per_sm, kernel, threads, 0));
-  
+
   blocks = num_sms * max_blocks_per_sm;
 
   // Limit number of blocks so that we don't launch more threads than needed
@@ -178,9 +178,9 @@ void launchMulticastKernel(
   size_t vec_size = 16;
   size_t total_work_units = (size + vec_size - 1) / vec_size;
   size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
-  
+
   if ((size_t)blocks > max_needed_blocks) {
-      blocks = std::max(1, (int)max_needed_blocks);
+    blocks = std::max(1, (int)max_needed_blocks);
   }
   const auto& args = getEnableOptionArguments(EnableOption::MulticastProtocol);
   if (args.size() >= 2) {
@@ -198,17 +198,7 @@ void launchMulticastKernel(
 
   void* args_kernel[] = {&dst, &src, &size};
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
-      kernel,
-      blocks,
-      1,
-      1,
-      threads,
-      1,
-      1,
-      0,
-      stream,
-      args_kernel,
-      nullptr));
+      kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
 }
 
 // We choose  duplicate the state of the semaphore on both the local and peer
@@ -303,8 +293,7 @@ void postBroadcastWithCudaBackend(
         attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
       }
       NVF_CHECK(
-          stream != 0,
-          "cudaMemcpyBatchAsync does not support default stream");
+          stream != 0, "cudaMemcpyBatchAsync does not support default stream");
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
           srcs.data(),
@@ -432,8 +421,7 @@ void postAllgatherWithCudaBackend(
     std::vector<size_t> attrsIdxs(world_size);
     size_t numAttrs = world_size;
     for (int64_t rank = 0; rank < world_size; ++rank) {
-      dsts[rank] =
-          allgather_handle->bufferUnicastPtr(my_device_index, rank);
+      dsts[rank] = allgather_handle->bufferUnicastPtr(my_device_index, rank);
       attrsIdxs[rank] = rank;
       struct cudaMemLocation dst_location = {
           .type = cudaMemLocationTypeDevice, .id = (int)rank};
@@ -453,9 +441,9 @@ void postAllgatherWithCudaBackend(
         counts.data(),
         world_size,
         attributes.data(),
-          attrsIdxs.data(),
-          numAttrs,
-          (cudaStream_t)stream));
+        attrsIdxs.data(),
+        numAttrs,
+        (cudaStream_t)stream));
 #else
     NVF_ERROR(false, "cuMemcpyBatchAsync requires CUDA >= 12.1");
 #endif

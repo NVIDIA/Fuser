@@ -338,7 +338,11 @@ void HostIrEvaluator::handle(Communication* communication) {
     SymmetricMemoryHandle* multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication, root_val});
     postWithCudaBackend(
-        communication, input_tensor, multicast_handle, current_stream, root_val);
+        communication,
+        input_tensor,
+        multicast_handle,
+        current_stream,
+        root_val);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
@@ -408,7 +412,8 @@ void HostIrEvaluator::handle(Wait* wait) {
         expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     SymmetricMemoryHandle* multicast_handle =
         multicast_handle_cache_.get({output_tensor, communication, root_val});
-    waitWithCudaBackend(communication, multicast_handle, current_stream, root_val);
+    waitWithCudaBackend(
+        communication, multicast_handle, current_stream, root_val);
   } else {
     auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
@@ -801,7 +806,8 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   expr_evaluator_.bind(out_tv, out_tensor);
 }
 
-void HostIrEvaluator::handle(SymmetricContiguousView* symmetric_contiguous_view) {
+void HostIrEvaluator::handle(
+    SymmetricContiguousView* symmetric_contiguous_view) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(SymmetricContiguousView)");
 
   NVF_ERROR(
@@ -816,8 +822,8 @@ void HostIrEvaluator::handle(SymmetricContiguousView* symmetric_contiguous_view)
   at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
 
   // Get or create SymMemForContiguousView from the cache
-  SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
-      multicast_handle_cache_.get(
+  SymMemForContiguousView* handle =
+      static_cast<SymMemForContiguousView*>(multicast_handle_cache_.get(
           {in_tensor, symmetric_contiguous_view, /*root=*/-1}));
 
   NVF_ERROR(

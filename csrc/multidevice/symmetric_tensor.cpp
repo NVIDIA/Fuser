@@ -261,7 +261,8 @@ SymmetricTensor::~SymmetricTensor() {
         reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
     CUdeviceptr base_ptr = 0;
     size_t va_size = 0;
-    NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
+    NVFUSER_CUDA_SAFE_CALL(
+        cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
     size_t offset = local_ptr - base_ptr;
 
     for (int64_t rank = 0; rank < world_size_; ++rank) {
@@ -336,8 +337,7 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
         cuMemAddressReserve(&peer_ptr, va_size, granularity_, 0, 0));
     // cuMemMap does not support for now mapping a subregion of an allocation,
     // so we map the full allocation but store the offseted peer pointer.
-    NVFUSER_CUDA_SAFE_CALL(
-        cuMemMap(peer_ptr, va_size, 0, peer_handle, 0));
+    NVFUSER_CUDA_SAFE_CALL(cuMemMap(peer_ptr, va_size, 0, peer_handle, 0));
 
     CUmemAccessDesc access{};
     access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;

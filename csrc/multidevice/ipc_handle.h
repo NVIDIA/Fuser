@@ -177,7 +177,10 @@ class SymmetricMemoryHandle {
 // Provides efficient one-to-many communication with hardware acceleration
 class SymMemForBroadcast : public SymmetricMemoryHandle {
  public:
-  SymMemForBroadcast(Communication* communication, int64_t root, at::Tensor buffer);
+  SymMemForBroadcast(
+      Communication* communication,
+      int64_t root,
+      at::Tensor buffer);
 
   // Constructor for creating multiple broadcasts (e.g., for allgather)
   SymMemForBroadcast(
