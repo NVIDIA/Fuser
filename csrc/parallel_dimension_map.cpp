@@ -272,8 +272,9 @@ inline std::vector<std::pair<ParallelDim*, Val*>> inferExtentFromExpr(
   return {};
 }
 
-//! Policy for inferring extents of ParallelDims from bound IterDomains
-struct ExtentInferencePolicy {
+//! Policy for inferring evaluation extents of ParallelDims from bound
+//! IterDomains
+struct EvalExtentInferencePolicy {
   using InferenceMap = std::unordered_map<ParallelDim*, Val*>;
 
   //! Initialize by collecting extents from bound IterDomains in the fusion
@@ -326,6 +327,44 @@ struct ExtentInferencePolicy {
   }
 };
 
+//! Policy for inferring codegen extents of ParallelDims from bound
+//! IterDomains. This is the same as EvalExtentInferencePolicy except that any
+//! non-constant extents corresponding to ParallelTypes have their corresponding
+//! indices like threadIdx.y or blockIdx.x set initially.
+struct CodegenExtentInferencePolicy {
+  using InferenceMap = std::unordered_map<ParallelDim*, Val*>;
+
+  static InferenceMap initialize(Fusion* fusion) {
+    InferenceMap result = EvalExtentInferencePolicy::initialize(fusion);
+    VectorOfUniqueEntries<PDAndID> all_concrete_ids;
+    auto all_vals = fusion->usedMathVals();
+
+    for (ParallelType ptype : kParallelTypeThreads) {
+      if (!fusion->hasParallelDim(ptype)) {
+        continue;
+      }
+      ParallelDim* pdim = fusion->getParallelDim(ptype);
+      auto it = result.find(pdim);
+      if (it == result.end()) {
+        continue;
+      }
+      Val* orig_extent = it->second;
+      if (!orig_extent->isConst()) {
+        result[pdim] = NamedScalar::getParallelIndex(ptype);
+      }
+    }
+
+    return result;
+  }
+
+  //! Infer extents from ParallelDim expressions
+  static std::vector<std::pair<ParallelDim*, Val*>> inferFromExpr(
+      Expr* expr,
+      const InferenceMap& known) {
+    return inferExtentFromExpr(expr, known);
+  }
+};
+
 void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // TODO: I think we still need something like exact_types_ but for
   // ParallelDim. isExact() is currently only used by
@@ -333,10 +372,8 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   // reference that use case when designing exactness around ParallelDim*
   // instead of ParallelType*
 
-  // Use ParallelDimInference with ExtentInferencePolicy
-  ParallelDimInference<ExtentInferencePolicy> inference(fusion);
+  ParallelDimInference<EvalExtentInferencePolicy> inference(fusion);
 
-  // Run inference: initialize + propagate
   auto result = inference.run();
 
   // Process results: simplify expressions, evaluate constants, populate map
@@ -349,7 +386,20 @@ void ParallelDimensionMap::inferEvalExtents(Fusion* fusion) {
   }
 }
 
-void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {}
+void ParallelDimensionMap::inferCodegenExtents(Fusion* fusion) {
+  ParallelDimInference<CodegenExtentInferencePolicy> inference(fusion);
+
+  auto result = inference.run();
+
+  // Process results: simplify expressions, evaluate constants, populate map
+  for (auto& [pdim, extent] : result) {
+    extent = simplifyExpr(extent);
+    if (extent->isConstInt()) {
+      pdim->value() = extent->evaluate().as<int64_t>();
+    }
+    dim_codegen_extent_map_[pdim] = extent;
+  }
+}
 
 void ParallelDimensionMap::inferIndices(Fusion* fusion) {}
 
