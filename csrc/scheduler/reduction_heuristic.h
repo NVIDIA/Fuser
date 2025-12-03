@@ -179,10 +179,6 @@ class ReductionParams : public HeuristicParams {
   // when the shared memory is much larger than the register file.
   std::vector<TensorView*> smem_persistent_buffers;
 
-  // Use TMA load or store
-  bool use_tma_load = false;
-  bool use_tma_store = false;
-
  public:
   using HeuristicParams::HeuristicParams;
 

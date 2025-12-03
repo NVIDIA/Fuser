@@ -218,12 +218,12 @@ void ReductionScheduler::schedule(
       rparams != nullptr,
       "Incorrect parameters sent to ReductionScheduler::schedule",
       params);
-  if (rparams->use_tma_load) {
+  if (false) {
     reduction::tma::scheduleReduction(fusion, rparams);
   } else {
-    NVF_ERROR(
-        !rparams->use_tma_store,
-        "Using TMA store without use TMA load is not supported");
+    // NVF_ERROR(
+    //     !rparams->use_tma_store,
+    //     "Using TMA store without use TMA load is not supported");
     reduction::non_tma::scheduleReduction(fusion, rparams);
   }
 }

@@ -19,14 +19,13 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
   FusionGuard fg(fusion);
   auto params = std::make_unique<ReductionParams>();
   params->tag = "Reduction TMA heuristics";
-  params->use_tma_load = true;
   NVF_THROW("Schedule reduction using TMA");
   return params;
 }
 
 void scheduleReduction(Fusion* fusion, const ReductionParams* pparams) {
   FusionGuard fg(fusion);
-  NVF_THROW("Reduction pointwise using TMA");
+  NVF_THROW("Schedule reduction using TMA");
 }
 } // namespace tma
 } // namespace reduction
