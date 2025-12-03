@@ -926,53 +926,39 @@ TEST_F(NVFuserTest, CacheBeforeNoAllocationDomainVectorizationValidation) {
   auto tv0 = makeContigTensor(shape.size());
   fusion.addInput(tv0);
 
+  // Note: cache doesn't have allocation domain set, because it's a local tensor
+  // and scheduler would ignore its allocation domain even if explicitly set.
   auto cache = sin(tv0);
-#if 0
-  cache->setAllocationDomain({cache->axis(1), cache->axis(0)}, true);
-#endif
 
   // i0, i1
   auto tv1 = set(cache);
   fusion.addOutput(tv1);
   tv1->setAllocationDomain({tv1->axis(1), tv1->axis(0)}, true);
 
-  // i0, i1/2, 2
-  tv1->split(1, 2);
-  // i0/4, 4, i1/2, 2
-  tv1->split(0, 4);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  tv1->axis(2)->parallelize(ParallelType::TIDx);
-  tv1->axis(1)->parallelize(ParallelType::Vectorize);
-  tv1->axis(3)->parallelize(ParallelType::Unroll);
-  // i0/4, i1/2, U2, V4
-  tv1->reorder({{1, 3}});
-
-  // i0, i1/2, 2
-  cache->split(1, 2);
-  // i0/4, 4, i1/2, 2
-  cache->split(0, 4);
-  cache->axis(0)->parallelize(ParallelType::BIDx);
-  cache->axis(2)->parallelize(ParallelType::TIDx);
-  cache->axis(1)->parallelize(ParallelType::Serial);
-  cache->axis(3)->parallelize(ParallelType::Unroll);
-  // i0/4, i1/2, U2, S4
-  cache->reorder({{1, 3}});
+  for (auto tv : {tv1, cache}) {
+    // i0, i1/2, 2
+    tv->split(1, 2);
+    // i0/4, 4, i1/2, 2
+    tv->split(0, 4);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::TIDx);
+    tv->axis(1)->parallelize(
+        tv == tv1 ? ParallelType::Vectorize : ParallelType::Serial);
+    tv->axis(3)->parallelize(ParallelType::Unroll);
+    // Note: it's important to order vectorize ID on the innermost, because the
+    // loop domain dictates the layout of cache, which needs the vectorized ID
+    // on the innermost. i0/4, i1/2, U2, V4
+    tv->reorder({{1, 3}});
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  auto t1 = t0.sum({1});
-
-  fusion.printMath(1);
-  fusion.printTransforms();
-
-  GpuLower gpulw(&fusion);
-  gpulw.run();
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_results = ke.run({t0});
-  auto o = cg_results[0].as<at::Tensor>();
-  std::cout << "output equal: " << t0.sin().equal(o) << std::endl;
+
+  ASSERT_TRUE(cg_results[0].as<at::Tensor>().equal(t0));
 }
 
 } // namespace nvfuser
