@@ -139,6 +139,29 @@ Expr* cloneWithNewOperands(
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
+// Returns a new Expr with the inputs and outputs replaced by the replacement
+// map. If none of the inputs or outputs are replaced, returns the original
+// Expr.
+Expr* cloneWithNewOperands(
+    Expr* e,
+    const std::unordered_map<Val*, Val*>& replacement_map) {
+  OptOutMutator mutator;
+  for (auto* input : e->inputs()) {
+    Val* new_input = getOrDefault(replacement_map, input);
+    if (new_input != nullptr) {
+      mutator.registerMutation(input, new_input);
+    }
+  }
+  for (auto* output : e->outputs()) {
+    Val* new_output = getOrDefault(replacement_map, output);
+    if (new_output != nullptr) {
+      mutator.registerMutation(output, new_output);
+    }
+  }
+  mutator.mutate(e);
+  return mutator.mutateExprOutputsOnly(e);
+}
+
 void lowerSegment(
     const SegmentedGroup& group,
     const AliasInfoMap& aliases,
