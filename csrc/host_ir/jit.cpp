@@ -37,6 +37,7 @@
 #include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
+#include <expr_evaluator.h>
 #include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
@@ -46,8 +47,10 @@
 #include <ir/iostream.h>
 #include <linked_hash_map.h>
 #include <ops/all_ops.h>
+#include <polymorphic_value.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 #include <val_graph_visitor.h>
 
 #include <ranges>
@@ -1350,11 +1353,37 @@ void HostIrJitImpl::registerExternalFunctions() {
         std::vector<void*> kernel_args;
         kernel_args.reserve(num_inputs + num_outputs);
 
-        // Process Inputs
+        const auto& kernel_inputs = compiled_kernel->kernel()->inputs();
+        const auto& kernel_outputs = compiled_kernel->kernel()->outputs();
+
+        // Create ExpressionEvaluator and bind input tensors to it
+        // This is needed for inferAndValidateAllocationSizesAndStrides to evaluate
+        // symbolic split factors and dimension extents when transforming between
+        // logical and allocation domains
+        ExpressionEvaluator expr_eval;
         for (int64_t i = 0; i < num_inputs; ++i) {
-          at::Tensor* tensor = input_tensors[i];
+          if (input_tensors[i] != nullptr && i < static_cast<int64_t>(kernel_inputs.size())) {
+            expr_eval.bind(kernel_inputs[i], PolymorphicValue(*input_tensors[i]));
+          }
+        }
+
+        // Lambda to encode a tensor with allocation strides if available
+        auto encodeTensor = [&](at::Tensor* tensor, Val* tv_val) {
           std::vector<int64_t> sizes = tensor->sizes().vec();
-          std::vector<int64_t> strides = tensor->strides().vec();
+          std::vector<int64_t> strides;
+
+          // Use allocation strides if the tensor has an allocation domain
+          if (auto* tv = dynamic_cast<TensorView*>(tv_val)) {
+            if (tv->hasAllocation()) {
+              auto [alloc_sizes, alloc_strides] =
+                  inferAndValidateAllocationSizesAndStrides(*tensor, tv, expr_eval);
+              strides = alloc_strides;
+            } else {
+              strides = tensor->strides().vec();
+            }
+          } else {
+            strides = tensor->strides().vec();
+          }
 
           auto bytes = tensorToBytes(
               PolymorphicValue(*tensor),
@@ -1362,30 +1391,20 @@ void HostIrJitImpl::registerExternalFunctions() {
               strides,
               index_type,
               getLastDimAdjustment(index_type),
-              //getLastDimAdjustment(kernel->inputs()[i]->dtype()),
               sizes);
 
           arg_bytes.push_back(std::move(bytes));
           kernel_args.push_back(arg_bytes.back().data());
+        };
+
+        // Process Inputs
+        for (int64_t i = 0; i < num_inputs; ++i) {
+          encodeTensor(input_tensors[i], kernel_inputs[i]);
         }
 
         // Process Outputs
         for (int64_t i = 0; i < num_outputs; ++i) {
-          at::Tensor* tensor = output_tensors[i];
-          std::vector<int64_t> sizes = tensor->sizes().vec();
-          std::vector<int64_t> strides = tensor->strides().vec();
-
-          auto bytes = tensorToBytes(
-              PolymorphicValue(*tensor),
-              sizes,
-              strides,
-              index_type,
-              getLastDimAdjustment(index_type),
-              //getLastDimAdjustment(kernel->outputs()[i]->dtype()),
-              sizes);
-
-          arg_bytes.push_back(std::move(bytes));
-          kernel_args.push_back(arg_bytes.back().data());
+          encodeTensor(output_tensors[i], kernel_outputs[i]);
         }
 
         if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
