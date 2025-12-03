@@ -296,8 +296,11 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
       continue;
     }
     int64_t max_active = matmul_utils::getMaxActiveClusters(cluster_dims);
+
+    // Our regular CI only covers 8.0, 9.0, 10.0, etc.
+    // For other minor versions, max allowed cluster size is not tested.
     if(sm_minor == 0) {
-    EXPECT_GT(max_active, 0)
+      EXPECT_GT(max_active, 0)
         << "Expected positive number of active clusters for "
         << cluster_dims.m << "x" << cluster_dims.n << " cluster";
     }
