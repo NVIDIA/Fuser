@@ -36,6 +36,62 @@ def nvfp4_quantize(x):
     return x_u8, x_scale, x_global_scale
 
 
+def quantize_to_mxfp8_e4m3(tensor: torch.Tensor):
+    """
+    Quantize a Float32 tensor to MXFP8 E4M3 format using block scaling.
+    Args:
+        tensor: Input Float32 tensor to quantize
+    Returns:
+        MXFP8Tensor containing quantized data and scaling factors
+    Note: You can access the components separately:
+        - quantized_tensor._rowwise_data: quantized FP8 values (uint8)
+        - quantized_tensor._rowwise_scale_inv: inverse scale factors (uint8)
+    """
+    import transformer_engine_torch as tex
+    from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Quantizer
+
+    # Create MXFP8 quantizer for E4M3 format
+    quantizer = MXFP8Quantizer(
+        fp8_dtype=tex.DType.kFloat8E4M3,
+        rowwise=True,  # Enable rowwise scaling
+        columnwise=False,  # Disable columnwise scaling for this example
+    )
+
+    # Perform quantization
+    quantized_tensor = quantizer(tensor)
+
+    return quantized_tensor
+
+
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+def test_nv_block_quantization(nvfuser_direct_test):
+    x = torch.rand((1024, 1024), dtype=torch.float32, device="cuda")
+
+    # x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
+    results = quantize_to_mxfp8_e4m3(x)
+    x_u8 = results._rowwise_data
+    x_scale = results._rowwise_scale_inv
+
+    def nvfuser_fusion_id0(fd: FusionDefinition):
+        x_tv = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+        vals_, scales_ = fd.ops.nv_block_quantize(
+            x_tv, None, False, 32, DataType.Float8_e4m3fn
+        )
+        fd.add_output(vals_)
+        fd.add_output(scales_)
+
+    outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x])
+
+    print(f"outputs[0] dtype: {outputs[0].dtype}")
+    print(f"outputs[1] dtype: {outputs[1].dtype}")
+    print(f"x_u8 dtype: {x_u8.dtype}")
+    print(f"x_scale dtype: {x_scale.dtype}")
+
+
 def nvfp4_quantize_with_te(input_tensor):
     """
     Directly quantizes a tensor to NVFP4 using TE NVFP4Quantizer,
