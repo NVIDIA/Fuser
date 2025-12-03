@@ -28,8 +28,12 @@ def test_matmul(nvfuser_direct_test):
         #                 T1_g_float[istreamIdx7{3}, iS11{i2}, iS8{( ceilDiv(i4, 3) )}])
         # } // %HostIrContainer
 
-    inp = torch.testing.make_tensor(5, 7, dtype=torch.float32, device="cuda")
-    w = torch.testing.make_tensor(7, c * 2, dtype=torch.float32, device="cuda")
+    inp = torch.testing.make_tensor(5, 7, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
+    w = torch.testing.make_tensor(7, c * 2, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
     ref = torch.matmul(inp, w)
 
     with torch.profiler.profile(record_shapes=True) as profile:
@@ -71,9 +75,15 @@ def test_two_matmuls_inlinable(nvfuser_direct_test):
         #                 T2_g_float[iS15{i4}, iS5{i6}])
         # } // %HostIrContainer
 
-    inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.float32, device="cuda")
-    w1 = torch.testing.make_tensor(3, 5, dtype=torch.float32, device="cuda")
-    w2 = torch.testing.make_tensor(5, 3, dtype=torch.float32, device="cuda")
+    inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
+    w1 = torch.testing.make_tensor(3, 5, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
+    w2 = torch.testing.make_tensor(5, 3, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
     ref = torch.matmul(torch.matmul(inp, w1), w2)
 
     with torch.profiler.profile(record_shapes=True) as profile:
@@ -126,9 +136,15 @@ def test_two_matmuls_not_inlinable(nvfuser_direct_test):
     # Therefore, the output of the first matmul (of shape [m, n]) has to be
     # fully allocated.
 
-    inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.float32, device="cuda")
-    w1 = torch.testing.make_tensor(3, c * 5, dtype=torch.float32, device="cuda")
-    w2 = torch.testing.make_tensor(c * 5, 3, dtype=torch.float32, device="cuda")
+    inp = torch.testing.make_tensor(c * 2, 3, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
+    w1 = torch.testing.make_tensor(3, c * 5, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
+    w2 = torch.testing.make_tensor(c * 5, 3, dtype=torch.int32, device="cuda").to(
+        torch.float32
+    )
     ref = torch.matmul(torch.matmul(inp, w1), w2)
 
     (out,) = fd.execute([inp, w1, w2], _enable_options=["host_ir_lowering"])
