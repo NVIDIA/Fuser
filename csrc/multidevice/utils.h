@@ -86,5 +86,4 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
 
-
 } // namespace nvfuser

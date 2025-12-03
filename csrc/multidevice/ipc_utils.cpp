@@ -8,9 +8,9 @@
 #include <exceptions.h>
 #include <multidevice/ipc_utils.h>
 
+#include <unistd.h>
 #include <cerrno>
 #include <cstring>
-#include <unistd.h>
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -178,4 +178,3 @@ int recvFd(int socket_fd, void* header_data, size_t header_len) {
 }
 
 } // namespace nvfuser
-

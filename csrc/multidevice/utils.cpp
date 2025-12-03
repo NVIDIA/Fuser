@@ -13,7 +13,6 @@
 #include <utility>
 #include <vector>
 
-
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <instrumentation.h>
@@ -363,6 +362,5 @@ bool isValidDeviceSplit(Expr* expr) {
   }
   return true;
 }
-
 
 } // namespace nvfuser

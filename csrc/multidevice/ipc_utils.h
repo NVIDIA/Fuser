@@ -48,4 +48,3 @@ void sendFd(
 int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
 
 } // namespace nvfuser
-
