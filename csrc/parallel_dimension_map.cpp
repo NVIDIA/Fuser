@@ -726,19 +726,48 @@ bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
 
 std::string ParallelDimensionMap::toString() const {
   std::stringstream ss;
-  for (auto pt : kParallelTypeThreads) {
-    ss << pt << ": ";
-    auto dim = getRaw(pt);
-    if (dim != nullptr) {
-      ss << dim->toInlineString();
-      if (isExact(pt)) {
-        ss << ", exact";
-      } else {
-        ss << ", non-exact";
-      }
-    } else {
-      ss << "unused";
+
+  // Collect all unique ParallelDims from all maps
+  std::unordered_set<ParallelDim*> all_dims;
+  for (const auto& [pdim, _] : dim_eval_extent_map_) {
+    all_dims.insert(pdim);
+  }
+  for (const auto& [pdim, _] : dim_codegen_extent_map_) {
+    all_dims.insert(pdim);
+  }
+  for (const auto& [pdim, _] : dim_index_map_) {
+    all_dims.insert(pdim);
+  }
+
+  // Print each ParallelDim with its associated data
+  for (auto* pdim : all_dims) {
+    ss << pdim->toString() << " (" << pdim->parallelType() << "): ";
+
+    // Show eval extent if present
+    auto eval_it = dim_eval_extent_map_.find(pdim);
+    if (eval_it != dim_eval_extent_map_.end()) {
+      ss << "eval_extent=" << eval_it->second->toInlineString();
     }
+
+    // Show codegen extent if present
+    auto codegen_it = dim_codegen_extent_map_.find(pdim);
+    if (codegen_it != dim_codegen_extent_map_.end()) {
+      if (eval_it != dim_eval_extent_map_.end()) {
+        ss << ", ";
+      }
+      ss << "codegen_extent=" << codegen_it->second->toInlineString();
+    }
+
+    // Show index if present
+    auto idx_it = dim_index_map_.find(pdim);
+    if (idx_it != dim_index_map_.end()) {
+      if (eval_it != dim_eval_extent_map_.end() ||
+          codegen_it != dim_codegen_extent_map_.end()) {
+        ss << ", ";
+      }
+      ss << "index=" << idx_it->second->toInlineString();
+    }
+
     ss << "\n";
   }
 

@@ -73,6 +73,8 @@ TEST_F(ParallelDimTest, Binding) {
   const ParallelDimensionMap& pdm =
       ke.compiledKernel()->lowered()->info().parallelDimensionMap();
 
+  std::cout << pdm.toString() << std::endl;
+
   EXPECT_TRUE(pdm.has(ParallelType::BIDx));
   EXPECT_TRUE(pdm.has(ParallelType::TIDx));
   EXPECT_TRUE(pdm.has(ParallelType::TIDy));
