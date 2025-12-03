@@ -238,20 +238,29 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // 2. Ensure each thread handles at least one element (tma_tile_inner / bdimx)
   // 3. Ensure divisibility: tma_tile_inner is scheduled as
   //    [tma_tile_inner/vect/bdimx, bdimx, vect]
-  int64_t vectorization_factor = 1;
   constexpr int64_t max_vectorization_size_in_bit = 128;
   int64_t vect_factor_max = std::min(
       max_vectorization_size_in_bit / prop.max_dtype_size_bit_for_vectorization,
       tma_tile_inner / bdimx);
 
-  // Conservatively set max vectorization factor to 1 before adding analsysis
-  // considering reshape operations.
-  vect_factor_max = std::min((int64_t)1, vect_factor_max);
+  // Apply common vectorization factor analysis
+  vect_factor_max = pointwise_utils::computeVectorizationFactor(
+      runtime_info,
+      prop.vectorizable_inputs_outputs,
+      prop.largest_out,
+      data_cache,
+      vect_factor_max,
+      params->break_point,
+      prop.has_reshapes);
 
+  // Gradually grow vectorization factor until we reach the maximum
+  // ensure divisible by tma_tile_inner
+  int64_t vectorization_factor = 1;
   while (vectorization_factor * 2 <= vect_factor_max &&
          tma_tile_inner % (vectorization_factor * 2) == 0) {
     vectorization_factor *= 2;
   }
+
   params->vectorization_factor = vectorization_factor;
 
   // TMA store

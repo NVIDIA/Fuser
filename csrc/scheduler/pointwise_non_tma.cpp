@@ -14,6 +14,7 @@
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/mark_aliases.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -283,30 +284,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool is_outer_broadcast_dominated = config.is_outer_broadcast_dominated;
   const auto& elem_counts = prop.elem_counts;
 
-  int64_t vectorization_factor = max_vect_factor;
-  // If we have sub-byte data types, we wouldn't want to clamp vectorization
-  // factor to 1, otherwise we could end up with illegal array type with
-  // sub-byte length.
-  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
-  // necessarily need vectorization, but rather just consecutive elements being
-  // handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
-        return dataTypeSizeBit(inp->getDataType().value()) < 8;
-      })) {
-    vectorization_factor = std::max(2l, max_vect_factor);
-  }
-  std::unordered_map<int64_t, int64_t> logical_reorder_map =
-      pointwise_utils::getLogicalReorderMap(
-          prop.largest_out, prop.has_reshapes, data_cache);
-  vectorization_factor = std::min(
-      vectorization_factor,
-      vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          prop.largest_out,
-          data_cache,
-          break_point,
-          /*max_vectorization_size_in_bit=*/128,
-          logical_reorder_map));
+  int64_t vectorization_factor = pointwise_utils::computeVectorizationFactor(
+      runtime_info,
+      vectorizable_inputs_outputs,
+      prop.largest_out,
+      data_cache,
+      max_vect_factor,
+      break_point,
+      prop.has_reshapes);
   params->vectorization_factor = vectorization_factor;
 
   // get unroll factor:
@@ -354,6 +339,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     TensorView* largest_out = prop.largest_out;
     auto broadcast_info_for_debug =
         scheduler_utils::getBroadcastMultiples(largest_out, index_type);
+
+    // Get logical reorder map for debug output
+    std::unordered_map<int64_t, int64_t> logical_reorder_map =
+        pointwise_utils::getLogicalReorderMap(
+            prop.largest_out, prop.has_reshapes, data_cache);
 
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
