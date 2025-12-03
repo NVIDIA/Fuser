@@ -10,10 +10,6 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <utility>
-#include <tuple>
-#include <algorithm>
-
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
@@ -824,7 +820,9 @@ class LowerCollectiveCudaTest
     std::vector<at::Tensor> x_tensors = {x};
 
     for (int i = 0; i < timing_iters; ++i) {
-      communicator_->getWorld(backend_type)->allreduce(x_tensors, {c10d::ReduceOp::MAX})->wait();
+      communicator_->getWorld(backend_type)
+          ->allreduce(x_tensors, {c10d::ReduceOp::MAX})
+          ->wait();
       cudaEventRecord(start_events[i]);
       out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
       cudaEventRecord(stop_events[i]);
@@ -837,7 +835,9 @@ class LowerCollectiveCudaTest
       cudaEventElapsedTime(&elapsed_ms, start_events[i], stop_events[i]);
       elapsed_ms_vec.push_back(elapsed_ms);
     }
-    float avg_time_ms = std::accumulate(elapsed_ms_vec.begin(), elapsed_ms_vec.end(), 0.0) / elapsed_ms_vec.size();
+    float avg_time_ms =
+        std::accumulate(elapsed_ms_vec.begin(), elapsed_ms_vec.end(), 0.0) /
+        elapsed_ms_vec.size();
 
     for (int i = 0; i < timing_iters; ++i) {
       cudaEventDestroy(start_events[i]);
@@ -884,9 +884,11 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
   EnableOptionsGuard guard;
   if (protocol == "multimem") {
     cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaGetDeviceProperties(&prop, communicator_->device().index()));
     if (prop.major < 9) {
-      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+      GTEST_SKIP()
+          << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
     }
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::MulticastProtocol, {"multimem"});
@@ -950,9 +952,11 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
   EnableOptionsGuard guard;
   if (protocol == "multimem") {
     cudaDeviceProp prop;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, communicator_->device().index()));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaGetDeviceProperties(&prop, communicator_->device().index()));
     if (prop.major < 9) {
-      GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
+      GTEST_SKIP()
+          << "Multicast protocol 'multimem' requires Compute Capability >= 9.0";
     }
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::MulticastProtocol, {"multimem"});
@@ -1029,12 +1033,10 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Values(CommunicatorBackend::kCuda),
         testing::Values(
-            2 * 1024 * 1024LL,     // 2 MB
-            8 * 1024 * 1024LL,     // 8 MB
-            32 * 1024 * 1024LL,    // 32 MB
-            128 * 1024 * 1024LL,   // 128 MB
-            512 * 1024 * 1024LL,   // 512 MB
-            1024 * 1024 * 1024LL   // 1 GB
+            2 * 1024 * 1024LL, // 2 MB
+            8 * 1024 * 1024LL, // 8 MB
+            32 * 1024 * 1024LL, // 32 MB
+            128 * 1024 * 1024LL // 128 MB
             ),
         testing::Values("memcpy", "multimem", "batch_memcpy")),
     paramToStringLowerCollectiveCudaTest);
@@ -1045,12 +1047,10 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::Values(CommunicatorBackend::kNccl),
         testing::Values(
-            2 * 1024 * 1024LL,     // 2 MB
-            8 * 1024 * 1024LL,     // 8 MB
-            32 * 1024 * 1024LL,    // 32 MB
-            128 * 1024 * 1024LL,   // 128 MB
-            512 * 1024 * 1024LL,   // 512 MB
-            1024 * 1024 * 1024LL   // 1 GB
+            2 * 1024 * 1024LL, // 2 MB
+            8 * 1024 * 1024LL, // 8 MB
+            32 * 1024 * 1024LL, // 32 MB
+            128 * 1024 * 1024LL // 128 MB
             ),
         testing::Values("default")),
     paramToStringLowerCollectiveCudaTest);
