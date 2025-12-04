@@ -537,7 +537,6 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
   in->setDeviceMesh(mesh);
   out->setDeviceMesh(mesh);
-  out->setMemoryType(MemoryType::Global);
   out->setMemoryType(MemoryType::Symmetric);
 
   auto allocated_out =
@@ -601,7 +600,6 @@ TEST_F(CUDACommunicationTest, Allgather) {
   DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
   in->setDeviceMesh(mesh);
   out->setDeviceMesh(mesh);
-  out->setMemoryType(MemoryType::Global);
   out->setMemoryType(MemoryType::Symmetric);
 
   auto allocated_out =
