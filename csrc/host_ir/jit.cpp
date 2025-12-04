@@ -1373,11 +1373,13 @@ void HostIrJitImpl::registerExternalFunctions() {
 
         // Process Inputs
         for (int64_t i = 0; i < num_inputs; ++i) {
+          NVF_CHECK(input_tensors[i] != nullptr, "Input tensor at index ", i, " is null");
           encodeTensor(input_tensors[i], kernel_inputs[i]);
         }
 
         // Process Outputs
         for (int64_t i = 0; i < num_outputs; ++i) {
+          NVF_CHECK(output_tensors[i] != nullptr, "Output tensor at index ", i, " is null");
           encodeTensor(output_tensors[i], kernel_outputs[i]);
         }
 
