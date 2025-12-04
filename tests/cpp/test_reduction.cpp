@@ -2627,4 +2627,146 @@ TEST_F(ReductionTest, TensorRankLimit) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Test scheduling inner reduction kernels with 1D bulk TMA.
+// ndims: Test 2 or 3 dimensions. The first dim is always non-reduce, all the
+//        rest are reduce dimensions. Inner dimensions should be merged by the
+//        schedule.
+// inner_size: The size of the inner-most dimension.
+using TmaInnerReductionTestParams =
+    std::tuple<int64_t, int64_t>; // <ndims, inner_size>
+
+class TmaInnerReductionTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    // TODO
+    // EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(TmaInnerReductionTest, Basic) {
+  [[maybe_unused]] auto dtype = DataType::Float;
+  [[maybe_unused]] int64_t dtype_bytes = dataTypeSizeByte(dtype);
+  [[maybe_unused]] auto [ndims, inner_size] = GetParam();
+
+  std::vector<int64_t> element_at_each_dim;
+  if (ndims == 2) {
+    element_at_each_dim = {64, inner_size};
+  } else {
+    element_at_each_dim = {64, 8, inner_size};
+  }
+
+  std::vector<int64_t> reduced_dims;
+  int64_t reduced_elem_count = 1;
+  for (int i = 1; i < ndims; ++i) {
+    reduced_dims.push_back(i);
+    reduced_elem_count *= element_at_each_dim[i];
+  }
+
+  if (reduced_elem_count * dtype_bytes % 16 != 0) {
+    GTEST_SKIP() << "Reduced bytes is not divisible by 16, can't use TMA, "
+                    "reduced_elem_count: "
+                 << reduced_elem_count << ", dtype_bytes: " << dtype_bytes;
+    return;
+  }
+
+  const int64_t min_inner_dim = 2 * 16 / dtype_bytes;
+  if (reduced_elem_count % min_inner_dim != 0) {
+    GTEST_SKIP()
+        << "Reduced elements is not divisible by min_inner_dim, can't use TMA, "
+           "reduced_elem_count: "
+        << reduced_elem_count << ", min_inner_dim: " << min_inner_dim;
+    return;
+  }
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigTensor(ndims);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, reduced_dims);
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(element_at_each_dim, options);
+
+  // Merge the contiguous inner reduction dimensions
+  for (int64_t i = tv1->nDims() - 2; i >= 0; --i) {
+    if (tv1->axis(i)->isReduction() && tv1->axis(i + 1)->isReduction()) {
+      tv1->merge(i, i + 1);
+    }
+  }
+  // TODO: Split the inner dimension to ensure the TMA fits into smem.
+
+  // Propagate the merge to tv0
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  // Setup the TMA load. No TMA store.
+  auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0smem->setMemoryType(MemoryType::Shared);
+
+  tv0smem->axis(0)->parallelize(ParallelType::BIDx);
+  tv0smem->axis(1)->parallelize(ParallelType::Bulk);
+
+  auto tv1regs = tv1->cacheBefore();
+  auto redu_tv = tv1regs;
+
+  const int64_t vect = 4;
+  const int64_t tidx = 256;
+
+#define split_and_parallelize(tv, dim, size, parallelType) \
+  tv->split(dim, size);                                    \
+  tv->axis(dim + 1)->parallelize(parallelType);
+
+  // clang-format off
+  split_and_parallelize(redu_tv, 1, vect, ParallelType::Serial);   // 5
+  split_and_parallelize(redu_tv, 1, tidx, ParallelType::TIDx);     // 4
+  split_and_parallelize(redu_tv, 1,    4, ParallelType::Unroll);   // 3
+  split_and_parallelize(redu_tv, 1,    1, ParallelType::Unswitch); // 2
+
+  redu_tv->axis(1)->parallelize(ParallelType::Serial);             // 1
+  redu_tv->axis(0)->parallelize(ParallelType::BIDx);               // 0
+  // clang-format on
+
+  // std::vector<int64_t> rfactor_axes;
+  // for (int64_t i = 0; i < redu_tv->nDims(); i++) {
+  //   if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
+  //     rfactor_axes.push_back(i);
+  //   }
+  // }
+  // redu_tv->rFactor(rfactor_axes);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaInnerReductionTest,
+    ::testing::Combine(
+        ::testing::Values(2, 3), // ndims
+        ::testing::ValuesIn([] { // inner_size
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }())),
+    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+      int64_t ndims = std::get<0>(info.param);
+      int64_t inner_size = std::get<1>(info.param);
+      return "ndim_" + std::to_string(ndims) + "_inner_size_" +
+          std::to_string(inner_size);
+    });
+
 } // namespace nvfuser
