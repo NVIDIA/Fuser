@@ -355,9 +355,14 @@ inferAndValidateAllocationSizesAndStrides(
   }
 
   // Skip validation for scale input to ScaledMmaOp as it will be swizzled.
-  // This check is a bit of an overkill as it will skip all inputs to the op.
   if (tv->uses().size() == 1 && tv->uses().at(0)->isA<ScaledMmaOp>()) {
-    skip_validation = true;
+    auto scaled_mma = tv->uses().at(0)->as<ScaledMmaOp>();
+    // Only skip validation for scale inputs, not data inputs
+    if (tv == scaled_mma->inA_scale() || tv == scaled_mma->inB_scale() || 
+        tv == scaled_mma->out_scale()) {
+      skip_validation = true;
+    }
+  }
   }
 
   // Only validate final sizes and strides when we have a non-empty tensor
