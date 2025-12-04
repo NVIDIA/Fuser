@@ -78,8 +78,8 @@ def compute_nvfp4_global_scale(tensor, device):
         Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor))
     """
     amax = torch.max(torch.abs(tensor)).to(torch.float32)
-    float4_max = torch.tensor(6.0, device=device, dtype=torch.float32)
-    float8_max = torch.tensor(448.0, device=device, dtype=torch.float32)
+    float4_max = torch.tensor(6.0, dtype=torch.float32)
+    float8_max = torch.tensor(448.0, dtype=torch.float32)
     return torch.div(float8_max * float4_max, amax)
 
 
@@ -94,8 +94,8 @@ def extract_te_nvfp4_metadata(input_tensor):
     """
     nvfp4_tensor = nvfp4_quantize_with_te(input_tensor)
     metadata = nvfp4_tensor.get_metadata()
-    quantized_data = metadata["rowwise_data"]
-    scale_inv = metadata["rowwise_scale_inv"]
+    quantized_data = metadata["rowwise_data"].view((torch.float4_e2m1fn_x2))
+    scale_inv = metadata["rowwise_scale_inv"].view(torch.float8_e4m3fn)
     global_scale = compute_nvfp4_global_scale(input_tensor, input_tensor.device)
     return quantized_data, scale_inv, global_scale
 
@@ -111,8 +111,8 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype)
 
     # Compute global scale for nvfuser block quantization
     x_new = torch.max(torch.abs(x)).to(torch.float32)
-    FLOAT4_E2M1_MAX = torch.tensor(6.0, device=x.device, dtype=torch.float32)
-    FLOAT8_E4M3_MAX = torch.tensor(448.0, device=x.device, dtype=torch.float32)
+    FLOAT4_E2M1_MAX = torch.tensor(6.0, dtype=torch.float32)
+    FLOAT8_E4M3_MAX = torch.tensor(448.0, dtype=torch.float32)
     x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
@@ -267,10 +267,6 @@ def test_scaled_mm_new(
     mat1_quantized, mat1_scale_inv, global_sf1 = extract_te_nvfp4_metadata(mat1_ref)
     mat2_quantized, mat2_scale_inv, global_sf2 = extract_te_nvfp4_metadata(mat2_ref)
 
-    # Convert to appropriate dtypes for scaled_mm
-    mat2_quantized = mat2_quantized.view(torch.float4_e2m1fn_x2)
-    mat2_scale_inv = mat2_scale_inv.view(torch.float8_e4m3fn)
-
     # Alpha compensates for both quantization scales
     alpha = 1.0 / (global_sf1 * global_sf2)
 
@@ -328,9 +324,9 @@ def test_scaled_mm_new(
 
     # Fusion 2: Baseline using pre-quantized inputs
     inputs_baseline = [
-        mat1_quantized.view(torch.float4_e2m1fn_x2),
+        mat1_quantized,
         mat2_quantized.t(),
-        linear_to_swizzled_128_4(mat1_scale_inv.view(torch.float8_e4m3fn)),
+        linear_to_swizzled_128_4(mat1_scale_inv),
         linear_to_swizzled_128_4(mat2_scale_inv),
         alpha,
     ]
