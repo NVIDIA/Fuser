@@ -60,21 +60,6 @@ class SymmetricTensor {
   void setupContiguousView(const std::string& tag = "");
   at::Tensor getContiguousView() const;
 
-  size_t granularity() const {
-    return granularity_;
-  }
-
-  size_t alignedSize() const {
-    return aligned_size_;
-  }
-
-  CUmemGenericAllocationHandle getAllocHandle(
-      int64_t rank,
-      const std::string& tag) const {
-    setupRemoteHandles(tag);
-    return alloc_handles_[rank];
-  }
-
  private:
   at::Tensor local_tensor_;
   mutable std::vector<CUmemGenericAllocationHandle> alloc_handles_;
@@ -83,6 +68,7 @@ class SymmetricTensor {
   int64_t my_device_id_;
   size_t granularity_;
   size_t aligned_size_;
+  size_t requested_size_;
   mutable bool are_remote_tensors_setup_ = false;
   bool is_multicast_setup_ = false;
   CUmemGenericAllocationHandle mcast_handle_{};
