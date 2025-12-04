@@ -82,9 +82,13 @@ std::unordered_map<IterDomain*, IterDomain*> getRef2TargetMap(
     const TensorView* target,
     PropagateDirection direction) {
   if (direction == PropagateDirection::kForward) {
-    return PairwiseLogicalDomainMap(ref, target).mapProducerToConsumer();
+    return PairwiseLogicalDomainMap(ref, target)
+        .mapBroadcast(false)
+        .mapProducerToConsumer();
   }
-  return PairwiseLogicalDomainMap(target, ref).mapConsumerToProducer();
+  return PairwiseLogicalDomainMap(target, ref)
+      .mapBroadcast(false)
+      .mapConsumerToProducer();
 }
 
 // Propagates the given device/stream ids from ref to target.
