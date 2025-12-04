@@ -2238,7 +2238,7 @@ bool canUsePresetAllocationDomain(TensorView* tv) {
   // Honor the allocation domain if the tensor is global or Hopper MMA's
   // output
   if (tv->getMemoryType() == MemoryType::Global ||
-      (tv->definition()->isA<MmaOp>() &&
+      (tv->definition() != nullptr && tv->definition()->isA<MmaOp>() &&
        isHopper(tv->definition()->as<MmaOp>()->macro()))) {
     return true;
   }
