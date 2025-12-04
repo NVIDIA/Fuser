@@ -1623,6 +1623,31 @@ class PythonTranslator : public OptInConstDispatch {
         {layout_op->out()});
   }
 
+  // Map BlockQuantizationOp to python frontend
+  void handle(const BlockQuantizationOp* bqop) final {
+    NVF_ERROR(bqop != nullptr);
+    visited_vals_.insert(bqop->output(0));
+    visited_vals_.insert(bqop->output(1));
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(bqop->globalScale())>{"global_scale", nullptr},
+        KeywordArgument<int64_t>{"block_size", 16},
+        KeywordArgument<bool>{"swizzle_block_scales", false},
+        KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
+
+    auto dtype = bqop->quantizedOutput()->as<TensorView>()->dtype();
+    printer_.generateKwargsOperation(
+        "fd.ops.nv_block_quantize",
+        std::make_tuple(bqop->in()),
+        default_args,
+        std::make_tuple(
+            bqop->globalScale(),
+            bqop->blockSize(),
+            bqop->isSwizzledScales(),
+            dtype),
+        std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;

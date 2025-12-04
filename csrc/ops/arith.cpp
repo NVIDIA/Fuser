@@ -2638,6 +2638,7 @@ BlockQuantizationResults blockQuantize(
     TensorView* input,
     TensorView* global_scaling_factor,
     int64_t block_size,
+    bool swizzle_scales,
     DataType out_dtype) {
   NVF_CHECK(
       block_size == 16,
@@ -2720,13 +2721,19 @@ BlockQuantizationResults blockQuantize(
           TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
       DataType::Float8_e4m3fn);
 
+  if (swizzle_scales) {
+    ir_utils::swizzleBlockScales(block_scales);
+  }
+
   // Create the block quantization operation
   IrBuilder::create<BlockQuantizationOp>(
       block_scales,
       quantized_tensor,
       input,
       /*logical_index=*/nullptr,
-      global_scaling_factor);
+      global_scaling_factor,
+      block_size,
+      swizzle_scales);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

@@ -7,23 +7,23 @@
 // clang-format on
 #pragma once
 
-#include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <visibility.h>
+#include <functional>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <cuda_runtime.h>
 
-#include <torch/csrc/jit/ir/ir.h>
+#include <ATen/core/ivalue.h>
 
 #include <cuda_utils.h>
+#include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <ir/all_nodes.h>
 #include <kernel.h>
 #include <runtime/executor_kernel_arg.h>
-
-#include <string>
-#include <vector>
+#include <visibility.h>
 
 namespace nvfuser {
 
