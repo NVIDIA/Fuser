@@ -7,6 +7,9 @@
 // clang-format on
 #include <gtest/gtest.h>
 
+#include <cuda.h>
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <fusion.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
@@ -501,11 +504,25 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Values(P2pProtocol::Get, P2pProtocol::Put),
     testing::PrintToStringParamName());
 
-using CUDACommunicationTest = MultiDeviceTest;
+class CUDACommunicationTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
 
 TEST_F(CUDACommunicationTest, Broadcast) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
   }
 
   constexpr int64_t kNumRepetitions = 10;
@@ -566,6 +583,9 @@ TEST_F(CUDACommunicationTest, Broadcast) {
 TEST_F(CUDACommunicationTest, Allgather) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
+  }
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast Objects; skipping.";
   }
 
   constexpr int64_t kNumRepetitions = 10;
