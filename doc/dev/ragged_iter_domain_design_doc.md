@@ -165,25 +165,11 @@ static std::pair<IterDomain*, RaggedIterDomain*> partition(
 ```
 
 **Semantics:**
-
-**Case 1: Input is regular IterDomain**
 - Input: Regular IterDomain with total extent N
 - Offsets: 1D TensorView with K+1 elements `[0, offset_1, ..., offset_K=N]`
 - Output:
   - Batch IterDomain with extent K (number of partitions)
   - RaggedIterDomain with K nested domains (extents = differences between consecutive offsets)
-
-**Case 2: Input is RaggedIterDomain**
-- Input: RaggedIterDomain with M components (each with potentially different extents)
-- Offsets: 2D TensorView with shape `[M, K+1]` where:
-  - Outer dimension M corresponds to each component of the input RaggedIterDomain
-  - Inner dimension K+1 defines partition boundaries for that component
-  - Each row i contains offsets `[0, offset_1, ..., offset_K=extent[i]]`
-- Output:
-  - Batch IterDomain with extent K (number of partitions - uniform across all components)
-  - RaggedIterDomain nested within RaggedIterDomain (2-level nesting)
-
-**Key constraint for Case 2**: All components must be partitioned into the **same number K of partitions**, but the offset values can differ per component since each component has different extent
 
 #### The Merge Operation: Inverse of Partition
 
