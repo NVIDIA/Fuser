@@ -1025,11 +1025,15 @@ std::string paramToStringLowerCollectiveCudaTest(
   const auto& [msg_size_bytes, protocol_enum] = info.param;
   std::stringstream ss;
   ss << getProtocolString(protocol_enum) << "_";
-  int64_t size_mb = msg_size_bytes / (1024 * 1024);
-  if (size_mb >= 1024) {
-    ss << (size_mb / 1024) << "GB";
+  if (msg_size_bytes < 1024 * 1024) {
+    ss << (msg_size_bytes / 1024) << "KB";
   } else {
-    ss << size_mb << "MB";
+    int64_t size_mb = msg_size_bytes / (1024 * 1024);
+    if (size_mb >= 1024) {
+      ss << (size_mb / 1024) << "GB";
+    } else {
+      ss << size_mb << "MB";
+    }
   }
   return ss.str();
 }
@@ -1040,6 +1044,7 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveCudaTest,
     testing::Combine(
         testing::Values(
+            4096LL, // 4 KB
             2 * 1024 * 1024LL, // 2 MB
             8 * 1024 * 1024LL, // 8 MB
             32 * 1024 * 1024LL, // 32 MB

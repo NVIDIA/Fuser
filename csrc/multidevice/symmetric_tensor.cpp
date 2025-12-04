@@ -186,6 +186,10 @@ std::string SymmetricTensor::validate(at::Tensor tensor) {
   size_t va_size = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, ptr));
 
+  if (va_size < size_bytes) {
+    return "VA range smaller than tensor size";
+  }
+
   if ((static_cast<size_t>(ptr) % granularity) != 0 ||
       (static_cast<size_t>(base_ptr) % granularity) != 0 ||
       (va_size % granularity) != 0) {
@@ -216,10 +220,10 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
   prop.location.id = static_cast<int>(comm.local_rank());
   prop.requestedHandleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 
-  size_t required_size = local_tensor.numel() * local_tensor.element_size();
-  granularity_ = getGranularityForSymmetricMemory(prop, required_size);
+  requested_size_ = local_tensor.numel() * local_tensor.element_size();
+  granularity_ = getGranularityForSymmetricMemory(prop, requested_size_);
   aligned_size_ =
-      ((required_size + granularity_ - 1) / granularity_) * granularity_;
+      ((requested_size_ + granularity_ - 1) / granularity_) * granularity_;
 
   alloc_handles_.resize(world_size_);
   remote_ptrs_.resize(world_size_);
@@ -386,27 +390,22 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
   Communicator& comm = Communicator::getInstance();
   const int64_t local_rank = comm.local_rank();
   const int64_t world_size = comm.size();
-  const size_t actual_size =
-      local_tensor_.numel() * local_tensor_.element_size();
 
-  NVF_CHECK(
-      aligned_size_ == actual_size, "Requires aligned_size == actual_size");
-
-  size_t total_size = actual_size * world_size;
+  size_t total_size = aligned_size_ * world_size;
   CUdeviceptr base;
   NVFUSER_CUDA_SAFE_CALL(
       cuMemAddressReserve(&base, total_size, granularity_, 0, 0));
 
   for (int64_t rank = 0; rank < world_size; ++rank) {
-    CUdeviceptr region = base + (rank * actual_size);
+    CUdeviceptr region = base + (rank * aligned_size_);
     NVFUSER_CUDA_SAFE_CALL(
-        cuMemMap(region, actual_size, 0, getAllocHandle(rank, tag), 0));
+        cuMemMap(region, aligned_size_, 0, getAllocHandle(rank, tag), 0));
 
     CUmemAccessDesc access{};
     access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
     access.location.id = static_cast<int>(local_rank);
     access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-    NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(region, actual_size, &access, 1));
+    NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(region, aligned_size_, &access, 1));
   }
 
   std::vector<int64_t> sizes = {world_size};
@@ -414,13 +413,14 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
     sizes.push_back(s);
   }
 
-  std::vector<int64_t> strides(sizes.size());
-  int64_t stride = 1;
-  for (int64_t i = sizes.size() - 1; i >= 0; --i) {
-    strides[i] = stride;
-    stride *= sizes[i];
+  std::vector<int64_t> strides;
+  strides.reserve(sizes.size());
+  strides.push_back(aligned_size_ / local_tensor_.element_size());
+  for (int64_t s : local_tensor_.strides()) {
+    strides.push_back(s);
   }
 
+  size_t map_size = aligned_size_;
   contiguous_view_ = at::from_blob(
       reinterpret_cast<void*>(base),
       sizes,
@@ -428,8 +428,7 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
       [=](void* ptr) {
         for (int64_t rank = 0; rank < world_size; ++rank) {
           cuMemUnmap(
-              reinterpret_cast<CUdeviceptr>(ptr) + (rank * actual_size),
-              actual_size);
+              reinterpret_cast<CUdeviceptr>(ptr) + (rank * map_size), map_size);
         }
         cuMemAddressFree(reinterpret_cast<CUdeviceptr>(ptr), total_size);
       },

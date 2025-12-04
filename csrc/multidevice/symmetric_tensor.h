@@ -68,6 +68,10 @@ class SymmetricTensor {
     return aligned_size_;
   }
 
+  size_t requestedSize() const {
+    return requested_size_;
+  }
+
   CUmemGenericAllocationHandle getAllocHandle(
       int64_t rank,
       const std::string& tag) const {
@@ -83,6 +87,7 @@ class SymmetricTensor {
   int64_t my_device_id_;
   size_t granularity_;
   size_t aligned_size_;
+  size_t requested_size_;
   mutable bool are_remote_tensors_setup_ = false;
   bool is_multicast_setup_ = false;
   CUmemGenericAllocationHandle mcast_handle_{};
