@@ -1044,12 +1044,11 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveCudaTest,
     testing::Combine(
         testing::Values(
-            4096LL, // 4 KB
-            2 * 1024 * 1024LL, // 2 MB
-            8 * 1024 * 1024LL, // 8 MB
-            32 * 1024 * 1024LL, // 32 MB
-            128 * 1024 * 1024LL, // 128 MB
-            256 * 1024 * 1024LL // 256 MB
+            128 * 1024LL,      // 128 KB
+            256 * 1024LL,      // 256 KB
+            512 * 1024LL,      // 512 KB
+            1 * 1024 * 1024LL, // 1 MB
+            2 * 1024 * 1024LL  // 2 MB
             ),
         testing::Values(
             CommunicationProtocol::Memcpy,

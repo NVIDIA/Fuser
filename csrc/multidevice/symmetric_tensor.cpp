@@ -117,7 +117,7 @@ at::Tensor SymmetricTensor::allocate(
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access.location.id = static_cast<int>(device.index());
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, alloc_size, &access, 1));
+  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, rounded_size, &access, 1));
 
   std::vector<int64_t> strides(sizes.size());
   strides.back() = 1;
