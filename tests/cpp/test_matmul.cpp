@@ -4677,7 +4677,6 @@ TEST_F(
     HopperMatmulTest,
     DISABLED_HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   Fusion fusion;
-  Fusion fusion;
   FusionGuard fg(&fusion);
 
   constexpr int64_t M = 2048, N = 2048, K = 8192;
