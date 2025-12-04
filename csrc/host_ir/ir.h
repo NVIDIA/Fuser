@@ -120,8 +120,7 @@ class LaunchKernel : public Expr {
       CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
-      Val* cache_id,
-      PrimDataType index_type = PrimDataType::Int);
+      Val* cache_id);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -156,16 +155,11 @@ class LaunchKernel : public Expr {
     return attributeVal(3);
   }
 
-  PrimDataType indexType() {
-    return index_type_;
-  }
-
   CompiledKernel* compiledKernel() {
     return compiled_kernel_;
   }
 
  private:
-  PrimDataType index_type_;
   CompiledKernel* compiled_kernel_;
 };
 

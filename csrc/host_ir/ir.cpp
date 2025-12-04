@@ -137,9 +137,8 @@ LaunchKernel::LaunchKernel(
     CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
-    Val* cache_id,
-    PrimDataType index_type)
-    : Expr(passkey, inputs, outputs, {}), index_type_(index_type), compiled_kernel_(compiled_kernel) {
+    Val* cache_id)
+    : Expr(passkey, inputs, outputs, {}), compiled_kernel_(compiled_kernel) {
   NVF_CHECK(
       compiled_kernel != nullptr,
       "LaunchKernel requires a non-null CompiledKernel pointer");

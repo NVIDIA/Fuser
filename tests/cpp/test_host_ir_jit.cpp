@@ -300,8 +300,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
       hic->getKernelExecutor(0).compiledKernel().get(),
       std::vector<Val*>{hic_in},
       std::vector<Val*>{hic_out},
-      cache_id,
-      PrimDataType::Float);
+      cache_id);
 
   hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
