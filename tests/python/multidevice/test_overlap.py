@@ -91,23 +91,17 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
     # SegmentProfiler's assumptions or stop creating them in the first place.
-    with torch.profiler.profile(
-        activities=[torch.profiler.ProfilerActivity.CUDA]
-    ) as prof:
+    with torch.profiler.profile(record_shapes=True) as prof:
         (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
 
-    kernel_events = [
-        event
-        for event in prof.events()
-        if event.device_type == torch.profiler.DeviceType.CUDA
-    ]
+    matmul_events = [event for event in prof.events() if event.name == "aten::mm"]
+    assert len(matmul_events) == s
 
-    # When multiple GPUs, expect three kernels per iteration: linear, memcpy,
-    # allreduce.  The memcpy is from
-    # https://github.com/NVIDIA/Fuser/blob/cce887595dc86b099506b70f88d653880fde5116/csrc/multidevice/communication.cpp#L493.
-    # When single GPU, expect two kernels per iteration: linear, memcpy.
-    num_kernels_per_iteration = 2 if d == 1 else 3
-    assert len(kernel_events) == s * num_kernels_per_iteration
+    m = t // s
+    n = h
+    k = h * 4 // d
+    for event in matmul_events:
+        assert event.input_shapes == [[m, k], [k, n], [m, n]]
 
 
 @pytest.mark.mpi
