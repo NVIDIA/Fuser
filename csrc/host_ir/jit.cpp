@@ -32,22 +32,22 @@
 #include <ATen/cuda/llvm_jit_strings.h>
 #include <ATen/native/cuda/jit_utils.h>
 #include <c10/core/DeviceGuard.h>
+#include <c10/core/MemoryFormat.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/core/MemoryFormat.h>
 
 #include <bfs.h>
 #include <expr_evaluator.h>
 #include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
-#include <runtime/executor_kernel_arg.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <linked_hash_map.h>
 #include <ops/all_ops.h>
 #include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <tensor_metadata.h>
@@ -77,7 +77,6 @@ constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
 constexpr size_t kMaxTensorDim = 8;
-
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -1276,7 +1275,8 @@ void HostIrJitImpl::registerExternalFunctions() {
           int64_t input_bytes = 0;
           for (int64_t i = 0; i < num_inputs; ++i) {
             if (input_tensors[i] != nullptr) {
-              input_bytes += static_cast<int64_t>(input_tensors[i]->storage().nbytes());
+              input_bytes +=
+                  static_cast<int64_t>(input_tensors[i]->storage().nbytes());
             }
           }
           sprof.inputBytesAccessed(input_bytes);
@@ -1290,9 +1290,11 @@ void HostIrJitImpl::registerExternalFunctions() {
           // Get device index from the first input tensor if available
           int8_t device_index = 0;
           if (num_inputs > 0 && input_tensors[0] != nullptr) {
-            device_index = static_cast<int8_t>(input_tensors[0]->device().index());
+            device_index =
+                static_cast<int8_t>(input_tensors[0]->device().index());
           } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
-            device_index = static_cast<int8_t>(output_tensors[0]->device().index());
+            device_index =
+                static_cast<int8_t>(output_tensors[0]->device().index());
           }
 
           FusionProfiler::segment(group_id).setDevice(device_index);
@@ -1312,6 +1314,10 @@ void HostIrJitImpl::registerExternalFunctions() {
 
         auto index_type = compiled_kernel->kernel()->indexType();
 
+        if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+          debug() << "Index type: " << index_type << std::endl;
+        }
+
         std::vector<std::vector<std::byte>> arg_bytes;
         arg_bytes.reserve(num_inputs + num_outputs);
 
@@ -1322,13 +1328,15 @@ void HostIrJitImpl::registerExternalFunctions() {
         const auto& kernel_outputs = compiled_kernel->kernel()->outputs();
 
         // Create ExpressionEvaluator and bind input tensors to it
-        // This is needed for inferAndValidateAllocationSizesAndStrides to evaluate
-        // symbolic split factors and dimension extents when transforming between
-        // logical and allocation domains
+        // This is needed for inferAndValidateAllocationSizesAndStrides to
+        // evaluate symbolic split factors and dimension extents when
+        // transforming between logical and allocation domains
         ExpressionEvaluator expr_eval;
         for (int64_t i = 0; i < num_inputs; ++i) {
-          if (input_tensors[i] != nullptr && i < static_cast<int64_t>(kernel_inputs.size())) {
-            expr_eval.bind(kernel_inputs[i], PolymorphicValue(*input_tensors[i]));
+          if (input_tensors[i] != nullptr &&
+              i < static_cast<int64_t>(kernel_inputs.size())) {
+            expr_eval.bind(
+                kernel_inputs[i], PolymorphicValue(*input_tensors[i]));
           }
         }
 
@@ -1341,7 +1349,8 @@ void HostIrJitImpl::registerExternalFunctions() {
           if (auto* tv = dynamic_cast<TensorView*>(tv_val)) {
             if (tv->hasAllocation()) {
               auto [alloc_sizes, alloc_strides] =
-                  inferAndValidateAllocationSizesAndStrides(*tensor, tv, expr_eval);
+                  inferAndValidateAllocationSizesAndStrides(
+                      *tensor, tv, expr_eval);
               strides = alloc_strides;
             } else {
               strides = tensor->strides().vec();
@@ -1373,7 +1382,8 @@ void HostIrJitImpl::registerExternalFunctions() {
         }
 
         if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-          // Convert raw tensor arrays to KernelArgumentHolder for dumpKernelArgs
+          // Convert raw tensor arrays to KernelArgumentHolder for
+          // dumpKernelArgs
           KernelArgumentHolder input_holder;
           for (int64_t i = 0; i < num_inputs; ++i) {
             if (input_tensors[i] != nullptr) {
@@ -1393,7 +1403,7 @@ void HostIrJitImpl::registerExternalFunctions() {
           std::vector<GlobalBufferInfo> empty_intermediates_info;
 
           dumpKernelArgs(
-              -1,  // fusion_id not available in this context
+              -1, // fusion_id not available in this context
               group_id,
               input_holder,
               num_inputs,
@@ -1424,11 +1434,6 @@ void HostIrJitImpl::registerExternalFunctions() {
         config.attrs = nullptr;
         config.numAttrs = 0;
 
-        if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-          debug() << "Index type: " << launch_kernel_ptr->indexType()
-                  << std::endl;
-        }
-
         // Launch the kernel
         {
           FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
@@ -1449,7 +1454,8 @@ void HostIrJitImpl::registerExternalFunctions() {
           int64_t output_bytes = 0;
           for (int64_t i = 0; i < num_outputs; ++i) {
             if (output_tensors[i] != nullptr) {
-              output_bytes += static_cast<int64_t>(output_tensors[i]->storage().nbytes());
+              output_bytes +=
+                  static_cast<int64_t>(output_tensors[i]->storage().nbytes());
             }
           }
 
