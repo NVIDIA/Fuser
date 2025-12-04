@@ -235,18 +235,9 @@ def test_linear_reduce_scatter(multidevice_direct_test):
         (out,) = fd.execute([inp, weight, bias.cuda()])
 
     # Only one reduce scatter kernel should be scheduled.
-    assert (
-        len(
-            [
-                kp
-                for kp in prof.profile.kernel_profiles
-                if kp.scheduler == "communication"
-            ]
-        )
-        == 1
-        if d > 1
-        else 0
-    )
+    assert len(
+        [kp for kp in prof.profile.kernel_profiles if kp.scheduler == "communication"]
+    ) == (1 if d > 1 else 0)
 
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
     torch.testing.assert_close(
