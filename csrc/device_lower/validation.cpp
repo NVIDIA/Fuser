@@ -1149,10 +1149,8 @@ class VectorizeValidator : public OptInDispatch {
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
-    std::vector<IterDomain*> alloc_domain = tv->getMaybeAllocationDomain();
-
-    for (size_t i = alloc_domain.size(); i > 0; i--) {
-      auto r_id = alloc_domain[i - 1];
+    for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
+      auto r_id = tv->getMaybeAllocationDomain()[i - 1];
       if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
@@ -1195,7 +1193,7 @@ class VectorizeValidator : public OptInDispatch {
           " has to be from an inner most position. tv: ",
           tv,
           ", allocation domain: ",
-          alloc_domain,
+          tv->getMaybeAllocationDomain(),
           ", vectorized id: ",
           vec_alloc_id->toString(),
           ", innermost id: ",
@@ -1212,7 +1210,7 @@ class VectorizeValidator : public OptInDispatch {
           "The innermost position has to be contiguous. tv: ",
           tv,
           ", allocation domain: ",
-          alloc_domain,
+          tv->getMaybeAllocationDomain(),
           ", innermost id: ",
           last_alloc_dim->toString(),
           ", contiguity: ",
