@@ -4854,7 +4854,9 @@ ParallelDim::ParallelDim(
       parallel_type_(ptype) {}
 
 ParallelDim::ParallelDim(const ParallelDim* src, IrCloner* ir_cloner)
-    : Val(src, ir_cloner), parallel_type_(src->parallelType()) {}
+    : Val(src, ir_cloner),
+      label_(src->label()),
+      parallel_type_(src->parallelType()) {}
 
 NVFUSER_DEFINE_CLONE(ParallelDim)
 
@@ -4864,21 +4866,14 @@ bool ParallelDim::sameAs(const Statement* other) const {
 }
 
 std::string ParallelDim::toString(int indent_size) const {
-  return label_;
-  if (parallel_type_ != ParallelType::Derived) {
-    std::stringstream ss;
-    ss << parallel_type_;
-    return ss.str();
-  } else if (definition() != nullptr) {
-    std::stringstream ss;
-    ss << "( " << definition()->toInlineString(indent_size) << " )";
-    return ss.str();
-  } else {
-    std::stringstream ss;
-    ss << ir_utils::varName(this);
-    return ss.str();
+  std::stringstream ss;
+  indent(ss, indent_size) << ir_utils::varName(this);
+  ss << "{" << label_;
+  if (value().is<int64_t>()) {
+    ss << ", " << value().as<int64_t>();
   }
-  return Val::toString(indent_size);
+  ss << "}";
+  return ss.str();
 }
 
 void ParallelDim::setParallelType(ParallelType ptype) {
