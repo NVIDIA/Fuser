@@ -619,33 +619,42 @@ auto partitioned = tv->partition(/*dim=*/0, offsets);
 
 **Example 2: Multi-level partitioning (expert parallelism)**
 ```cpp
-// Input: Flattened tokens [token=325, hidden=512]
-auto tokens = makeContigTensor(2);
+// Input: Distributed tokens across D=2 GPUs, each GPU has S/D tokens
+// Shape: [D=2, S/D=100, hidden=512]
+// Total S=200 tokens evenly distributed: 100 tokens per GPU
+auto tokens = makeContigTensor(3);  // [2, 100, 512]
 
-// Step 1: Use asNested to represent the inherent data structure
-// This ragged dimension comes from the user problem itself - each expert
-// processes a different number of tokens. This is a property of the data,
-// not a scheduling decision. It exists regardless of single or multi-GPU execution.
-// expert_offsets: 1D tensor [0, 127, 127, 325] for 3 experts with [127, 0, 198] tokens
-auto by_expert = asNested(tokens, expert_offsets, /*ragged_dim=*/0);
-// Result: [expert=3, tokens_per_expert=[127,0,198], hidden=512]
+// Step 1: Partition S/D dimension by expert (inherent data property)
+// Tokens from each GPU are routed to E=4 experts with different counts per expert per GPU.
+// expert_offsets: 2D tensor [D=2, E+1=5] with per-GPU offsets for E=4 experts:
+// expert_offsets[0] = [0, 30, 30, 70, 100]    - GPU 0: [30, 0, 40, 30] tokens per expert
+// expert_offsets[1] = [0, 25, 60, 85, 100]    - GPU 1: [25, 35, 25, 15] tokens per expert
+auto by_expert = tokens->partition(/*dim=*/1, expert_offsets);
+// Result: [gpu=2, expert=4, tokens_per_expert=[[30,0,40,30],[25,35,25,15]], hidden=512]
+// Now we have nested ragged: outer gpu dimension, inner ragged tokens per expert
 
-// Step 2: Use partition for multi-GPU scheduling
-// This is a SCHEDULING DECISION for distributed execution. Each expert's tokens
-// are partitioned non-uniformly across GPUs. This second-level partitioning
-// only matters for multi-GPU execution and represents how we distribute work.
-// rank_offsets: 2D tensor [3, 3] with per-expert offsets:
-// rank_offsets[0] = [0, 50, 127]   - Expert 0's 127 tokens: [50, 77] per rank
-// rank_offsets[1] = [0, 0, 0]      - Expert 1's 0 tokens: [0, 0] per rank
-// rank_offsets[2] = [0, 100, 198]  - Expert 2's 198 tokens: [100, 98] per rank
-auto by_expert_by_rank = by_expert->partition(/*dim=*/1, rank_offsets);
-// Result: [expert=3, rank=2, tokens=[[50,77], [0,0], [100,98]], hidden=512]
-// Now dimension 1 has 2-level nested ragged structure
+// Step 2: Shuffle to expert-first layout and distribute across GPUs
+// The merge operation represents the shuffling that reorganizes from
+// [gpu, expert, ragged] to expert-first layout. The actual implementation
+// performs the communication to change the data layout.
+auto merged = IterDomain::merge(gpu_dim, tokens_per_expert);
+// This creates: [expert=4, merged_ragged=[55,35,65,45]]
+// Where merged tokens per expert = sum across source GPUs:
+//   Expert 0: 30 (from GPU 0) + 25 (from GPU 1) = 55 tokens
+//   Expert 1: 0 (from GPU 0) + 35 (from GPU 1) = 35 tokens
+//   Expert 2: 40 (from GPU 0) + 25 (from GPU 1) = 65 tokens
+//   Expert 3: 30 (from GPU 0) + 15 (from GPU 1) = 45 tokens
 
-// Both levels use the same primitive (partition/nested structure) but have
-// DIFFERENT SEMANTICS:
-// - Level 1 (expert): Inherent data property, immutable, uses 1D offsets
-// - Level 2 (rank): Scheduling decision for multi-GPU execution, uses 2D offsets
+// Then split experts across GPUs for parallel processing (2 experts per GPU)
+auto [gpu_out, expert_per_gpu] = IterDomain::split(expert_dim, /*factor=*/2);
+// Result: [gpu=2, expert_per_gpu=2, merged_ragged=[[55,35],[65,45]], hidden=512]
+//   GPU 0 processes experts 0-1 with [55, 35] tokens respectively
+//   GPU 1 processes experts 2-3 with [65, 45] tokens respectively
+
+// Summary:
+// - Input: [D=2, S/D=100] uniform tokens per GPU
+// - After partition: [D=2, E=4, ragged] non-uniform tokens per (GPU, expert)
+// - After merge+split: [D=2, E/D=2, ragged] expert-first, distributed for processing
 ```
 
 **Relationship to other operations:**
