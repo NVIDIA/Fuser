@@ -155,7 +155,7 @@ class LaunchKernel : public Expr {
     return attributeVal(3);
   }
 
-  CompiledKernel* compiledKernel() {
+  CompiledKernel* compiledKernel() const {
     return compiled_kernel_;
   }
 

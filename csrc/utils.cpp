@@ -214,14 +214,14 @@ void dumpKernelArgs(
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << PolymorphicValue_functions::toString(output)
+    debug() << "  " << toString(output)
             << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : arange(intermediates.size())) {
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
-    debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
+    debug() << "  " << toString(intermediates[i])
             << " is_zero_initialized: " << zero_init
             << " resets_to_zero: " << resets_to_zero << std::endl;
   }
