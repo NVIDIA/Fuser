@@ -67,7 +67,8 @@ def nvfp4_quantize_with_te(input_tensor):
         return None
 
 
-def compute_nvfp4_global_scale(tensor, device):
+# https://github.com/NVIDIA/TransformerEngine/blob/d126cdd6c0a8d6ce0419dcf1ffe027ef7aadf7e8/tests/cpp/operator/test_cast_nvfp4_transpose.cu#L56-L68
+def compute_nvfp4_global_scale(tensor):
     """Compute global scale factor for NVFP4 quantization.
 
     Args:
@@ -78,9 +79,16 @@ def compute_nvfp4_global_scale(tensor, device):
         Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor))
     """
     amax = torch.max(torch.abs(tensor)).to(torch.float32)
-    float4_max = torch.tensor(6.0, dtype=torch.float32)
-    float8_max = torch.tensor(448.0, dtype=torch.float32)
-    return torch.div(float8_max * float4_max, amax)
+    x_global_scale = (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / amax
+    x_global_scale = torch.clamp(x_global_scale, max=torch.finfo(torch.float32).max)
+
+    # Handle edge cases: zero input or invalid scale
+    invalid_mask = (amax == 0.0) | (x_global_scale == 0.0)
+    x_global_scale = torch.where(
+        invalid_mask, torch.tensor(1.0, device="cuda"), x_global_scale
+    )
+
+    return x_global_scale
 
 
 def extract_te_nvfp4_metadata(input_tensor):
@@ -96,7 +104,7 @@ def extract_te_nvfp4_metadata(input_tensor):
     metadata = nvfp4_tensor.get_metadata()
     quantized_data = metadata["rowwise_data"].view((torch.float4_e2m1fn_x2))
     scale_inv = metadata["rowwise_scale_inv"].view(torch.float8_e4m3fn)
-    global_scale = compute_nvfp4_global_scale(input_tensor, input_tensor.device)
+    global_scale = compute_nvfp4_global_scale(input_tensor)
     return quantized_data, scale_inv, global_scale
 
 
@@ -110,10 +118,7 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype)
     x = torch.randn((1024, 1024), dtype=dtype, device="cuda")
 
     # Compute global scale for nvfuser block quantization
-    x_new = torch.max(torch.abs(x)).to(torch.float32)
-    FLOAT4_E2M1_MAX = torch.tensor(6.0, dtype=torch.float32)
-    FLOAT8_E4M3_MAX = torch.tensor(448.0, dtype=torch.float32)
-    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, x_new)
+    x_global_scale = compute_nvfp4_global_scale(x)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
         x_tv = fd.define_tensor(
@@ -249,7 +254,7 @@ def test_scaled_mm(
 )
 @pytest.mark.parametrize("config", [[1024, 1024, 1024]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
-def test_scaled_mm_new(
+def test_scaled_mm_nv_quantized(
     nvfuser_direct_test,
     config,
     out_dtype,
