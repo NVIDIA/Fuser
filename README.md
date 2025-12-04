@@ -55,6 +55,19 @@ pip install -r python/requirements.txt
 pip install --no-build-isolation -e python -v
 ```
 
+### Prerequisite Validation
+
+Prerequisites are automatically validated before building. If validation fails, follow the error message instructions.
+
+**Validated**: Python, CMake, Ninja, pybind11, PyTorch (CUDA), System CUDA toolkit, Git submodules, GCC, LLVM
+
+**Skip validation** (for CI or custom setups):
+```bash
+NVFUSER_BUILD_SKIP_VALIDATION=1 pip install --no-build-isolation -e python -v
+```
+
+See `python/setup.py` for all build environment variables.
+
 Supported compilers:
 
 **GCC:**
