@@ -1164,39 +1164,6 @@ void HostIrJitImpl::compile() {
   main_func_ = reinterpret_cast<main_func_t>(main_func_addr.getValue());
 }
 
-// Debug function to dump kernel arguments for host IR kernel launches
-// Simplified version of the executor.cpp dumpKernelArgs - only shows inputs,
-// outputs, and total argument count
-void dumpKernelArgs(
-    int64_t fusion_id,
-    int64_t group_id,
-    at::Tensor** input_tensors,
-    int64_t num_inputs,
-    at::Tensor** output_tensors,
-    int64_t num_outputs) {
-  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
-          << ":" << std::endl;
-  debug() << "Total arguments: " << (num_inputs + num_outputs) << std::endl;
-  debug() << "Inputs (" << num_inputs << "):" << std::endl;
-  for (int64_t i = 0; i < num_inputs; ++i) {
-    if (input_tensors[i] != nullptr) {
-      const at::Tensor& tensor = *input_tensors[i];
-      debug() << debug_str(tensor) << std::endl;
-    } else {
-      debug() << "  [" << i << "] nullptr" << std::endl;
-    }
-  }
-  debug() << "Outputs (" << num_outputs << "):" << std::endl;
-  for (int64_t i = 0; i < num_outputs; ++i) {
-    if (output_tensors[i] != nullptr) {
-      const at::Tensor& tensor = *output_tensors[i];
-      debug() << debug_str(tensor) << std::endl;
-    } else {
-      debug() << "  [" << i << "] nullptr" << std::endl;
-    }
-  }
-}
-
 // Implementation of HostIrJitImpl
 HostIrJitImpl::HostIrJitImpl(
     std::unique_ptr<hir::HostIrContainer> container,
@@ -1406,13 +1373,33 @@ void HostIrJitImpl::registerExternalFunctions() {
         }
 
         if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+          // Convert raw tensor arrays to KernelArgumentHolder for dumpKernelArgs
+          KernelArgumentHolder input_holder;
+          for (int64_t i = 0; i < num_inputs; ++i) {
+            if (input_tensors[i] != nullptr) {
+              input_holder.push(*input_tensors[i]);
+            }
+          }
+
+          KernelArgumentHolder output_holder;
+          for (int64_t i = 0; i < num_outputs; ++i) {
+            if (output_tensors[i] != nullptr) {
+              output_holder.push(*output_tensors[i]);
+            }
+          }
+
+          // No intermediate buffers in host IR JIT context
+          KernelArgumentHolder empty_intermediates;
+          std::vector<GlobalBufferInfo> empty_intermediates_info;
+
           dumpKernelArgs(
-              -1,
-              -1,
-              input_tensors,
+              -1,  // fusion_id not available in this context
+              group_id,
+              input_holder,
               num_inputs,
-              output_tensors,
-              num_outputs);
+              output_holder,
+              empty_intermediates,
+              empty_intermediates_info);
         }
 
         // Launch Config

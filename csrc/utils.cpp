@@ -13,6 +13,8 @@
 #include <cuda_utils.h>
 #include <debug.h>
 #include <options.h>
+#include <polymorphic_value.h>
+#include <runtime/allocations.h>
 #include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 
@@ -192,6 +194,37 @@ size_t deviceAvailableSharedMemoryBytes() {
   const auto properties = at::cuda::getCurrentDeviceProperties();
   const size_t device_smem_limit = properties->sharedMemPerBlockOptin;
   return device_smem_limit;
+}
+
+void dumpKernelArgs(
+    const int64_t fusion_id,
+    const int64_t group_id,
+    const KernelArgumentHolder& args,
+    size_t num_inputs,
+    const KernelArgumentHolder& allocated_outputs,
+    const KernelArgumentHolder& intermediates,
+    const std::vector<GlobalBufferInfo>& intermediates_info) {
+  using namespace PolymorphicValue_functions;
+  debug() << "Arguments for fusion " << fusion_id << " group " << group_id
+          << ":" << std::endl
+          << "Inputs:" << std::endl;
+  for (auto i : arange(num_inputs)) {
+    debug() << "  " << toString(args[i]) << std::endl;
+  }
+  debug() << "Outputs:" << std::endl;
+  // note: add aliased outputs here.
+  for (const auto& output : allocated_outputs) {
+    debug() << "  " << PolymorphicValue_functions::toString(output)
+            << std::endl;
+  }
+  debug() << "Intermediate global buffers:" << std::endl;
+  for (const auto i : arange(intermediates.size())) {
+    const auto& zero_init = intermediates_info.at(i).zero_init;
+    const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
+    debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
+            << " is_zero_initialized: " << zero_init
+            << " resets_to_zero: " << resets_to_zero << std::endl;
+  }
 }
 
 } // namespace nvfuser
