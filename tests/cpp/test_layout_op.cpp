@@ -90,6 +90,71 @@ class LayoutOpTest : public NVFuserTest {
   }
 };
 
+TEST_F(LayoutOpTest, LogicalAndAllocationSizes) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  fusion.addInput(inp);
+  auto out = set(inp);
+  fusion.addOutput(out);
+  // padding output to multiple of 16 on allocation domain
+  auto&& [io, ii] = IterDomain::split(
+      out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
+  // FIXME: this doesn't feel right, we have to mark contiguity on axis(0) as
+  // `false` to avoid accidntal indexing collapsing, this should be figured out
+  // by indexing from the ceilDiv.
+  out->setAllocationDomain({out->axis(0), io, ii}, {false, true, true});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9; // note: padded column size would be 16
+  auto t0 = at::randn({m, k}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  // FIXME: output shape inference is not correct yet.
+  // output should remain the correct logical size
+  // EXPECT_EQ(
+  //     cg_outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({512,
+  //     9}));
+  // padding on the inner dimension is represented as stride on the outer
+  // dimension
+  EXPECT_EQ(
+      cg_outputs[0].as<at::Tensor>().strides(), std::vector<int64_t>({16, 1}));
+  // We need to slice because output buffer shape is not right
+  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>().slice(1, 0, k)));
+}
+
+TEST_F(LayoutOpTest, AllocationDomainSplitVectorizationFactor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(3);
+  fusion.addInput(inp);
+  auto out = set(inp);
+  fusion.addOutput(out);
+  // split would prevent vectorization
+  auto&& [io, ii] = IterDomain::split(
+      out->axis(1), IrBuilder::create<Val>(16L, DataType::Index), true);
+  out->setAllocationDomain({out->axis(0), io, ii, out->axis(2)}, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  // because of the split on the middle dimension, we only have the fastest
+  // dimension participating in vectorization.
+  auto t0 = at::randn({512, 128, 2}, options);
+
+  // NOTE force pointwise scheduler here just for testing purpose
+  auto cg_results =
+      scheduleAndRun(fusion_ptr.get(), SchedulerType::PointWise, {t0});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_EQ(pparams->vectorization_factor, 2);
+
+  testValidate(fusion_ptr.get(), cg_results.outputs, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(LayoutOpTest, CppApi) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();

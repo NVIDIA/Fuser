@@ -219,10 +219,18 @@ class TransformReplay {
       const LogicalDomainMap& logical_map,
       TransformReplayOptions opt = {});
 
-  // Self replay.
+  // Self replay. Replays transformation on self and update new_self_root with
+  // all transformations from root to logical and loop.
   static TensorDomain* fullSelfReplay(
       const TensorDomain* new_self_root,
       const TensorDomain* self);
+
+  // Self replay, with replay_map mapping from self to new_self_root, which is
+  // useful for conditionally updating allocation domain.
+  static TensorDomain* fullSelfReplay(
+      const TensorDomain* new_self_root,
+      const TensorDomain* self,
+      std::unordered_map<IterDomain*, IterDomain*>& replay_map);
 
   // Self replay the transformation on `self` from logical to loop and
   // allocation onto `new_self`.

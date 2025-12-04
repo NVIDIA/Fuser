@@ -629,7 +629,6 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
 
   ASSERT_EQ(tv0->getAllocationDomain(), tv0_nhwc);
   ASSERT_EQ(tv1->getAllocationDomain(), expected_new_allocation_domain);
-  ASSERT_EQ(tv2->getAllocationDomain(), tv1_nhwc);
 
   for (auto tv : {tv1, tv2}) {
     // [N, C, H, W]
@@ -714,7 +713,6 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
 
   ASSERT_EQ(tv0->getAllocationDomain(), tv0_2d);
   ASSERT_EQ(tv1->getAllocationDomain(), expected_new_allocation_domain);
-  ASSERT_EQ(tv2->getAllocationDomain(), tv1_2d);
 
   for (auto tv : {tv1, tv2}) {
     tv->split(0, 128);

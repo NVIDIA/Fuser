@@ -183,6 +183,11 @@ class NVF_API IterDomain : public Val {
     return getIterType() == IterType::Iteration;
   }
 
+  IterDomain* resetRFactorProduct(bool is_rfactor_domain = false) {
+    is_rfactor_domain_ = is_rfactor_domain;
+    return this;
+  }
+
   bool isRFactorProduct() const {
     return is_rfactor_domain_;
   }
