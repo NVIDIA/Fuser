@@ -724,7 +724,7 @@ void compileFunctionDeclarations(
 
   // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
   // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernelContext, void* hostIrContainer)
+  // num_outputs, void* launchKernel, void* hostIrContainer)
   auto* launch_kernel_type = llvm::FunctionType::get(
       void_type,
       {int64_type,
@@ -998,7 +998,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
     llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
 
-    // Pass LaunchKernel pointer directly
     llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
         builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
         void_ptr_type);
@@ -1291,11 +1290,10 @@ void HostIrJitImpl::registerExternalFunctions() {
                                   void* container) {
         FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
-        // Cast to LaunchKernel struct
         auto* launch_kernel_ptr =
             static_cast<hir::LaunchKernel*>(launch_kernel);
         NVF_CHECK(
-            launch_kernel_ptr != nullptr, "launch_context_ptr cannot be null");
+            launch_kernel_ptr != nullptr, "launch_kernel_ptr cannot be null");
 
         int64_t group_id = launch_kernel_ptr->groupId();
 

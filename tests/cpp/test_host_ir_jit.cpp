@@ -310,19 +310,9 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   KernelArgumentHolder in_args;
   in_args.setCacheId(0);
   in_args.push(t0);
-  
-  // Print input tensor pointer location
-  std::cout << "Input tensor t0 pointer: " << static_cast<void*>(&t0) << std::endl;
-  std::cout << "Input tensor t0 data_ptr: " << reinterpret_cast<size_t>(t0.data_ptr()) << std::endl;
-  
   KernelArgumentHolder outs = jit.runWithInputs(in_args);
   EXPECT_EQ(outs.size(), 1);
   at::Tensor output = outs[0].as<at::Tensor>();
-  
-  // Print output tensor pointer location
-  std::cout << "Output tensor pointer: " << static_cast<void*>(&output) << std::endl;
-  std::cout << "Output tensor data_ptr: " << reinterpret_cast<size_t>(output.data_ptr()) << std::endl;
-  
   EXPECT_TRUE(at::equal(output, t0));
 }
 
