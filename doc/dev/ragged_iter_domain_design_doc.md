@@ -41,12 +41,7 @@ nt = torch.nested.nested_tensor([t1, t2, t3])
 
 The ragged dimension uses contiguous storage with offsets [0, 3, 8, 10] to locate each component.
 
-**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. nvFuser extends beyond this limitation to support:
-
-1. **Multi-level nesting** (ragged within ragged): For example, tokens organized by expert, where each expert's tokens are further organized by source rank.
-2. **Multiple independent ragged dimensions**: For example, a tensor with both a ragged expert dimension (different GPUs handle different numbers of experts) and a ragged tokens-per-expert dimension (each expert processes different numbers of tokens).
-
-These extensions are necessary for expert parallelism with load balancing, where both the distribution of experts across devices and the distribution of tokens per expert are non-uniform.
+**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. nvFuser extends beyond this limitation to support **multiple independent ragged dimensions** per tensor. For example, a tensor can have both a ragged expert dimension (different GPUs handle different numbers of experts) and a ragged tokens-per-expert dimension (each expert processes different numbers of tokens). This extension is necessary for expert parallelism with load balancing, where both the distribution of experts across devices and the distribution of tokens per expert are non-uniform.
 
 ### nvFuser IterDomain System
 
@@ -67,7 +62,7 @@ TensorView contains a TensorDomain which groups multiple IterDomains representin
 
 ### Expert Parallelism Use Case
 
-Expert parallelism in Mixture-of-Experts (MoE) models requires complex multi-level nested structures. The key operations involve:
+Expert parallelism in Mixture-of-Experts (MoE) models requires ragged dimensions. The key operations involve:
 
 1. **Token Dispatch**: Route input tokens to different experts based on routing decisions
 2. **Expert Distribution**: Distribute experts across multiple GPUs for parallel processing
@@ -89,35 +84,6 @@ tokens_by_expert = nested_tensor([
 ```
 
 This requires a single ragged dimension for tokens-per-expert.
-
-#### Multi-Level Nesting Example
-
-In distributed expert parallelism, tokens from each rank are routed to different experts on different GPUs. After `all_to_all` communication, GPU 0 receives tokens for its assigned experts (experts 0, 1, 2) from all ranks:
-
-```python
-# BEFORE all_to_all: Each rank has tokens for all experts (rank-first layout)
-# Rank 0: [tokens_for_expert_0, tokens_for_expert_1, ..., tokens_for_expert_N]
-# Rank 1: [tokens_for_expert_0, tokens_for_expert_1, ..., tokens_for_expert_N]
-
-# AFTER all_to_all: GPU 0 receives tokens for experts 0-2 from all ranks (expert-first layout)
-# Data arrives in rank-first order:
-tokens_received = [
-    tokens_expert_0_rank_0 || tokens_expert_1_rank_0 || tokens_expert_2_rank_0,  # From rank 0
-    tokens_expert_0_rank_1 || tokens_expert_1_rank_1 || tokens_expert_2_rank_1   # From rank 1
-]
-# Token counts: Expert 0: [127, 98], Expert 1: [0, 45], Expert 2: [198, 156]
-
-# The all_to_all shuffle transforms the data layout from rank-first to expert-first
-# This is where we need the partition operation to reorganize:
-tokens_by_expert = nested_tensor([
-    nested_tensor([tokens_from_rank_0, tokens_from_rank_1]),  # Expert 0: [127, 98]
-    nested_tensor([tokens_from_rank_0, tokens_from_rank_1]),  # Expert 1: [0, 45]
-    nested_tensor([tokens_from_rank_0, tokens_from_rank_1])   # Expert 2: [198, 156]
-])
-# Shape: [experts=3, ranks=2, tokens=[[127,98],[0,45],[198,156]], hidden=512]
-```
-
-This requires **two-level nesting**: outer ragged dimension for experts, inner ragged dimension for tokens-per-rank-per-expert. The key insight is that `all_to_all` delivers data in rank-first order, but we need expert-first order for processing, requiring a layout transformation.
 
 #### Multiple Independent Ragged Dimensions Example
 
@@ -143,7 +109,6 @@ Both dimensions are ragged but independent (not nested within each other).
 ### Goals
 
 - Support ragged dimensions in fusion IR for expert parallelism
-- Support multi-level nesting (ragged within ragged) for expert parallelism use cases
 - Support multiple independent ragged dimensions per tensor for load balancing scenarios
 
 ### Non-Goals
@@ -275,14 +240,11 @@ auto merged_dim = IterDomain::merge(expert_dim, tokens_per_expert);
 
 3. **Merging back**: Use `merge` to convert ragged dimensions back to regular dimensions when needed (e.g., after expert processing, concatenate results back to merged form)
 
-The `partition` and `merge` operations enable both single-level and multi-level nested structures, as shown in the examples below.
+The `partition` and `merge` operations enable ragged structures as shown in the examples below.
 
 #### Tensor Domain Structure
 
-A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. nvFuser supports:
-
-1. **Multiple RaggedIterDomains per TensorDomain**: For load balancing scenarios
-2. **Multi-level nesting**: RaggedIterDomain can contain other RaggedIterDomains as nested domains
+A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. nvFuser supports **multiple RaggedIterDomains per TensorDomain** for load balancing scenarios.
 
 **Example 1: Single ragged dimension**
 ```cpp
@@ -314,35 +276,6 @@ auto hidden = IrBuilder::create<IterDomain>(0, 512);
 // TensorDomain must include BOTH the batch IterDomains AND the RaggedIterDomains
 auto tensor_domain = IrBuilder::create<TensorDomain>(
     {gpu_id, ragged_experts, expert_id, ragged_tokens, hidden}
-);
-```
-
-**Example 3: Multi-level nesting (ragged within ragged)**
-```cpp
-// Tokens organized by expert, each expert's tokens organized by source rank
-auto token_dim = IrBuilder::create<IterDomain>(0, 325);  // Total flattened tokens
-
-// First partition: by expert (1D offsets)
-// expert_offsets: [0, 127, 127, 325] - 3 experts with [127, 0, 198] tokens
-auto [expert_id, tokens_per_expert] = IterDomain::partition(token_dim, expert_offsets);
-// expert_id: IterDomain with extent = 3 experts
-// tokens_per_expert: RaggedIterDomain with variable tokens per expert [127, 0, 198]
-
-// Second partition: each expert's tokens by rank (2D offsets)
-// rank_offsets: 2D tensor with shape [3, 3] (3 experts, 2 ranks + 1)
-// rank_offsets[0] = [0, 50, 127]   - Expert 0: 127 tokens split as [50, 77] across 2 ranks
-// rank_offsets[1] = [0, 0, 0]      - Expert 1: 0 tokens split as [0, 0] across 2 ranks
-// rank_offsets[2] = [0, 100, 198]  - Expert 2: 198 tokens split as [100, 98] across 2 ranks
-auto [rank_id, tokens_per_expert_per_rank] = IterDomain::partition(tokens_per_expert, rank_offsets);
-// rank_id: IterDomain with extent = 2 ranks
-// tokens_per_expert_per_rank: RaggedIterDomain nested within RaggedIterDomain
-// Structure: [[50, 77], [0, 0], [100, 98]]
-
-auto hidden = IrBuilder::create<IterDomain>(0, 512);
-
-// TensorDomain includes both batch IterDomains (expert_id, rank_id) and the nested ragged structure
-auto tensor_domain = IrBuilder::create<TensorDomain>(
-    {expert_id, rank_id, tokens_per_expert_per_rank, hidden}
 );
 ```
 
@@ -378,8 +311,6 @@ class RaggedIterDomain : public IterDomain {
 #### Nested Domains
 
 The `nested_domains_` vector contains one `IterDomain` per batch component. For a nested tensor with batch size N, there are N nested IterDomains, each with potentially different extent. This represents the ragged dimension structure: component i has extent `nested_domains_[i]->extent()`.
-
-**Multi-level nesting**: The nested domains can themselves be `RaggedIterDomain` instances, enabling ragged-within-ragged structures. For example, tokens organized by expert (outer ragged dimension), where each expert's tokens are organized by source rank (inner ragged dimension).
 
 #### Offset Computation
 
@@ -617,7 +548,7 @@ auto partitioned = tv->partition(/*dim=*/0, offsets);
 // Dimension 0 is replaced by (expert_id, ragged_tokens_id)
 ```
 
-**Example 2: Multi-level partitioning (expert parallelism)**
+**Example 2: Expert parallelism with partition and merge**
 ```cpp
 // Input: Distributed tokens across D=2 GPUs, each GPU has S/D tokens
 // Shape: [D=2, S/D=100, hidden=512]
@@ -656,17 +587,6 @@ auto [gpu_out, expert_per_gpu] = IterDomain::split(expert_dim, /*factor=*/2);
 // - After partition: [D=2, E=4, ragged] non-uniform tokens per (GPU, expert)
 // - After merge+split: [D=2, E/D=2, ragged] expert-first, distributed for processing
 ```
-
-**Relationship to other operations:**
-- **vs. split**: `split` divides uniformly; `partition` divides non-uniformly based on offsets
-- **Inverse of merge**: `merge` concatenates ragged components; `partition` splits regular dimension into ragged
-- **Used by asNested**: The `asNested` tensor-level operation uses `partition` internally as a transform between root and logical domains
-
-**Implementation notes:**
-- Partition is a view operation (no data movement at runtime)
-- The offsets TensorView must be computable (either fusion input or computed by previous operations)
-- For multi-level partitioning, nested RaggedIterDomains track their own offset computations
-- Critical for rank-to-expert and expert-to-rank reshuffling in distributed expert parallelism
 
 ### 6.5 Indexing and Code Generation
 
@@ -893,6 +813,7 @@ Since it is an implementation detail, the offset tensor should be hidden behind 
 
 ## 9. Future Work
 
+- **Multi-level Nesting**: Support for ragged within ragged dimensions (RaggedIterDomain containing other RaggedIterDomains as nested domains). While not required for the initial expert parallelism use case, this could enable more complex nested data structures in the future.
 - **Python Frontend**: Expose RaggedIterDomain to Python API for direct construction
 - **Ragged-Aware Schedulers**: Specialized pointwise, reduction, and matmul schedulers for ragged patterns
 - **Broadcast Operations**: Support broadcasting to/from ragged dimensions
