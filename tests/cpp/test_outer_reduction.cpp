@@ -32,7 +32,13 @@
 
 namespace nvfuser {
 
-using OuterReductionTest = NVFuserTest;
+class OuterReductionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 using namespace at::indexing;
 

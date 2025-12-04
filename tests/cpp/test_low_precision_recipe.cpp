@@ -108,10 +108,12 @@ constexpr double F8E4M3_MAX = 448.0;
 class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
+
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
-    bool use_global_scale = false) {
+    bool use_global_scale = false,
+    bool swizzle_block_scales = false) {
   auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
   fusion->addInput(tv_data_hp);
 
@@ -129,40 +131,34 @@ void createNVFP4QuantizationFusion(
 
   auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
   auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
-  // These scales are currently in fp32, we are going to `quantize` them to e4m3
-  // Note: in the torchao implementation, tv_block_scale is bf16 if the input is
-  // bf16 But in our case, tv_block_scale is always fp32, regardless of the
-  // input dtype.
-  auto tv_block_scale = div(
-      tv_data_hp_amax, IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+
+  constexpr float rcp_6f = 1.0f / 6.0f;
+  auto tv_block_scale = tv_data_hp_amax;
   if (use_global_scale) {
     tv_block_scale = mul(tv_block_scale, tv_global_scale);
   }
+  tv_block_scale =
+      mul(tv_block_scale, IrBuilder::create<Val>(rcp_6f, DataType::Float));
 
-  auto tv_block_scale_clamp = clamp(
-      tv_block_scale,
-      IrBuilder::create<Val>(E4M3_EPS, DataType::Float),
-      IrBuilder::create<Val>(F8E4M3_MAX, DataType::Float));
-  auto tv_block_scale_fp8 =
-      castOp(DataType::Float8_e4m3fn, tv_block_scale_clamp);
+  auto tv_block_scale_fp8 = castOp(DataType::Float8_e4m3fn, tv_block_scale);
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = div(tv_block_scale_fp32, tv_global_scale);
+    tv_block_scale_fp32 = div(tv_global_scale, tv_block_scale_fp32);
   }
 
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
-  auto tv_data_scaled = div(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
-  auto tv_data_scaled_clamp = clamp(
-      tv_data_scaled,
-      IrBuilder::create<Val>(-F4_E2M1_MAX, DataType::Float),
-      IrBuilder::create<Val>(F4_E2M1_MAX, DataType::Float));
+  auto tv_data_scaled = mul(tv_data_hp_reshaped, tv_block_scale_fp32_unsqueeze);
 
-  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled_clamp);
+  auto tv_data_lp_fp4 = castOp(DataType::Float4_e2m1fn, tv_data_scaled);
   auto tv_data_lp = reshape(tv_data_lp_fp4, [](auto& x) { x.merge(-2); });
 
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
+
+  if (swizzle_block_scales) {
+    nvfuser::ir_utils::swizzleBlockScales(tv_block_scale_fp8);
+  }
 }
 } // namespace
 
@@ -545,6 +541,181 @@ TEST_F(
           "Block scaling factor must be a global memory tensor")));
 }
 
+namespace {
+
+// A helper function to create a BlockQuantizationOp in the IR.
+// It'll set the swizzle scales flag, but won't actually swizzle it.
+// This will help us run the validation tests.
+BlockQuantizationResults createBlockQuantizationOpWithSwizzleFlag(
+    TensorView* input) {
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      DataType::Float4_e2m1fn);
+
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          scales_out_domain,
+          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+      DataType::Float8_e4m3fn);
+
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      /*logical_index=*/nullptr,
+      /*global_scaling_factor=*/nullptr,
+      /*block_size=*/16,
+      /*swizzle_scales=*/true);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
+}
+} // namespace
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    InvalidSwizzlePermutationOnBlockScales) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  quantization_results.block_scales->split(3, 4);
+
+  // Bad permutation.
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Block scale swizzle permutation is invalid")));
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    SwizzleInnermostSplitMustHaveExtentOfFour) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  // Bad inner split.
+  quantization_results.block_scales->split(3, 8);
+
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("The innermost split in block scale swizzle must "
+                             "have an extent of 4")));
+}
+
+TEST_F(
+    BlockQuantizationValidationTest,
+    SwizzleAllocationDomainMustHaveAtMostFiveIterDomains) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  tv_data_hp = set(tv_data_hp);
+  auto quantization_results =
+      createBlockQuantizationOpWithSwizzleFlag(tv_data_hp);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  quantization_results.block_scales->split(0, 128);
+  quantization_results.block_scales->split(1, 32);
+  // Too many splits - allocation domain is now more than 5.
+  quantization_results.block_scales->split(2, 4);
+  quantization_results.block_scales->split(4, 4);
+
+  std::vector<IterDomain*> tv_block_scale_alloc{
+      quantization_results.block_scales->axis(0),
+      quantization_results.block_scales->axis(3),
+      quantization_results.block_scales->axis(2),
+      quantization_results.block_scales->axis(1),
+      quantization_results.block_scales->axis(5),
+      quantization_results.block_scales->axis(4)};
+  quantization_results.block_scales->setAllocationDomain(
+      tv_block_scale_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(
+          testing::HasSubstr("Block scale swizzle must have 2D logical domain "
+                             "and 5D allocation domain")));
+}
+
 // Group ID must be the innermost of all splits from logical domains to loop
 // domains
 TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
@@ -709,18 +880,20 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
 class BlockQuantizationSchedulingTest
     : public BlackwellBase,
       public ::testing::WithParamInterface<
-          std::tuple<DataType, std::pair<int, int>, bool>> {};
+          std::tuple<DataType, std::pair<int, int>, bool, bool>> {};
 
 TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   const auto data_type = std::get<0>(GetParam());
   const auto dimensions = std::get<1>(GetParam());
   const auto use_global_scale = std::get<2>(GetParam());
+  const auto swizzle_block_scales = std::get<3>(GetParam());
   const int m = dimensions.first;
   const int n = dimensions.second;
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  createNVFP4QuantizationFusion(fusion.get(), data_type, use_global_scale);
+  createNVFP4QuantizationFusion(
+      fusion.get(), data_type, use_global_scale, swizzle_block_scales);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -759,7 +932,8 @@ TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
     fusion_new_op->addInput(tv_global_scale);
   }
 
-  auto quantization_results = blockQuantize(tv_in_1, tv_global_scale);
+  auto quantization_results = blockQuantize(
+      tv_in_1, tv_global_scale, /*block_size=*/16, swizzle_block_scales);
 
   fusion_new_op->addOutput(quantization_results.block_scales);
   fusion_new_op->addOutput(quantization_results.quantized_tensor);
@@ -892,25 +1066,7 @@ TEST_P(NVFP4QuantizeTest, SwizzledOuputAndWithoutPerTensorAmax) {
   fusion->addOutput(tv_block_scale_fp8);
   fusion->addOutput(tv_data_lp);
 
-  tv_block_scale_fp8->split(0, 128);
-  // m/128, 128, k
-  tv_block_scale_fp8->split(1, 32);
-  // m/128, 4(m_o), 32(m_i), k
-  tv_block_scale_fp8->split(3, 4);
-  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
-  std::vector<IterDomain*> tv_block_scale_fp8_alloc{
-      tv_block_scale_fp8->axis(0),
-      tv_block_scale_fp8->axis(3),
-      tv_block_scale_fp8->axis(2),
-      tv_block_scale_fp8->axis(1),
-      tv_block_scale_fp8->axis(4)};
-  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
-  tv_block_scale_fp8->setAllocationDomain(tv_block_scale_fp8_alloc, true);
-
-  // back to a 2D logical domain.
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(0);
-  tv_block_scale_fp8->merge(-1);
+  nvfuser::ir_utils::swizzleBlockScales(tv_block_scale_fp8);
 
   FusionExecutorCache fec(std::move(fusion));
 
@@ -1027,16 +1183,19 @@ INSTANTIATE_TEST_SUITE_P(
             std::make_pair(128, 64),
             std::make_pair(2048, 128),
             std::make_pair(2048, 2048)),
+        ::testing::Bool(),
         ::testing::Bool()),
     [](const testing::TestParamInfo<
-        std::tuple<DataType, std::pair<int, int>, bool>>& info) {
+        std::tuple<DataType, std::pair<int, int>, bool, bool>>& info) {
       const auto data_type = std::get<0>(info.param);
       const auto dimensions = std::get<1>(info.param);
       const auto use_global_scale = std::get<2>(info.param);
+      const auto swizzle_block_scales = std::get<3>(info.param);
 
       std::ostringstream name;
       name << data_type << "_" << dimensions.first << "x" << dimensions.second;
       name << (use_global_scale ? "_WithGlobalScale" : "_NoGlobalScale");
+      name << (swizzle_block_scales ? "_WithSwizzle" : "_NoSwizzle");
       return name.str();
     });
 

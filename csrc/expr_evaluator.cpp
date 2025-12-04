@@ -8,9 +8,6 @@
 
 #include <expr_evaluator.h>
 
-#include <functional>
-#include <iostream>
-#include <iterator>
 #include <ranges>
 
 #include <debug.h>

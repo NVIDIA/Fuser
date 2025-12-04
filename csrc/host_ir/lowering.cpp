@@ -5,15 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
-#include <host_ir/pass/insert_deallocations.h>
+#include <ir/utils.h>
+#include <multidevice/propagation.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
+#include <ops/utils.h>
 #include <runtime/executor_abstract.h>
+#include <transform_replay.h>
 
 namespace nvfuser {
 
@@ -86,27 +89,24 @@ std::ostream& operator<<(std::ostream& os, const LoopNest& loop_nest) {
 
 // Finds the TensorView in the group whose loop domain has the most parallel
 // types and returns its loop domain.
-const std::vector<IterDomain*>& findReferenceLoopDomain(
+const std::vector<IterDomain*>& findMostParallelLoopDomain(
     const SegmentedGroup& group) {
-  TensorView* reference_tv = nullptr;
+  TensorView* reference = nullptr;
   int max_parallel_count = -1;
-  for (auto* expr : group.exprs()) {
-    for (auto* tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      auto loop_domain = tv->getLoopDomain();
-      int parallel_count = 0;
-      for (auto* id : loop_domain) {
-        if (id->isParallelized()) {
-          parallel_count++;
-        }
-      }
-      if (parallel_count > max_parallel_count) {
-        max_parallel_count = parallel_count;
-        reference_tv = tv;
-      }
+  for (Expr* expr : group.exprs()) {
+    TensorView* tv = findMostParallelTensorView(
+        ir_utils::filterByType<TensorView>(expr->outputs()));
+    if (tv == nullptr) {
+      continue;
+    }
+    auto parallel_count = numParallelIterDomains(tv);
+    if (parallel_count > max_parallel_count) {
+      max_parallel_count = parallel_count;
+      reference = tv;
     }
   }
-  NVF_ERROR(reference_tv != nullptr);
-  return reference_tv->getLoopDomain();
+  NVF_ERROR(reference != nullptr, "Can't find any TensorView in ", &group);
+  return reference->getLoopDomain();
 }
 
 // Returns a new Expr with the inputs and outputs replaced by the replacement
@@ -166,8 +166,11 @@ void lowerSegment(
         auto* communication = c->as<Communication>();
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(device_id)) {
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          auto memory_type = tv->getMemoryType();
+          if (memory_type != MemoryType::Symmetric) {
+            memory_type = MemoryType::Global;
+          }
+          auto* allocate = IrBuilder::create<kir::Allocate>(tv, memory_type);
           // TODO: allocation may have to go to the top level. See how
           // SchedulerType::ExprEval handles allocations.
           loop_nest.innermostScope().push_back(allocate);
@@ -216,21 +219,49 @@ void lowerSegment(
 
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
+        // A loop domain should go with an Expr rather than each individual
+        // output TensorView. Before this is fixed, pick the most parallel
+        // output TensorView as a proxy.
+        TensorView* ref_out = findMostParallelTensorView(
+            ir_utils::filterByType<TensorView>(e->outputs()));
+        NVF_ERROR(ref_out != nullptr);
+
         for (auto* in : ir_utils::filterByType<TensorView>(e->inputs())) {
-          if (getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kLoop) != nullptr &&
-              getShardedIterDomain(
-                  in, ParallelType::Stream, DomainType::kAllocation) ==
-                  nullptr) {
-            auto [i, inserted] = replacement_map.try_emplace(
-                in, hir::shardByStream(in, for_loop->index()));
-            if (inserted) {
-              for_loop->body().push_back(i->second->definition());
-            }
+          if (replacement_map.contains(in)) {
+            continue;
+          }
+
+          // Check whether in's **allocation** and out's loop are sharded on
+          // ParallelType::Stream consistently. If not, insert a ShardByStream.
+          //
+          // Consider the following example:
+          // ```
+          // in: [m, k]    w: [k, n]   # logical/allocation
+          //            |
+          //            | matmul
+          //            v
+          //      out: [m, n]     logical
+          //           / \.
+          //          s  m/s      loop
+          // ```
+          // `in` needs to be sharded by stream regardless of its loop domain.
+          if (haveDifferentShardings(
+                  in,
+                  DomainType::kAllocation,
+                  ref_out,
+                  DomainType::kLoop,
+                  {ParallelType::Stream})) {
+            TensorView* sharded_in =
+                hir::shardByStream(in, for_loop->index(), e);
+            replacement_map[in] = sharded_in;
+            for_loop->body().push_back(sharded_in->definition());
           }
         }
 
         for (auto* out : ir_utils::filterByType<TensorView>(e->outputs())) {
+          NVF_ERROR(
+              !replacement_map.contains(out),
+              "The input segmented fusion should be SSA.");
           if (getShardedIterDomain(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
@@ -242,10 +273,10 @@ void lowerSegment(
             //
             // I use try_emplace here so shardByStream is called only when `out`
             // is missing.
-            auto [i, inserted] = replacement_map.try_emplace(
-                out, hir::shardByStream(out, for_loop->index()));
-            NVF_ERROR(inserted);
-            for_loop->body().push_back(i->second->definition());
+            TensorView* sharded_out =
+                hir::shardByStream(out, for_loop->index(), e);
+            replacement_map[out] = sharded_out;
+            for_loop->body().push_back(sharded_out->definition());
           }
         }
 
@@ -273,8 +304,11 @@ void lowerSegment(
             " must not be an alias, got ",
             alias);
         auto* tv = out->as<TensorView>();
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+        auto memory_type = tv->getMemoryType();
+        if (memory_type != MemoryType::Symmetric) {
+          memory_type = MemoryType::Global;
+        }
+        auto* allocate = IrBuilder::create<kir::Allocate>(tv, memory_type);
         loop_nest.innermostScope().push_back(allocate);
       }
 
@@ -345,7 +379,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
   for (SegmentedGroup* group :
        prepareRuntimeOrder(segmented_fusion).group_run_order) {
     const std::vector<IterDomain*>& curr_ref_loop =
-        findReferenceLoopDomain(*group);
+        findMostParallelLoopDomain(*group);
     const int64_t inline_position =
         computeInlinePosition(prev_ref_loop, curr_ref_loop, id_model);
     while (loop_nest.size() > inline_position) {
@@ -374,8 +408,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
 
     prev_ref_loop = std::move(curr_ref_loop);
   }
-
-  hir_pass::InsertDeallocations().runPass(hic.get());
 
   return hic;
 }

@@ -80,7 +80,7 @@ def test_column_parallel_linear(multidevice_direct_test):
 
         # Shard N for weight (N, K) and bias (N)
         for t in [weight, bias]:
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
@@ -129,7 +129,7 @@ def test_row_parallel_linear(multidevice_direct_test):
         inp, weight = fd.fusion.inputs()
         for t in [inp, weight]:
             t.set_device_mesh(mesh)
-            t.split(-1, d, inner_split=False)
+            t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
@@ -169,7 +169,7 @@ def test_row_parallel_linear_with_bias(multidevice_direct_test):
         inp, weight, _ = fd.fusion.inputs()
         for t in [inp, weight]:
             t.set_device_mesh(mesh)
-            t.split(-1, d, inner_split=False)
+            t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
@@ -216,7 +216,7 @@ def test_linear_reduce_scatter(multidevice_direct_test):
             tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
         # Scatter
-        out.split(1, d, inner_split=False)
+        out.outer_split(1, d)
         out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
@@ -265,12 +265,12 @@ def test_column_parallel_matmul(multidevice_direct_test):
             t.set_device_mesh(mesh)
 
         # Shard N for weight (K, N)
-        weight.split(-1, d, inner_split=False)
+        weight.outer_split(-1, d)
         weight.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
         # Output of linear: {.., i{M}, i{N}, r{K}}
         # Shard N -> axis(-2)
-        out.split(-2, d, inner_split=False)
+        out.outer_split(-2, d)
         out.axis(-3).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
@@ -318,15 +318,15 @@ def test_row_parallel_matmul(multidevice_direct_test):
             t.set_device_mesh(mesh)
 
         # Shard K for inp (M, K)
-        inp.split(-1, d, inner_split=False)
+        inp.outer_split(-1, d)
         inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
         # Shard K for weight (K, N)
-        weight.split(0, d, inner_split=False)
+        weight.outer_split(0, d)
         weight.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
         # [i{M}, i{N}, r{K}]
-        out.split(-1, d, inner_split=False)
+        out.outer_split(-1, d)
         # [i{M}, i{N}, r{d}, r{K//d}]
         local_out = out.rfactor(axes=[-1])
         # local_out = [i{M}, i{N}, i{d}, r{K//d}]
@@ -372,7 +372,7 @@ def test_column_parallel_grouped_mm(multidevice_direct_test):
         for t in [inp, w, offsets]:
             t.set_device_mesh(mesh)
 
-        w.split(1, d, inner_split=False)
+        w.outer_split(1, d)
         w.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
@@ -415,10 +415,10 @@ def test_row_parallel_grouped_mm(multidevice_direct_test):
         for t in [inp, w, offsets]:
             t.set_device_mesh(mesh)
 
-        inp.split(-1, d, inner_split=False)
+        inp.outer_split(-1, d)
         inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-        w.split(-1, d, inner_split=False)
+        w.outer_split(-1, d)
         w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
@@ -464,7 +464,7 @@ def test_issue4729(multidevice_direct_test):
         x, y, w = fd.fusion.inputs()
         for t in [x, y, w]:
             t.set_device_mesh(mesh)
-            t.split(-1, d, inner_split=False)
+            t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
@@ -506,11 +506,11 @@ def test_sequence_parallel_linear(multidevice_direct_test):
         inp, weight, bias = fd.fusion.inputs()
         for t in [weight, bias]:
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
         inp.set_device_mesh(mesh)
-        inp.split(1, d, inner_split=False)
+        inp.outer_split(1, d)
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     torch.cuda.set_device(multidevice_direct_test.local_rank)
