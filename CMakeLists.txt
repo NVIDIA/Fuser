@@ -391,6 +391,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
