@@ -12,15 +12,17 @@
 
 namespace nvfuser::hir {
 
-// Inserts deallocation for memory efficiency.
-class InsertDeallocations : public OptimizationPass<InsertDeallocations> {
-  friend class OptimizationPass<InsertDeallocations>;
+// A host IR pass that inserts allocations and deallocations. Some allocations
+// are already inserted by lowerSegmentedFusionToHostIr. This pass inserts more
+// allocations for functionality and/or performance.
+class AllocateAndDeallocate : public OptimizationPass<AllocateAndDeallocate> {
+  friend class OptimizationPass<AllocateAndDeallocate>;
 
  protected:
   static void runPass(Fusion* fusion);
 
   static constexpr std::string_view name() {
-    return "InsertDeallocations";
+    return "AllocateAndDeallocate";
   }
 };
 
