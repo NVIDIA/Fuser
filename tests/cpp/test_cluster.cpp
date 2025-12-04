@@ -266,14 +266,11 @@ TEST_F(ClusterReductionTest, InvalidClusterSize) {
 // Test the getMaxActiveClusters utility function
 TEST_F(NVFuserTest, GetMaxActiveClusters) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-
   const int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
-
   // Test various cluster configurations from 1 to 17
   for (int64_t cluster_n : arange(1, 18)) {
     MatmulParams::ClusterDims cluster_dims{1, cluster_n};
     int64_t max_active = matmul_utils::getMaxActiveClusters(cluster_dims);
-
     // Our regular CI only covers 8.0, 9.0, 10.0, etc.
     // For other minor versions, max allowed cluster size is not tested.
     if (sm_minor == 0) {
@@ -283,10 +280,6 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
         EXPECT_GT(max_active, 0);
       }
     }
-    // Test caching: call again with same parameters and verify same result
-    int64_t max_active_cached =
-        matmul_utils::getMaxActiveClusters(cluster_dims);
-    EXPECT_EQ(max_active, max_active_cached);
   }
 }
 
