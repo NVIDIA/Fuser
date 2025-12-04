@@ -383,14 +383,14 @@ def transformer_forward_multidevice_schedule(
         mlp_linear0_weight,
         mlp_linear0_bias,
     ]:
-        tv.split(0, num_devices, inner_split=False)
+        tv.outer_split(0, num_devices)
         tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
         mha_linear1_weight,
         mlp_linear1_weight,
     ]:
-        tv.split(-1, num_devices, inner_split=False)
+        tv.outer_split(-1, num_devices)
         tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
 
@@ -1014,14 +1014,14 @@ def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices:
         mha_linear0_weight,
         mlp_linear0_weight,
     ]:
-        tv.split(0, num_devices, inner_split=False)
+        tv.outer_split(0, num_devices)
         tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
         sdpa_out,
         sdpa_logsum_exp,
     ]:
-        tv.split(1, num_devices, inner_split=False)
+        tv.outer_split(1, num_devices)
         tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
@@ -1030,7 +1030,7 @@ def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices:
         mha_linear1_weight,
         mlp_linear1_weight,
     ]:
-        tv.split(-1, num_devices, inner_split=False)
+        tv.outer_split(-1, num_devices)
         tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
 

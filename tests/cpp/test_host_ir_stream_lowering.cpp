@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <iostream>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>

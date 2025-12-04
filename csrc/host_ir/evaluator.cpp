@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -22,9 +21,11 @@
 #include <instrumentation.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/allocation_utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/execution_utils.h>
+#include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -482,14 +483,18 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-    at::matmul_out(t_out, t_a, t_b);
-  } else {
+  if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a MatmulOp is
+    // preallocated.
     unhandled(matmul);
+    return;
   }
+
+  auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+  auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+  at::matmul_out(t_out, t_a, t_b);
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
@@ -498,6 +503,9 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a LinearOp is
+    // preallocated.
     unhandled(linear);
     return;
   }
@@ -505,6 +513,11 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto in_tensor = getKnownConcreteValue(in).as<at::Tensor>();
   auto weight_tensor = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_tensor = getKnownConcreteValue(out).as<at::Tensor>();
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out);
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.squeeze(rfactor_did_idx);
+  }
 
   if (linear->hasBias()) {
     auto* bias = linear->bias()->as<TensorView>();
@@ -589,13 +602,20 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
-  at::Tensor tensor = at::native::empty_strided_cuda(
-      info.shape_info.logical_sizes,
-      info.shape_info.logical_strides,
-      info.type,
-      c10::nullopt,
-      device,
-      c10::nullopt);
+  at::Tensor tensor;
+  if (tv->getMemoryType() == MemoryType::Symmetric) {
+    NVF_ERROR(isTvContiguous(tv), "Symmetric memory must be contiguous");
+    tensor = SymmetricTensor::allocate(
+        info.shape_info.logical_sizes, info.type, device);
+  } else {
+    tensor = at::native::empty_strided_cuda(
+        info.shape_info.logical_sizes,
+        info.shape_info.logical_strides,
+        info.type,
+        c10::nullopt,
+        device,
+        c10::nullopt);
+  }
 
   // Cache the allocation if enabled
   if (params_.use_allocation_cache) {
@@ -753,7 +773,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  int64_t stream_index =
+  auto stream_index =
       expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
   at::Tensor out_tensor =
       in_tensor

@@ -20,7 +20,6 @@
 #include <scheduler/tools/inlining.h>
 #include <algorithm>
 #include <bit>
-#include <iterator>
 #include <unordered_map>
 
 namespace nvfuser {

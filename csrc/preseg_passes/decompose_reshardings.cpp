@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <linked_hash_map.h>
 #include <multidevice/propagation.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -313,7 +314,6 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
     }
 
     auto* without_bias = linear(linear_op->inA(), linear_op->inB());
-    auto* upcast_without_bias = maybeCastOp(DataType::Float, without_bias);
 
     TensorView* broadcasted_bias = [&]() {
       const int64_t rank_after_broadcast = std::ssize(
@@ -327,14 +327,30 @@ void decomposeRowParallelLinearWithBias(Fusion* fusion) {
       return broadcast(linear_op->bias(), is_broadcast_dim);
     }();
 
-    TensorView* with_bias = add(upcast_without_bias, broadcasted_bias);
-    TensorView* new_out = maybeCastOp(out->dtype(), with_bias);
+    TensorView* new_out =
+        maybeCastOp(out->dtype(), add(without_bias, broadcasted_bias));
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(out, new_out);
 
-    for (TensorView* tv :
-         {without_bias, upcast_without_bias, with_bias, new_out}) {
-      TransformReplay::selfReplay(out->domain(), tv->domain());
+    // Shard without_bias to match new_out so that reduction ID is properly
+    // sharded.
+    TransformReplay::selfReplay(out->domain(), without_bias->domain());
+    TransformReplay::selfReplay(out->domain(), new_out->domain());
+    // Backpropagate shardings to consistently shard all intermediate
+    // expressions. Forward propagating may miss sharding tensorviews
+    // on the path between `bias` and `new_out`.
+    for (Expr* expr : StmtSort::getExprsBetween(
+                          {without_bias, broadcasted_bias}, {new_out}) |
+             std::views::reverse) {
+      for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+          shardLoopLike(
+              /*ref=*/output,
+              /*target=*/input,
+              deviceAndStreamParallelTypes(),
+              PropagateDirection::kBackward);
+        }
+      }
     }
   }
 }

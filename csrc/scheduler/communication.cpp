@@ -8,6 +8,7 @@
 
 #include <alias_analysis.h>
 #include <ir/utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <scheduler/communication.h>
 #include <scheduler/debug_utils.h>

@@ -861,4 +861,9 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
 
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 
+// Swizzle the block scales output of the block quantization operation.
+// This applies to block quantization to nvfp4.
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API void swizzleBlockScales(TensorView* tv);
+
 } // namespace nvfuser::ir_utils

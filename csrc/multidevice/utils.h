@@ -9,16 +9,13 @@
 
 #include <iosfwd>
 
-#include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
 
 namespace nvfuser {
 
 // Identifies which TensorView domain to inspect.
-enum class DomainType {
+enum class DomainType : int {
   kRoot,
   kLogical,
   kLoop,
@@ -43,21 +40,6 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);
-
-// Returns whether an Expr embeds multi-device resharding
-NVF_API bool isResharding(const Expr* expr);
-
-// Returns whether two tensors have different shardings. Expect a
-// producer/consumer relationship between the arguments.
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const std::unordered_set<ParallelType>& parallel_types);
-
-// Returns a set that contains DIDs and Stream.
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
-
-std::unordered_set<ParallelType> deviceParallelTypes();
 
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
@@ -100,5 +82,13 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
+
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
 } // namespace nvfuser

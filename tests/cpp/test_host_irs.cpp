@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <iostream>
-
 #include <gtest/gtest.h>
 
 #include <c10/cuda/CUDAStream.h>
@@ -18,6 +16,7 @@
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
@@ -1225,6 +1224,32 @@ TEST_F(AllocationTest, inHostForLoop) {
   auto outputs = hie.runWithInput({});
 
   EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
+}
+
+TEST_F(AllocationTest, SymmetricMemory) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  const std::vector<int64_t> sizes = {size0, size1};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeContigConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Symmetric);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Symmetric);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto output = hie.runWithInput({})[0].as<at::Tensor>();
+
+  EXPECT_EQ(output.sizes(), sizes);
+  EXPECT_EQ(output.strides(), std::vector<int64_t>({size1, 1}));
+  EXPECT_EQ(output.dtype(), at::kFloat);
+
+  // Validate symmetric memory properties
+  auto validation_error = SymmetricTensor::validate(output);
+  EXPECT_TRUE(validation_error.empty()) << validation_error;
 }
 
 using HirAliasSelectHostIrTest = NVFuserTest;
