@@ -117,7 +117,7 @@ at::Tensor SymmetricTensor::allocate(
   access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   access.location.id = static_cast<int>(device.index());
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
-  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, rounded_size, &access, 1));
+  NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(ptr, alloc_size, &access, 1));
 
   std::vector<int64_t> strides(sizes.size());
   strides.back() = 1;
@@ -387,6 +387,10 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
     return;
   }
 
+  NVF_CHECK(
+      are_remote_tensors_setup_ == true,
+      "Remote tensors must be setup before setupContiguousView");
+
   Communicator& comm = Communicator::getInstance();
   const int64_t local_rank = comm.local_rank();
   const int64_t world_size = comm.size();
@@ -399,7 +403,7 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
   for (int64_t rank = 0; rank < world_size; ++rank) {
     CUdeviceptr region = base + (rank * aligned_size_);
     NVFUSER_CUDA_SAFE_CALL(
-        cuMemMap(region, aligned_size_, 0, getAllocHandle(rank, tag), 0));
+        cuMemMap(region, aligned_size_, 0, alloc_handles_[rank], 0));
 
     CUmemAccessDesc access{};
     access.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
