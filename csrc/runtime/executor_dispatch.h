@@ -42,7 +42,7 @@ class ExecutorDispatch {
       ExecutorAbstract* executor,
       Fusion* fusion,
       const KernelArgumentHolder& args,
-      HeuristicParams* params);
+      const HeuristicParams* params);
 
   static bool isCompiled(const ExecutorAbstract* executor);
 

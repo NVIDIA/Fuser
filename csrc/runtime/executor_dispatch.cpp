@@ -86,7 +86,7 @@ void ExecutorDispatch::compile(
     ExecutorAbstract* executor,
     Fusion* fusion,
     const KernelArgumentHolder& args,
-    HeuristicParams* params) {
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
   if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
@@ -106,7 +106,7 @@ void ExecutorDispatch::compile(
     return;
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
-    params->lparams = ke->compile(
+    ke->compile(
         fusion, args, params->lparams, params->cparams, params->scheduler_type);
     return;
   }
