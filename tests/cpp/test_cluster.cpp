@@ -296,7 +296,7 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
     // For other minor versions, max allowed cluster size is not tested.
     if (sm_minor == 0) {
       if (cluster_dims.m * cluster_dims.n > 16) {
-        EXPECT_EQ(max_active, 0)
+        EXPECT_EQ(max_active, 0);
       } else {
         EXPECT_GT(max_active, 0);
       }
