@@ -290,29 +290,21 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
 
   int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
   for (const auto& cluster_dims : test_configs) {
-    if (cluster_dims.m * cluster_dims.n > 16) {
-      EXPECT_THAT(
-          [&]() { matmul_utils::getMaxActiveClusters(cluster_dims); },
-          ::testing::ThrowsMessage<nvfuser::nvfError>(
-              ::testing::HasSubstr("Invalid cluster size")));
-      continue;
-    }
     int64_t max_active = matmul_utils::getMaxActiveClusters(cluster_dims);
 
     // Our regular CI only covers 8.0, 9.0, 10.0, etc.
     // For other minor versions, max allowed cluster size is not tested.
     if (sm_minor == 0) {
-      EXPECT_GT(max_active, 0)
-          << "Expected positive number of active clusters for "
-          << cluster_dims.m << "x" << cluster_dims.n << " cluster";
+      if (cluster_dims.m * cluster_dims.n > 16) {
+        EXPECT_EQ(max_active, 0)
+      } else {
+        EXPECT_GT(max_active, 0);
+      }
     }
-
     // Test caching: call again with same parameters and verify same result
     int64_t max_active_cached =
         matmul_utils::getMaxActiveClusters(cluster_dims);
-    EXPECT_EQ(max_active, max_active_cached)
-        << "Cached result should match for " << cluster_dims.m << "x"
-        << cluster_dims.n << " cluster";
+    EXPECT_EQ(max_active, max_active_cached);
   }
 }
 

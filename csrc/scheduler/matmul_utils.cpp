@@ -1091,29 +1091,20 @@ const char* noopPtx = R"(
 
 } // anonymous namespace
 
-//! Determine the maximum number of clusters that can execute in a single wave
-//! with the given cluster dimensions, considering only shared memory
-//! constraints. A no-op kernel is used to isolate shared memory effects from
-//! register usage. The kernel allocates maximum shared memory per CTA to limit
-//! each SM to one resident CTA. Returns 1 if the cluster size is supported by
-//! the device, 0 otherwise. Callers can estimate actual occupancy by scaling
-//! this result based on the ratio of actual-to-maximum shared memory usage per
-//! CTA.
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
 //!
 //! Note: This function uses maximum shared memory (not actual usage) to enable
 //! caching results by cluster size, avoiding redundant queries for each call.
-
-//! TODO: RAII to ensure module is unloaded even if an exception is thrown.
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   // We can use a cluster size up to 16, indexed from 1 to 16.
   thread_local std::array<int64_t, 17> cached_results;
 
   const int64_t cluster_size = cluster_dims.m * cluster_dims.n;
-  NVF_ERROR(
-      cluster_size >= 1 && cluster_size <= 16,
-      "Invalid cluster size: ",
-      cluster_size,
-      " must be between 1 and 16");
+  if (cluster_size < 1 || cluster_size > 16) {
+    return 0L;
+  }
+
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
