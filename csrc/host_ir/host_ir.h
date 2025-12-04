@@ -496,9 +496,8 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e);
 // symmetric memory type (where the outermost dimension is parallelized with
 // DIDx) and produces an unsharded TensorView. At runtime, it performs IPC
 // handle exchange and creates a contiguous virtual address mapping across all
-// ranks, similar to the VMM multi-rank contiguous mapping pattern. This
-// effectively "unshards" the tensor by making all ranks' data visible in a
-// contiguous address space.
+// ranks. This effectively "unshards" the tensor by making all ranks' data
+// visible in a contiguous address space.
 class SymmetricContiguousView : public Expr {
  public:
   using Expr::Expr;

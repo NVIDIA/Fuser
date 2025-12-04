@@ -807,7 +807,8 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   expr_evaluator_.bind(out_tv, out_tensor);
 }
 
-void HostIrEvaluator::handle(SymmetricContiguousView* symmetric_contiguous_view) {
+void HostIrEvaluator::handle(
+    SymmetricContiguousView* symmetric_contiguous_view) {
   FUSER_PERF_SCOPE("HostIrEvaluator::handle(SymmetricContiguousView)");
 
   NVF_ERROR(

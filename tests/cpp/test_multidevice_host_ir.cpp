@@ -12,7 +12,6 @@
 #include <host_ir/evaluator.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
-#include <multidevice/symmetric_tensor.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <tests/cpp/multidevice.h>
@@ -496,8 +495,6 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
       output_tensor.data_ptr(),
       output_tensor.numel() * output_tensor.element_size(),
       cudaMemcpyDeviceToDevice));
-  // at::Tensor cpu_output_tensor = output_tensor.to(at::kCPU);
-  // auto cpu_options = at::TensorOptions().device(at::kCPU).dtype(at::kFloat);
 
   at::Tensor ref_output = at::empty(unsharded_sizes, options);
   for (int64_t rank = 0; rank < communicator_size; ++rank) {
