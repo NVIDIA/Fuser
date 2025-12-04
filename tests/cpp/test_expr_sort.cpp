@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <iostream>
 #include <list>
 #include <memory>
 #include <unordered_set>

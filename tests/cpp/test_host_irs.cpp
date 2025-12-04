@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <iostream>
-
 #include <gtest/gtest.h>
 
 #include <c10/cuda/CUDAStream.h>

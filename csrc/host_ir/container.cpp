@@ -8,8 +8,6 @@
 
 #include <host_ir/container.h>
 
-#include <iterator>
-
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>

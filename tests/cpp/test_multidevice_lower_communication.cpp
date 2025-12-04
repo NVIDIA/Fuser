@@ -6,13 +6,15 @@
  */
 // clang-format on
 
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
@@ -769,10 +771,25 @@ INSTANTIATE_TEST_SUITE_P(
       return ss.str();
     }));
 
-class LowerCollectiveCudaTest : public MultiDeviceTest {};
+class LowerCollectiveCudaTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
 
 TEST_F(LowerCollectiveCudaTest, Allgather) {
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -809,6 +826,10 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
 
 TEST_F(LowerCollectiveCudaTest, Broadcast) {
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
