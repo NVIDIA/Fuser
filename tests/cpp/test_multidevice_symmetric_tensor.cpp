@@ -293,8 +293,8 @@ TEST_F(SymmetricTensorTest, SmallAllocationMulticast) {
     void* mc_ptr = sym_tensor.multicastPtr();
     EXPECT_NE(mc_ptr, nullptr);
     int val = 42;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-        mc_ptr, &val, sizeof(int), cudaMemcpyHostToDevice));
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaMemcpy(mc_ptr, &val, sizeof(int), cudaMemcpyHostToDevice));
   }
 
   communicator_->barrier();
@@ -303,7 +303,7 @@ TEST_F(SymmetricTensorTest, SmallAllocationMulticast) {
   int readback;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
       &readback, local.data_ptr(), sizeof(int), cudaMemcpyDeviceToHost));
-  
+
   EXPECT_EQ(readback, 42);
 #endif
 }
