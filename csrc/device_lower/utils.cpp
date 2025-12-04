@@ -2219,7 +2219,6 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
-
 } // namespace lower_utils
 
 // In general, if the tensor has an allocation domain set, it
@@ -2253,8 +2252,8 @@ bool canUsePresetAllocationDomain(TensorView* tv) {
             tv->getAllocationDomain().begin(),
             tv->getAllocationDomain().end(),
             [](IterDomain* allocation_domain) {
-              return dynamic_cast<Swizzle*>(
-                         allocation_domain->definition()) != nullptr ||
+              return dynamic_cast<Swizzle*>(allocation_domain->definition()) !=
+                  nullptr ||
                   allocation_domain->getParallelType() == ParallelType::Bulk;
             }) ||
         std::is_permutation(
@@ -2276,8 +2275,7 @@ bool canUsePresetAllocationDomain(TensorView* tv) {
     // If a shared memory output produced by scatter has an
     // allocation domain explicitly set, it's likely to be the
     // valid allocation domain.
-    if (auto def = tv->definition();
-        def != nullptr && def->isA<ScatterOp>()) {
+    if (auto def = tv->definition(); def != nullptr && def->isA<ScatterOp>()) {
       return true;
     }
   }
