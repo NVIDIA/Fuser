@@ -11,6 +11,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
@@ -1079,18 +1080,6 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
 
 } // anonymous namespace
 
-const char* noopPtx = R"(
-.version 8.0
-.target sm_90
-.address_size 64
-
-.entry noopKernel()
-{
-  ret;
-}
-
-)";
-
 //! Returns the number of clusters that can be active at once with the given
 //! size, assuming a single resident CTA per SM.
 //!
@@ -1112,7 +1101,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   executor_utils::initializeCudaContext();
 
   CUmodule module;
-  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, scheduler_utils::noopPtx));
   CUfunction func;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 

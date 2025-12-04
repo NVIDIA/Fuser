@@ -46,6 +46,19 @@
 namespace nvfuser {
 namespace scheduler_utils {
 
+// Minimal PTX code for a no-op kernel, used for occupancy queries
+const char* noopPtx = R"(
+.version 8.0
+.target sm_90
+.address_size 64
+
+.entry noopKernel()
+{
+  ret;
+}
+
+)";
+
 // Returns number of "valid" dimensions. e.g. if tv has
 // [I1, R2, I3, I4, R3{1}]
 // where R3{1} is in dont_merge, resulting domain should be:
@@ -3366,7 +3379,7 @@ int64_t getMaxClusterSize() {
   executor_utils::initializeCudaContext();
 
   CUmodule module;
-  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, matmul_utils::noopPtx));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
   CUfunction func;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 

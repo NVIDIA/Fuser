@@ -881,6 +881,9 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 
+// Minimal PTX code for a no-op kernel, used for occupancy queries
+extern const char* noopPtx;
+
 // Return the maximum cluster size that can be used for the current device.
 // It calls matmul_utils::getMaxActiveClusters which guarantee that at most a
 // single CTA is resident per SM by requesting the maximum smem per CTA then
