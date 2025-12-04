@@ -1,2 +1,4 @@
-pybind11[global]
+# Build dependencies (required before running setup.py)
+cmake>=3.18
 ninja
+pybind11[global]>=2.0
