@@ -214,8 +214,7 @@ void dumpKernelArgs(
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << toString(output)
-            << std::endl;
+    debug() << "  " << toString(output) << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : arange(intermediates.size())) {

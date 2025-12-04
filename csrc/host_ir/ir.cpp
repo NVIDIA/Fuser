@@ -142,8 +142,7 @@ LaunchKernel::LaunchKernel(
   NVF_CHECK(
       compiled_kernel != nullptr,
       "LaunchKernel requires a non-null CompiledKernel pointer");
-  NVF_CHECK(
-      cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+  NVF_CHECK(cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
 
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
