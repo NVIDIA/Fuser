@@ -87,20 +87,36 @@ This requires a single ragged dimension for tokens-per-expert.
 
 #### Multiple Independent Ragged Dimensions Example
 
-For load balancing, different GPUs may handle different numbers of experts:
+For load balancing, different GPUs may handle different numbers of experts based on their capacity:
 
 ```python
-# GPU 0 handles 5 experts (higher capacity)
-# GPU 1 handles 3 experts (lower capacity)
+# GPU 0 handles 5 experts (experts 0-4, higher capacity)
+#   Expert 0: 127 tokens
+#   Expert 1: 0 tokens
+#   Expert 2: 198 tokens
+#   Expert 3: 64 tokens
+#   Expert 4: 89 tokens
+#   Total: 478 tokens on GPU 0
 
-# Shape: [experts=[5,3], tokens_per_expert=[127,0,198,64,89,103,45,201], hidden=512]
+# GPU 1 handles 3 experts (experts 5-7, lower capacity)
+#   Expert 5: 103 tokens
+#   Expert 6: 45 tokens
+#   Expert 7: 201 tokens
+#   Total: 349 tokens on GPU 1
+
+# Tensor representation:
+# Shape: [gpu=2, experts_per_gpu=[5,3], tokens_per_expert=[127,0,198,64,89,103,45,201], hidden=512]
+#
+# Breakdown by GPU:
+# - GPU 0: experts_per_gpu[0]=5, holds experts 0-4 with tokens [127,0,198,64,89]
+# - GPU 1: experts_per_gpu[1]=3, holds experts 5-7 with tokens [103,45,201]
 ```
 
 This requires **two independent ragged dimensions**:
-1. Expert distribution across GPUs: `[5, 3]`
-2. Token distribution per expert: `[127, 0, 198, 64, 89, 103, 45, 201]`
+1. **Expert distribution across GPUs**: `[5, 3]` - GPU 0 has 5 experts, GPU 1 has 3 experts
+2. **Token distribution per expert**: `[127, 0, 198, 64, 89, 103, 45, 201]` - each of the 8 total experts processes different numbers of tokens
 
-Both dimensions are ragged but independent (not nested within each other).
+Both dimensions are ragged but independent (not nested within each other). The uneven expert distribution enables load balancing, with GPU 0 handling more experts (478 tokens total) and GPU 1 handling fewer experts (349 tokens total), resulting in somewhat balanced workload.
 
 ---
 
@@ -196,6 +212,9 @@ auto merged = IterDomain::merge(batch_id, ragged_id);
 // Output: Regular IterDomain with extent 325 (= 127 + 0 + 198)
 ```
 
+**Naming Note:**
+We considered using a new name such as `combine` for this operation, since it differs from the usual `merge` that only works with regular IterDomains (merging a batch IterDomain with a RaggedIterDomain is a distinct operation semantically). However, we decided to use the name `merge` to maintain consistency with the existing IterDomain transformation API, as the operation conceptually performs a merge that collapses two dimensions into one.
+
 #### Key Usage Patterns
 
 The `partition` and `merge` operations are inverse primitives for creating and flattening ragged structures:
@@ -280,7 +299,6 @@ class RaggedIterDomain : public IterDomain {
   // Accessors
   const std::vector<IterDomain*>& nestedDomains() const;
   Val* extentForComponent(int64_t idx) const;
-  Val* offsetForComponent(int64_t idx) const;
 
   // This overrides IterDomain::extent and returns the total extent
   Val* extent() const override;
@@ -288,9 +306,16 @@ class RaggedIterDomain : public IterDomain {
   // This overrides IterDomain::parallelize and calls nested_domains[i]->parallelize(pt) for all nested domains
   void parallelize(ParallelType pt);
 
+  // Returns the offsets tensor (for compatibility with external APIs)
+  // Computes offsets from extents via cumulative sum
+  TensorView* offsets() const;
+
+  // Internal accessor for the extents tensor
+  TensorView* extents() const;
+
  private:
   std::vector<IterDomain*> nested_domains_;  // One per batch component
-  std::vector<Val*> offsets_;                // Cumulative sum
+  TensorView* extents_;                      // Extent tensor (1D, 2D, or N-D) - internal representation
 };
 ```
 
@@ -298,15 +323,22 @@ class RaggedIterDomain : public IterDomain {
 
 The `nested_domains_` vector contains one `IterDomain` per batch component. For a nested tensor with batch size N, there are N nested IterDomains, each with potentially different extent. This represents the ragged dimension structure: component i has extent `nested_domains_[i]->extent()`.
 
-#### Offset Computation
+#### Extent and Offset Computation
 
-Offsets are computed as the cumulative sum of extents: `offsets_[i] = sum(extents[0..i-1])`. This enables efficient indexing into contiguous storage:
+**Internal Representation**: `RaggedIterDomain` stores extents internally via the `extents_` tensor, which contains the extent of each nested domain component. This design choice is made because:
+1. Extents are the fundamental property of each component
+2. Offsets can be derived from extents via cumulative sum
+3. Storing extents avoids redundancy (offsets contain cumulative information)
+
+**Offset Computation**: The `offsets()` method computes offsets on-demand as the cumulative sum of extents: `offsets[i] = sum(extents[0..i-1])`. This enables efficient indexing into contiguous storage:
 - Component 0 starts at offset 0
 - Component 1 starts at offset = extent[0]
 - Component 2 starts at offset = extent[0] + extent[1]
 - And so on...
 
-For a ragged dimension with extents [3, 5, 2], the offsets are [0, 3, 8, 10].
+For a ragged dimension with extents [3, 5, 2], the computed offsets are [0, 3, 8, 10].
+
+**API Note**: While the internal representation uses extents, the public API continues to work with offsets for user convenience and compatibility with existing offset-based patterns (e.g., PyTorch nested tensors use offsets). The conversion between extents and offsets is handled transparently.
 
 #### Extent Semantics
 
@@ -337,27 +369,37 @@ If any validation fails, an error is thrown.
 
 ### 6.4 Key Operations
 
-#### Creation and Nesting
+#### Partition Operation (IterDomain-level)
 
-Create a RaggedIterDomain using the static factory method:
+The `partition` operation is the fundamental primitive for creating ragged dimensions. It splits a regular IterDomain into a batch IterDomain and a RaggedIterDomain based on variable-length segments defined by offsets.
+
+**TensorView API:**
 ```cpp
-auto id0 = IrBuilder::create<IterDomain>(0, 3);  // extent 3
-auto id1 = IrBuilder::create<IterDomain>(0, 5);  // extent 5
-auto id2 = IrBuilder::create<IterDomain>(0, 2);  // extent 2
-
-auto ragged = IrBuilder::create<RaggedIterDomain>({id0, id1, id2});
-// Creates ragged dimension with extents [3, 5, 2]
+// TensorView API (csrc/ir/interface_nodes.h)
+class TensorView : public Val {
+  // Partition dimension 'dim' using the provided offsets
+  // Returns new TensorView with partitioned dimension replaced by (batch_id, ragged_id)
+  TensorView* partition(int dim, TensorView* offsets);
+};
 ```
 
-Create a TensorView with a ragged dimension:
+**Example:**
 ```cpp
-auto batch = IrBuilder::create<IterDomain>(0, 3);  // batch dimension
-auto nested_tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged});
+// Input: [token=325, hidden=512]
+auto tokens = makeContigTensor(2);
+
+// Partition into 3 experts with token counts [127, 0, 198]
+// offsets = [0, 127, 127, 325]
+auto partitioned = tokens->partition(/*dim=*/0, offsets_tv);
+// Result: [expert=3, tokens_per_expert=[127,0,198], hidden=512]
+// Dimension 0 is replaced by (expert_id, ragged_tokens_id)
 ```
 
-**Creating Nested Tensors from Data and Offsets: asNested**
+See Section 6.1 for detailed semantics of the underlying `IterDomain::partition` operation.
 
-To create a nested tensor from separate data and offset tensors (similar to PyTorch's `torch.nested.nested_tensor_from_jagged`), use the `asNested` operation:
+#### Creating Nested Tensors: asNested (Tensor-level)
+
+The `asNested` operation is a tensor-level convenience operation (similar to `reshape`) that creates nested tensors from data and offset tensors. It is implemented using `partition` internally.
 
 ```cpp
 // In csrc/ops/alias.h
@@ -381,10 +423,10 @@ auto nested_tv = asNested(data_tv, offsets_tv, /*ragged_dim=*/0);
 
 **Semantics**:
 - `asNested` is a tensor-level operation (like `reshape`) that creates an output tensor with a ragged dimension
-- Internally, it uses `partition` as a transform operation between the root and logical domains
+- **Implementation**: Uses `partition` as a transform operation between the root and logical domains
 - Similar to how `reshape` uses splits/merges between root and logical domains
 - The offset tensor provides the boundaries for each component (see Section 6.7 for offset tensor format)
-- This is not a view operation; it involves actual data transformation
+- Equivalent to calling `data->partition(ragged_dim, offsets)` but provides a more intuitive API name
 
 **Merging Nested Tensors: asFlattened**
 
@@ -488,39 +530,9 @@ auto selected = tv->select(/*batch_dim=*/0, /*index=*/1);
 - The nested IterDomain at the selected index replaces the RaggedIterDomain in the output TensorDomain
 - This enables direct access to individual components, similar to PyTorch's `nested_tensor[i]` indexing
 
-#### Partition Operation
+#### Complete Examples
 
-The `partition` operation splits a regular IterDomain into a batch IterDomain and a RaggedIterDomain, based on variable-length segments defined by an offset tensor. This is the inverse of `merge` and is essential for expert parallelism workflows where tokens need to be grouped by expert or rank.
-
-**API Design (following split/merge pattern):**
-
-```cpp
-// Static method in IterDomain class (csrc/ir/interface_nodes.h)
-class IterDomain : public Val {
-  // ...
-  static std::pair<IterDomain*, RaggedIterDomain*> partition(
-      IterDomain* in,           // Input IterDomain to partition
-      Val* offsets              // Offset values defining partition boundaries
-  );
-  // ...
-};
-
-// TensorView API (csrc/ir/interface_nodes.h)
-class TensorView : public Val {
-  // ...
-  // Partition dimension 'dim' using the provided offsets
-  // Returns new TensorView with partitioned dimension replaced by (batch_id, ragged_id)
-  TensorView* partition(int dim, TensorView* offsets);
-  // ...
-};
-```
-
-**Semantics:**
-- **Input**: Regular IterDomain with total extent N
-- **Offsets**: TensorView (1D tensor) with K+1 elements `[0, offset_1, ..., offset_K=N]`
-- **Output**:
-  - Batch IterDomain with extent K (number of partitions/components)
-  - RaggedIterDomain with K nested domains, extent of component i is `offsets[i+1] - offsets[i]`
+This section shows complete examples combining multiple operations for real-world use cases.
 
 **Example 1: Simple partitioning**
 ```cpp
@@ -541,20 +553,24 @@ auto partitioned = tv->partition(/*dim=*/0, offsets);
 // Total S=200 tokens evenly distributed: 100 tokens per GPU
 auto tokens = makeContigTensor(3);  // [2, 100, 512]
 
-// Step 1: Partition S/D dimension by expert (inherent data property)
+// Step 1: Partition S/D dimension by expert
 // Tokens from each GPU are routed to E=4 experts with different counts per expert per GPU.
 // expert_offsets: 2D tensor [D=2, E+1=5] with per-GPU offsets for E=4 experts:
 // expert_offsets[0] = [0, 30, 30, 70, 100]    - GPU 0: [30, 0, 40, 30] tokens per expert
 // expert_offsets[1] = [0, 25, 60, 85, 100]    - GPU 1: [25, 35, 25, 15] tokens per expert
-auto by_expert = tokens->partition(/*dim=*/1, expert_offsets);
+tokens->partition(/*dim=*/1, expert_offsets);
+tokens->setLoopAsLogical();
 // Result: [gpu=2, expert=4, tokens_per_expert=[[30,0,40,30],[25,35,25,15]], hidden=512]
 // Now we have nested ragged: outer gpu dimension, inner ragged tokens per expert
+
+auto shuffled_tokens = set(tokens);
+// logical: [gpu=2, expert=4, tokens_per_expert=[[30,0,40,30],[25,35,25,15]], hidden=512]
 
 // Step 2: Shuffle to expert-first layout and distribute across GPUs
 // The merge operation represents the shuffling that reorganizes from
 // [gpu, expert, ragged] to expert-first layout. The actual implementation
 // performs the communication to change the data layout.
-auto merged = IterDomain::merge(gpu_dim, tokens_per_expert);
+shuffled_tokens->merge(0, 2);
 // This creates: [expert=4, merged_ragged=[55,35,65,45]]
 // Where merged tokens per expert = sum across source GPUs:
 //   Expert 0: 30 (from GPU 0) + 25 (from GPU 1) = 55 tokens
@@ -563,7 +579,7 @@ auto merged = IterDomain::merge(gpu_dim, tokens_per_expert);
 //   Expert 3: 30 (from GPU 0) + 15 (from GPU 1) = 45 tokens
 
 // Then split experts across GPUs for parallel processing (2 experts per GPU)
-auto [gpu_out, expert_per_gpu] = IterDomain::split(expert_dim, /*factor=*/2);
+shuffled_tokens->split(0, /*factor=*/2);
 // Result: [gpu=2, expert_per_gpu=2, merged_ragged=[[55,35],[65,45]], hidden=512]
 //   GPU 0 processes experts 0-1 with [55, 35] tokens respectively
 //   GPU 1 processes experts 2-3 with [65, 45] tokens respectively
@@ -576,18 +592,20 @@ auto [gpu_out, expert_per_gpu] = IterDomain::split(expert_dim, /*factor=*/2);
 
 ### 6.5 Indexing and Code Generation
 
-#### Offset-Based Indexing
+**Note**: Indexing and code generation for ragged dimensions are **not part of the initial scope** of this design. The details below describe the intended eventual behavior but are intentionally left out for now. The initial implementation will focus on the IR representation and basic infrastructure.
 
-For ragged iteration, global indices are computed as:
+#### Offset-Based Indexing (Future Work)
+
+For ragged iteration, global indices will be computed as:
 ```
 global_index = offset[component_idx] + local_index
 ```
 
 Where `component_idx` is the batch index and `local_index` iterates from 0 to `extent[component_idx]`. The offset array provides the starting position of each component in contiguous storage.
 
-#### Loop Structure
+#### Loop Structure (Future Work)
 
-Generated CUDA code follows this pattern:
+Generated CUDA code will follow this pattern:
 ```cuda
 for (int batch = 0; batch < num_components; batch++) {
   int offset = offsets[batch];
@@ -601,7 +619,7 @@ for (int batch = 0; batch < num_components; batch++) {
 }
 ```
 
-#### Indexer Strategy
+#### Indexer Strategy (Future Work)
 
 RaggedIterDomain will integrate with the IdModel-based indexing system. This requires extending IdModel to handle ragged dimensions, including new expression types for ragged transformations and modifications to ValGraph handling.
 
@@ -644,9 +662,8 @@ Consider the mixture of experts (MoE) use case where a kernel dynamically create
 # Inside the kernel:
 # 1. Compute routing: which tokens go to which expert
 # 2. Count tokens per expert: [127, 0, 198, 64, 412, 89, 103, 31]
-# 3. Compute offsets: [0, 127, 127, 325, 389, 801, 890, 993, 1024]
-# 4. Reorder token data: group tokens by expert assignment
-# 5. Write nested tensor output with ragged dimension
+# 3. Reorder token data: group tokens by expert assignment
+# 4. Write nested tensor output with ragged dimension
 
 # Result: nested tensor [num_experts=8, ragged_tokens=[127,0,198,...], hidden_dim]
 ```
@@ -655,7 +672,7 @@ Consider the mixture of experts (MoE) use case where a kernel dynamically create
 
 **Implication**: We cannot bundle extent/offset information with the nested tensor itself.
 
-This problem can be addressed by managing the offsets as a separate tensor that can be computed dynamically on GPU and passed between kernels. That effectively means a logical nested tensor consists of two Vals: one tensor for the nested tensor itself and another tensor for the offsets. More concretely, here's a fusion that creates a nested tensor with `asNested` as an output:
+This problem can be addressed by managing extent/offset information as a separate tensor that can be computed dynamically on GPU and passed between kernels. That effectively means a logical nested tensor consists of two Vals: one tensor for the nested tensor itself and another tensor for the extent/offset information. More concretely, here's a fusion that creates a nested tensor with `asNested` as an output:
 
 ```cpp
 // User-defined Fusion
@@ -743,23 +760,27 @@ Since it is an implementation detail, the offset tensor should be hidden behind 
 
 ### Indexing Layer
 
-**IdModel Extensions**:
+**Note**: Not part of initial scope. Details intentionally left out for now.
+
+**IdModel Extensions** (Future Work):
 - Extend IdModel to handle RaggedIterDomain in ValGraph
 - Modify `TensorIndexer` to compute offset-based indices
 - Update loop promotion logic for ragged dimensions
 
-**Detection**:
+**Detection** (Future Work):
 - Detect RaggedIterDomain during graph building
 - Route to ragged-aware indexing logic
 
 ### Lowering and CodeGen
 
-**Device Lowering**:
+**Note**: Not part of initial scope. Details intentionally left out for now.
+
+**Device Lowering** (Future Work):
 - Handle RaggedIterDomain in allocation passes
 - Generate offset array computations
 - Create predicates for ragged bounds checking
 
-**Code Generation**:
+**Code Generation** (Future Work):
 - Emit nested loop structure with offset-based indexing
 - Generate uniform parallelization across components
 - Handle extent and offset lookups in generated CUDA code
@@ -768,27 +789,27 @@ Since it is an implementation detail, the offset tensor should be hidden behind 
 
 ## 8. Implementation Phases
 
-### Phase 1: Core Infrastructure
+### Phase 1: Core Infrastructure (Initial Scope)
 - Type system updates (ValType enum, dispatch macros)
 - RaggedIterDomain class declaration and implementation
 - Basic validation, accessors, printing
 - **Goal**: Can create and inspect RaggedIterDomain instances
 
-### Phase 2: IdModel Integration
+### Phase 2: IdModel Integration (Future Work - Not in Initial Scope)
 - Extend IdModel ValGraph to handle RaggedIterDomain
 - Modify TensorIndexer for offset-based indexing
 - Add new expression types for ragged operations
 - Predicate generation for ragged bounds
 - **Goal**: Can compile and execute simple ragged operations
 
-### Phase 3: Transformations
+### Phase 3: Transformations (Initial Scope)
 - Implement split operations on ragged dimensions
 - Implement merge operations (ragged with regular IterDomain)
 - Add parallelize override
 - Additional operations (flatten, nest/unnest) as determined by expert parallelism requirements
 - **Goal**: Can create and transform ragged dimensions
 
-### Phase 4: Full Integration
+### Phase 4: Full Integration (Future Work - Not in Initial Scope)
 - TensorView integration (allow RaggedIterDomain in TensorDomain)
 - Device lowering passes for ragged
 - CUDA code generation with offset-based indexing
