@@ -16,6 +16,7 @@
 
 #include <bfs.h>
 #include <contiguity.h>
+#include <cuda_utils.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
@@ -29,6 +30,8 @@
 #include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor_utils.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
@@ -3344,22 +3347,67 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
-// TODO: move getMaxActiveClusters to here
-// Given a cluster size starting from 16, if we can get at least 1 active
-// cluster, then we can use the given cluster size. Otherwise, reduce by half
-// and try again.
+// Get the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly.
+// Results are cached to avoid redundant queries.
 int64_t getMaxClusterSize() {
   // return 1 for pre-Hopper devices
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return 1;
   }
-  int cluster_size = 16;
-  while (cluster_size > 1 &&
-         matmul_utils::getMaxActiveClusters(
-             MatmulParams::ClusterDims{cluster_size, 1}) < 1) {
-    cluster_size /= 2;
+
+  // Cache the result per device to avoid repeated queries
+  thread_local int64_t cached_result = 0;
+
+  if (cached_result != 0) {
+    return cached_result;
   }
-  return cluster_size;
+
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, matmul_utils::noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/0));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+
+  // max non portable cluster size is 16 on H100 and GB200 while portable
+  // cluster size is 8
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  // block size is set to 128, its value does not matter for the query as the
+  // max shared memory size is used to ensure 1 CTA per SM.
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 128));
+
+  // Set up launch configuration for occupancy query
+  CUlaunchConfig config{0};
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
+  config.gridDimX = 1;
+  config.gridDimY = 1;
+  config.gridDimZ = 1;
+  config.sharedMemBytes = maxDynamicSmemSize;
+  config.hStream = nullptr;
+
+  int max_cluster_size;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxPotentialClusterSize(&max_cluster_size, func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+
+  cached_result = (int64_t)max_cluster_size;
+  return cached_result;
 }
 
 // Computes the size of the inner TMA domain dimension for 2D TMA operations.

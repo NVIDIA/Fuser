@@ -56,5 +56,8 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos = 3);
 //! be launched simultaneously, given a particular cluster size.
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims);
 
+//! Minimal PTX code for a no-op kernel, used for occupancy queries
+extern const char* noopPtx;
+
 } // namespace matmul_utils
 } // namespace nvfuser

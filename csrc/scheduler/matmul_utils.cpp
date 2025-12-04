@@ -1077,6 +1077,8 @@ MatmulParams::SupportedVectorization getSupportedVectorization(
   return calc.compute();
 }
 
+} // anonymous namespace
+
 const char* noopPtx = R"(
 .version 8.0
 .target sm_90
@@ -1088,8 +1090,6 @@ const char* noopPtx = R"(
 }
 
 )";
-
-} // anonymous namespace
 
 //! Returns the number of clusters that can be active at once with the given
 //! size, assuming a single resident CTA per SM.

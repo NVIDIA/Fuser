@@ -308,4 +308,29 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
   }
 }
 
+// Test the getMaxClusterSize utility function
+TEST_F(NVFuserTest, GetMaxClusterSize) {
+  int device_major = at::cuda::getCurrentDeviceProperties()->major;
+  int device_minor = at::cuda::getCurrentDeviceProperties()->minor;
+
+  // Get the maximum cluster size
+  int64_t max_cluster_size = scheduler_utils::getMaxClusterSize();
+
+  if (device_major < 9) {
+    // Pre-Hopper devices don't support clusters
+    EXPECT_EQ(max_cluster_size, 1);
+  } else {
+    // Hopper (9.0) and later devices support clusters
+    // Our regular CI only covers 8.0, 9.0, 10.0, etc.
+    // For other minor versions, max allowed cluster size is not tested.
+    if (device_minor == 0) {
+      EXPECT_EQ(max_cluster_size, 16);
+    }
+  }
+
+  // Test caching: call again and verify same result is returned
+  int64_t max_cluster_size_cached = scheduler_utils::getMaxClusterSize();
+  EXPECT_EQ(max_cluster_size, max_cluster_size_cached);
+}
+
 } // namespace nvfuser
