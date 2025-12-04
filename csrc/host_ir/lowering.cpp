@@ -172,7 +172,7 @@ void lowerSegment(
       // without cloning the value again.
       Expr* e = ir_cloner.clone(group.exprs().front());
 
-      // TODO: `replacement_map` should be associated with the scope os
+      // TODO: `replacement_map` should be associated with the scope so
       // ShardByStream across segments in the same for-loop can be reused.
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
