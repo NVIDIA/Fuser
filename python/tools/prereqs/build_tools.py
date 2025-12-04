@@ -84,12 +84,9 @@ def check_cmake_version() -> Tuple[int, int, int]:
             f"CMake 3.18+ is required for modern CUDA support features.\n\n"
             f"Install all build dependencies:\n"
             f"  pip install -r requirements.txt\n\n"
-            f"Or upgrade CMake individually:\n"
+            "Or upgrade CMake individually:\n"
             f"  pip install --upgrade 'cmake>=3.18'"
         )
-    
-    # Success: print confirmation
-    print(f"[nvFuser] CMake: {major}.{minor}.{patch} ✓")
     
     return (major, minor, patch)
 
@@ -141,9 +138,6 @@ def check_ninja_installed() -> str:
     # Parse version string
     # Expected format: "1.11.1" (just the version number)
     version_str = result.stdout.strip()
-    
-    # Success: print confirmation
-    print(f"[nvFuser] Ninja: {version_str} ✓")
     
     return version_str
 

@@ -158,8 +158,5 @@ def validate_gcc() -> Tuple[int, int, int]:
         print(f"[nvFuser] Build may fail. Please verify GCC installation is complete.")
         # Don't raise error here - let the build attempt proceed
     
-    # Success: print confirmation
-    print(f"[nvFuser] GCC: {major}.{minor}.{patch} ✓")
-    
     return gcc_ver
 

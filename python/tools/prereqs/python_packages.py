@@ -173,9 +173,6 @@ def check_pybind11_installed() -> str:
             "  pip install --force-reinstall 'pybind11[global]>=2.0'"
         )
     
-    # Success: print confirmation
-    print(f"[nvFuser] pybind11: {version} with CMake support ✓")
-    
     return version
 
 
@@ -325,10 +322,6 @@ def check_torch_installed() -> Tuple[str, str]:
         print(f"  System CUDA: {system_cuda}")
         print(f"  Major versions match ({torch_cuda_major}), but minor versions differ.")
         print(f"  Build should work, but consider matching minor versions for best compatibility.")
-    
-    # Success: print confirmation with both versions
-    print(f"[nvFuser] PyTorch: {torch_version} with CUDA {cuda_version_str} ✓")
-    print(f"[nvFuser] System CUDA toolkit: {system_cuda} ✓")
     
     return torch_version, cuda_version_str
 

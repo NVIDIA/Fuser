@@ -130,10 +130,6 @@ def check_git_submodules_initialized() -> List[Tuple[str, str]]:
             
             raise PrerequisiteMissingError(error_msg)
         
-        # Success: print confirmation
-        num_submodules = len(initialized)
-        print(f"[nvFuser] Git submodules: {num_submodules} initialized ✓")
-        
         return initialized
         
     except FileNotFoundError:

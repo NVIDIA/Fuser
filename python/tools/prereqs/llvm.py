@@ -242,8 +242,5 @@ def check_llvm_installed() -> str:
             "  export LLVM_CONFIG=/usr/lib/llvm-18/bin/llvm-config\n"
         )
     
-    # Success: print confirmation
-    print(f"[nvFuser] LLVM: {major}.{minor}.{patch} ✓")
-    
     return version_str
 

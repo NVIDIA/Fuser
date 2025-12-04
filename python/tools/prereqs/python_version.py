@@ -108,8 +108,5 @@ def check_python_version() -> Tuple[int, int, int]:
         
         raise PrerequisiteMissingError(error_msg)
     
-    # Success: print confirmation
-    print(f"[nvFuser] Python: {major}.{minor}.{patch} ✓")
-    
     return (major, minor, patch)
 
