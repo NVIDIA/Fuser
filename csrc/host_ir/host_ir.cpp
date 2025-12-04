@@ -490,6 +490,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     // `e`, not `temp_e`, at this point.
     auto* ref_out = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(e->outputs()));
+    NVF_ERROR(ref_out != nullptr, "`e` has no output TensorViews: ", e);
     ref_out->setDefinition(temp_e);
     shardLoopLike(
         ref_out,

@@ -166,8 +166,11 @@ void lowerSegment(
         auto* communication = c->as<Communication>();
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(device_id)) {
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          auto memory_type = tv->getMemoryType();
+          if (memory_type != MemoryType::Symmetric) {
+            memory_type = MemoryType::Global;
+          }
+          auto* allocate = IrBuilder::create<kir::Allocate>(tv, memory_type);
           // TODO: allocation may have to go to the top level. See how
           // SchedulerType::ExprEval handles allocations.
           loop_nest.innermostScope().push_back(allocate);
@@ -301,8 +304,11 @@ void lowerSegment(
             " must not be an alias, got ",
             alias);
         auto* tv = out->as<TensorView>();
-        auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+        auto memory_type = tv->getMemoryType();
+        if (memory_type != MemoryType::Symmetric) {
+          memory_type = MemoryType::Global;
+        }
+        auto* allocate = IrBuilder::create<kir::Allocate>(tv, memory_type);
         loop_nest.innermostScope().push_back(allocate);
       }
 

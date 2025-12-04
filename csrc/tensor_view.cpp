@@ -76,6 +76,9 @@ std::string TensorView::toString(int indent_size) const {
     case MemoryType::Tensor:
       ss << "_t";
       break;
+    case MemoryType::Symmetric:
+      ss << "_sym";
+      break;
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
@@ -1349,7 +1352,7 @@ void TensorView::setMemoryType(MemoryType mt) {
   memory_type_ = mt;
   if (isFusionInput() || isFusionOutput()) {
     NVF_ERROR(
-        mt == MemoryType::Global,
+        mt == MemoryType::Global || mt == MemoryType::Symmetric,
         "Tried to set an input or output to the fusion to a non-global memory "
         "type.");
   }
