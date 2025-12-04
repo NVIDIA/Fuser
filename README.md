@@ -72,12 +72,12 @@ Supported compilers:
 
 **GCC:**
 
-We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 3/2/2025, they are:
+GCC 13+ is required (C++20 `<format>` header support). Recommended versions:
 
-- gcc 12.4
 - gcc 13.3
 - gcc 14.2
+
+Note: GCC 12 is not supported due to missing `<format>` header in libstdc++.
 
 **Clang:**
 
