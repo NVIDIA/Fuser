@@ -168,15 +168,18 @@ void transformLoopDomain(
     transformed_loop.pushBack(id, std::monostate());
   }
 
+  const std::vector<IterDomain*>& source_domain =
+      (direction == PropagateDirection::kForward ? ref->getLogicalDomain()
+                                                 : ref->getMaybeRootDomain());
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
-      {ref->getLogicalDomain().begin(), ref->getLogicalDomain().end()},
+      {source_domain.begin(), source_domain.end()},
       {device_or_stream_ids.begin(), device_or_stream_ids.end()});
 
   for (Expr* transform : transforms) {
     auto* split = dynamic_cast<Split*>(transform);
     NVF_ERROR(
         split != nullptr,
-        "Expected a split transform producing the device id. Got: ",
+        "Expected a split transform producing the device/stream id. Got: ",
         transform);
 
     IterDomain* ref_id = split->in();
