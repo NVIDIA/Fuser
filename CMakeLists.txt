@@ -309,6 +309,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/ipc_handle.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/ipc_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
@@ -347,7 +348,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/allocate_and_deallocate.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp
@@ -391,6 +392,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
