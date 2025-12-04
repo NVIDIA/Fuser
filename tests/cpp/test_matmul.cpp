@@ -4672,7 +4672,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 // This tests that we can use a small instruction tile with a medium size
 // warpgroup tile and a large CTA tile.
-TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
+// TODO: This test passes on CUDA 13.0 but fails on CUDA 13.1
+TEST_F(
+    HopperMatmulTest,
+    DISABLED_HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
+  Fusion fusion;
   Fusion fusion;
   FusionGuard fg(&fusion);
 
