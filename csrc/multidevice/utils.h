@@ -9,11 +9,8 @@
 
 #include <iosfwd>
 
-#include <compute_at_map.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
 
 namespace nvfuser {
 
@@ -85,5 +82,13 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
+
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
 } // namespace nvfuser
