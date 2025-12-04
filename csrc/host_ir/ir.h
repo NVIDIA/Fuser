@@ -121,6 +121,7 @@ class LaunchKernel : public Expr {
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
       Val* cache_id);
+  LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -160,7 +161,7 @@ class LaunchKernel : public Expr {
   }
 
  private:
-  CompiledKernel* compiled_kernel_;
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {

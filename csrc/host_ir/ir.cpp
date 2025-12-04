@@ -150,6 +150,9 @@ LaunchKernel::LaunchKernel(
   addAttribute(cache_id);
 }
 
+LaunchKernel::LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner), compiled_kernel_(src->compiled_kernel_) {}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
