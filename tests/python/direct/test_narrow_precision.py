@@ -47,8 +47,8 @@ def quantize_to_mxfp8_e4m3(tensor: torch.Tensor):
         - quantized_tensor._rowwise_data: quantized FP8 values (uint8)
         - quantized_tensor._rowwise_scale_inv: inverse scale factors (uint8)
     """
-    import transformer_engine_torch as tex
     from transformer_engine.pytorch.tensor.mxfp8_tensor import MXFP8Quantizer
+    import transformer_engine_torch as tex
 
     # Create MXFP8 quantizer for E4M3 format
     quantizer = MXFP8Quantizer(
@@ -66,17 +66,20 @@ def quantize_to_mxfp8_e4m3(tensor: torch.Tensor):
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
-def test_nv_block_quantization(nvfuser_direct_test):
-    x = torch.rand((1024, 1024), dtype=torch.float32, device="cuda")
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+def test_nv_block_quantization(nvfuser_direct_test, dtype):
+    x = torch.rand((1024, 1024), dtype=dtype, device="cuda")
 
-    # x_u8, x_scale = pytorch_nvfp4_quantize(x, x_global_scale)
-    results = quantize_to_mxfp8_e4m3(x)
-    x_u8 = results._rowwise_data
-    x_scale = results._rowwise_scale_inv
+    quantized_x = quantize_to_mxfp8_e4m3(x)
+    ref_vals = quantized_x._rowwise_data.view(torch.float8_e4m3fn)
+    ref_scales = quantized_x._rowwise_scale_inv.view(torch.float8_e8m0fnu)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
         x_tv = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+            is_cpu=False,
         )
         vals_, scales_ = fd.ops.nv_block_quantize(
             x_tv, None, False, 32, DataType.Float8_e4m3fn
@@ -86,10 +89,18 @@ def test_nv_block_quantization(nvfuser_direct_test):
 
     outputs, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, [x])
 
-    print(f"outputs[0] dtype: {outputs[0].dtype}")
-    print(f"outputs[1] dtype: {outputs[1].dtype}")
-    print(f"x_u8 dtype: {x_u8.dtype}")
-    print(f"x_scale dtype: {x_scale.dtype}")
+    quantized_vals = outputs[0]
+    quantized_scales = outputs[1]
+
+    # Check that values match
+    torch.testing.assert_close(
+        quantized_vals, ref_vals, rtol=0, atol=0, msg="Quantized values do not match"
+    )
+
+    # Check that scales match
+    torch.testing.assert_close(
+        quantized_scales, ref_scales, rtol=0, atol=0, msg="Block scales do not match"
+    )
 
 
 def nvfp4_quantize_with_te(input_tensor):

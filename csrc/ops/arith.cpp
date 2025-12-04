@@ -2730,12 +2730,16 @@ BlockQuantizationResults blockQuantize(
           TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
       out_dtype);
 
+  auto block_scales_dtype = (out_dtype == DataType::Float4_e2m1fn)
+      ? DataType::Float8_e4m3fn
+      : DataType::Float8_e8m0fnu;
+
   // Create block scaling factors
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           scales_out_domain,
           TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
-      DataType::Float8_e4m3fn);
+      block_scales_dtype);
 
   if (swizzle_scales) {
     ir_utils::swizzleBlockScales(block_scales);

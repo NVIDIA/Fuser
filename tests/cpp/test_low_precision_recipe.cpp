@@ -109,6 +109,35 @@ class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
 
+void createMXFP8QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  fusion->addInput(tv_data_hp);
+
+  constexpr int64_t fp8_block_size = 32;
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, fp8_block_size); });
+
+  tv_data_hp_reshaped = castOp(DataType::Float, tv_data_hp_reshaped);
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+
+  static constexpr float max_norm_rcp = 1.0f / 448;
+  auto tv_block_scale = mul(
+      tv_data_hp_amax, IrBuilder::create<Val>(max_norm_rcp, DataType::Float));
+
+  auto tv_block_scale_fp8 = castOp(DataType::Float8_e8m0fnu, tv_block_scale);
+
+  auto tv_unsqueeze = unsqueeze(tv_block_scale_fp8, -1);
+  auto exponent_scale = reciprocal(exp2(tv_unsqueeze));
+  auto tv_data_scaled = mul(tv_data_hp_reshaped, exponent_scale);
+
+  auto tv_data_lp = castOp(DataType::Float8_e4m3fn, tv_data_scaled);
+  tv_data_lp = reshape(tv_data_lp, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_data_lp);
+  fusion->addOutput(tv_block_scale_fp8);
+}
+
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
@@ -161,6 +190,32 @@ void createNVFP4QuantizationFusion(
   }
 }
 } // namespace
+
+class MXFP8QuantizationTest : public BlackwellBase {};
+
+TEST_F(MXFP8QuantizationTest, Basic) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  createMXFP8QuantizationFusion(fusion.get(), DataType::Float);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)));
+  auto outputs = fec.runFusionWithInputs(inputs);
+
+  FusionKernelRuntime* runtime = fec.getMostRecentKernelRuntime();
+
+  // Check that the fusion is segmented into two groups.
+  // The normalization scheduler is used for the first group
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::InnerPersistent)));
+}
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
