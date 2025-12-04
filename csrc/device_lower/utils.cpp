@@ -2219,7 +2219,6 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
-
 } // namespace lower_utils
 
 // In general, if the tensor has an allocation domain set, it
