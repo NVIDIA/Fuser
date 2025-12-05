@@ -62,12 +62,12 @@ class NVF_API Communicator {
   }
 
   // returns the number of processes in the communicator
-  auto size() const {
+  int64_t size() const {
     return size_;
   }
 
   // returns the local number of processes in the communicator (within the node)
-  auto local_size() const {
+  int64_t local_size() const {
     return local_size_;
   }
 
@@ -89,7 +89,7 @@ class NVF_API Communicator {
       const std::string& prefix = "");
 
   // returns the device associated with the current process
-  auto device() const {
+  at::Device device() const {
     return at::Device("cuda:" + std::to_string(local_rank_));
   }
 
