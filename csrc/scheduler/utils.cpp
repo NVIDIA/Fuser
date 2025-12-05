@@ -3387,7 +3387,7 @@ int64_t getMaxClusterSize() {
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &max_smem_opt_in,
       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
-      /*device=*/0));
+      /*device=*/at::cuda::current_device()));
   NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
       func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
 
@@ -3451,7 +3451,7 @@ int64_t getMaxActiveClusters(const int64_t cluster_size) {
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
       &max_smem_opt_in,
       CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
-      /*device=*/0));
+      /*device=*/at::cuda::current_device()));
   NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
       func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
   NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
