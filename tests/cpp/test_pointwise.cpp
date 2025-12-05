@@ -23,7 +23,19 @@
 namespace nvfuser {
 
 class PointwiseTest : public NVFuserTest {
+ protected:
   void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
+// Base class for parameterized pointwise tests using TEST_P
+// Sets up IdModel configuration for parameterized tests
+template <typename ParamType>
+class PointwiseTestP : public NVFuserFixtureParamTest<ParamType> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<ParamType>::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
@@ -1437,19 +1449,18 @@ TEST_F(
   }
 }
 
-// Base class for TMA tests - provides common setup for CUDA 9.0 arch and TMA
-// options
-template <typename ParamType>
-class TmaTestBase : public NVFuserFixtureParamTest<ParamType> {
+// Mixin providing TMA test functionality
+// Used via multiple inheritance to add TMA capabilities to test fixtures
+class TmaPointwiseBase {
  protected:
-  void SetUp() override {
-    NVFuserFixtureParamTest<ParamType>::SetUp();
+  // Configure TMA-specific environment (CUDA arch check + enable TMA option)
+  void SetUp() {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
   }
 
-  // Helper function to check if TMA load is used in the executor cache
+  // Helper to check if TMA load is used in the compiled kernel
   bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     return runtime->schedulerHeuristics()
@@ -1459,8 +1470,37 @@ class TmaTestBase : public NVFuserFixtureParamTest<ParamType> {
         ->use_tma_load;
   }
 
+  int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
+    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+    return runtime->schedulerHeuristics()
+        ->heuristicsList()
+        .at(0)
+        ->as<PointwiseParams>()
+        ->tma_domain_inner;
+  }
+
  private:
   std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+
+// Non-parameterized TMA pointwise test fixture (for TEST_F)
+class TmaPointwiseTestF : public TmaPointwiseBase, public PointwiseTest {
+ protected:
+  void SetUp() override {
+    PointwiseTest::SetUp(); // Setup IdModel
+    TmaPointwiseBase::SetUp(); // Setup TMA
+  }
+};
+
+// Parameterized TMA pointwise test fixture (for TEST_P)
+template <typename ParamType>
+class TmaPointwiseTestP : public TmaPointwiseBase,
+                          public PointwiseTestP<ParamType> {
+ protected:
+  void SetUp() override {
+    PointwiseTestP<ParamType>::SetUp(); // Setup IdModel and test params
+    TmaPointwiseBase::SetUp(); // Setup TMA
+  }
 };
 
 // Test scheduling pointwise kernel with 2D TMA tiles.
@@ -1474,7 +1514,7 @@ using TmaPointwiseTestParams =
     std::tuple<int64_t, int64_t, bool, bool>; // <dim0, ndims, use_tma_store,
                                               // auto_schedule>
 
-class TmaPointwiseTest : public TmaTestBase<TmaPointwiseTestParams> {};
+class TmaPointwiseTest : public TmaPointwiseTestP<TmaPointwiseTestParams> {};
 TEST_P(TmaPointwiseTest, NoBroadcast) {
   // This is a simple test with contiguous inputs, without broadcast, reshapes,
   // allocation domains, etc. Test that 2D TMA tiles can be used to schedule
@@ -1700,7 +1740,8 @@ INSTANTIATE_TEST_SUITE_P(
 // Parameters for TmaPointwiseBcastTest test
 // <use_auto_scheduler, tma_inner_bcast, tma_outer_bcast>
 using InnerOuterBcastParams = std::tuple<bool, bool, bool>;
-class TmaPointwiseBcastTest : public TmaTestBase<InnerOuterBcastParams> {};
+class TmaPointwiseBcastTest : public TmaPointwiseTestP<InnerOuterBcastParams> {
+};
 
 TEST_P(TmaPointwiseBcastTest, InnerOuterBcast) {
   // Test TMA scheduling with broadcast tensors
@@ -1887,5 +1928,63 @@ INSTANTIATE_TEST_SUITE_P(
           "_tma_inner_bcast_" + std::to_string(tma_inner_bcast) +
           "_tma_outer_bcast_" + std::to_string(tma_outer_bcast);
     });
+
+TEST_F(TmaPointwiseTestF, TmaDomainBroadcast) {
+  int64_t dim0 = 1024;
+  int64_t dim1 = 64;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  // ensure TMA is used
+  EXPECT_TRUE(hasTmaLoad(executor_cache));
+  // This fusion with broadcast will use 2D scheudler, the tma domain size is
+  // natually [dim0, dim1]
+  EXPECT_EQ(getTmaDomainInner(executor_cache), dim1);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+// load of tv0 is not vectorized in non-TMA version, not TMA loaded in TMA
+// version.
+TEST_F(TmaPointwiseTestF, TmaDomainBroadcastIllegal) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8191;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_FALSE(hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
 
 } // namespace nvfuser
