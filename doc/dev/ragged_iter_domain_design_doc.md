@@ -41,7 +41,7 @@ nt = torch.nested.nested_tensor([t1, t2, t3])
 
 The ragged dimension uses contiguous storage with offsets [0, 3, 8, 10] to locate each component.
 
-**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. nvFuser extends beyond this limitation to support **multiple independent ragged dimensions** per tensor. For example, a tensor can have both a ragged expert dimension (different GPUs handle different numbers of experts) and a ragged tokens-per-expert dimension (each expert processes different numbers of tokens). This extension is necessary for expert parallelism with load balancing, where both the distribution of experts across devices and the distribution of tokens per expert are non-uniform.
+**PyTorch Restriction**: PyTorch nested tensors currently support only one ragged dimension per tensor. nvFuser may extend beyond this limitation to support **multiple independent ragged dimensions** per tensor (nice-to-have feature). For example, a tensor could have both a ragged expert dimension and a ragged tokens-per-expert dimension, where different GPUs handle different numbers of experts and each expert processes different numbers of tokens.
 
 ### nvFuser IterDomain System
 
@@ -66,7 +66,7 @@ Expert parallelism in Mixture-of-Experts (MoE) models requires ragged dimensions
 
 1. **Token Dispatch**: Route input tokens to different experts based on routing decisions
 2. **Expert Distribution**: Distribute experts across multiple GPUs for parallel processing
-3. **Load Balancing**: Handle non-uniform token and expert distributions
+3. **Variable-Length Handling**: Handle non-uniform token distributions across experts
 
 #### Single-Level Nesting Example
 
@@ -85,39 +85,6 @@ tokens_by_expert = nested_tensor([
 
 This requires a single ragged dimension for tokens-per-expert.
 
-#### Multiple Independent Ragged Dimensions Example
-
-For load balancing, different GPUs may handle different numbers of experts based on their capacity:
-
-```python
-# GPU 0 handles 5 experts (experts 0-4, higher capacity)
-#   Expert 0: 127 tokens
-#   Expert 1: 0 tokens
-#   Expert 2: 198 tokens
-#   Expert 3: 64 tokens
-#   Expert 4: 89 tokens
-#   Total: 478 tokens on GPU 0
-
-# GPU 1 handles 3 experts (experts 5-7, lower capacity)
-#   Expert 5: 103 tokens
-#   Expert 6: 45 tokens
-#   Expert 7: 201 tokens
-#   Total: 349 tokens on GPU 1
-
-# Tensor representation:
-# Shape: [gpu=2, experts_per_gpu=[5,3], tokens_per_expert=[127,0,198,64,89,103,45,201], hidden=512]
-#
-# Breakdown by GPU:
-# - GPU 0: experts_per_gpu[0]=5, holds experts 0-4 with tokens [127,0,198,64,89]
-# - GPU 1: experts_per_gpu[1]=3, holds experts 5-7 with tokens [103,45,201]
-```
-
-This requires **two independent ragged dimensions**:
-1. **Expert distribution across GPUs**: `[5, 3]` - GPU 0 has 5 experts, GPU 1 has 3 experts
-2. **Token distribution per expert**: `[127, 0, 198, 64, 89, 103, 45, 201]` - each of the 8 total experts processes different numbers of tokens
-
-Both dimensions are ragged but independent (not nested within each other). The uneven expert distribution enables load balancing, with GPU 0 handling more experts (478 tokens total) and GPU 1 handling fewer experts (349 tokens total), resulting in somewhat balanced workload.
-
 ---
 
 ## 4. Goals and Non-Goals
@@ -125,7 +92,9 @@ Both dimensions are ragged but independent (not nested within each other). The u
 ### Goals
 
 - Support ragged dimensions in fusion IR for expert parallelism
-- Support multiple independent ragged dimensions per tensor for load balancing scenarios
+- (Nice-to-have) Support multiple independent ragged dimensions per tensor
+  - Not strictly required for initial use cases
+  - Expected to not significantly complicate implementation, but may be dropped if issues arise
 
 ### Non-Goals
 
@@ -182,7 +151,7 @@ static std::pair<IterDomain*, RaggedIterDomain*> partition(
 
 **Semantics:**
 - Input: Regular IterDomain with total extent N
-- Offsets: TensorView (1D, 2D, or N-D) defining partition boundaries. For the simple 1D case with K partitions: `[0, offset_1, ..., offset_K=N]`. For multi-dimensional cases, the offset tensor shape determines the nesting structure of the resulting RaggedIterDomain (see Example 2 in Section 6.4 for a concrete example with 2D offsets).
+- Offsets: TensorView (can be 1D, 2D, or N-D) defining partition boundaries. For the simple 1D case with K partitions: `[0, offset_1, ..., offset_K=N]`. For multi-dimensional cases, the offset tensor shape determines the structure of the extent tensor in the resulting RaggedIterDomain (see Example 2 in Section 6.4 for a concrete expert parallelism example with 2D offsets).
 - Output:
   - Batch IterDomain with extent K (number of partitions)
   - RaggedIterDomain with K nested domains (extents = differences between consecutive offsets)
@@ -249,7 +218,7 @@ The `partition` and `merge` operations enable ragged structures as shown in the 
 
 #### Tensor Domain Structure
 
-A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. nvFuser supports **multiple RaggedIterDomains per TensorDomain** for load balancing scenarios.
+A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain` instances, representing tensors with both uniform and ragged dimensions. nvFuser may support **multiple RaggedIterDomains per TensorDomain** (nice-to-have feature, may be dropped if complicated).
 
 **Example 1: Single ragged dimension**
 ```cpp
@@ -259,29 +228,6 @@ auto ragged_seq = IrBuilder::create<RaggedIterDomain>({seq0, seq1, seq2});
 auto feature = IrBuilder::create<IterDomain>(0, 4);
 
 auto tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged_seq, feature});
-```
-
-**Example 2: Multiple independent ragged dimensions**
-```cpp
-// Expert parallelism with load balancing
-// Different GPUs handle different numbers of experts (ragged)
-// Each expert processes different numbers of tokens (ragged)
-
-// Partition creates (batch_id, ragged_id) pairs
-auto [gpu_id, ragged_experts] = IterDomain::partition(expert_dim, gpu_offsets);
-// gpu_id: IterDomain with extent = number of GPUs
-// ragged_experts: RaggedIterDomain with variable experts per GPU
-
-auto [expert_id, ragged_tokens] = IterDomain::partition(token_dim, expert_offsets);
-// expert_id: IterDomain with extent = number of experts
-// ragged_tokens: RaggedIterDomain with variable tokens per expert
-
-auto hidden = IrBuilder::create<IterDomain>(0, 512);
-
-// TensorDomain must include BOTH the batch IterDomains AND the RaggedIterDomains
-auto tensor_domain = IrBuilder::create<TensorDomain>(
-    {gpu_id, ragged_experts, expert_id, ragged_tokens, hidden}
-);
 ```
 
 The compilation pipeline detects ragged dimensions and routes to appropriate indexing and code generation paths.
