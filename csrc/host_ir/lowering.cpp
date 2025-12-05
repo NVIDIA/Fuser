@@ -345,7 +345,7 @@ void lowerSegment(
             " must not be an alias, got ",
             alias);
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(out, out->as<TensorView>()->getMemoryType());
         innermost_scope.push_back(allocate);
       }
 
