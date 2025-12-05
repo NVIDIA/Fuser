@@ -33,6 +33,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
 #include <transform_iter.h>
@@ -3102,33 +3103,6 @@ std::string MatmulOp::toString(int indent_size) const {
 std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
-
-namespace {
-// When the contracting dimension is sharded, each device has a partial
-// matmul output and is followed by an allreduce. For loop split, this is
-// represented as an rfactored reduction. For example, for matmul, the local
-// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
-// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
-// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
-int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
-  // Filter out reduction dimensions so the index to `logical` directly maps to
-  // an at::Tensor axis.
-  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
-  int64_t rfactor_did_idx = -1;
-  for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
-    IterDomain* id = logical.at(idx);
-    if (id->isRFactorProduct() && id->isDeviceDim()) {
-      NVF_ERROR(
-          rfactor_did_idx == -1,
-          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-          logical);
-      rfactor_did_idx = idx;
-    }
-  }
-
-  return rfactor_did_idx;
-}
-} // namespace
 
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,

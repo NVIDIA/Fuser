@@ -70,6 +70,43 @@ std::optional<FusionRuntimeProperties> getFusionRuntimeProperties(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache);
 
+// Structure to hold break point calculation results (only break point info)
+struct BreakPointInfo {
+  int break_point = 0;
+  bool flip_grid_binding = false;
+  int64_t right_elem_count = 0;
+  bool is_outer_broadcast_dominated = false;
+};
+
+// Calculate optimal break point for 2D scheduling
+// Returns just the break point information without thread/grid dimensions
+BreakPointInfo getBreakPoint(
+    Fusion* fusion,
+    const FusionRuntimeProperties& prop,
+    HeuristicDataCache* data_cache,
+    int64_t max_vect_factor = 1,
+    int64_t kThreadX = 128);
+
+// Structure to hold complete block and grid configuration
+struct BlockGridConfig {
+  int break_point = 0;
+  bool flip_grid_binding = false;
+  int64_t right_elem_count = 0;
+  int64_t bdimx = 0;
+  int64_t bdimy = 1;
+  int64_t gdim_left = 1;
+  int64_t gdim_right = 1;
+  bool is_outer_broadcast_dominated = false;
+};
+
+// Calculate block and grid dimensions based on break point information
+// Returns complete block/grid configuration for pointwise schedulers
+BlockGridConfig getBlockGridConfig(
+    const FusionRuntimeProperties& prop,
+    const BreakPointInfo& bp_info,
+    int64_t max_vect_factor,
+    int64_t kThreadX);
+
 // Structure to hold results from common pointwise scheduling setup
 struct CommonScheduleInfo {
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;

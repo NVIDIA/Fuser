@@ -1101,7 +1101,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   executor_utils::initializeCudaContext();
 
   CUmodule module;
-  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, scheduler_utils::noopPtx));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
   CUfunction func;
   NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 
