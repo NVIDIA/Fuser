@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+// Host Irs are used to represent a host program. They need to be registered in
+// a HostIrContainer. Each Ir represents a Host data or instruction.
+
 #pragma once
 
 #include <fusion.h>
@@ -13,8 +17,6 @@
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
 
-// Host Irs are used to represent a host program. They need to be registered in
-// a HostIrContainer. Each Ir represents a Host data or instruction.
 namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
@@ -476,21 +478,6 @@ class ShardByStream : public Expr {
     return inputs().at(1);
   }
 };
-
-// Creates a ShardByStream without needing the destination TensorView. Returns
-// the destination TensorView. `e` is the Expr from which we propagate the loop
-// domain from. `source` must be either an input or an output of `e`.  The
-// destination TensorView will have a loop domain that's consistent
-// with `e` and an allocation domain that's a shard of `source`.
-//
-// I made a mistake previously to propagate `source`'s loop domain to
-// `destination`. This broke test_stream.py::test_two_matmuls_not_inlinable
-// because, when `source` is an input of `e`, `source`'s loop domain reflects
-// its producing Expr rather than `e`.
-//
-// TODO(wujingyue): Move this to csrc/ops. It's not a host IR expr but a
-// wrapper.
-TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e);
 
 class ForLoop : public Expr {
  public:
