@@ -487,6 +487,12 @@ auto inner = split_result.second;  // extent = 2, regular dimension
 
 **Merge**: Merge a RaggedIterDomain with a regular IterDomain.
 
+There are two types of merge operations involving RaggedIterDomain:
+
+1. **Merge RaggedIterDomain with its batch dimension** → Regular IterDomain (described in Section 6.1)
+2. **Merge RaggedIterDomain with another regular IterDomain** → RaggedIterDomain (two cases):
+
+**Case 2a: Merge ragged with non-ragged (element-wise product)**
 ```cpp
 auto inner = IrBuilder::create<IterDomain>(0, 4);       // extent 4
 
@@ -495,8 +501,32 @@ auto merged = IterDomain::merge(ragged, inner);
 // Result: RaggedIterDomain with nested extents [3*4, 5*4, 2*4] = [12, 20, 8]
 ```
 
+**Case 2b: Merge regular IterDomain with RaggedIterDomain (reduction along dimension)**
+
+When the regular IterDomain corresponds to the outer dimension of the RaggedIterDomain's extent tensor, the merge reduces along that dimension:
+
+```cpp
+// Input: RaggedIterDomain with 2D extent tensor shape [gpu=2, expert=4]
+//   extents[0] = [30, 0, 40, 30]  (GPU 0)
+//   extents[1] = [25, 35, 25, 15] (GPU 1)
+// Merge the 'gpu' dimension with this RaggedIterDomain
+auto merged = IterDomain::merge(gpu_dim, ragged_dim);
+// Result: RaggedIterDomain with 1D extent tensor shape [expert=4]
+//   merged_extents = [30+25, 0+35, 40+25, 30+15] = [55, 35, 65, 45]
+// The extents are summed along the merged dimension
+```
+
+**Important Constraint**: The total extent of the resulting RaggedIterDomain depends on the reduction result of the extent tensor. Since nvFuser assumes all IterDomain extents are known at kernel launch time, the extent reduction cannot be done within the same kernel that uses the merged RaggedIterDomain. Until the reduction is complete, we don't know the size of the ragged dimension, which blocks operations like memory allocation.
+
+**Handling Strategies** (TBD): How this should be handled is still unclear. Possible approaches include:
+
+1. **Fusion Segmentation**: Segment the fusion so that the extent reduction is done in a separate kernel before the main kernel is executed. This ensures the merged extents are available on the device before launching the kernel that needs them.
+
+2. **Conservative Allocation**: Pre-allocate tensors large enough to accommodate the maximum possible extent. This is commonly done in optimized MoE implementations where an upper bound on token counts is known or enforced. This avoids the need for dynamic extent computation but may waste memory.
+
 **Implementation notes**:
-- Merge with non-ragged dimension: multiply each nested extent by non-ragged extent
+- **Case 2a** (element-wise): multiply each nested extent by non-ragged extent
+- **Case 2b** (reduction): sum extents along the dimension corresponding to the merged IterDomain
 - Split on ragged: split each nested IterDomain individually, creating new RaggedIterDomain with split components
 - All transformations preserve uniform property requirements
 
@@ -571,12 +601,27 @@ auto shuffled_tokens = set(tokens);
 // [gpu, expert, ragged] to expert-first layout. The actual implementation
 // performs the communication to change the data layout.
 shuffled_tokens->merge(0, 2);
-// This creates: [expert=4, merged_ragged=[55,35,65,45]]
+// This creates: [expert=4, merged_ragged=[55,35,65,45], hidden=512]
 // Where merged tokens per expert = sum across source GPUs:
 //   Expert 0: 30 (from GPU 0) + 25 (from GPU 1) = 55 tokens
 //   Expert 1: 0 (from GPU 0) + 35 (from GPU 1) = 35 tokens
 //   Expert 2: 40 (from GPU 0) + 25 (from GPU 1) = 65 tokens
 //   Expert 3: 30 (from GPU 0) + 15 (from GPU 1) = 45 tokens
+//
+// How the merged RaggedIterDomain's extents are computed:
+// Before merge: tokens_per_expert RaggedIterDomain has 2D extent tensor shape [gpu=2, expert=4]
+//   extents[0] = [30, 0, 40, 30]  (GPU 0)
+//   extents[1] = [25, 35, 25, 15] (GPU 1)
+// The merge operation merges the 'gpu' dimension (dimension 0 of the TensorView) with the
+// RaggedIterDomain. Since 'gpu' corresponds to the outer dimension of the extent tensor,
+// we reduce along that dimension by summing extents:
+//   merged_extents[expert_i] = sum over gpus of extents[gpu][expert_i]
+//   merged_extents = [30+25, 0+35, 40+25, 30+15] = [55, 35, 65, 45]
+// The resulting RaggedIterDomain has a 1D extent tensor with shape [expert=4]
+//
+// NOTE: This extent reduction must complete before any kernel that uses shuffled_tokens
+// can be launched, as the total extent of the merged ragged dimension is not known until
+// the reduction completes. This may require fusion segmentation.
 
 // Then split experts across GPUs for parallel processing (2 experts per GPU)
 shuffled_tokens->split(0, /*factor=*/2);
