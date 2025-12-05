@@ -26,12 +26,6 @@ _FORWARD_GRAPH_CACHE: dict[
     ],
     "_CudnnSdpaGraph",
 ] = {}
-_BACKWARD_GRAPH_CACHE: dict[
-    Tuple[
-        int, torch.dtype, int, int, int, int, int, int, float, int, int, int, int, int
-    ],
-    "_CudnnSdpaBackwardGraph",
-] = {}
 
 _TORCH_TO_CUDNN_DTYPE = {
     torch.float16: cudnn.data_type.HALF,
@@ -214,16 +208,11 @@ class _CudnnSdpaGraph:
             )
             sample_k = torch.empty_like(sample_q)
             sample_v = torch.empty_like(sample_q)
-            bias_base_batch = 1 if bias_batch_broadcast else batch
-            bias_base_tokens = 1 if bias_token_broadcast else n_tokens
             sample_bias = torch.empty(
-                (bias_base_batch, bias_base_tokens, n_heads, q_len, k_len),
+                (batch_tokens, n_heads, q_len, k_len),
                 device=self.device,
                 dtype=torch.float32,
             )
-            sample_bias = sample_bias.expand(
-                batch, n_tokens, n_heads, q_len, k_len
-            ).reshape(batch_tokens, n_heads, q_len, k_len)
             sample_stats = torch.empty(
                 (batch_tokens, n_heads, q_len, 1),
                 device=self.device,
@@ -236,7 +225,6 @@ class _CudnnSdpaGraph:
             self.bias = self.graph.tensor_like(sample_bias)
             self.score_max = self.graph.tensor_like(sample_stats)
             self.score_sum_exp = self.graph.tensor_like(sample_stats)
-            self.mask_tensor = None
 
             def _make_score_mod(mask_tensor):
                 def score_mod(
@@ -248,17 +236,10 @@ class _CudnnSdpaGraph:
 
             score_modifier = None
             if self.has_mask:
-                mask_base_batch = 1 if mask_batch_broadcast else batch
-                mask_base_tokens = 1 if mask_token_broadcast else n_tokens
                 sample_mask = torch.empty(
-                    (mask_base_batch, mask_base_tokens, 1, 1, k_len),
+                    (batch_tokens, n_heads, q_len, k_len),
                     device=self.device,
                     dtype=torch.float32,
-                )
-                sample_mask = (
-                    sample_mask.expand(batch, n_tokens, 1, 1, k_len)
-                    .reshape(batch_tokens, 1, 1, k_len)
-                    .expand(batch_tokens, n_heads, q_len, k_len)
                 )
                 self.mask_tensor = self.graph.tensor_like(sample_mask)
                 score_modifier = _make_score_mod(self.mask_tensor)
@@ -328,160 +309,6 @@ class _CudnnSdpaGraph:
         if self.has_mask:
             assert self.mask_tensor is not None and mask_bias is not None
             variant_pack[self.mask_tensor] = mask_bias
-        self.graph.execute(variant_pack, self.workspace, handle=self.handle)
-
-
-class _CudnnSdpaBackwardGraph:
-    """Owns a compiled cuDNN graph for backward SDPA with the requested shape."""
-
-    def __init__(
-        self,
-        key: Tuple[
-            int,
-            torch.dtype,
-            int,
-            int,
-            int,
-            int,
-            int,
-            int,
-            float,
-            int,
-            int,
-            int,
-            int,
-            int,
-        ],
-    ) -> None:
-        (
-            device_index,
-            dtype,
-            batch,
-            n_tokens,
-            n_heads,
-            q_len,
-            k_len,
-            head_dim,
-            scale,
-            bias_batch_broadcast,
-            bias_token_broadcast,
-            _mask_present,
-            _mask_batch_broadcast,
-            _mask_token_broadcast,
-        ) = key
-        self.device_index = device_index
-        self.device = torch.device("cuda", device_index)
-        io_dtype = _torch_dtype_to_cudnn(dtype)
-        batch_tokens = batch * n_tokens
-
-        with torch.cuda.device(device_index):
-            self.handle = cudnn.create_handle()
-            self.graph = cudnn.pygraph(
-                handle=self.handle,
-                name="triangle_attention_bwd",
-                io_data_type=io_dtype,
-                intermediate_data_type=cudnn.data_type.FLOAT,
-                compute_data_type=cudnn.data_type.FLOAT,
-            )
-
-            sample_q = torch.empty(
-                (batch_tokens, n_heads, q_len, head_dim),
-                device=self.device,
-                dtype=dtype,
-            )
-            sample_k = torch.empty_like(sample_q)
-            sample_v = torch.empty_like(sample_q)
-            sample_out = torch.empty_like(sample_q)
-            sample_dout = torch.empty_like(sample_q)
-            bias_base_batch = 1 if bias_batch_broadcast else batch
-            bias_base_tokens = 1 if bias_token_broadcast else n_tokens
-            sample_bias = torch.empty(
-                (bias_base_batch, bias_base_tokens, n_heads, q_len, k_len),
-                device=self.device,
-                dtype=torch.float32,
-            )
-            sample_bias = sample_bias.expand(
-                batch, n_tokens, n_heads, q_len, k_len
-            ).reshape(batch_tokens, n_heads, q_len, k_len)
-            sample_stats = torch.empty(
-                (batch_tokens, n_heads, q_len, 1),
-                device=self.device,
-                dtype=torch.float32,
-            )
-
-            self.q = self.graph.tensor_like(sample_q)
-            self.k = self.graph.tensor_like(sample_k)
-            self.v = self.graph.tensor_like(sample_v)
-            self.o = self.graph.tensor_like(sample_out)
-            self.dout = self.graph.tensor_like(sample_dout)
-            self.stats = self.graph.tensor_like(sample_stats)
-            self.bias = self.graph.tensor_like(sample_bias)
-            self.dbias = self.graph.tensor_like(sample_bias)
-
-            dq, dk, dv = self.graph.sdpa_backward(
-                q=self.q,
-                k=self.k,
-                v=self.v,
-                o=self.o,
-                dO=self.dout,
-                stats=self.stats,
-                bias=self.bias,
-                dBias=self.dbias,
-                attn_scale=scale,
-                implementation=cudnn.attention_implementation.AUTO,
-            )
-
-            dq.set_output(True).set_dim(sample_q.shape).set_stride(sample_q.stride())
-            dk.set_output(True).set_dim(sample_k.shape).set_stride(sample_k.stride())
-            dv.set_output(True).set_dim(sample_v.shape).set_stride(sample_v.stride())
-            self.dbias.set_output(True).set_dim(sample_bias.shape).set_stride(
-                sample_bias.stride()
-            )
-
-            self.graph.validate()
-            self.graph.build_operation_graph()
-            self.graph.create_execution_plans(
-                [cudnn.heur_mode.A, cudnn.heur_mode.FALLBACK]
-            )
-            self.graph.check_support()
-            self.graph.build_plans()
-
-            workspace_bytes = max(1, self.graph.get_workspace_size())
-            self.workspace = torch.empty(
-                workspace_bytes, device=self.device, dtype=torch.uint8
-            )
-
-            self.dq = dq
-            self.dk = dk
-            self.dv = dv
-
-    def run(
-        self,
-        q: Tensor,
-        k: Tensor,
-        v: Tensor,
-        bias: Tensor,
-        out: Tensor,
-        stats: Tensor,
-        dout: Tensor,
-        dq: Tensor,
-        dk: Tensor,
-        dv: Tensor,
-        dbias: Tensor,
-    ) -> None:
-        variant_pack = {
-            self.q: q,
-            self.k: k,
-            self.v: v,
-            self.bias: bias,
-            self.o: out,
-            self.stats: stats,
-            self.dout: dout,
-            self.dq: dq,
-            self.dk: dk,
-            self.dv: dv,
-            self.dbias: dbias,
-        }
         self.graph.execute(variant_pack, self.workspace, handle=self.handle)
 
 
@@ -604,7 +431,6 @@ class _TriangleAttentionFunction(torch.autograd.Function):
         q_flat = q.reshape(batch_tokens, n_heads, q_len, head_dim).contiguous()
         k_flat = k.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
         v_flat = v.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
-        bias_flat = bias_view.reshape(batch_tokens, n_heads, q_len, k_len)
 
         device_index = q.device.index
         if device_index is None:
@@ -642,14 +468,12 @@ class _TriangleAttentionFunction(torch.autograd.Function):
             q_flat,
             k_flat,
             v_flat,
-            bias_flat,
+            bias_view,
             out_flat,
             stats_flat,
             max_scores_flat,
             sum_exp_flat,
-            mask_bias_view.reshape(batch_tokens, n_heads, q_len, k_len)
-            if mask_bias_view is not None
-            else None,
+            mask_bias_view if mask_bias_view is not None else None,
         )
 
         max_scores_values = max_scores_flat.squeeze(-1)
@@ -661,109 +485,14 @@ class _TriangleAttentionFunction(torch.autograd.Function):
         lse = lse_flat.reshape(batch, n_tokens, n_heads, q_len)
         max_scores = max_scores_values.reshape(batch, n_tokens, n_heads, q_len)
 
-        ctx.save_for_backward(q_flat, k_flat, v_flat, bias_flat, out_flat, stats_flat)
-        ctx.batch = batch
-        ctx.n_tokens = n_tokens
-        ctx.n_heads = n_heads
-        ctx.q_len = q_len
-        ctx.k_len = k_len
-        ctx.head_dim = head_dim
-        ctx.scale = scale_val
-        ctx.graph_key = key
-        ctx.q_shape = q_original_shape
-        ctx.k_shape = k_original_shape
-        ctx.v_shape = v_original_shape
-        ctx.bias_base_shape = bias_base_shape
-        ctx.bias_original_ndim = bias_original_ndim
-        ctx.bias_requires_grad = bias.requires_grad
-
         return out, lse, max_scores
 
     @staticmethod
     def backward(  # type: ignore[override]
         ctx,
-        grad_out: Optional[Tensor],
-        _grad_lse: Optional[Tensor],
-        _grad_max: Optional[Tensor],
-    ) -> Tuple[
-        Optional[Tensor],
-        Optional[Tensor],
-        Optional[Tensor],
-        Optional[Tensor],
-        None,
-        None,
-    ]:
-        if grad_out is None:
-            return None, None, None, None, None, None
-
-        (
-            q_flat,
-            k_flat,
-            v_flat,
-            bias_flat,
-            out_flat,
-            stats_flat,
-        ) = ctx.saved_tensors
-        batch = ctx.batch
-        n_tokens = ctx.n_tokens
-        n_heads = ctx.n_heads
-        q_len = ctx.q_len
-        k_len = ctx.k_len
-        head_dim = ctx.head_dim
-        scale = ctx.scale
-        key = ctx.graph_key
-
-        grad_out_reshaped = _ensure_5d(grad_out, "grad_out").reshape(
-            batch * n_tokens, n_heads, q_len, head_dim
-        )
-        grad_out_flat = grad_out_reshaped.contiguous()
-
-        runner = _BACKWARD_GRAPH_CACHE.get(key)
-        if runner is None:
-            runner = _CudnnSdpaBackwardGraph(key)
-            _BACKWARD_GRAPH_CACHE[key] = runner
-
-        dq_flat = torch.empty_like(q_flat)
-        dk_flat = torch.empty_like(k_flat)
-        dv_flat = torch.empty_like(v_flat)
-        dbias_flat = torch.empty_like(bias_flat)
-
-        runner.run(
-            q_flat,
-            k_flat,
-            v_flat,
-            bias_flat,
-            out_flat,
-            stats_flat,
-            grad_out_flat,
-            dq_flat,
-            dk_flat,
-            dv_flat,
-            dbias_flat,
-        )
-
-        dq_full = dq_flat.reshape(batch, n_tokens, n_heads, q_len, head_dim)
-        dk_full = dk_flat.reshape(batch, n_tokens, n_heads, k_len, head_dim)
-        dv_full = dv_flat.reshape(batch, n_tokens, n_heads, k_len, head_dim)
-
-        dq = dq_full.squeeze(0) if len(ctx.q_shape) == 4 else dq_full
-        dk = dk_full.squeeze(0) if len(ctx.k_shape) == 4 else dk_full
-        dv = dv_full.squeeze(0) if len(ctx.v_shape) == 4 else dv_full
-
-        dbias: Optional[Tensor]
-        if ctx.bias_requires_grad:
-            dbias_full = dbias_flat.reshape(batch, n_tokens, n_heads, q_len, k_len)
-            for dim, size in enumerate(ctx.bias_base_shape):
-                if size == 1 and dbias_full.shape[dim] != 1:
-                    dbias_full = dbias_full.sum(dim=dim, keepdim=True)
-            if ctx.bias_original_ndim == 4:
-                dbias = dbias_full.squeeze(0)
-            else:
-                dbias = dbias_full
-        else:
-            dbias = None
-
-        return dq, dk, dv, dbias, None, None
+        *grad_outputs,
+    ):
+        raise RuntimeError("triangle_attention_flex only supports forward mode")
 
 
 def triangle_attention(

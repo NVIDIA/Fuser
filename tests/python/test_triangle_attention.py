@@ -16,10 +16,6 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _clone_for_grad(*tensors: torch.Tensor) -> tuple[torch.Tensor, ...]:
-    return tuple(t.detach().clone().requires_grad_(True) for t in tensors)
-
-
 def test_triangle_attention_matches_cuequivariance():
     torch.manual_seed(0)
     batch, n_tokens, n_heads = 2, 3, 2
@@ -42,29 +38,16 @@ def test_triangle_attention_matches_cuequivariance():
     mask = torch.rand(batch, n_tokens, 1, 1, k_len, device=device) > 0.3
     scale = 0.7
 
-    q_flex, k_flex, v_flex, bias_flex = _clone_for_grad(
-        q_base, k_base, v_base, bias_base
-    )
     out_flex, lse_flex, max_flex = triangle_attention_flex(
-        q_flex, k_flex, v_flex, bias_flex, mask=mask, scale=scale, return_aux=True
+        q_base, k_base, v_base, bias_base, mask=mask, scale=scale, return_aux=True
     )
-    out_flex.sum().backward()
-
-    q_cue, k_cue, v_cue, bias_cue = _clone_for_grad(q_base, k_base, v_base, bias_base)
     out_cue, lse_cue, max_cue = triangle_attention_cuequivariance(
-        q_cue, k_cue, v_cue, bias_cue, mask=mask, scale=scale, return_aux=True
+        q_base, k_base, v_base, bias_base, mask=mask, scale=scale, return_aux=True
     )
-    out_cue.sum().backward()
 
     torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)
     torch.testing.assert_close(lse_flex, lse_cue, rtol=1e-3, atol=1e-4)
     torch.testing.assert_close(max_flex, max_cue, rtol=1e-3, atol=1e-4)
-
-    for grad_flex, grad_cue in zip(
-        (q_flex.grad, k_flex.grad, v_flex.grad, bias_flex.grad),
-        (q_cue.grad, k_cue.grad, v_cue.grad, bias_cue.grad),
-    ):
-        torch.testing.assert_close(grad_flex, grad_cue, rtol=1e-3, atol=1e-4)
 
 
 def test_triangle_attention_supports_batchless_inputs():
