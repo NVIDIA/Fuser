@@ -12,7 +12,7 @@
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <host_ir/container.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
 #include <runtime/executor_abstract.h>
