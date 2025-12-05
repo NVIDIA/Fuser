@@ -46,7 +46,8 @@ HostIrEvaluator::HostIrEvaluator(
       params_(params),
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
-      ipc_handle_cache_(expr_evaluator_) {
+      ipc_handle_cache_(expr_evaluator_),
+      multicast_handle_cache_() {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -322,21 +323,34 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
 
-  CommunicatorBackend backend_type = communication->backend();
-  c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), backend_type);
-
   validateSizesAndStrides(
       {input_tensor, output_tensor},
       {communication->in(), communication->out()},
       expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      backend,
-      input_tensor,
-      output_tensor);
+  CommunicatorBackend backend_type = communication->backend();
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, expected Broadcast or Allgather, got: ",
+        communication->type());
+    SymmetricMemoryHandle* multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    postWithCudaBackend(
+        communication, input_tensor, multicast_handle, current_stream);
+  } else {
+    c10d::Backend* backend =
+        communicator_->getBackendForTeam(communication->team(), backend_type);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
+  }
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -370,19 +384,32 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
-  Expr* communication = wait->communication();
-  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  Expr* expr = wait->communication();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(expr);
+  auto* communication = dynamic_cast<Communication*>(expr);
+  const auto current_stream = static_cast<CUstream>(
+      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
-    const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
       sendWait(ipc_handles, current_stream);
     } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
       recvWait(ipc_handles, current_stream);
     }
+  } else if (
+      communication && communication->backend() == CommunicatorBackend::kCuda) {
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, only Broadcast and Allgather are "
+        "supported with cuda backend, got: ",
+        communication->type());
+    at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    SymmetricMemoryHandle* multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    waitWithCudaBackend(communication, multicast_handle, current_stream);
   } else {
-    auto i = works_.find(communication);
+    auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
 
     auto work = i->second;
@@ -390,7 +417,7 @@ void HostIrEvaluator::handle(Wait* wait) {
       work->wait();
     }
 
-    works_.erase(communication);
+    works_.erase(expr);
   }
 }
 
