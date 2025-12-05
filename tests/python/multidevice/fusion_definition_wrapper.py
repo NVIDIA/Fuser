@@ -54,7 +54,7 @@ class FusionDefinitionWrapper:
             placement: Placement = in_dtensor.placements[0]
             if placement.is_shard():
                 dim = cast(Shard, placement).dim
-                in_tv.split(dim, mesh.size, inner_split=False)
+                in_tv.outer_split(dim, mesh.size)
                 in_tv.axis(dim).parallelize(nvfuser.ParallelType.mesh_x)
 
     def _get_or_create_fusion_definition(
