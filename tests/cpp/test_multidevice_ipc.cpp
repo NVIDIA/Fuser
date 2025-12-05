@@ -10,6 +10,7 @@
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
 #include <ir/all_nodes.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/multidevice.h>

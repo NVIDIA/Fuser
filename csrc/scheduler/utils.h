@@ -881,12 +881,19 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 
-// Return the maximum cluster size that can be used for the current device.
-// It calls matmul_utils::getMaxActiveClusters which guarantee that at most a
-// single CTA is resident per SM by requesting the maximum smem per CTA then
-// compute occupancy with the given cluster size. If a positive value is
-// returned, it means the requested cluster size is supported by the device.
+// Returns the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly,
+// guaranteeing at most a single CTA per SM by requesting the maximum smem per
+// CTA. Results are cached per device to avoid redundant queries. Returns 1 for
+// pre-Hopper devices.
 int64_t getMaxClusterSize();
+
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
+int64_t getMaxActiveClusters(const int64_t cluster_size);
 
 // ============================================================================
 // TMA (Tensor Memory Accelerator) Background

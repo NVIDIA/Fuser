@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 
 #include <algorithm>
 #include <memory>
@@ -272,7 +272,7 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
   NVF_ERROR(
       (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
       expr,
-      "must be a Communication, a P2PCommunication, or a EndCoalescing");
+      " must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
@@ -490,6 +490,7 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
     // `e`, not `temp_e`, at this point.
     auto* ref_out = findMostParallelTensorView(
         ir_utils::filterByType<TensorView>(e->outputs()));
+    NVF_ERROR(ref_out != nullptr, "`e` has no output TensorViews: ", e);
     ref_out->setDefinition(temp_e);
     shardLoopLike(
         ref_out,
