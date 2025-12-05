@@ -297,7 +297,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
-      CompileParams(),
+      hic->getKernelExecutor(0).compiledKernel().get(),
       std::vector<Val*>{hic_in},
       std::vector<Val*>{hic_out},
       cache_id);

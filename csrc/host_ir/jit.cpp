@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -20,11 +21,24 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
+
+#include <driver_api.h>
 
 #include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
 #include <c10/core/MemoryFormat.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 
 #include <bfs.h>
+#include <expr_evaluator.h>
+#include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
@@ -32,8 +46,11 @@
 #include <ir/iostream.h>
 #include <linked_hash_map.h>
 #include <ops/all_ops.h>
+#include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 #include <val_graph_visitor.h>
 
 #include <ranges>
@@ -1229,34 +1246,222 @@ void HostIrJitImpl::registerExternalFunctions() {
       });
 
   // launch kernel function
-  void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](int64_t cache_id,
-                                  at::Tensor** input_tensors,
-                                  int64_t num_inputs,
-                                  at::Tensor** output_tensors,
-                                  int64_t num_outputs,
-                                  void* launch_kernel,
-                                  void* container) {
-        auto* launch_kernel_ptr =
-            static_cast<hir::LaunchKernel*>(launch_kernel);
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
+  void* launch_kernel_func_ptr = reinterpret_cast<
+      void*>(+[](int64_t cache_id,
+                 at::Tensor** input_tensors,
+                 int64_t num_inputs,
+                 at::Tensor** output_tensors,
+                 int64_t num_outputs,
+                 void* launch_kernel,
+                 void* container) {
+    FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
+    auto* launch_kernel_ptr = static_cast<hir::LaunchKernel*>(launch_kernel);
+    NVF_CHECK(launch_kernel_ptr != nullptr, "launch_kernel_ptr cannot be null");
+
+    int64_t group_id = launch_kernel_ptr->groupId();
+
+    // Profiling
+    if (isProfilerEnabled()) {
+      NVF_CHECK(
+          group_id >= 0,
+          "An invalid segment id is passed to FusionProfiler!:",
+          group_id);
+      SegmentProfiler& sprof = FusionProfiler::segment(group_id);
+
+      // Compute input bytes
+      int64_t input_bytes = 0;
+      for (int64_t i = 0; i < num_inputs; ++i) {
+        if (input_tensors[i] != nullptr) {
+          input_bytes +=
+              static_cast<int64_t>(input_tensors[i]->storage().nbytes());
         }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
+      }
+      sprof.inputBytesAccessed(input_bytes);
+
+      // Set scheduler type from compiled kernel
+      CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
+      if (ck != nullptr) {
+        sprof.scheduler(toString(ck->schedulerType()));
+      }
+
+      // Get device index from the first input tensor if available
+      int8_t device_index = 0;
+      if (num_inputs > 0 && input_tensors[0] != nullptr) {
+        device_index = static_cast<int8_t>(input_tensors[0]->device().index());
+      } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
+        device_index = static_cast<int8_t>(output_tensors[0]->device().index());
+      }
+
+      FusionProfiler::segment(group_id).setDevice(device_index);
+      sprof.startKernel();
+    }
+
+    CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
+
+    NVF_CHECK(
+        compiled_kernel != nullptr,
+        "CompiledKernel pointer is null for group_id ",
+        group_id);
+    NVF_CHECK(
+        compiled_kernel->cudaExecutable() != nullptr,
+        "CUDA executable is null for group_id ",
+        group_id);
+
+    auto index_type = compiled_kernel->kernel()->indexType();
+
+    if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+      debug() << "Index type: " << index_type << std::endl;
+    }
+
+    std::vector<std::vector<std::byte>> arg_bytes;
+    arg_bytes.reserve(num_inputs + num_outputs);
+
+    std::vector<void*> kernel_args;
+    kernel_args.reserve(num_inputs + num_outputs);
+
+    const auto& kernel_inputs = compiled_kernel->kernel()->inputs();
+    const auto& kernel_outputs = compiled_kernel->kernel()->outputs();
+
+    // Create ExpressionEvaluator and bind input tensors to it
+    // This is needed for inferAndValidateAllocationSizesAndStrides to
+    // evaluate symbolic split factors and dimension extents when
+    // transforming between logical and allocation domains
+    ExpressionEvaluator expr_eval;
+    for (int64_t i = 0; i < num_inputs; ++i) {
+      if (input_tensors[i] != nullptr &&
+          i < static_cast<int64_t>(kernel_inputs.size())) {
+        expr_eval.bind(kernel_inputs[i], PolymorphicValue(*input_tensors[i]));
+      }
+    }
+
+    // Lambda to encode a tensor with allocation strides if available
+    auto encodeTensor = [&](at::Tensor* tensor, Val* tv_val) {
+      std::vector<int64_t> sizes = tensor->sizes().vec();
+      std::vector<int64_t> strides;
+      auto* tv = dynamic_cast<TensorView*>(tv_val);
+
+      // Use allocation strides if the tensor has an allocation domain
+      if (tv) {
+        if (tv->hasAllocation()) {
+          auto [alloc_sizes, alloc_strides] =
+              inferAndValidateAllocationSizesAndStrides(*tensor, tv, expr_eval);
+          strides = alloc_strides;
+        } else {
+          strides = tensor->strides().vec();
         }
-        input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
-                input_args,
-                output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
-      });
+      } else {
+        strides = tensor->strides().vec();
+      }
+
+      auto bytes = tensorToBytes(
+          PolymorphicValue(*tensor),
+          sizes,
+          strides,
+          index_type,
+          getLastDimAdjustment(tv->dtype()),
+          sizes);
+
+      arg_bytes.push_back(std::move(bytes));
+      kernel_args.push_back(arg_bytes.back().data());
+    };
+
+    // Process Inputs
+    for (int64_t i = 0; i < num_inputs; ++i) {
+      NVF_CHECK(
+          input_tensors[i] != nullptr, "Input tensor at index ", i, " is null");
+      encodeTensor(input_tensors[i], kernel_inputs[i]);
+    }
+
+    // Process Outputs
+    for (int64_t i = 0; i < num_outputs; ++i) {
+      NVF_CHECK(
+          output_tensors[i] != nullptr,
+          "Output tensor at index ",
+          i,
+          " is null");
+      encodeTensor(output_tensors[i], kernel_outputs[i]);
+    }
+
+    if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+      // Convert raw tensor arrays to KernelArgumentHolder for
+      // dumpKernelArgs
+      KernelArgumentHolder input_holder;
+      for (int64_t i = 0; i < num_inputs; ++i) {
+        if (input_tensors[i] != nullptr) {
+          input_holder.push(*input_tensors[i]);
+        }
+      }
+
+      KernelArgumentHolder output_holder;
+      for (int64_t i = 0; i < num_outputs; ++i) {
+        if (output_tensors[i] != nullptr) {
+          output_holder.push(*output_tensors[i]);
+        }
+      }
+
+      // No intermediate buffers in host IR JIT context
+      KernelArgumentHolder empty_intermediates;
+      std::vector<GlobalBufferInfo> empty_intermediates_info;
+
+      dumpKernelArgs(
+          -1, // fusion_id not available in this context
+          group_id,
+          input_holder,
+          num_inputs,
+          output_holder,
+          empty_intermediates,
+          empty_intermediates_info);
+    }
+
+    // Launch Config
+    CUlaunchConfig config;
+
+    const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
+
+    if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
+      launch_params.print();
+    }
+
+    auto stream = at::cuda::getCurrentCUDAStream();
+
+    config.gridDimX = launch_params.gdimx();
+    config.gridDimY = launch_params.gdimy();
+    config.gridDimZ = launch_params.gdimz();
+    config.blockDimX = launch_params.bdimx();
+    config.blockDimY = launch_params.bdimy();
+    config.blockDimZ = launch_params.bdimz();
+    config.sharedMemBytes = launch_params.smem();
+    config.hStream = stream;
+    config.attrs = nullptr;
+    config.numAttrs = 0;
+
+    // Launch the kernel
+    {
+      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
+
+      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+          &config,
+          compiled_kernel->cudaExecutable()->function,
+          kernel_args.data(),
+          nullptr));
+    }
+
+    // Profiling cleanup
+    if (isProfilerEnabled()) {
+      auto& sprof = FusionProfiler::segment(group_id);
+      sprof.stopKernel();
+
+      // Compute output bytes
+      int64_t output_bytes = 0;
+      for (int64_t i = 0; i < num_outputs; ++i) {
+        output_bytes +=
+            static_cast<int64_t>(output_tensors[i]->storage().nbytes());
+      }
+
+      sprof.outputBytesAccessed(output_bytes);
+    }
+  });
 
   // matmul_out function
   void* matmul_out_func_ptr = reinterpret_cast<void*>(

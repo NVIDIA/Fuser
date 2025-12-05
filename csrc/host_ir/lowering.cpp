@@ -358,7 +358,7 @@ void lowerSegment(
       auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
           group_id,
           launch_params,
-          ke.compiledKernel()->compileParams(),
+          ke.compiledKernel().get(),
           ins,
           outs,
           cache_id);
