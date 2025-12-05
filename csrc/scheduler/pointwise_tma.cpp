@@ -361,13 +361,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Transform the flattened domain through a two-level hierarchy:
   // Step 1: [I0] -> [tma_domain_outer, tma_domain_inner]
   //   Split into outer and inner domains based on tma_domain_inner
+  // Note: Skip this split if break_point != 0, as the reference tensor has
+  // already been transformed into [lhs, rhs] domains at the break point by
+  // commonPointwiseSchedule, which provides the required 2D TMA structure.
+  // TODO: consider device domain and non-concretized domain.
   if (pparams->break_point == 0) {
+    NVF_ERROR_EQ(reference_tv->nDims(), 1);
     reference_tv->split(0, pparams->tma_domain_inner);
   } else {
-    NVF_ERROR(
-        n_valid_dims >= 2,
-        "Required at least 2 valid dimensions for Tma scheduling, but got ",
-        n_valid_dims);
+    NVF_ERROR_EQ(reference_tv->nDims(), 2);
   }
 
   // Step 2: [tma_domain_outer, tma_domain_inner] ->
