@@ -835,13 +835,9 @@ void HostIrEvaluator::handle(
       in_tv->axis(0)->isDeviceDim(),
       "Tv must be sharded on outermost dimension",
       in_tv);
-  NVF_ERROR(
-      handle->tensor().dim() >= 2 && handle->tensor().size(1) == 1,
-      "Contiguous view must have at least 2 dimensions with size 1 on second "
-      "dimension");
-  at::Tensor contiguous_tensor = handle->tensor().squeeze(1);
+
   // Bind the symmetric_contiguous_viewed tensor to the output
-  expr_evaluator_.bind(out_tv, contiguous_tensor);
+  expr_evaluator_.bind(out_tv, handle->tensor());
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {

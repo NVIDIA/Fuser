@@ -492,12 +492,12 @@ class ShardByStream : public Expr {
 // wrapper.
 TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e);
 
-// SymmetricContiguousView takes a sharded TensorView with
-// symmetric memory type (where the outermost dimension is parallelized with
-// DIDx) and produces an unsharded TensorView. At runtime, it performs IPC
-// handle exchange and creates a contiguous virtual address mapping across all
-// ranks. This effectively "unshards" the tensor by making all ranks' data
-// visible in a contiguous address space.
+// SymmetricContiguousView takes a sharded TensorView with contiguous memory
+// type with symmetric memory type (where the outermost dimension is
+// parallelized with DIDx) and produces an unsharded TensorView. At runtime, it
+// performs IPC handle exchange and creates a contiguous virtual address mapping
+// across all ranks. This effectively "unshards" the tensor by making all ranks'
+// data visible in a contiguous address space.
 class SymmetricContiguousView : public Expr {
  public:
   using Expr::Expr;

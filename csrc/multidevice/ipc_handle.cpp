@@ -247,9 +247,10 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (auto* dtca = dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+  if (auto* contig_view =
+          dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
     // SymmetricContiguousView
-    handle = std::make_unique<SymMemForContiguousView>(key.buffer, dtca);
+    handle = std::make_unique<SymMemForContiguousView>(key.buffer, contig_view);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
@@ -273,19 +274,12 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
 
 SymMemForContiguousView::SymMemForContiguousView(
     at::Tensor in_tensor,
-    hir::SymmetricContiguousView* unshard) {
-  std::string tag = "unshard_" + std::to_string(unshard->name());
+    hir::SymmetricContiguousView* contig_view) {
+  std::string tag = "contig_view_" + std::to_string(contig_view->name());
   sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
   sym_tensor_->setupContiguousView(tag);
 
-  at::Tensor contiguous = sym_tensor_->getContiguousView();
-
-  // Remove the DIDx dimension (outermost) if it has size 1
-  if (contiguous.size(0) == 1) {
-    contiguous = contiguous.squeeze(0);
-  }
-
-  tensor_ = contiguous;
+  tensor_ = sym_tensor_->getContiguousView();
 }
 
 } // namespace nvfuser
