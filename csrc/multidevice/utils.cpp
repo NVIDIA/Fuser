@@ -363,4 +363,24 @@ bool isValidDeviceSplit(Expr* expr) {
   return true;
 }
 
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  const std::vector<IterDomain*>& logical =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : arange(std::ssize(logical))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+
 } // namespace nvfuser

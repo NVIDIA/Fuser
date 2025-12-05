@@ -11,7 +11,8 @@ on:
   pull_request_review:
     types:
       - submitted
-  check_run:
+  workflow_run:
+    workflows: ["Build"]  # Triggers when entire Build workflow completes (all jobs including clang-build-23 and dynamic-type-meson)
     types:
       - completed
   repository_dispatch:
@@ -33,7 +34,7 @@ jobs:
     if: |
       (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
       (github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && contains(github.event.pull_request.labels.*.name, 'enable-auto-merge')) ||
-      (github.event_name == 'check_run' && github.event.check_run.conclusion == 'success' && github.event.check_run.pull_requests[0] != null) ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.pull_requests != null && github.event.workflow_run.pull_requests[0].number != null) ||
       (github.event_name == 'repository_dispatch' && github.event.action == 'nvfuser-ci-success')
 
     steps:
@@ -59,21 +60,23 @@ jobs:
                 pull_number: pr_number,
               });
               pr = data;
-            } else {
-              // For check_run events, we need to find the PR
-              const prsData = await github.paginate(github.rest.pulls.list, {
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                head: `${context.repo.owner}:${context.payload.check_run?.head_branch}`,
-              });
-
-              if (prsData.length === 0) {
-                core.info('No open PR found for this commit');
+            } else if (context.eventName === 'workflow_run') {
+              // For workflow_run events, get PR from payload
+              const prNumber = context.payload.workflow_run.pull_requests[0]?.number;
+              if (!prNumber) {
+                core.info('No PR associated with this workflow run');
                 return { should_skip: true };
               }
 
-              pr = prsData[0];
+              const { data } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              pr = data;
+            } else {
+              core.info('Unexpected event type, skipping');
+              return { should_skip: true };
             }
 
             // Defensive checks: skip if PR is from a fork
@@ -136,20 +139,45 @@ jobs:
             };
 
             // 1. Get all commit statuses (for nvfuser-ci and other status checks)
-            const statuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
+            const allStatuses = await github.paginate(github.rest.repos.listCommitStatusesForRef, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: sha,
             });
 
-            core.info(`Found ${statuses.length} commit statuses`);
+            core.info(`Found ${allStatuses.length} commit statuses`);
+
+            // Group statuses by context and keep only the most recent status for each context
+            // This handles cases where statuses are updated multiple times
+            const statuses = Object.values(
+              allStatuses.reduce((acc, status) => {
+                const existing = acc[status.context];
+                // Keep the status with the latest created_at or updated_at time
+                const statusTime = status.updated_at || status.created_at || '';
+                const existingTime = existing ? (existing.updated_at || existing.created_at || '') : '';
+
+                // Use ID as tiebreaker for timestamp collisions (higher ID = newer)
+                if (!existing || statusTime > existingTime || (statusTime === existingTime && status.id > existing.id)) {
+                  acc[status.context] = status;
+                }
+                return acc;
+              }, {})
+            );
+
+            core.info(`After deduplication: ${statuses.length} unique commit statuses`);
+
+            // Log all unique commit statuses for debugging
+            core.info('Unique commit statuses:');
+            statuses.forEach(s => {
+              core.info(`  - ${s.context}: ${s.state} (updated: ${s.updated_at || s.created_at})`);
+            });
 
             // Check for nvfuser-ci status
             const nvfuserCiStatus = statuses.find(s => s.context === 'nvfuser-ci');
             if (!nvfuserCiStatus) {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = 'nvfuser-ci status not found';
-              core.setFailed('nvfuser-ci status not found');
+              core.info('⏸️  Auto-merge paused: nvfuser-ci status not found');
             } else if (nvfuserCiStatus.state === 'pending') {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = 'pending';
@@ -157,7 +185,7 @@ jobs:
             } else if (nvfuserCiStatus.state !== 'success') {
               checks.internal_ci_passed = false;
               checks.internal_ci_reason = nvfuserCiStatus.state;
-              core.setFailed(`nvfuser-ci status is ${nvfuserCiStatus.state}`);
+              core.info(`⏸️  Auto-merge paused: nvfuser-ci status is ${nvfuserCiStatus.state}`);
             } else {
               checks.internal_ci_passed = true;
               core.info('✅ nvfuser-ci is success');
@@ -167,6 +195,13 @@ jobs:
             const failedStatuses = statuses.filter(s =>
               s.state === 'failure' || s.state === 'error'
             );
+
+            if (failedStatuses.length > 0) {
+              core.info(`❌ Found ${failedStatuses.length} failed commit statuses:`);
+              failedStatuses.forEach(s => core.info(`  - ${s.context}: ${s.state}`));
+            } else {
+              core.info('✅ No failed commit statuses');
+            }
 
             // 2. Get all check runs
             const checkRunsData = await github.paginate(github.rest.checks.listForRef, {
@@ -178,9 +213,42 @@ jobs:
 
             core.info(`Found ${checkRuns.check_runs.length} check runs`);
 
+            // Group check runs by name and keep only the most recent run for each check
+            // This handles cases where checks are cancelled and rerun
+            const latestCheckRuns = Object.values(
+              checkRuns.check_runs.reduce((acc, check) => {
+                const existing = acc[check.name];
+                // Keep the check with the latest completed_at time, or started_at if not completed
+                const checkTime = check.completed_at || check.started_at || '';
+                const existingTime = existing ? (existing.completed_at || existing.started_at || '') : '';
+
+                // Use ID as tiebreaker for timestamp collisions (higher ID = newer)
+                if (!existing || checkTime > existingTime || (checkTime === existingTime && check.id > existing.id)) {
+                  acc[check.name] = check;
+                }
+                return acc;
+              }, {})
+            );
+
+            core.info(`After deduplication: ${latestCheckRuns.length} unique check runs`);
+
+            // Log check runs grouped by status for debugging
+            const checksByStatus = latestCheckRuns.reduce((acc, check) => {
+              const key = check.status === 'completed' ? check.conclusion : check.status;
+              if (!acc[key]) acc[key] = [];
+              acc[key].push(check.name);
+              return acc;
+            }, {});
+
+            core.info('Check runs by status:');
+            Object.entries(checksByStatus).forEach(([status, checks]) => {
+              core.info(`  ${status}: ${checks.length} checks`);
+              checks.forEach(name => core.info(`    - ${name}`));
+            });
+
             // Check for any failed or error check runs (excluding this workflow itself)
             // Note: context.job is the job ID, but check names use the job name
-            const failedChecks = checkRuns.check_runs.filter(check =>
+            const failedChecks = latestCheckRuns.filter(check =>
               check.name !== 'Auto-merge PR' && (
                 check.conclusion === 'failure' ||
                 check.conclusion === 'cancelled' ||
@@ -199,10 +267,15 @@ jobs:
                 failedNames.push(...failedChecks.map(c => c.name));
               }
               checks.no_failed_checks_reason = failedNames.join(', ');
-              core.setFailed(`Failed checks: ${checks.no_failed_checks_reason}`);
+              core.info(`❌ Found ${failedChecks.length} failed/pending check runs:`);
+              failedChecks.forEach(c => {
+                const reason = c.status !== 'completed' ? c.status : c.conclusion;
+                core.info(`  - ${c.name}: ${reason}`);
+              });
+              core.info(`⏸️  Auto-merge paused: Failed checks: ${checks.no_failed_checks_reason}`);
             } else {
               checks.no_failed_checks = true;
-              core.info('✅ No failed checks');
+              core.info('✅ No failed or pending check runs');
             }
 
             // 3. Get combined status (this checks required checks)
@@ -242,12 +315,11 @@ jobs:
             if (pr.mergeable === false) {
               checks.pr_mergeable = false;
               checks.pr_mergeable_reason = 'has merge conflicts';
-              core.setFailed('PR is not mergeable (conflicts or other issues)');
+              core.warning('⚠️  Auto-merge blocked: PR is not mergeable (conflicts or other issues)');
             } else if (pr.mergeable_state !== 'clean' && pr.mergeable_state !== 'unstable') {
               checks.pr_mergeable = false;
               checks.pr_mergeable_reason = pr.mergeable_state;
-              core.info(`PR mergeable_state: ${pr.mergeable_state}`);
-              core.setFailed(`PR mergeable_state is ${pr.mergeable_state}`);
+              core.info(`⏸️  Auto-merge paused: PR mergeable_state is ${pr.mergeable_state}`);
             } else {
               checks.pr_mergeable = true;
               core.info('✅ PR is mergeable');
@@ -360,13 +432,13 @@ jobs:
             core.info('✅ Updated auto-merge status comment');
 
       - name: Merge PR
-        if: fromJSON(steps.check.outputs.result).ready == true
+        if: steps.check.outputs.result != '' && fromJSON(steps.check.outputs.result).ready == true
         uses: actions/github-script@v7
         with:
           script: |
             const checkResult = ${{ steps.check.outputs.result }};
             if (!checkResult || !checkResult.pr_number) {
-              core.setFailed('Check results unavailable for merge');
+              core.info('⏸️  Auto-merge paused: Check results unavailable for merge');
               return;
             }
             const pr_number = checkResult.pr_number;

@@ -5,11 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ir/base_nodes.h>
+
+#include <string>
+#include <unordered_map>
+
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <host_ir/container.h>
-#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
@@ -17,12 +21,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
-
-#include <torch/csrc/jit/ir/ir.h>
-
-#include <iostream>
-#include <string>
-#include <unordered_map>
 
 namespace nvfuser {
 
@@ -116,32 +114,61 @@ bool Val::removeUse(Expr* expr) {
   return false;
 }
 
+bool Val::maybeSameVal(const Val* other_val) const {
+  if (other_val == nullptr) {
+    return false;
+  }
+  if (typeid(*this) != typeid(*other_val)) {
+    return false;
+  }
+  if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
+    return false;
+  }
+  if (vtype_ != other_val->vtype_) {
+    return false;
+  }
+  if (dtype_ != other_val->dtype_) {
+    return false;
+  }
+  if (value_.hasValue() != other_val->value_.hasValue()) {
+    return false;
+  }
+  if (definition_ == nullptr) {
+    // The other_val might be the same as this Val. This condition is check
+    // further in Val::sameAs and Val::sameDefinition.
+    return true;
+  }
+
+  NVF_ERROR(!value_.hasValue());
+  if (definition_->outputs().size() !=
+      other_val->definition_->outputs().size()) {
+    return false;
+  }
+  // For definition with multiple outputs, only outputs at the same position
+  // could be the same
+  for (auto i : arange(definition_->outputs().size())) {
+    if ((definition_->output(i) == this) !=
+        (other_val->definition_->output(i) == other_val)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 bool Val::sameAs(const Statement* other) const {
   if (this == other) {
     return true;
   }
   if (auto other_val = dynamic_cast<const Val*>(other)) {
-    if (typeid(*this) != typeid(*other_val)) {
-      return false;
-    }
-    if ((definition_ == nullptr) != (other_val->definition_ == nullptr)) {
-      return false;
-    }
-    if (vtype_ != other_val->vtype_) {
-      return false;
-    }
-    if (dtype_ != other_val->dtype_) {
-      return false;
-    }
-    if (value_.hasValue() != other_val->value_.hasValue()) {
+    if (!maybeSameVal(other_val)) {
       return false;
     }
     if (definition_ == nullptr) {
-      if (value_.hasValue()) {
-        return value_ == other_val->value_;
-      } else {
+      if (!value_.hasValue()) {
         return false;
       }
+      return value_ == other_val->value_;
     }
     // non-deterministic operation returns value that wouldn't be the same even
     // if the inputs are the same.
@@ -152,21 +179,51 @@ bool Val::sameAs(const Statement* other) const {
     if (!definition_->sameAs(other_val->definition_)) {
       return false;
     }
-    if (definition_->outputs().size() !=
-        other_val->definition_->outputs().size()) {
-      return false;
-    }
-    // For definition with multiple outputs, only outputs at the same position
-    // could be the same
-    for (auto i : arange(definition_->outputs().size())) {
-      if ((definition_->output(i) == this) !=
-          (other_val->definition_->output(i) == other_val)) {
-        return false;
-      }
-    }
     return true;
   }
   return false;
+}
+
+namespace {
+
+bool isComplexNan(const std::complex<double>& a) {
+  return std::isnan(a.real()) || std::isnan(a.imag());
+}
+
+} // namespace
+
+bool Val::sameDefinition(const Val* other_val) const {
+  if (!maybeSameVal(other_val)) {
+    return false;
+  }
+  // This condition is not checked in sameAs. It ensures the correct argument
+  // order for symbolic Vals.
+  if (name() != other_val->name()) {
+    return false;
+  }
+  if (definition_ == nullptr) {
+    if (!value_.hasValue()) {
+      // Symbolic values are considered the same.
+      return true;
+    }
+    // NaNs are considered the same.
+    if (value_.is<double>() && std::isnan(value_.as<double>()) &&
+        std::isnan(other_val->value_.as<double>())) {
+      return true;
+    }
+    if (value_.is<std::complex<double>>() &&
+        isComplexNan(value_.as<std::complex<double>>()) &&
+        isComplexNan(other_val->value_.as<std::complex<double>>())) {
+      return true;
+    }
+    return value_ == other_val->value_;
+  }
+  NVF_ERROR(!value_.hasValue());
+  // Expr::sameAs return false if either definition is non-deterministic.
+  if (!definition_->sameDefinition(other_val->definition_)) {
+    return false;
+  }
+  return true;
 }
 
 size_t Val::hash() const {
@@ -363,6 +420,26 @@ bool Expr::sameOp(const Expr* other) const {
   }
   for (const auto i : arange(attributes().size())) {
     if (!attribute(i)->sameAs(other->attribute(i))) {
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Expr::sameDefinition(const Expr* other) const {
+  if (!sameOp(other)) {
+    return false;
+  }
+  if (name() != other->name()) {
+    return false;
+  }
+  // Val::sameDefinition checks its definition expression. The value is the
+  // output of its definition expression. Checking the output with
+  // sameDefinition will create a cycle and cause infinite recursion, so only
+  // check the input argument definitions. Fusion::sameDefinition starts from
+  // each output and traverses up the entire Fusion DAG.
+  for (const auto i : arange(inputs().size())) {
+    if (!input(i)->sameDefinition(other->input(i))) {
       return false;
     }
   }

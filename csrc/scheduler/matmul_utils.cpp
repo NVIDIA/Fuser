@@ -31,9 +31,6 @@
 #include <val_graph.h>
 
 #include <algorithm>
-#include <deque>
-#include <iostream>
-#include <iterator>
 #include <limits>
 #include <memory>
 #include <sstream>
@@ -1094,22 +1091,30 @@ const char* noopPtx = R"(
 
 } // anonymous namespace
 
-//! Determine how many CGAs can launch in a single wave with the given cluster
-//! dimensions
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
 int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
-  // I don't think we'd ever use a cluster size larger than 8, but we can make
-  // space for 8 just to future-proof this
-  thread_local std::array<int64_t, 16> cached_results;
+  // We can use a cluster size up to 16, indexed from 1 to 16.
+  thread_local std::array<int64_t, 17> cached_results;
 
   const int64_t cluster_size = cluster_dims.m * cluster_dims.n;
+  if (cluster_size < 1 || cluster_size > 16) {
+    return 0L;
+  }
+
   if (cached_results.at(cluster_size) != 0L) {
     return cached_results.at(cluster_size);
   }
 
-  CUmodule mod;
-  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&mod, noopPtx));
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
   CUfunction func;
-  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, mod, "noopKernel"));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
 
   int max_smem_opt_in;
   NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
@@ -1152,7 +1157,7 @@ int64_t getMaxActiveClusters(const MatmulParams::ClusterDims& cluster_dims) {
   NVFUSER_CUDA_SAFE_CALL(
       cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
 
-  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(mod));
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
 
   cached_results.at(cluster_size) = (int64_t)num_clusters;
   return cached_results.at(cluster_size);

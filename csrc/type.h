@@ -10,7 +10,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -722,7 +722,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
     ParallelType::DIDy,
     ParallelType::DIDz};
 
-enum class MemoryType { Local, Shared, Global, Tensor };
+enum class MemoryType { Local, Shared, Global, Tensor, Symmetric };
 
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {

@@ -14,10 +14,6 @@
 #include <options.h>
 #include <utils.h>
 
-#include <functional>
-#include <iostream>
-#include <sstream>
-
 namespace nvfuser {
 
 // Options to enable the IdModel-based tensor indexer selectively

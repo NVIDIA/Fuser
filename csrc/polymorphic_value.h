@@ -11,7 +11,6 @@
 #include <any>
 #include <complex>
 #include <cstddef>
-#include <functional>
 #include <numeric>
 #include <ostream>
 #include <unordered_map>
