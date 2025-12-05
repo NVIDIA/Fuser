@@ -11,6 +11,100 @@ from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, Tens
 
 
 @pytest.mark.mpi
+def test_row_parallel_linear_forward(multidevice_direct_test):
+    # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
+    h, s, t = 2, 3, 6
+    d = multidevice_direct_test.size
+    if (h * 4) % d != 0:
+        pytest.skip(
+            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+        )
+    assert t % s == 0
+
+    mesh = nvfuser.multidevice.DeviceMesh(range(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor(
+            shape=[-1, h * 4], contiguity=True, dtype=DataType.BFloat16
+        )
+        weight = fd.define_tensor(
+            shape=[h, h * 4], contiguity=True, dtype=DataType.BFloat16
+        )
+        out = fd.ops.linear(inp, weight)
+        fd.add_output(out)
+
+        for tv in (inp, weight):
+            tv.set_device_mesh(mesh)
+
+        inp.split(0, s, inner_split=False)
+        inp.axis(0).parallelize(nvfuser.ParallelType.stream)
+        inp.split(2, d, inner_split=False)
+        inp.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
+        weight.split(1, d, inner_split=False)
+        weight.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    # Expected pre-segmentation IR:
+    #
+    #   [t, 4h]                                 [h, 4h]
+    #   /\  /\                                      /\.
+    #  s*  d                                       d
+    #                      |
+    #                      | linear
+    #                      |
+    #                          r{4h}
+    #                          /  \.
+    #                 [t, h, d, r{4h/d}]
+    #                 /\.
+    #                s
+    #                     |
+    #                     | sum
+    #                     |
+    #                  [t, h, r{d}]
+    #                  /\.
+    #                 s*
+
+    # Expected host IR:
+    #
+    # %HostIrContainer { (T0_g___bfloat[istreamIdx7{3}, ideviceIdx.x9{2}, iS8{( ceilDiv(i0, 3) )}, iS10{4}] (DeviceMesh{0 1}), T1_g___bfloat[ideviceIdx.x11{2}, iS2{2}, iS12{4}] (DeviceMesh{0 1})) -> (T2_g___bfloat[istreamIdx27{3}, rdeviceIdx.x26{2}, iS28{( ceilDiv(i0, 3) )}, iS25{2}] (DeviceMesh{0 1})) :
+    #   T2_g___bfloat[istreamIdx27{3}, rdeviceIdx.x26{2}, iS28{( ceilDiv(i0, 3) )}, iS25{2}] (DeviceMesh{0 1}) = ALLOCATE(buffer=T2_g___bfloat[istreamIdx27{3}, rdeviceIdx.x26{2}, iS28{( ceilDiv(i0, 3) )}, iS25{2}] (DeviceMesh{0 1}), mem_type=global, size=( i0 * 2 ), zero_init=false, resets_to_zero=false)
+    #   FOR i535 from 0 to 3:
+    #     T4_l___bfloat[istreamIdx31{3}, ideviceIdx.x33{2}, iS32{( ceilDiv(i0, 3) )}, iS34{4}] (DeviceMesh{0 1}) = ShardByStream(T0_g___bfloat[istreamIdx7{3}, ideviceIdx.x9{2}, iS8{( ceilDiv(i0, 3) )}, iS10{4}] (DeviceMesh{0 1}), stream_index = i535)
+    #     T3_g___bfloat[istreamIdx20{3}, ideviceIdx.x22{2}rf, iS21{( ceilDiv(i0, 3) )}, iS18{2}, rS23{4}rf] (DeviceMesh{0 1})
+    #        = linear(T4_l___bfloat[istreamIdx31{3}, ideviceIdx.x33{2}, iS32{( ceilDiv(i0, 3) )}, iS34{4}] (DeviceMesh{0 1}),
+    #                 T1_g___bfloat[ideviceIdx.x11{2}, iS2{2}, iS12{4}] (DeviceMesh{0 1})      )
+    #     T5_l___bfloat[istreamIdx37{3}, iS38{( ceilDiv(i0, 3) )}, iS36{2}] (DeviceMesh{0 1}) = ShardByStream(T2_g___bfloat[istreamIdx27{3}, rdeviceIdx.x26{2}, iS28{( ceilDiv(i0, 3) )}, iS25{2}] (DeviceMesh{0 1}), stream_index = i535)
+    #     Communication 250 (type=Allreduce, team=(0 1), input=T3_g___bfloat[istreamIdx20{3}, ideviceIdx.x22{2}rf, iS21{( ceilDiv(i0, 3) )}, iS18{2}, rS23{4}rf] (DeviceMesh{0 1}), output=T5_l___bfloat[istreamIdx37{3}, iS38{( ceilDiv(i0, 3) )}, iS36{2}] (DeviceMesh{0 1}), backend=NCCL)
+    #     Wait Communication 250
+    # } // %HostIrContainer
+
+    inp_ref = torch.randint(-2, 3, (t, h * 4), dtype=torch.int32).to(torch.bfloat16)
+    weight_ref = torch.randint(-2, 3, (h, h * 4), dtype=torch.int32).to(torch.bfloat16)
+    out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
+
+    inp = (multidevice_direct_test.shard_tensor(inp_ref, -1, mesh),)
+    weight = (multidevice_direct_test.shard_tensor(weight_ref, -1, mesh),)
+    (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+    torch.testing.assert_close(out.cpu(), out_ref)
+
+    # Collect CUDA kernels after a warmup run to exclude autotuning.
+    # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
+    # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
+    # is still expecting data.  It's unclear to me whether we should relax
+    # SegmentProfiler's assumptions or stop creating them in the first place.
+    with torch.profiler.profile(record_shapes=True) as prof:
+        (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+
+    matmul_events = [event for event in prof.events() if event.name == "aten::mm"]
+    assert len(matmul_events) == s
+
+    m = t // s
+    n = h
+    k = h * 4 // d
+    for event in matmul_events:
+        assert event.input_shapes == [[m, k], [k, n], [m, n]]
+
+
+@pytest.mark.mpi
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(

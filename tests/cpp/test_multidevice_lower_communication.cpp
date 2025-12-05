@@ -787,6 +787,10 @@ class LowerCollectiveCudaTest : public MultiDeviceTest {
 TEST_F(LowerCollectiveCudaTest, Allgather) {
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
 
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
   if (!isMulticastSupported()) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
@@ -826,6 +830,10 @@ TEST_F(LowerCollectiveCudaTest, Allgather) {
 
 TEST_F(LowerCollectiveCudaTest, Broadcast) {
   constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
 
   if (!isMulticastSupported()) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
