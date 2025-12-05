@@ -374,7 +374,7 @@ def transformer_forward_multidevice_schedule(
         tv.set_device_mesh(mesh)
 
     if parallelism == Parallelism.SEQUENCE_PARALLEL:
-        inp.split(1, num_devices, inner_split=False)
+        inp.outer_split(1, num_devices)
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
@@ -512,23 +512,23 @@ def test_transformer_forward(
         out,
     ) = warmup_fn()
 
-    s_sharded = s // d if parallelism == Parallelism.SEQUENCE_PARALLEL else s
+    s_local = s // d if parallelism == Parallelism.SEQUENCE_PARALLEL else s
 
-    _assert_shape_dtype(layernorm0_mean, [b, s_sharded], torch.float32)
-    _assert_shape_dtype(layernorm0_rstd, [b, s_sharded, 1], torch.float32)
+    _assert_shape_dtype(layernorm0_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm0_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mha_linear0_out, [b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [b, h // d, s], torch.float32)
     ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
     _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
     _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
-    _assert_shape_dtype(mha_linear1_out, [b, s_sharded, e], torch.bfloat16)
-    _assert_shape_dtype(mha_dropout_mask, [b, s_sharded, e], torch.bool)
-    _assert_shape_dtype(layernorm1_mean, [b, s_sharded], torch.float32)
-    _assert_shape_dtype(layernorm1_rstd, [b, s_sharded, 1], torch.float32)
+    _assert_shape_dtype(mha_linear1_out, [b, s_local, e], torch.bfloat16)
+    _assert_shape_dtype(mha_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(layernorm1_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm1_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mlp_linear0_out, [b, s, e * 4 // d], torch.bfloat16)
-    _assert_shape_dtype(mlp_dropout_mask, [b, s_sharded, e], torch.bool)
-    _assert_shape_dtype(out, [b, s_sharded, e], torch.bfloat16)
+    _assert_shape_dtype(mlp_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(out, [b, s_local, e], torch.bfloat16)
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
