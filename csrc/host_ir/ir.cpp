@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 
 #include <algorithm>
 #include <memory>
@@ -272,7 +272,7 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
   NVF_ERROR(
       (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
       expr,
-      "must be a Communication, a P2PCommunication, or a EndCoalescing");
+      " must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
