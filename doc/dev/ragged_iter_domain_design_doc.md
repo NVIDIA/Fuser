@@ -182,7 +182,7 @@ static std::pair<IterDomain*, RaggedIterDomain*> partition(
 
 **Semantics:**
 - Input: Regular IterDomain with total extent N
-- Offsets: 1D TensorView with K+1 elements `[0, offset_1, ..., offset_K=N]`
+- Offsets: TensorView (1D, 2D, or N-D) defining partition boundaries. For the simple 1D case with K partitions: `[0, offset_1, ..., offset_K=N]`. For multi-dimensional cases, the offset tensor shape determines the nesting structure of the resulting RaggedIterDomain (see Example 2 in Section 6.4 for a concrete example with 2D offsets).
 - Output:
   - Batch IterDomain with extent K (number of partitions)
   - RaggedIterDomain with K nested domains (extents = differences between consecutive offsets)
