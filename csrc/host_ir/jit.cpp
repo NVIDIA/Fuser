@@ -1455,10 +1455,8 @@ void HostIrJitImpl::registerExternalFunctions() {
       // Compute output bytes
       int64_t output_bytes = 0;
       for (int64_t i = 0; i < num_outputs; ++i) {
-        if (output_tensors[i] != nullptr) {
-          output_bytes +=
-              static_cast<int64_t>(output_tensors[i]->storage().nbytes());
-        }
+        output_bytes +=
+            static_cast<int64_t>(output_tensors[i]->storage().nbytes());
       }
 
       sprof.outputBytesAccessed(output_bytes);
