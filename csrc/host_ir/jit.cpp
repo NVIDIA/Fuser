@@ -1339,9 +1339,10 @@ void HostIrJitImpl::registerExternalFunctions() {
     auto encodeTensor = [&](at::Tensor* tensor, Val* tv_val) {
       std::vector<int64_t> sizes = tensor->sizes().vec();
       std::vector<int64_t> strides;
+      auto* tv = dynamic_cast<TensorView*>(tv_val);
 
       // Use allocation strides if the tensor has an allocation domain
-      if (auto* tv = dynamic_cast<TensorView*>(tv_val)) {
+      if (tv) {
         if (tv->hasAllocation()) {
           auto [alloc_sizes, alloc_strides] =
               inferAndValidateAllocationSizesAndStrides(*tensor, tv, expr_eval);
@@ -1358,7 +1359,7 @@ void HostIrJitImpl::registerExternalFunctions() {
           sizes,
           strides,
           index_type,
-          getLastDimAdjustment(index_type),
+          getLastDimAdjustment(tv->dtype()),
           sizes);
 
       arg_bytes.push_back(std::move(bytes));
