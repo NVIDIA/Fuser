@@ -252,11 +252,7 @@ class RaggedIterDomain : public IterDomain {
   // This overrides IterDomain::parallelize and calls nested_domains[i]->parallelize(pt) for all nested domains
   void parallelize(ParallelType pt);
 
-  // Returns the offsets tensor (for compatibility with external APIs)
-  // Computes offsets from extents via cumulative sum
-  TensorView* offsets() const;
-
-  // Internal accessor for the extents tensor
+  // Accessor for the extents tensor
   TensorView* extents() const;
 
  private:
@@ -276,15 +272,13 @@ The `nested_domains_` vector contains one `IterDomain` per batch component. For 
 2. Offsets can be derived from extents via cumulative sum
 3. Storing extents avoids redundancy (offsets contain cumulative information)
 
-**Offset Computation**: The `offsets()` method computes offsets on-demand as the cumulative sum of extents: `offsets[i] = sum(extents[0..i-1])`. This enables efficient indexing into contiguous storage:
+**Offset Computation**: When offsets are needed (e.g., for indexing operations), they can be computed as the cumulative sum of extents: `offsets[i] = sum(extents[0..i-1])`. This enables efficient indexing into contiguous storage:
 - Component 0 starts at offset 0
 - Component 1 starts at offset = extent[0]
 - Component 2 starts at offset = extent[0] + extent[1]
 - And so on...
 
 For a ragged dimension with extents [3, 5, 2], the computed offsets are [0, 3, 8, 10].
-
-**API Note**: While the internal representation uses extents, the public API continues to work with offsets for user convenience and compatibility with existing offset-based patterns (e.g., PyTorch nested tensors use offsets). The conversion between extents and offsets is handled transparently.
 
 #### Extent Semantics
 
