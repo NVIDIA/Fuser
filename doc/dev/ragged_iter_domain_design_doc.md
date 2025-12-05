@@ -516,6 +516,13 @@ auto merged = IterDomain::merge(gpu_dim, ragged_dim);
 // The extents are summed along the merged dimension
 ```
 
+**Implementation Detail**: The reduction is defined using nvFuser's `ReductionOp`. Specifically, the new extent tensor is computed as:
+```cpp
+// Reduce the extent tensor along dimension 0 (the merged dimension)
+new_extents = sum(ragged_dim->extents(), {0});
+```
+This creates a `ReductionOp` that sums the 2D extent tensor `[gpu=2, expert=4]` along dimension 0, producing a 1D extent tensor `[expert=4]`.
+
 **Important Constraint**: The total extent of the resulting RaggedIterDomain depends on the reduction result of the extent tensor. Since nvFuser assumes all IterDomain extents are known at kernel launch time, the extent reduction cannot be done within the same kernel that uses the merged RaggedIterDomain. Until the reduction is complete, we don't know the size of the ragged dimension, which blocks operations like memory allocation.
 
 **Handling Strategies** (TBD): How this should be handled is still unclear. Possible approaches include:
