@@ -781,6 +781,34 @@ Here, for `tv_result` we would use the same `Tensor` struct as the normal tensor
 
 Since it is an implementation detail, the offset tensor should be hidden behind the nested tensor in the user-facing Fusion definition. When a user uses `asNested` to create a nested tensor, it should still create a single nested tensor Val, as illustrated in the first case above. The translation to the second pattern should be done automatically, e.g., by a new preseg pass.
 
+#### Runtime Binding (Initial Version)
+
+**Challenge**: How should `ExpressionEvaluator` bind a ragged TensorView to actual tensor objects at runtime?
+
+**Initial Approach**: In this initial version, we take a simplified approach that avoids the complexity of custom tensor types:
+
+1. **Input Nested Tensors**: Must be passed as **two separate parameters**:
+   - A normal `at::Tensor` containing the flattened data
+   - Another `at::Tensor` parameter representing the offsets (or extents)
+
+2. **Output Nested Tensors**: Returned as **two separate tensors**:
+   - A normal `at::Tensor` containing the flattened data
+   - An offset (or extent) tensor
+
+This approach treats nested tensors as regular tensors plus separate offset/extent metadata at the API boundary. While the Fusion IR internally represents them as nested TensorViews with RaggedIterDomain, the runtime binding uses plain tensors.
+
+**Limitations**: This approach is **not sufficient for actual production use cases** because:
+- Users must manually manage the data/offset tensor pairs
+- No type safety to ensure data and offsets stay synchronized
+- Doesn't integrate with PyTorch's NestedTensor API
+- More cumbersome API compared to a unified nested tensor type
+
+**Future Work**: A more complete solution would involve:
+- Creating a custom NestedTensor class for nvFuser runtime
+- Adding it to PolymorphicValue for storage in KernelArgumentHolder
+- Supporting direct binding to/from a unified nested tensor object
+- This is left as future work beyond the initial implementation.
+
 ---
 
 ## 7. System Integration
