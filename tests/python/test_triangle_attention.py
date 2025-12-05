@@ -48,29 +48,3 @@ def test_triangle_attention_matches_cuequivariance():
     torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)
     torch.testing.assert_close(lse_flex, lse_cue, rtol=1e-3, atol=1e-4)
     torch.testing.assert_close(max_flex, max_cue, rtol=1e-3, atol=1e-4)
-
-
-def test_triangle_attention_supports_batchless_inputs():
-    torch.manual_seed(1)
-    n_tokens, n_heads, q_len, k_len, head_dim = 4, 3, 5, 6, 16
-    device = torch.device("cuda")
-
-    q = torch.randn(
-        n_tokens, n_heads, q_len, head_dim, device=device, dtype=torch.float16
-    )
-    k = torch.randn(
-        n_tokens, n_heads, k_len, head_dim, device=device, dtype=torch.float16
-    )
-    v = torch.randn(
-        n_tokens, n_heads, k_len, head_dim, device=device, dtype=torch.float16
-    )
-    bias = torch.randn(1, n_heads, q_len, k_len, device=device, dtype=torch.float32)
-    mask = torch.rand(n_tokens, 1, 1, k_len, device=device) > 0.5
-
-    out_flex = triangle_attention_flex(q, k, v, bias, mask=mask)
-    out_cue = triangle_attention_cuequivariance(q, k, v, bias, mask=mask)
-
-    assert out_flex.shape == (1, n_tokens, n_heads, q_len, head_dim)
-    assert out_cue.shape == out_flex.shape
-    assert out_flex.dtype == q.dtype
-    torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)

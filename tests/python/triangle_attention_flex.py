@@ -11,7 +11,7 @@ that we can validate this path against the vendor kernel in unit tests.
 from __future__ import annotations
 
 import math
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import cudnn
 import torch
@@ -20,34 +20,12 @@ from torch import Tensor
 __all__ = ["triangle_attention"]
 
 _NEG_INF = -1e9
-_FORWARD_GRAPH_CACHE: dict[
-    Tuple[
-        int, torch.dtype, int, int, int, int, int, int, float, int, int, int, int, int
-    ],
-    "_CudnnSdpaGraph",
-] = {}
 
 _TORCH_TO_CUDNN_DTYPE = {
     torch.float16: cudnn.data_type.HALF,
     torch.bfloat16: cudnn.data_type.BFLOAT16,
     torch.float32: cudnn.data_type.FLOAT,
 }
-
-
-def _ensure_rank(tensor: Tensor, name: str, expected_dims: Sequence[int]) -> Tensor:
-    if tensor.dim() in expected_dims:
-        return tensor
-    expected = ", ".join(str(dim) for dim in expected_dims)
-    raise ValueError(
-        f"{name} must have rank in ({expected}), but got tensor with shape {tuple(tensor.shape)}"
-    )
-
-
-def _ensure_5d(tensor: Tensor, name: str) -> Tensor:
-    tensor = _ensure_rank(tensor, name, (4, 5))
-    if tensor.dim() == 4:
-        tensor = tensor.unsqueeze(0)
-    return tensor
 
 
 def _torch_dtype_to_cudnn(dtype: torch.dtype) -> cudnn.data_type:
@@ -57,42 +35,6 @@ def _torch_dtype_to_cudnn(dtype: torch.dtype) -> cudnn.data_type:
         raise TypeError(
             f"triangle_attention only supports float16, bfloat16, or float32 inputs, but got {dtype}"
         ) from exc
-
-
-def _graph_key(
-    device_index: int,
-    dtype: torch.dtype,
-    batch: int,
-    n_tokens: int,
-    n_heads: int,
-    q_len: int,
-    k_len: int,
-    head_dim: int,
-    scale: float,
-    bias_batch_broadcast: bool,
-    bias_token_broadcast: bool,
-    mask_present: bool,
-    mask_batch_broadcast: bool,
-    mask_token_broadcast: bool,
-) -> Tuple[
-    int, torch.dtype, int, int, int, int, int, int, float, int, int, int, int, int
-]:
-    return (
-        device_index,
-        dtype,
-        batch,
-        n_tokens,
-        n_heads,
-        q_len,
-        k_len,
-        head_dim,
-        scale,
-        int(bias_batch_broadcast),
-        int(bias_token_broadcast),
-        int(mask_present),
-        int(mask_batch_broadcast),
-        int(mask_token_broadcast),
-    )
 
 
 def _expand_bias_for_scores(
@@ -149,39 +91,17 @@ class _CudnnSdpaGraph:
 
     def __init__(
         self,
-        key: Tuple[
-            int,
-            torch.dtype,
-            int,
-            int,
-            int,
-            int,
-            int,
-            int,
-            float,
-            int,
-            int,
-            int,
-            int,
-            int,
-        ],
+        device_index: int,
+        dtype: torch.dtype,
+        batch: int,
+        n_tokens: int,
+        n_heads: int,
+        q_len: int,
+        k_len: int,
+        head_dim: int,
+        scale: float,
+        mask_present: bool,
     ) -> None:
-        (
-            device_index,
-            dtype,
-            batch,
-            n_tokens,
-            n_heads,
-            q_len,
-            k_len,
-            head_dim,
-            scale,
-            bias_batch_broadcast,
-            bias_token_broadcast,
-            mask_present,
-            mask_batch_broadcast,
-            mask_token_broadcast,
-        ) = key
         self.device_index = device_index
         self.device = torch.device("cuda", device_index)
         self.scale = scale
@@ -251,8 +171,6 @@ class _CudnnSdpaGraph:
                 bias=self.bias,
                 attn_scale=self.scale,
                 generate_stats=True,
-                score_max=self.score_max,
-                score_sum_exp=self.score_sum_exp,
                 implementation=cudnn.attention_implementation.AUTO,
                 score_mod=score_modifier,
             )
@@ -323,13 +241,6 @@ class _TriangleAttentionFunction(torch.autograd.Function):
         mask: Optional[Tensor],
         scale: Optional[float],
     ) -> Tuple[Tensor, Tensor, Tensor]:
-        q_original_shape = tuple(q.shape)
-        k_original_shape = tuple(k.shape)
-        v_original_shape = tuple(v.shape)
-        q = _ensure_5d(q, "q")
-        k = _ensure_5d(k, "k")
-        v = _ensure_5d(v, "v")
-
         if q.device.type != "cuda":
             raise ValueError(
                 f"triangle_attention requires CUDA tensors, but got device {q.device}"
@@ -370,52 +281,24 @@ class _TriangleAttentionFunction(torch.autograd.Function):
         else:
             scale_val = float(scale)
 
-        bias_input = _ensure_rank(bias, "bias", (4, 5))
-        bias_original_ndim = bias_input.dim()
-        if bias_input.device != q.device:
-            raise ValueError(f"bias must be on {q.device}, but got {bias_input.device}")
-        if bias_input.dim() == 4:
-            bias_input = bias_input.unsqueeze(0)
-        if bias_input.shape[0] not in (1, batch):
+        if bias.device != q.device:
+            raise ValueError(f"bias must be on {q.device}, but got {bias.device}")
+        if bias.shape != (batch, 1, n_heads, q_len, k_len):
             raise ValueError(
-                f"bias batch dimension must be 1 or {batch}, but got {bias_input.shape[0]}"
+                f"bias must have shape (B, 1, H, Q, K), but got {tuple(bias.shape)}"
             )
-        if bias_input.shape[1] not in (1, n_tokens):
-            raise ValueError(
-                f"bias token dimension must be 1 or {n_tokens}, but got {bias_input.shape[1]}"
-            )
-        if bias_input.shape[2] != n_heads:
-            raise ValueError(
-                f"bias head dimension must match q ({n_heads}), but got {bias_input.shape[2]}"
-            )
-        if bias_input.shape[3] != q_len or bias_input.shape[4] != k_len:
-            raise ValueError(
-                "bias must have shape (B, N, H, Q, K) with matching Q/K dimensions"
-            )
-        bias_base_shape = tuple(bias_input.shape)
         (
             bias_view,
             bias_batch_broadcast,
             bias_token_broadcast,
-        ) = _expand_bias_for_scores(bias_input, batch, n_tokens, n_heads, q_len, k_len)
+        ) = _expand_bias_for_scores(bias, batch, n_tokens, n_heads, q_len, k_len)
 
         if mask is not None:
-            mask = _ensure_rank(mask, "mask", (4, 5)).to(dtype=torch.bool)
             if mask.device != q.device:
                 raise ValueError(f"mask must be on {q.device}, but got {mask.device}")
-            if mask.dim() == 4:
-                mask = mask.unsqueeze(0)
-            if mask.shape[0] not in (1, batch):
+            if mask.shape != (batch, n_tokens, 1, 1, k_len):
                 raise ValueError(
-                    f"mask batch dimension must be 1 or {batch}, but got {mask.shape[0]}"
-                )
-            if mask.shape[1] not in (1, n_tokens):
-                raise ValueError(
-                    f"mask token dimension must be 1 or {n_tokens}, but got {mask.shape[1]}"
-                )
-            if mask.shape[2:] != (1, 1, k_len):
-                raise ValueError(
-                    "mask must have trailing shape (1, 1, K) to broadcast over heads and queries"
+                    f"mask must have shape (B, N, 1, 1, K), but got {tuple(mask.shape)}"
                 )
             (
                 mask_bias_view,
@@ -435,7 +318,8 @@ class _TriangleAttentionFunction(torch.autograd.Function):
         device_index = q.device.index
         if device_index is None:
             device_index = torch.cuda.current_device()
-        key = _graph_key(
+
+        runner = _CudnnSdpaGraph(
             device_index,
             q.dtype,
             batch,
@@ -445,17 +329,8 @@ class _TriangleAttentionFunction(torch.autograd.Function):
             k_len,
             head_dim,
             scale_val,
-            bias_batch_broadcast,
-            bias_token_broadcast,
             mask_bias_view is not None,
-            mask_batch_broadcast,
-            mask_token_broadcast,
         )
-
-        runner = _FORWARD_GRAPH_CACHE.get(key)
-        if runner is None:
-            runner = _CudnnSdpaGraph(key)
-            _FORWARD_GRAPH_CACHE[key] = runner
 
         out_flat = torch.empty_like(q_flat)
         stats_flat = torch.empty(
