@@ -84,9 +84,7 @@ def compute_nvfp4_global_scale(tensor):
 
     # Handle edge cases: zero input or invalid scale
     invalid_mask = (amax == 0.0) | (x_global_scale == 0.0)
-    x_global_scale = torch.where(
-        invalid_mask, torch.tensor(1.0, device="cuda"), x_global_scale
-    )
+    x_global_scale = torch.where(invalid_mask, 1.0, x_global_scale)
 
     return x_global_scale
 
