@@ -222,10 +222,18 @@ A `TensorDomain` can contain a mix of regular `IterDomain` and `RaggedIterDomain
 
 **Example 1: Single ragged dimension**
 ```cpp
-// Batch of sequences with variable lengths
-auto batch = IrBuilder::create<IterDomain>(0, 3);
-auto ragged_seq = IrBuilder::create<RaggedIterDomain>({seq0, seq1, seq2});
+// Batch of sequences with variable lengths: [batch=3, seq=[3,5,2], feature=4]
+// Start with flattened sequence dimension
+auto seq_dim = IrBuilder::create<IterDomain>(0, 10);  // total: 3+5+2=10
 auto feature = IrBuilder::create<IterDomain>(0, 4);
+
+// Create offsets for partitioning: [0, 3, 8, 10]
+auto offsets = makeContigTensor(1);  // 1D offset tensor
+
+// Partition to create batch and ragged dimensions
+auto [batch, ragged_seq] = IterDomain::partition(seq_dim, offsets);
+// batch: IterDomain with extent 3
+// ragged_seq: RaggedIterDomain with nested extents [3, 5, 2]
 
 auto tensor_domain = IrBuilder::create<TensorDomain>({batch, ragged_seq, feature});
 ```
@@ -239,8 +247,12 @@ The compilation pipeline detects ragged dimensions and routes to appropriate ind
 ```cpp
 class RaggedIterDomain : public IterDomain {
  public:
-  // Constructor
-  RaggedIterDomain(IrBuilderPasskey, std::vector<IterDomain*> nested_domains);
+  // Constructor - takes pre-constructed nested IterDomains and extents TensorView
+  RaggedIterDomain(
+      IrBuilderPasskey,
+      std::vector<IterDomain*> nested_domains,  // Pre-constructed nested IterDomains
+      TensorView* extents                       // Extent tensor (1D, 2D, or N-D)
+  );
 
   // Accessors
   const std::vector<IterDomain*>& nestedDomains() const;
@@ -485,9 +497,11 @@ ragged->parallelize(ParallelType::TIDx);
 // All nested domains now have ParallelType::TIDx
 ```
 
-#### Select Operation
+#### Select Operation (Optional - May Not Be Included in Initial Implementation)
 
-The `select` operation extracts a specific component from a ragged dimension, converting it to a regular IterDomain. This requires two steps:
+The `select` operation extracts a specific component from a ragged dimension, converting it to a regular IterDomain. This is not critical for expert parallelism use cases and may be deferred to future work.
+
+If implemented, it would work as follows:
 
 1. Select on the batch dimension to choose which component
 2. The ragged dimension automatically becomes a regular IterDomain with that component's extent
