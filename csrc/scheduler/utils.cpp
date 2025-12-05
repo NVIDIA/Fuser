@@ -1308,6 +1308,66 @@ void clearMemorySpace(Fusion* fusion) {
   }
 }
 
+// Returns a vector of expressions (uses) that can be cached for the given
+// TensorView.
+std::vector<Expr*> getCacheableUses(TensorView* tv) {
+  // Can't cache scalar tensors (0-dimensional)
+  if (tv->nDims() == 0) {
+    return {};
+  }
+
+  // Can't cache tensors with no uses
+  if (tv->uses().empty()) {
+    return {};
+  }
+
+  // Right now, tensors that are input to the select, gather and
+  // index_select ops can't be cached as they must be in global memory.
+  if (ir_utils::isIndexSelectLookupTv(tv) ||
+      ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+    return {};
+  }
+
+  // TODO: might need to reverse this when scheduler handles pad directly
+  // Do not insert a cache for pad as vectorization needs to be
+  // done directly.
+  //
+  // Note that this means that if an input is padded and also is
+  // used without padding, it will be read twice, once for pad and
+  // once more for caching load. It would make sense to use the PTX
+  // caching load instructions.
+  // For gatherOp, the lookupTv should stay in global memory, don't replace
+  // the original lookupTv with the cached_tv.
+  auto isGatherLookUpTvInUse = [tv](Expr* use) {
+    if (!use->isA<GatherOp>()) {
+      return false;
+    }
+    return use->as<GatherOp>()->lookupTv() == tv;
+  };
+
+  // TODO: we might need to explicitly promote offsets to global memory
+  // We expect offsets to remain in global memory, so we do not add it to
+  // cache
+  auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
+    if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
+      return false;
+    }
+    auto layout = use->as<PreprocessGroupedMatmulInputSf>();
+    return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+  };
+
+  std::vector<Expr*> cacheable_uses;
+  // Exclude PadOp, SliceOp, GatherOp lookups, and matmul offsets
+  for (auto use : tv->uses()) {
+    if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
+        !isPreprocessGroupedMatmulInputSfOffsets(use)) {
+      cacheable_uses.push_back(use);
+    }
+  }
+
+  return cacheable_uses;
+}
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
@@ -1326,50 +1386,9 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
       continue;
     }
 
-    if (tv->nDims() == 0 || tv->uses().empty() ||
-        ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
-      // Right now, tensors that are input to the select, gather and
-      // index_select ops can't be cached as they must be in global memory.
-      continue;
-    }
+    std::vector<Expr*> cacheable_uses = getCacheableUses(tv);
 
-    // TODO: might need to reverse this when scheduler handles pad directly
-    // Do not insert a cache for pad as vectorization needs to be
-    // done directly.
-    //
-    // Note that this means that if an input is padded and also is
-    // used without padding, it will be read twice, once for pad and
-    // once more for caching load. It would make sense to use the PTX
-    // caching load instructions.
-    // For gatherOp, the lookupTv should stay in global memory, don't replace
-    // the original lookupTv with the cached_tv.
-    auto isGatherLookUpTvInUse = [tv](Expr* use) {
-      if (!use->isA<GatherOp>()) {
-        return false;
-      }
-      return use->as<GatherOp>()->lookupTv() == tv;
-    };
-
-    // TODO: we might need to explicitly promote offsets to global memory
-    // We expect offsets to remain in global memory, so we do not add it to
-    // cache
-    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
-      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
-        return false;
-      }
-      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
-      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
-    };
-    std::vector<Expr*> cached_uses;
-    for (auto use : tv->uses()) {
-      if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
-          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
-        cached_uses.push_back(use);
-      }
-    }
-
-    if (cached_uses.empty()) {
+    if (cacheable_uses.empty()) {
       continue;
     }
 
@@ -1377,7 +1396,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
         /*op_type=*/LoadStoreOpType::Set,
         /*cache_op=*/CacheOp::Unspecified,
         /*propagate_allocation_domain=*/true,
-        /*cached_uses=*/cached_uses);
+        /*cached_uses=*/cacheable_uses);
 
     cached_inputs.emplace_back(cached_tv, input_idx);
   }
