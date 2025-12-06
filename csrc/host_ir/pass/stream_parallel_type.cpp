@@ -337,6 +337,9 @@ std::list<Expr*> processForLoopBodies(
     auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
         ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
         : for_loop->index();
+    auto recv_peer = communicator_backend == CommunicatorBackend::kCuda
+        ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())), for_loop->stop())
+        : for_loop->index();
 
     for (auto* body_expr : for_loop->body().exprs()) {
       bool did_to_stream = false;
@@ -395,29 +398,28 @@ std::list<Expr*> processForLoopBodies(
             output_tv->axis(1)->isDeviceDim(),
             "expected a sharded second axis on the output but got ",
             output_tv);
-        auto peer = for_loop->index(); // Eventually use tensor_index instead
         auto* is_sending_to_self =
-          IrBuilder::create<kir::Predicate>(eq(peer, my_device_id));
+          IrBuilder::create<kir::Predicate>(eq(tensor_index, my_device_id));
         auto if_sending_to_self =
           IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
           input_tv,
           /*dim*/findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
-          /*index=*/for_loop->index());
+          /*index=*/tensor_index);
         auto [slicing_output, is_new_] =
-          tensor_slicing_cache.get(output_tv, /*dim*/0, /*index=*/for_loop->index());
+          tensor_slicing_cache.get(output_tv, /*dim*/0, /*index=*/recv_peer);
         auto* local_copy = IrBuilder::create<LoadStoreOp>(
           LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
         if_sending_to_self->thenBody().push_back(local_copy);
         auto recv = IrBuilder::create<P2PCommunication>(
           P2PCommunicationType::RECV,
           slicing_output->out(),
-          peer,
+          recv_peer,
           CommunicatorBackend::kNccl);
         auto send = IrBuilder::create<P2PCommunication>(
           P2PCommunicationType::SEND,
           slicing_input->out(),
-          peer,
+          tensor_index,
           CommunicatorBackend::kNccl);
         auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
         auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
@@ -552,11 +554,11 @@ std::list<Expr*> processForLoopBodies(
         // Process inputs and outputs normally
         for (auto* input :
              ir_utils::filterByType<TensorView>(body_expr->inputs())) {
-          processTensor(body_expr, input, for_loop->index());
+          processTensor(body_expr, input, tensor_index);
         }
         for (auto* output :
              ir_utils::filterByType<TensorView>(body_expr->outputs())) {
-          processTensor(body_expr, output, for_loop->index());
+          processTensor(body_expr, output, tensor_index);
         }
         new_loop_body.push_back(body_expr);
       }
