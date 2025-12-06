@@ -291,7 +291,7 @@ BreakPointInfo getBreakPoint(
         result.flip_grid_binding = false;
       }
     } else {
-      // If TMA is used, prioritize break if it saves transfered size
+      // If TMA is used, prioritize break if it saves transferred size
       // This ensures we break at broadcast dimensions, then we can optionally
       // load tvs with broadcasted dimensions.
       if (cur_transfer_size_bit >= min_total_transfer_bit) {
