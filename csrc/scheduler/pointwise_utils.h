@@ -84,6 +84,7 @@ BreakPointInfo getBreakPoint(
     Fusion* fusion,
     const FusionRuntimeProperties& prop,
     HeuristicDataCache* data_cache,
+    bool is_tma,
     int64_t max_vect_factor = 1,
     int64_t kThreadX = 128);
 

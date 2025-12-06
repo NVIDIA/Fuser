@@ -178,6 +178,7 @@ BreakPointInfo getBreakPoint(
     Fusion* fusion,
     const FusionRuntimeProperties& prop,
     HeuristicDataCache* data_cache,
+    bool is_tma,
     int64_t max_vect_factor,
     int64_t kThreadX) {
   BreakPointInfo result;
@@ -240,8 +241,10 @@ BreakPointInfo getBreakPoint(
       cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
     }
 
+    // For tma scheduling, allow no element in the left side of break point,
+    // e.g. break at pos-0 for non-broadcasted case.
     auto cur_left_elem_count = n_elems / cur_right_elem_count;
-    if (cur_left_elem_count <= 1) {
+    if (!is_tma && cur_left_elem_count <= 1) {
       continue;
     }
 
@@ -263,28 +266,37 @@ BreakPointInfo getBreakPoint(
     }
     cur_transfer_size_bit *= right_transfer_size_bit;
 
-    //  Continue if this break point doesn't save at least 10% of 1D
-    //  scheduling or isn't better than previous break_points found.
-    if (cur_transfer_size_bit >= min_total_transfer_bit ||
-        cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
-      continue;
-    }
+    if (!is_tma) {
+      //  Continue if this break point doesn't save at least 10% of 1D
+      //  scheduling or isn't better than previous break_points found.
+      if (cur_transfer_size_bit >= min_total_transfer_bit ||
+          cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
+        continue;
+      }
 
-    // Need to be able to parallelize, don't use break if there's not
-    // at least an unrolled warp.
-    if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
-        at::cuda::getCurrentDeviceProperties()->warpSize) {
-      continue;
-    }
-    // If outer broadcast, or balanced broadcast:
-    if (lhs_bit_multiple <= rhs_bit_multiple &&
-        // If right transfer size is bigger than half of L2
-        at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
-            right_transfer_size_bit * 2) {
-      // flip BIDx and BIDy bindings
-      result.flip_grid_binding = true;
+      // Need to be able to parallelize, don't use break if there's not
+      // at least an unrolled warp.
+      if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
+          at::cuda::getCurrentDeviceProperties()->warpSize) {
+        continue;
+      }
+      // If outer broadcast, or balanced broadcast:
+      if (lhs_bit_multiple <= rhs_bit_multiple &&
+          // If right transfer size is bigger than half of L2
+          at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
+              right_transfer_size_bit * 2) {
+        // flip BIDx and BIDy bindings
+        result.flip_grid_binding = true;
+      } else {
+        result.flip_grid_binding = false;
+      }
     } else {
-      result.flip_grid_binding = false;
+      // If TMA is used, prioritize break if it saves transferred size
+      // This ensures we break at broadcast dimensions, then we can optionally
+      // load tvs with broadcasted dimensions.
+      if (cur_transfer_size_bit >= min_total_transfer_bit) {
+        continue;
+      }
     }
 
     // Use this break point
