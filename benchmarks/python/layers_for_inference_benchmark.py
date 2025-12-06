@@ -217,8 +217,9 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
     blockscale_offsets: torch.Tensor,
     problem_sizes: torch.Tensor,
 ) -> torch.Tensor:
+    # NOTE: weight needs to be stored as (g, n, k), we'll transpose in order to hit fast kernel
     hp_weight = torch.empty(
-        (fp4_weight.size(0), fp4_weight.size(1) * 2, fp4_weight.size(2)),
+        (fp4_weight.size(0), fp4_weight.size(2), fp4_weight.size(1) * 2),
         device=activation.device,
         dtype=activation.dtype,
     )
