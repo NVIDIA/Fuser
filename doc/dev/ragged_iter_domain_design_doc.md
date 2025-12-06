@@ -715,9 +715,9 @@ The output tensor, `tv_result`, is a nested tensor. The extents of the nested do
 ```cpp
 template <typename DT, int rank>
 struct NestedTensor {
-	DT* ptr;
-	int64_t extents[rank];
-	int64_t nested_domain_extents[ragged_dimension_rank];
+    DT* ptr;
+    int64_t extents[rank];
+    int64_t nested_domain_extents[ragged_dimension_rank];
 };
 ```
 
