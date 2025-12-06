@@ -1952,8 +1952,8 @@ TEST_F(TmaPointwiseTestF, TmaDomainBroadcast) {
   auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
   // ensure TMA is used
   EXPECT_TRUE(hasTmaLoad(executor_cache));
-  // This fusion with broadcast will use 2D scheudler, the tma domain size is
-  // natually [dim0, dim1]
+  // This fusion with broadcast will use 2D scheduler, the tma domain size is
+  // naturally [dim0, dim1]
   EXPECT_EQ(getTmaDomainInner(executor_cache), dim1);
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
