@@ -446,7 +446,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VectorizeIssue1567vectorizationFactorAnalysisCase3) {
+TEST_F(PointwiseTest, VectorizeIssue1567VectorizationFactorAnalysisCase3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
