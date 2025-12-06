@@ -422,3 +422,41 @@ def test_welford(multidevice_direct_test):
 
     torch.testing.assert_close(var, sharded.var(2), rtol=1e-3, atol=1e-3)
     torch.testing.assert_close(mean, sharded.mean(2), rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.mpi
+def test_merging_reshape(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor(shape=[d, 2], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        out = fd.ops.reshape(out, [-1])
+        fd.add_output(out)
+
+        out.set_device_mesh(mesh)
+        out.outer_split(0, d)
+        out.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.randn(d, 2).cuda()
+    fd.execute([unsharded])
+
+
+@pytest.mark.mpi
+def test_spliting_reshape(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor(shape=[d * 6], contiguity=True)
+        out = fd.ops.add(inp, inp)
+        out = fd.ops.reshape(out, [d * 2, -1])
+        fd.add_output(out)
+
+        out.set_device_mesh(mesh)
+        out.outer_split(0, d)
+        out.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.randn(d * 6).cuda()
+    fd.execute([unsharded])
