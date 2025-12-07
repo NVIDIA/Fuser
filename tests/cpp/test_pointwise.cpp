@@ -1449,57 +1449,48 @@ TEST_F(
   }
 }
 
-// Mixin providing TMA test functionality
-// Used via multiple inheritance to add TMA capabilities to test fixtures
-class TmaPointwiseBase {
- protected:
-  // Configure TMA-specific environment (CUDA arch check + enable TMA option)
-  void SetUp() {
-    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
-  }
+// TMA pointwise test utilities
+namespace tma_check {
 
-  // Helper to check if TMA load is used in the compiled kernel
-  bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
-    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-    return runtime->schedulerHeuristics()
-        ->heuristicsList()
-        .at(0)
-        ->as<PointwiseParams>()
-        ->use_tma_load;
-  }
+// Helper to check if TMA load is used in the compiled kernel
+bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->use_tma_load;
+}
 
-  int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
-    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-    return runtime->schedulerHeuristics()
-        ->heuristicsList()
-        .at(0)
-        ->as<PointwiseParams>()
-        ->tma_domain_inner;
-  }
+int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->tma_domain_inner;
+}
 
- private:
-  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
-};
+} // namespace tma_check
 
 // Non-parameterized TMA pointwise test fixture (for TEST_F)
-class TmaPointwiseTestF : public TmaPointwiseBase, public PointwiseTest {
+class TmaPointwiseTestF : public PointwiseTest {
  protected:
   void SetUp() override {
-    PointwiseTest::SetUp(); // Setup IdModel
-    TmaPointwiseBase::SetUp(); // Setup TMA
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PointwiseTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
   }
 };
 
 // Parameterized TMA pointwise test fixture (for TEST_P)
 template <typename ParamType>
-class TmaPointwiseTestP : public TmaPointwiseBase,
-                          public PointwiseTestP<ParamType> {
+class TmaPointwiseTestP : public PointwiseTestP<ParamType> {
  protected:
   void SetUp() override {
-    PointwiseTestP<ParamType>::SetUp(); // Setup IdModel and test params
-    TmaPointwiseBase::SetUp(); // Setup TMA
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PointwiseTestP<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
   }
 };
 
@@ -1564,7 +1555,7 @@ TEST_P(TmaPointwiseTest, NoBroadcast) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs({t0});
     // ensure TMA is used
-    EXPECT_TRUE(hasTmaLoad(executor_cache));
+    EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
     testValidate(
         executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
     return;
@@ -1781,7 +1772,7 @@ TEST_P(TmaPointwiseBcastTest, InnerOuterBcast) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
     // ensure TMA is used
-    EXPECT_TRUE(hasTmaLoad(executor_cache));
+    EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
     testValidate(
         executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
     return;
@@ -1951,10 +1942,10 @@ TEST_F(TmaPointwiseTestF, TmaDomainBroadcast) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
   // ensure TMA is used
-  EXPECT_TRUE(hasTmaLoad(executor_cache));
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
   // This fusion with broadcast will use 2D scheduler, the tma domain size is
   // naturally [dim0, dim1]
-  EXPECT_EQ(getTmaDomainInner(executor_cache), dim1);
+  EXPECT_EQ(tma_check::getTmaDomainInner(executor_cache), dim1);
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
@@ -1982,7 +1973,7 @@ TEST_F(TmaPointwiseTestF, TmaDomainBroadcastIllegal) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
-  EXPECT_FALSE(hasTmaLoad(executor_cache));
+  EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
