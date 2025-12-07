@@ -36,13 +36,12 @@ def test_triangle_attention_matches_cuequivariance():
         batch, 1, n_heads, q_len, k_len, device=device, dtype=torch.float32
     )
     mask = torch.rand(batch, n_tokens, 1, 1, k_len, device=device) > 0.3
-    scale = 0.7
 
     out_flex, lse_flex, max_flex = triangle_attention_flex(
-        q_base, k_base, v_base, bias_base, mask=mask, scale=scale, return_aux=True
+        q_base, k_base, v_base, bias_base, mask=mask, return_aux=True
     )
     out_cue, lse_cue, max_cue = triangle_attention_cuequivariance(
-        q_base, k_base, v_base, bias_base, mask=mask, scale=scale, return_aux=True
+        q_base, k_base, v_base, bias_base, mask=mask, return_aux=True
     )
 
     torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)

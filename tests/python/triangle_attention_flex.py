@@ -8,18 +8,12 @@ SDPA API.  The interface mirrors cuequivariance_ops_torch.triangle_attention so
 that we can validate this path against the vendor kernel in unit tests.
 """
 
-from __future__ import annotations
-
 import math
-from typing import Optional, Tuple, Union
-
 import cudnn
 import torch
-from torch import Tensor
+from typing import Tuple, Union
 
 __all__ = ["triangle_attention"]
-
-_NEG_INF = -1e9
 
 _TORCH_TO_CUDNN_DTYPE = {
     torch.float16: cudnn.data_type.HALF,
@@ -37,55 +31,6 @@ def _torch_dtype_to_cudnn(dtype: torch.dtype) -> cudnn.data_type:
         ) from exc
 
 
-def _expand_bias_for_scores(
-    bias: Tensor,
-    batch: int,
-    n_tokens: int,
-    n_heads: int,
-    q_len: int,
-    k_len: int,
-) -> Tuple[Tensor, bool, bool]:
-    bias = bias.to(dtype=torch.float32)
-    batch_broadcast = bias.shape[0] == 1
-    token_broadcast = bias.shape[1] == 1
-    expand_sizes = (
-        batch if batch_broadcast else bias.shape[0],
-        n_tokens if token_broadcast else bias.shape[1],
-        n_heads,
-        q_len,
-        k_len,
-    )
-    bias_view = bias.expand(expand_sizes).reshape(
-        batch * n_tokens, n_heads, q_len, k_len
-    )
-    return bias_view, batch_broadcast, token_broadcast
-
-
-def _prepare_mask_bias(
-    mask: Tensor,
-    batch: int,
-    n_tokens: int,
-    n_heads: int,
-    q_len: int,
-    k_len: int,
-) -> Tuple[Tensor, bool, bool]:
-    mask_float = (~mask).to(dtype=torch.float32) * _NEG_INF
-    batch_broadcast = mask_float.shape[0] == 1
-    token_broadcast = mask_float.shape[1] == 1
-    expand_sizes = (
-        batch if batch_broadcast else mask_float.shape[0],
-        n_tokens if token_broadcast else mask_float.shape[1],
-        1,
-        1,
-        k_len,
-    )
-    expanded = mask_float.expand(expand_sizes)
-    mask_flat = expanded.reshape(batch * n_tokens, 1, 1, k_len).expand(
-        batch * n_tokens, n_heads, q_len, k_len
-    )
-    return mask_flat, batch_broadcast, token_broadcast
-
-
 class _CudnnSdpaGraph:
     """Owns a compiled cuDNN graph for forward SDPA with the requested shape."""
 
@@ -99,14 +44,11 @@ class _CudnnSdpaGraph:
         q_len: int,
         k_len: int,
         head_dim: int,
-        scale: float,
-        mask_present: bool,
     ) -> None:
         self.device_index = device_index
         self.device = torch.device("cuda", device_index)
-        self.scale = scale
+        self.scale = 1.0 / math.sqrt(head_dim)
         io_dtype = _torch_dtype_to_cudnn(dtype)
-        self.has_mask = bool(mask_present)
         self.batch = batch
         self.n_tokens = n_tokens
         batch_tokens = batch * n_tokens
@@ -128,11 +70,6 @@ class _CudnnSdpaGraph:
             )
             sample_k = torch.empty_like(sample_q)
             sample_v = torch.empty_like(sample_q)
-            sample_bias = torch.empty(
-                (batch_tokens, n_heads, q_len, k_len),
-                device=self.device,
-                dtype=torch.float32,
-            )
             sample_stats = torch.empty(
                 (batch_tokens, n_heads, q_len, 1),
                 device=self.device,
@@ -142,33 +79,45 @@ class _CudnnSdpaGraph:
             self.q = self.graph.tensor_like(sample_q)
             self.k = self.graph.tensor_like(sample_k)
             self.v = self.graph.tensor_like(sample_v)
-            self.bias = self.graph.tensor_like(sample_bias)
             self.score_max = self.graph.tensor_like(sample_stats)
             self.score_sum_exp = self.graph.tensor_like(sample_stats)
 
-            def _make_score_mod(mask_tensor):
+            def _make_score_mod(bias, mask):
                 def score_mod(
-                    graph_obj: cudnn.pygraph, scores: cudnn.tensor
+                    graph: cudnn.pygraph, scores: cudnn.tensor
                 ) -> cudnn.tensor:
-                    return graph_obj.bias(scores, mask_tensor, name="mask_bias")
+                    # scores: [B * N, H, Q, K]
+                    # bias: [B, 1, H, Q, K]
+                    # mask: [B, N, 1, 1, K]
+                    scores = graph.reshape(scores)
+                    scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
+
+                    scores = graph.bias(scores, bias)
+
+                    scores = graph.reshape(scores)
+                    scores.set_dim([batch * n_tokens, n_heads, q_len, k_len])
+                    return scores
 
                 return score_mod
 
-            score_modifier = None
-            if self.has_mask:
-                sample_mask = torch.empty(
-                    (batch_tokens, n_heads, q_len, k_len),
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-                self.mask_tensor = self.graph.tensor_like(sample_mask)
-                score_modifier = _make_score_mod(self.mask_tensor)
+            sample_bias = torch.empty(
+                (batch, 1, n_heads, q_len, k_len),
+                device=self.device,
+                dtype=torch.float32,
+            )
+            self.bias = self.graph.tensor_like(sample_bias)
+            sample_mask = torch.empty(
+                (batch, n_tokens, 1, 1, k_len),
+                device=self.device,
+                dtype=torch.float32,
+            )
+            self.mask = self.graph.tensor_like(sample_mask)
+            score_modifier = _make_score_mod(self.mask, self.bias)
 
             out, stats = self.graph.sdpa(
                 q=self.q,
                 k=self.k,
                 v=self.v,
-                bias=self.bias,
                 attn_scale=self.scale,
                 generate_stats=True,
                 implementation=cudnn.attention_implementation.AUTO,
@@ -194,9 +143,8 @@ class _CudnnSdpaGraph:
             self.graph.check_support()
             self.graph.build_plans()
 
-            workspace_bytes = max(1, self.graph.get_workspace_size())
             self.workspace = torch.empty(
-                workspace_bytes, device=self.device, dtype=torch.uint8
+                self.graph.get_workspace_size(), device=self.device, dtype=torch.uint8
             )
 
             self.out_tensor = out
@@ -204,29 +152,27 @@ class _CudnnSdpaGraph:
 
     def run(
         self,
-        q: Tensor,
-        k: Tensor,
-        v: Tensor,
-        bias: Tensor,
-        out: Tensor,
-        stats: Tensor,
-        score_max: Tensor,
-        score_sum_exp: Tensor,
-        mask_bias: Optional[Tensor],
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        bias: torch.Tensor,
+        mask: torch.Tensor,
+        out: torch.Tensor,
+        stats: torch.Tensor,
+        score_max: torch.Tensor,
+        score_sum_exp: torch.Tensor,
     ) -> None:
         variant_pack = {
             self.q: q,
             self.k: k,
             self.v: v,
             self.bias: bias,
+            self.mask: mask,
             self.out_tensor: out,
             self.stats_tensor: stats,
             self.score_max: score_max,
             self.score_sum_exp: score_sum_exp,
         }
-        if self.has_mask:
-            assert self.mask_tensor is not None and mask_bias is not None
-            variant_pack[self.mask_tensor] = mask_bias
         self.graph.execute(variant_pack, self.workspace, handle=self.handle)
 
 
@@ -234,13 +180,12 @@ class _TriangleAttentionFunction(torch.autograd.Function):
     @staticmethod
     def forward(  # type: ignore[override]
         ctx,
-        q: Tensor,
-        k: Tensor,
-        v: Tensor,
-        bias: Tensor,
-        mask: Optional[Tensor],
-        scale: Optional[float],
-    ) -> Tuple[Tensor, Tensor, Tensor]:
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        bias: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         if q.device.type != "cuda":
             raise ValueError(
                 f"triangle_attention requires CUDA tensors, but got device {q.device}"
@@ -276,44 +221,24 @@ class _TriangleAttentionFunction(torch.autograd.Function):
                 "q, k, and v must have the same head dimension on the last axis"
             )
 
-        if scale is None:
-            scale_val = 1.0 / math.sqrt(head_dim)
-        else:
-            scale_val = float(scale)
-
         if bias.device != q.device:
             raise ValueError(f"bias must be on {q.device}, but got {bias.device}")
         if bias.shape != (batch, 1, n_heads, q_len, k_len):
             raise ValueError(
                 f"bias must have shape (B, 1, H, Q, K), but got {tuple(bias.shape)}"
             )
-        (
-            bias_view,
-            bias_batch_broadcast,
-            bias_token_broadcast,
-        ) = _expand_bias_for_scores(bias, batch, n_tokens, n_heads, q_len, k_len)
 
-        if mask is not None:
-            if mask.device != q.device:
-                raise ValueError(f"mask must be on {q.device}, but got {mask.device}")
-            if mask.shape != (batch, n_tokens, 1, 1, k_len):
-                raise ValueError(
-                    f"mask must have shape (B, N, 1, 1, K), but got {tuple(mask.shape)}"
-                )
-            (
-                mask_bias_view,
-                mask_batch_broadcast,
-                mask_token_broadcast,
-            ) = _prepare_mask_bias(mask, batch, n_tokens, n_heads, q_len, k_len)
-        else:
-            mask_bias_view = None
-            mask_batch_broadcast = False
-            mask_token_broadcast = False
+        if mask.device != q.device:
+            raise ValueError(f"mask must be on {q.device}, but got {mask.device}")
+        if mask.shape != (batch, n_tokens, 1, 1, k_len):
+            raise ValueError(
+                f"mask must have shape (B, N, 1, 1, K), but got {tuple(mask.shape)}"
+            )
 
         batch_tokens = batch * n_tokens
-        q_flat = q.reshape(batch_tokens, n_heads, q_len, head_dim).contiguous()
-        k_flat = k.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
-        v_flat = v.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
+        q_flat = q.reshape(-1, n_heads, q_len, head_dim).contiguous()
+        k_flat = k.reshape(-1, n_heads, k_len, head_dim).contiguous()
+        v_flat = v.reshape(-1, n_heads, k_len, head_dim).contiguous()
 
         device_index = q.device.index
         if device_index is None:
@@ -328,8 +253,6 @@ class _TriangleAttentionFunction(torch.autograd.Function):
             q_len,
             k_len,
             head_dim,
-            scale_val,
-            mask_bias_view is not None,
         )
 
         out_flat = torch.empty_like(q_flat)
@@ -343,12 +266,12 @@ class _TriangleAttentionFunction(torch.autograd.Function):
             q_flat,
             k_flat,
             v_flat,
-            bias_view,
+            bias,
+            mask,
             out_flat,
             stats_flat,
             max_scores_flat,
             sum_exp_flat,
-            mask_bias_view if mask_bias_view is not None else None,
         )
 
         max_scores_values = max_scores_flat.squeeze(-1)
@@ -371,19 +294,18 @@ class _TriangleAttentionFunction(torch.autograd.Function):
 
 
 def triangle_attention(
-    q: Tensor,
-    k: Tensor,
-    v: Tensor,
-    bias: Tensor,
-    mask: Optional[Tensor] = None,
-    scale: Optional[float] = None,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    bias: torch.Tensor,
+    mask: torch.Tensor,
     return_aux: bool = False,
-) -> Union[Tensor, Tuple[Tensor, Tensor, Tensor]]:
+) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]:
     """
     Triangle attention via cuDNN SDPA frontend.
     """
 
-    out, lse, max_scores = _TriangleAttentionFunction.apply(q, k, v, bias, mask, scale)
+    out, lse, max_scores = _TriangleAttentionFunction.apply(q, k, v, bias, mask)
     if return_aux:
         return out, lse, max_scores
     return out
