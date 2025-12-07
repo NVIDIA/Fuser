@@ -41,6 +41,13 @@ endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
+# NCCL include directory for distributed builds
+# This can be set by the Python build system when using pip-bundled NCCL
+set(NCCL_INCLUDE_DIR "" CACHE PATH "Directory containing nccl.h header")
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  message(STATUS "Using NCCL include dir: ${NCCL_INCLUDE_DIR}")
+endif()
+
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -540,6 +547,10 @@ target_include_directories(codegen_internal SYSTEM PUBLIC
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
+# Add NCCL include path for distributed builds (from pip-bundled nvidia-nccl-cu*)
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  target_include_directories(codegen_internal SYSTEM PRIVATE ${NCCL_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"

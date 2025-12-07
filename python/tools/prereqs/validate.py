@@ -20,6 +20,7 @@ from .build_tools import check_cmake_version, check_ninja_installed
 from .python_packages import check_pybind11_installed, check_torch_installed
 from .git import check_git_submodules_initialized
 from .gcc import validate_gcc
+from .nccl import check_nccl_available
 from .llvm import check_llvm_installed
 
 
@@ -40,7 +41,8 @@ def validate_prerequisites() -> Dict[str, Any]:
     6. pybind11 2.0+
     7. Git submodules initialized
     8. GCC 13+ with C++20 <format> header
-    9. LLVM 18.1+
+    9. NCCL headers/library (if distributed enabled)
+    10. LLVM 18.1+
     
     Returns:
         Dict[str, Any]: Dictionary containing metadata about all detected prerequisites
@@ -59,13 +61,14 @@ def validate_prerequisites() -> Dict[str, Any]:
         [nvFuser] ✓ pybind11 2.11.1 >= 2.0 with CMake support
         [nvFuser] ✓ Git submodules: 15 initialized
         [nvFuser] ✓ GCC 13.2.0 >= 13.0 with <format> header
+        [nvFuser] ✓ NCCL found (headers: /path/to/nvidia/nccl/include)
         [nvFuser] ✓ LLVM 18.1.8 >= 18.1
         
         ✓✓✓ All prerequisites validated ✓✓✓
         
         >>> metadata.keys()
         dict_keys(['platform', 'python', 'cmake', 'ninja', 'torch', 'cuda', 
-                   'pybind11', 'git_submodules', 'gcc', 'llvm'])
+                   'pybind11', 'git_submodules', 'gcc', 'nccl', 'llvm'])
     """
     # Platform detection (informational only - doesn't fail)
     platform_info = detect_platform()
@@ -103,6 +106,14 @@ def validate_prerequisites() -> Dict[str, Any]:
     gcc_ver = validate_gcc()
     print(f"[nvFuser] ✓ GCC {'.'.join(map(str, gcc_ver))} >= 13.0 with <format> header")
     
+    # NCCL check (only when distributed is enabled)
+    nccl_result = check_nccl_available()
+    if nccl_result:
+        nccl_inc, nccl_lib = nccl_result
+        print(f"[nvFuser] ✓ NCCL found (headers: {nccl_inc})")
+    else:
+        print("[nvFuser] ✓ NCCL: skipped (distributed disabled)")
+    
     # LLVM check
     llvm_ver = check_llvm_installed()
     print(f"[nvFuser] ✓ LLVM {llvm_ver} >= 18.1")
@@ -121,6 +132,7 @@ def validate_prerequisites() -> Dict[str, Any]:
         'pybind11': pybind11_ver,
         'git_submodules': submodules,
         'gcc': gcc_ver,
+        'nccl': nccl_result,
         'llvm': llvm_ver,
     }
 
