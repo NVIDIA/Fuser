@@ -23,25 +23,25 @@ def test_triangle_attention_matches_cuequivariance():
     device = torch.device("cuda")
     dtype = torch.float16
 
-    q_base = torch.randn(
+    q = torch.randn(
         batch, n_tokens, n_heads, q_len, head_dim, device=device, dtype=dtype
     )
-    k_base = torch.randn(
+    k = torch.randn(
         batch, n_tokens, n_heads, k_len, head_dim, device=device, dtype=dtype
     )
-    v_base = torch.randn(
+    v = torch.randn(
         batch, n_tokens, n_heads, k_len, head_dim, device=device, dtype=dtype
     )
-    bias_base = torch.randn(
+    bias = torch.randn(
         batch, 1, n_heads, q_len, k_len, device=device, dtype=torch.float32
     )
     mask = torch.rand(batch, n_tokens, 1, 1, k_len, device=device) > 0.3
 
     out_flex, lse_flex, max_flex = triangle_attention_flex(
-        q_base, k_base, v_base, bias_base, mask=mask, return_aux=True
+        q, k, v, bias, mask, return_aux=True
     )
     out_cue, lse_cue, max_cue = triangle_attention_cuequivariance(
-        q_base, k_base, v_base, bias_base, mask=mask, return_aux=True
+        q, k, v, bias, mask, return_aux=True
     )
 
     torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)

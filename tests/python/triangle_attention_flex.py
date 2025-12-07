@@ -68,8 +68,12 @@ class _CudnnSdpaGraph:
                 device=self.device,
                 dtype=dtype,
             )
-            sample_k = torch.empty_like(sample_q)
-            sample_v = torch.empty_like(sample_q)
+            sample_k = torch.empty(
+                (batch_tokens, n_heads, k_len, head_dim),
+                device=self.device,
+                dtype=dtype,
+            )
+            sample_v = torch.empty_like(sample_k)
             sample_stats = torch.empty(
                 (batch_tokens, n_heads, q_len, 1),
                 device=self.device,
@@ -89,10 +93,10 @@ class _CudnnSdpaGraph:
                     # scores: [B * N, H, Q, K]
                     # bias: [B, 1, H, Q, K]
                     # mask: [B, N, 1, 1, K]
-                    scores = graph.reshape(scores)
-                    scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
+                    # scores = graph.reshape(scores)
+                    # scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
 
-                    scores = graph.bias(scores, bias)
+                    # TODO: bias and mask
 
                     scores = graph.reshape(scores)
                     scores.set_dim([batch * n_tokens, n_heads, q_len, k_len])
