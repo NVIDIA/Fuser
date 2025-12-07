@@ -178,9 +178,12 @@ def check_pybind11_installed() -> str:
 
 def check_torch_installed() -> Tuple[str, str]:
     """
-    Check that PyTorch 2.0+ with CUDA 12+ support is installed.
+    Check that PyTorch 2.0+ with CUDA 12.8+ support is installed.
     
-    nvFuser requires PyTorch 2.0+ compiled with CUDA 12+ support. CPU-only PyTorch
+    Note: CUDA 12.6 and earlier have known compatibility issues with nvFuser
+    (missing Float8_e8m0fnu type). Use CUDA 12.8 or 13.0+.
+    
+    nvFuser requires PyTorch 2.0+ compiled with CUDA 12.8+ support. CPU-only PyTorch
     builds are not supported. The CUDA version must match the system CUDA toolkit
     that will be used to build nvFuser.
     
@@ -203,7 +206,7 @@ def check_torch_installed() -> Tuple[str, str]:
     except ImportError:
         raise PrerequisiteMissingError(
             "ERROR: PyTorch is not installed.\n\n"
-            "nvFuser requires PyTorch 2.0+ with CUDA 12+ support.\n"
+            "nvFuser requires PyTorch 2.0+ with CUDA 12.8+ support.\n"
             "The CUDA version must match your system CUDA toolkit.\n"
             "Check your system CUDA version: nvcc --version\n\n"
             "Install PyTorch with CUDA support:\n"
@@ -239,7 +242,7 @@ def check_torch_installed() -> Tuple[str, str]:
         raise PrerequisiteMissingError(
             "ERROR: PyTorch is CPU-only. nvFuser requires CUDA-enabled PyTorch.\n\n"
             "You have installed PyTorch without CUDA support. This is a common mistake.\n"
-            "nvFuser needs PyTorch compiled with CUDA 12+ to build and run correctly.\n"
+            "nvFuser needs PyTorch compiled with CUDA 12.8+ to build and run correctly.\n"
             "The CUDA version must match your system CUDA toolkit.\n"
             "Check your system CUDA version: nvcc --version\n\n"
             "Install PyTorch with CUDA support:\n"
@@ -252,16 +255,25 @@ def check_torch_installed() -> Tuple[str, str]:
     except (ValueError, IndexError):
         raise PrerequisiteMissingError(
             f"ERROR: Could not parse CUDA version from PyTorch: {cuda_version_str}\n\n"
-            f"Please reinstall PyTorch with CUDA 12+:\n"
+            f"Please reinstall PyTorch with CUDA 12.8+:\n"
             f"{_get_torch_install_instructions(force_reinstall=True)}"
         )
     
-    # Check CUDA version requirement (12+)
-    if cuda_major < 12:
+    # Parse CUDA minor version for 12.8+ check
+    try:
+        cuda_minor = int(cuda_version_str.split('.')[1]) if '.' in cuda_version_str else 0
+    except (ValueError, IndexError):
+        cuda_minor = 0
+    
+    # Check CUDA version requirement (12.8+)
+    # CUDA 12.6 and earlier have known issues (missing Float8_e8m0fnu type)
+    if cuda_major < 12 or (cuda_major == 12 and cuda_minor < 8):
         raise PrerequisiteMissingError(
-            f"ERROR: PyTorch with CUDA 12+ is required to build nvFuser.\n"
+            f"ERROR: PyTorch with CUDA 12.8+ is required to build nvFuser.\n"
             f"Found: PyTorch {torch_version} with CUDA {cuda_version_str}\n\n"
-            f"nvFuser requires CUDA 12 or newer. Please upgrade PyTorch:\n"
+            f"CUDA 12.6 and earlier have known compatibility issues with nvFuser\n"
+            f"(missing Float8 types cause build errors).\n\n"
+            f"Please upgrade PyTorch to CUDA 12.8 or 13.0:\n"
             f"{_get_torch_install_instructions(upgrade=True)}"
         )
     

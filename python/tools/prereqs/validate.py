@@ -37,7 +37,7 @@ def validate_prerequisites() -> Dict[str, Any]:
     2. Python 3.8+
     3. CMake 3.18+
     4. Ninja 1.10+
-    5. PyTorch 2.0+ with CUDA 12+ (includes system CUDA validation)
+    5. PyTorch 2.0+ with CUDA 12.8+ (includes system CUDA validation)
     6. pybind11 2.0+
     7. Git submodules initialized
     8. GCC 13+ with C++20 <format> header
@@ -56,8 +56,8 @@ def validate_prerequisites() -> Dict[str, Any]:
         [nvFuser] ✓ Python 3.10.12 >= 3.8
         [nvFuser] ✓ CMake 3.22.1 >= 3.18
         [nvFuser] ✓ Ninja 1.11.1 >= 1.10
-        [nvFuser] ✓ PyTorch 2.1.0 with CUDA 12.1 >= 2.0 with CUDA 12.0
-        [nvFuser] ✓ System CUDA 12.5 (matches PyTorch CUDA 12.1)
+        [nvFuser] ✓ PyTorch 2.1.0 with CUDA 12.8 >= 2.0 with CUDA 12.8
+        [nvFuser] ✓ System CUDA 12.8 (matches PyTorch CUDA 12.8)
         [nvFuser] ✓ pybind11 2.11.1 >= 2.0 with CMake support
         [nvFuser] ✓ Git submodules: 15 initialized
         [nvFuser] ✓ GCC 13.2.0 >= 13.0 with <format> header
@@ -88,7 +88,7 @@ def validate_prerequisites() -> Dict[str, Any]:
     
     # PyTorch and CUDA check (includes system CUDA validation)
     torch_ver, cuda_ver = check_torch_installed()
-    print(f"[nvFuser] ✓ PyTorch {torch_ver} with CUDA {cuda_ver} >= 2.0 with CUDA 12.0")
+    print(f"[nvFuser] ✓ PyTorch {torch_ver} with CUDA {cuda_ver} >= 2.0 with CUDA 12.8")
     # System CUDA validation messages are printed by check_torch_installed()
     
     # pybind11 check

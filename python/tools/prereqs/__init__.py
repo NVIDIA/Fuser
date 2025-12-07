@@ -16,7 +16,7 @@ Key Components:
     - check_cmake_version(): Validate CMake version (3.18+)
     - check_ninja_installed(): Validate Ninja build system
     - check_pybind11_installed(): Validate pybind11 with CMake support
-    - check_torch_installed(): Validate PyTorch 2.0+ with CUDA 12+
+    - check_torch_installed(): Validate PyTorch 2.0+ with CUDA 12.8+
     - check_git_submodules_initialized(): Validate git submodules are initialized
     - validate_gcc(): Validate GCC 13+ with C++20 <format> header support
     - check_nccl_available(): Validate NCCL headers/library for distributed builds
