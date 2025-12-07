@@ -14,11 +14,24 @@ import math
 from typing import Tuple, Union
 
 import torch
-from torch.nn.attention.flex_attention import AuxRequest, flex_attention
+from torch.nn.attention.flex_attention import (
+    AuxRequest,
+    flex_attention as _flex_attention_impl,
+)
 
 __all__ = ["triangle_attention"]
 
 _SUPPORTED_DTYPES = {torch.float16, torch.bfloat16, torch.float32}
+
+
+def _compile_flex_attention():
+    try:
+        return torch.compile(_flex_attention_impl, fullgraph=True)
+    except Exception:
+        return _flex_attention_impl
+
+
+_flex_attention = _compile_flex_attention()
 
 
 def _validate_inputs(
@@ -93,8 +106,8 @@ def triangle_attention(
     v_flat = v.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
 
     bias_cast = bias if bias.dtype == q.dtype else bias.to(dtype=q.dtype)
-    bias_data = bias_cast.reshape(batch, n_heads, q_len, k_len)
-    mask_bool = mask.to(dtype=torch.bool).reshape(batch, n_tokens, k_len)
+    bias_flat = bias_cast.reshape(-1)
+    mask_flat = mask.to(dtype=torch.bool).reshape(-1)
     neg_inf = torch.tensor(float("-inf"), device=q.device, dtype=q.dtype)
 
     def _score_mod(
@@ -105,23 +118,30 @@ def triangle_attention(
         k_idx: torch.Tensor,
     ) -> torch.Tensor:
         batch_idx = batch_idx.to(dtype=torch.long)
-        h = head_idx.to(dtype=torch.long)
-        qi = q_idx.to(dtype=torch.long)
-        ki = k_idx.to(dtype=torch.long)
+        head_idx = head_idx.to(dtype=torch.long)
+        q_idx = q_idx.to(dtype=torch.long)
+        k_idx = k_idx.to(dtype=torch.long)
         b = torch.div(batch_idx, n_tokens, rounding_mode="floor")
         token = torch.remainder(batch_idx, n_tokens)
 
-        bias_lin_idx = (((b * n_heads) + h) * q_len + qi) * k_len + ki
-        mask_lin_idx = ((b * n_tokens) + token) * k_len + ki
-
-        extra_bias = torch.take(bias_data, bias_lin_idx)
-        is_allowed = torch.take(mask_bool, mask_lin_idx)
-        modified = scores + extra_bias
-        return torch.where(is_allowed, modified, neg_inf)
+        bias_lin_idx = (((b * n_heads) + head_idx) * q_len + q_idx) * k_len + k_idx
+        mask_lin_idx = ((b * n_tokens) + token) * k_len + k_idx
+        # Gather through flattened views so we only track one linear index per tensor.
+        # Dynamo cannot specialize the multi-axis indexing form bias[b, 0, h, qi, ki]
+        # when indices depend on tensors, but index_select on a flat view is supported
+        # and avoids materializing the expanded [B, N, H, Q, K] layout.
+        gathered_bias = torch.index_select(
+            bias_flat, 0, bias_lin_idx.reshape(-1)
+        ).reshape_as(bias_lin_idx)
+        gathered_mask = torch.index_select(
+            mask_flat, 0, mask_lin_idx.reshape(-1)
+        ).reshape_as(mask_lin_idx)
+        modified = scores + gathered_bias
+        return torch.where(gathered_mask, modified, neg_inf)
 
     aux_request = AuxRequest(lse=True, max_scores=True) if return_aux else None
 
-    flex_out = flex_attention(
+    flex_out = _flex_attention(
         q_flat,
         k_flat,
         v_flat,
