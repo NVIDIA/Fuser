@@ -96,8 +96,7 @@ class _CudnnSdpaGraph:
                     scores = graph.reshape(scores)
                     scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
 
-                    # TODO: bias and mask
-                    scores = graph.bias(scores, bias)
+                    # TODO: apply bias and mask. Test already breaks when doing reshapes.
 
                     scores = graph.reshape(scores)
                     scores.set_dim([batch * n_tokens, n_heads, q_len, k_len])
@@ -108,13 +107,13 @@ class _CudnnSdpaGraph:
             sample_bias = torch.empty(
                 (batch, 1, n_heads, q_len, k_len),
                 device=self.device,
-                dtype=torch.float32,
+                dtype=dtype,
             )
             self.bias = self.graph.tensor_like(sample_bias)
             sample_mask = torch.empty(
                 (batch, n_tokens, 1, 1, k_len),
                 device=self.device,
-                dtype=torch.float32,
+                dtype=torch.bool,
             )
             self.mask = self.graph.tensor_like(sample_mask)
             score_modifier = _make_score_mod(self.mask, self.bias)

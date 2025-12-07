@@ -33,14 +33,12 @@ def test_triangle_attention_matches_cuequivariance():
     v = torch.randn(
         batch, n_tokens, n_heads, k_len, head_dim, device=device, dtype=dtype
     )
-    bias = torch.randn(
-        batch, 1, n_heads, q_len, k_len, device=device, dtype=torch.float32
-    )
+    bias = torch.randn(batch, 1, n_heads, q_len, k_len, device=device, dtype=dtype)
     mask = torch.rand(batch, n_tokens, 1, 1, k_len, device=device) > 0.3
 
     impls = {
         "cuequivariance": triangle_attention_cuequivariance,
-        # "cudnn": triangle_attention_cudnn,
+        "cudnn": triangle_attention_cudnn,
         "flex": triangle_attention_flex,
     }
     outputs = {

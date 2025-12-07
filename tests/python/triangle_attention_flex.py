@@ -105,9 +105,8 @@ def triangle_attention(
     k_flat = k.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
     v_flat = v.reshape(batch_tokens, n_heads, k_len, head_dim).contiguous()
 
-    bias_cast = bias if bias.dtype == q.dtype else bias.to(dtype=q.dtype)
-    bias_flat = bias_cast.reshape(-1)
-    mask_flat = mask.to(dtype=torch.bool).reshape(-1)
+    bias_flat = bias.reshape(-1)
+    mask_flat = mask.reshape(-1)
     neg_inf = torch.tensor(float("-inf"), device=q.device, dtype=q.dtype)
 
     def _score_mod(
