@@ -93,10 +93,11 @@ class _CudnnSdpaGraph:
                     # scores: [B * N, H, Q, K]
                     # bias: [B, 1, H, Q, K]
                     # mask: [B, N, 1, 1, K]
-                    # scores = graph.reshape(scores)
-                    # scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
+                    scores = graph.reshape(scores)
+                    scores.set_dim([batch, n_tokens, n_heads, q_len, k_len])
 
                     # TODO: bias and mask
+                    scores = graph.bias(scores, bias)
 
                     scores = graph.reshape(scores)
                     scores.set_dim([batch * n_tokens, n_heads, q_len, k_len])
