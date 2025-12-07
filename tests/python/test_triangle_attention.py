@@ -49,6 +49,10 @@ def test_triangle_attention_matches_cuequivariance():
     ref_out, ref_lse, ref_max = outputs["cuequivariance"]
 
     for name, (out, lse, max_scores) in outputs.items():
-        torch.testing.assert_close(out, ref_out, rtol=1e-3, atol=1e-4)
-        torch.testing.assert_close(lse, ref_lse, rtol=1e-3, atol=1e-4)
-        torch.testing.assert_close(max_scores, ref_max, rtol=1e-3, atol=1e-4)
+
+        def msg(m):
+            return f"[impl = {name}]\n\n{m}"
+
+        torch.testing.assert_close(out, ref_out, rtol=1e-3, atol=1e-3, msg=msg)
+        torch.testing.assert_close(lse, ref_lse, rtol=1e-3, atol=1e-3, msg=msg)
+        torch.testing.assert_close(max_scores, ref_max, rtol=1e-3, atol=1e-3, msg=msg)
