@@ -41,6 +41,11 @@ def _get_pip_nccl_paths() -> Tuple[Optional[Path], Optional[Path]]:
     - {site-packages}/nvidia/nccl/include/nccl.h
     - {site-packages}/nvidia/nccl/lib/libnccl.so.2
     
+    Note: Similar logic exists in utils.py::get_pip_nccl_include_dir() for the
+    build system. This function returns both include AND lib paths for complete
+    validation, while utils.py only needs the include path for CMake. The
+    duplication is intentional to keep validation and build logic independent.
+    
     Returns:
         Tuple of (include_path, lib_path) or (None, None) if not found
         

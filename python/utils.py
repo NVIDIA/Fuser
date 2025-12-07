@@ -421,6 +421,12 @@ def get_pip_nccl_include_dir() -> Optional[str]:
     at {site-packages}/nvidia/nccl/include/nccl.h. This path is needed for
     compiling nvFuser's distributed support.
     
+    Note: Similar logic exists in tools/prereqs/nccl.py::_get_pip_nccl_paths()
+    for validation. That function returns both include AND lib paths for complete
+    prerequisite checking, while this function only needs the include path to pass
+    to CMake. The duplication is intentional to keep validation and build logic
+    independent.
+    
     Returns:
         Path to NCCL include directory if found, None otherwise
     """
