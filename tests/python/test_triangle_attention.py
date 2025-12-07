@@ -6,9 +6,9 @@ import pytest
 import torch
 import cuequivariance_ops_torch
 
-from . import triangle_attention_flex
+from . import triangle_attention_cudnn
 
-triangle_attention_flex = triangle_attention_flex.triangle_attention
+triangle_attention_cudnn = triangle_attention_cudnn.triangle_attention
 triangle_attention_cuequivariance = cuequivariance_ops_torch.triangle_attention
 
 pytestmark = pytest.mark.skipif(
@@ -37,13 +37,13 @@ def test_triangle_attention_matches_cuequivariance():
     )
     mask = torch.rand(batch, n_tokens, 1, 1, k_len, device=device) > 0.3
 
-    out_flex, lse_flex, max_flex = triangle_attention_flex(
+    out_cudnn, lse_cudnn, max_cudnn = triangle_attention_cudnn(
         q, k, v, bias, mask, return_aux=True
     )
     out_cue, lse_cue, max_cue = triangle_attention_cuequivariance(
         q, k, v, bias, mask, return_aux=True
     )
 
-    torch.testing.assert_close(out_flex, out_cue, rtol=1e-3, atol=1e-4)
-    torch.testing.assert_close(lse_flex, lse_cue, rtol=1e-3, atol=1e-4)
-    torch.testing.assert_close(max_flex, max_cue, rtol=1e-3, atol=1e-4)
+    torch.testing.assert_close(out_cudnn, out_cue, rtol=1e-3, atol=1e-4)
+    torch.testing.assert_close(lse_cudnn, lse_cue, rtol=1e-3, atol=1e-4)
+    torch.testing.assert_close(max_cudnn, max_cue, rtol=1e-3, atol=1e-4)
