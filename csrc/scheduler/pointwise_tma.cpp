@@ -479,10 +479,23 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Vectorize LDG input loads (global -> register)
+  // Find the axis after TIDx (the vectorization axis) by searching from the
+  // second-to-last axis backwards, ensuring at least one axis remains after.
   if (pparams->vectorization_factor > 1) {
+    auto get_vect_pos = [](TensorView* tv) -> int64_t {
+      for (auto i : arange(tv->nDims() - 1) | std::views::reverse) {
+        if (tv->axis(i)->getParallelType() == ParallelType::TIDx) {
+          return i + 1;
+        }
+      }
+      return -1;
+    };
     for (auto ldg_tv : ldg_tvs) {
-      if (vectorizable_io_tvs.contains(ldg_tv)) {
-        ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+      if (vectorizable_io_tvs.contains(ir_utils::getSoleProducerTv(ldg_tv))) {
+        int64_t vect_pos = get_vect_pos(ldg_tv);
+        if (vect_pos != -1) {
+          ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+        }
       }
     }
   }
