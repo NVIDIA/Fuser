@@ -4,15 +4,16 @@
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
-// clang-format off
+// clang-format on
 #include <gtest/gtest.h>
 #include <memory>
-#include <tuple>
 #include <sstream>
+#include <tuple>
 
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -22,9 +23,8 @@ namespace nvfuser {
 
 using TestParam = std::tuple<int64_t, DataType>;
 
-class ClusterReductionTest
-    : public NVFuserTest,
-      public ::testing::WithParamInterface<TestParam> {
+class ClusterReductionTest : public NVFuserTest,
+                             public ::testing::WithParamInterface<TestParam> {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
@@ -174,9 +174,15 @@ TEST_P(ClusterReductionTestAutoScheduler, Softmax) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  if (hidden_size * dataTypeSizeBit(dtype) <= scheduler_utils::register_file_size_bit * scheduler_utils::getMaxClusterSize()) {
+  if (hidden_size * dataTypeSizeBit(dtype) <=
+      scheduler_utils::register_file_size_bit *
+          scheduler_utils::getMaxClusterSize()) {
     EXPECT_FALSE(runtime->isSegmented());
-    EXPECT_TRUE(runtime->schedulerHeuristics()->heuristicsList().at(0)->as<ReductionParams>()->cross_cluster_reduction);
+    EXPECT_TRUE(runtime->schedulerHeuristics()
+                    ->heuristicsList()
+                    .at(0)
+                    ->as<ReductionParams>()
+                    ->cross_cluster_reduction);
   }
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
@@ -185,18 +191,16 @@ INSTANTIATE_TEST_SUITE_P(
     ClusterReductionTestAutoScheduler,
     ::testing::Combine(
         ::testing::Values(
-          129280,  // DeepSeek-R1
-          128256,  //  Llama3
-          202048,  //  Llama4
-          256000,  //  Gemma2
-          131072,  //  Mistral
-          152064,  //  Qwen2
-          100352,  //  Phi4
-          1024*1024 // largest size for fp16 using 16 CTAs per cluster
-          ),
-          ::testing::Values(
-            DataType::BFloat16,
-            DataType::Float)),
+            129280, // DeepSeek-R1
+            128256, //  Llama3
+            202048, //  Llama4
+            256000, //  Gemma2
+            131072, //  Mistral
+            152064, //  Qwen2
+            100352, //  Phi4
+            1024 * 1024 // largest size for fp16 using 16 CTAs per cluster
+            ),
+        ::testing::Values(DataType::BFloat16, DataType::Float)),
     [](const testing::TestParamInfo<TestParam>& info) {
       std::stringstream ss;
       ss << "_hidden_size_" << std::get<0>(info.param);
@@ -258,4 +262,39 @@ TEST_F(ClusterReductionTest, InvalidClusterSize) {
                                "equal to max allowed cluster size and larger "
                                "than 1.")));
 }
+
+// Test the getMaxActiveClusters utility function
+TEST_F(NVFuserTest, GetMaxActiveClusters) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
+  // Test various cluster configurations from 1 to 17
+  for (int64_t cluster_n : arange(1, 18)) {
+    MatmulParams::ClusterDims cluster_dims{1, cluster_n};
+    int64_t max_active =
+        scheduler_utils::getMaxActiveClusters(cluster_dims.m * cluster_dims.n);
+    // Our regular CI only covers 8.0, 9.0, 10.0, etc.
+    // For other minor versions, max allowed cluster size is not tested.
+    if (sm_minor == 0) {
+      if (cluster_dims.m * cluster_dims.n > 16) {
+        EXPECT_EQ(max_active, 0);
+      } else {
+        EXPECT_GT(max_active, 0);
+      }
+    }
+  }
+}
+
+// Test the getMaxClusterSize utility function
+TEST_F(NVFuserTest, GetMaxClusterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
+  int64_t max_cluster_size = scheduler_utils::getMaxClusterSize();
+  // Hopper (9.0) and later devices support clusters
+  // Our regular CI only covers 9.0, 10.0, etc.
+  // For other minor versions, max allowed cluster size is not tested.
+  if (sm_minor == 0) {
+    EXPECT_EQ(max_cluster_size, 16);
+  }
+}
+
 } // namespace nvfuser

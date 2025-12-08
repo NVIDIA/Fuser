@@ -282,7 +282,11 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
+  if (auto* contig_view =
+          dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+    // SymmetricContiguousView
+    handle = std::make_unique<SymMemForContiguousView>(key.buffer, contig_view);
+  } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
       handle = std::make_unique<SymMemForBroadcast>(comm, key.buffer);
@@ -301,6 +305,16 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
 
   auto inserted = handles_.emplace(key, std::move(handle));
   return inserted.first->second.get();
+}
+
+SymMemForContiguousView::SymMemForContiguousView(
+    at::Tensor in_tensor,
+    hir::SymmetricContiguousView* contig_view) {
+  std::string tag = "contig_view_" + std::to_string(contig_view->name());
+  sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
+  sym_tensor_->setupContiguousView(tag);
+
+  tensor_ = sym_tensor_->getContiguousView();
 }
 
 } // namespace nvfuser

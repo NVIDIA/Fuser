@@ -10,7 +10,7 @@
 
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <ir/iostream.h>
 #include <multidevice/communicator.h>
 #include <ops/all_ops.h>

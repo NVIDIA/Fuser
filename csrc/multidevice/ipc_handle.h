@@ -10,7 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 
@@ -224,6 +224,26 @@ class SymMemForAllgather : public SymmetricMemoryHandle {
   int64_t slice_size_bytes_ = 0;
   std::unique_ptr<SymmetricTensor> full_buffer_sym_tensor_;
   std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
+};
+
+// SymmetricMemoryHandle for SymmetricContiguousView
+// Creates a contiguous view across all ranks from a sharded symmetric tensor
+class SymMemForContiguousView : public SymmetricMemoryHandle {
+ public:
+  SymMemForContiguousView(
+      at::Tensor buffer,
+      hir::SymmetricContiguousView* expr);
+
+  ~SymMemForContiguousView() override = default;
+
+  // Returns the local contiguous view on the sharded tensor
+  at::Tensor tensor() const {
+    return tensor_;
+  }
+
+ private:
+  std::unique_ptr<SymmetricTensor> sym_tensor_;
+  at::Tensor tensor_;
 };
 
 // Cache for symmetric memory handles keyed by (buffer tensor, expr)

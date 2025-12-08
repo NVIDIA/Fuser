@@ -7,7 +7,7 @@
 // clang-format on
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
 #include <ir/utils.h>

@@ -431,6 +431,9 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
           .dtype(local_tensor_.scalar_type())
           .device(at::kCUDA, 0));
 
+  // Remove the old trivial DIDx dimension
+  contiguous_view_ = contiguous_view_.squeeze(1);
+
   is_contiguous_view_setup_ = true;
 }
 
