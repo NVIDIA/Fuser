@@ -931,12 +931,10 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
-  if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
-    // cudaMemcpyBatchAsync requires a non-default stream
-    c10::cuda::CUDAStream stream =
-        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
-    c10::cuda::setCurrentCUDAStream(stream);
-  }
+  // cudaMemcpyBatchAsync requires a non-default stream
+  c10::cuda::CUDAStream stream =
+      c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+  c10::cuda::setCurrentCUDAStream(stream);
 
   EnableOptionsGuard guard;
   setupProtocolOptions(protocol_enum, guard);
