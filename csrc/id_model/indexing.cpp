@@ -203,7 +203,8 @@ Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
     const std::vector<kir::ForLoop*>& for_loops,
-    const std::unordered_map<IterDomain*, Val*>& override_index) const {
+    const std::unordered_map<IterDomain*, Val*>& override_index,
+    bool ld_st_matrix) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -223,7 +224,13 @@ Val* TensorIndexer::getLinearIndex(
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      tv, expr, as_consumer, alloc_info, for_loops, override_index);
+      tv,
+      expr,
+      as_consumer,
+      alloc_info,
+      for_loops,
+      override_index,
+      ld_st_matrix);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -922,10 +929,17 @@ void TensorIndexer::ensureStaticIndexing(
 namespace {
 
 // Use alternate loop domain for the shared memory tensor for ldmatrix and
-// stmatrix.
-bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
+// stmatrix. Note that the explicit bool indicator of the expr is
+// required to correctly determine it is a ldmatrix/stmatrix op since
+// there can be an initialization op using the same output tensor
+// after the allocation lowering pass.
+bool shouldUseAlternateLoopDomain(
+    TensorView* tv,
+    const Expr* expr,
+    bool ld_st_matrix) {
   // short-circuit: not (ldmatrix or stmatrix)
-  if (!ir_utils::isLdMatrixOp(expr) && !ir_utils::isStMatrixOp(expr)) {
+  if (!(ld_st_matrix &&
+        (ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr)))) {
     return false;
   }
   // short-circuit: only the shared memory TensorView uses alternate loop
@@ -960,7 +974,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
         const std::vector<kir::ForLoop*>& for_loops,
-        const std::unordered_map<IterDomain*, Val*>& override_index) const {
+        const std::unordered_map<IterDomain*, Val*>& override_index,
+        bool ld_st_matrix) const {
   std::vector<IterDomain*> indexed_ids;
   indexed_ids.reserve(alloc_info.ids.size());
   for (const auto& id : alloc_info.ids) {
@@ -969,7 +984,10 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     }
   }
   auto index_info = computeIndex(
-      expr, indexed_ids, for_loops, isSharedMemoryTvForLdStMatrix(tv, expr));
+      expr,
+      indexed_ids,
+      for_loops,
+      shouldUseAlternateLoopDomain(tv, expr, ld_st_matrix));
   for (const auto& [indexed_id, index] : override_index) {
     index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }

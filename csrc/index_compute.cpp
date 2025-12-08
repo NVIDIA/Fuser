@@ -2219,12 +2219,13 @@ kir::TensorIndex* Index::getProducerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
+    DataType as_type,
+    bool ld_st_matrix) {
   Val* index = nullptr;
 
   if (shouldUseTensorIndexer(producer, consumer, rotated_loops)) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        producer, consumer->definition(), loops, override_index);
+        producer, consumer->definition(), loops, override_index, ld_st_matrix);
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
@@ -2323,7 +2324,8 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) {
+    DataType as_type,
+    bool is_st_matrix) {
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
@@ -2331,7 +2333,7 @@ kir::TensorIndex* Index::getConsumerIndex(
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        consumer, consumer->definition(), loops, override_index);
+        consumer, consumer->definition(), loops, override_index, is_st_matrix);
     if (generate_pointer) {
       auto address_offset = index;
       if (consumer->getMemoryType() == MemoryType::Shared) {
