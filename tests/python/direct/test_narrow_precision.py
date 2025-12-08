@@ -438,7 +438,9 @@ def test_scaled_mm_nv_quantized(
         fd.add_output(out)
 
     outputs_baseline, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_baseline, inputs_baseline
+        fusion_baseline,
+        inputs_baseline,
+        new_fusion_expected=None,
     )
 
     # Validate: nvfuser quantization should match baseline
