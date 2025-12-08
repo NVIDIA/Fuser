@@ -2642,8 +2642,7 @@ class TmaInnerReductionTest
     NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
-    // TODO
-    // EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
   }
 
  private:
