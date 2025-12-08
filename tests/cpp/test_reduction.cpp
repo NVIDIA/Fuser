@@ -2684,6 +2684,9 @@ TEST_P(TmaInnerReductionTest, Basic) {
     return;
   }
 
+  const int64_t smem_elems =
+      at::cuda::getDeviceProperties(0)->sharedMemPerBlockOptin / dtype_bytes;
+
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -2692,17 +2695,18 @@ TEST_P(TmaInnerReductionTest, Basic) {
   fusion.addInput(tv0);
   auto tv1 = sum(tv0, reduced_dims);
   fusion.addOutput(tv1);
+  auto fusion_copy = fusion;
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(element_at_each_dim, options);
 
   // Merge the contiguous inner reduction dimensions
+  // [I, R1, R2] -> [I, R1*R2]
   for (int64_t i = tv1->nDims() - 2; i >= 0; --i) {
     if (tv1->axis(i)->isReduction() && tv1->axis(i + 1)->isReduction()) {
       tv1->merge(i, i + 1);
     }
   }
-  // TODO: Split the inner dimension to ensure the TMA fits into smem.
 
   // Propagate the merge to tv0
   TransformPropagator propagator(tv1);
@@ -2712,43 +2716,72 @@ TEST_P(TmaInnerReductionTest, Basic) {
   auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0smem->setMemoryType(MemoryType::Shared);
 
-  tv0smem->axis(0)->parallelize(ParallelType::BIDx);
-  tv0smem->axis(1)->parallelize(ParallelType::Bulk);
+  auto redu_tv = tv1->cacheBefore();
 
-  auto tv1regs = tv1->cacheBefore();
-  auto redu_tv = tv1regs;
+  ParallelType outer_type = ParallelType::BIDx;
+
+  const int64_t smem_split_offset = (reduced_elem_count > smem_elems) ? 1 : 0;
 
   const int64_t vect = 4;
   const int64_t tidx = 256;
+  const int64_t unroll = 4;
 
-#define split_and_parallelize(tv, dim, size, parallelType) \
-  tv->split(dim, size);                                    \
-  tv->axis(dim + 1)->parallelize(parallelType);
+  const int64_t vect_axis = 5 + smem_split_offset;
+  const int64_t tid_axis = 4 + smem_split_offset;
+  const int64_t unroll_axis = 3 + smem_split_offset;
+  const int64_t unswitch_axis = 2 + smem_split_offset;
+  const int64_t tma_axis = 1 + smem_split_offset;
 
-  // clang-format off
-  split_and_parallelize(redu_tv, 1, vect, ParallelType::Serial);   // 5
-  split_and_parallelize(redu_tv, 1, tidx, ParallelType::TIDx);     // 4
-  split_and_parallelize(redu_tv, 1,    4, ParallelType::Unroll);   // 3
-  split_and_parallelize(redu_tv, 1,    1, ParallelType::Unswitch); // 2
+  // The reduced dimension is too large to fit inside shared memory. Split it
+  // over BIDx.
+  if (smem_split_offset > 0) {
+    int64_t split_size = std::gcd(smem_elems, reduced_elem_count);
 
-  redu_tv->axis(1)->parallelize(ParallelType::Serial);             // 1
-  redu_tv->axis(0)->parallelize(ParallelType::BIDx);               // 0
-  // clang-format on
+    // [I, R] -> [I, R/split_size, split_size]
+    tv0smem->split(1, split_size);
+    redu_tv->split(1, split_size);
 
-  // std::vector<int64_t> rfactor_axes;
-  // for (int64_t i = 0; i < redu_tv->nDims(); i++) {
-  //   if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
-  //     rfactor_axes.push_back(i);
-  //   }
-  // }
-  // redu_tv->rFactor(rfactor_axes);
+    tv0smem->axis(1)->parallelize(ParallelType::BIDx);
+    redu_tv->axis(1)->parallelize(ParallelType::BIDx);
 
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
+    // Reduction block extent may be larger than 65535, so it needs BIDx.
+    outer_type = ParallelType::BIDy;
+  }
+
+  tv0smem->axis(tma_axis)->parallelize(ParallelType::Bulk);
+
+  // [I, R] -> [I, R/vect, vect]
+  redu_tv->split(tma_axis, vect);
+
+  // [I, R/vect, vect] -> [I, R/vect/tidx, tidx, vect]
+  redu_tv->split(tma_axis, tidx);
+
+  // [I, R/vect/tidx, tidx, vect] -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
+  redu_tv->split(tma_axis, unroll);
+  redu_tv->split(tma_axis, 1);
+
+  redu_tv->axis(vect_axis)->parallelize(ParallelType::Serial);
+  redu_tv->axis(tid_axis)->parallelize(ParallelType::TIDx);
+  redu_tv->axis(unroll_axis)->parallelize(ParallelType::Unroll);
+  redu_tv->axis(unswitch_axis)->parallelize(ParallelType::Unswitch);
+  redu_tv->axis(tma_axis)->parallelize(ParallelType::Serial);
+
+  tv0smem->axis(0)->parallelize(outer_type);
+  tv1->axis(0)->parallelize(outer_type);
+  redu_tv->axis(0)->parallelize(outer_type);
+
+  std::vector<int64_t> rfactor_axes;
+  for (int64_t i = 0; i < redu_tv->nDims(); i++) {
+    if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
+      rfactor_axes.push_back(i);
+    }
+  }
+  redu_tv->rFactor(rfactor_axes);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
-  testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
