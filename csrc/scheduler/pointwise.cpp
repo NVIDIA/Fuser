@@ -332,7 +332,7 @@ bool PointWiseScheduler::canScheduleRunTime(
 namespace {
 
 // TODO: Refine this function to check contiguity, broadcasts, reshapes, etc.
-bool allVectorizableInputsAreTmaCompatible(
+bool mayHaveTmaCompatibleInputs(
     const pointwise_utils::FusionRuntimeProperties& prop) {
   for (auto tv : prop.vectorizable_inputs_outputs) {
     if (!tv->isFusionInput()) {
@@ -381,7 +381,7 @@ bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
     return false;
   }
   // Check if there are TMA-compatible inputs
-  if (!allVectorizableInputsAreTmaCompatible(prop)) {
+  if (!mayHaveTmaCompatibleInputs(prop)) {
     return false;
   }
   return true;
