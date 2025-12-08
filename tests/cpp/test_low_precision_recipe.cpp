@@ -247,7 +247,7 @@ TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
   constexpr double atol = 0.1;
   constexpr double rtol = 1;
 
-  EXPECT_TRUE(baseline_quantized_tensor.allclose(quantized_tensor, 1.0, 0.1))
+  EXPECT_TRUE(baseline_quantized_tensor.allclose(quantized_tensor, rtol, atol))
       << "Quantized tensors do not match within tolerance (rtol=" << rtol
       << ", atol=" << atol << ")";
 }
