@@ -137,44 +137,6 @@ def round_up(x: int, y: int) -> int:
     return (x + y - 1) // y * y
 
 
-# Ref: https://github.com/NVIDIA/Fuser/blob/d70540f9/tests/python/utils/narrow_precision.py#L13-L22
-kE2M1ToFloatArray = [
-    0.0,
-    0.5,
-    1.0,
-    1.5,
-    2.0,
-    3.0,
-    4.0,
-    6.0,
-]
-
-
-# Ref: https://github.com/NVIDIA/Fuser/blob/d70540f9/tests/python/utils/narrow_precision.py#L25-L32
-# Convert FP4 into FP32
-def e2m1_to_fp32(int4_value):
-    signBit = int4_value & 0x8
-    int4_absValue = int4_value & 0x7
-    float_result = kE2M1ToFloatArray[int4_absValue]
-    if signBit:
-        float_result = -float_result
-    return float_result
-
-
-# Ref: https://github.com/NVIDIA/Fuser/blob/d70540f9/tests/python/utils/narrow_precision.py#L35-L49
-# Unpack float4_e2m1fn_x2 into two separate fp32 values
-def unpack_fp4_bytes(a, dtype):
-    assert a.dtype == torch.float4_e2m1fn_x2
-    m, n = a.shape
-    a = a.view(torch.uint8).flatten()
-    upper_half_byte = (a & 0xF0) >> 4
-    lower_half_byte = a & 0x0F
-    upper_half_float = torch.tensor([e2m1_to_fp32(x) for x in upper_half_byte]).to(a.device)
-    lower_half_float = torch.tensor([e2m1_to_fp32(x) for x in lower_half_byte]).to(a.device)
-    out = torch.stack((lower_half_float, upper_half_float), dim=-1).reshape(m, n * 2)
-    return out
-
-
 # Ref: https://github.com/NVIDIA/Fuser/blob/d70540f9/tests/python/utils/narrow_precision.py#L55-L60
 # restore swizzled on block scaling factor:
 # 1. restore swizzle
@@ -186,25 +148,7 @@ def swizzled_to_linear_128_4(a_sf_swizzled: torch.Tensor, mn, k):
     tmp = torch.reshape(a_sf_swizzled, (m_tiles, k_tiles, 32, 4, 4))
     return tmp.transpose(1, 3).reshape(mn_padded, sf_k_padded)[:mn, :k]
 
-
-# Ref: https://github.com/NVIDIA/Fuser/blob/d70540f9/tests/python/utils/narrow_precision.py#L85-L101
-def dequantize_to_dtype(tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16):
-    """Dequantize the fp4 tensor back to high precision."""
-    # Two fp4 values are packed into one uint8.
-    assert tensor_fp4.dtype == torch.float4_e2m1fn_x2
-    m, packed_k = tensor_fp4.shape
-    k = packed_k * 2
-    tensor_f32 = unpack_fp4_bytes(tensor_fp4, dtype)
-    tensor_f32 = tensor_f32.reshape(m, k // block_size, block_size)
-    tensor_sf = tensor_sf.view(torch.float8_e4m3fn)
-    tensor_sf = swizzled_to_linear_128_4(tensor_sf, m, k)
-    tensor_sf_dtype = tensor_sf.to(torch.float32) / global_scale
-
-    # scale the tensor
-    out = (tensor_f32 * tensor_sf_dtype.unsqueeze(-1)).reshape(m, k)
-    return out
-
-
+# Ref: https://github.com/NVIDIA/Fuser/blob/main/tests/python/direct_utils/narrow_precision.py#L46-L106
 def unpack_fp4(x: torch.Tensor) -> torch.Tensor:
     repeated = x.repeat_interleave(2, dim=1)
     repeated[:, 0::2] &= 0x0F
@@ -253,7 +197,7 @@ def dequantize_fp4(
     dequant = dqx * sf * (amax / (6.0 * 448))
     return dequant
 
-def te_dequantize_to_dtype(
+def dequantize_to_dtype(
     tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16
 ):
     """Dequantize the fp4 tensor back to high precision."""
@@ -288,7 +232,7 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
     )
     for i in range(fp4_weight.size(0)):
         # NOTE: dequantize here doesn't look right, since we have (g, k, n)
-        hp_weight[i] = te_dequantize_to_dtype(
+        hp_weight[i] = dequantize_to_dtype(
             fp4_weight[i].transpose(1, 0), weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
     return grouped_mm(activation, hp_weight.transpose(2, 1), offsets)
