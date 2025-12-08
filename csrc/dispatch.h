@@ -105,6 +105,8 @@ class Val;
   f(SliceOp);                        \
   f(Split);                          \
   f(ArgsortOp);                      \
+  f(LaunchDependentGridOp);          \
+  f(WaitForPriorGridOp);             \
   f(GroupedMmaOp);                   \
   f(ScaledMmaOp);                    \
   f(CutlassNvfp4GroupedMmaOp);       \
@@ -175,7 +177,8 @@ class Val;
   f(HirAliasSelect);                  \
   f(ShardByStream);                   \
   f(Deallocate);                      \
-  f(ForLoop);
+  f(ForLoop);                         \
+  f(SymmetricContiguousView);
 
 // Forward declarations for all Val and Expr types
 

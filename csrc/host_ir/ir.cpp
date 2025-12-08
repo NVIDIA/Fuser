@@ -610,6 +610,32 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
   return destination;
 }
 
+SymmetricContiguousView::SymmetricContiguousView(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in)
+    : Expr(passkey, {in}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(
+      in->getMemoryType() == MemoryType::Symmetric,
+      "Input tensor must have symmetric memory type, got: ",
+      in->getMemoryType());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
+
+std::string SymmetricContiguousView::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = SymmetricContiguousView("
+                          << in()->toString() << ")" << std::endl;
+  return ss.str();
+}
+
+std::string SymmetricContiguousView::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
     : Expr(passkey, {index, start, stop}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
