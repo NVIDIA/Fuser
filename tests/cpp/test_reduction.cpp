@@ -2674,15 +2674,6 @@ TEST_P(TmaInnerReductionTest, Basic) {
     return;
   }
 
-  const int64_t min_inner_dim = 2 * 16 / dtype_bytes;
-  if (reduced_elem_count % min_inner_dim != 0) {
-    GTEST_SKIP()
-        << "Reduced elements is not divisible by min_inner_dim, can't use TMA, "
-           "reduced_elem_count: "
-        << reduced_elem_count << ", min_inner_dim: " << min_inner_dim;
-    return;
-  }
-
   const int64_t smem_elems =
       at::cuda::getDeviceProperties(0)->sharedMemPerBlockOptin / dtype_bytes;
 
