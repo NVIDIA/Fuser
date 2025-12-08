@@ -1350,6 +1350,11 @@ class VectorizeValidator : public OptInDispatch {
           break;
         }
       }
+      // Schedule operations are Fusion IR dependencies that do not appear in
+      // CUDA kernel, so we skip them here.
+      if (ir_utils::isScheduleOp(input->as<TensorView>())) {
+        continue;
+      }
       NVF_ERROR(
           producer_tv == nullptr,
           "Vectorization validation only support op with a single TensorView "
