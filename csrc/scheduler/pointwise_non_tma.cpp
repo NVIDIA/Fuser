@@ -259,7 +259,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   pointwise_utils::BreakPointInfo bp_info;
   if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
     bp_info = pointwise_utils::getBreakPoint(
-        fusion, prop, data_cache, max_vect_factor, kThreadX);
+        fusion, prop, data_cache, /*is_tma =*/false, max_vect_factor, kThreadX);
   } else {
     // Use default 1D scheduling (break_point = 0)
     bp_info.break_point = 0;

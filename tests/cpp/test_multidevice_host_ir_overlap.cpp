@@ -12,7 +12,7 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <ir/utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <ops/all_ops.h>
@@ -1216,9 +1216,9 @@ TEST_F(
 
   // For the get protocol, recvWait is a NOP
   // At the same time, sendWait will block waiting for the buffer to be
-  // IpcSemaphore::kReady but since on this stream we recvPosted the buffer last
-  // iteration, when that finishes it will be marked kReady anyways. So waiting
-  // for it to be kReady is unnecessary
+  // IpcSemaphore::kIdle but since on this stream we recvPosted the buffer last
+  // iteration, when that finishes it will be marked kIdle anyways. So waiting
+  // for it to be kIdle is unnecessary
 
   std::vector<Expr*> loop_j_body = {
       set_curr_stream,

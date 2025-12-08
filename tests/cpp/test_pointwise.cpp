@@ -23,7 +23,19 @@
 namespace nvfuser {
 
 class PointwiseTest : public NVFuserTest {
+ protected:
   void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
+// Base class for parameterized pointwise tests using TEST_P
+// Sets up IdModel configuration for parameterized tests
+template <typename ParamType>
+class PointwiseTestP : public NVFuserFixtureParamTest<ParamType> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<ParamType>::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
@@ -434,7 +446,7 @@ TEST_F(PointwiseTest, Issue1567VectorizationFactorAnalysisCase2) {
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PointwiseTest, VIssue1567ectorizationFactorAnalysisCase3) {
+TEST_F(PointwiseTest, VectorizeIssue1567VectorizationFactorAnalysisCase3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1437,6 +1449,51 @@ TEST_F(
   }
 }
 
+// TMA pointwise test utilities
+namespace tma_check {
+
+// Helper to check if TMA load is used in the compiled kernel
+bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->use_tma_load;
+}
+
+int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->tma_domain_inner;
+}
+
+} // namespace tma_check
+
+// Non-parameterized TMA pointwise test fixture (for TEST_F)
+class TmaPointwiseTestF : public PointwiseTest {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PointwiseTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+};
+
+// Parameterized TMA pointwise test fixture (for TEST_P)
+template <typename ParamType>
+class TmaPointwiseTestP : public PointwiseTestP<ParamType> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PointwiseTestP<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
+  }
+};
+
 // Test scheduling pointwise kernel with 2D TMA tiles.
 // dim0: Varied input size in the outermost dimension. Ensure we reject cases
 //       that can't use TMA load, e.g., load size is not divisible by 16 bytes.
@@ -1444,32 +1501,12 @@ TEST_F(
 //        make sure we can handle cases with fewer than 2 dimensions and cases
 //        with more than 2 dimensions.
 // use_tma_store: Test with and without TMA store.
-using Tma2dTileTestParams =
+using TmaPointwiseTestParams =
     std::tuple<int64_t, int64_t, bool, bool>; // <dim0, ndims, use_tma_store,
                                               // auto_schedule>
 
-class Tma2dTileTest : public NVFuserFixtureParamTest<Tma2dTileTestParams> {
- protected:
-  void SetUp() override {
-    NVFuserFixtureParamTest<Tma2dTileTestParams>::SetUp();
-    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaPointwise);
-  }
-
-  bool hasTmaLoad(const FusionExecutorCache& executor_cache) {
-    FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-    return runtime->schedulerHeuristics()
-        ->heuristicsList()
-        .at(0)
-        ->as<PointwiseParams>()
-        ->use_tma_load;
-  }
-
- private:
-  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
-};
-TEST_P(Tma2dTileTest, NoBroadcast) {
+class TmaPointwiseTest : public TmaPointwiseTestP<TmaPointwiseTestParams> {};
+TEST_P(TmaPointwiseTest, NoBroadcast) {
   // This is a simple test with contiguous inputs, without broadcast, reshapes,
   // allocation domains, etc. Test that 2D TMA tiles can be used to schedule
   // inputs with different sizes and dimensions. Demonstrates how to use 2D TMA
@@ -1518,7 +1555,7 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto out_tensors = executor_cache.runFusionWithInputs({t0});
     // ensure TMA is used
-    EXPECT_TRUE(hasTmaLoad(executor_cache));
+    EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
     testValidate(
         executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
     return;
@@ -1659,7 +1696,7 @@ TEST_P(Tma2dTileTest, NoBroadcast) {
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
-    Tma2dTileTest,
+    TmaPointwiseTest,
     ::testing::ValuesIn([] {
       // Generate dim0 values
       std::vector<int64_t> dim0_vals(
@@ -1668,7 +1705,7 @@ INSTANTIATE_TEST_SUITE_P(
       dim0_vals.insert(
           dim0_vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
 
-      std::vector<Tma2dTileTestParams> params;
+      std::vector<TmaPointwiseTestParams> params;
       for (auto dim0 : dim0_vals) {
         for (auto ndims : {1, 2, 3}) {
           // When auto_schedule=true, use_tma_store is ignored, so only test one
@@ -1681,7 +1718,7 @@ INSTANTIATE_TEST_SUITE_P(
       }
       return params;
     }()),
-    [](const testing::TestParamInfo<Tma2dTileTestParams>& info) {
+    [](const testing::TestParamInfo<TmaPointwiseTestParams>& info) {
       int64_t dim0 = std::get<0>(info.param);
       int64_t ndims = std::get<1>(info.param);
       bool use_tma_store = std::get<2>(info.param);
@@ -1690,4 +1727,255 @@ INSTANTIATE_TEST_SUITE_P(
           "_use_tma_store_" + std::to_string(use_tma_store) +
           "_auto_schedule_" + std::to_string(auto_schedule);
     });
+
+// Parameters for TmaPointwiseBcastTest test
+// <use_auto_scheduler, tma_inner_bcast, tma_outer_bcast>
+using InnerOuterBcastParams = std::tuple<bool, bool, bool>;
+class TmaPointwiseBcastTest : public TmaPointwiseTestP<InnerOuterBcastParams> {
+};
+
+TEST_P(TmaPointwiseBcastTest, InnerOuterBcast) {
+  // Test TMA scheduling with broadcast tensors
+  // Fusion: out = tv0 + broadcast(tv1, {false, true}) + broadcast(tv2, {true,
+  // false}) tv1 has inner broadcast dimension (broadcasts along inner dim) tv2
+  // has outer broadcast dimension (broadcasts along outer dim) Parameters
+  // control whether to use auto scheduler and whether to load broadcast inputs
+  // via TMA or regular global load (ldg)
+  int64_t dim0 = 1024;
+  int64_t dim1 = 2048;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  auto tv2 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = broadcast(tv2, {true, false});
+  auto tv5 = add(tv0, tv3);
+  auto tv6 = add(tv5, tv4);
+  fusion->addOutput(tv6);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto t2 = at::randn({dim1}, options);
+
+  // Auto scheduler won't use tma load for broadcast tensors.
+  // Here we demo how to safely load broadcast tensors with TMA.
+  auto [use_auto_scheduler, tma_inner_bcast, tma_outer_bcast] = GetParam();
+
+  if (use_auto_scheduler) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
+    // ensure TMA is used
+    EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+    testValidate(
+        executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+    return;
+  }
+
+  // Manual scheduling: Test TMA load/store with broadcast tensors
+  // Cache the main input (tv0) and output (tv6) using TMA
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+  auto tv6_smem = tv6->cacheBefore(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv6_smem->setMemoryType(MemoryType::Shared);
+  std::vector<TensorView*> tma_tvs = {tv0_smem, tv6};
+  std::vector<TensorView*> ldg_tvs = {};
+  std::unordered_set<TensorView*> vectorizable_ldg_tvs = {};
+
+  // Handle broadcast input tv1 (inner broadcast: {false, true})
+  // Either use TMA or regular load to global (ldg)
+  if (tma_inner_bcast) {
+    auto tv1_smem = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv1_smem->setMemoryType(MemoryType::Shared);
+    tma_tvs.push_back(tv1_smem);
+  } else {
+    auto tv1_regs = tv1->cacheAfter();
+    ldg_tvs.push_back(tv1_regs);
+  }
+
+  // Handle broadcast input tv2 (outer broadcast: {true, false})
+  // Either use TMA or regular load to global (ldg) with vectorization
+  if (tma_outer_bcast) {
+    auto tv2_smem = tv2->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+    tv2_smem->setMemoryType(MemoryType::Shared);
+    tma_tvs.push_back(tv2_smem);
+  } else {
+    auto tv2_regs = tv2->cacheAfter();
+    ldg_tvs.push_back(tv2_regs);
+    vectorizable_ldg_tvs.insert(tv2_regs);
+  }
+
+  // Use tv6_smem as reference for transformation propagation
+  // Note: We can't use tv6 directly because TMA store operations only have
+  // TMA tile domains, not computation domains. tv6_smem has both.
+  auto reference_tv = tv6_smem;
+
+  // For 2D scheduling, keep the two dimensions separate (don't flatten)
+  // Flattening would would merge broadcast and non-broadcast ids which may
+  // lead to incorrect TMA indexing and should be avoided.
+  // With the 2D approach, the original two domains are used as TMA domains.
+  // The code below is disabled (false condition) to maintain 2D scheduling.
+  // Schedule the TMA domain [I0, I1] (not flattened)
+  if (/*is_1d_scheduler=*/false) {
+    // This branch would flatten to 1D: [I0, I1] -> [I0*I1] -> [Do, Di]
+    reference_tv->flatten();
+    int64_t tma_domain_size_inner = dim1;
+    reference_tv->split(0, tma_domain_size_inner);
+  }
+
+  // Schedule the TMA box/tile dimensions
+  // Split into outer/inner blocks: [I0, I1] -> [I0/to, to, I1/ti, ti]
+  int64_t tma_tile_inner = 256;
+  int64_t tma_tile_outer = 8;
+  reference_tv->split(1, tma_tile_inner);
+  reference_tv->split(0, tma_tile_outer);
+
+  // Propagate TMA tile transformations to all tensors in the fusion
+  TransformPropagator propagator(reference_tv);
+  MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
+
+  // Parallelize axes for TMA operations
+  // Axes 0,2 are block indices (BIDy, BIDx), axes 1,3 are TMA bulk transfer
+  // axes
+  reference_tv->axis(0)->parallelize(ParallelType::BIDy);
+  reference_tv->axis(1)->parallelize(ParallelType::Bulk);
+  reference_tv->axis(2)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(3)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(reference_tv, tma_tvs);
+  // Reset bulk axes to serial for non-TMA computation
+  reference_tv->axis(1)->parallelize(ParallelType::Serial);
+  reference_tv->axis(3)->parallelize(ParallelType::Serial);
+
+  // Schedule computation (non-TMA) dimensions
+  // Starting from [Do/to, to, Di/ti, ti], split further for thread parallelism
+  // Result: [Do/to, to/y, y, Di/ti, ti/v/x, x, v]
+  int64_t opos = 1, ipos = 3, vectorization_factor = 4;
+  reference_tv->split(ipos, vectorization_factor);
+  reference_tv->split(ipos, /*bdimx=*/32);
+  reference_tv->split(opos, /*bdimy=*/4);
+
+  // Propagate computation transformations to non-TMA tensors only
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator non_tma_propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&non_tma_propagator);
+
+  // Parallelize computation axes for non-TMA tensors
+  // Axis 0: BIDy (block Y), Axis 2: TIDy (thread Y)
+  // Axis 3: BIDx (block X), Axis 5: TIDx (thread X)
+  reference_tv->axis(0)->parallelize(ParallelType::BIDy);
+  reference_tv->axis(2)->parallelize(ParallelType::TIDy);
+  reference_tv->axis(3)->parallelize(ParallelType::BIDx);
+  reference_tv->axis(5)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // Inline all tensors except those using load from global memory (ldg)
+  // pre-loading without inlineMost shows higher performance.
+  std::vector<TensorView*> non_ldg_tvs =
+      ir_utils::allTvsExcept(fusion, {ldg_tvs.begin(), ldg_tvs.end()});
+  inlineMost(non_ldg_tvs);
+  for (auto ldg_tv : ldg_tvs) {
+    if (vectorizable_ldg_tvs.contains(ldg_tv)) {
+      int64_t vect_pos = 3;
+      ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  KernelExecutor ke;
+  ke.compile(fusion, {t0, t1, t2});
+  auto out_tensors = ke.run({t0, t1, t2});
+  testValidate(fusion, out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaPointwiseBcastTest,
+    ::testing::ValuesIn([] {
+      std::vector<InnerOuterBcastParams> params;
+      // When use_auto_scheduler=true, other params don't matter
+      params.push_back({true, false, false});
+      // When use_auto_scheduler=false, test all combinations
+      for (bool tma_inner : {false, true}) {
+        for (bool tma_outer : {false, true}) {
+          params.push_back({false, tma_inner, tma_outer});
+        }
+      }
+      return params;
+    }()),
+    [](const testing::TestParamInfo<InnerOuterBcastParams>& info) {
+      bool use_auto_scheduler = std::get<0>(info.param);
+      bool tma_inner_bcast = std::get<1>(info.param);
+      bool tma_outer_bcast = std::get<2>(info.param);
+      return "use_auto_scheduler_" + std::to_string(use_auto_scheduler) +
+          "_tma_inner_bcast_" + std::to_string(tma_inner_bcast) +
+          "_tma_outer_bcast_" + std::to_string(tma_outer_bcast);
+    });
+
+TEST_F(TmaPointwiseTestF, TmaDomainBroadcast) {
+  int64_t dim0 = 1024;
+  int64_t dim1 = 64;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  // ensure TMA is used
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  // This fusion with broadcast will use 2D scheduler, the tma domain size is
+  // naturally [dim0, dim1]
+  EXPECT_EQ(tma_check::getTmaDomainInner(executor_cache), dim1);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+// load of tv0 is not vectorized in non-TMA version, not TMA loaded in TMA
+// version.
+TEST_F(TmaPointwiseTestF, TmaDomainBroadcastIllegal) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8191;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = broadcast(tv1, {false, true});
+  auto tv3 = add(tv0, tv2);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

@@ -8,7 +8,7 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <ir/all_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/execution_utils.h>
