@@ -192,10 +192,14 @@ void createNVFP4QuantizationFusion(
 } // namespace
 
 class MXFP8QuantizationTest : public BlackwellBase,
-                              public ::testing::WithParamInterface<DataType> {};
+                              public ::testing::WithParamInterface<
+                                  std::tuple<DataType, std::pair<int, int>>> {};
 
-TEST_P(MXFP8QuantizationTest, Basic) {
-  auto data_hp_dtype = GetParam();
+TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto dimensions = std::get<1>(GetParam());
+  const int m = dimensions.first;
+  const int n = dimensions.second;
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -205,9 +209,8 @@ TEST_P(MXFP8QuantizationTest, Basic) {
   FusionExecutorCache fec(std::move(fusion));
 
   std::vector<at::Tensor> inputs;
-  inputs.push_back(
-      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat))
-          .to(data_type_to_aten(data_hp_dtype)));
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
   // Using the block quantiation op in nvFuser.
@@ -248,12 +251,6 @@ TEST_P(MXFP8QuantizationTest, Basic) {
       << "Quantized tensors do not match within tolerance (rtol=" << rtol
       << ", atol=" << atol << ")";
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    MXFP8QuantizationTest,
-    ::testing::Values(DataType::Float, DataType::BFloat16),
-    testing::PrintToStringParamName());
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
@@ -1292,4 +1289,21 @@ INSTANTIATE_TEST_SUITE_P(
       return name.str();
     });
 
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MXFP8QuantizationTest,
+    ::testing::Combine(
+        ::testing::Values(DataType::Float, DataType::BFloat16),
+        ::testing::Values(
+            std::make_pair(1024, 1024),
+            std::make_pair(2048, 128),
+            std::make_pair(2048, 2048))),
+    [](const testing::TestParamInfo<std::tuple<DataType, std::pair<int, int>>>&
+           info) {
+      const auto data_type = std::get<0>(info.param);
+      const auto dimensions = std::get<1>(info.param);
+      std::ostringstream name;
+      name << data_type << "_" << dimensions.first << "x" << dimensions.second;
+      return name.str();
+    });
 } // namespace nvfuser
