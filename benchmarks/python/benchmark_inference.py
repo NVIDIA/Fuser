@@ -230,6 +230,7 @@ class InferenceBenchmarkConfig:
     attn_implementation: str | None
     thunder_cache: str | None
     enable_thunder_cudagraph: bool
+    debug_moe: bool
 
 
 @dataclass
@@ -263,6 +264,7 @@ class InferenceBenchmark:
     def __init__(self, config: InferenceBenchmarkConfig):
         self.config = config
         self.metrics = InferenceMetrics()
+        self.profiler_toggle = False
 
         # NOTE: Model resides on meta device
         model = self._load_model()
@@ -350,7 +352,37 @@ class InferenceBenchmark:
 
         if self.config.enable_nvfp4:
             _quantize_llama4(model)
-        self.model = self._compile_model(model)
+
+        if config.debug_moe:
+            def compile_wrapper(model, jitter):
+                class ModelWrapper(torch.nn.Module):
+
+                    def __init__(self, model, jitter):
+                        super().__init__()
+                        self.model = jitter._compile_model(model)
+                        assert not hasattr(jitter.model, "_backend")
+                        jitter.model._backend = self.model._backend
+                        self.jitter = jitter
+
+                    def forward(self, *args, **kwargs):
+                        if self.jitter.profiler_toggle:
+                            torch.cuda.cudart().cudaProfilerStart()
+                        out = self.model(*args, **kwargs)
+                        if self.jitter.profiler_toggle:
+                            torch.cuda.cudart().cudaProfilerStop()
+                        return out
+
+                return ModelWrapper(model, jitter)
+
+            self.model = model
+            _replace_with_custom_fn_if_matches_filter_with_name(
+                model,
+                lambda model, cur_fqn: compile_wrapper(model, self),
+                lambda model, cur_fqn: isinstance(model, Llama4MoE),
+            )
+        else:
+            self.model = self._compile_model(model)
+
 
     @property
     def _thunder_jit_options(self) -> dict[str, Any]:
@@ -561,16 +593,17 @@ class InferenceBenchmark:
             past_key_values.reset()
 
             is_under_nsys = bool(os.environ.get("NSYS_PROFILING_SESSION_ID"))
+            self.profiler_toggle = is_under_nsys
             # Wrap each non-warmup iteration with cudaProfilerStart() and
             # cudaProfilerStop(). This allows the user to run
             # ```shell
             # nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<N> ...
             # ```
             # to record only the non-warmup iterations.
-            if is_under_nsys:
+            if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStart()
             iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
-            if is_under_nsys:
+            if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStop()
 
             all_metrics.append(iter_metrics)
@@ -764,6 +797,11 @@ Examples:
         action="store_true",
         help="Enable debug dump of thunder trace",
     )
+    parser.add_argument(
+        "--debug-moe",
+        action="store_true",
+        help="Enable debug of MoE, limiting profile and compilation only to the hand written MoE layer",
+    )
     parser.add_argument("--save-results", action="store_true", help="Save results to JSON file")
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save results")
     parser.add_argument(
@@ -808,6 +846,7 @@ def main():
         attn_implementation=args.attn_implementation,
         thunder_cache=args.thunder_cache,
         enable_thunder_cudagraph=args.enable_thunder_cudagraph,
+        debug_moe=args.debug_moe,
     )
     benchmark = InferenceBenchmark(config)
 
