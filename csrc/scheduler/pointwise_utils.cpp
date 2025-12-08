@@ -225,8 +225,10 @@ BreakPointInfo getBreakPoint(
         transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
   }
 
-  // Calculate optimal break point for 2D scheduling
-  int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
+  // Calculate optimal break point for 2D scheduling, use it if can save IO
+  // bits.
+  int64_t min_total_transfer_bit = transfer_size_1d_bit;
+  std::cout << "transfer_size_1d_bit: " << transfer_size_1d_bit << std::endl;
   // Don't check the inner most dimension, scheduler assumes there's always
   // an rhs
   for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
@@ -242,12 +244,14 @@ BreakPointInfo getBreakPoint(
       cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
     }
 
-    // For tma scheduling, allow no element in the left side of break point,
-    // e.g. break at pos-0 for non-broadcasted case.
     auto cur_left_elem_count = n_elems / cur_right_elem_count;
-    if (!is_tma && cur_left_elem_count <= 1) {
+    if (cur_left_elem_count <= 1) {
       continue;
     }
+
+    std::cout << "break_point_i: " << break_point_i << std::endl;
+    std::cout << "cur_left_elem_count: " << cur_left_elem_count << std::endl;
+    std::cout << "cur_right_elem_count: " << cur_right_elem_count << std::endl;
 
     auto lhs_bit_multiple = broadcast_bit_multiples[break_point_i].lhs_multiple;
     auto rhs_bit_multiple = broadcast_bit_multiples[break_point_i].rhs_multiple;
@@ -260,11 +264,15 @@ BreakPointInfo getBreakPoint(
       cur_transfer_size_bit =
           cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
     }
+    std::cout << "left_transfer_size_bit: " << cur_transfer_size_bit
+              << std::endl;
 
     for (const auto right_i : arange(break_point_i, ref_loop.size())) {
       right_transfer_size_bit =
           right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
     }
+    std::cout << "right_transfer_size_bit: " << right_transfer_size_bit
+              << std::endl;
     cur_transfer_size_bit *= right_transfer_size_bit;
 
     if (!is_tma) {
@@ -298,7 +306,6 @@ BreakPointInfo getBreakPoint(
       if (cur_transfer_size_bit >= min_total_transfer_bit) {
         continue;
       }
-      // Don't break if the right side has only 1 element
       if (cur_right_elem_count <= 1) {
         continue;
       }

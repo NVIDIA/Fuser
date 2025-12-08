@@ -348,6 +348,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
+            << "break_point: " << break_point << "\n"
             << "max_dtype_size_bit_for_vectorization: "
             << max_dtype_size_bit_for_vectorization << "\n"
             << "unroll_factor_inner: " << params->unroll_factor_inner

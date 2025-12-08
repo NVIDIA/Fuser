@@ -54,6 +54,17 @@ namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
 // dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
 bool isTvSuitableForTma(const TensorView* tv, int64_t n_valid_dims) {
+  const auto contiguity = tv->domain()->contiguity();
+  if (std::any_of(
+          contiguity.begin(),
+          contiguity.end(),
+          [](const std::optional<bool>& contiguity) {
+            return !contiguity.has_value() || !contiguity.value();
+          })) {
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] not contiguous, tv: ", tv->toString());
+    return false;
+  }
   return scheduler_utils::nLogicalDims(tv) == n_valid_dims;
 };
 
@@ -144,6 +155,14 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   const int64_t tma_domain_outer = prop.n_elems / tma_domain_inner;
+  // if (tma_domain_outer == 1) {
+  //   scheduler_debug_utils::log(
+  //       "TMA domain outer is 1, illegal TMA scheduler, break_point: ",
+  //       bp_info.break_point,
+  //       ", ref_tv: ",
+  //       prop.largest_out->toString());
+  //   return nullptr;
+  // }
   params->tma_domain_inner = tma_domain_inner;
 
   // ========== Step 2: Determine Target Elements Per CTA ==========
@@ -159,6 +178,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const int64_t bits_per_cta = bits_per_sm / cta_per_sm;
   const int64_t bits_per_element = getInputBitsPerElement(prop);
   if (bits_per_element == 0) {
+    scheduler_debug_utils::log(
+        "[Pointwise TMA scheduler] no tma suitable input.");
     return nullptr;
   }
   const int64_t elements_per_cta = scheduler_utils::roundUpToN(
@@ -321,6 +342,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     return;
   }
   auto& schedule_info = schedule_info_opt.value();
+  std::cout << "reference_tv: " << schedule_info.reference_tv->toString()
+            << std::endl;
 
   auto& cached_inputs = schedule_info.cached_inputs;
   auto& cached_outputs = schedule_info.cached_outputs;
