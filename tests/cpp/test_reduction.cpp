@@ -2700,28 +2700,44 @@ TEST_P(TmaInnerReductionTest, Basic) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(element_at_each_dim, options);
 
-  // Merge the contiguous inner reduction dimensions
-  // [I, R1, R2] -> [I, R1*R2]
-  for (int64_t i = tv1->nDims() - 2; i >= 0; --i) {
-    if (tv1->axis(i)->isReduction() && tv1->axis(i + 1)->isReduction()) {
-      tv1->merge(i, i + 1);
-    }
-  }
-
-  // Propagate the merge to tv0
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  // Setup the TMA load. No TMA store.
+  // Phase-1, Set input and output cache and TMA load
   auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0smem->setMemoryType(MemoryType::Shared);
 
   auto redu_tv = tv1->cacheBefore();
 
+  // Phase-2, Merge contiguous reduction dimensions
+  // [I, R1, R2] -> [I, R1*R2]
+  for (int64_t i = redu_tv->nDims() - 2; i >= 0; --i) {
+    if (redu_tv->axis(i)->isReduction() &&
+        redu_tv->axis(i + 1)->isReduction()) {
+      redu_tv->merge(i, i + 1);
+    }
+  }
+
+  // Phase-3, Schedule common transformations shared by TMA and non-TMA tensors
   ParallelType outer_type = ParallelType::BIDx;
-
   const int64_t smem_split_offset = (reduced_elem_count > smem_elems) ? 1 : 0;
+  if (smem_split_offset > 0) {
+    // Split the reduction axis to fit into shared memory.
+    int64_t split_size = std::gcd(smem_elems, reduced_elem_count);
 
+    // [I, R] -> [I, R/split_size, split_size]
+    redu_tv->split(1, split_size);
+    redu_tv->axis(1)->parallelize(ParallelType::BIDx);
+
+    // Reduction block extent may be larger than 65535, so it needs BIDx.
+    outer_type = ParallelType::BIDy;
+  }
+
+  redu_tv->axis(0)->parallelize(outer_type);
+
+  // Phase-4, Propagate common transformations to all tensors
+  TransformPropagator propagator(redu_tv);
+  MaxLogicalDomainInfoSpanningTree(redu_tv).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(redu_tv);
+
+  // Phase-5, Schedule for reduction and rFactor thread local reductions
   const int64_t vect = 4;
   const int64_t tidx = 256;
   const int64_t unroll = 4;
@@ -2731,22 +2747,6 @@ TEST_P(TmaInnerReductionTest, Basic) {
   const int64_t unroll_axis = 3 + smem_split_offset;
   const int64_t unswitch_axis = 2 + smem_split_offset;
   const int64_t tma_axis = 1 + smem_split_offset;
-
-  // The reduced dimension is too large to fit inside shared memory. Split it
-  // over BIDx.
-  if (smem_split_offset > 0) {
-    int64_t split_size = std::gcd(smem_elems, reduced_elem_count);
-
-    // [I, R] -> [I, R/split_size, split_size]
-    tv0smem->split(1, split_size);
-    redu_tv->split(1, split_size);
-
-    tv0smem->axis(1)->parallelize(ParallelType::BIDx);
-    redu_tv->axis(1)->parallelize(ParallelType::BIDx);
-
-    // Reduction block extent may be larger than 65535, so it needs BIDx.
-    outer_type = ParallelType::BIDy;
-  }
 
   tv0smem->axis(tma_axis)->parallelize(ParallelType::Bulk);
 
@@ -2766,10 +2766,6 @@ TEST_P(TmaInnerReductionTest, Basic) {
   redu_tv->axis(unswitch_axis)->parallelize(ParallelType::Unswitch);
   redu_tv->axis(tma_axis)->parallelize(ParallelType::Serial);
 
-  tv0smem->axis(0)->parallelize(outer_type);
-  tv1->axis(0)->parallelize(outer_type);
-  redu_tv->axis(0)->parallelize(outer_type);
-
   std::vector<int64_t> rfactor_axes;
   for (int64_t i = 0; i < redu_tv->nDims(); i++) {
     if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
@@ -2777,6 +2773,9 @@ TEST_P(TmaInnerReductionTest, Basic) {
     }
   }
   redu_tv->rFactor(rfactor_axes);
+
+  // Step 6: Inline
+  inlineMost();
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
