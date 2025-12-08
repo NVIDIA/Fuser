@@ -111,10 +111,10 @@ enum class NanStatus {
 using NanStatusMap = std::unordered_map<TensorView*, NanStatus>;
 using PromotedOpSet = std::unordered_set<ReductionOp*>;
 
-bool isSafeReduction(Expr* expr, const PromotedOpSet& promotedOps) {
+bool isSafeReduction(Expr* expr, const PromotedOpSet& promoted_ops) {
   if (auto* rop = dynamic_cast<ReductionOp*>(expr)) {
     // Check that this expr hasn't already been promoted to an unsafe reduction.
-    return !promotedOps.contains(rop);
+    return !promoted_ops.contains(rop);
   }
 
   return false;
@@ -189,7 +189,7 @@ bool canBeAnalyzed(
 // by safe reductions.
 bool minMaxOpIsRepaired(
     ReductionOp* targetRop,
-    const PromotedOpSet& promotedOps) {
+    const PromotedOpSet& promoted_ops) {
   Fusion* fusion = targetRop->fusion();
 
   auto* in_tv = targetRop->input(0)->as<TensorView>();
@@ -215,10 +215,10 @@ bool minMaxOpIsRepaired(
     }
 
     // Get aggregate status from all inputs.
-    bool anyUnreduced = false;
-    bool anyBadReduced = false;
-    bool anyMixed = false;
-    bool anyGoodReduced = false;
+    bool any_unreduced = false;
+    bool any_bad_reduced = false;
+    bool any_mixed = false;
+    bool any_good_reduced = false;
 
     for (auto input : expr->inputs()) {
       if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
@@ -230,23 +230,23 @@ bool minMaxOpIsRepaired(
         }
 
         if (status == NanStatus::Unreduced) {
-          anyUnreduced = true;
+          any_unreduced = true;
         }
         if (status == NanStatus::BadReduced) {
-          anyBadReduced = true;
+          any_bad_reduced = true;
         }
         if (status == NanStatus::Mixed) {
-          anyMixed = true;
+          any_mixed = true;
         }
         if (status == NanStatus::GoodReduced) {
-          anyGoodReduced = true;
+          any_good_reduced = true;
         }
       }
     }
 
     if (!canBeAnalyzed(expr, targetRop, broadcastMatcher)) {
       // Analysis is blocked for this node, treat it like a fusion output.
-      if (anyBadReduced || anyMixed) {
+      if (any_bad_reduced || any_mixed) {
         return false;
       } else {
         continue;
@@ -258,19 +258,19 @@ bool minMaxOpIsRepaired(
     // Status is mostly propped based on priority. For example, GoodReduced
     // beats all other states. There is also one combination rule with
     // BadReduced and Unreduced combining to become Mixed.
-    if (anyGoodReduced) {
+    if (any_good_reduced) {
       status = NanStatus::GoodReduced;
-    } else if (anyMixed) {
+    } else if (any_mixed) {
       status = NanStatus::Mixed;
-    } else if (anyUnreduced && anyBadReduced) {
+    } else if (any_unreduced && any_bad_reduced) {
       status = NanStatus::Mixed;
-    } else if (anyUnreduced) {
+    } else if (any_unreduced) {
       status = NanStatus::Unreduced;
-    } else if (anyBadReduced) {
+    } else if (any_bad_reduced) {
       status = NanStatus::BadReduced;
     }
 
-    if (isSafeReduction(expr, promotedOps)) {
+    if (isSafeReduction(expr, promoted_ops)) {
       if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
         // Unreduced and Mixed states both indicate the targetRop's input has
         // propagated here pointwise, preserving its NAN values in unchanged
@@ -309,7 +309,7 @@ bool minMaxOpIsRepaired(
 void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
   FusionGuard fusion_guard(fusion);
 
-  PromotedOpSet promotedOps;
+  PromotedOpSet promoted_ops;
 
   // This outer loop runs over all expressions, filtering for min/max
   // reductions, which become the target for the rest of the analysis.
@@ -324,13 +324,13 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
 
     if (reduction_type == BinaryOpType::Min ||
         reduction_type == BinaryOpType::Max) {
-      if (minMaxOpIsRepaired(targetRop, promotedOps)) {
-        promotedOps.insert(targetRop);
+      if (minMaxOpIsRepaired(targetRop, promoted_ops)) {
+        promoted_ops.insert(targetRop);
       }
     }
   }
 
-  for (auto* rop : promotedOps) {
+  for (auto* rop : promoted_ops) {
     // Promote the reduction ops by doing expression replacement
     auto red_op_type = rop->getReductionOpType();
     auto init = rop->init();
