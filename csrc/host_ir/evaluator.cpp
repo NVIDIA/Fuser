@@ -824,17 +824,17 @@ void HostIrEvaluator::handle(
   auto* in_tv = symmetric_contiguous_view->in();
   auto* out_tv = symmetric_contiguous_view->out();
 
+  NVF_ERROR(
+      in_tv->axis(0)->isDeviceDim(),
+      "Tv must be sharded on outermost dimension",
+      in_tv);
+
   // Get the sharded input tensor
   at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
 
   // Get or create SymMemForContiguousView from the cache
   SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
       multicast_handle_cache_.get({in_tensor, symmetric_contiguous_view}));
-
-  NVF_ERROR(
-      in_tv->axis(0)->isDeviceDim(),
-      "Tv must be sharded on outermost dimension",
-      in_tv);
 
   // Bind the symmetric_contiguous_viewed tensor to the output
   expr_evaluator_.bind(out_tv, handle->tensor());
