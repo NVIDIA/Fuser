@@ -454,7 +454,12 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
 
   NVFUSER_LOWER_VALIDATE(
       is_divisible,
-      "Inner dim of input of Block Quantization is not divisble by 16",
+      "Inner dimension of BlockQuantizationOp input must be divisible by block "
+      "size (",
+      bqop->blockSize(),
+      "), but got extent ",
+      inner_id->extent()->toInlineString(),
+      " in ",
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(
