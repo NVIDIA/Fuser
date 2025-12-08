@@ -45,6 +45,7 @@ def test_triangle_attention_starting_node():
         w_q = fd.define_tensor(shape=[h * c_hidden, c_z], dtype=DataType.BFloat16)
         w_k = fd.define_tensor(shape=[h * c_hidden, c_z], dtype=DataType.BFloat16)
         w_b = fd.define_tensor(shape=[h, c_z], dtype=DataType.BFloat16)
+        mask = fd.define_tensor(shape=[-1, -1, -1], dtype=DataType.Bool)  # [b, i, j]
         w_v = fd.define_tensor(shape=[h * c_hidden, c_z], dtype=DataType.BFloat16)
         w_g = fd.define_tensor(shape=[h * c_hidden, c_z], dtype=DataType.BFloat16)
         w_o = fd.define_tensor(shape=[c_z, h * c_hidden], dtype=DataType.BFloat16)
@@ -64,7 +65,20 @@ def test_triangle_attention_starting_node():
         )  # [b, i, j, h, c_hidden]
         k_h = fd.ops.permute(k_h, [0, 1, 3, 2, 4])  # [b, i, h, j, c_hidden]
 
-        b_h = fd.ops.linear(z_in, w_b)
+        b_h = fd.ops.linear(z_in, w_b)  # [b, i, j, h]
+        b_h = fd.ops.permute(b_h, [0, 3, 1, 2])  # [b, h, i, j]
+        b_h = fd.ops.broadcast_in_dim(
+            b_h,
+            shape=[batch_size, 1, h, n_tokens, n_tokens],
+            broadcast_dims=[0, 2, 3, 4],
+        )  # [b, 1, h, i, j]
+
+        mask_bias = fd.ops.where(mask, 0, float("-inf"))
+        mask_bias = fd.ops.broadcast_in_dim(
+            mask_bias,
+            shape=[batch_size, n_tokens, 1, 1, n_tokens],
+            broadcast_dims=[0, 1, 4],
+        )  # [b, i, 1, 1, j]
 
         v = fd.ops.linear(z_in, w_v)
         v_h = fd.ops.reshape(
@@ -72,7 +86,7 @@ def test_triangle_attention_starting_node():
         )  # [b, i, j, h, c_hidden]
         v_h = fd.ops.permute(v_h, [0, 1, 3, 2, 4])  # [b, i, h, j, c_hidden]
 
-        # TODO: b_h should be added here. fd.ops.sdpfa_fwd hasn't yet supported custom masks.
+        # FIXME: b_h and mask_bias should be added here. fd.ops.sdpfa_fwd hasn't yet supported custom masks.
         o_h, _, _, _ = fd.ops.sdpfa_fwd(
             q_h, k_h, v_h, is_causal=False
         )  # [b, i, h, j, c_hidden]
@@ -106,6 +120,9 @@ def test_triangle_attention_starting_node():
         h * c_hidden, c_z, dtype=torch.bfloat16, device="cuda"
     )
     w_b = torch.testing.make_tensor(h, c_z, dtype=torch.bfloat16, device="cuda")
+    mask = torch.testing.make_tensor(
+        batch_size, n_tokens, n_tokens, dtype=torch.bool, device="cuda"
+    )
     w_v = torch.testing.make_tensor(
         h * c_hidden, c_z, dtype=torch.bfloat16, device="cuda"
     )
@@ -115,7 +132,7 @@ def test_triangle_attention_starting_node():
     w_o = torch.testing.make_tensor(
         c_z, h * c_hidden, dtype=torch.bfloat16, device="cuda"
     )
-    (z_out,) = fd.execute([z_in, w_q, w_k, w_b, w_v, w_g, w_o])
+    (z_out,) = fd.execute([z_in, w_q, w_k, w_b, mask, w_v, w_g, w_o])
     assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
