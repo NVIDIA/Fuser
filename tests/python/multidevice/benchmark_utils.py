@@ -3,6 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
+from enum import auto, Enum
+
+
+class Parallelism(Enum):
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
+    TENSOR_PARALLEL = auto()
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
+    SEQUENCE_PARALLEL = auto()
 
 
 def get_benchmark_fn(func, /, profile: bool):

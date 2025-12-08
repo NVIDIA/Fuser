@@ -12,7 +12,7 @@ from python.direct_utils import (
     create_sdpa_rng_tensors,
     is_pre_ampere,
 )
-from benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns, Parallelism
 
 
 @pytest.mark.mpi
@@ -349,24 +349,12 @@ def transformer_forward_definition(
     fd.add_output(out)
 
 
-def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
+def transformer_forward_multidevice_schedule(
+    fd: FusionDefinition, num_devices: int, parallelism: Parallelism
+):
     mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
     inputs = fd.fusion.inputs()
-    inp = inputs[0]
-    layernorm0_weight = inputs[1]
-    layernorm0_bias = inputs[2]
-    mha_linear0_weight = inputs[3]
-    mha_linear0_bias = inputs[4]
-    mha_linear1_weight = inputs[5]
-    mha_linear1_bias = inputs[6]
-    layernorm1_weight = inputs[7]
-    layernorm1_bias = inputs[8]
-    mlp_linear0_weight = inputs[9]
-    mlp_linear0_bias = inputs[10]
-    mlp_linear1_weight = inputs[11]
-    mlp_linear1_bias = inputs[12]
-
-    for tv in [
+    (
         inp,
         layernorm0_weight,
         layernorm0_bias,
@@ -380,8 +368,14 @@ def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: 
         mlp_linear0_bias,
         mlp_linear1_weight,
         mlp_linear1_bias,
-    ]:
+    ) = inputs
+
+    for tv in inputs:
         tv.set_device_mesh(mesh)
+
+    if parallelism == Parallelism.SEQUENCE_PARALLEL:
+        inp.outer_split(1, num_devices)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
         mha_linear0_weight,
@@ -413,8 +407,15 @@ def _assert_shape_dtype(
     is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=["tp", "sp"],
+)
 @pytest.mark.mpi
-def test_transformer_forward(multidevice_direct_test, benchmark):
+def test_transformer_forward(
+    multidevice_direct_test, benchmark, parallelism: Parallelism
+):
     d = multidevice_direct_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
@@ -426,7 +427,8 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
 
     if h % d != 0:
         pytest.skip(
-            f"We only support even DID split, so the number of heads ({h}) has to be divisible by the number of GPUs ({d})."
+            f"We only support even DID split, so the number of heads ({h}) has \
+            to be divisible by the number of GPUs ({d})."
         )
 
     assert e * 4 % d == 0, (
@@ -435,10 +437,17 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         "error. So I use `assert` instead of `pytest.skip`."
     )
 
+    if parallelism == Parallelism.SEQUENCE_PARALLEL and s % d != 0:
+        pytest.skip(
+            f"Sequence length {s} must be divisible by the number \
+                    of devices {d} for sequence parallelism."
+        )
+
     torch.cuda.set_device(multidevice_direct_test.local_rank)
 
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
+    inp = torch.testing.make_tensor(b, s, e, dtype=torch.bfloat16, device="cpu")
     mha_linear0_weight = torch.testing.make_tensor(
         e * 3, e, dtype=torch.bfloat16, device="cpu"
     )
@@ -462,7 +471,9 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
     # arguments. They are passed in in the same order as the `define_scalar`s
     # and `define_tensor`s.
     ins = [
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+        inp.cuda()
+        if parallelism == Parallelism.TENSOR_PARALLEL
+        else multidevice_direct_test.shard_tensor(inp, 1, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
@@ -479,7 +490,7 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
 
     with FusionDefinition() as fd:
         transformer_forward_definition(fd, b, s, h, e)
-        transformer_forward_multidevice_schedule(fd, d)
+        transformer_forward_multidevice_schedule(fd, d, parallelism)
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
@@ -501,21 +512,23 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         out,
     ) = warmup_fn()
 
-    _assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    s_local = s // d if parallelism == Parallelism.SEQUENCE_PARALLEL else s
+
+    _assert_shape_dtype(layernorm0_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm0_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mha_linear0_out, [b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [b, h // d, s], torch.float32)
     ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
     _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
     _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
-    _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
-    _assert_shape_dtype(mha_dropout_mask, [b, s, e], torch.bool)
-    _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mha_linear1_out, [b, s_local, e], torch.bfloat16)
+    _assert_shape_dtype(mha_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(layernorm1_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm1_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mlp_linear0_out, [b, s, e * 4 // d], torch.bfloat16)
-    _assert_shape_dtype(mlp_dropout_mask, [b, s, e], torch.bool)
-    _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(mlp_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(out, [b, s_local, e], torch.bfloat16)
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.

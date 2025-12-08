@@ -506,8 +506,12 @@ std::vector<Expr*> convertSingleOpToCommunication(
   auto* input_tv = e->input(0)->as<TensorView>();
   auto* output_tv = e->output(0)->as<TensorView>();
 
-  input_tv->setMemoryType(MemoryType::Global);
-  output_tv->setMemoryType(MemoryType::Global);
+  if (input_tv->getMemoryType() != MemoryType::Symmetric) {
+    input_tv->setMemoryType(MemoryType::Global);
+  }
+  if (output_tv->getMemoryType() != MemoryType::Symmetric) {
+    output_tv->setMemoryType(MemoryType::Global);
+  }
 
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
