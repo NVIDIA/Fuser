@@ -205,6 +205,61 @@ def dequantize_to_dtype(tensor_fp4, tensor_sf, global_scale, dtype, device, bloc
     return out
 
 
+_FP4_LUT = torch.tensor(
+    [
+        0.0,  # 0: 0000 - zero
+        0.5,  # 1: 0001 - smallest positive normal
+        1.0,  # 2: 0010
+        1.5,  # 3: 0011
+        2.0,  # 4: 0100
+        3.0,  # 5: 0101
+        4.0,  # 6: 0110
+        6.0,  # 7: 0111 - largest positive normal
+        -0.0,  # 8: 1000 - negative zero
+        -0.5,  # 9: 1001 - smallest negative normal
+        -1.0,  # 10: 1010
+        -1.5,  # 11: 1011
+        -2.0,  # 12: 1100
+        -3.0,  # 13: 1101
+        -4.0,  # 14: 1110
+        -6.0,  # 15: 1111 - largest negative normal
+    ],
+    dtype=torch.float32,
+)
+
+
+def fp4_to_fp32(fp4: torch.Tensor) -> torch.Tensor:
+    # Convert FP4 indices to their corresponding floating point values
+    # Each index (0-15) represents a 4-bit FP4 value in E2M1 format
+    # Values based on the FP4 E2M1 specification
+    fp4_lut = _FP4_LUT.to(fp4.device)
+    return fp4_lut[fp4.to(torch.long)]
+
+
+def dequantize_fp4(
+    qx: torch.Tensor, sx: torch.Tensor, amax: torch.Tensor
+) -> torch.Tensor:
+    sf = sx.repeat_interleave(16, dim=1).view(torch.float8_e4m3fn).to(torch.float32)
+    dqx = fp4_to_fp32(unpack_fp4(qx))
+    sf = sf[: dqx.shape[0], : dqx.shape[1]]
+    dequant = dqx * sf * (amax / (6.0 * 448))
+    return dequant
+
+def te_dequantize_to_dtype(
+    tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16
+):
+    """Dequantize the fp4 tensor back to high precision."""
+    # Two fp4 values are packed into one uint8.
+    m, packed_k = tensor_fp4.shape
+    k = packed_k * 2
+    tensor_sf = tensor_sf.view(torch.float8_e4m3fn)
+    tensor_sf = swizzled_to_linear_128_4(tensor_sf, m, k)
+    out = dequantize_fp4(
+        tensor_fp4.view(torch.uint8), tensor_sf, (6.0 * 448.0) / global_scale
+    )
+    return out.reshape(m, k)
+
+
 # NOTE: This custom op is registered with nvfuser translator in benchmark_inference.py
 # using _register_nvfuser_translator. See benchmark_inference._register_nvfp4_ops().
 @torch.library.custom_op("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm", mutates_args=())
@@ -223,11 +278,13 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
         device=activation.device,
         dtype=activation.dtype,
     )
+    breakpoint()
     for i in range(fp4_weight.size(0)):
         # NOTE: dequantize here doesn't look right, since we have (g, k, n)
         hp_weight[i] = dequantize_to_dtype(
             fp4_weight[i], weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
+    breakpoint()
     return grouped_mm(activation, hp_weight, offsets)
 
 
