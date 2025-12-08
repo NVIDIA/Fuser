@@ -1257,62 +1257,62 @@ void HostIrJitImpl::registerExternalFunctions() {
     FUSER_PERF_SCOPE("launch_kernel_func_ptr");
 
     auto* launch_kernel_ptr = static_cast<hir::LaunchKernel*>(launch_kernel);
-    NVF_CHECK(launch_kernel_ptr != nullptr, "launch_kernel_ptr cannot be null");
+    //NVF_CHECK(launch_kernel_ptr != nullptr, "launch_kernel_ptr cannot be null");
 
-    int64_t group_id = launch_kernel_ptr->groupId();
+    //int64_t group_id = launch_kernel_ptr->groupId();
 
-    // Profiling
-    if (isProfilerEnabled()) {
-      NVF_CHECK(
-          group_id >= 0,
-          "An invalid segment id is passed to FusionProfiler!:",
-          group_id);
-      SegmentProfiler& sprof = FusionProfiler::segment(group_id);
+    //// Profiling
+    //if (isProfilerEnabled()) {
+    //  NVF_CHECK(
+    //      group_id >= 0,
+    //      "An invalid segment id is passed to FusionProfiler!:",
+    //      group_id);
+    //  SegmentProfiler& sprof = FusionProfiler::segment(group_id);
 
-      // Compute input bytes
-      int64_t input_bytes = 0;
-      for (int64_t i = 0; i < num_inputs; ++i) {
-        if (input_tensors[i] != nullptr) {
-          input_bytes +=
-              static_cast<int64_t>(input_tensors[i]->storage().nbytes());
-        }
-      }
-      sprof.inputBytesAccessed(input_bytes);
+    //  // Compute input bytes
+    //  int64_t input_bytes = 0;
+    //  for (int64_t i = 0; i < num_inputs; ++i) {
+    //    if (input_tensors[i] != nullptr) {
+    //      input_bytes +=
+    //          static_cast<int64_t>(input_tensors[i]->storage().nbytes());
+    //    }
+    //  }
+    //  sprof.inputBytesAccessed(input_bytes);
 
-      // Set scheduler type from compiled kernel
-      CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
-      if (ck != nullptr) {
-        sprof.scheduler(toString(ck->schedulerType()));
-      }
+    //  // Set scheduler type from compiled kernel
+    //  CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
+    //  if (ck != nullptr) {
+    //    sprof.scheduler(toString(ck->schedulerType()));
+    //  }
 
-      // Get device index from the first input tensor if available
-      int8_t device_index = 0;
-      if (num_inputs > 0 && input_tensors[0] != nullptr) {
-        device_index = static_cast<int8_t>(input_tensors[0]->device().index());
-      } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
-        device_index = static_cast<int8_t>(output_tensors[0]->device().index());
-      }
+    //  // Get device index from the first input tensor if available
+    //  int8_t device_index = 0;
+    //  if (num_inputs > 0 && input_tensors[0] != nullptr) {
+    //    device_index = static_cast<int8_t>(input_tensors[0]->device().index());
+    //  } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
+    //    device_index = static_cast<int8_t>(output_tensors[0]->device().index());
+    //  }
 
-      FusionProfiler::segment(group_id).setDevice(device_index);
-      sprof.startKernel();
-    }
+    //  FusionProfiler::segment(group_id).setDevice(device_index);
+    //  sprof.startKernel();
+    //}
 
     CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
 
-    NVF_CHECK(
-        compiled_kernel != nullptr,
-        "CompiledKernel pointer is null for group_id ",
-        group_id);
-    NVF_CHECK(
-        compiled_kernel->cudaExecutable() != nullptr,
-        "CUDA executable is null for group_id ",
-        group_id);
+    //NVF_CHECK(
+    //    compiled_kernel != nullptr,
+    //    "CompiledKernel pointer is null for group_id ",
+    //    group_id);
+    //NVF_CHECK(
+    //    compiled_kernel->cudaExecutable() != nullptr,
+    //    "CUDA executable is null for group_id ",
+    //    group_id);
 
     auto index_type = compiled_kernel->kernel()->indexType();
 
-    if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-      debug() << "Index type: " << index_type << std::endl;
-    }
+    //if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
+    //  debug() << "Index type: " << index_type << std::endl;
+    //}
 
     std::vector<std::vector<std::byte>> arg_bytes;
     arg_bytes.reserve(num_inputs + num_outputs);
@@ -1383,45 +1383,45 @@ void HostIrJitImpl::registerExternalFunctions() {
       encodeTensor(output_tensors[i], kernel_outputs[i]);
     }
 
-    if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-      // Convert raw tensor arrays to KernelArgumentHolder for
-      // dumpKernelArgs
-      KernelArgumentHolder input_holder;
-      for (int64_t i = 0; i < num_inputs; ++i) {
-        if (input_tensors[i] != nullptr) {
-          input_holder.push(*input_tensors[i]);
-        }
-      }
+    //if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
+    //  // Convert raw tensor arrays to KernelArgumentHolder for
+    //  // dumpKernelArgs
+    //  KernelArgumentHolder input_holder;
+    //  for (int64_t i = 0; i < num_inputs; ++i) {
+    //    if (input_tensors[i] != nullptr) {
+    //      input_holder.push(*input_tensors[i]);
+    //    }
+    //  }
 
-      KernelArgumentHolder output_holder;
-      for (int64_t i = 0; i < num_outputs; ++i) {
-        if (output_tensors[i] != nullptr) {
-          output_holder.push(*output_tensors[i]);
-        }
-      }
+    //  KernelArgumentHolder output_holder;
+    //  for (int64_t i = 0; i < num_outputs; ++i) {
+    //    if (output_tensors[i] != nullptr) {
+    //      output_holder.push(*output_tensors[i]);
+    //    }
+    //  }
 
-      // No intermediate buffers in host IR JIT context
-      KernelArgumentHolder empty_intermediates;
-      std::vector<GlobalBufferInfo> empty_intermediates_info;
+    //  // No intermediate buffers in host IR JIT context
+    //  KernelArgumentHolder empty_intermediates;
+    //  std::vector<GlobalBufferInfo> empty_intermediates_info;
 
-      dumpKernelArgs(
-          -1, // fusion_id not available in this context
-          group_id,
-          input_holder,
-          num_inputs,
-          output_holder,
-          empty_intermediates,
-          empty_intermediates_info);
-    }
+    //  dumpKernelArgs(
+    //      -1, // fusion_id not available in this context
+    //      group_id,
+    //      input_holder,
+    //      num_inputs,
+    //      output_holder,
+    //      empty_intermediates,
+    //      empty_intermediates_info);
+    //}
 
     // Launch Config
     CUlaunchConfig config;
 
     const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
 
-    if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
-      launch_params.print();
-    }
+    //if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
+    //  launch_params.print();
+    //}
 
     auto stream = at::cuda::getCurrentCUDAStream();
 
@@ -1447,20 +1447,20 @@ void HostIrJitImpl::registerExternalFunctions() {
           nullptr));
     }
 
-    // Profiling cleanup
-    if (isProfilerEnabled()) {
-      auto& sprof = FusionProfiler::segment(group_id);
-      sprof.stopKernel();
+    //// Profiling cleanup
+    //if (isProfilerEnabled()) {
+    //  auto& sprof = FusionProfiler::segment(group_id);
+    //  sprof.stopKernel();
 
-      // Compute output bytes
-      int64_t output_bytes = 0;
-      for (int64_t i = 0; i < num_outputs; ++i) {
-        output_bytes +=
-            static_cast<int64_t>(output_tensors[i]->storage().nbytes());
-      }
+    //  // Compute output bytes
+    //  int64_t output_bytes = 0;
+    //  for (int64_t i = 0; i < num_outputs; ++i) {
+    //    output_bytes +=
+    //        static_cast<int64_t>(output_tensors[i]->storage().nbytes());
+    //  }
 
-      sprof.outputBytesAccessed(output_bytes);
-    }
+    //  sprof.outputBytesAccessed(output_bytes);
+    //}
   });
 
   // matmul_out function
