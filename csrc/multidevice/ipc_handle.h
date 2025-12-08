@@ -10,7 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 
