@@ -3529,7 +3529,6 @@ void bindQuantizationOps(py::module_& ops) {
          bool swizzle_block_scales,
          int64_t block_size,
          PrimDataType dtype) -> py::tuple {
-        std::cout << "dtype: " << dtype << std::endl;
         auto output = blockQuantize(
             input, global_scale, block_size, swizzle_block_scales, dtype);
         return py::make_tuple(output.quantized_tensor, output.block_scales);

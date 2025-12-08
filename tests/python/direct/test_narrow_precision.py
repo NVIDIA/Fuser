@@ -67,7 +67,7 @@ def quantize_to_mxfp8_e4m3(tensor: torch.Tensor):
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
-def test_nv_block_quantization(nvfuser_direct_test, dtype):
+def test_nv_quantization_to_mxfp8(nvfuser_direct_test, dtype):
     x = torch.rand((1024, 1024), dtype=dtype, device="cuda")
 
     quantized_x = quantize_to_mxfp8_e4m3(x)

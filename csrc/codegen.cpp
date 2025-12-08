@@ -1870,7 +1870,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     // Add swizzled allocation domain parameters if needed
-    // This is alway skipped when quantizing to mxfp8
+    // This is always skipped when quantizing to mxfp8
     auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
     if (block_scales_tv->hasAllocation()) {
       auto logical_domain =
