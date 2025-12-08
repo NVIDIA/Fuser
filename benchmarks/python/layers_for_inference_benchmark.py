@@ -205,6 +205,13 @@ def dequantize_to_dtype(tensor_fp4, tensor_sf, global_scale, dtype, device, bloc
     return out
 
 
+def unpack_fp4(x: torch.Tensor) -> torch.Tensor:
+    repeated = x.repeat_interleave(2, dim=1)
+    repeated[:, 0::2] &= 0x0F
+    repeated[:, 1::2] >>= 4
+    return repeated
+
+
 _FP4_LUT = torch.tensor(
     [
         0.0,  # 0: 0000 - zero
@@ -225,6 +232,7 @@ _FP4_LUT = torch.tensor(
         -6.0,  # 15: 1111 - largest negative normal
     ],
     dtype=torch.float32,
+    device="cuda",
 )
 
 
@@ -232,8 +240,8 @@ def fp4_to_fp32(fp4: torch.Tensor) -> torch.Tensor:
     # Convert FP4 indices to their corresponding floating point values
     # Each index (0-15) represents a 4-bit FP4 value in E2M1 format
     # Values based on the FP4 E2M1 specification
-    fp4_lut = _FP4_LUT.to(fp4.device)
-    return fp4_lut[fp4.to(torch.long)]
+    # NOTE: move to device triggers error in inductor. We hard code the lookup Tensor on cuda and remove the cast as a WAR `fp4_lut = _FP4_LUT.to(fp4.device)`
+    return _FP4_LUT[fp4.to(torch.long)]
 
 
 def dequantize_fp4(
@@ -278,14 +286,12 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
         device=activation.device,
         dtype=activation.dtype,
     )
-    breakpoint()
     for i in range(fp4_weight.size(0)):
         # NOTE: dequantize here doesn't look right, since we have (g, k, n)
-        hp_weight[i] = dequantize_to_dtype(
-            fp4_weight[i], weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
+        hp_weight[i] = te_dequantize_to_dtype(
+            fp4_weight[i].transpose(1, 0), weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
-    breakpoint()
-    return grouped_mm(activation, hp_weight, offsets)
+    return grouped_mm(activation, hp_weight.transpose(2, 1), offsets)
 
 
 @torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm")
@@ -453,7 +459,9 @@ class NVFP4InferenceGroupedLinear(nn.Module):
 
         These can be computed once and reused across multiple forward calls with the same offsets.
         """
-        tokens_per_group = offsets[1:] - offsets[:-1]
+        # expanded offsets to contain the total number of tokens.
+        expanded_offsets = torch.cat([offsets, torch.tensor([hidden_states.size(0)], device=offsets.device)])
+        tokens_per_group = expanded_offsets[1:] - expanded_offsets[:-1]
         problem_sizes = torch.stack(
             [
                 tokens_per_group,
@@ -489,7 +497,7 @@ class NVFP4InferenceGroupedLinear(nn.Module):
             self.fp4_weight,
             self.weight_scaling_factor,
             self.weight_global_scale,
-            offsets[:-1],
+            offsets,
             blockscale_offsets,
             problem_sizes,
         )
