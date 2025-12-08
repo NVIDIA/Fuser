@@ -12,6 +12,7 @@ The validation follows a fail-fast approach: if any prerequisite check fails,
 it raises PrerequisiteMissingError immediately with actionable error messages.
 """
 
+import sys
 from typing import Any, Dict, List, Tuple
 
 from .platform import detect_platform, format_platform_info
@@ -70,6 +71,12 @@ def validate_prerequisites() -> Dict[str, Any]:
         dict_keys(['platform', 'python', 'cmake', 'ninja', 'torch', 'cuda', 
                    'pybind11', 'git_submodules', 'gcc', 'nccl', 'llvm'])
     """
+    # Prominent banner - start of validation
+    print("\n" + "=" * 60)
+    print("[nvFuser] Validating build prerequisites...")
+    print("=" * 60)
+    sys.stdout.flush()
+    
     # Platform detection (informational only - doesn't fail)
     platform_info = detect_platform()
     platform_str = format_platform_info(platform_info)
@@ -118,8 +125,11 @@ def validate_prerequisites() -> Dict[str, Any]:
     llvm_ver = check_llvm_installed()
     print(f"[nvFuser] ✓ LLVM {llvm_ver} >= 18.1")
     
-    # Success summary
-    print("\n✓✓✓ All prerequisites validated ✓✓✓\n")
+    # Success summary with prominent banner
+    print("\n" + "=" * 60)
+    print("✓✓✓ All prerequisites validated ✓✓✓")
+    print("=" * 60 + "\n")
+    sys.stdout.flush()
     
     # Return collected metadata
     return {
