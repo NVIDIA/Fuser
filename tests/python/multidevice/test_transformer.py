@@ -1192,4 +1192,4 @@ def test_transformer_backward(
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s_local, e], torch.bfloat16)
 
-    # benchmark.pedantic(benchmark_fn, rounds=5)
+    benchmark.pedantic(benchmark_fn, rounds=5)
