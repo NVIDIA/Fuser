@@ -33,6 +33,48 @@ __device__ __inline__ void reduceAcrossThreads(float& per_thread_computed_max) {
   // (quantization) block.
 }
 
+// Helper function to convert input array to float and compute local maximum
+template <int ITEMS_PER_THREAD, typename T, int ALIGNMENT>
+__device__ __inline__ void convertToFloatAndComputeLocalMax(
+    const Array<T, ITEMS_PER_THREAD, ALIGNMENT>& input,
+    Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD>& vec_in,
+    float& local_max) {
+  constexpr bool is_half_or_bfloat =
+      std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
+  constexpr bool is_float = std::is_same<T, float>::value;
+  static_assert(
+      is_float || is_half_or_bfloat,
+      "Input type must be float, __half or __bfloat");
+
+  static_assert(
+      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
+          (is_half_or_bfloat &&
+           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
+            ITEMS_PER_THREAD == 2)),
+      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
+      "or __half "
+      "type");
+
+  vec_in.set(0.0f);
+
+#pragma unroll
+  for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
+    if constexpr (std::is_same<T, float>::value) {
+      vec_in[i] = input[i];
+    } else if constexpr (std::is_same<T, __bfloat>::value) {
+      vec_in[i] = __bfloat2float(input[i]);
+    } else if constexpr (std::is_same<T, __half>::value) {
+      vec_in[i] = __half2float(input[i]);
+    }
+  }
+
+  local_max = NEG_INFINITY;
+#pragma unroll
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    local_max = fmax(local_max, fabsf(vec_in[i]));
+  }
+}
+
 // A runtime function to compute quantized nvfp4 output (output) and fp8 block
 // scaling (block_scales) factors from fp32, fp16, bf16 inputs (input).
 // The function is templatized over input type T (float, __half, __bfloat).
@@ -59,44 +101,13 @@ __device__ void block_quantize_to_nvfp4(
     int64_t alloc_dim2 = -1,
     int64_t alloc_dim3 = -1,
     int64_t alloc_dim4 = -1) {
-  constexpr bool is_half_or_bfloat =
-      std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
-  constexpr bool is_float = std::is_same<T, float>::value;
-  static_assert(
-      is_float || is_half_or_bfloat,
-      "Input type must be float, __half or __bfloat");
-
-  static_assert(
-      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
-          (is_half_or_bfloat &&
-           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
-            ITEMS_PER_THREAD == 2)),
-      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
-      "or __half "
-      "type");
-
   // Number of threads involved in computing one block scaling factor
   constexpr int THREADS_PER_SCALING_FACTOR = 16 / ITEMS_PER_THREAD;
 
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
-  vec_in.set(0.0f);
-
-#pragma unroll
-  for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
-    if constexpr (std::is_same<T, float>::value) {
-      vec_in[i] = input[i];
-    } else if constexpr (std::is_same<T, __bfloat>::value) {
-      vec_in[i] = __bfloat2float(input[i]);
-    } else if constexpr (std::is_same<T, __half>::value) {
-      vec_in[i] = __half2float(input[i]);
-    }
-  }
-
-  float local_max = NEG_INFINITY;
-#pragma unroll
-  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    local_max = fmax(local_max, fabsf(vec_in[i]));
-  }
+  float local_max;
+  convertToFloatAndComputeLocalMax<ITEMS_PER_THREAD, T, ALIGNMENT_1>(
+      input, vec_in, local_max);
 
   // Compute the max accross  16/ITEMS_PER_THREAD threads
   // This assumes each thread has already computed is local max of 2, 4 (fp32)
@@ -178,6 +189,8 @@ __device__ void block_quantize_to_nvfp4(
   }
 }
 
+// Fast reciprocal of 2^biased_exp using bit manipulation
+// Returns 1.0 for biased_exp==0, otherwise returns 2^(-biased_exp)
 constexpr uint32_t FP32_MANTISSA_BITS = 23;
 __device__ __forceinline__ float exp2f_rcp(uint8_t biased_exp) {
   return (biased_exp == 0)
@@ -199,46 +212,15 @@ __device__ void block_quantize_to_mxfp8(
     Array<__e4m3, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e8m0, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
     nvfuser_index_t logical_index) {
-  constexpr bool is_half_or_bfloat =
-      std::is_same<T, __bfloat>::value || std::is_same<T, __half>::value;
-  constexpr bool is_float = std::is_same<T, float>::value;
-  static_assert(
-      is_float || is_half_or_bfloat,
-      "Input type must be float, __half or __bfloat");
-
-  static_assert(
-      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
-          (is_half_or_bfloat &&
-           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
-            ITEMS_PER_THREAD == 2)),
-      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
-      "or __half "
-      "type");
-
   // Number of threads involved in computing one block scaling factor
   constexpr int THREADS_PER_SCALING_FACTOR = 32 / ITEMS_PER_THREAD;
 
   Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
-  vec_in.set(0.0f);
+  float local_max;
+  convertToFloatAndComputeLocalMax<ITEMS_PER_THREAD, T, ALIGNMENT_1>(
+      input, vec_in, local_max);
 
-#pragma unroll
-  for (auto i = 0; i < ITEMS_PER_THREAD; i++) {
-    if constexpr (std::is_same<T, float>::value) {
-      vec_in[i] = input[i];
-    } else if constexpr (std::is_same<T, __bfloat>::value) {
-      vec_in[i] = __bfloat2float(input[i]);
-    } else if constexpr (std::is_same<T, __half>::value) {
-      vec_in[i] = __half2float(input[i]);
-    }
-  }
-
-  float local_max = NEG_INFINITY;
-#pragma unroll
-  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    local_max = fmax(local_max, fabsf(vec_in[i]));
-  }
-
-  // Compute the max accross  16/ITEMS_PER_THREAD threads
+  // Compute the max accross  32/ITEMS_PER_THREAD threads
   // This assumes each thread has already computed is local max of 2, 4 (fp32)
   // or 2,4, 8 (bf16/fp16) elements.
   constexpr int NUM_ELEMENTS = 32 / ITEMS_PER_THREAD;
