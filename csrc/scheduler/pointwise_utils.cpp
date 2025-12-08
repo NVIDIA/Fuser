@@ -298,12 +298,19 @@ BreakPointInfo getBreakPoint(
       if (cur_transfer_size_bit >= min_total_transfer_bit) {
         continue;
       }
+      // Don't break if the right side has only 1 element
+      if (cur_right_elem_count <= 1) {
+        continue;
+      }
     }
 
     // Use this break point
     result.break_point = static_cast<int>(break_point_i);
     min_total_transfer_bit = cur_transfer_size_bit;
     result.right_elem_count = cur_right_elem_count;
+    std::cout << "break_point_i: " << break_point_i
+              << ", min_total_transfer_bit: " << min_total_transfer_bit
+              << std::endl;
 
     // when lhs byte multiple is smaller than rhs byte multiple,
     // there is broadcast in the lhs, which is outer broadcast.

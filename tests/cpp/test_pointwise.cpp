@@ -2050,4 +2050,67 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
+
+// runFusionWithInputs selects transpose scheduler which achieves only 70% SOL
+// on GB200.
+TEST_F(PointwiseTest, TmaDomainBroadcastInput) {
+  int64_t dim0 = 8192 * 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 2}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 2}, options);
+  auto t1 = at::randn({dim0, 1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Only use TMA for inputs with all dimensions are contiguous.
+TEST_F(PointwiseTest, BroadcastAdd) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  // tv0: [51, 1, 2, 4, 10] - 5D tensor with broadcast at dim 1
+  auto tv0 = TensorViewBuilder()
+                 .ndims(5)
+                 .shape({51, 1, 2, 4, 10})
+                 .contiguity({true, true, true, true, true})
+                 .build();
+  fusion->addInput(tv0);
+
+  // tv1: [51, 2, 4, 10] - 4D tensor
+  auto tv1 = makeContigConcreteTensor({51, 2, 4, 10});
+  fusion->addInput(tv1);
+
+  // tv2 = broadcast(tv1, {false, true, false, false, false})
+  // Adds broadcast dimension at index 1: [51, 1, 2, 4, 10]
+  auto tv2 = broadcast(tv1, {false, true, false, false, false});
+
+  // tv3 = tv2 + tv0
+  auto tv3 = add(tv2, tv0);
+  fusion->addOutput(tv3);
+
+  // Create input tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({51, 1, 2, 4, 10}, options);
+  auto t1 = at::randn({51, 2, 4, 10}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // Validate against reference computation
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
