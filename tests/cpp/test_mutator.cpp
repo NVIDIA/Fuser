@@ -17,8 +17,6 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <functional>
-
 namespace nvfuser {
 
 // Test that OptOutMutator mutates expressions in a predictable way

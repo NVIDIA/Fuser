@@ -10,7 +10,7 @@
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <expr_evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 
@@ -239,7 +239,7 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
 
   ~SymMemForContiguousView() override = default;
 
-  // Returns the contiguous tensor with DIDx dimension removed if size 1
+  // Returns the local contiguous view on the sharded tensor
   at::Tensor tensor() const {
     return tensor_;
   }
@@ -249,7 +249,7 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
   at::Tensor tensor_;
 };
 
-// Cache for symmetric memory handles keyed by (buffer tensor, expr, root)
+// Cache for symmetric memory handles keyed by (buffer tensor, expr)
 // Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {
  public:

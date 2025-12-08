@@ -19,23 +19,25 @@ extern "C" __global__ void multimem_copy_kernel(
   char* dst_c = (char*)dst;
   const char* src_c = (const char*)src;
 
-  // Vectorized copy (16 bytes)
-  size_t n_vec = n_bytes / 16;
+  // Vectorized copy (16 bytes) if pointers are 16-byte aligned
+  bool is_aligned = ((size_t)src % 16 == 0) && ((size_t)dst % 16 == 0);
+  size_t n_vec = is_aligned ? (n_bytes / 16) : 0;
 
   for (size_t i = idx; i < n_vec; i += stride) {
     int4 val = ((const int4*)src)[i];
-    // Use st.global.v4.b32
-    // We cast address to generic memory space (flat) which works for .global
-    // Note: st.multimem was not a valid standard PTX instruction. Access to
-    // .multimem address window is performed via standard global stores.
-    asm volatile("st.global.v4.b32 [%0], {%1, %2, %3, %4};"
-                 :
-                 : "l"((void*)(dst_c + i * 16)),
-                   "r"(val.x),
-                   "r"(val.y),
-                   "r"(val.z),
-                   "r"(val.w)
-                 : "memory");
+    // Use multimem.st.global.b32
+    asm volatile(
+        "multimem.st.global.b32 [%0], %1;\n"
+        "multimem.st.global.b32 [%0+4], %2;\n"
+        "multimem.st.global.b32 [%0+8], %3;\n"
+        "multimem.st.global.b32 [%0+12], %4;"
+        :
+        : "l"((void*)(dst_c + i * 16)),
+          "r"(val.x),
+          "r"(val.y),
+          "r"(val.z),
+          "r"(val.w)
+        : "memory");
   }
 
   // Handle tail with standard stores (st.global works on multicast addresses

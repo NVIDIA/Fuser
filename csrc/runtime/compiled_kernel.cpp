@@ -744,19 +744,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
     std::optional<int64_t> opt_block_size = std::nullopt) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  executor_utils::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -887,19 +875,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
     compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
   }
 
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  executor_utils::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 

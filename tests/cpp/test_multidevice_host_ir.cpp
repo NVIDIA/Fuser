@@ -5,8 +5,6 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <cuda_profiler_api.h>
-
 #include <torch/torch.h>
 
 #include <fusion.h>
@@ -498,8 +496,6 @@ TEST_F(MultiDeviceHostIrTest, SymmetricContiguousView) {
       output_tensor.data_ptr(),
       output_tensor.numel() * output_tensor.element_size(),
       cudaMemcpyDeviceToDevice));
-  // at::Tensor cpu_output_tensor = output_tensor.to(at::kCPU);
-  // auto cpu_options = at::TensorOptions().device(at::kCPU).dtype(at::kFloat);
 
   at::Tensor ref_output = at::empty(unsharded_sizes, options);
   for (int64_t rank = 0; rank < communicator_size; ++rank) {

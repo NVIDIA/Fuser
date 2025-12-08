@@ -847,6 +847,7 @@ NVF_API BlockQuantizationResults blockQuantize(
     TensorView* input,
     TensorView* global_scaling_factor = nullptr,
     int64_t block_size = 16,
+    bool swizzle_scales = false,
     DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser

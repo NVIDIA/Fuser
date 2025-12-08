@@ -713,8 +713,10 @@ TEST_F(NVFuserTest, Translate1Welford) {
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 2);
 
-  // Run an un-translated welford
-  auto runtime2 = run_test(65536);
+  // Run an un-translated welford, use a large inner size to ensure it is not
+  // translated. Cluster reduction uses 16 SMs, can hold up to 32K * 16 = 512K
+  // elements.
+  auto runtime2 = run_test(512 * 1024 + 1024);
 
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {
@@ -766,8 +768,10 @@ TEST_F(NVFuserTest, Translate2Welford) {
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 4);
 
-  // Run an un-translated welford
-  auto runtime2 = run_test(65536);
+  // Run an un-translated welford, use a large inner size to ensure it is not
+  // translated. Cluster reduction uses 16 SMs, can hold up to 32K * 16 = 512K
+  // elements.
+  auto runtime2 = run_test(512 * 1024 + 1024);
   // // Check it was not translated
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {

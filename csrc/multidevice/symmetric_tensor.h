@@ -49,7 +49,7 @@ class SymmetricTensor {
   }
 
   // Setup remote access (lazy, init-once)
-  void setupRemoteHandles(const std::string& tag = "") const;
+  void setupRemoteHandles(const std::string& tag = "");
   at::Tensor remoteTensor(int64_t rank) const;
 
   // Setup multicast (CUDA 13.0+, init-once)
@@ -62,8 +62,8 @@ class SymmetricTensor {
 
  private:
   at::Tensor local_tensor_;
-  mutable std::vector<CUmemGenericAllocationHandle> alloc_handles_;
-  mutable std::vector<CUdeviceptr> remote_ptrs_;
+  std::vector<CUmemGenericAllocationHandle> alloc_handles_;
+  std::vector<CUdeviceptr> remote_ptrs_;
   int64_t world_size_;
   int64_t my_device_id_;
   size_t granularity_;
@@ -75,10 +75,9 @@ class SymmetricTensor {
   CUdevice cu_dev_{};
   void* mc_ptr_{nullptr};
   int exporter_rank_{-1};
-  int pid_fd_{-1};
   int peer_fd_{-1};
-  mutable bool is_contiguous_view_setup_ = false;
-  mutable at::Tensor contiguous_view_;
+  bool is_contiguous_view_setup_ = false;
+  at::Tensor contiguous_view_;
 };
 
 } // namespace nvfuser

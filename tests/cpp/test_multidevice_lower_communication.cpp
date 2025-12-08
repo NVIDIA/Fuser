@@ -7,6 +7,8 @@
 // clang-format on
 
 #include <cuda_profiler_api.h>
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 #include <chrono>
@@ -17,8 +19,8 @@
 
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
@@ -814,6 +816,16 @@ class LowerCollectiveCudaTest
       public testing::WithParamInterface<
           std::tuple<int64_t, CommunicationProtocol>> {
  protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+
   // Run complete benchmark: warmup, timing, reduce results, and return output
   at::Tensor runBenchmark(
       MultiDeviceExecutor& executor,
@@ -909,6 +921,14 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
 
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
   if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
     // cudaMemcpyBatchAsync requires a non-default stream
     c10::cuda::CUDAStream stream =
@@ -964,6 +984,14 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
 
   // cudaMemcpyBatchAsync requires a non-default stream
   c10::cuda::CUDAStream stream =
