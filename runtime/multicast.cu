@@ -19,8 +19,9 @@ extern "C" __global__ void multimem_copy_kernel(
   char* dst_c = (char*)dst;
   const char* src_c = (const char*)src;
 
-  // Vectorized copy (16 bytes)
-  size_t n_vec = n_bytes / 16;
+  // Vectorized copy (16 bytes) if pointers are 16-byte aligned
+  bool is_aligned = ((size_t)src % 16 == 0) && ((size_t)dst % 16 == 0);
+  size_t n_vec = is_aligned ? (n_bytes / 16) : 0;
 
   for (size_t i = idx; i < n_vec; i += stride) {
     int4 val = ((const int4*)src)[i];
