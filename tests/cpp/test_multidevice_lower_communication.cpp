@@ -925,7 +925,9 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
-  if (!isMulticastSupported()) {
+  if (!isMulticastSupported() &&
+      (protocol_enum == CommunicationProtocol::Memcpy ||
+       protocol_enum == CommunicationProtocol::Multimem)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
@@ -989,7 +991,9 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
-  if (!isMulticastSupported()) {
+  if (!isMulticastSupported() &&
+      (protocol_enum == CommunicationProtocol::Memcpy ||
+       protocol_enum == CommunicationProtocol::Multimem)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
   }
 
