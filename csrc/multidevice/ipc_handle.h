@@ -221,6 +221,26 @@ class SymMemForAllgather : public SymmetricMemoryHandle {
   std::vector<std::unique_ptr<SymMemForBroadcast>> broadcast_handles_;
 };
 
+// SymmetricMemoryHandle for SymmetricContiguousView
+// Creates a contiguous view across all ranks from a sharded symmetric tensor
+class SymMemForContiguousView : public SymmetricMemoryHandle {
+ public:
+  SymMemForContiguousView(
+      at::Tensor buffer,
+      hir::SymmetricContiguousView* expr);
+
+  ~SymMemForContiguousView() override = default;
+
+  // Returns the local contiguous view on the sharded tensor
+  at::Tensor tensor() const {
+    return tensor_;
+  }
+
+ private:
+  std::unique_ptr<SymmetricTensor> sym_tensor_;
+  at::Tensor tensor_;
+};
+
 // Cache for symmetric memory handles keyed by (buffer tensor, expr)
 // Avoids recreating expensive VMM mappings and multicast handles
 class SymmetricMemoryHandleCache {
