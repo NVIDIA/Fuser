@@ -338,8 +338,10 @@ bool mayHaveTmaCompatibleInputs(
     if (!tv->isFusionInput()) {
       continue;
     }
-    auto dtype_bits =
-        dataTypeSizeBit(tv->getDataType().value(), prop.index_type);
+    // If the minimum dtype size is suitable, then all other dtypes are
+    // suitable.
+    auto dtype_bits = prop.min_dtype_size_bit_for_vectorization;
+
     // Note: The actual element count should consider the breakpoint and be
     // computed individually for each input. Here, the largest output is used
     // as a conservative estimate. If the largest output fails these checks,
