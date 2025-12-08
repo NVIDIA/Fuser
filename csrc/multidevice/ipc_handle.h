@@ -231,7 +231,7 @@ class SymMemForContiguousView : public SymmetricMemoryHandle {
 
   ~SymMemForContiguousView() override = default;
 
-  // Returns the contiguous tensor with DIDx dimension removed if size 1
+  // Returns the local contiguous view on the sharded tensor
   at::Tensor tensor() const {
     return tensor_;
   }
