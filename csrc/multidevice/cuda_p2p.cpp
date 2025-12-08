@@ -288,6 +288,7 @@ void postBroadcastWithCudaBackend(
       }
       NVF_CHECK(
           stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+#if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
           srcs.data(),
@@ -297,6 +298,19 @@ void postBroadcastWithCudaBackend(
           attrsIdxs.data(),
           numAttrs,
           (cudaStream_t)stream));
+#else
+      size_t failIdx = 0;
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+          dsts.data(),
+          srcs.data(),
+          counts.data(),
+          world_size,
+          attributes.data(),
+          attrsIdxs.data(),
+          numAttrs,
+          &failIdx,
+          (cudaStream_t)stream));
+#endif
     } else {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
           multicast_handle->bufferMulticastPtr(),
@@ -425,6 +439,7 @@ void postAllgatherWithCudaBackend(
     }
     NVF_CHECK(
         stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+#if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
         srcs.data(),
@@ -434,6 +449,19 @@ void postAllgatherWithCudaBackend(
         attrsIdxs.data(),
         numAttrs,
         (cudaStream_t)stream));
+#else
+    size_t failIdx = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+        dsts.data(),
+        srcs.data(),
+        counts.data(),
+        world_size,
+        attributes.data(),
+        attrsIdxs.data(),
+        numAttrs,
+        &failIdx,
+        (cudaStream_t)stream));
+#endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
         allgather_handle->bufferMulticastPtr(my_device_index),
