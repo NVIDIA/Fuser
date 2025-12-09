@@ -270,7 +270,8 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
   // Test various cluster configurations from 1 to 17
   for (int64_t cluster_n : arange(1, 18)) {
     MatmulParams::ClusterDims cluster_dims{1, cluster_n};
-    int64_t max_active = matmul_utils::getMaxActiveClusters(cluster_dims);
+    int64_t max_active =
+        scheduler_utils::getMaxActiveClusters(cluster_dims.m * cluster_dims.n);
     // Our regular CI only covers 8.0, 9.0, 10.0, etc.
     // For other minor versions, max allowed cluster size is not tested.
     if (sm_minor == 0) {
@@ -280,6 +281,19 @@ TEST_F(NVFuserTest, GetMaxActiveClusters) {
         EXPECT_GT(max_active, 0);
       }
     }
+  }
+}
+
+// Test the getMaxClusterSize utility function
+TEST_F(NVFuserTest, GetMaxClusterSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const int sm_minor = at::cuda::getCurrentDeviceProperties()->minor;
+  int64_t max_cluster_size = scheduler_utils::getMaxClusterSize();
+  // Hopper (9.0) and later devices support clusters
+  // Our regular CI only covers 9.0, 10.0, etc.
+  // For other minor versions, max allowed cluster size is not tested.
+  if (sm_minor == 0) {
+    EXPECT_EQ(max_cluster_size, 16);
   }
 }
 

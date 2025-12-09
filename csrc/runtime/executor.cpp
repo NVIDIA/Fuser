@@ -1275,6 +1275,13 @@ KernelArgumentHolder KernelExecutor::run(
         launch_attributes.push_back(attribute);
       }
 
+      if (kernel_summary.enable_programmatic_dependent_launch) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
+        attribute.value.programmaticStreamSerializationAllowed = 1;
+        launch_attributes.push_back(attribute);
+      }
+
       if (launch_attributes.size() > 0) {
         config.attrs = launch_attributes.data();
         config.numAttrs = (unsigned int)launch_attributes.size();
