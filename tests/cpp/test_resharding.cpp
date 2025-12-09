@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <algorithm>
-#include <iostream>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -17,6 +16,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/device_mesh.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/decompose_reshardings.h>
@@ -131,6 +131,7 @@ TEST_F(ReshardingTest, Set_SameMesh_SameParallelType) {
   in->setDeviceMesh({0, 1, 2});
   in->axis(0)->parallelize(ParallelType::DIDx);
   TensorView* out = set(in);
+  out->axis(0)->parallelize(ParallelType::DIDx);
 
   EXPECT_FALSE(isResharding(out->definition()));
 }
@@ -484,8 +485,7 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   c = outputs[0]->as<TensorView>();
@@ -513,8 +513,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   a->axis(0)->parallelize(ParallelType::DIDx);
   b->axis(1)->parallelize(ParallelType::DIDx);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   std::vector<Val*> outputs = fusion.outputs();
 
   b = outputs[0]->as<TensorView>();
@@ -543,8 +542,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   b->axis(1)->parallelize(ParallelType::DIDx);
   c->axis(1)->parallelize(ParallelType::DIDx);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(&fusion);
   int num_inner_reshardings = 0;
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr) && !isCommunicationLayoutCompliant(expr)) {
@@ -553,8 +551,7 @@ TEST_F(ReshardingTest, InsertShardedAxisReordering) {
   }
   EXPECT_GT(num_inner_reshardings, 0);
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
+  OptimizationPass<preseg_passes::ReorderShardedAxisPass>::runPass(&fusion);
   for (auto expr : fusion.exprs()) {
     if (isResharding(expr)) {
       EXPECT_TRUE(isCommunicationLayoutCompliant(expr));

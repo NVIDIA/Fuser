@@ -12,6 +12,7 @@ from nvfuser_direct.benchmark_utils import FusionProfileTimer, CuptiTimer
 import warnings
 import thunder
 from thunder.executors.nvfuserex import nvfuserex
+import importlib.util
 
 # These variables can be overwritten through CLI commands
 # --benchmark-rounds=rounds --benchmark-warmup-rounds=warmup_rounds
@@ -27,6 +28,12 @@ L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
 PEAK_BANDWIDTH_GBPS = DEVICE_PROPERTIES["gpu_peak_bandwidth_gbps"]
 
 DEFAULT_EXECUTORS = ["eager", "torchcompile", "thunder"]
+
+
+def check_module_available(module_name):
+    # If spec is not None, the module can be imported.
+    spec = importlib.util.find_spec(module_name)
+    return spec is not None
 
 
 def clear_l2_cache() -> None:
@@ -288,19 +295,20 @@ def run_benchmark(
         with FusionDefinition() as fd:
             fusion_fn(fd)
 
-        if host_bench_mode in ["compile", "steady"]:
+        if host_bench_mode in ["compile"]:
+            return [inputs], {"fd": fd}
+
+        if host_bench_mode in ["steady"]:
+            # Run once to compile FusionExecutorCache and avoid measuring first time overhead.
+            fd.execute(inputs)
             return [inputs], {"fd": fd}
 
         # For dynamic host latency benchmarking, return a particular input shape, and reset FusionCache if all inputs have been executed.
         global counter
         counter += 1
-        if counter % len(inputs) == 0:
-            # All inputs have been executed once.
-            with FusionDefinition() as fd:
-                fusion_fn(fd)
-            # Execute fd with the first inputs to avoid measuring first time overhead.
-            fd.execute(inputs[0])
-            counter += 1
+        # The current input is counter % len(inputs). Execute fd with next input
+        # to avoid measuring first time overhead but avoid cache hit with current input.
+        fd.execute(inputs[(counter + 1) % len(inputs)])
         return [inputs[counter % len(inputs)]], {"fd": fd}
 
     # Create an instance of NVFBenchmark

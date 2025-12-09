@@ -34,7 +34,12 @@ void checkMappedVal(
 
 } // namespace
 
-using VectorizationAnalysisTest = NVFuserTest;
+class VectorizationAnalysisTest : public NVFuserTest {
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 // Simple pad test
 TEST_F(
@@ -690,7 +695,9 @@ class VectorizationCastTest
       public ::testing::WithParamInterface<VectorizationCastParams> {
  public:
   void SetUp() override {
+    NVFuserTest::SetUp();
     std::tie(dtype_from, dtype_to, vectorization_factor) = GetParam();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 
  protected:
@@ -844,8 +851,10 @@ using Vect256TestParams = std::tuple<DataType, CacheOp>;
 class Vect256Test : public NVFuserFixtureParamTest<Vect256TestParams> {
  public:
   void SetUp() override {
+    NVFuserFixtureParamTest<Vect256TestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
     std::tie(dtype, cache_op) = GetParam();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 
  protected:

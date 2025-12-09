@@ -12,9 +12,9 @@
 #include <multidevice/device_mesh.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <optimization_pass.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -47,7 +47,7 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor>;
 
-using MetaSdpaOut = std::tuple<at::Tensor, at::Tensor>;
+using MetaSdpaOut = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>;
 
 auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  AtenSdpaOut aten_out,
@@ -69,11 +69,16 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
   NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
   NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
 
-  auto [attn_meta, log_sumexp_meta] = aten_out_meta;
+  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] =
+      aten_out_meta;
   EXPECT_EQ(attn.sizes(), attn_meta.sizes());
   EXPECT_EQ(log_sumexp.sizes(), log_sumexp_meta.sizes());
   EXPECT_EQ(attn.strides(), attn_meta.strides());
   EXPECT_EQ(log_sumexp.strides(), log_sumexp_meta.strides());
+  EXPECT_EQ(philox_seed.sizes(), philox_seed_meta.sizes());
+  EXPECT_EQ(philox_offset.sizes(), philox_offset_meta.sizes());
+  EXPECT_EQ(philox_seed.strides(), philox_seed_meta.strides());
+  EXPECT_EQ(philox_offset.strides(), philox_offset_meta.strides());
 };
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
@@ -277,6 +282,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   MetaSdpaOut aten_out_meta = {
       ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
       ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -333,6 +340,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   MetaSdpaOut aten_out_meta = {
       ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
       ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -388,6 +397,8 @@ TEST_F(SDPATest, CausalAttn) {
   MetaSdpaOut aten_out_meta = {
       ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
       ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -935,6 +946,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       ee.evaluate(executor_cache.fusion()->outputs().at(1))
           .as<at::Tensor>()
           .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
@@ -1104,8 +1117,8 @@ TEST_F(SDPATest, ComputeAt) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   checkSdpaFwdMapping(fusion.get(), output.output->definition());
 
@@ -1142,6 +1155,8 @@ TEST_F(SDPATest, ComputeAt) {
       ee.evaluate(executor_cache.fusion()->outputs().at(1))
           .as<at::Tensor>()
           .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }

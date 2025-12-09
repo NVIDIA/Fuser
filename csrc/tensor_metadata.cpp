@@ -18,7 +18,6 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
-#include <iterator>
 #include <ranges>
 
 namespace nvfuser {
@@ -222,10 +221,11 @@ class BackwardTraverseFromLogicalToAlloc {
 };
 
 void validateAllocationSizesAndStrides(
-    const std::vector<IterDomain*>& alloc_dom,
-    const std::vector<std::optional<bool>>& contiguity,
+    TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
+  const std::vector<IterDomain*>& alloc_dom = tv->getMaybeAllocationDomain();
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
   NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
       {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
@@ -269,7 +269,9 @@ void validateAllocationSizesAndStrides(
       NVF_CHECK_EQ(
           stride,
           expected_stride_if_contiguous,
-          "Stride mismatch with contiguity info. ",
+          "TensorView ",
+          tv->toString(),
+          "'s stride mismatch with contiguity info. ",
           " allocation domain: ",
           ir_utils::toString(alloc_dom),
           ": sizes: ",
@@ -288,7 +290,7 @@ void validateAllocationSizesAndStrides(
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
+inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
@@ -315,18 +317,56 @@ inferAndValidateAllocationSizesAndStrides(
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
   for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
+    auto it = active_ids.find(id);
+    NVF_ERROR(
+        it != active_ids.end(),
+        "Allocation domain of tensor ",
+        tv->toString(),
+        " is not complete. Missing ID: ",
+        id->toString());
+    auto [size, stride] = it->second;
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
+      allocation_sizes.push_back(size);
     }
-    allocation_strides.push_back(active_ids.at(id).second);
+    allocation_strides.push_back(stride);
+  }
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee) {
+  auto [allocation_sizes, allocation_strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ee);
+
+  bool skip_validation = false;
+
+  // Skip validation for block scales of BlockQuantizationOp with
+  // swizzled scales.
+  if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<BlockQuantizationOp>();
+    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
   }
 
-  // Only validate final sizes and strides when we have a non-empty tensor.
-  if (tensor.numel() != 0) {
-    validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+  // Skip validation for scale input to ScaledMmaOp as it will be swizzled.
+  if (tv->uses().size() == 1 && tv->uses().at(0)->isA<ScaledMmaOp>()) {
+    auto scaled_mma = tv->uses().at(0)->as<ScaledMmaOp>();
+    // Only skip validation for scale inputs, not data inputs
+    if (tv == scaled_mma->scale1() || tv == scaled_mma->scale2()) {
+      skip_validation = true;
+    }
+  }
+
+  // Only validate final sizes and strides when we have a non-empty tensor
+  // or the tensor is a scale input to the scaledMmaOp
+  if (tensor.numel() != 0 && !skip_validation) {
+    validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }

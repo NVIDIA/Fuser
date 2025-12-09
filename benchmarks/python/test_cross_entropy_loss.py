@@ -5,13 +5,22 @@ import pytest
 
 import torch
 from nvfuser_direct import FusionDefinition, DataType
-from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
+from .core import (
+    run_benchmark,
+    with_executor,
+    unary_bwd_torch,
+    clear_dynamo_cache,
+    check_module_available,
+)
 from .cross_entropy_loss import (
     cross_entropy_loss_setup,
     SyntheticMiniModel,
 )
 from .torch_ops import cross_entropy as torch_cross_entropy_fwd
-from quack.cross_entropy import cross_entropy_fwd as quack_cross_entropy_fwd
+
+
+if check_module_available("quack"):
+    from quack.cross_entropy import cross_entropy_fwd as quack_cross_entropy_fwd
 
 
 @pytest.mark.parametrize(
@@ -216,7 +225,19 @@ def quack_cross_entropy_fwd_wrapper(inputs: list):
 # using nvFuser, the performance using nvFuser should be measured using
 # test_function_cross_entropy_fwd_nvf_benchmark
 @pytest.mark.parametrize(
-    "executor", ["eager", "torchcompile", "thunder-torchcompile", "quack"]
+    "executor",
+    [
+        "eager",
+        "torchcompile",
+        "thunder-torchcompile",
+        pytest.param(
+            "quack",
+            marks=pytest.mark.skipif(
+                not check_module_available("quack"),
+                reason="quack executor is not available on this device",
+            ),
+        ),
+    ],
 )
 @pytest.mark.parametrize("vocab_size", SyntheticMiniModel.sizes_from_models)
 def test_function_cross_entropy_fwd_benchmark(

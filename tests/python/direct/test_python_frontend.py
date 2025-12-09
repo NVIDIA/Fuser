@@ -25,7 +25,8 @@ from python.direct_utils import (
 
 from python.direct_utils.narrow_precision import (
     pytorch_nvfp4_quantize,
-    unpack_fp4_bytes,
+    fp4_to_fp32,
+    unpack_fp4,
 )
 
 
@@ -321,6 +322,52 @@ def test_broadcast_mixing(nvfuser_direct_test):
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
     eager_out = refs.add(inputs[0], prims.broadcast_in_dim(inputs[1], [3, 3], [0]))
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
+
+
+def test_dynamic_bcast_in_dim(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition) -> None:
+        tv0 = fd.define_tensor(
+            shape=[1, -1], contiguity=[None, True], dtype=DataType.Float, is_cpu=False
+        )
+        c4 = fd.define_scalar(None, dtype=DataType.Int)
+        c5 = fd.define_scalar(None, dtype=DataType.Int)
+        tv1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
+        )
+        tv3 = fd.ops.broadcast_in_dim(tv0, (c4, c5), (0, 1))
+        tv4 = fd.ops.add(tv3, tv1)
+        fd.add_output(tv4)
+
+    t0 = torch.randn([1, 10], dtype=torch.float32, device="cuda:0")
+    c4 = 5
+    c5 = 10
+    t1 = torch.randn([5, 10], dtype=torch.float32, device="cuda:0")
+    inputs = [t0, c4, c5, t1]
+    out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, validate_results=True
+    )
+
+
+def test_dynamic_full(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition) -> None:
+        c4 = fd.define_scalar(None, dtype=DataType.Int)
+        c5 = fd.define_scalar(None, dtype=DataType.Int)
+        c6 = fd.define_scalar(None, dtype=DataType.Float)
+        tv1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
+        )
+        tv3 = fd.ops.full((c4, c5), c6, DataType.Float)
+        tv4 = fd.ops.add(tv3, tv1)
+        fd.add_output(tv4)
+
+    c4 = 5
+    c5 = 10
+    c6 = 2.5
+    t1 = torch.randn([5, 10], dtype=torch.float32, device="cuda:0")
+    inputs = [c4, c5, c6, t1]
+    out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, validate_results=True
+    )
 
 
 def test_tensor_ndim(nvfuser_direct_test):
@@ -2651,5 +2698,43 @@ def test_packed_fp4(nvfuser_direct_test):
         fd.add_output(T2)
 
     out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    ref = unpack_fp4_bytes(t0_fp4, torch.float32).relu()
+    ref = fp4_to_fp32(unpack_fp4(t0_fp4.view(torch.uint8))).relu()
     nvfuser_direct_test.assertEqual(out[0], ref)
+
+
+def test_broadcast_in_dim_no_redundant_set(nvfuser_direct_test):
+    """
+    Test that broadcast_in_dim doesn't introduce redundant Set operations
+    when all input dimensions are in broadcast_dims (i.e., no actual broadcast).
+
+    This verifies the fix for the issue where broadcast_in_dim would create
+    a redundant float-to-float cast operation via Set when the input already
+    had the correct shape.
+    """
+
+    def fusion_with_broadcast_in_dim(fd: FusionDefinition):
+        t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
+        t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+        # broadcast_in_dim with broadcast_dims=[0, 1] means no new dims are added
+        t2 = fd.ops.broadcast_in_dim(t0, t1.shape(), [0, 1])
+        t3 = fd.ops.add(t2, t1)
+        fd.add_output(t3)
+
+    def fusion_with_expand(fd: FusionDefinition):
+        t0 = fd.define_tensor(shape=[1, -1], contiguity=[None, True])
+        t1 = fd.define_tensor(shape=[-1, -1], contiguity=[True, True])
+        # Direct expand without broadcast_in_dim
+        t2 = fd.ops.expand(t0, t1.shape())
+        t3 = fd.ops.add(t2, t1)
+        fd.add_output(t3)
+
+    with FusionDefinition() as fd_bid:
+        fusion_with_broadcast_in_dim(fd_bid)
+
+    with FusionDefinition() as fd_exp:
+        fusion_with_expand(fd_exp)
+
+    # Check that the broadcast_in_dim fusion doesn't have a redundant Set operation
+    # by comparing the IR string representations - they should be identical since
+    # broadcast is a no-op in this case
+    assert str(fd_bid) == str(fd_exp)

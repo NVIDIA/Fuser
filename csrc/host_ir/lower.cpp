@@ -96,10 +96,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   // Note: passes run before PreSegmenter optimization passes.
   // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
   // since they are incompatible with MultiDeviceExecutor.
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+      fusion.get());
+  OptimizationPass<preseg_passes::FinalizeMultideviceDomainsPass>::runPass(
+      fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
@@ -165,10 +165,12 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   for (auto tv : hic->allTvs()) {
-    // set all host tensors to global memory type. This must be the case by
-    // definition of a host tensor, and setting the memory type to global is
-    // also required to avoid Allocate HIR nodes to throw
-    tv->setMemoryType(MemoryType::Global);
+    // set all host tensors to global or symmetric memory type. This must be the
+    // case by definition of a host tensor, and setting the memory type to
+    // global is also required to avoid Allocate HIR nodes to throw
+    if (tv->getMemoryType() != MemoryType::Symmetric) {
+      tv->setMemoryType(MemoryType::Global);
+    }
   }
 
   hir_pass::StreamParallelType(params_).runPass(hic.get());

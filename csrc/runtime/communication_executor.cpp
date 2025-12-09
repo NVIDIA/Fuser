@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <host_ir/lower_to_communication.h>
 #include <instrumentation.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <tensor_metadata.h>
 
@@ -84,7 +85,7 @@ KernelArgumentHolder CommunicationExecutor::run(
         group_id_);
     SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
     sprof.inputBytesAccessed(computeBytes(args));
-    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.scheduler(toString(SchedulerType::Communication));
     sprof.startKernel();
   }
   NVF_ERROR(host_ir_container_, "Need to compile before you can run.");

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
@@ -59,6 +60,18 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
 // have logical domains and instead places new broadcast domains in the output
 // root domain.
 void ConcretizedBroadcastDomains::handle(TensorView* tv) {
+  // TensorViews created via schedule operation only exist in Fusion IR, so its
+  // logical domain is composed of broadcast iterDomains. These iterDomains are
+  // registered as new broadcast origins.
+  if (ir_utils::isScheduleOp(tv)) {
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isBroadcast()) {
+        broadcast_origin_map_.emplace(
+            id, std::unordered_set<IterDomain*>({id}));
+      }
+    }
+    return;
+  }
   if (!tv->hasRoot()) {
     return;
   }

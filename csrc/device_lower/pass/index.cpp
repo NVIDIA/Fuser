@@ -457,7 +457,7 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(
-      out_scales, out_quantized, in, idx));
+      out_scales, out_quantized, in, idx, bqop->globalScale()));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 
@@ -2810,6 +2810,16 @@ void IndexLowering::handle(const kir::BlockSerializeWait* sync) {
 void IndexLowering::handle(const kir::BlockSerializeRelease* sync) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::BlockSerializeRelease*>(sync)); // NOLINT
+}
+
+void IndexLowering::handle(const LaunchDependentGridOp* launch) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<LaunchDependentGridOp*>(launch)); // NOLINT
+}
+
+void IndexLowering::handle(const WaitForPriorGridOp* wait) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<WaitForPriorGridOp*>(wait)); // NOLINT
 }
 
 void IndexLowering::generate(const std::vector<Expr*>& exprs) {

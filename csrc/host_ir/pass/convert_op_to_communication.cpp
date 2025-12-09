@@ -19,6 +19,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser::hir_pass {
@@ -42,7 +43,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(my_device_index)) {
           auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           new_top_level_exprs.push_back(allocate);
         }
       }

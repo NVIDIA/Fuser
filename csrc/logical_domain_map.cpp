@@ -140,8 +140,15 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     // We don't map the inner-most dimension of the block scaling factors
     // as it's extent is reduced by a factor of the block size
     // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+    // Make sure the producer isn't the global scale.
     if (consumer_tv ==
-        consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales()) {
+            consumer_tv->definition()
+                ->as<BlockQuantizationOp>()
+                ->blockScales() &&
+        producer_tv !=
+            consumer_tv->definition()
+                ->as<BlockQuantizationOp>()
+                ->globalScale()) {
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       auto last_logical_dim = producer_logical.size() - 1;
@@ -239,7 +246,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (auto* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
-    int64_t input_position = producer_tv_->sameAs(op->inA()) ? 0 : 1;
+    int64_t input_position = producer_tv_ == op->inA() ? 0 : 1;
     auto out_size = consumer_root.size();
 
     // For MatmulOp, the input iterdomains at a given index do not necessarily
@@ -354,35 +361,44 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   }
 
   if (auto* op = dynamic_cast<SdpaFwdOp*>(consumer_tv_->definition())) {
-    // Note: Explicit handling of DIDx(D) until
-    // https://github.com/NVIDIA/Fuser/issues/2563 is resolved. Producers:
-    //   query = [DIDx(D)?, N, H, L, E]
-    //   key = [DIDx(D)?, N, H, S, E]
-    //   value = [DIDx(D)?, N, H, S, Ev]
+    // Producers:
+    //   query = [N*, L, E]
+    //   key = [N*, S, E]
+    //   value = [N*, S, Ev]
+    //
     // Consumers:
-    //   output = [DIDx(D)?, N, H, L, Ev]
-    //   logsumexp = [DIDx(D)?, N, H, L]
-    // Note: S, E are not mapped together in the producers and do not have any
+    //   output = [N*, L, Ev]
+    //   logsumexp = [N*, L]
+    //   philox_seed = []
+    //   philox_offset = []
+    //
+    // N* are the dimensions that are treated batch, e.g., the actual batch
+    // dimension, the DIDx dimension for DID logical split, the head dimension
+    // and/or the extra sequence dimension in [Triangle
+    // Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
+    //
+    // S, E are not mapped together in the producers and do not have any
     // mapping to the consumer.
-    if (consumer_tv_->sameAs(op->philox_seed())) {
+    if (consumer_tv_ == op->philox_seed() ||
+        consumer_tv_ == op->philox_offset()) {
       return dom_map;
     }
-    size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
-    // Map N, H from any input (query/key/value)
-    for (auto idx : arange(consumer_root.size())) {
-      if (idx < (2 + num_device_dim)) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+
+    const auto num_batch_dims =
+        std::ssize(op->attn_out()->getLogicalDomain()) - 2;
+    for (auto [i, id_pair] : enumerate(zip(producer_logical, consumer_root))) {
+      auto index = static_cast<int64_t>(i);
+      auto [producer_id, consumer_id] = id_pair;
+      if (index < num_batch_dims) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map L, E from query and value respectively
-      if (idx == (2 + num_device_dim) && producer_tv_->sameAs(op->query())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims && producer_tv_ == op->query()) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
       // Map Ev from value to output
-      if (idx == (3 + num_device_dim) && producer_tv_->sameAs(op->value())) {
-        updatePairwiseLogicalDomainMap(
-            producer_logical.at(idx), consumer_root.at(idx));
+      if (index == num_batch_dims + 1 && producer_tv_ == op->value()) {
+        updatePairwiseLogicalDomainMap(producer_id, consumer_id);
       }
     }
     return dom_map;
@@ -401,19 +417,19 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   grad_key = [DID(D)? N, H, S, E]
     //   grad_value = [DID(D)? N, H, S, Ev]
 
-    if (producer_tv_->sameAs(op->philox_seed())) {
+    if (producer_tv_ == op->philox_seed()) {
       return dom_map;
     }
 
     bool producer_has_s =
-        producer_tv_->sameAs(op->key()) || producer_tv_->sameAs(op->value());
-    bool consumer_has_s = consumer_tv_->sameAs(op->grad_key()) ||
-        consumer_tv_->sameAs(op->grad_value());
+        producer_tv_ == op->key() || producer_tv_ == op->value();
+    bool consumer_has_s =
+        consumer_tv_ == op->grad_key() || consumer_tv_ == op->grad_value();
 
     bool producer_has_e =
-        producer_tv_->sameAs(op->query()) || producer_tv_->sameAs(op->key());
-    bool consumer_has_e = consumer_tv_->sameAs(op->grad_query()) ||
-        consumer_tv_->sameAs(op->grad_key());
+        producer_tv_ == op->query() || producer_tv_ == op->key();
+    bool consumer_has_e =
+        consumer_tv_ == op->grad_query() || consumer_tv_ == op->grad_key();
 
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
@@ -439,13 +455,13 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Consumers:
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
-    if (producer_tv_->sameAs(op->in())) {
+    if (producer_tv_ == op->in()) {
       for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
     }
-    if (producer_tv_->sameAs(op->weight())) {
+    if (producer_tv_ == op->weight()) {
       updatePairwiseLogicalDomainMap(
           producer_logical.back(), consumer_root.back());
     }

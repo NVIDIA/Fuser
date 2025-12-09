@@ -1023,11 +1023,7 @@ TensorView* broadcast(
       nBCastDims - n_broadcasts);
 
   if (n_broadcasts == 0) {
-    auto identity = set(inp);
-    NVF_ERROR(
-        identity->getValType().value() == ValType::TensorView,
-        "Expected identity op, but didn't get a TensorView back.");
-    return identity->as<TensorView>();
+    return inp;
   }
 
   std::vector<IterDomain*> out_domain;
@@ -1125,7 +1121,9 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
       // the extent to the given expanded size.
       // Note that expansion to 1 just means its extent becomes 1 and
       // does not mean the ID becomes a broadcast.
-      out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      out_id_builder.extent(expanded_extent);
+      maybe_expanded_sizes[i] = expanded_extent;
     } else {
       // Input id is non-expand and its extent is concrete. Nothing
       // to expand, but the input and expanded sizes should match if

@@ -16,7 +16,6 @@
 #include <iter_visitor.h>
 #include <scheduler/utils.h>
 
-#include <functional>
 #include <sstream>
 #include <string>
 #include <utility>
