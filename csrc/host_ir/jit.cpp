@@ -932,13 +932,12 @@ void compileFunctionDeclarations(
       module);
 
   // launch_kernel_direct function: void launch_kernel_direct(
-  //   void** kernel_args, int64_t num_args, void* cuda_function_ptr,
+  //   void** kernel_args, void* cuda_function_ptr,
   //   int64_t gdimx, int64_t gdimy, int64_t gdimz,
   //   int64_t bdimx, int64_t bdimy, int64_t bdimz, int64_t smem)
   auto* launch_kernel_direct_type = llvm::FunctionType::get(
       void_type,
       {void_array_ptr_type,  // void** kernel_args
-       int64_type,           // num_args
        void_ptr_type,        // cuda_function_ptr
        int64_type,           // gdimx
        int64_type,           // gdimy
@@ -1191,7 +1190,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
     }
 
     // Create kernel_args array (void**)
-    size_t num_args = packed_buffers.size();
     auto* args_array_type =
         llvm::ArrayType::get(void_ptr_type, packed_buffers.size());
     llvm::Value* args_array =
@@ -1228,11 +1226,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
         void_ptr_type);
 
     // Call launch_kernel_direct with all parameters
-    llvm::Value* num_args_val = builder_.getInt64(num_args);
     builder_.CreateCall(
         module->getFunction(kLaunchKernelDirectFuncName),
         {args_array_ptr,
-         num_args_val,
          function_ptr,
          gdimx,
          gdimy,
@@ -1483,14 +1479,13 @@ void HostIrJitImpl::registerExternalFunctions() {
   // All argument packing is done in LLVM IR before calling this
   void* launch_kernel_direct_func_ptr = reinterpret_cast<void*>(
       +[](void** kernel_args,
-          int64_t num_args,
           void* cuda_function_ptr,
           int64_t gdimx, int64_t gdimy, int64_t gdimz,
           int64_t bdimx, int64_t bdimy, int64_t bdimz,
           int64_t smem) {
     FUSER_PERF_SCOPE("launch_kernel_direct");
 
-    CUlaunchConfig config;
+    CUlaunchConfig config = {};
     auto stream = at::cuda::getCurrentCUDAStream();
 
     config.gridDimX = gdimx;
