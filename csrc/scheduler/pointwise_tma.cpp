@@ -238,29 +238,20 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // 2. Ensure each thread handles at least one element (tma_tile_inner / bdimx)
   // 3. Ensure divisibility: tma_tile_inner is scheduled as
   //    [tma_tile_inner/vect/bdimx, bdimx, vect]
+  int64_t vectorization_factor = 1;
   constexpr int64_t max_vectorization_size_in_bit = 128;
   int64_t vect_factor_max = std::min(
       max_vectorization_size_in_bit / prop.max_dtype_size_bit_for_vectorization,
       tma_tile_inner / bdimx);
 
-  // Apply common vectorization factor analysis
-  vect_factor_max = pointwise_utils::computeVectorizationFactor(
-      runtime_info,
-      prop.vectorizable_inputs_outputs,
-      prop.largest_out,
-      data_cache,
-      vect_factor_max,
-      params->break_point,
-      prop.has_reshapes);
+  // Conservatively set max vectorization factor to 1 before adding analsysis
+  // considering reshape operations.
+  vect_factor_max = std::min((int64_t)1, vect_factor_max);
 
-  // Gradually grow vectorization factor until we reach the maximum
-  // ensure divisible by tma_tile_inner
-  int64_t vectorization_factor = 1;
   while (vectorization_factor * 2 <= vect_factor_max &&
          tma_tile_inner % (vectorization_factor * 2) == 0) {
     vectorization_factor *= 2;
   }
-
   params->vectorization_factor = vectorization_factor;
 
   // TMA store
@@ -479,23 +470,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Vectorize LDG input loads (global -> register)
-  // Find the axis after TIDx (the vectorization axis) by searching from the
-  // second-to-last axis backwards, ensuring at least one axis remains after.
   if (pparams->vectorization_factor > 1) {
-    auto get_vect_pos = [](TensorView* tv) -> int64_t {
-      for (auto i : arange(tv->nDims() - 1) | std::views::reverse) {
-        if (tv->axis(i)->getParallelType() == ParallelType::TIDx) {
-          return i + 1;
-        }
-      }
-      return -1;
-    };
     for (auto ldg_tv : ldg_tvs) {
-      if (vectorizable_io_tvs.contains(ir_utils::getSoleProducerTv(ldg_tv))) {
-        int64_t vect_pos = get_vect_pos(ldg_tv);
-        if (vect_pos != -1) {
-          ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
-        }
+      if (vectorizable_io_tvs.contains(ldg_tv)) {
+        ldg_tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
       }
     }
   }
