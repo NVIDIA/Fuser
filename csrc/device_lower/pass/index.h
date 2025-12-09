@@ -122,13 +122,15 @@ class IndexLowering : private OptOutConstDispatch {
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   Val* lowerDstIndex(
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
   void handleCpAsyncBulkStore(const LoadStoreOp* ldst);

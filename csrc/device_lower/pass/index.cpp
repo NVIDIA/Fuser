@@ -40,7 +40,8 @@ Val* IndexLowering::lowerSrcIndex(
     Val* dst,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) const {
+    DataType as_type,
+    bool ld_st_matrix) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
     NVF_ERROR(dst->isA<TensorView>());
     kir::TensorIndex* tind = Index::getProducerIndex(
@@ -50,7 +51,8 @@ Val* IndexLowering::lowerSrcIndex(
         getRotatedLoop(),
         override_index,
         generate_pointer,
-        as_type);
+        as_type,
+        ld_st_matrix);
     if (TensorView* aliased_producer =
             GpuLower::current()->getTensorProducerAlias(tv)) {
       return IrBuilder::create<kir::TensorIndex>(
@@ -67,7 +69,8 @@ Val* IndexLowering::lowerDstIndex(
     Val* dst,
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
-    DataType as_type) const {
+    DataType as_type,
+    bool ld_st_matrix) const {
   if (auto tv = dynamic_cast<TensorView*>(dst)) {
     return Index::getConsumerIndex(
         tv,
@@ -75,7 +78,8 @@ Val* IndexLowering::lowerDstIndex(
         getRotatedLoop(),
         override_index,
         generate_pointer,
-        as_type);
+        as_type,
+        ld_st_matrix);
   } else {
     return dst;
   }
@@ -2047,6 +2051,9 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     return;
   }
 
+  const bool ld_st_matrix =
+      ir_utils::isLdMatrixOp(ldst) || ir_utils::isStMatrixOp(ldst);
+
   if (ir_utils::isCpAsyncBulk(ldst)) {
     if (ir_utils::isCpAsyncBulkLoad(ldst)) {
       handleCpAsyncBulkLoad(ldst);
@@ -2096,7 +2103,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           case MmaInputSmemSwizzle::B64:
           case MmaInputSmemSwizzle::B32: {
             Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
-                in_tv, ldst, for_loops_);
+                in_tv,
+                ldst,
+                for_loops_,
+                /*override_index=*/{},
+                /*ld_st_matrix=*/true);
             Val* offset = SimplifyingIrBuilder::mulExpr(
                 index, dataTypeSizeByte(in_tv->dtype()));
             Val* smem_index =
@@ -2113,7 +2124,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             static_cast<size_t>(num_regs)};
 
         // Get the index for the input of stmatrix.
-        out = lowerDstIndex(ldst->out(), {}, false, as_type);
+        out = lowerDstIndex(ldst->out(), {}, false, as_type, ld_st_matrix);
       } else {
         as_type = ArrayType{
             std::make_shared<DataType>(DataType::UInt32),
@@ -2154,7 +2165,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32: {
           Val* index = GpuLower::current()->tensorIndexer().getLinearIndex(
-              out_tv, ldst, for_loops_);
+              out_tv,
+              ldst,
+              for_loops_,
+              /*override_index=*/{},
+              /*ld_st_matrix=*/true);
           Val* offset = SimplifyingIrBuilder::mulExpr(
               index, dataTypeSizeByte(out_tv->dtype()));
           Val* smem_index =
@@ -2171,7 +2186,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           static_cast<size_t>(num_regs)};
 
       // Get the index for the input of stmatrix.
-      in = lowerSrcIndex(ldst->in(), ldst->out(), {}, false, as_type);
+      in = lowerSrcIndex(
+          ldst->in(), ldst->out(), {}, false, as_type, ld_st_matrix);
 
     } else if (ldst->out()->definition()->isA<MmaOp>()) {
       // For MMA accumulator initialization
@@ -2208,7 +2224,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             ldst->out(),
             {},
             ir_utils::isLdMatrixOp(ldst) || ir_utils::isCpAsyncOp(ldst),
-            as_type);
+            as_type,
+            ld_st_matrix);
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->out());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
@@ -2217,7 +2234,11 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             tv, index, DataType::TMemAddress);
       } else {
         out = lowerDstIndex(
-            ldst->out(), {}, ir_utils::isCpAsyncOp(ldst), as_type);
+            ldst->out(),
+            {},
+            ir_utils::isCpAsyncOp(ldst),
+            as_type,
+            ld_st_matrix);
       }
     }
     auto new_ldst =
