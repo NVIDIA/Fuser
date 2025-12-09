@@ -999,9 +999,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
       llvm::IRBuilder<>& builder,
-      std::unordered_map<Val*, llvm::Value*>& val_to_value,
-      hir::HostIrContainer* container)
-      : builder_(builder), val_to_value_(val_to_value), container_(container) {}
+      std::unordered_map<Val*, llvm::Value*>& val_to_value)
+      : builder_(builder), val_to_value_(val_to_value) {}
   using OptInDispatch::handle;
 
   void handle(ReshapeOp* vop) final {
@@ -1330,7 +1329,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
-  hir::HostIrContainer* container_;
 };
 
 void HostIrJitImpl::compile() {
@@ -1352,7 +1350,7 @@ void HostIrJitImpl::compile() {
 
   // compile inputs in llvm ir
   unpackInputs(container_.get(), builder, val_to_value);
-  HostIrCompileDispatcher dispatcher(builder, val_to_value, container_.get());
+  HostIrCompileDispatcher dispatcher(builder, val_to_value);
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     insertNvtxRangePush(expr->getOpString(), builder);
