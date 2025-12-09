@@ -938,10 +938,12 @@ bool shouldUseAlternateLoopDomain(
     const Expr* expr,
     bool ld_st_matrix) {
   // short-circuit: not (ldmatrix or stmatrix)
-  if (!(ld_st_matrix &&
-        (ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr)))) {
+  if (!ld_st_matrix) {
     return false;
   }
+
+  NVF_ERROR(ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr));
+
   // short-circuit: only the shared memory TensorView uses alternate loop
   // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
   // output TensorView.
