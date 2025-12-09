@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cstdint>
 #include <memory>
 #include <unordered_map>
 
@@ -20,11 +21,24 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
+
+#include <driver_api.h>
 
 #include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
 #include <c10/core/MemoryFormat.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 
 #include <bfs.h>
+#include <expr_evaluator.h>
+#include <fusion_profiler.h>
 #include <host_ir/evaluator.h>
 #include <host_ir/jit.h>
 #include <instrumentation.h>
@@ -32,8 +46,11 @@
 #include <ir/iostream.h>
 #include <linked_hash_map.h>
 #include <ops/all_ops.h>
+#include <polymorphic_value.h>
+#include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 #include <val_graph_visitor.h>
 
 #include <ranges>
@@ -45,6 +62,8 @@ using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
+constexpr std::string_view kTensorDataPtrFuncName = "tensor_data_ptr";
+constexpr std::string_view kLaunchKernelDirectFuncName = "launch_kernel_direct";
 constexpr std::string_view kNewTensorFuncName = "new_tensor";
 constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
@@ -52,7 +71,6 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kPermuteFuncName = "permute";
@@ -193,6 +211,17 @@ llvm::Value* createTensorStride(
   return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
 }
 
+// Helper function to generate LLVM IR that extracts tensor data pointer
+llvm::Value* createTensorDataPtr(
+    llvm::Value* tensor,
+    llvm::IRBuilder<>& builder) {
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* tensor_data_ptr_func =
+      module->getFunction(kTensorDataPtrFuncName);
+
+  return builder.CreateCall(tensor_data_ptr_func, {tensor});
+}
+
 // Helper function to register external functions in JIT
 void registerExternalFunction(
     void* func_ptr,
@@ -223,9 +252,15 @@ void checkMemoryLeak(llvm::Module& module) {
             called_func != nullptr,
             "LLVM Lowering Error: called an indirect function");
 
-        // If a function returns a tensor ptr, it's an allocation function
         auto* return_type = called_func->getReturnType();
-        if (return_type == getTensorPtrType(context)) {
+        auto func_name = called_func->getName().str();
+
+        // Note: In opaque pointer mode (default since LLVM 15), all pointers
+        // are evaluated with the same (ptr) type. We need to exclude helper
+        // functions that return data pointers but don't allocate tensors.
+        if (return_type == getTensorPtrType(context) &&
+            func_name != kTensorDataPtrFuncName) {
+          // (new_tensor, set_tensor, reshape, permute, etc.)
           allocated_tensors.insert(call);
           continue;
         }
@@ -495,6 +530,120 @@ void inferTensorShapesAndStrides(
   NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
+// Packs a tensor argument into the runtime::Tensor format expected by CUDA
+// kernels. Returns a pointer to the packed buffer (stack-allocated)
+//
+// Buffer
+// layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
+// where elem_size is 8 for Int64 or 4 for Int32 index types
+llvm::Value* packTensorArgument(
+    llvm::Value* tensor, // at::Tensor*
+    TensorView* tv,
+    PrimDataType index_type,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+  // Get allocation sizes/strides as LLVM IR values
+  llvm::SmallVector<llvm::Value*, 8> alloc_sizes;
+  llvm::SmallVector<llvm::Value*, 8> alloc_strides;
+  inferTensorShapesAndStrides(
+      tv, val_to_value, builder, alloc_sizes, alloc_strides);
+
+  // Extract data pointer
+  llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
+
+  // Determine index element type and size
+  llvm::Type* index_elem_type;
+  size_t index_elem_size;
+  if (index_type == PrimDataType::Int) {
+    index_elem_type = builder.getInt64Ty();
+    index_elem_size = 8;
+  } else {
+    index_elem_type = builder.getInt32Ty();
+    index_elem_size = 4;
+  }
+
+  // Calculate buffer size: data_ptr + sizes + strides
+  size_t num_dims = alloc_sizes.size();
+  size_t buffer_size = 8 + (num_dims * index_elem_size * 2);
+
+  // Allocate stack buffer
+  llvm::Type* buffer_type =
+      llvm::ArrayType::get(builder.getInt8Ty(), buffer_size);
+  llvm::Value* buffer =
+      builder.CreateAlloca(buffer_type, nullptr, "tensor_arg_buffer");
+  llvm::Value* buffer_i8 = builder.CreateBitCast(
+      buffer, llvm::PointerType::getUnqual(builder.getInt8Ty()));
+
+  // Write data pointer (first 8 bytes)
+  llvm::Value* data_ptr_loc = buffer_i8;
+  llvm::Value* data_ptr_typed = builder.CreateBitCast(
+      data_ptr_loc,
+      llvm::PointerType::getUnqual(
+          llvm::PointerType::getUnqual(builder.getInt8Ty())));
+  builder.CreateStore(data_ptr, data_ptr_typed);
+
+  size_t offset = 8;
+
+  // Apply AdjustLastDim to sizes
+  AdjustLastDim adjust = getLastDimAdjustment(tv->dtype());
+  llvm::SmallVector<llvm::Value*, 8> adjusted_sizes = alloc_sizes;
+
+  if (!adjusted_sizes.empty() && !adjust.isTrivial()) {
+    // last_size = last_size * numerator / denominator
+    llvm::Value* last_size = adjusted_sizes.back();
+    llvm::Value* numerator = builder.getInt64(adjust.numerator);
+    llvm::Value* denominator = builder.getInt64(adjust.denominator);
+    llvm::Value* multiplied = builder.CreateMul(last_size, numerator);
+    llvm::Value* adjusted = builder.CreateUDiv(multiplied, denominator);
+    adjusted_sizes.back() = adjusted;
+  }
+
+  // Write sizes
+  for (size_t i = 0; i < num_dims; ++i) {
+    llvm::Value* size_val = adjusted_sizes[i];
+
+    if (index_type == PrimDataType::Int32) {
+      size_val = builder.CreateTrunc(size_val, builder.getInt32Ty());
+    }
+
+    llvm::Value* size_ptr = builder.CreateGEP(
+        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
+    llvm::Value* size_ptr_typed = builder.CreateBitCast(
+        size_ptr, llvm::PointerType::getUnqual(index_elem_type));
+    builder.CreateStore(size_val, size_ptr_typed);
+
+    offset += index_elem_size;
+  }
+
+  // Write strides (with AdjustLastDim applied to all except last)
+  for (size_t i = 0; i < num_dims; ++i) {
+    llvm::Value* stride_val = alloc_strides[i];
+
+    // Apply adjustment to all strides except last
+    // See [Adjust all strides but not the last one] in tensorToBytes
+    if (i < num_dims - 1 && !adjust.isTrivial()) {
+      llvm::Value* numerator = builder.getInt64(adjust.numerator);
+      llvm::Value* denominator = builder.getInt64(adjust.denominator);
+      llvm::Value* multiplied = builder.CreateMul(stride_val, numerator);
+      stride_val = builder.CreateUDiv(multiplied, denominator);
+    }
+
+    if (index_type == PrimDataType::Int32) {
+      stride_val = builder.CreateTrunc(stride_val, builder.getInt32Ty());
+    }
+
+    llvm::Value* stride_ptr = builder.CreateGEP(
+        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
+    llvm::Value* stride_ptr_typed = builder.CreateBitCast(
+        stride_ptr, llvm::PointerType::getUnqual(index_elem_type));
+    builder.CreateStore(stride_val, stride_ptr_typed);
+
+    offset += index_elem_size;
+  }
+
+  return buffer_i8;
+}
+
 void unpackInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
@@ -642,6 +791,23 @@ void compileFunctionDeclarations(
       kTensorSizeFuncName,
       module);
 
+  // tensor_stride function: int64_t tensor_stride(at::Tensor* tensor, int64_t
+  // dim)
+  llvm::Function::Create(
+      tensor_size_type, // Same signature as tensor_size
+      llvm::Function::ExternalLinkage,
+      kTensorStrideFuncName,
+      module);
+
+  // tensor_data_ptr function: void* tensor_data_ptr(at::Tensor* tensor)
+  auto* tensor_data_ptr_type =
+      llvm::FunctionType::get(void_ptr_type, {tensor_type}, false);
+  llvm::Function::Create(
+      tensor_data_ptr_type,
+      llvm::Function::ExternalLinkage,
+      kTensorDataPtrFuncName,
+      module);
+
   // new_tensor function: at::Tensor* new_tensor()
   auto* new_tensor_type = llvm::FunctionType::get(tensor_type, {}, false);
   llvm::Function::Create(
@@ -704,23 +870,26 @@ void compileFunctionDeclarations(
       kNvtxRangePopFuncName,
       module);
 
-  // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
-  // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernel, void* hostIrContainer)
-  auto* launch_kernel_type = llvm::FunctionType::get(
+  // launch_kernel_direct function: void launch_kernel_direct(
+  //   void** kernel_args, void* cuda_function_ptr,
+  //   int64_t gdimx, int64_t gdimy, int64_t gdimz,
+  //   int64_t bdimx, int64_t bdimy, int64_t bdimz, int64_t smem)
+  auto* launch_kernel_direct_type = llvm::FunctionType::get(
       void_type,
-      {int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       void_ptr_type,
-       void_ptr_type},
+      {void_array_ptr_type, // void** kernel_args
+       void_ptr_type, // cuda_function_ptr
+       int64_type, // gdimx
+       int64_type, // gdimy
+       int64_type, // gdimz
+       int64_type, // bdimx
+       int64_type, // bdimy
+       int64_type, // bdimz
+       int64_type}, // smem
       false);
   llvm::Function::Create(
-      launch_kernel_type,
+      launch_kernel_direct_type,
       llvm::Function::ExternalLinkage,
-      kLaunchKernelFuncName,
+      kLaunchKernelDirectFuncName,
       module);
 
   // matmul_out function: void matmul_out(at::Tensor* out, at::Tensor* a,
@@ -769,9 +938,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
       llvm::IRBuilder<>& builder,
-      std::unordered_map<Val*, llvm::Value*>& val_to_value,
-      hir::HostIrContainer* container)
-      : builder_(builder), val_to_value_(val_to_value), container_(container) {}
+      std::unordered_map<Val*, llvm::Value*>& val_to_value)
+      : builder_(builder), val_to_value_(val_to_value) {}
   using OptInDispatch::handle;
 
   void handle(ReshapeOp* vop) final {
@@ -914,89 +1082,99 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto* void_ptr_type = getInt8PtrType(context);
     auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
 
-    // Convert input TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> inputs;
+    // Get index type from CompiledKernel
+    PrimDataType index_type =
+        launch_kernel->compiledKernel()->kernel()->indexType();
+
+    // Pack each input/output argument using LLVM IR
+    llvm::SmallVector<llvm::Value*, 16> packed_buffers;
+
+    // Helper lambda to pack a single Val (tensor or scalar)
+    auto packArgument = [&](Val* val) {
+      if (auto* tv = dynamic_cast<TensorView*>(val)) {
+        // Pack tensor argument
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
+        NVF_ERROR(
+            tensor != nullptr, "Tensor not found in val_to_value map: ", val);
+        packed_buffers.push_back(packTensorArgument(
+            tensor, tv, index_type, val_to_value_, builder_));
+      } else {
+        // Pack scalar argument
+        llvm::Value* scalar = getOrDefault(val_to_value_, val);
+        NVF_ERROR(
+            scalar != nullptr, "Scalar not found in val_to_value map: ", val);
+
+        // For scalars, we need to create a stack allocation and get its pointer
+        // The scalar value is already an LLVM value (e.g., i64)
+        // We need to store it in memory and pass a pointer to that memory
+        llvm::Value* scalar_alloca = builder_.CreateAlloca(scalar->getType());
+        builder_.CreateStore(scalar, scalar_alloca);
+
+        // Cast to i8* (void*)
+        llvm::Value* scalar_ptr =
+            builder_.CreateBitCast(scalar_alloca, void_ptr_type);
+        packed_buffers.push_back(scalar_ptr);
+      }
+    };
+
+    // Pack inputs
     for (auto* in : launch_kernel->inputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(in)) {
-        // NOTE: we use getOrDefault for TensorView lookup because we want to
-        // bypass error checking for output tensor it is ok to have a nullptr
-        // for output tensor because it will be created in wrapper in later
-        // stage.
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        inputs.push_back(tensor);
-      } else {
-        inputs.push_back(getOrCreateValue(in, val_to_value_, builder_));
-      }
+      packArgument(in);
     }
 
-    // Convert output TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> outputs;
+    // Pack outputs
     for (auto* out : launch_kernel->outputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(out)) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        outputs.push_back(tensor);
-      } else {
-        outputs.push_back(getOrCreateValue(out, val_to_value_, builder_));
-      }
+      packArgument(out);
     }
 
-    // Get the cacheId from the main function's first argument
-    llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+    // Create kernel_args array (void**)
+    auto* args_array_type =
+        llvm::ArrayType::get(void_ptr_type, packed_buffers.size());
+    llvm::Value* args_array =
+        builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
 
-    // Create arrays to hold tensor pointers
-    auto* input_array_type = getInt8PtrStaticArrayType(context, inputs.size());
-    auto* output_array_type =
-        getInt8PtrStaticArrayType(context, outputs.size());
-
-    llvm::Value* input_array = builder_.CreateAlloca(
-        input_array_type, nullptr, "launch_kernel_inputs");
-    llvm::Value* output_array = builder_.CreateAlloca(
-        output_array_type, nullptr, "launch_kernel_outputs");
-
-    for (size_t i = 0; i < inputs.size(); ++i) {
+    for (size_t i = 0; i < packed_buffers.size(); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          input_array_type,
-          input_array,
+          args_array_type,
+          args_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(inputs[i], gep);
+      builder_.CreateStore(packed_buffers[i], gep);
     }
 
-    for (size_t i = 0; i < outputs.size(); ++i) {
-      llvm::Value* gep = builder_.CreateInBoundsGEP(
-          output_array_type,
-          output_array,
-          {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(outputs[i], gep);
-    }
+    // Cast to void**
+    llvm::Value* args_array_ptr =
+        builder_.CreateBitCast(args_array, void_array_ptr_type);
 
-    llvm::Value* input_array_ptr =
-        builder_.CreateBitCast(input_array, void_array_ptr_type);
-    llvm::Value* output_array_ptr =
-        builder_.CreateBitCast(output_array, void_array_ptr_type);
+    // Get launch parameters from LaunchParams (compile-time constants)
+    const LaunchParams& lp = launch_kernel->launchParams();
 
-    llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
-    llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
+    llvm::Value* gdimx = builder_.getInt64(lp.gdimx());
+    llvm::Value* gdimy = builder_.getInt64(lp.gdimy());
+    llvm::Value* gdimz = builder_.getInt64(lp.gdimz());
+    llvm::Value* bdimx = builder_.getInt64(lp.bdimx());
+    llvm::Value* bdimy = builder_.getInt64(lp.bdimy());
+    llvm::Value* bdimz = builder_.getInt64(lp.bdimz());
+    llvm::Value* smem = builder_.getInt64(lp.smem());
 
-    llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
+    // Get CUDA function pointer from CompiledKernel
+    CUfunction cuda_function =
+        launch_kernel->compiledKernel()->cudaExecutable()->function;
+    llvm::Value* function_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(cuda_function)),
         void_ptr_type);
 
-    llvm::Value* container_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
-        void_ptr_type);
-
+    // Call launch_kernel_direct with all parameters
     builder_.CreateCall(
-        module->getFunction(kLaunchKernelFuncName),
-        {cache_id_arg,
-         input_array_ptr,
-         num_inputs_constant,
-         output_array_ptr,
-         num_outputs_constant,
-         launch_kernel_ptr,
-         container_ptr});
+        module->getFunction(kLaunchKernelDirectFuncName),
+        {args_array_ptr,
+         function_ptr,
+         gdimx,
+         gdimy,
+         gdimz,
+         bdimx,
+         bdimy,
+         bdimz,
+         smem});
   }
 
   void handle(kir::Allocate* allocate) final {
@@ -1090,7 +1268,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
-  hir::HostIrContainer* container_;
 };
 
 void HostIrJitImpl::compile() {
@@ -1112,7 +1289,7 @@ void HostIrJitImpl::compile() {
 
   // compile inputs in llvm ir
   unpackInputs(container_.get(), builder, val_to_value);
-  HostIrCompileDispatcher dispatcher(builder, val_to_value, container_.get());
+  HostIrCompileDispatcher dispatcher(builder, val_to_value);
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     insertNvtxRangePush(expr->getOpString(), builder);
@@ -1188,6 +1365,13 @@ void HostIrJitImpl::registerExternalFunctions() {
         return tensor->stride(dim);
       });
 
+  // tensor data pointer extraction function
+  void* extract_tensor_data_ptr_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* tensor) -> void* {
+        NVF_ERROR(tensor != nullptr, "tensor_data_ptr: tensor is nullptr");
+        return tensor->data_ptr();
+      });
+
   // new at::Tensor() wrapper instead of real tensor allocation
   void* new_tensor_func_ptr = reinterpret_cast<void*>(
       +[]() -> at::Tensor* { return new at::Tensor(); });
@@ -1228,34 +1412,44 @@ void HostIrJitImpl::registerExternalFunctions() {
             c10::nullopt);
       });
 
-  // launch kernel function
-  void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](int64_t cache_id,
-                                  at::Tensor** input_tensors,
-                                  int64_t num_inputs,
-                                  at::Tensor** output_tensors,
-                                  int64_t num_outputs,
-                                  void* launch_kernel,
-                                  void* container) {
-        auto* launch_kernel_ptr =
-            static_cast<hir::LaunchKernel*>(launch_kernel);
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
+  // launch_kernel_direct function: simpler wrapper that just calls
+  // cuLaunchKernelEx All argument packing is done in LLVM IR before calling
+  // this
+  void* launch_kernel_direct_func_ptr =
+      reinterpret_cast<void*>(+[](void** kernel_args,
+                                  void* cuda_function_ptr,
+                                  int64_t gdimx,
+                                  int64_t gdimy,
+                                  int64_t gdimz,
+                                  int64_t bdimx,
+                                  int64_t bdimy,
+                                  int64_t bdimz,
+                                  int64_t smem) {
+        FUSER_PERF_SCOPE("launch_kernel_direct");
 
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
+        CUlaunchConfig config = {};
+        auto stream = at::cuda::getCurrentCUDAStream();
+
+        config.gridDimX = gdimx;
+        config.gridDimY = gdimy;
+        config.gridDimZ = gdimz;
+        config.blockDimX = bdimx;
+        config.blockDimY = bdimy;
+        config.blockDimZ = bdimz;
+        config.sharedMemBytes = smem;
+        config.hStream = stream;
+        config.attrs = nullptr;
+        config.numAttrs = 0;
+
+        // Launch the kernel
+        {
+          FUSER_PERF_SCOPE("cuLaunchKernelEx");
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &config,
+              reinterpret_cast<CUfunction>(cuda_function_ptr),
+              kernel_args,
+              nullptr));
         }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
-        }
-        input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
-                input_args,
-                output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
       });
 
   // matmul_out function
@@ -1316,6 +1510,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       mangler,
       kTensorStrideFuncName);
   registerExternalFunction(
+      extract_tensor_data_ptr_func_ptr,
+      name_to_symbol,
+      mangler,
+      kTensorDataPtrFuncName);
+  registerExternalFunction(
       new_tensor_func_ptr, name_to_symbol, mangler, kNewTensorFuncName);
   registerExternalFunction(
       delete_tensor_func_ptr, name_to_symbol, mangler, kDeleteTensorFuncName);
@@ -1334,7 +1533,10 @@ void HostIrJitImpl::registerExternalFunctions() {
   registerExternalFunction(
       nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
   registerExternalFunction(
-      launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
+      launch_kernel_direct_func_ptr,
+      name_to_symbol,
+      mangler,
+      kLaunchKernelDirectFuncName);
   registerExternalFunction(
       matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
   registerExternalFunction(
