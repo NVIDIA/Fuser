@@ -231,7 +231,6 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
         dtype=activation.dtype,
     )
     for i in range(fp4_weight.size(0)):
-        # NOTE: dequantize here doesn't look right, since we have (g, k, n)
         hp_weight[i] = dequantize_to_dtype(
             fp4_weight[i].transpose(1, 0), weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
