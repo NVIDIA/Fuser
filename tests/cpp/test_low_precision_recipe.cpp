@@ -1297,6 +1297,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(
             std::make_pair(1024, 1024),
             std::make_pair(2048, 128),
+            std::make_pair(128, 64),
             std::make_pair(2048, 2048))),
     [](const testing::TestParamInfo<std::tuple<DataType, std::pair<int, int>>>&
            info) {

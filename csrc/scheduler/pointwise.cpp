@@ -309,11 +309,19 @@ bool PointWiseScheduler::canScheduleRunTime(
     auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Block Quantization Op requires vectorization factor to be at least "
-          "2.");
-      return false;
+      // This sholdn't be a common path thus
+      // using the expensive step of getting all the bqops
+      auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+      for (auto op : bq_ops) {
+        if (op->quantizedOutput()->getDataType() != DataType::Float8_e4m3fn) {
+          scheduler_debug_utils::canScheduleRejectReason(
+              schedulerType(),
+              "Block Quantization Op requires vectorization factor to be at "
+              "least "
+              "2 for quantizing to NVFP4");
+          return false;
+        }
+      }
     }
 
     if (pparams->split_grid_y_dim) {

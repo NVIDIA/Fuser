@@ -47,11 +47,13 @@ __device__ __inline__ void convertToFloatAndComputeLocalMax(
       "Input type must be float, __half or __bfloat");
 
   static_assert(
-      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2)) ||
+      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2) ||
+       ITEMS_PER_THREAD == 1) ||
           (is_half_or_bfloat &&
            (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
-            ITEMS_PER_THREAD == 2)),
-      "ITEMS_PER_THREAD must be 2, 4 for float type or 2, 4, or 8 for __bfloat "
+            ITEMS_PER_THREAD == 2 || ITEMS_PER_THREAD == 1)),
+      "ITEMS_PER_THREAD must be 1, 2, 4 for float type or 2, 4, or 8 for "
+      "__bfloat "
       "or __half "
       "type");
 

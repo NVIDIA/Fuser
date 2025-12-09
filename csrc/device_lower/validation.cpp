@@ -616,6 +616,7 @@ class ExprValidator : public OptOutDispatch {
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
     auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
     auto output_dtype = quantized_output->dtype();
+    bool is_mxfp8_output = output_dtype == DataType::Float8_e4m3fn;
 
     NVF_ERROR_EQ(
         inp_tv->getMemoryType(),
@@ -635,7 +636,7 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    if (output_dtype == DataType::Float8_e4m3fn) {
+    if (is_mxfp8_output) {
       NVF_ERROR(
           !bqop->hasGlobalScale(),
           "Global scale is not supported when quantizing to Float8_e4m3fn.");
@@ -725,7 +726,7 @@ class ExprValidator : public OptOutDispatch {
     }
 
     NVF_ERROR(
-        grouped_id != nullptr,
+        grouped_id != nullptr || is_mxfp8_output,
         "One of the output IDs must be grouped for "
         "BlockQuantizationOp: ",
         bqop->toString());
@@ -741,8 +742,15 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         bqop->toString());
 
-    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto inner_extent =
+        grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
     auto input_dtype = inp_tv->dtype();
+
+    if (is_mxfp8_output && !grouped_id) {
+      // TODO. Check that TIDx is known and a multiple of 32
+      // TODO. TIDx is innermost
+      return;
+    }
 
     NVF_ERROR(
         ((inner_extent == 4 || inner_extent == 2) &&
