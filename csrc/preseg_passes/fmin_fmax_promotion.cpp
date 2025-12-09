@@ -357,7 +357,8 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
     }
 
     fusion->removeExpr(rop);
-    IrBuilder::create<ReductionOp>(red_op_type, init, out, in, true);
+    IrBuilder::create<ReductionOp>(
+        red_op_type, init, out, in, rop->isAllreduce());
   }
 
   return;
