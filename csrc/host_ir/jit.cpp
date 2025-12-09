@@ -254,7 +254,8 @@ void checkMemoryLeak(llvm::Module& module) {
 
         // If a function returns a tensor ptr, it's an allocation function
         // Note: In opaque pointer mode, all pointers have the same type.
-        // We need to exclude helper functions that return data pointers but don't allocate tensors
+        // We need to exclude helper functions that return data pointers but
+        // don't allocate tensors
         auto* return_type = called_func->getReturnType();
         auto func_name = called_func->getName().str();
 
@@ -532,16 +533,16 @@ void inferTensorShapesAndStrides(
 }
 
 // Helper function to infer allocation domain sizes and strides in LLVM IR
-// For now, implements Option A: assumes allocation domain is permutation of logical
-// (common case for views/permutes). Can be extended to handle split/merge later.
+// For now, implements Option A: assumes allocation domain is permutation of
+// logical (common case for views/permutes). Can be extended to handle
+// split/merge later.
 void inferAllocationSizesAndStridesLLVM(
     const TensorView* tv,
-    llvm::Value* tensor,  // at::Tensor*
+    llvm::Value* tensor, // at::Tensor*
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder,
     llvm::SmallVectorImpl<llvm::Value*>& alloc_sizes,
     llvm::SmallVectorImpl<llvm::Value*>& alloc_strides) {
-
   // If no allocation domain, use logical domain strides from tensor
   if (!tv->hasAllocation()) {
     // Just extract sizes/strides directly from at::Tensor
@@ -590,22 +591,24 @@ void inferAllocationSizesAndStridesLLVM(
     } else {
       // TODO: Handle split/merge transformations (Option B)
       // For now, this is a permutation-only implementation
-      NVF_ERROR(false, "Complex allocation domain transformations (split/merge) not yet supported in LLVM packing");
+      NVF_ERROR(
+          false,
+          "Complex allocation domain transformations (split/merge) not yet "
+          "supported in LLVM packing");
     }
   }
 }
 
-// Pack a tensor argument into the runtime::Tensor format expected by CUDA kernels
-// Returns a pointer to the packed buffer (stack-allocated)
-// Buffer layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
+// Pack a tensor argument into the runtime::Tensor format expected by CUDA
+// kernels Returns a pointer to the packed buffer (stack-allocated) Buffer
+// layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
 // where elem_size is 8 for Int64 or 4 for Int32 index types
 llvm::Value* packTensorArgumentLLVM(
-    llvm::Value* tensor,  // at::Tensor*
+    llvm::Value* tensor, // at::Tensor*
     TensorView* tv,
     PrimDataType index_type,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder) {
-
   // Get allocation sizes/strides as LLVM IR values
   llvm::SmallVector<llvm::Value*, 8> alloc_sizes;
   llvm::SmallVector<llvm::Value*, 8> alloc_strides;
@@ -631,17 +634,19 @@ llvm::Value* packTensorArgumentLLVM(
   size_t buffer_size = 8 + (num_dims * index_elem_size * 2);
 
   // Allocate stack buffer
-  llvm::Type* buffer_type = llvm::ArrayType::get(builder.getInt8Ty(), buffer_size);
-  llvm::Value* buffer = builder.CreateAlloca(buffer_type, nullptr, "tensor_arg_buffer");
+  llvm::Type* buffer_type =
+      llvm::ArrayType::get(builder.getInt8Ty(), buffer_size);
+  llvm::Value* buffer =
+      builder.CreateAlloca(buffer_type, nullptr, "tensor_arg_buffer");
   llvm::Value* buffer_i8 = builder.CreateBitCast(
-      buffer,
-      llvm::PointerType::getUnqual(builder.getInt8Ty()));
+      buffer, llvm::PointerType::getUnqual(builder.getInt8Ty()));
 
   // Write data pointer (first 8 bytes)
   llvm::Value* data_ptr_loc = buffer_i8;
   llvm::Value* data_ptr_typed = builder.CreateBitCast(
       data_ptr_loc,
-      llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(builder.getInt8Ty())));
+      llvm::PointerType::getUnqual(
+          llvm::PointerType::getUnqual(builder.getInt8Ty())));
   builder.CreateStore(data_ptr, data_ptr_typed);
 
   size_t offset = 8;
@@ -853,9 +858,10 @@ void compileFunctionDeclarations(
       kTensorSizeFuncName,
       module);
 
-  // tensor_stride function: int64_t tensor_stride(at::Tensor* tensor, int64_t dim)
+  // tensor_stride function: int64_t tensor_stride(at::Tensor* tensor, int64_t
+  // dim)
   llvm::Function::Create(
-      tensor_size_type,  // Same signature as tensor_size
+      tensor_size_type, // Same signature as tensor_size
       llvm::Function::ExternalLinkage,
       kTensorStrideFuncName,
       module);
@@ -937,15 +943,15 @@ void compileFunctionDeclarations(
   //   int64_t bdimx, int64_t bdimy, int64_t bdimz, int64_t smem)
   auto* launch_kernel_direct_type = llvm::FunctionType::get(
       void_type,
-      {void_array_ptr_type,  // void** kernel_args
-       void_ptr_type,        // cuda_function_ptr
-       int64_type,           // gdimx
-       int64_type,           // gdimy
-       int64_type,           // gdimz
-       int64_type,           // bdimx
-       int64_type,           // bdimy
-       int64_type,           // bdimz
-       int64_type},          // smem
+      {void_array_ptr_type, // void** kernel_args
+       void_ptr_type, // cuda_function_ptr
+       int64_type, // gdimx
+       int64_type, // gdimy
+       int64_type, // gdimz
+       int64_type, // bdimx
+       int64_type, // bdimy
+       int64_type, // bdimz
+       int64_type}, // smem
       false);
   llvm::Function::Create(
       launch_kernel_direct_type,
@@ -1473,40 +1479,45 @@ void HostIrJitImpl::registerExternalFunctions() {
             c10::nullopt);
       });
 
-  // launch_kernel_direct function: simpler wrapper that just calls cuLaunchKernelEx
-  // All argument packing is done in LLVM IR before calling this
-  void* launch_kernel_direct_func_ptr = reinterpret_cast<void*>(
-      +[](void** kernel_args,
-          void* cuda_function_ptr,
-          int64_t gdimx, int64_t gdimy, int64_t gdimz,
-          int64_t bdimx, int64_t bdimy, int64_t bdimz,
-          int64_t smem) {
-    FUSER_PERF_SCOPE("launch_kernel_direct");
+  // launch_kernel_direct function: simpler wrapper that just calls
+  // cuLaunchKernelEx All argument packing is done in LLVM IR before calling
+  // this
+  void* launch_kernel_direct_func_ptr =
+      reinterpret_cast<void*>(+[](void** kernel_args,
+                                  void* cuda_function_ptr,
+                                  int64_t gdimx,
+                                  int64_t gdimy,
+                                  int64_t gdimz,
+                                  int64_t bdimx,
+                                  int64_t bdimy,
+                                  int64_t bdimz,
+                                  int64_t smem) {
+        FUSER_PERF_SCOPE("launch_kernel_direct");
 
-    CUlaunchConfig config = {};
-    auto stream = at::cuda::getCurrentCUDAStream();
+        CUlaunchConfig config = {};
+        auto stream = at::cuda::getCurrentCUDAStream();
 
-    config.gridDimX = gdimx;
-    config.gridDimY = gdimy;
-    config.gridDimZ = gdimz;
-    config.blockDimX = bdimx;
-    config.blockDimY = bdimy;
-    config.blockDimZ = bdimz;
-    config.sharedMemBytes = smem;
-    config.hStream = stream;
-    config.attrs = nullptr;
-    config.numAttrs = 0;
+        config.gridDimX = gdimx;
+        config.gridDimY = gdimy;
+        config.gridDimZ = gdimz;
+        config.blockDimX = bdimx;
+        config.blockDimY = bdimy;
+        config.blockDimZ = bdimz;
+        config.sharedMemBytes = smem;
+        config.hStream = stream;
+        config.attrs = nullptr;
+        config.numAttrs = 0;
 
-    // Launch the kernel
-    {
-    FUSER_PERF_SCOPE("cuLaunchKernelEx");
-    NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-        &config,
-        reinterpret_cast<CUfunction>(cuda_function_ptr),
-        kernel_args,
-        nullptr));
-    }
-  });
+        // Launch the kernel
+        {
+          FUSER_PERF_SCOPE("cuLaunchKernelEx");
+          NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+              &config,
+              reinterpret_cast<CUfunction>(cuda_function_ptr),
+              kernel_args,
+              nullptr));
+        }
+      });
 
   // matmul_out function
   void* matmul_out_func_ptr = reinterpret_cast<void*>(
