@@ -497,7 +497,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null,
-      bool ld_st_matrix = true);
+      bool ld_st_matrix = false);
 
   // Consumer index dispatch
   static kir::TensorIndex* getConsumerIndex(
@@ -507,7 +507,7 @@ class Index {
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
       DataType as_type = DataType::Null,
-      bool ld_st_matrix = true);
+      bool ld_st_matrix = false);
 
   //! Returns a vector of strided indices mapped onto the
   //! allocation domain of a producer tensor. The size of the returned

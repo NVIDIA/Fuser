@@ -942,7 +942,10 @@ bool shouldUseAlternateLoopDomain(
     return false;
   }
 
-  NVF_ERROR(ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr));
+  NVF_ERROR(
+      ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr),
+      "Unexpected expr: ",
+      expr->toString());
 
   // short-circuit: only the shared memory TensorView uses alternate loop
   // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
