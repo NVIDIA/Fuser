@@ -134,16 +134,24 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t group_id,
     const LaunchParams& launch_constraints,
-    const CompileParams& compile_params,
+    CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    : Expr(passkey, inputs, outputs, {}), compiled_kernel_(compiled_kernel) {
+  NVF_CHECK(
+      compiled_kernel != nullptr,
+      "LaunchKernel requires a non-null CompiledKernel pointer");
+  NVF_CHECK(cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
-  addDataAttribute(compile_params);
+  addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
 }
+
+LaunchKernel::LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner), compiled_kernel_(src->compiled_kernel_) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
