@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include "iter_visitor.h"
 #include "runtime/executor_params.h"
 
 namespace nvfuser {
@@ -119,11 +120,14 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   // set warp specialized circular buffer options
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
   int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
-  if (bdimx >= 128) {
+  if (bdimx >= 128 && std::getenv("WS") != nullptr) {
     gdimx = sm_count;
-    bdimy = 1;
+    bdimy = 2;
+    if (std::getenv("TIDY")) {
+      bdimy = std::stoi(std::getenv("TIDY"));
+    }
     bdimz = 1;
-    params->rows_per_block = 2;
+    params->rows_per_block = bdimy;
     int64_t smem_size_bit =
         prop.max_persistent_buffer_size_bit * bdimy * params->rows_per_block;
     int64_t n_stages =
@@ -131,7 +135,12 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
     if (ws_pt == ParallelType::TIDy) {
       bdimy += 1;
+      // TIDy warp specialization is used only when multiple compute warp groups
+      // are used. Current runtime only supports grouped reduction.
       NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
+      NVF_ERROR(
+          params->rows_per_block > 1,
+          "rows_per_block must be 1 for TIDy warp specialization");
     } else {
       bdimx += kWarpSpecializationPaddedThreads;
     }
@@ -390,13 +399,36 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
 
   // inline
   std::unordered_set<TensorView*> exclude_tvs;
-  for (auto tv : tma_tvs) {
-    inlineSelectedAt({tv}, tv, 2);
-    exclude_tvs.insert(tv);
+  if (params->circular_buffer_options.isEnable()) {
+    // when warp specialized, the iteration domain of tma tv is scheduled as:
+    // 1. GridStrideLoop
+    // 2. BIDx
+    // 3. Serial (Compute Warp Groups, TIDy in compute warp groups)
+    // 4. Serial (Multiple TMAs share one mbarrier, serial or grouped reduction
+    //            in compuate warp groups)
+    constexpr int64_t pos_after_bidx = 2;
+    for (auto tv : tma_tvs) {
+      inlineSelectedAt({tv}, tv, pos_after_bidx);
+      exclude_tvs.insert(tv);
+    }
   }
   if (params->may_pre_load_ldg_tvs && (int)ldg_tvs.size() == 1) {
     exclude_tvs.insert(ldg_tvs.begin(), ldg_tvs.end());
   }
+  // result of the 1st reduction is used by the 2nd reduction
+  if (group_pos > 0 && reduction_tvs.size() > 1) {
+    auto all_vals = DependencyCheck::getAllValsBetween(
+        {reduction_tvs.at(0)}, {reduction_tvs.at(1)});
+    auto gp_tvs = ir_utils::filterByType<TensorView>(all_vals);
+    for (auto gp_tv : gp_tvs) {
+      if (gp_tv->hasBroadcast()) {
+        std::cout << "gp_tvs: " << gp_tv->toString() << std::endl;
+        inlineSelectedAt({gp_tv}, gp_tv, group_pos);
+        exclude_tvs.insert(gp_tv);
+      }
+    }
+  }
+
   std::vector<TensorView*> inline_most_tvs =
       ir_utils::allTvsExcept(fusion, exclude_tvs);
   inlineMost(inline_most_tvs);
