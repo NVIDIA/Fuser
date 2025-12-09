@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>

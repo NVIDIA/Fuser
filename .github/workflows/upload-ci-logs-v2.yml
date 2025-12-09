@@ -24,15 +24,17 @@ on:
         required: true
       pr_number:
         description: 'pr number'
-        required: false
+        required: true
 
-run-name: PR status ${{ inputs.pr_number || github.run_id }} - ${{ inputs.commit_sha }} - ${{ inputs.context }}
+run-name: PR status ${{ inputs.pr_number }} - ${{ inputs.commit_sha }} - ${{ inputs.context }}
 jobs:
   status_update:
     name: Update commit status
     runs-on: ubuntu-latest
     permissions:
       statuses: write
+      contents: write
+      pull-requests: read
     steps:
       - name: Set status
         run: |
@@ -47,3 +49,34 @@ jobs:
               \"description\":\"${{ inputs.descr }}\", \
               \"context\":\"${{ inputs.context }}\" \
             }"
+
+      - name: Trigger auto-merge check
+        if: inputs.context == 'nvfuser-ci' && inputs.state == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Check if PR has enable-auto-merge label
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: ${{ inputs.pr_number }},
+            });
+
+            const hasLabel = pr.labels.some(label => label.name === 'enable-auto-merge');
+            if (!hasLabel) {
+              core.info('PR does not have enable-auto-merge label, skipping auto-merge trigger');
+              return;
+            }
+
+            // Dispatch event to trigger auto-merge workflow
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'nvfuser-ci-success',
+              client_payload: {
+                pr_number: ${{ inputs.pr_number }},
+                commit_sha: '${{ inputs.commit_sha }}'
+              }
+            });
+
+            core.info(`Triggered auto-merge check for PR #${{ inputs.pr_number }}`);

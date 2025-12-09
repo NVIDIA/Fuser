@@ -16,6 +16,7 @@
 
 #include <bfs.h>
 #include <contiguity.h>
+#include <cuda_utils.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
@@ -26,8 +27,11 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/allocation_utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor_utils.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
@@ -41,6 +45,19 @@
 
 namespace nvfuser {
 namespace scheduler_utils {
+
+// Minimal PTX code for a no-op kernel, used for occupancy queries
+const char* noopPtx = R"(
+.version 8.0
+.target sm_90
+.address_size 64
+
+.entry noopKernel()
+{
+  ret;
+}
+
+)";
 
 // Returns number of "valid" dimensions. e.g. if tv has
 // [I1, R2, I3, I4, R3{1}]
@@ -353,6 +370,10 @@ void parallelizeAllLike(
           tv->axis(i)->padToMultipleOfWarp(
               reference_id->getMaybeSizeAfterPadding());
         }
+      }
+      // propagate clustered blocks
+      if (reference_id->isClusteredBlockDim()) {
+        tv->axis(i)->setClusteredBlocks();
       }
     }
   }
@@ -3339,19 +3360,175 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
   }
 }
 
-int64_t getInnerTmaDomainSize(
+// Get the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly.
+// Results are cached to avoid redundant queries.
+int64_t getMaxClusterSize() {
+  // return 1 for pre-Hopper devices
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return 1;
+  }
+
+  // Cache the result per device to avoid repeated queries
+  thread_local int64_t cached_result = 0;
+
+  if (cached_result != 0) {
+    return cached_result;
+  }
+
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/at::cuda::current_device()));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+
+  // max non portable cluster size is 16 on H100 and GB200 while portable
+  // cluster size is 8
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  // block size is set to 128, its value does not matter for the query as the
+  // max shared memory size is used to ensure 1 CTA per SM.
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 128));
+
+  // Set up launch configuration for occupancy query
+  CUlaunchConfig config{0};
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
+  config.gridDimX = 1;
+  config.gridDimY = 1;
+  config.gridDimZ = 1;
+  config.sharedMemBytes = maxDynamicSmemSize;
+  config.hStream = nullptr;
+
+  int max_cluster_size;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxPotentialClusterSize(&max_cluster_size, func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+
+  cached_result = (int64_t)max_cluster_size;
+  return cached_result;
+}
+
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
+int64_t getMaxActiveClusters(const int64_t cluster_size) {
+  // We can use a cluster size up to 16, indexed from 1 to 16.
+  thread_local std::array<int64_t, 17> cached_results;
+
+  if (cluster_size < 1 || cluster_size > 16) {
+    return 0L;
+  }
+
+  if (cached_results.at(cluster_size) != 0L) {
+    return cached_results.at(cluster_size);
+  }
+
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/at::cuda::current_device()));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
+
+  int32_t max_active_blocks;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
+
+  CUlaunchConfig config{0};
+  CUlaunchAttribute attribute[1];
+  attribute[0].id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+  attribute[0].value.clusterDim.x = (uint32_t)cluster_size;
+  attribute[0].value.clusterDim.y = 1;
+  attribute[0].value.clusterDim.z = 1;
+
+  config.numAttrs = 1;
+  config.attrs = attribute;
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
+
+  config.sharedMemBytes = maxDynamicSmemSize;
+
+  config.gridDimX = (unsigned int)cluster_size;
+  config.gridDimY = (unsigned int)max_active_blocks;
+  config.gridDimZ = 1;
+
+  int num_clusters;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+
+  cached_results.at(cluster_size) = (int64_t)num_clusters;
+  return cached_results.at(cluster_size);
+}
+
+// Computes the size of the inner TMA domain dimension for 2D TMA operations.
+//
+// Purpose: Split the problem [I0 = total_element] into 2D TMA domain
+//          [tma_domain_outer, tma_domain_inner]
+//          where tma_domain_inner = return value
+//          and tma_domain_outer = total_element / tma_domain_inner
+//
+// Parameters:
+//   total_element: Total number of elements in the flattened problem space
+//   tma_domain_inner_target: Desired size for tma_domain_inner
+//   min_dtype_bits: Minimum data type size in bits across all TMA inputs
+//
+// Returns: The computed tma_domain_inner size, or 1 if no valid size exists
+//
+int64_t getTmaDomainInner(
     int64_t total_element,
-    int64_t target_inner_tma_domain_size,
-    int64_t min_dtype_bytes) {
-  // TMA Hardware Alignment Constraints:
-  // - We use TMA without interleave; the byte size of the innermost TMA tile
-  //   must be divisible by 16 bytes.
-  // - 2D TMA requires at least 2 tiles in the inner dimension to maintain a
-  //   proper 2D structure and avoid dimension collapse.
-  // - Therefore, InnerTmaDomain must be at least 2 * 16 bytes, which translates
-  //   to (2 * 16 / min_dtype_bytes) elements.
-  constexpr int64_t align_bytes = 16;
-  const int64_t min_size = 2 * align_bytes / min_dtype_bytes;
+    int64_t tma_domain_inner_target,
+    int64_t min_dtype_bits) {
+  // ========== TMA Hardware Alignment Constraints ==========
+  // 1. TMA without interleave: Innermost TMA tile byte size must be divisible
+  //    by 16 bytes = 128 bits (hardware alignment requirement)
+  // 2. 2D TMA requirement: Need at least 2 tiles along the inner dimension to
+  //    maintain proper 2D structure (prevents dimension collapse to 1D)
+  // 3. Combined constraint: tma_domain_inner ≥ 2 * 16 bytes = 256 bits
+  //    → tma_domain_inner ≥ (256 / min_dtype_bits) elements
+  //
+  // Example: For float32 (32 bits): min_size = 256/32 = 8 elements
+
+  // align_bits: TMA tile alignment requirement (2 * 16 bytes = 256 bits)
+  constexpr int64_t align_bits = 2 * 16 * 8; // 256 bits
+
+  // min_size: Minimum elements required in tma_domain_inner to satisfy
+  // constraints Ensures (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned
+  // tiles
+  const int64_t min_size = align_bits / min_dtype_bits;
   NVF_ERROR(
       total_element % min_size == 0,
       "total_element must be divisible by min_size to satisfy 2D TMA "
@@ -3361,35 +3538,38 @@ int64_t getInnerTmaDomainSize(
       min_size,
       " = ",
       total_element % min_size);
-  // Fast path: If total_element is evenly divisible by the target size and
-  // the target size satisfies min_size constraints (already checked above),
-  // return it immediately as the optimal InnerTmaDomain size.
-  if (total_element % target_inner_tma_domain_size == 0) {
-    return target_inner_tma_domain_size;
+
+  // ========== Fast Path: Check Target Size ==========
+  // If tma_domain_inner_target is a valid divisor of total_element,
+  // use it directly as the optimal tma_domain_inner size
+  if (total_element % tma_domain_inner_target == 0) {
+    return tma_domain_inner_target;
   }
 
-  // Search Algorithm:
-  // Find the divisor of total_element that:
-  // 1. Is closest to target_inner_tma_domain_size
-  // 2. Satisfies min_size divisibility constraint
-  // 3. Is less than total_element (to ensure valid 2D split)
+  // ========== Search Algorithm: Find Optimal Divisor ==========
+  // Goal: Find a divisor of total_element that:
+  //   1. Is closest to tma_domain_inner_target
+  //   2. Satisfies min_size divisibility constraint (for TMA alignment)
+  //   3. Is less than total_element (to create valid 2D split
+  //      [tma_domain_outer, tma_domain_inner])
   //
-  // Initialize to 1. Returning 1 signals that no suitable divisor was found
-  // and the configuration is not viable for TMA.
+  // best_divisible_size: Best candidate found so far for tma_domain_inner
+  // Initialize to 1 (sentinel value indicating no suitable divisor found)
   int64_t best_divisible_size = 1;
-  int64_t best_diff =
-      std::abs(best_divisible_size - target_inner_tma_domain_size);
 
-  // Helper lambda to update the best candidate InnerTmaDomain size.
+  // best_diff: Distance between best candidate and target size
+  int64_t best_diff = std::abs(best_divisible_size - tma_domain_inner_target);
+
+  // Helper lambda to update the best candidate tma_domain_inner size.
   // Only updates if:
-  // - candidate < total_element (ensures valid 2D split: [OuterTmaDomain,
-  //   InnerTmaDomain])
-  // - candidate is closer to target_inner_tma_domain_size than current best
+  // - candidate < total_element (ensures valid 2D split:
+  //   [tma_domain_outer, tma_domain_inner])
+  // - candidate is closer to tma_domain_inner_target than current best
   auto update_best = [&](int64_t candidate) {
     if (candidate >= total_element) {
       return;
     }
-    int64_t diff = std::abs(candidate - target_inner_tma_domain_size);
+    int64_t diff = std::abs(candidate - tma_domain_inner_target);
     if (diff < best_diff) {
       best_divisible_size = candidate;
       best_diff = diff;
@@ -3399,7 +3579,8 @@ int64_t getInnerTmaDomainSize(
   // Efficient divisor search using sqrt optimization:
   // For any divisor i of total_element, we also get total_element/i.
   // We only need to check up to sqrt(total_element) to find all divisor pairs.
-  // Both divisors in each pair are evaluated as candidates for InnerTmaDomain.
+  // Both divisors in each pair are evaluated as candidates for
+  // tma_domain_inner.
   int64_t limit =
       static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
 

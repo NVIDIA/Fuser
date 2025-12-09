@@ -7,7 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/container.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/builder.h>

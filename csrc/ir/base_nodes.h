@@ -17,7 +17,6 @@
 #include <visibility.h>
 
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <stdexcept>
@@ -364,6 +363,11 @@ class NVF_API Val : public Statement {
     return definition_;
   }
 
+  // Add given dependency as an input to this Val's definition. It is for
+  // inserting schedule operations like programmatic dependent launch into a
+  // math-only fusion definition.
+  void addDependency(Val* dependency);
+
   // Determine if value definition matches given expression type
   template <typename T>
   inline bool isDefinitionType() const;
@@ -387,6 +391,12 @@ class NVF_API Val : public Statement {
         getDataType() == other->as<Val>()->getDataType();
   }
 
+  // sameDefinition determines if a two values will create the same fusion
+  // definition.
+  virtual bool sameDefinition(const Val* other_val) const;
+
+  // sameAs determines if a Statement generates the exact same outputs as this
+  // Val.
   bool sameAs(const Statement* other) const override;
 
   void setEvaluatorIndex(int to) {
@@ -439,6 +449,11 @@ class NVF_API Val : public Statement {
   bool removeUse(Expr*);
 
  private:
+  // The maybeSameVal helper function checks if the other Val has the same
+  // definition, ValType, and DType. If it returns false, then other_val cannot
+  // match with this val.
+  bool maybeSameVal(const Val* other_val) const;
+
   // There's only one instance where dtype can change, and that's through
   // resolving the index data type from nvfuser to either Int or Int32 for
   // welford operations.
@@ -530,6 +545,11 @@ class NVF_API Expr : public Statement {
   // from sameAs is that sameOp does not check the inputs.
   virtual bool sameOp(const Expr* other) const;
 
+  // Check that if this and other have same definition. This main difference
+  // from sameAs is that sameDefinition checks the inputs with sameDefinition
+  // instead of sameAs.
+  virtual bool sameDefinition(const Expr* other) const;
+
   bool sameAs(const Statement* other) const override;
 
   virtual bool isDeterministic() const {
@@ -570,6 +590,13 @@ class NVF_API Expr : public Statement {
 
   auto output(size_t index) const {
     return outputs_.at(index);
+  }
+
+  // TODO: Add Fusion passkey
+  // Allow scheduling to modify inputs
+  void addInput(Val* input) {
+    NVF_ERROR(input != nullptr);
+    inputs_.push_back(input);
   }
 
   auto attribute(size_t index) const {
@@ -624,12 +651,7 @@ class NVF_API Expr : public Statement {
   void setWritePredicate(kir::Predicate* write_predicate);
 
   // TODO: Add Fusion passkey
-  void addInput(Val* input) {
-    NVF_ERROR(input != nullptr);
-    inputs_.push_back(input);
-  }
-
-  // TODO: Add Fusion passkey
+  // Allow scheduling to modify outputs
   void addOutput(Val* output) {
     NVF_ERROR(output != nullptr);
     outputs_.push_back(output);

@@ -663,6 +663,11 @@ class ExprValidator : public OptOutDispatch {
     // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
     if (block_scaling_factor->hasAllocation()) {
       isValidBlockScaleSwizzle(block_scaling_factor);
+      NVF_ERROR_EQ(
+          bqop->isSwizzledScales(),
+          true,
+          "Block scaling factor with allocation domain requires swizzled "
+          "scales.");
     }
 
     NVF_ERROR(
@@ -1333,6 +1338,11 @@ class VectorizeValidator : public OptInDispatch {
           break;
         }
       }
+      // Schedule operations are Fusion IR dependencies that do not appear in
+      // CUDA kernel, so we skip them here.
+      if (ir_utils::isScheduleOp(input->as<TensorView>())) {
+        continue;
+      }
       NVF_ERROR(
           producer_tv == nullptr,
           "Vectorization validation only support op with a single TensorView "
@@ -1928,6 +1938,56 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
+// 1. Must have one and only one clustered domain
+// 2. clustered domain must be parallelized with ParallelType::BIDx
+// 3. reduction data type must be float or double
+// 4. cluster size must be in the range of [2, max allowed cluster
+// size]
+void validateClusterReduction(ReductionOp* rop) {
+  auto out = rop->out()->as<TensorView>();
+  // 1. Must have one and only one clustered domain
+  NVF_ERROR(
+      std::count_if(
+          out->getLoopDomain().begin(),
+          out->getLoopDomain().end(),
+          [](IterDomain* id) { return id->isClusteredBlockDim(); }) == 1,
+      "Must have one and only one clustered domain.");
+
+  // 2. clustered domain must be parallelized with ParallelType::BIDx
+  auto it = std::find_if(
+      out->getLoopDomain().begin(),
+      out->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isClusteredBlockDim(); });
+  auto clustered_domain = *it;
+  NVF_ERROR(
+      clustered_domain->getParallelType() == ParallelType::BIDx,
+      "Clustered domain must be parallelized with ParallelType::BIDx.");
+
+  // 3. reduction data type must be float or double
+  NVF_ERROR(
+      out->getDataType() == DataType::Float ||
+          out->getDataType() == DataType::Double,
+      "Clustered reduction only supports float or double reduction data type.");
+
+  // 4. cluster size must be in the range of [2, max allowed cluster size].
+  //  This is a runtime check
+  auto is_legal_cluster_size = SimplifyingIrBuilder::logicalAndExpr(
+      SimplifyingIrBuilder::leExpr(
+          clustered_domain->extent(),
+          IrBuilder::create<Val>(
+              scheduler_utils::getMaxClusterSize(), DataType::Index)),
+      SimplifyingIrBuilder::geExpr(
+          clustered_domain->extent(),
+          IrBuilder::create<Val>(2, DataType::Index)));
+  GpuLower::current()->validate(
+      is_legal_cluster_size,
+      "Clustered domain size must be less than or equal to max allowed cluster "
+      "size "
+      "and larger than 1.",
+      clustered_domain->extent()->toInlineString(),
+      " is not.");
+}
+
 void validateReductions(Fusion* fusion) {
   for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
     auto in = rop->in()->as<TensorView>();
@@ -1948,6 +2008,14 @@ void validateReductions(Fusion* fusion) {
             "Reductions of unexpanded broadcast domains should be ",
             "converted to squeeze before lowering.");
       }
+    }
+    // At this point, ReductionOp is not converted to ClusterReductionOp yet.
+    // Do extra checks of ReductionOp when clustered domain is found.
+    if (std::any_of(
+            out->getLoopDomain().begin(),
+            out->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isClusteredBlockDim(); })) {
+      validateClusterReduction(rop);
     }
   }
 }
