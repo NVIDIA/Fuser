@@ -2687,8 +2687,8 @@ TEST_P(TmaInnerReductionTest, Basic) {
   fusion.addOutput(tv1);
   auto fusion_copy = fusion;
 
-  auto options = at::TensorOptions().device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn(element_at_each_dim, options).dtype(at::kFloat);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(element_at_each_dim, options);
 
   // Phase-1, Set input and output cache and TMA load
   auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
