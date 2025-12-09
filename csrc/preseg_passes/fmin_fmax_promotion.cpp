@@ -229,17 +229,21 @@ bool minMaxOpIsRepaired(
           status = it->second;
         }
 
-        if (status == NanStatus::Unreduced) {
-          any_unreduced = true;
-        }
-        if (status == NanStatus::BadReduced) {
-          any_bad_reduced = true;
-        }
-        if (status == NanStatus::Mixed) {
-          any_mixed = true;
-        }
-        if (status == NanStatus::GoodReduced) {
-          any_good_reduced = true;
+        switch (status) {
+          case NanStatus::Unreduced:
+            any_unreduced = true;
+            break;
+          case NanStatus::BadReduced:
+            any_bad_reduced = true;
+            break;
+          case NanStatus::Mixed:
+            any_mixed = true;
+            break;
+          case NanStatus::GoodReduced:
+            any_good_reduced = true;
+            break;
+          default:
+            break;
         }
       }
     }
@@ -337,11 +341,15 @@ void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
     auto out = rop->out();
     auto in = rop->in();
 
-    if (red_op_type == BinaryOpType::Max) {
-      red_op_type = BinaryOpType::FMax;
-    }
-    if (red_op_type == BinaryOpType::Min) {
-      red_op_type = BinaryOpType::FMin;
+    switch (red_op_type) {
+      case BinaryOpType::Max:
+        red_op_type = BinaryOpType::FMax;
+        break;
+      case BinaryOpType::Min:
+        red_op_type = BinaryOpType::FMin;
+        break;
+      default:
+        NVF_THROW();
     }
 
     fusion->removeExpr(rop);
