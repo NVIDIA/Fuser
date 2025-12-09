@@ -179,6 +179,9 @@ bool canBeAnalyzed(
     } else {
       return broadcastMatches(bop, *compareBop);
     }
+  } else if (auto* lsop = dynamic_cast<LoadStoreOp*>(expr)) {
+    // LoadStoreOp is supported as long as it is not a permutation
+    return !lsop->out()->as<TensorView>()->hasRoot();
   }
 
   return false;
