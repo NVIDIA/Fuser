@@ -532,73 +532,6 @@ void inferTensorShapesAndStrides(
   NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
-// Helper function to infer allocation domain sizes and strides in LLVM IR
-// For now, implements Option A: assumes allocation domain is permutation of
-// logical (common case for views/permutes). Can be extended to handle
-// split/merge later.
-void inferAllocationSizesAndStridesLLVM(
-    const TensorView* tv,
-    llvm::Value* tensor, // at::Tensor*
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& alloc_sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& alloc_strides) {
-  // If no allocation domain, use logical domain strides from tensor
-  if (!tv->hasAllocation()) {
-    // Just extract sizes/strides directly from at::Tensor
-    const auto& logical_domain = tv->getLogicalDomain();
-    int64_t dim_idx = 0;
-    for (IterDomain* id : logical_domain | TensorDomain::kNoReductions) {
-      if (id->isDeviceDim()) {
-        alloc_sizes.push_back(builder.getInt64(1));
-        alloc_strides.push_back(builder.getInt64(0));
-      } else {
-        alloc_sizes.push_back(createTensorSize(tensor, dim_idx, builder));
-        alloc_strides.push_back(createTensorStride(tensor, dim_idx, builder));
-      }
-      dim_idx++;
-    }
-    return;
-  }
-
-  // Has allocation domain - need to map between logical and allocation
-  const auto& logical_domain = tv->getLogicalDomain();
-  const auto& alloc_domain = tv->getMaybeAllocationDomain();
-
-  // Build map from logical IterDomain to its dimension index in at::Tensor
-  std::unordered_map<IterDomain*, int64_t> logical_to_dim;
-  int64_t dim_idx = 0;
-  for (IterDomain* id : logical_domain | TensorDomain::kNoReductions) {
-    logical_to_dim[id] = dim_idx++;
-  }
-
-  // Extract allocation sizes/strides in allocation domain order
-  // Allocation domain may reorder the logical domain (e.g., permute)
-  for (IterDomain* alloc_id : alloc_domain | TensorDomain::kNoReductions) {
-    if (alloc_id->isDeviceDim()) {
-      alloc_sizes.push_back(builder.getInt64(1));
-      alloc_strides.push_back(builder.getInt64(0));
-      continue;
-    }
-
-    // Find this allocation ID in logical domain to get its tensor dimension
-    auto it = logical_to_dim.find(alloc_id);
-    if (it != logical_to_dim.end()) {
-      // Direct correspondence - extract from tensor
-      int64_t tensor_dim = it->second;
-      alloc_sizes.push_back(createTensorSize(tensor, tensor_dim, builder));
-      alloc_strides.push_back(createTensorStride(tensor, tensor_dim, builder));
-    } else {
-      // TODO: Handle split/merge transformations (Option B)
-      // For now, this is a permutation-only implementation
-      NVF_ERROR(
-          false,
-          "Complex allocation domain transformations (split/merge) not yet "
-          "supported in LLVM packing");
-    }
-  }
-}
-
 // Pack a tensor argument into the runtime::Tensor format expected by CUDA
 // kernels Returns a pointer to the packed buffer (stack-allocated) Buffer
 // layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
@@ -612,8 +545,8 @@ llvm::Value* packTensorArgumentLLVM(
   // Get allocation sizes/strides as LLVM IR values
   llvm::SmallVector<llvm::Value*, 8> alloc_sizes;
   llvm::SmallVector<llvm::Value*, 8> alloc_strides;
-  inferAllocationSizesAndStridesLLVM(
-      tv, tensor, val_to_value, builder, alloc_sizes, alloc_strides);
+  inferTensorShapesAndStrides(
+      tv, val_to_value, builder, alloc_sizes, alloc_strides);
 
   // Extract data pointer
   llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
