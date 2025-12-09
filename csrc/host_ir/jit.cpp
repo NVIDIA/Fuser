@@ -62,6 +62,8 @@ using main_func_t = void (*)(int64_t, const void**, void**);
 constexpr std::string_view kMainFuncName = "main";
 constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
+constexpr std::string_view kTensorDataPtrFuncName = "tensor_data_ptr";
+constexpr std::string_view kLaunchKernelDirectFuncName = "launch_kernel_direct";
 constexpr std::string_view kNewTensorFuncName = "new_tensor";
 constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
 constexpr std::string_view kSetTensorFuncName = "set_tensor";
@@ -69,7 +71,6 @@ constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
 constexpr std::string_view kAtTensorType = "at.Tensor";
 constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
 constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
 constexpr std::string_view kMatmulOutFuncName = "matmul_out";
 constexpr std::string_view kLinearOutFuncName = "linear_out";
 constexpr std::string_view kPermuteFuncName = "permute";
@@ -208,6 +209,17 @@ llvm::Value* createTensorStride(
   llvm::Value* dim_val = builder.getInt64(dim);
 
   return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
+}
+
+// Helper function to generate LLVM IR that extracts tensor data pointer
+llvm::Value* createTensorDataPtr(
+    llvm::Value* tensor,
+    llvm::IRBuilder<>& builder) {
+  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
+  llvm::Function* tensor_data_ptr_func =
+      module->getFunction(kTensorDataPtrFuncName);
+
+  return builder.CreateCall(tensor_data_ptr_func, {tensor});
 }
 
 // Helper function to register external functions in JIT
@@ -512,6 +524,181 @@ void inferTensorShapesAndStrides(
   NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
+// Helper function to infer allocation domain sizes and strides in LLVM IR
+// For now, implements Option A: assumes allocation domain is permutation of logical
+// (common case for views/permutes). Can be extended to handle split/merge later.
+void inferAllocationSizesAndStridesLLVM(
+    const TensorView* tv,
+    llvm::Value* tensor,  // at::Tensor*
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder,
+    llvm::SmallVectorImpl<llvm::Value*>& alloc_sizes,
+    llvm::SmallVectorImpl<llvm::Value*>& alloc_strides) {
+
+  // If no allocation domain, use logical domain strides from tensor
+  if (!tv->hasAllocation()) {
+    // Just extract sizes/strides directly from at::Tensor
+    const auto& logical_domain = tv->getLogicalDomain();
+    int64_t dim_idx = 0;
+    for (IterDomain* id : logical_domain | TensorDomain::kNoReductions) {
+      if (id->isDeviceDim()) {
+        alloc_sizes.push_back(builder.getInt64(1));
+        alloc_strides.push_back(builder.getInt64(0));
+      } else {
+        alloc_sizes.push_back(createTensorSize(tensor, dim_idx, builder));
+        alloc_strides.push_back(createTensorStride(tensor, dim_idx, builder));
+      }
+      dim_idx++;
+    }
+    return;
+  }
+
+  // Has allocation domain - need to map between logical and allocation
+  const auto& logical_domain = tv->getLogicalDomain();
+  const auto& alloc_domain = tv->getMaybeAllocationDomain();
+
+  // Build map from logical IterDomain to its dimension index in at::Tensor
+  std::unordered_map<IterDomain*, int64_t> logical_to_dim;
+  int64_t dim_idx = 0;
+  for (IterDomain* id : logical_domain | TensorDomain::kNoReductions) {
+    logical_to_dim[id] = dim_idx++;
+  }
+
+  // Extract allocation sizes/strides in allocation domain order
+  // Allocation domain may reorder the logical domain (e.g., permute)
+  for (IterDomain* alloc_id : alloc_domain | TensorDomain::kNoReductions) {
+    if (alloc_id->isDeviceDim()) {
+      alloc_sizes.push_back(builder.getInt64(1));
+      alloc_strides.push_back(builder.getInt64(0));
+      continue;
+    }
+
+    // Find this allocation ID in logical domain to get its tensor dimension
+    auto it = logical_to_dim.find(alloc_id);
+    if (it != logical_to_dim.end()) {
+      // Direct correspondence - extract from tensor
+      int64_t tensor_dim = it->second;
+      alloc_sizes.push_back(createTensorSize(tensor, tensor_dim, builder));
+      alloc_strides.push_back(createTensorStride(tensor, tensor_dim, builder));
+    } else {
+      // TODO: Handle split/merge transformations (Option B)
+      // For now, this is a permutation-only implementation
+      NVF_ERROR(false, "Complex allocation domain transformations (split/merge) not yet supported in LLVM packing");
+    }
+  }
+}
+
+// Pack a tensor argument into the runtime::Tensor format expected by CUDA kernels
+// Returns a pointer to the packed buffer (stack-allocated)
+// Buffer layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
+// where elem_size is 8 for Int64 or 4 for Int32 index types
+llvm::Value* packTensorArgumentLLVM(
+    llvm::Value* tensor,  // at::Tensor*
+    TensorView* tv,
+    PrimDataType index_type,
+    std::unordered_map<Val*, llvm::Value*>& val_to_value,
+    llvm::IRBuilder<>& builder) {
+
+  // Get allocation sizes/strides as LLVM IR values
+  llvm::SmallVector<llvm::Value*, 8> alloc_sizes;
+  llvm::SmallVector<llvm::Value*, 8> alloc_strides;
+  inferAllocationSizesAndStridesLLVM(
+      tv, tensor, val_to_value, builder, alloc_sizes, alloc_strides);
+
+  // Extract data pointer
+  llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
+
+  // Determine index element type and size
+  llvm::Type* index_elem_type;
+  size_t index_elem_size;
+  if (index_type == PrimDataType::Int) {
+    index_elem_type = builder.getInt64Ty();
+    index_elem_size = 8;
+  } else {
+    index_elem_type = builder.getInt32Ty();
+    index_elem_size = 4;
+  }
+
+  // Calculate buffer size: data_ptr + sizes + strides
+  size_t num_dims = alloc_sizes.size();
+  size_t buffer_size = 8 + (num_dims * index_elem_size * 2);
+
+  // Allocate stack buffer
+  llvm::Type* buffer_type = llvm::ArrayType::get(builder.getInt8Ty(), buffer_size);
+  llvm::Value* buffer = builder.CreateAlloca(buffer_type, nullptr, "tensor_arg_buffer");
+  llvm::Value* buffer_i8 = builder.CreateBitCast(
+      buffer,
+      llvm::PointerType::getUnqual(builder.getInt8Ty()));
+
+  // Write data pointer (first 8 bytes)
+  llvm::Value* data_ptr_loc = buffer_i8;
+  llvm::Value* data_ptr_typed = builder.CreateBitCast(
+      data_ptr_loc,
+      llvm::PointerType::getUnqual(llvm::PointerType::getUnqual(builder.getInt8Ty())));
+  builder.CreateStore(data_ptr, data_ptr_typed);
+
+  size_t offset = 8;
+
+  // Apply AdjustLastDim to sizes
+  AdjustLastDim adjust = getLastDimAdjustment(tv->dtype());
+  llvm::SmallVector<llvm::Value*, 8> adjusted_sizes = alloc_sizes;
+
+  if (!adjusted_sizes.empty() && !adjust.isTrivial()) {
+    // last_size = last_size * numerator / denominator
+    llvm::Value* last_size = adjusted_sizes.back();
+    llvm::Value* numerator = builder.getInt64(adjust.numerator);
+    llvm::Value* denominator = builder.getInt64(adjust.denominator);
+    llvm::Value* multiplied = builder.CreateMul(last_size, numerator);
+    llvm::Value* adjusted = builder.CreateUDiv(multiplied, denominator);
+    adjusted_sizes.back() = adjusted;
+  }
+
+  // Write sizes
+  for (size_t i = 0; i < num_dims; ++i) {
+    llvm::Value* size_val = adjusted_sizes[i];
+
+    if (index_type == PrimDataType::Int32) {
+      size_val = builder.CreateTrunc(size_val, builder.getInt32Ty());
+    }
+
+    llvm::Value* size_ptr = builder.CreateGEP(
+        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
+    llvm::Value* size_ptr_typed = builder.CreateBitCast(
+        size_ptr, llvm::PointerType::getUnqual(index_elem_type));
+    builder.CreateStore(size_val, size_ptr_typed);
+
+    offset += index_elem_size;
+  }
+
+  // Write strides (with AdjustLastDim applied to all except last)
+  for (size_t i = 0; i < num_dims; ++i) {
+    llvm::Value* stride_val = alloc_strides[i];
+
+    // Apply adjustment to all strides except last
+    // See [Adjust all strides but not the last one] in tensorToBytes
+    if (i < num_dims - 1 && !adjust.isTrivial()) {
+      llvm::Value* numerator = builder.getInt64(adjust.numerator);
+      llvm::Value* denominator = builder.getInt64(adjust.denominator);
+      llvm::Value* multiplied = builder.CreateMul(stride_val, numerator);
+      stride_val = builder.CreateUDiv(multiplied, denominator);
+    }
+
+    if (index_type == PrimDataType::Int32) {
+      stride_val = builder.CreateTrunc(stride_val, builder.getInt32Ty());
+    }
+
+    llvm::Value* stride_ptr = builder.CreateGEP(
+        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
+    llvm::Value* stride_ptr_typed = builder.CreateBitCast(
+        stride_ptr, llvm::PointerType::getUnqual(index_elem_type));
+    builder.CreateStore(stride_val, stride_ptr_typed);
+
+    offset += index_elem_size;
+  }
+
+  return buffer_i8;
+}
+
 void unpackInputs(
     const hir::HostIrContainer* container,
     llvm::IRBuilder<>& builder,
@@ -659,6 +846,22 @@ void compileFunctionDeclarations(
       kTensorSizeFuncName,
       module);
 
+  // tensor_stride function: int64_t tensor_stride(at::Tensor* tensor, int64_t dim)
+  llvm::Function::Create(
+      tensor_size_type,  // Same signature as tensor_size
+      llvm::Function::ExternalLinkage,
+      kTensorStrideFuncName,
+      module);
+
+  // tensor_data_ptr function: void* tensor_data_ptr(at::Tensor* tensor)
+  auto* tensor_data_ptr_type =
+      llvm::FunctionType::get(void_ptr_type, {tensor_type}, false);
+  llvm::Function::Create(
+      tensor_data_ptr_type,
+      llvm::Function::ExternalLinkage,
+      kTensorDataPtrFuncName,
+      module);
+
   // new_tensor function: at::Tensor* new_tensor()
   auto* new_tensor_type = llvm::FunctionType::get(tensor_type, {}, false);
   llvm::Function::Create(
@@ -721,23 +924,27 @@ void compileFunctionDeclarations(
       kNvtxRangePopFuncName,
       module);
 
-  // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
-  // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernel, void* hostIrContainer)
-  auto* launch_kernel_type = llvm::FunctionType::get(
+  // launch_kernel_direct function: void launch_kernel_direct(
+  //   void** kernel_args, int64_t num_args, void* cuda_function_ptr,
+  //   int64_t gdimx, int64_t gdimy, int64_t gdimz,
+  //   int64_t bdimx, int64_t bdimy, int64_t bdimz, int64_t smem)
+  auto* launch_kernel_direct_type = llvm::FunctionType::get(
       void_type,
-      {int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       void_ptr_type,
-       void_ptr_type},
+      {void_array_ptr_type,  // void** kernel_args
+       int64_type,           // num_args
+       void_ptr_type,        // cuda_function_ptr
+       int64_type,           // gdimx
+       int64_type,           // gdimy
+       int64_type,           // gdimz
+       int64_type,           // bdimx
+       int64_type,           // bdimy
+       int64_type,           // bdimz
+       int64_type},          // smem
       false);
   llvm::Function::Create(
-      launch_kernel_type,
+      launch_kernel_direct_type,
       llvm::Function::ExternalLinkage,
-      kLaunchKernelFuncName,
+      kLaunchKernelDirectFuncName,
       module);
 
   // matmul_out function: void matmul_out(at::Tensor* out, at::Tensor* a,
@@ -931,89 +1138,92 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto* void_ptr_type = getInt8PtrType(context);
     auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
 
-    // Convert input TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> inputs;
+    // Get index type from CompiledKernel
+    PrimDataType index_type =
+        launch_kernel->compiledKernel()->kernel()->indexType();
+
+    // Collect input tensors and TensorViews
+    llvm::SmallVector<llvm::Value*, 8> tensors;
+    llvm::SmallVector<TensorView*, 8> tvs;
+
     for (auto* in : launch_kernel->inputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(in)) {
-        // NOTE: we use getOrDefault for TensorView lookup because we want to
-        // bypass error checking for output tensor it is ok to have a nullptr
-        // for output tensor because it will be created in wrapper in later
-        // stage.
         llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        inputs.push_back(tensor);
-      } else {
-        inputs.push_back(getOrCreateValue(in, val_to_value_, builder_));
+        NVF_ERROR(
+            tensor != nullptr, "Input tensor not found in val_to_value map");
+        tensors.push_back(tensor);
+        tvs.push_back(tv);
       }
     }
 
-    // Convert output TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> outputs;
     for (auto* out : launch_kernel->outputs()) {
       if (auto* tv = dynamic_cast<TensorView*>(out)) {
         llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        outputs.push_back(tensor);
-      } else {
-        outputs.push_back(getOrCreateValue(out, val_to_value_, builder_));
+        NVF_ERROR(
+            tensor != nullptr, "Output tensor not found in val_to_value map");
+        tensors.push_back(tensor);
+        tvs.push_back(tv);
       }
     }
 
-    // Get the cacheId from the main function's first argument
-    llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
-
-    // Create arrays to hold tensor pointers
-    auto* input_array_type = getInt8PtrStaticArrayType(context, inputs.size());
-    auto* output_array_type =
-        getInt8PtrStaticArrayType(context, outputs.size());
-
-    llvm::Value* input_array = builder_.CreateAlloca(
-        input_array_type, nullptr, "launch_kernel_inputs");
-    llvm::Value* output_array = builder_.CreateAlloca(
-        output_array_type, nullptr, "launch_kernel_outputs");
-
-    for (size_t i = 0; i < inputs.size(); ++i) {
-      llvm::Value* gep = builder_.CreateInBoundsGEP(
-          input_array_type,
-          input_array,
-          {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(inputs[i], gep);
+    // Pack each tensor argument using LLVM IR
+    llvm::SmallVector<llvm::Value*, 16> packed_buffers;
+    for (size_t i = 0; i < tensors.size(); ++i) {
+      packed_buffers.push_back(packTensorArgumentLLVM(
+          tensors[i], tvs[i], index_type, val_to_value_, builder_));
     }
 
-    for (size_t i = 0; i < outputs.size(); ++i) {
+    // Create kernel_args array (void**)
+    size_t num_args = packed_buffers.size();
+    auto* args_array_type =
+        llvm::ArrayType::get(void_ptr_type, packed_buffers.size());
+    llvm::Value* args_array =
+        builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
+
+    for (size_t i = 0; i < packed_buffers.size(); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          output_array_type,
-          output_array,
+          args_array_type,
+          args_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(outputs[i], gep);
+      builder_.CreateStore(packed_buffers[i], gep);
     }
 
-    llvm::Value* input_array_ptr =
-        builder_.CreateBitCast(input_array, void_array_ptr_type);
-    llvm::Value* output_array_ptr =
-        builder_.CreateBitCast(output_array, void_array_ptr_type);
+    // Cast to void**
+    llvm::Value* args_array_ptr =
+        builder_.CreateBitCast(args_array, void_array_ptr_type);
 
-    llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
-    llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
+    // Get launch parameters from LaunchParams (compile-time constants)
+    const LaunchParams& lp = launch_kernel->launchParams();
 
-    llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
+    llvm::Value* gdimx = builder_.getInt64(lp.gdimx());
+    llvm::Value* gdimy = builder_.getInt64(lp.gdimy());
+    llvm::Value* gdimz = builder_.getInt64(lp.gdimz());
+    llvm::Value* bdimx = builder_.getInt64(lp.bdimx());
+    llvm::Value* bdimy = builder_.getInt64(lp.bdimy());
+    llvm::Value* bdimz = builder_.getInt64(lp.bdimz());
+    llvm::Value* smem = builder_.getInt64(lp.smem());
+
+    // Get CUDA function pointer from CompiledKernel
+    CUfunction cuda_function =
+        launch_kernel->compiledKernel()->cudaExecutable()->function;
+    llvm::Value* function_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(cuda_function)),
         void_ptr_type);
 
-    llvm::Value* container_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
-        void_ptr_type);
-
+    // Call launch_kernel_direct with all parameters
+    llvm::Value* num_args_val = builder_.getInt64(num_args);
     builder_.CreateCall(
-        module->getFunction(kLaunchKernelFuncName),
-        {cache_id_arg,
-         input_array_ptr,
-         num_inputs_constant,
-         output_array_ptr,
-         num_outputs_constant,
-         launch_kernel_ptr,
-         container_ptr});
+        module->getFunction(kLaunchKernelDirectFuncName),
+        {args_array_ptr,
+         num_args_val,
+         function_ptr,
+         gdimx,
+         gdimy,
+         gdimz,
+         bdimx,
+         bdimy,
+         bdimz,
+         smem});
   }
 
   void handle(kir::Allocate* allocate) final {
@@ -1205,6 +1415,13 @@ void HostIrJitImpl::registerExternalFunctions() {
         return tensor->stride(dim);
       });
 
+  // tensor data pointer extraction function
+  void* extract_tensor_data_ptr_func_ptr =
+      reinterpret_cast<void*>(+[](at::Tensor* tensor) -> void* {
+        NVF_ERROR(tensor != nullptr, "tensor_data_ptr: tensor is nullptr");
+        return tensor->data_ptr();
+      });
+
   // new at::Tensor() wrapper instead of real tensor allocation
   void* new_tensor_func_ptr = reinterpret_cast<void*>(
       +[]() -> at::Tensor* { return new at::Tensor(); });
@@ -1245,222 +1462,37 @@ void HostIrJitImpl::registerExternalFunctions() {
             c10::nullopt);
       });
 
-  // launch kernel function
-  void* launch_kernel_func_ptr = reinterpret_cast<
-      void*>(+[](int64_t cache_id,
-                 at::Tensor** input_tensors,
-                 int64_t num_inputs,
-                 at::Tensor** output_tensors,
-                 int64_t num_outputs,
-                 void* launch_kernel,
-                 void* container) {
-    FUSER_PERF_SCOPE("launch_kernel_func_ptr");
+  // launch_kernel_direct function: simpler wrapper that just calls cuLaunchKernelEx
+  // All argument packing is done in LLVM IR before calling this
+  void* launch_kernel_direct_func_ptr = reinterpret_cast<void*>(
+      +[](void** kernel_args,
+          int64_t num_args,
+          void* cuda_function_ptr,
+          int64_t gdimx, int64_t gdimy, int64_t gdimz,
+          int64_t bdimx, int64_t bdimy, int64_t bdimz,
+          int64_t smem) {
+    FUSER_PERF_SCOPE("launch_kernel_direct");
 
-    auto* launch_kernel_ptr = static_cast<hir::LaunchKernel*>(launch_kernel);
-    //NVF_CHECK(launch_kernel_ptr != nullptr, "launch_kernel_ptr cannot be null");
-
-    //int64_t group_id = launch_kernel_ptr->groupId();
-
-    //// Profiling
-    //if (isProfilerEnabled()) {
-    //  NVF_CHECK(
-    //      group_id >= 0,
-    //      "An invalid segment id is passed to FusionProfiler!:",
-    //      group_id);
-    //  SegmentProfiler& sprof = FusionProfiler::segment(group_id);
-
-    //  // Compute input bytes
-    //  int64_t input_bytes = 0;
-    //  for (int64_t i = 0; i < num_inputs; ++i) {
-    //    if (input_tensors[i] != nullptr) {
-    //      input_bytes +=
-    //          static_cast<int64_t>(input_tensors[i]->storage().nbytes());
-    //    }
-    //  }
-    //  sprof.inputBytesAccessed(input_bytes);
-
-    //  // Set scheduler type from compiled kernel
-    //  CompiledKernel* ck = launch_kernel_ptr->compiledKernel();
-    //  if (ck != nullptr) {
-    //    sprof.scheduler(toString(ck->schedulerType()));
-    //  }
-
-    //  // Get device index from the first input tensor if available
-    //  int8_t device_index = 0;
-    //  if (num_inputs > 0 && input_tensors[0] != nullptr) {
-    //    device_index = static_cast<int8_t>(input_tensors[0]->device().index());
-    //  } else if (num_outputs > 0 && output_tensors[0] != nullptr) {
-    //    device_index = static_cast<int8_t>(output_tensors[0]->device().index());
-    //  }
-
-    //  FusionProfiler::segment(group_id).setDevice(device_index);
-    //  sprof.startKernel();
-    //}
-
-    CompiledKernel* compiled_kernel = launch_kernel_ptr->compiledKernel();
-
-    //NVF_CHECK(
-    //    compiled_kernel != nullptr,
-    //    "CompiledKernel pointer is null for group_id ",
-    //    group_id);
-    //NVF_CHECK(
-    //    compiled_kernel->cudaExecutable() != nullptr,
-    //    "CUDA executable is null for group_id ",
-    //    group_id);
-
-    auto index_type = compiled_kernel->kernel()->indexType();
-
-    //if (isDebugDumpEnabled(DebugDumpOption::IndexType)) {
-    //  debug() << "Index type: " << index_type << std::endl;
-    //}
-
-    std::vector<std::vector<std::byte>> arg_bytes;
-    arg_bytes.reserve(num_inputs + num_outputs);
-
-    std::vector<void*> kernel_args;
-    kernel_args.reserve(num_inputs + num_outputs);
-
-    const auto& kernel_inputs = compiled_kernel->kernel()->inputs();
-    const auto& kernel_outputs = compiled_kernel->kernel()->outputs();
-
-    // Create ExpressionEvaluator and bind input tensors to it
-    // This is needed for inferAndValidateAllocationSizesAndStrides to
-    // evaluate symbolic split factors and dimension extents when
-    // transforming between logical and allocation domains
-    ExpressionEvaluator expr_eval;
-    for (int64_t i = 0; i < num_inputs; ++i) {
-      if (input_tensors[i] != nullptr &&
-          i < static_cast<int64_t>(kernel_inputs.size())) {
-        expr_eval.bind(kernel_inputs[i], PolymorphicValue(*input_tensors[i]));
-      }
-    }
-
-    // Lambda to encode a tensor with allocation strides if available
-    auto encodeTensor = [&](at::Tensor* tensor, Val* tv_val) {
-      std::vector<int64_t> sizes = tensor->sizes().vec();
-      std::vector<int64_t> strides;
-      auto* tv = dynamic_cast<TensorView*>(tv_val);
-
-      // Use allocation strides if the tensor has an allocation domain
-      if (tv) {
-        if (tv->hasAllocation()) {
-          auto [alloc_sizes, alloc_strides] =
-              inferAndValidateAllocationSizesAndStrides(*tensor, tv, expr_eval);
-          strides = alloc_strides;
-        } else {
-          strides = tensor->strides().vec();
-        }
-      } else {
-        strides = tensor->strides().vec();
-      }
-
-      auto bytes = tensorToBytes(
-          PolymorphicValue(*tensor),
-          sizes,
-          strides,
-          index_type,
-          getLastDimAdjustment(tv->dtype()),
-          sizes);
-
-      arg_bytes.push_back(std::move(bytes));
-      kernel_args.push_back(arg_bytes.back().data());
-    };
-
-    // Process Inputs
-    for (int64_t i = 0; i < num_inputs; ++i) {
-      NVF_CHECK(
-          input_tensors[i] != nullptr, "Input tensor at index ", i, " is null");
-      encodeTensor(input_tensors[i], kernel_inputs[i]);
-    }
-
-    // Process Outputs
-    for (int64_t i = 0; i < num_outputs; ++i) {
-      NVF_CHECK(
-          output_tensors[i] != nullptr,
-          "Output tensor at index ",
-          i,
-          " is null");
-      encodeTensor(output_tensors[i], kernel_outputs[i]);
-    }
-
-    //if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
-    //  // Convert raw tensor arrays to KernelArgumentHolder for
-    //  // dumpKernelArgs
-    //  KernelArgumentHolder input_holder;
-    //  for (int64_t i = 0; i < num_inputs; ++i) {
-    //    if (input_tensors[i] != nullptr) {
-    //      input_holder.push(*input_tensors[i]);
-    //    }
-    //  }
-
-    //  KernelArgumentHolder output_holder;
-    //  for (int64_t i = 0; i < num_outputs; ++i) {
-    //    if (output_tensors[i] != nullptr) {
-    //      output_holder.push(*output_tensors[i]);
-    //    }
-    //  }
-
-    //  // No intermediate buffers in host IR JIT context
-    //  KernelArgumentHolder empty_intermediates;
-    //  std::vector<GlobalBufferInfo> empty_intermediates_info;
-
-    //  dumpKernelArgs(
-    //      -1, // fusion_id not available in this context
-    //      group_id,
-    //      input_holder,
-    //      num_inputs,
-    //      output_holder,
-    //      empty_intermediates,
-    //      empty_intermediates_info);
-    //}
-
-    // Launch Config
     CUlaunchConfig config;
-
-    const LaunchParams& launch_params = launch_kernel_ptr->launchParams();
-
-    //if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
-    //  launch_params.print();
-    //}
-
     auto stream = at::cuda::getCurrentCUDAStream();
 
-    config.gridDimX = launch_params.gdimx();
-    config.gridDimY = launch_params.gdimy();
-    config.gridDimZ = launch_params.gdimz();
-    config.blockDimX = launch_params.bdimx();
-    config.blockDimY = launch_params.bdimy();
-    config.blockDimZ = launch_params.bdimz();
-    config.sharedMemBytes = launch_params.smem();
+    config.gridDimX = gdimx;
+    config.gridDimY = gdimy;
+    config.gridDimZ = gdimz;
+    config.blockDimX = bdimx;
+    config.blockDimY = bdimy;
+    config.blockDimZ = bdimz;
+    config.sharedMemBytes = smem;
     config.hStream = stream;
     config.attrs = nullptr;
     config.numAttrs = 0;
 
     // Launch the kernel
-    {
-      FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
-
-      NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
-          &config,
-          compiled_kernel->cudaExecutable()->function,
-          kernel_args.data(),
-          nullptr));
-    }
-
-    //// Profiling cleanup
-    //if (isProfilerEnabled()) {
-    //  auto& sprof = FusionProfiler::segment(group_id);
-    //  sprof.stopKernel();
-
-    //  // Compute output bytes
-    //  int64_t output_bytes = 0;
-    //  for (int64_t i = 0; i < num_outputs; ++i) {
-    //    output_bytes +=
-    //        static_cast<int64_t>(output_tensors[i]->storage().nbytes());
-    //  }
-
-    //  sprof.outputBytesAccessed(output_bytes);
-    //}
+    NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
+        &config,
+        reinterpret_cast<CUfunction>(cuda_function_ptr),
+        kernel_args,
+        nullptr));
   });
 
   // matmul_out function
@@ -1521,6 +1553,11 @@ void HostIrJitImpl::registerExternalFunctions() {
       mangler,
       kTensorStrideFuncName);
   registerExternalFunction(
+      extract_tensor_data_ptr_func_ptr,
+      name_to_symbol,
+      mangler,
+      kTensorDataPtrFuncName);
+  registerExternalFunction(
       new_tensor_func_ptr, name_to_symbol, mangler, kNewTensorFuncName);
   registerExternalFunction(
       delete_tensor_func_ptr, name_to_symbol, mangler, kDeleteTensorFuncName);
@@ -1539,7 +1576,10 @@ void HostIrJitImpl::registerExternalFunctions() {
   registerExternalFunction(
       nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
   registerExternalFunction(
-      launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
+      launch_kernel_direct_func_ptr,
+      name_to_symbol,
+      mangler,
+      kLaunchKernelDirectFuncName);
   registerExternalFunction(
       matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
   registerExternalFunction(
