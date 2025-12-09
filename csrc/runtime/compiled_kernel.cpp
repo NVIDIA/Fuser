@@ -77,6 +77,7 @@
 #include <nvfuser_resources/fused_welford_impl.h>
 #include <nvfuser_resources/fused_welford_impl_outer.h>
 #include <nvfuser_resources/grid_broadcast.h>
+#include <nvfuser_resources/grid_dependency_control.h>
 #include <nvfuser_resources/grid_reduction.h>
 #include <nvfuser_resources/grid_sync.h>
 #include <nvfuser_resources/helpers.h>
@@ -137,6 +138,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
   ss << nvfuser_resources::memory_cu;
+  ss << nvfuser_resources::grid_dependency_control_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
   ss << nvfuser_resources::fused_welford_impl_cu;
