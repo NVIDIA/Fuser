@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>

@@ -46,7 +46,8 @@ HostIrEvaluator::HostIrEvaluator(
       params_(params),
       expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
-      ipc_handle_cache_(expr_evaluator_) {
+      ipc_handle_cache_(expr_evaluator_),
+      multicast_handle_cache_() {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -322,21 +323,34 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
 
-  CommunicatorBackend backend_type = communication->backend();
-  c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), backend_type);
-
   validateSizesAndStrides(
       {input_tensor, output_tensor},
       {communication->in(), communication->out()},
       expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      backend,
-      input_tensor,
-      output_tensor);
+  CommunicatorBackend backend_type = communication->backend();
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, expected Broadcast or Allgather, got: ",
+        communication->type());
+    SymmetricMemoryHandle* multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    postWithCudaBackend(
+        communication, input_tensor, multicast_handle, current_stream);
+  } else {
+    c10d::Backend* backend =
+        communicator_->getBackendForTeam(communication->team(), backend_type);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
+  }
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -370,19 +384,32 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
-  Expr* communication = wait->communication();
-  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  Expr* expr = wait->communication();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(expr);
+  auto* communication = dynamic_cast<Communication*>(expr);
+  const auto current_stream = static_cast<CUstream>(
+      c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
-    const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
       sendWait(ipc_handles, current_stream);
     } else if (p2p_comm->type() == P2PCommunicationType::RECV) {
       recvWait(ipc_handles, current_stream);
     }
+  } else if (
+      communication && communication->backend() == CommunicatorBackend::kCuda) {
+    NVF_ERROR(
+        communication->type() == CommunicationType::Broadcast ||
+            communication->type() == CommunicationType::Allgather,
+        "Invalid communication type, only Broadcast and Allgather are "
+        "supported with cuda backend, got: ",
+        communication->type());
+    at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    SymmetricMemoryHandle* multicast_handle =
+        multicast_handle_cache_.get({output_tensor, communication});
+    waitWithCudaBackend(communication, multicast_handle, current_stream);
   } else {
-    auto i = works_.find(communication);
+    auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
 
     auto work = i->second;
@@ -390,7 +417,7 @@ void HostIrEvaluator::handle(Wait* wait) {
       work->wait();
     }
 
-    works_.erase(communication);
+    works_.erase(expr);
   }
 }
 
@@ -513,6 +540,11 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto in_tensor = getKnownConcreteValue(in).as<at::Tensor>();
   auto weight_tensor = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_tensor = getKnownConcreteValue(out).as<at::Tensor>();
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out);
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.squeeze(rfactor_did_idx);
+  }
 
   if (linear->hasBias()) {
     auto* bias = linear->bias()->as<TensorView>();
@@ -768,7 +800,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  int64_t stream_index =
+  auto stream_index =
       expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
   at::Tensor out_tensor =
       in_tensor
@@ -778,6 +810,34 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
           .at(stream_index);
 
   expr_evaluator_.bind(out_tv, out_tensor);
+}
+
+void HostIrEvaluator::handle(
+    SymmetricContiguousView* symmetric_contiguous_view) {
+  FUSER_PERF_SCOPE("HostIrEvaluator::handle(SymmetricContiguousView)");
+
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided for "
+      "SymmetricContiguousView");
+
+  auto* in_tv = symmetric_contiguous_view->in();
+  auto* out_tv = symmetric_contiguous_view->out();
+
+  NVF_ERROR(
+      in_tv->axis(0)->isDeviceDim(),
+      "Tv must be sharded on outermost dimension",
+      in_tv);
+
+  // Get the sharded input tensor
+  at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
+
+  // Get or create SymMemForContiguousView from the cache
+  SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
+      multicast_handle_cache_.get({in_tensor, symmetric_contiguous_view}));
+
+  // Bind the symmetric_contiguous_viewed tensor to the output
+  expr_evaluator_.bind(out_tv, handle->tensor());
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
