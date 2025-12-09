@@ -142,7 +142,7 @@ enum class DisableOption {
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
-  GreedyScheduler, //! Disable the grreedy scheduler
+  GreedyScheduler, //! Disable the greedy scheduler
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
   IdModel, //! Disable IdModel
