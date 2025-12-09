@@ -121,6 +121,7 @@ enum class EnableOption {
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
   TmaPointwise, //! Enable TMA pointwise kernel
+  TmaInnerPersistent, //! Enable TMA inner persistent kernel
   TmaReduction, //! Enable TMA reduction kernel
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
