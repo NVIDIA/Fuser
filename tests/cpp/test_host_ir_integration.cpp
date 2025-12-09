@@ -298,9 +298,9 @@ TEST_F(HostIrIntegrationTest, TensorAndScalarInputs) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  // Create runtime inputs
+  // Create runtime inputs - use int64 (long) to match DataType::Int
   at::Tensor in_tensor =
-      at::randint(1, 10, {3, 4}, at::dtype(at::kInt).device(at::kCUDA, 0));
+      at::randint(1, 10, {3, 4}, at::dtype(at::kLong).device(at::kCUDA, 0));
   int64_t scalar_val0 = 2;
   int64_t scalar_val1 = 3;
 

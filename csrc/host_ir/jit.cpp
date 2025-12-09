@@ -1149,35 +1149,45 @@ class HostIrCompileDispatcher : public OptInDispatch {
     PrimDataType index_type =
         launch_kernel->compiledKernel()->kernel()->indexType();
 
-    // Collect input tensors and TensorViews
-    llvm::SmallVector<llvm::Value*, 8> tensors;
-    llvm::SmallVector<TensorView*, 8> tvs;
-
-    for (auto* in : launch_kernel->inputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(in)) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(
-            tensor != nullptr, "Input tensor not found in val_to_value map");
-        tensors.push_back(tensor);
-        tvs.push_back(tv);
-      }
-    }
-
-    for (auto* out : launch_kernel->outputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(out)) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(
-            tensor != nullptr, "Output tensor not found in val_to_value map");
-        tensors.push_back(tensor);
-        tvs.push_back(tv);
-      }
-    }
-
-    // Pack each tensor argument using LLVM IR
+    // Pack each input/output argument using LLVM IR
     llvm::SmallVector<llvm::Value*, 16> packed_buffers;
-    for (size_t i = 0; i < tensors.size(); ++i) {
-      packed_buffers.push_back(packTensorArgumentLLVM(
-          tensors[i], tvs[i], index_type, val_to_value_, builder_));
+
+    // Helper lambda to pack a single Val (tensor or scalar)
+    auto packArgument = [&](Val* val) {
+      if (auto* tv = dynamic_cast<TensorView*>(val)) {
+        // Pack tensor argument
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
+        NVF_ERROR(
+            tensor != nullptr, "Tensor not found in val_to_value map: ", val);
+        packed_buffers.push_back(packTensorArgumentLLVM(
+            tensor, tv, index_type, val_to_value_, builder_));
+      } else {
+        // Pack scalar argument
+        llvm::Value* scalar = getOrDefault(val_to_value_, val);
+        NVF_ERROR(
+            scalar != nullptr, "Scalar not found in val_to_value map: ", val);
+
+        // For scalars, we need to create a stack allocation and get its pointer
+        // The scalar value is already an LLVM value (e.g., i64)
+        // We need to store it in memory and pass a pointer to that memory
+        llvm::Value* scalar_alloca = builder_.CreateAlloca(scalar->getType());
+        builder_.CreateStore(scalar, scalar_alloca);
+
+        // Cast to i8* (void*)
+        llvm::Value* scalar_ptr =
+            builder_.CreateBitCast(scalar_alloca, void_ptr_type);
+        packed_buffers.push_back(scalar_ptr);
+      }
+    };
+
+    // Pack inputs
+    for (auto* in : launch_kernel->inputs()) {
+      packArgument(in);
+    }
+
+    // Pack outputs
+    for (auto* out : launch_kernel->outputs()) {
+      packArgument(out);
     }
 
     // Create kernel_args array (void**)
