@@ -253,8 +253,11 @@ void checkMemoryLeak(llvm::Module& module) {
             "LLVM Lowering Error: called an indirect function");
 
         // If a function returns a tensor ptr, it's an allocation function
+        // Note: We specifically check for new_tensor because in opaque pointer mode,
+        // all pointers have the same type, so we can't distinguish by return type alone
         auto* return_type = called_func->getReturnType();
-        if (return_type == getTensorPtrType(context)) {
+        if (return_type == getTensorPtrType(context) &&
+            called_func->getName().str() == kNewTensorFuncName) {
           allocated_tensors.insert(call);
           continue;
         }
