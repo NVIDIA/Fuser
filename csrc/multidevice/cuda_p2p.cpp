@@ -138,6 +138,19 @@ void launchMulticastKernel(
         cuModuleGetFunction(&kernel, module, "multimem_copy_kernel"));
   }
 
+  // Ensure data is 16-byte aligned
+  NVF_CHECK(
+      (uintptr_t)dst % 16 == 0,
+      "Multicast dst must be 16-byte aligned. ptr=",
+      dst);
+  NVF_CHECK(
+      (uintptr_t)src % 16 == 0,
+      "Multicast src must be 16-byte aligned. ptr=",
+      src);
+  // Also assume size is a multiple of 16 for simplicity in the kernel
+  NVF_CHECK(
+      size % 16 == 0, "Multicast size must be a multiple of 16. size=", size);
+
   int threads = 128;
   int blocks = 1;
 
