@@ -2325,7 +2325,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_map<IterDomain*, Val*>& override_index,
     bool generate_pointer,
     DataType as_type,
-    bool is_st_matrix) {
+    bool ld_st_matrix) {
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
