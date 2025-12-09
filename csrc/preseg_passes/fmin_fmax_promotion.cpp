@@ -89,7 +89,8 @@ enum class NanStatus {
 //
 // ---- Step-by-step:
 // 1. All TV's have a None state by default.
-// 2. The analysis is launched on the max reduction which produces tv2
+// 2. We want to determine if promoting the max reduction will affect the
+//    output. So the analysis is launched on the max reduction, producer of tv2.
 // 3. We assign tv2 a BadReduced status, and tv1 an Unreduced status
 // 4. We traverse to the broadcast producing tv3. We propagate the BadReduced
 //    state to tv3. This is the first broadcast op we have seen, so we save it
@@ -120,17 +121,17 @@ bool isSafeReduction(Expr* expr, const PromotedOpSet& promoted_ops) {
   return false;
 }
 
-bool reductionMatches(ReductionOp* left, ReductionOp* right) {
-  auto* left_tv = dynamic_cast<TensorView*>(left->output(0));
-  auto* right_tv = dynamic_cast<TensorView*>(right->output(0));
+bool reductionMatches(ReductionOp* target, ReductionOp* other) {
+  auto* target_tv = dynamic_cast<TensorView*>(target->output(0));
+  auto* other_tv = dynamic_cast<TensorView*>(other->output(0));
 
-  if (left_tv->nDims() != right_tv->nDims()) {
+  if (target_tv->nDims() != other_tv->nDims()) {
     return false;
   }
 
-  for (int i = 0; i < left_tv->nDims(); ++i) {
-    if (left_tv->getLogicalDomain()[i]->isReduction() !=
-        right_tv->getLogicalDomain()[i]->isReduction()) {
+  for (int i = 0; i < target_tv->nDims(); ++i) {
+    if (target_tv->getLogicalDomain()[i]->isReduction() !=
+        other_tv->getLogicalDomain()[i]->isReduction()) {
       return false;
     }
   }
