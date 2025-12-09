@@ -532,8 +532,10 @@ void inferTensorShapesAndStrides(
   NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
-// Pack a tensor argument into the runtime::Tensor format expected by CUDA
-// kernels Returns a pointer to the packed buffer (stack-allocated) Buffer
+// Packs a tensor argument into the runtime::Tensor format expected by CUDA
+// kernels. Returns a pointer to the packed buffer (stack-allocated)
+//
+// Buffer
 // layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
 // where elem_size is 8 for Int64 or 4 for Int32 index types
 llvm::Value* packTensorArgument(
