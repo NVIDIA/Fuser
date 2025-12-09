@@ -23,6 +23,10 @@ from .git import check_git_submodules_initialized
 from .gcc import validate_gcc
 from .nccl import check_nccl_available
 from .llvm import check_llvm_installed
+from .requirements import (
+    PYTHON, CMAKE, NINJA, PYTORCH, CUDA, PYBIND11, GCC, LLVM,
+    format_version,
+)
 
 
 def validate_prerequisites() -> Dict[str, Any]:
@@ -35,15 +39,15 @@ def validate_prerequisites() -> Dict[str, Any]:
     
     Check order (fail-fast after platform detection):
     1. Platform detection (informational only)
-    2. Python 3.8+
-    3. CMake 3.18+
-    4. Ninja 1.10+
-    5. PyTorch 2.0+ with CUDA 12.8+ (includes system CUDA validation)
-    6. pybind11 2.0+
+    2. Python
+    3. CMake
+    4. Ninja
+    5. PyTorch with CUDA (includes system CUDA validation)
+    6. pybind11
     7. Git submodules initialized
-    8. GCC 13+ with C++20 <format> header
+    8. GCC with C++20 <format> header
     9. NCCL headers/library (if distributed enabled)
-    10. LLVM 18.1+
+    10. LLVM
     
     Returns:
         Dict[str, Any]: Dictionary containing metadata about all detected prerequisites
@@ -54,18 +58,19 @@ def validate_prerequisites() -> Dict[str, Any]:
     Example:
         >>> metadata = validate_prerequisites()
         [nvFuser] Platform: Linux x86_64, Ubuntu 22.04
-        [nvFuser] ✓ Python 3.10.12 >= 3.8
-        [nvFuser] ✓ CMake 3.22.1 >= 3.18
-        [nvFuser] ✓ Ninja 1.11.1 >= 1.10
-        [nvFuser] ✓ PyTorch 2.1.0 with CUDA 12.8 >= 2.0 with CUDA 12.8
-        [nvFuser] ✓ System CUDA 12.8 (matches PyTorch CUDA 12.8)
-        [nvFuser] ✓ pybind11 2.11.1 >= 2.0 with CMake support
-        [nvFuser] ✓ Git submodules: 15 initialized
-        [nvFuser] ✓ GCC 13.2.0 >= 13.0 with <format> header
-        [nvFuser] ✓ NCCL found (headers: /path/to/nvidia/nccl/include)
-        [nvFuser] ✓ LLVM 18.1.8 >= 18.1
+        [nvFuser] ✓ Python X.Y.Z >= {PYTHON.min_str}
+        [nvFuser] ✓ CMake X.Y.Z >= {CMAKE.min_str}
+        [nvFuser] ✓ Ninja X.Y.Z (any version)
+        [nvFuser] ✓ PyTorch X.Y with CUDA X.Y >= {PYTORCH.min_str} with CUDA {CUDA.min_str}
+        [nvFuser] ✓ pybind11 X.Y.Z >= {PYBIND11.min_str} with CMake support
+        [nvFuser] ✓ Git submodules: N initialized
+        [nvFuser] ✓ GCC X.Y.Z >= {GCC.min_str} with <format> header
+        [nvFuser] ✓ NCCL found (headers: /path/to/nccl/include)
+        [nvFuser] ✓ LLVM X.Y.Z >= {LLVM.min_str}
         
         ✓✓✓ All prerequisites validated ✓✓✓
+        
+        Note: Version requirements are defined in requirements.py.
         
         >>> metadata.keys()
         dict_keys(['platform', 'python', 'cmake', 'ninja', 'torch', 'cuda', 
@@ -84,23 +89,24 @@ def validate_prerequisites() -> Dict[str, Any]:
     
     # Python version check
     python_ver = check_python_version()
-    print(f"[nvFuser] ✓ Python {'.'.join(map(str, python_ver))} >= 3.8")
+    print(f"[nvFuser] ✓ {PYTHON.name} {format_version(python_ver)} >= {PYTHON.min_str}")
     
     # Build tools checks
     cmake_ver = check_cmake_version()
-    print(f"[nvFuser] ✓ CMake {'.'.join(map(str, cmake_ver))} >= 3.18")
+    print(f"[nvFuser] ✓ {CMAKE.name} {format_version(cmake_ver)} >= {CMAKE.min_str}")
     
     ninja_ver = check_ninja_installed()
-    print(f"[nvFuser] ✓ Ninja {ninja_ver} >= 1.10")
+    ninja_display = f">= {NINJA.min_str}" if NINJA.min_version else "(any version)"
+    print(f"[nvFuser] ✓ {NINJA.name} {ninja_ver} {ninja_display}")
     
     # PyTorch and CUDA check (includes system CUDA validation)
     torch_ver, cuda_ver = check_torch_installed()
-    print(f"[nvFuser] ✓ PyTorch {torch_ver} with CUDA {cuda_ver} >= 2.0 with CUDA 12.8")
+    print(f"[nvFuser] ✓ {PYTORCH.name} {torch_ver} with {CUDA.name} {cuda_ver} >= {PYTORCH.min_str} with {CUDA.name} {CUDA.min_str}")
     # System CUDA validation messages are printed by check_torch_installed()
     
     # pybind11 check
     pybind11_ver = check_pybind11_installed()
-    print(f"[nvFuser] ✓ pybind11 {pybind11_ver} >= 2.0 with CMake support")
+    print(f"[nvFuser] ✓ {PYBIND11.name} {pybind11_ver} >= {PYBIND11.min_str} with CMake support")
     
     # Git submodules check
     submodules = check_git_submodules_initialized()
@@ -111,7 +117,7 @@ def validate_prerequisites() -> Dict[str, Any]:
     
     # GCC validation
     gcc_ver = validate_gcc()
-    print(f"[nvFuser] ✓ GCC {'.'.join(map(str, gcc_ver))} >= 13.0 with <format> header")
+    print(f"[nvFuser] ✓ {GCC.name} {format_version(gcc_ver)} >= {GCC.min_str} with <format> header")
     
     # NCCL check (only when distributed is enabled)
     nccl_result = check_nccl_available()
@@ -123,7 +129,7 @@ def validate_prerequisites() -> Dict[str, Any]:
     
     # LLVM check
     llvm_ver = check_llvm_installed()
-    print(f"[nvFuser] ✓ LLVM {llvm_ver} >= 18.1")
+    print(f"[nvFuser] ✓ {LLVM.name} {llvm_ver} >= {LLVM.min_str}")
     
     # Success summary with prominent banner
     print("\n" + "=" * 60)

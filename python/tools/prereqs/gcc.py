@@ -18,6 +18,7 @@ import subprocess
 from typing import Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
+from .requirements import GCC, format_version
 
 
 def get_gcc_version() -> Optional[Tuple[int, int, int]]:
@@ -97,19 +98,19 @@ def check_format_support() -> bool:
 
 def validate_gcc() -> Tuple[int, int, int]:
     """
-    Validate that GCC 13+ is available with <format> header support.
+    Validate that GCC meets minimum version requirement with <format> header support.
     
     This is the main validation function that should be called during 
     nvFuser's setup process. It checks:
     1. GCC is installed
-    2. GCC version >= 13
+    2. GCC version meets minimum requirement
     3. <format> header compiles successfully
     
     Returns:
         Tuple[int, int, int]: GCC version as (major, minor, patch) tuple
         
     Raises:
-        PrerequisiteMissingError: If GCC not found, version < 13, or 
+        PrerequisiteMissingError: If GCC not found, version below minimum, or 
                                   <format> header not available
         
     Example:
@@ -120,42 +121,43 @@ def validate_gcc() -> Tuple[int, int, int]:
     """
     # Check if GCC is installed
     gcc_ver = get_gcc_version()
+    gcc_min = GCC.min_version[0]  # Major version only
     
     if gcc_ver is None:
         raise PrerequisiteMissingError(
-            "ERROR: GCC not found. nvFuser requires GCC 13+ to build.\n\n"
-            "GCC is required to compile nvFuser's C++ source code.\n"
-            "The C++20 <format> header is used in the codebase.\n\n"
-            "To install GCC 13 on Ubuntu 22.04:\n"
-            "  sudo add-apt-repository ppa:ubuntu-toolchain-r/test\n"
-            "  sudo apt update\n"
-            "  sudo apt install gcc-13 g++-13\n"
-            "  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100\n"
-            "  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100\n"
+            f"ERROR: {GCC.name} not found. nvFuser requires {GCC.name} {GCC.min_display} to build.\n\n"
+            f"{GCC.name} is required to compile nvFuser's C++ source code.\n"
+            f"The C++20 <format> header is used in the codebase.\n\n"
+            f"To install {GCC.name} {gcc_min} on Ubuntu 22.04:\n"
+            f"  sudo add-apt-repository ppa:ubuntu-toolchain-r/test\n"
+            f"  sudo apt update\n"
+            f"  sudo apt install gcc-{gcc_min} g++-{gcc_min}\n"
+            f"  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{gcc_min} 100\n"
+            f"  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{gcc_min} 100\n"
         )
     
     # Check version requirement
     major, minor, patch = gcc_ver
     
-    if major < 13:
+    if not GCC.check(gcc_ver):
         raise PrerequisiteMissingError(
-            f"ERROR: nvFuser requires GCC 13+ to build.\n"
-            f"Found: GCC {major}.{minor}.{patch}\n\n"
+            f"ERROR: nvFuser requires {GCC.name} {GCC.min_display} to build.\n"
+            f"Found: {GCC.name} {format_version(gcc_ver)}\n\n"
             f"The C++20 <format> header is required by nvFuser's source code.\n"
-            f"This header is available in GCC 13+ (not in GCC {major}).\n\n"
-            f"To install GCC 13 on Ubuntu 22.04:\n"
+            f"This header is available in {GCC.name} {GCC.min_display} (not in {GCC.name} {major}).\n\n"
+            f"To install {GCC.name} {gcc_min} on Ubuntu 22.04:\n"
             f"  sudo add-apt-repository ppa:ubuntu-toolchain-r/test\n"
             f"  sudo apt update\n"
-            f"  sudo apt install gcc-13 g++-13\n"
-            f"  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100\n"
-            f"  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100\n"
+            f"  sudo apt install gcc-{gcc_min} g++-{gcc_min}\n"
+            f"  sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{gcc_min} 100\n"
+            f"  sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{gcc_min} 100\n"
         )
     
     # Verify <format> header is actually available
     if not check_format_support():
         # This is unusual - GCC 13+ should have format support
-        print(f"[nvFuser] WARNING: GCC {major}.{minor}.{patch} detected but <format> header not available")
-        print(f"[nvFuser] Build may fail. Please verify GCC installation is complete.")
+        print(f"[nvFuser] WARNING: {GCC.name} {format_version(gcc_ver)} detected but <format> header not available")
+        print(f"[nvFuser] Build may fail. Please verify {GCC.name} installation is complete.")
         # Don't raise error here - let the build attempt proceed
     
     return gcc_ver

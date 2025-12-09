@@ -4,15 +4,13 @@
 """
 LLVM prerequisite validation for nvFuser build.
 
-nvFuser requires LLVM 18.1+ to build because it links against LLVM libraries
+nvFuser requires LLVM to build because it links against LLVM libraries
 during compilation for runtime Host IR JIT compilation. The build will fail
 during CMake configuration or linking if LLVM is missing or too old.
 
 Ubuntu 22.04 ships with LLVM 14 by default, which is too old. Users must
-install LLVM 18.1+ either from prebuilt binaries (no sudo required) or from
+install a newer LLVM either from prebuilt binaries (no sudo required) or from
 the LLVM APT repository.
-
-CMakeLists.txt specifies: LLVM_MINIMUM_VERSION "18.1"
 """
 
 import os
@@ -23,6 +21,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
+from .requirements import LLVM, parse_version, format_version, llvm_download_url
 
 
 def _find_llvm_config() -> Optional[str]:
@@ -35,7 +34,7 @@ def _find_llvm_config() -> Optional[str]:
     3. LLVM_ROOT/bin/llvm-config environment variable
     4. llvm-config on PATH
     5. System known locations
-    6. Project-local locations (scanning for 18.* versions)
+    6. Project-local locations (scanning for compatible versions)
     
     Returns:
         Optional[str]: Path to llvm-config if found, None otherwise
@@ -46,6 +45,7 @@ def _find_llvm_config() -> Optional[str]:
         '/home/user/nvfuser/.llvm/18.1.8/bin/llvm-config'
     """
     candidates = []
+    llvm_major = LLVM.min_version[0]  # e.g., 18
     
     # 1. Explicit LLVM_CONFIG env var
     if llvm_config_env := os.environ.get('LLVM_CONFIG'):
@@ -68,10 +68,10 @@ def _find_llvm_config() -> Optional[str]:
     if llvm_in_path := shutil.which('llvm-config'):
         candidates.append(llvm_in_path)
     
-    # 5. System known locations
+    # 5. System known locations (use minimum major version)
     system_paths = [
-        '/usr/lib/llvm-18/bin/llvm-config',
-        '/usr/local/llvm-18/bin/llvm-config',
+        f'/usr/lib/llvm-{llvm_major}/bin/llvm-config',
+        f'/usr/local/llvm-{llvm_major}/bin/llvm-config',
         '/opt/llvm/bin/llvm-config',
     ]
     candidates.extend(system_paths)
@@ -81,12 +81,12 @@ def _find_llvm_config() -> Optional[str]:
     repo_root = Path(__file__).resolve().parents[3]
     project_paths = []
     
-    # Check for any 18.* or 19.* version in project locations
+    # Check for compatible versions in project locations
     for parent in [repo_root / '.llvm', repo_root / 'third_party' / 'llvm']:
         if parent.exists():
-            # Scan for any 18.x or newer versions
-            for pattern in ['18.*', '19.*', '20.*']:
-                for child in parent.glob(pattern):
+            # Scan for compatible versions (minimum and above)
+            for major in range(llvm_major, llvm_major + 3):  # e.g., 18, 19, 20
+                for child in parent.glob(f'{major}.*'):
                     if child.is_dir():
                         project_paths.append(child / 'bin' / 'llvm-config')
     
@@ -102,7 +102,7 @@ def _find_llvm_config() -> Optional[str]:
     return None
 
 
-def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, int, int]]:
+def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, ...]]:
     """
     Parse LLVM version string into tuple.
     
@@ -115,7 +115,7 @@ def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, int, int]]:
         version_str: Version string from llvm-config --version
         
     Returns:
-        Optional[Tuple[int, int, int]]: (major, minor, patch) or None if parse fails
+        Optional[Tuple[int, ...]]: Version tuple or None if parse fails
         
     Example:
         >>> _parse_llvm_version("18.1.8")
@@ -123,34 +123,26 @@ def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, int, int]]:
         >>> _parse_llvm_version("18.1.8git")
         (18, 1, 8)
     """
-    # Remove 'git' suffix if present
-    version_clean = version_str.strip().replace('git', '')
-    
-    # Match version pattern: major.minor.patch
-    match = re.match(r'(\d+)\.(\d+)\.(\d+)', version_clean)
-    if match:
-        major = int(match.group(1))
-        minor = int(match.group(2))
-        patch = int(match.group(3))
-        return (major, minor, patch)
-    
-    return None
+    try:
+        return parse_version(version_str)
+    except ValueError:
+        return None
 
 
 def check_llvm_installed() -> str:
     """
-    Validate that LLVM 18.1+ is available for building nvFuser.
+    Validate that LLVM meets minimum version requirement for building nvFuser.
     
     This is the main validation function that should be called during
     nvFuser's setup process. It checks:
     1. llvm-config is available (in PATH or common locations)
-    2. LLVM version >= 18.1
+    2. LLVM version meets minimum requirement
     
     Returns:
         str: LLVM version string (e.g., "18.1.8")
         
     Raises:
-        PrerequisiteMissingError: If LLVM not found or version < 18.1
+        PrerequisiteMissingError: If LLVM not found or version below minimum
         
     Example:
         >>> version = check_llvm_installed()
@@ -160,31 +152,35 @@ def check_llvm_installed() -> str:
     """
     # Calculate repo root for error messages
     repo_root = Path(__file__).resolve().parents[3]
+    llvm_major = LLVM.min_version[0]
+    download_url = llvm_download_url()
+    tarball_name = download_url.split('/')[-1]
+    dir_name = tarball_name.replace('.tar.xz', '')
     
     # Find llvm-config
     llvm_config = _find_llvm_config()
     
     if not llvm_config:
         raise PrerequisiteMissingError(
-            "ERROR: LLVM not found.\n\n"
-            "nvFuser requires LLVM 18.1+ to build (for runtime Host IR JIT).\n"
-            "llvm-config must be in PATH or at a known location.\n\n"
-            "Installation options:\n\n"
-            "Option 1: Download prebuilt binaries (recommended, no sudo needed, project-local):\n"
+            f"ERROR: {LLVM.name} not found.\n\n"
+            f"nvFuser requires {LLVM.name} {LLVM.min_display} to build (for runtime Host IR JIT).\n"
+            f"llvm-config must be in PATH or at a known location.\n\n"
+            f"Installation options:\n\n"
+            f"Option 1: Download prebuilt binaries (recommended, no sudo needed, project-local):\n"
             f"  cd {repo_root}  # your nvfuser repo root\n"
-            "  mkdir -p .llvm\n"
-            "  cd .llvm\n"
-            "  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz\n"
-            "  tar -xf clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz\n"
-            "  mv clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04 18.1.8\n"
-            "  # Then set environment variable:\n"
-            "  export LLVM_CONFIG=$(pwd)/18.1.8/bin/llvm-config\n\n"
-            "Option 2: Install from LLVM APT repository (requires sudo):\n"
-            "  wget https://apt.llvm.org/llvm.sh\n"
-            "  chmod +x llvm.sh\n"
-            "  sudo ./llvm.sh 18\n"
-            "  # llvm-config-18 will be installed at /usr/lib/llvm-18/bin/llvm-config\n"
-            "  export LLVM_CONFIG=/usr/lib/llvm-18/bin/llvm-config\n"
+            f"  mkdir -p .llvm\n"
+            f"  cd .llvm\n"
+            f"  wget {download_url}\n"
+            f"  tar -xf {tarball_name}\n"
+            f"  mv {dir_name} {LLVM.recommended_str}\n"
+            f"  # Then set environment variable:\n"
+            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n\n"
+            f"Option 2: Install from LLVM APT repository (requires sudo):\n"
+            f"  wget https://apt.llvm.org/llvm.sh\n"
+            f"  chmod +x llvm.sh\n"
+            f"  sudo ./llvm.sh {llvm_major}\n"
+            f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
+            f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
         )
     
     # Get version
@@ -198,14 +194,14 @@ def check_llvm_installed() -> str:
         version_str = result.stdout.strip()
     except subprocess.CalledProcessError as e:
         raise PrerequisiteMissingError(
-            f"ERROR: Failed to get LLVM version from: {llvm_config}\n\n"
+            f"ERROR: Failed to get {LLVM.name} version from: {llvm_config}\n\n"
             f"Command: {llvm_config} --version\n"
             f"Error: {e.stderr}\n"
         )
     except FileNotFoundError:
         raise PrerequisiteMissingError(
             f"ERROR: llvm-config found at {llvm_config} but cannot be executed.\n\n"
-            "The file may not have execute permissions or may be corrupted.\n"
+            f"The file may not have execute permissions or may be corrupted.\n"
         )
     
     # Parse version
@@ -213,33 +209,31 @@ def check_llvm_installed() -> str:
     
     if version_tuple is None:
         raise PrerequisiteMissingError(
-            f"ERROR: Could not parse LLVM version from: {version_str}\n\n"
+            f"ERROR: Could not parse {LLVM.name} version from: {version_str}\n\n"
             f"llvm-config location: {llvm_config}\n"
-            "Expected version format: 18.1.8 or similar\n"
+            f"Expected version format: {LLVM.recommended_str} or similar\n"
         )
     
-    major, minor, patch = version_tuple
-    
-    # Check version requirement: >= 18.1
-    if major < 18 or (major == 18 and minor < 1):
+    # Check version requirement
+    if not LLVM.check(version_tuple):
         raise PrerequisiteMissingError(
-            f"ERROR: nvFuser requires LLVM 18.1+.\n"
-            f"Found: LLVM {major}.{minor}.{patch} at {llvm_config}\n\n"
-            f"Ubuntu 22.04 ships with LLVM 14, which is too old.\n\n"
-            f"Install LLVM 18.1+ using one of these options:\n\n"
-            "Option 1: Download prebuilt binaries (recommended, no sudo needed):\n"
+            f"ERROR: nvFuser requires {LLVM.name} {LLVM.min_display}.\n"
+            f"Found: {LLVM.name} {format_version(version_tuple)} at {llvm_config}\n\n"
+            f"Ubuntu 22.04 ships with {LLVM.name} 14, which is too old.\n\n"
+            f"Install {LLVM.name} {LLVM.min_display} using one of these options:\n\n"
+            f"Option 1: Download prebuilt binaries (recommended, no sudo needed):\n"
             f"  cd {repo_root}  # your nvfuser repo root\n"
-            "  mkdir -p .llvm\n"
-            "  cd .llvm\n"
-            "  wget https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz\n"
-            "  tar -xf clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz\n"
-            "  mv clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04 18.1.8\n"
-            "  export LLVM_CONFIG=$(pwd)/18.1.8/bin/llvm-config\n\n"
-            "Option 2: Install from LLVM APT repository (requires sudo):\n"
-            "  wget https://apt.llvm.org/llvm.sh\n"
-            "  chmod +x llvm.sh\n"
-            "  sudo ./llvm.sh 18\n"
-            "  export LLVM_CONFIG=/usr/lib/llvm-18/bin/llvm-config\n"
+            f"  mkdir -p .llvm\n"
+            f"  cd .llvm\n"
+            f"  wget {download_url}\n"
+            f"  tar -xf {tarball_name}\n"
+            f"  mv {dir_name} {LLVM.recommended_str}\n"
+            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n\n"
+            f"Option 2: Install from LLVM APT repository (requires sudo):\n"
+            f"  wget https://apt.llvm.org/llvm.sh\n"
+            f"  chmod +x llvm.sh\n"
+            f"  sudo ./llvm.sh {llvm_major}\n"
+            f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
         )
     
     return version_str

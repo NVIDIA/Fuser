@@ -8,19 +8,22 @@ This package provides utilities for validating build prerequisites before
 attempting to build nvFuser from source. It helps provide clear, actionable
 error messages when prerequisites are missing or have incorrect versions.
 
+Version requirements are centralized in requirements.py. See PYTHON, CMAKE,
+NINJA, PYTORCH, CUDA, PYBIND11, GCC, LLVM constants for current versions.
+
 Key Components:
     - PrerequisiteMissingError: Exception raised when prerequisites are missing
     - detect_platform(): Detect OS, architecture, and Linux distribution
     - format_platform_info(): Format platform information as readable string
-    - check_python_version(): Validate Python version (3.8+)
-    - check_cmake_version(): Validate CMake version (3.18+)
-    - check_ninja_installed(): Validate Ninja build system
+    - check_python_version(): Validate Python meets minimum version
+    - check_cmake_version(): Validate CMake meets minimum version
+    - check_ninja_installed(): Validate Ninja build system (any version)
     - check_pybind11_installed(): Validate pybind11 with CMake support
-    - check_torch_installed(): Validate PyTorch 2.0+ with CUDA 12.8+
+    - check_torch_installed(): Validate PyTorch with CUDA support
     - check_git_submodules_initialized(): Validate git submodules are initialized
-    - validate_gcc(): Validate GCC 13+ with C++20 <format> header support
+    - validate_gcc(): Validate GCC with C++20 <format> header support
     - check_nccl_available(): Validate NCCL headers/library for distributed builds
-    - check_llvm_installed(): Validate LLVM 18.1+ for build-time linking
+    - check_llvm_installed(): Validate LLVM for build-time linking
 
 Usage:
     from tools.prereqs import PrerequisiteMissingError, detect_platform
@@ -40,6 +43,16 @@ from .gcc import validate_gcc
 from .nccl import check_nccl_available
 from .llvm import check_llvm_installed
 from .validate import validate_prerequisites
+from .requirements import (
+    Requirement,
+    parse_version,
+    format_version,
+    PYTHON, CMAKE, NINJA, PYTORCH, CUDA, PYBIND11, GCC, LLVM,
+    CUDA_AVAILABLE,
+    pytorch_index_url,
+    llvm_download_url,
+    pytorch_install_instructions,
+)
 
 __all__ = [
     "PrerequisiteMissingError",
@@ -55,5 +68,14 @@ __all__ = [
     "check_nccl_available",
     "check_llvm_installed",
     "validate_prerequisites",
+    # Central requirements
+    "Requirement",
+    "parse_version",
+    "format_version",
+    "PYTHON", "CMAKE", "NINJA", "PYTORCH", "CUDA", "PYBIND11", "GCC", "LLVM",
+    "CUDA_AVAILABLE",
+    "pytorch_index_url",
+    "llvm_download_url",
+    "pytorch_install_instructions",
 ]
 
