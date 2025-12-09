@@ -276,4 +276,47 @@ TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
       }));
 }
 
+TEST_F(HostIrIntegrationTest, TensorAndScalarInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create tensor and scalar inputs
+  // NOTE: Host IR JIT currently only supports Index scalar inputs (int64_t)
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Int);
+  Val* scalar0 = IrBuilder::create<Val>(DataType::Index);
+  Val* scalar1 = IrBuilder::create<Val>(DataType::Index);
+
+  fusion->addInput(tv0);
+  fusion->addInput(scalar0);
+  fusion->addInput(scalar1);
+
+  // Use both tensors and scalars in computation
+  // out = (tv0 + scalar0) * scalar1
+  TensorView* tv1 = add(tv0, castOp(DataType::Int, scalar0));
+  TensorView* tv2 = mul(tv1, castOp(DataType::Int, scalar1));
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // Create runtime inputs
+  at::Tensor in_tensor =
+      at::randint(1, 10, {3, 4}, at::dtype(at::kInt).device(at::kCUDA, 0));
+  int64_t scalar_val0 = 2;
+  int64_t scalar_val1 = 3;
+
+  auto out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor, scalar_val0, scalar_val1});
+
+  // Expected output: (in_tensor + 2) * 3
+  at::Tensor expected = (in_tensor + scalar_val0) * scalar_val1;
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor, scalar_val0, scalar_val1},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
 } // namespace nvfuser::hir
