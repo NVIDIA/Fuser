@@ -160,7 +160,12 @@ SymMemForBroadcast::SymMemForBroadcast(
   buffer_sym_tensor_->setupRemoteHandles(store_key_prefix + "_buffer_unicast");
 
   // Setup multicast for the buffer
-  buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    buffer_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_buffer_mcast");
+  }
 
   // Create semaphore tensor
   at::Tensor semaphore = SymmetricTensor::allocate(
@@ -183,8 +188,11 @@ SymMemForBroadcast::SymMemForBroadcast(
   semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 
   // Setup multicast for the semaphore
-  semaphore_sym_tensor_->setupMulticast(
-      root, store_key_prefix + "_semaphore_mcast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphore_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_semaphore_mcast");
+  }
 }
 
 void* SymMemForBroadcast::bufferMulticastPtr() const {
@@ -225,9 +233,13 @@ SymMemForAllgather::SymMemForAllgather(
   slice_size_bytes_ = slice_numel * buffer.element_size();
 
   // Setup Multicast on full buffer
-  full_buffer_sym_tensor_->setupMulticast(
-      /*exporter_rank=*/0,
-      "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    full_buffer_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+  }
 
   // Allocate semaphores (one per rank) in a single symmetric tensor
   at::Tensor semaphores = SymmetricTensor::allocate(
@@ -244,9 +256,12 @@ SymMemForAllgather::SymMemForAllgather(
   semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
   semaphores_sym_tensor_->setupRemoteHandles(
       "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_unicast");
-  semaphores_sym_tensor_->setupMulticast(
-      /*exporter_rank=*/0,
-      "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphores_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
+  }
 }
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {

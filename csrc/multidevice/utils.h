@@ -91,4 +91,8 @@ bool isValidDeviceSplit(Expr* expr);
 // See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
 int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
+enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
+
+MulticastProtocol getMulticastProtocol();
+
 } // namespace nvfuser

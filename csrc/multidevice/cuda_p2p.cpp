@@ -9,6 +9,7 @@
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
 #include <multidevice/symmetric_tensor.h>
+#include <multidevice/utils.h>
 #include <nvfuser_resources/multicast.h>
 #include <options.h>
 
@@ -31,21 +32,6 @@ P2pProtocol getP2pProtocol() {
 }
 
 namespace {
-
-enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
-
-MulticastProtocol getMulticastProtocol() {
-  if (isOptionEnabled(EnableOption::MulticastProtocol)) {
-    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
-      return MulticastProtocol::Multimem;
-    }
-    if (hasEnableOptionArgument(
-            EnableOption::MulticastProtocol, "batch_memcpy")) {
-      return MulticastProtocol::BatchMemcpy;
-    }
-  }
-  return MulticastProtocol::Memcpy;
-}
 
 void launchMulticastKernel(
     void* dst,

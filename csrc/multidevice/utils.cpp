@@ -23,6 +23,7 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
 #include <type.h>
@@ -381,6 +382,19 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   }
 
   return rfactor_did_idx;
+}
+
+MulticastProtocol getMulticastProtocol() {
+  if (isOptionEnabled(EnableOption::MulticastProtocol)) {
+    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
+      return MulticastProtocol::Multimem;
+    }
+    if (hasEnableOptionArgument(
+            EnableOption::MulticastProtocol, "batch_memcpy")) {
+      return MulticastProtocol::BatchMemcpy;
+    }
+  }
+  return MulticastProtocol::Memcpy;
 }
 
 } // namespace nvfuser
