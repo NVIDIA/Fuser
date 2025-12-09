@@ -1495,11 +1495,14 @@ void HostIrJitImpl::registerExternalFunctions() {
     config.numAttrs = 0;
 
     // Launch the kernel
+    {
+    FUSER_PERF_SCOPE("cuLaunchKernelEx");
     NVFUSER_CUDA_SAFE_CALL(cuLaunchKernelEx(
         &config,
         reinterpret_cast<CUfunction>(cuda_function_ptr),
         kernel_args,
         nullptr));
+    }
   });
 
   // matmul_out function
