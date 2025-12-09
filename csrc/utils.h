@@ -63,23 +63,11 @@ constexpr int64_t kMaxElementsPerTmaTileDim = kMaxElementsPerTmaBoxDim;
 constexpr int64_t kSharedMemoryAlignmentBytes = 128;
 
 class KernelArgumentHolder;
-struct GlobalBufferInfo;
 
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
 std::string debug_str(const at::Tensor& tensor);
-
-//! Dump kernel arguments for debugging. Displays inputs, outputs, and
-//! intermediate global buffers with their initialization status.
-void dumpKernelArgs(
-    int64_t fusion_id,
-    int64_t group_id,
-    const KernelArgumentHolder& args,
-    size_t num_inputs,
-    const KernelArgumentHolder& allocated_outputs,
-    const KernelArgumentHolder& intermediates,
-    const std::vector<GlobalBufferInfo>& intermediates_info);
 
 bool is_cpu_scalar(const at::Tensor& tensor);
 
