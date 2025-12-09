@@ -353,7 +353,7 @@ class InferenceBenchmark:
         if self.config.enable_nvfp4:
             _quantize_llama4(model)
 
-        if config.debug_moe:
+        if self.config.debug_moe:
             def compile_wrapper(model, jitter):
                 class ModelWrapper(torch.nn.Module):
 
@@ -361,7 +361,8 @@ class InferenceBenchmark:
                         super().__init__()
                         self.model = jitter._compile_model(model)
                         assert not hasattr(jitter.model, "_backend")
-                        jitter.model._backend = self.model._backend
+                        if jitter.config.mode == "thunder":
+                            jitter.model._backend = self.model._backend
                         self.jitter = jitter
 
                     def forward(self, *args, **kwargs):
