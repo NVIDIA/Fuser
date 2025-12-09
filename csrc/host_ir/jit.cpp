@@ -536,7 +536,7 @@ void inferTensorShapesAndStrides(
 // kernels Returns a pointer to the packed buffer (stack-allocated) Buffer
 // layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
 // where elem_size is 8 for Int64 or 4 for Int32 index types
-llvm::Value* packTensorArgumentLLVM(
+llvm::Value* packTensorArgument(
     llvm::Value* tensor, // at::Tensor*
     TensorView* tv,
     PrimDataType index_type,
@@ -1096,7 +1096,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         llvm::Value* tensor = getOrDefault(val_to_value_, tv);
         NVF_ERROR(
             tensor != nullptr, "Tensor not found in val_to_value map: ", val);
-        packed_buffers.push_back(packTensorArgumentLLVM(
+        packed_buffers.push_back(packTensorArgument(
             tensor, tv, index_type, val_to_value_, builder_));
       } else {
         // Pack scalar argument
