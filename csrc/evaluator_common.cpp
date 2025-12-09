@@ -604,6 +604,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::Abs:
       dest = abs(src);
       break;
+    case UnaryOpType::Ceil:
+      dest = ceil(src);
+      break;
     case UnaryOpType::LogicalNot:
       dest = !src;
       break;
