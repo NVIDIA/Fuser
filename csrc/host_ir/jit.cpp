@@ -77,7 +77,7 @@ constexpr std::string_view kPermuteFuncName = "permute";
 constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
-constexpr size_t kMaxTensorDim = 8;
+constexpr int64_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -138,7 +138,9 @@ llvm::Type* getInt8PtrType(llvm::LLVMContext& context) {
   return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 }
 
-llvm::Type* getInt8PtrStaticArrayType(llvm::LLVMContext& context, size_t size) {
+llvm::Type* getInt8PtrStaticArrayType(
+    llvm::LLVMContext& context,
+    int64_t size) {
   return llvm::ArrayType::get(getInt8PtrType(context), size);
 }
 
@@ -157,7 +159,7 @@ llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
 
 llvm::ArrayType* getInt64StaticArrayType(
     llvm::LLVMContext& context,
-    size_t size) {
+    int64_t size) {
   return llvm::ArrayType::get(llvm::Type::getInt64Ty(context), size);
 }
 
@@ -220,6 +222,41 @@ llvm::Value* createTensorDataPtr(
       module->getFunction(kTensorDataPtrFuncName);
 
   return builder.CreateCall(tensor_data_ptr_func, {tensor});
+}
+
+// Creates an LLVM struct type that matches runtime::Tensor<T, Dims, AllocDims>
+// from runtime/tensor.cu
+//
+// Memory layout:
+// struct Tensor {
+//   Pointer<T> data;                    // 8 bytes (field 0)
+//   Array<index_t, Dims> sizes; // Dims * index_size (field 1)
+//   Array<index_t, AllocDims> strides; // AllocDims * index_size (field 2)
+// };
+llvm::StructType* createRuntimeTensorType(
+    int64_t num_dims,
+    PrimDataType index_type,
+    llvm::LLVMContext& context) {
+  // Field 0: data pointer (always 8 bytes)
+  llvm::Type* ptr_type = llvm::PointerType::getUnqual(context);
+
+  // Field 1 & 2: index arrays (int64_t or int32_t based on index_type)
+  llvm::Type* index_elem_type = (index_type == PrimDataType::Int)
+      ? llvm::Type::getInt64Ty(context)
+      : llvm::Type::getInt32Ty(context);
+
+  llvm::ArrayType* sizes_array =
+      llvm::ArrayType::get(index_elem_type, num_dims);
+  llvm::ArrayType* strides_array =
+      llvm::ArrayType::get(index_elem_type, num_dims);
+
+  // Create the struct: {ptr, [N x iXX], [N x iXX]}
+  // isPacked=false uses natural C struct alignment
+  return llvm::StructType::create(
+      context,
+      {ptr_type, sizes_array, strides_array},
+      "runtime_Tensor",
+      /*isPacked=*/false);
 }
 
 // Helper function to register external functions in JIT
@@ -533,9 +570,12 @@ void inferTensorShapesAndStrides(
 // Packs a tensor argument into the runtime::Tensor format expected by CUDA
 // kernels. Returns a pointer to the packed buffer (stack-allocated)
 //
-// Buffer
-// layout: [data_ptr (8 bytes)][sizes (n*elem_size)][strides (n*elem_size)]
-// where elem_size is 8 for Int64 or 4 for Int32 index types
+// Memory layout matches runtime/tensor.cu
+// struct Tensor {
+//   Pointer<T> data;                    // 8 bytes (field 0)
+//   Array<index_t, Dims> sizes; // Dims * index_size (field 1)
+//   Array<index_t, AllocDims> strides; // AllocDims * index_size (field 2)
+// };
 llvm::Value* packTensorArgument(
     llvm::Value* tensor, // at::Tensor*
     TensorView* tv,
@@ -548,48 +588,39 @@ llvm::Value* packTensorArgument(
   inferTensorShapesAndStrides(
       tv, val_to_value, builder, alloc_sizes, alloc_strides);
 
-  // Extract data pointer
-  llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
+  int64_t num_dims = alloc_sizes.size();
 
-  // Determine index element type and size
-  llvm::Type* index_elem_type;
-  size_t index_elem_size;
-  if (index_type == PrimDataType::Int) {
-    index_elem_type = builder.getInt64Ty();
-    index_elem_size = 8;
-  } else {
-    index_elem_type = builder.getInt32Ty();
-    index_elem_size = 4;
+  // Special case: zero-dim tensors only have a data pointer
+  if (num_dims == 0) {
+    llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
+    llvm::Value* ptr_alloca = builder.CreateAlloca(
+        llvm::PointerType::getUnqual(builder.getContext()),
+        nullptr,
+        "zero_dim_tensor");
+    builder.CreateStore(data_ptr, ptr_alloca);
+    return builder.CreateBitCast(
+        ptr_alloca, llvm::PointerType::getUnqual(builder.getInt8Ty()));
   }
 
-  // Calculate buffer size: data_ptr + sizes + strides
-  size_t num_dims = alloc_sizes.size();
-  size_t buffer_size = 8 + (num_dims * index_elem_size * 2);
+  // Create the runtime tensor struct type
+  llvm::StructType* tensor_struct_type =
+      createRuntimeTensorType(num_dims, index_type, builder.getContext());
 
-  // Allocate stack buffer
-  llvm::Type* buffer_type =
-      llvm::ArrayType::get(builder.getInt8Ty(), buffer_size);
-  llvm::Value* buffer =
-      builder.CreateAlloca(buffer_type, nullptr, "tensor_arg_buffer");
-  llvm::Value* buffer_i8 = builder.CreateBitCast(
-      buffer, llvm::PointerType::getUnqual(builder.getInt8Ty()));
+  // Allocate struct on stack
+  llvm::Value* runtime_tensor =
+      builder.CreateAlloca(tensor_struct_type, nullptr, "runtime_tensor");
 
-  // Write data pointer (first 8 bytes)
-  llvm::Value* data_ptr_loc = buffer_i8;
-  llvm::Value* data_ptr_typed = builder.CreateBitCast(
-      data_ptr_loc,
-      llvm::PointerType::getUnqual(
-          llvm::PointerType::getUnqual(builder.getInt8Ty())));
-  builder.CreateStore(data_ptr, data_ptr_typed);
-
-  size_t offset = 8;
+  // 1. Store data pointer (field 0)
+  llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
+  llvm::Value* data_field_ptr = builder.CreateStructGEP(
+      tensor_struct_type, runtime_tensor, 0, "data_field");
+  builder.CreateStore(data_ptr, data_field_ptr);
 
   // Apply AdjustLastDim to sizes
   AdjustLastDim adjust = getLastDimAdjustment(tv->dtype());
   llvm::SmallVector<llvm::Value*, 8> adjusted_sizes = alloc_sizes;
 
   if (!adjusted_sizes.empty() && !adjust.isTrivial()) {
-    // last_size = last_size * numerator / denominator
     llvm::Value* last_size = adjusted_sizes.back();
     llvm::Value* numerator = builder.getInt64(adjust.numerator);
     llvm::Value* denominator = builder.getInt64(adjust.denominator);
@@ -598,25 +629,27 @@ llvm::Value* packTensorArgument(
     adjusted_sizes.back() = adjusted;
   }
 
-  // Write sizes
-  for (size_t i = 0; i < num_dims; ++i) {
+  // 2. Store sizes (field 1 array)
+  for (int64_t i = 0; i < num_dims; ++i) {
     llvm::Value* size_val = adjusted_sizes[i];
 
+    // Truncate to Int32 if needed
     if (index_type == PrimDataType::Int32) {
       size_val = builder.CreateTrunc(size_val, builder.getInt32Ty());
     }
 
-    llvm::Value* size_ptr = builder.CreateGEP(
-        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
-    llvm::Value* size_ptr_typed = builder.CreateBitCast(
-        size_ptr, llvm::PointerType::getUnqual(index_elem_type));
-    builder.CreateStore(size_val, size_ptr_typed);
-
-    offset += index_elem_size;
+    // Use multi-index GEP to access sizes[i]
+    // Indices: [0, 1, i] = deref pointer, field 1 (sizes), array index i
+    llvm::Value* size_elem_ptr = builder.CreateGEP(
+        tensor_struct_type,
+        runtime_tensor,
+        {builder.getInt32(0), builder.getInt32(1), builder.getInt32(i)},
+        "sizes_" + std::to_string(i));
+    builder.CreateStore(size_val, size_elem_ptr);
   }
 
-  // Write strides (with AdjustLastDim applied to all except last)
-  for (size_t i = 0; i < num_dims; ++i) {
+  // 3. Store strides (field 2 array) with AdjustLastDim
+  for (int64_t i = 0; i < num_dims; ++i) {
     llvm::Value* stride_val = alloc_strides[i];
 
     // Apply adjustment to all strides except last
@@ -628,20 +661,24 @@ llvm::Value* packTensorArgument(
       stride_val = builder.CreateUDiv(multiplied, denominator);
     }
 
+    // Truncate to Int32 if needed
     if (index_type == PrimDataType::Int32) {
       stride_val = builder.CreateTrunc(stride_val, builder.getInt32Ty());
     }
 
-    llvm::Value* stride_ptr = builder.CreateGEP(
-        builder.getInt8Ty(), buffer_i8, builder.getInt64(offset));
-    llvm::Value* stride_ptr_typed = builder.CreateBitCast(
-        stride_ptr, llvm::PointerType::getUnqual(index_elem_type));
-    builder.CreateStore(stride_val, stride_ptr_typed);
-
-    offset += index_elem_size;
+    // Use multi-index GEP to access strides[i]
+    // Indices: [0, 2, i] = deref pointer, field 2 (strides), array index i
+    llvm::Value* stride_elem_ptr = builder.CreateGEP(
+        tensor_struct_type,
+        runtime_tensor,
+        {builder.getInt32(0), builder.getInt32(2), builder.getInt32(i)},
+        "strides_" + std::to_string(i));
+    builder.CreateStore(stride_val, stride_elem_ptr);
   }
 
-  return buffer_i8;
+  // Cast to i8* for uniform handling
+  return builder.CreateBitCast(
+      runtime_tensor, llvm::PointerType::getUnqual(builder.getInt8Ty()));
 }
 
 void unpackInputs(
@@ -967,12 +1004,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
         getInt64StaticArrayType(context, tensor_sizes.size());
     llvm::Value* sizes_array =
         builder_.CreateAlloca(sizes_type, nullptr, "sizes");
-    for (size_t i = 0; i < tensor_sizes.size(); ++i) {
+    for (auto [i, tensor_size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type,
           sizes_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(tensor_sizes[i], gep);
+      builder_.CreateStore(tensor_size, gep);
     }
 
     llvm::Value* sizes_ptr =
@@ -1017,12 +1054,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
       llvm::Value* perm_array =
           builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
 
-      for (size_t i = 0; i < permutation.value().size(); ++i) {
+      for (auto [i, extent] : enumerate(permutation.value())) {
         llvm::Value* gep = builder_.CreateInBoundsGEP(
             perm_array_type,
             perm_array,
             {builder_.getInt32(0), builder_.getInt32(i)});
-        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+        builder_.CreateStore(builder_.getInt64(extent), gep);
       }
 
       llvm::Type* int64_ptr_type = getInt64PtrType(context);
@@ -1133,12 +1170,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* args_array =
         builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
 
-    for (size_t i = 0; i < packed_buffers.size(); ++i) {
+    for (auto [i, packed_buffer] : enumerate(packed_buffers)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           args_array_type,
           args_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(packed_buffers[i], gep);
+      builder_.CreateStore(packed_buffer, gep);
     }
 
     // Cast to void**
