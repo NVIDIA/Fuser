@@ -84,10 +84,10 @@ bool canMergeWithPreviousForLoop(
     const std::list<Expr*>& new_top_level_exprs,
     IterDomain* stream_axis,
     const IdModel& id_model,
-    bool isResharding) {
+    bool is_resharding) {
   return !new_top_level_exprs.empty() &&
       new_top_level_exprs.back()->isA<kir::ForLoop>() &&
-      (isResharding ||
+      (is_resharding ||
        areIdsMapped(
            id_model,
            stream_axis,
