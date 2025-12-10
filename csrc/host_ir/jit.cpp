@@ -1004,12 +1004,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
         getInt64StaticArrayType(context, tensor_sizes.size());
     llvm::Value* sizes_array =
         builder_.CreateAlloca(sizes_type, nullptr, "sizes");
-    for (int64_t i = 0; i < std::ssize(tensor_sizes); ++i) {
+    for (auto [i, tensor_size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type,
           sizes_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(tensor_sizes[i], gep);
+      builder_.CreateStore(tensor_size, gep);
     }
 
     llvm::Value* sizes_ptr =
@@ -1054,12 +1054,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
       llvm::Value* perm_array =
           builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
 
-      for (int64_t i = 0; i < std::ssize(permutation.value()); ++i) {
+      for (auto [i, extent] : enumerate(permutation.value())) {
         llvm::Value* gep = builder_.CreateInBoundsGEP(
             perm_array_type,
             perm_array,
             {builder_.getInt32(0), builder_.getInt32(i)});
-        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+        builder_.CreateStore(builder_.getInt64(extent), gep);
       }
 
       llvm::Type* int64_ptr_type = getInt64PtrType(context);
@@ -1170,12 +1170,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* args_array =
         builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
 
-    for (int64_t i = 0; i < std::ssize(packed_buffers); ++i) {
+    for (auto [i, packed_buffer] : enumerate(packed_buffers)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           args_array_type,
           args_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(packed_buffers[i], gep);
+      builder_.CreateStore(packed_buffer, gep);
     }
 
     // Cast to void**
