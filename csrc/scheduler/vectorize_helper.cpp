@@ -1080,6 +1080,18 @@ int64_t getVectorizationFactor(
     max_vect_factor = std::gcd(max_vect_factor, inferred_val_int);
   }
 
+  // If we have sub-byte data types, we wouldn't want to clamp vectorization
+  // factor to 1, otherwise we could end up with illegal array type with
+  // sub-byte length.
+  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
+  // necessarily need vectorization, but rather just consecutive elements being
+  // handled together so we have byte-sized buffer per thread.
+  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
+        return dataTypeSizeBit(inp->getDataType().value()) < 8;
+      })) {
+    max_vect_factor = std::max(2l, max_vect_factor);
+  }
+
   return max_vect_factor;
 }
 
