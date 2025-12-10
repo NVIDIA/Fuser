@@ -310,14 +310,52 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-// logical_reorder_map is provided to assume reference_tv will be reordered per
-// the map, hence changing the order of IterDomain in the reference
+// Unified function for schedulers to get vectorization factor with all
+// constraints applied automatically. This is the main entry point that
+// schedulers should use.
+//
+// This function handles:
+// 1. Byte constraint - minimum vectorization for sub-byte data types
+// 2. Register pressure constraint - based on data types and tensor count
+// 3. Wave occupancy constraint - don't vectorize at cost of GPU utilization
+// 4. Layout constraint - contiguity and alignment analysis
+//
+// Parameters:
+// - runtime_info: Runtime information including alignment and device properties
+// - reference_tv: Reference tensor for vectorization analysis
+// - data_cache: Cache for heuristic data
+// - break_point: Position in logical domain where vectorization starts
+// - max_vectorization_size_in_bit: Target vector width in bits (typically 128)
+// - min_dtype_size_bit: *(optional)* Minimum data type size in bits. Use -1 to
+//   disable byte constraint (default).
+// - max_dtype_size_bit: *(optional)* Maximum data type size in bits. Use -1 to
+//   disable register pressure constraint (default).
+// - n_vectorizable_tensors: *(optional)* Number of vectorizable inputs/outputs.
+//   Use -1 to disable register pressure constraint (default).
+// - n_waves: *(optional)* Wave occupancy hint: ceilDiv(n_elems, SM_count *
+//   threads_per_block). Use -1 to disable wave constraint (default).
+// - logical_reorder: Optional reordering map for the reference tensor's logical
+//   domain
+//
+// Examples:
+//   // Reduction/Normalization: Layout constraints only
+//   getVectorizationFactor(runtime_info, tv, cache, bp);
+//
+//   // Pointwise: All constraints
+//   getVectorizationFactor(runtime_info, tv, cache, bp, 128,
+//                          min_dtype, max_dtype, n_tensors, n_waves);
+//
+// Returns: Final vectorization factor satisfying all constraints
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
     int64_t max_vectorization_size_in_bit = 128,
+    int64_t min_dtype_size_bit = -1,
+    int64_t max_dtype_size_bit = -1,
+    int64_t n_vectorizable_tensors = -1,
+    int64_t n_waves = -1,
     const std::unordered_map<int64_t, int64_t>& logical_reorder = {});
 
 int64_t getVectorizationFactorTransposeGroup(
