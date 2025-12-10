@@ -1989,11 +1989,20 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
 }
 
+class TmaPersistentTestF : public PersistentBufferTest {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PersistentBufferTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
 // Test TMA-based inner persistent reduction with manual scheduling
 // This test demonstrates how to manually schedule a persistent buffer kernel
 // using TMA (Tensor Memory Accelerator) for efficient data loading.
 // Pattern: input -> cast -> reduction -> broadcast -> add -> cast -> output
-TEST_F(PersistentBufferTest, TmaInnerPersistent) {
+TEST_F(TmaPersistentTestF, TmaInnerPersistent) {
   DataType dtype = DataType::BFloat16;
   int x = 1024;
   int y = 10240;
