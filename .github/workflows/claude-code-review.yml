@@ -71,7 +71,7 @@ jobs:
               }
             ],
             "Router": {
-              "default": "nim,moonshotai/kimi-k2-thinking"
+              "default": "nim,minimaxai/minimax-m2"
             },
             "transformers": []
           }
