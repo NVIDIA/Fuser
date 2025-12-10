@@ -524,7 +524,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
 
   CommunicationInfo communication_info = getCommunicationInfo(e);
 
-  BinaryOpType op_type = [](Expr* e) {
+  auto op_type = [](Expr* e) -> BinaryOpType {
     if (auto* reduce = dynamic_cast<ReductionOp*>(e)) {
       return reduce->getReductionOpType();
     }
