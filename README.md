@@ -15,7 +15,7 @@ We publish nightly wheel packages on https://pypi.nvidia.com, while build agains
 
 Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
 
-#### Nightly nvfuser pip wheel
+### Nightly nvfuser pip wheel
 
 You can install a nightly nvfuser pip package built against torch nightly code base with
 `pip install --pre nvfuser-cu128 --extra-index-url https://pypi.nvidia.com`
@@ -26,7 +26,7 @@ You can choose to install the torch wheel along with nvfuser package,
 e.g.  `pip install --pre "nvfuser-cu128[torch]" --extra-index-url https://pypi.nvidia.com`.
 Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
 
-#### Nvfuser pip wheel against pytorch stable release
+### Nvfuser pip wheel against pytorch stable release
 
 Nvfuser pip wheel built against stable torch releases is published on both https://pypi.org and https://pypi.nvidia.com.
 Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu128-torch27`.
