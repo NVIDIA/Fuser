@@ -22,7 +22,7 @@ def launch_ai_cli(
    tool_args : list[str],
    verdict_marker: str, 
    output_dir: Path | str, 
-   timeout_seconds: int = 180
+   timeout_seconds: int = 300
    ) -> int:
 
 
