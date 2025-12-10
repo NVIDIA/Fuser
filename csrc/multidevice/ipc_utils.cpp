@@ -184,12 +184,11 @@ MulticastProtocol getMulticastProtocol() {
     if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
       return MulticastProtocol::Multimem;
     }
-    if (hasEnableOptionArgument(
-            EnableOption::MulticastProtocol, "batch_memcpy")) {
-      return MulticastProtocol::BatchMemcpy;
+    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "memcpy")) {
+      return MulticastProtocol::Memcpy;
     }
   }
-  return MulticastProtocol::Memcpy;
+  return MulticastProtocol::BatchMemcpy;
 }
 
 } // namespace nvfuser
