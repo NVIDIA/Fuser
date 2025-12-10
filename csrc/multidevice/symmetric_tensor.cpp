@@ -191,8 +191,7 @@ std::string SymmetricTensor::validate(at::Tensor tensor) {
     return "VA range smaller than tensor size";
   }
 
-  if ((static_cast<size_t>(ptr) % granularity) != 0 ||
-      (static_cast<size_t>(base_ptr) % granularity) != 0 ||
+  if ((static_cast<size_t>(base_ptr) % granularity) != 0 ||
       (va_size % granularity) != 0) {
     return "Misaligned to granularity";
   }
@@ -528,7 +527,7 @@ void SymmetricTensor::setupMulticast(
       mcast_handle_,
       0,
       alloc_handles_[my_device_id_],
-      mem_offset,
+      0,
       aligned_size_,
       0));
 
@@ -543,7 +542,7 @@ void SymmetricTensor::setupMulticast(
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
-  mc_ptr_ = reinterpret_cast<void*>(mc_ptr);
+  mc_ptr_ = reinterpret_cast<void*>(mc_ptr + mem_offset);
   is_multicast_setup_ = true;
 
   comm.barrier();
