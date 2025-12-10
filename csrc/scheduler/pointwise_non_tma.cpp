@@ -18,6 +18,7 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+#include "exceptions.h"
 
 namespace nvfuser {
 namespace pointwise {
@@ -203,6 +204,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto index_type = prop.index_type;
   params->cparams.index_type = index_type;
 
+  // If we have sub-byte data types, we wouldn't want to clamp vectorization
+  // factor to 1, otherwise we could end up with illegal array type with
+  // sub-byte length. For example, if the minimum data type size is 4 bits,
+  // minimum vectorization factor should be 2.
+  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
+  // necessarily need vectorization, but rather just consecutive elements being
+  // handled together so we have byte-sized buffer per thread.
+  constexpr int64_t bits_per_byte = 8;
+  const int64_t min_vect_factor = scheduler_utils::safeDiv(
+      bits_per_byte, prop.min_dtype_size_bit_for_vectorization);
+
   constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   int64_t max_dtype_size_bit_for_vectorization =
       prop.max_dtype_size_bit_for_vectorization;
@@ -216,14 +228,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           (scheduler_utils::lastPow2(
                (int64_t)vectorizable_inputs_outputs.size()) >>
            2),
-          (int64_t)1));
-  // Don't vectorize at the cost of getting a full wave on the GPU
+          min_vect_factor));
+  // Don't vectorize at the cost of getting a full wave on the GPU unless we
+  // have sub-byte data types.
   int64_t n_elems = prop.n_elems;
   const auto device_multiprocessor_count = prop.device_multiprocessor_count;
-  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
+  if (n_elems < device_multiprocessor_count * kThreadX &&
+      max_vect_factor > min_vect_factor) {
     max_vect_factor = std::min(
         max_vect_factor,
         ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
+    max_vect_factor = std::max(max_vect_factor, min_vect_factor);
   }
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
@@ -283,23 +298,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool is_outer_broadcast_dominated = config.is_outer_broadcast_dominated;
   const auto& elem_counts = prop.elem_counts;
 
-  int64_t vectorization_factor = max_vect_factor;
-  // If we have sub-byte data types, we wouldn't want to clamp vectorization
-  // factor to 1, otherwise we could end up with illegal array type with
-  // sub-byte length.
-  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
-  // necessarily need vectorization, but rather just consecutive elements being
-  // handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
-        return dataTypeSizeBit(inp->getDataType().value()) < 8;
-      })) {
-    vectorization_factor = std::max(2l, max_vect_factor);
-  }
   std::unordered_map<int64_t, int64_t> logical_reorder_map =
       pointwise_utils::getLogicalReorderMap(
           prop.largest_out, prop.has_reshapes, data_cache);
-  vectorization_factor = std::min(
-      vectorization_factor,
+  const int64_t vectorization_factor = std::min(
+      max_vect_factor,
       vectorize_helper::getVectorizationFactor(
           runtime_info,
           prop.largest_out,
@@ -307,6 +310,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           break_point,
           /*max_vectorization_size_in_bit=*/128,
           logical_reorder_map));
+  NVF_ERROR_GE(
+      vectorization_factor,
+      min_vect_factor,
+      "Vectorization factor is less than the minimum vectorization factor.");
   params->vectorization_factor = vectorization_factor;
 
   // get unroll factor:
