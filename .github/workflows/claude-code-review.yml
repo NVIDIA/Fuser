@@ -46,11 +46,6 @@ jobs:
           npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router@1.0.72
           echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade google-generativeai
-
       - name: Setup and start Claude Code Router
         env:
           NIM_KEY: ${{ secrets.NIM_KEY }}
