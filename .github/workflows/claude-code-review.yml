@@ -35,21 +35,28 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+          cache: 'pip'
 
-      - name: Install Claude Code
+      - name: Install npm dependencies
         run: |
-          npm install -g @anthropic-ai/claude-code
+          npm install -g @anthropic-ai/claude-code @musistudio/claude-code-router@1.0.72
           echo "$(npm config get prefix)/bin" >> $GITHUB_PATH
 
-      - name: Install Claude Code Router
-        run: npm install -g @musistudio/claude-code-router@1.0.72
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade google-generativeai
 
-      - name: Setup Claude Code Router config
+      - name: Setup and start Claude Code Router
+        env:
+          NIM_KEY: ${{ secrets.NIM_KEY }}
         run: |
           mkdir -p $HOME/.claude-code-router
           cat <<EOF > $HOME/.claude-code-router/config.json
@@ -77,22 +84,9 @@ jobs:
             "transformers": []
           }
           EOF
-        shell: bash
-
-      - name: Start Claude Code Router background service
-        env:
-          NIM_KEY: ${{ secrets.NIM_KEY }}
-        run: |
           nohup ccr restart &
-          sleep 5  # Give it some time to start
+          sleep 5
         shell: bash
-
-      - name: Check Claude CLI availability
-        run: |
-          echo "PATH=$PATH"
-          which claude || echo "claude not found on PATH"
-          claude --version || true
-          echo "npm prefix bin: $(npm config get prefix)/bin" || true
 
       - name: Run Claude Code via wrapper
         env:
