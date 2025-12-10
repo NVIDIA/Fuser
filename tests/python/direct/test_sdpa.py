@@ -147,6 +147,63 @@ def test_sdpa_fwd(nvfuser_direct_test):
             torch.testing.assert_close(nvf_out[0], ref_out)
 
 
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
+    def fusion_func(fd: FusionDefinition) -> None:
+        q = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        k = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        v = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        bias = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        mask = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.Bool,
+            is_cpu=False,
+        )
+        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, bias=bias, mask=mask)
+        fd.add_output(attn)
+
+    N, H, L, S, E = 2, 4, 8, 8, 16
+    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
+    mask = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
+
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func,
+        [q, k, v, bias, mask],
+    )
+
+    ref_out = torch.nn.functional.scaled_dot_product_attention(
+        q, k, v, bias + mask, True, 0.0, False, None
+    )
+    torch.testing.assert_close(nvf_out[0], ref_out)
+
+
 def test_sdpa_bwd(nvfuser_direct_test):
     N, H, L, S, E = 4, 8, 16, 16, 8
 

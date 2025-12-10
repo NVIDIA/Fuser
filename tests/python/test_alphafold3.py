@@ -86,9 +86,8 @@ def test_triangle_attention_starting_node():
         )  # [b, i, j, h, c_hidden]
         v_h = fd.ops.permute(v_h, [0, 1, 3, 2, 4])  # [b, i, h, j, c_hidden]
 
-        # FIXME: b_h and mask_bias should be added here. fd.ops.sdpfa_fwd hasn't yet supported custom masks.
         o_h, _, _, _ = fd.ops.sdpfa_fwd(
-            q_h, k_h, v_h, is_causal=False
+            q_h, k_h, v_h, bias=b_h, mask=mask_bias, is_causal=False
         )  # [b, i, h, j, c_hidden]
 
         g = fd.ops.linear(z_in, w_g)

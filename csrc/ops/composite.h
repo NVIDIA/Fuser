@@ -132,7 +132,9 @@ NVF_API SdpfaFwdResult sdpfa_fwd(
     TensorView* value,
     Val* dropout_p,
     Val* is_causal,
-    Val* scale);
+    Val* scale,
+    TensorView* bias = nullptr,
+    TensorView* mask = nullptr);
 
 // Scaled Dot Product Flash Attention Backward Result
 struct SdpfaBwdResult {

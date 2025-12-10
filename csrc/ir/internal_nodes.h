@@ -2364,7 +2364,9 @@ class SdpaFwdOp : public Expr {
       Val* value,
       Val* dropout_p,
       Val* is_causal,
-      Val* scale);
+      Val* scale,
+      TensorView* bias = nullptr,
+      TensorView* mask = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2412,15 +2414,27 @@ class SdpaFwdOp : public Expr {
   }
 
   Val* scale() const {
-    if (inputs().size() > 5) {
-      return input(5);
-    }
-    return nullptr;
+    return scale_input_index_ >= 0 ? input(scale_input_index_) : nullptr;
+  }
+
+  TensorView* bias() const {
+    return bias_input_index_ >= 0 ? input(bias_input_index_)->as<TensorView>()
+                                  : nullptr;
+  }
+
+  TensorView* mask() const {
+    return mask_input_index_ >= 0 ? input(mask_input_index_)->as<TensorView>()
+                                  : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+
+ private:
+  int scale_input_index_ = -1;
+  int bias_input_index_ = -1;
+  int mask_input_index_ = -1;
 };
 
 class Scope {

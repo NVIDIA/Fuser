@@ -3073,16 +3073,23 @@ struct SdpaFwdOpRecord : RecordFunctor {
     auto query = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto key = fd.getFusionState(args_.at(1).index)->as<TensorView>();
     auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
-    auto dropout_p = (args_.at(3).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+    auto bias = (args_.at(3).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(3).index)->as<TensorView>()
         : nullptr;
-    auto is_causal = (args_.at(4).stype == serde::StateType::Scalar)
-        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+    auto mask = (args_.at(4).stype == serde::StateType::Tensor)
+        ? fd.getFusionState(args_.at(4).index)->as<TensorView>()
         : nullptr;
-    auto scale = (args_.at(5).stype == serde::StateType::Scalar)
+    auto dropout_p = (args_.at(5).stype == serde::StateType::Scalar)
         ? fd.getFusionState(args_.at(5).index)->as<Val>()
         : nullptr;
-    auto output = sdpfa_fwd(query, key, value, dropout_p, is_causal, scale);
+    auto is_causal = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+    auto scale = (args_.at(7).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(7).index)->as<Val>()
+        : nullptr;
+    auto output =
+        sdpfa_fwd(query, key, value, dropout_p, is_causal, scale, bias, mask);
     fd.setFusionState(outputs_.at(0).index, output.output);
     fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
     fd.setFusionState(outputs_.at(2).index, output.philox_seed);

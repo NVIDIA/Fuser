@@ -3370,6 +3370,8 @@ void bindSdpaOps(py::module_& ops) {
       [](TensorView* query,
          TensorView* key,
          TensorView* value,
+         TensorView* bias,
+         TensorView* mask,
          ScalarVariant dropout_p,
          ScalarVariant is_causal,
          ScalarVariant scale) -> decltype(auto) {
@@ -3379,12 +3381,16 @@ void bindSdpaOps(py::module_& ops) {
             value,
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
-            convertToVal(scale));
+            convertToVal(scale),
+            bias,
+            mask);
         return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
       },
       py::arg("query"),
       py::arg("key"),
       py::arg("value"),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("mask").none(true) = py::none(),
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("scale").none(true) = py::none(),
@@ -3399,6 +3405,10 @@ key : TensorView
     The key tensor.
 value : TensorView
     The value tensor.
+bias : TensorView, optional
+    Additive attention bias with shape [N*, H, Q, K]. Default is None.
+mask : TensorView, optional
+    Additional additive mask with shape [N*, H, Q, K]. Default is None.
 dropout_p : Val, optional
     The dropout probability. Default is None.
 is_causal : Val, optional
