@@ -500,10 +500,6 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
                  << ", D = " << D;
   }
 
-  if (communicator_->backend() != CommunicatorBackend::kNccl) {
-    GTEST_SKIP() << "ReduceScatterP2p is only supported with NCCL backend";
-  }
-
   EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
 
   auto fusion = std::make_unique<Fusion>();
