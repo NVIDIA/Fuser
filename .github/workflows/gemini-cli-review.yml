@@ -11,8 +11,10 @@ run-name: Gemini review for PR ${{ github.event.pull_request.number }} - ${{ git
 
 jobs:
   gemini-pr-review:
+    # Temporarily disabled to avoid burning API tokens
+    if: false
     # Skip if PR is in draft
-    if: github.event.pull_request.draft == false
+    # if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -125,7 +125,77 @@ jobs:
           name: claude-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
           path: ${{ env.CLAUDE_OUTPUT_DIR }}/**
 
-      # TODO: Add step to post results to PR
-      # - name: Post results to PR
-      #   run: |
-      #     # Parse output and post to PR
+      - name: Post Claude review to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const outputDir = process.env.CLAUDE_OUTPUT_DIR;
+            const commentMarker = '<!-- claude-pr-review-bot -->';
+
+            // Check if review errored or has no output
+            const errorFile = path.join(outputDir, 'error.txt');
+            const successFile = path.join(outputDir, 'success_raw_output.txt');
+
+            // Skip posting if error occurred
+            if (fs.existsSync(errorFile)) {
+              console.log('Review encountered an error. Skipping comment post.');
+              return;
+            }
+
+            // Skip if no success output
+            if (!fs.existsSync(successFile)) {
+              console.log('No review output found. Skipping comment post.');
+              return;
+            }
+
+            // Note: We post even if verdict is FAILED because that helps
+            // PR developers address issues and improve their code
+
+            // Read review output
+            const reviewContent = fs.readFileSync(successFile, 'utf8');
+
+            // Prepare comment body
+            const commentBody = `${commentMarker}
+            ## 🤖 Claude PR Review
+
+            **Commit:** ${context.payload.pull_request.head.sha}
+
+            ${reviewContent}
+
+            ---
+            *Review generated at ${new Date().toISOString()}*`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const existingComment = comments.find(comment =>
+              comment.body && comment.body.includes(commentMarker)
+            );
+
+            // Create or update comment
+            if (existingComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: commentBody,
+              });
+              console.log('Updated existing PR comment');
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: commentBody,
+              });
+              console.log('Created new PR comment');
+            }
