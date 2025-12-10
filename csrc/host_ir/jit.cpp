@@ -77,7 +77,7 @@ constexpr std::string_view kPermuteFuncName = "permute";
 constexpr std::string_view kReshapeFuncName = "reshape";
 constexpr std::string_view kMainFuncOutputTensorName =
     "output_aten_tensor_addr";
-constexpr size_t kMaxTensorDim = 8;
+constexpr int64_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -138,7 +138,7 @@ llvm::Type* getInt8PtrType(llvm::LLVMContext& context) {
   return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 }
 
-llvm::Type* getInt8PtrStaticArrayType(llvm::LLVMContext& context, size_t size) {
+llvm::Type* getInt8PtrStaticArrayType(llvm::LLVMContext& context, int64_t size) {
   return llvm::ArrayType::get(getInt8PtrType(context), size);
 }
 
@@ -157,7 +157,7 @@ llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
 
 llvm::ArrayType* getInt64StaticArrayType(
     llvm::LLVMContext& context,
-    size_t size) {
+    int64_t size) {
   return llvm::ArrayType::get(llvm::Type::getInt64Ty(context), size);
 }
 
@@ -232,7 +232,7 @@ llvm::Value* createTensorDataPtr(
 //     Array<nvfuser_index_t, AllocDims> strides; // AllocDims * index_size (field 2)
 //   };
 llvm::StructType* createRuntimeTensorType(
-    size_t num_dims,
+    int64_t num_dims,
     PrimDataType index_type,
     llvm::LLVMContext& context) {
   // Field 0: data pointer (always 8 bytes)
@@ -586,7 +586,7 @@ llvm::Value* packTensorArgument(
   inferTensorShapesAndStrides(
       tv, val_to_value, builder, alloc_sizes, alloc_strides);
 
-  size_t num_dims = alloc_sizes.size();
+  int64_t num_dims = alloc_sizes.size();
 
   // Special case: zero-dim tensors only have a data pointer
   if (num_dims == 0) {
@@ -628,7 +628,7 @@ llvm::Value* packTensorArgument(
   }
 
   // 2. Store sizes (field 1 array)
-  for (size_t i = 0; i < num_dims; ++i) {
+  for (int64_t i = 0; i < num_dims; ++i) {
     llvm::Value* size_val = adjusted_sizes[i];
 
     // Truncate to Int32 if needed
@@ -647,7 +647,7 @@ llvm::Value* packTensorArgument(
   }
 
   // 3. Store strides (field 2 array) with AdjustLastDim
-  for (size_t i = 0; i < num_dims; ++i) {
+  for (int64_t i = 0; i < num_dims; ++i) {
     llvm::Value* stride_val = alloc_strides[i];
 
     // Apply adjustment to all strides except last
@@ -1002,7 +1002,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
         getInt64StaticArrayType(context, tensor_sizes.size());
     llvm::Value* sizes_array =
         builder_.CreateAlloca(sizes_type, nullptr, "sizes");
-    for (size_t i = 0; i < tensor_sizes.size(); ++i) {
+    for (int64_t i = 0; i < std::ssize(tensor_sizes); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type,
           sizes_array,
@@ -1052,7 +1052,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
       llvm::Value* perm_array =
           builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
 
-      for (size_t i = 0; i < permutation.value().size(); ++i) {
+      for (int64_t i = 0; i < std::ssize(permutation.value()); ++i) {
         llvm::Value* gep = builder_.CreateInBoundsGEP(
             perm_array_type,
             perm_array,
@@ -1168,7 +1168,7 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* args_array =
         builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
 
-    for (size_t i = 0; i < packed_buffers.size(); ++i) {
+    for (int64_t i = 0; i < std::ssize(packed_buffers); ++i) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           args_array_type,
           args_array,
