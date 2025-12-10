@@ -10,6 +10,7 @@
 #include <cuda_utils.h>
 #include <driver_api.h>
 #include <multidevice/communicator.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser {
@@ -251,8 +252,6 @@ SymmetricTensor::~SymmetricTensor() {
     }
     if (peer_fd_ >= 0)
       close(peer_fd_);
-    if (pid_fd_ >= 0)
-      close(pid_fd_);
   }
 #endif
 
@@ -282,7 +281,7 @@ SymmetricTensor::~SymmetricTensor() {
   }
 }
 
-void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
+void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   if (are_remote_tensors_setup_ == true) {
     return;
   }
@@ -436,6 +435,9 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
       at::TensorOptions()
           .dtype(local_tensor_.scalar_type())
           .device(at::kCUDA, 0));
+
+  // Remove the old trivial DIDx dimension
+  contiguous_view_ = contiguous_view_.squeeze(1);
 
   is_contiguous_view_setup_ = true;
 }

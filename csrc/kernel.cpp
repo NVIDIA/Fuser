@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <iostream>
-
 #include <ATen/cuda/CUDAContext.h>
 
 #include <debug.h>
@@ -302,6 +300,16 @@ class KernelIrScanner : private IrVisitor {
 
   void handle(ArgsortOp* aop) final {
     summary_.has_argsort = true;
+  }
+
+  void handle(WaitForPriorGridOp* wop) final {
+    // Only the dependent grid requires a special cudaLaunchAttribute. It
+    // signals the CUDA driver to launch the dependent kernel once all CTAs in
+    // the primary kernel have issued LaunchDependentGridOp.
+    //
+    // Reference:
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/#api-description
+    summary_.enable_programmatic_dependent_launch = true;
   }
 
   void handle(PreprocessGroupedMatmulInputSf* aop) final {

@@ -12,7 +12,7 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <ir/utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <ops/all_ops.h>

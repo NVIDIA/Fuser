@@ -68,6 +68,7 @@
   fn(cuOccupancyAvailableDynamicSMemPerBlock, 12000);     \
   fn(cuOccupancyMaxActiveBlocksPerMultiprocessor, 12000); \
   fn(cuOccupancyMaxActiveClusters, 12000);                \
+  fn(cuOccupancyMaxPotentialClusterSize, 12000);          \
   fn(cuStreamBatchMemOp, 12000);                          \
   fn(cuStreamWaitValue32, 12000);                         \
   fn(cuStreamWriteValue32, 12000);                        \

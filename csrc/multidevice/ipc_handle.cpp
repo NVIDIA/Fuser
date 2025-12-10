@@ -8,6 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/communicator.h>
 #include <multidevice/ipc_handle.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/utils.h>
 
 namespace nvfuser {
@@ -160,7 +161,12 @@ SymMemForBroadcast::SymMemForBroadcast(
   buffer_sym_tensor_->setupRemoteHandles(store_key_prefix + "_buffer_unicast");
 
   // Setup multicast for the buffer
-  buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    buffer_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_buffer_mcast");
+  }
 
   // Create semaphore tensor
   at::Tensor semaphore = SymmetricTensor::allocate(
@@ -183,8 +189,11 @@ SymMemForBroadcast::SymMemForBroadcast(
   semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 
   // Setup multicast for the semaphore
-  semaphore_sym_tensor_->setupMulticast(
-      root, store_key_prefix + "_semaphore_mcast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphore_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_semaphore_mcast");
+  }
 }
 
 void* SymMemForBroadcast::bufferMulticastPtr() const {
@@ -225,9 +234,13 @@ SymMemForAllgather::SymMemForAllgather(
   slice_size_bytes_ = slice_numel * buffer.element_size();
 
   // Setup Multicast on full buffer
-  full_buffer_sym_tensor_->setupMulticast(
-      /*exporter_rank=*/0,
-      "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    full_buffer_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+  }
 
   // Allocate semaphores (one per rank) in a single symmetric tensor
   at::Tensor semaphores = SymmetricTensor::allocate(
@@ -244,9 +257,12 @@ SymMemForAllgather::SymMemForAllgather(
   semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
   semaphores_sym_tensor_->setupRemoteHandles(
       "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_unicast");
-  semaphores_sym_tensor_->setupMulticast(
-      /*exporter_rank=*/0,
-      "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphores_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
+  }
 }
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
@@ -282,9 +298,10 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   // If not found, create a new handle based on the expr type
   std::unique_ptr<SymmetricMemoryHandle> handle;
 
-  if (auto* dtca = dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
+  if (auto* contig_view =
+          dynamic_cast<hir::SymmetricContiguousView*>(key.expr)) {
     // SymmetricContiguousView
-    handle = std::make_unique<SymMemForContiguousView>(key.buffer, dtca);
+    handle = std::make_unique<SymMemForContiguousView>(key.buffer, contig_view);
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
@@ -308,19 +325,12 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
 
 SymMemForContiguousView::SymMemForContiguousView(
     at::Tensor in_tensor,
-    hir::SymmetricContiguousView* unshard) {
-  std::string tag = "unshard_" + std::to_string(unshard->name());
+    hir::SymmetricContiguousView* contig_view) {
+  std::string tag = "contig_view_" + std::to_string(contig_view->name());
   sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
   sym_tensor_->setupContiguousView(tag);
 
-  at::Tensor contiguous = sym_tensor_->getContiguousView();
-
-  // Remove the DIDx dimension (outermost) if it has size 1
-  if (contiguous.size(0) == 1) {
-    contiguous = contiguous.squeeze(0);
-  }
-
-  tensor_ = contiguous;
+  tensor_ = sym_tensor_->getContiguousView();
 }
 
 } // namespace nvfuser

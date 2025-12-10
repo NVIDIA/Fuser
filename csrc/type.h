@@ -10,7 +10,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <ranges>
 #include <string>

@@ -7,8 +7,11 @@
 // clang-format on
 
 #include <cuda_profiler_api.h>
+#include <cuda_utils.h>
+#include <driver_api.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
+
 #include <chrono>
 
 #include <algorithm>
@@ -16,9 +19,10 @@
 #include <utility>
 
 #include <multidevice/execution_utils.h>
+#include <multidevice/ipc_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/communication_executor.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
@@ -777,43 +781,53 @@ INSTANTIATE_TEST_SUITE_P(
 
 namespace {
 
-enum class CommunicationProtocol { nccl, Memcpy, Multimem, BatchedMemcpy };
+enum class CommunicationProtocol { kNccl, kMemcpy, kMultimem, kBatchedMemcpy };
 
 // Helper function to get CommunicatorBackend from CommunicationProtocol
 CommunicatorBackend getBackend(CommunicationProtocol protocol) {
   switch (protocol) {
-    case CommunicationProtocol::nccl:
+    case CommunicationProtocol::kNccl:
       return CommunicatorBackend::kNccl;
-    case CommunicationProtocol::Memcpy:
-    case CommunicationProtocol::Multimem:
-    case CommunicationProtocol::BatchedMemcpy:
+    case CommunicationProtocol::kMemcpy:
+    case CommunicationProtocol::kMultimem:
+    case CommunicationProtocol::kBatchedMemcpy:
       return CommunicatorBackend::kCuda;
   }
-  NVF_ERROR(false, "Unreachable: invalid CommunicationProtocol");
+  std::unreachable();
 }
 
 // Helper function to get protocol string for MulticastProtocol option
 std::string getProtocolString(CommunicationProtocol protocol) {
   switch (protocol) {
-    case CommunicationProtocol::nccl:
+    case CommunicationProtocol::kNccl:
       return "nccl";
-    case CommunicationProtocol::Memcpy:
+    case CommunicationProtocol::kMemcpy:
       return "memcpy";
-    case CommunicationProtocol::Multimem:
+    case CommunicationProtocol::kMultimem:
       return "multimem";
-    case CommunicationProtocol::BatchedMemcpy:
+    case CommunicationProtocol::kBatchedMemcpy:
       return "batch_memcpy";
   }
-  NVF_ERROR(false, "Unreachable: invalid CommunicationProtocol");
+  std::unreachable();
 }
 
 } // namespace
 
-class LowerCollectiveCudaTest
+class LowerCollectiveCudaAndNcclTest
     : public MultiDeviceTest,
       public testing::WithParamInterface<
           std::tuple<int64_t, CommunicationProtocol>> {
  protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+
   // Run complete benchmark: warmup, timing, reduce results, and return output
   at::Tensor runBenchmark(
       MultiDeviceExecutor& executor,
@@ -884,40 +898,56 @@ class LowerCollectiveCudaTest
       CommunicationProtocol protocol_enum,
       EnableOptionsGuard& guard) {
     // Set MulticastProtocol option only for CUDA backend protocols
-    if (protocol_enum == CommunicationProtocol::Multimem) {
-      cudaDeviceProp prop;
-      NVFUSER_CUDA_RT_SAFE_CALL(
-          cudaGetDeviceProperties(&prop, communicator_->device().index()));
-      if (prop.major < 9) {
-        GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute "
-                        "Capability >= 9.0";
+    switch (protocol_enum) {
+      case CommunicationProtocol::kMultimem: {
+        cudaDeviceProp prop;
+        NVFUSER_CUDA_RT_SAFE_CALL(
+            cudaGetDeviceProperties(&prop, communicator_->device().index()));
+        if (prop.major < 9) {
+          GTEST_SKIP() << "Multicast protocol 'multimem' requires Compute "
+                          "Capability >= 9.0";
+        }
+        EnableOptionsGuard::getCurOptions().set(
+            EnableOption::MulticastProtocol, {"multimem"});
+        break;
       }
-      EnableOptionsGuard::getCurOptions().set(
-          EnableOption::MulticastProtocol, {"multimem"});
-    } else if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
-      EnableOptionsGuard::getCurOptions().set(
-          EnableOption::MulticastProtocol, {"batch_memcpy"});
-    } else if (protocol_enum == CommunicationProtocol::Memcpy) {
-      // Explicitly clear for memcpy to avoid stale values
-      EnableOptionsGuard::getCurOptions().unset(
-          EnableOption::MulticastProtocol);
+      case CommunicationProtocol::kBatchedMemcpy:
+        EnableOptionsGuard::getCurOptions().set(
+            EnableOption::MulticastProtocol, {"batch_memcpy"});
+        break;
+      case CommunicationProtocol::kMemcpy:
+        // Explicitly clear for memcpy to avoid stale values
+        EnableOptionsGuard::getCurOptions().unset(
+            EnableOption::MulticastProtocol);
+        break;
+      case CommunicationProtocol::kNccl:
+        // For nccl backend, MulticastProtocol is irrelevant and should not be
+        // set
+        break;
     }
-    // For nccl backend, MulticastProtocol is irrelevant and should not be set
   }
 };
 
-TEST_P(LowerCollectiveCudaTest, Allgather) {
+TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
   const auto& [msg_size_bytes, protocol_enum] = GetParam();
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
 
-  if (protocol_enum == CommunicationProtocol::BatchedMemcpy) {
-    // cudaMemcpyBatchAsync requires a non-default stream
-    c10::cuda::CUDAStream stream =
-        c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
-    c10::cuda::setCurrentCUDAStream(stream);
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
+
+  if (!isMulticastSupported() &&
+      (protocol_enum == CommunicationProtocol::kMemcpy ||
+       protocol_enum == CommunicationProtocol::kMultimem)) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  // cudaMemcpyBatchAsync requires a non-default stream
+  c10::cuda::CUDAStream stream =
+      c10::cuda::getStreamFromPool(/*isHighPriority=*/false);
+  c10::cuda::setCurrentCUDAStream(stream);
 
   EnableOptionsGuard guard;
   setupProtocolOptions(protocol_enum, guard);
@@ -962,11 +992,21 @@ TEST_P(LowerCollectiveCudaTest, Allgather) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
 }
 
-TEST_P(LowerCollectiveCudaTest, Broadcast) {
+TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
   const auto& [msg_size_bytes, protocol_enum] = GetParam();
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
   const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported() &&
+      (protocol_enum == CommunicationProtocol::kMemcpy ||
+       protocol_enum == CommunicationProtocol::kMultimem)) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
 
   // cudaMemcpyBatchAsync requires a non-default stream
   c10::cuda::CUDAStream stream =
@@ -1019,7 +1059,7 @@ TEST_P(LowerCollectiveCudaTest, Broadcast) {
 }
 
 namespace {
-std::string paramToStringLowerCollectiveCudaTest(
+std::string paramToStringLowerCollectiveCudaAndNcclTest(
     const testing::TestParamInfo<std::tuple<int64_t, CommunicationProtocol>>&
         info) {
   const auto& [msg_size_bytes, protocol_enum] = info.param;
@@ -1037,7 +1077,7 @@ std::string paramToStringLowerCollectiveCudaTest(
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    LowerCollectiveCudaTest,
+    LowerCollectiveCudaAndNcclTest,
     testing::Combine(
         testing::Values(
             2 * 1024 * 1024LL, // 2 MB
@@ -1047,10 +1087,10 @@ INSTANTIATE_TEST_SUITE_P(
             256 * 1024 * 1024LL // 256 MB
             ),
         testing::Values(
-            CommunicationProtocol::Memcpy,
-            CommunicationProtocol::nccl,
-            CommunicationProtocol::Multimem,
-            CommunicationProtocol::BatchedMemcpy)),
-    paramToStringLowerCollectiveCudaTest);
+            CommunicationProtocol::kMemcpy,
+            CommunicationProtocol::kNccl,
+            CommunicationProtocol::kMultimem,
+            CommunicationProtocol::kBatchedMemcpy)),
+    paramToStringLowerCollectiveCudaAndNcclTest);
 
 } // namespace nvfuser

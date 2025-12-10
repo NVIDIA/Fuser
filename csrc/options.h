@@ -70,7 +70,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
-  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
+  HostIrLowering, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
@@ -121,6 +121,7 @@ enum class EnableOption {
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
   TmaPointwise, //! Enable TMA pointwise kernel
+  TmaReduction, //! Enable TMA reduction kernel
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   HostIrJit, //! Enable Host IR JIT compilation with LLVM

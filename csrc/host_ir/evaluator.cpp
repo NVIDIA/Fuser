@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <iterator>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -516,14 +515,18 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
 
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
-    at::matmul_out(t_out, t_a, t_b);
-  } else {
+  if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a MatmulOp is
+    // preallocated.
     unhandled(matmul);
+    return;
   }
+
+  auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+  auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+  auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
+  at::matmul_out(t_out, t_a, t_b);
 }
 
 void HostIrEvaluator::handle(LinearOp* linear) {
@@ -532,6 +535,9 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto* out = linear->out()->as<TensorView>();
 
   if (!expr_evaluator_.isKnown(out)) {
+    // This may only happen in MultiDeviceExecutor. For FusionExecutorCache, the
+    // AllocateAndDeallocate pass ensures that the output of a LinearOp is
+    // preallocated.
     unhandled(linear);
     return;
   }
@@ -539,6 +545,11 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   auto in_tensor = getKnownConcreteValue(in).as<at::Tensor>();
   auto weight_tensor = getKnownConcreteValue(weight).as<at::Tensor>();
   auto out_tensor = getKnownConcreteValue(out).as<at::Tensor>();
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out);
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.squeeze(rfactor_did_idx);
+  }
 
   if (linear->hasBias()) {
     auto* bias = linear->bias()->as<TensorView>();
@@ -794,7 +805,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  int64_t stream_index =
+  auto stream_index =
       expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
   at::Tensor out_tensor =
       in_tensor
@@ -818,24 +829,20 @@ void HostIrEvaluator::handle(
   auto* in_tv = symmetric_contiguous_view->in();
   auto* out_tv = symmetric_contiguous_view->out();
 
-  // Get the sharded input tensor
-  at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
-
-  // Get or create SymMemForContiguousView from the cache
-  SymMemForContiguousView* handle =
-      static_cast<SymMemForContiguousView*>(multicast_handle_cache_.get(
-          {in_tensor, symmetric_contiguous_view, /*root=*/-1}));
-
   NVF_ERROR(
       in_tv->axis(0)->isDeviceDim(),
       "Tv must be sharded on outermost dimension",
       in_tv);
-  NVF_ERROR(
-      handle->tensor().size(1) == 1,
-      "Contiguous view must have size 1 on sharded dimension");
-  at::Tensor contiguous_tensor = handle->tensor().squeeze(1);
+
+  // Get the sharded input tensor
+  at::Tensor in_tensor = getKnownConcreteValue(in_tv).as<at::Tensor>();
+
+  // Get or create SymMemForContiguousView from the cache
+  SymMemForContiguousView* handle = static_cast<SymMemForContiguousView*>(
+      multicast_handle_cache_.get({in_tensor, symmetric_contiguous_view}));
+
   // Bind the symmetric_contiguous_viewed tensor to the output
-  expr_evaluator_.bind(out_tv, contiguous_tensor);
+  expr_evaluator_.bind(out_tv, handle->tensor());
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
