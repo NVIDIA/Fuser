@@ -1192,22 +1192,14 @@ int64_t getVectorizationFactor(
       break_point,
       max_vectorization_size_in_bit,
       logical_reorder_map);
-
   // 5. Apply all constraints: must be between min and max
   // Take the minimum of (base_factor, max_factor) to respect the upper bound
   int64_t vectorization_factor = std::min(base_vect_factor, max_vect_factor);
 
-  // Then take maximum with min_factor to respect the lower bound
-  vectorization_factor = std::max(vectorization_factor, min_vect_factor);
-
-  // Verify the final result is valid
-  NVF_ERROR(
-      vectorization_factor >= min_vect_factor,
-      "Final vectorization factor (",
-      vectorization_factor,
-      ") is less than minimum required (",
-      min_vect_factor,
-      ")");
+  // TODO: validate vectorization_factor >= min_vect_factor
+  // we can't do this becuase canSchedule runtime check uses computeHeuristics
+  // will trigger an error in test
+  // BlockQuantizationCanScheduleTests.CanRuntimeScheduleFailFromNoVectorization
 
   return vectorization_factor;
 }

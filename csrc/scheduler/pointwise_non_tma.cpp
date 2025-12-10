@@ -269,7 +269,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       prop.min_dtype_size_bit_for_vectorization,
       prop.max_dtype_size_bit_for_vectorization,
       /*n_vectorizable_tensors=*/(int64_t)vectorizable_inputs_outputs.size(),
-      /*n_waves=*/ceilDiv(n_elems, device_multiprocessor_count * kThreadX),
+      // should use the actual wave count, here just to keep consistency with
+      // the old code.
+      // TODO: check how should we limit the vectorization factor based on the
+      // wave count.
+      /*n_waves=*/n_elems > device_multiprocessor_count * kThreadX ? -1 : 1,
       /*logical_reorder_map=*/
       pointwise_utils::getLogicalReorderMap(
           prop.largest_out, prop.has_reshapes, data_cache));
