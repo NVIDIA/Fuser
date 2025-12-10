@@ -134,16 +134,24 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t group_id,
     const LaunchParams& launch_constraints,
-    const CompileParams& compile_params,
+    CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    : Expr(passkey, inputs, outputs, {}), compiled_kernel_(compiled_kernel) {
+  NVF_CHECK(
+      compiled_kernel != nullptr,
+      "LaunchKernel requires a non-null CompiledKernel pointer");
+  NVF_CHECK(cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
-  addDataAttribute(compile_params);
+  addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
 }
+
+LaunchKernel::LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner), compiled_kernel_(src->compiled_kernel_) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
@@ -608,6 +616,32 @@ TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
 
   IrBuilder::create<ShardByStream>(destination, source, stream_index);
   return destination;
+}
+
+SymmetricContiguousView::SymmetricContiguousView(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in)
+    : Expr(passkey, {in}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(
+      in->getMemoryType() == MemoryType::Symmetric,
+      "Input tensor must have symmetric memory type, got: ",
+      in->getMemoryType());
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
+
+std::string SymmetricContiguousView::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = SymmetricContiguousView("
+                          << in()->toString() << ")" << std::endl;
+  return ss.str();
+}
+
+std::string SymmetricContiguousView::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)

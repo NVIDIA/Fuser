@@ -81,18 +81,15 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
     weight_ref = torch.randint(-2, 3, (h, h * 4), dtype=torch.int32).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = (multidevice_direct_test.shard_tensor(inp_ref, -1, mesh),)
-    weight = (multidevice_direct_test.shard_tensor(weight_ref, -1, mesh),)
-    (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
-    torch.testing.assert_close(out.cpu(), out_ref)
-
-    # Collect CUDA kernels after a warmup run to exclude autotuning.
+    inp = multidevice_direct_test.shard_tensor(inp_ref, -1, mesh)
+    weight = multidevice_direct_test.shard_tensor(weight_ref, -1, mesh)
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
     # SegmentProfiler's assumptions or stop creating them in the first place.
     with torch.profiler.profile(record_shapes=True) as prof:
         (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+    torch.testing.assert_close(out.cpu(), out_ref)
 
     matmul_events = [event for event in prof.events() if event.name == "aten::mm"]
     assert len(matmul_events) == s
