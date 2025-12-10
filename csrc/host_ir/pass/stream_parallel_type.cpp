@@ -87,10 +87,11 @@ bool canMergeWithPreviousForLoop(
     bool isResharding) {
   return !new_top_level_exprs.empty() &&
       new_top_level_exprs.back()->isA<kir::ForLoop>() &&
-      (isResharding || areIdsMapped(
-          id_model,
-          stream_axis,
-          new_top_level_exprs.back()->as<kir::ForLoop>()->iterDomain()));
+      (isResharding ||
+       areIdsMapped(
+           id_model,
+           stream_axis,
+           new_top_level_exprs.back()->as<kir::ForLoop>()->iterDomain()));
 }
 
 // Finds where a stream axis appears in a tensor's logical domain
@@ -338,7 +339,8 @@ std::list<Expr*> processForLoopBodies(
         ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
         : for_loop->index();
     auto recv_peer = communicator_backend == CommunicatorBackend::kCuda
-        ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())), for_loop->stop())
+        ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())),
+              for_loop->stop())
         : for_loop->index();
 
     for (auto* body_expr : for_loop->body().exprs()) {
@@ -350,19 +352,22 @@ std::list<Expr*> processForLoopBodies(
         auto input = *inputs.begin();
         if (!input->getLogicalDomain().empty() &&
             input->getLogicalDomain()[0]->isDeviceDim()) {
-          auto outputs = ir_utils::filterByType<TensorView>(body_expr->outputs());
+          auto outputs =
+              ir_utils::filterByType<TensorView>(body_expr->outputs());
           if (!outputs.empty() &&
-              (*outputs.begin())->axis(0)->getParallelType() == ParallelType::Stream) {
+              (*outputs.begin())->axis(0)->getParallelType() ==
+                  ParallelType::Stream) {
             // First axis went from DID to Stream
             did_to_stream = true;
           }
         }
       }
       for (auto* output :
-        ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+           ir_utils::filterByType<TensorView>(body_expr->outputs())) {
         auto stream_idx =
-                findStreamAxisIndex(output, for_loop->iterDomain(), id_model);
-        if (stream_idx != -1 && output->getLogicalDomain()[stream_idx]->isDeviceDim()) {
+            findStreamAxisIndex(output, for_loop->iterDomain(), id_model);
+        if (stream_idx != -1 &&
+            output->getLogicalDomain()[stream_idx]->isDeviceDim()) {
           // Any axis went from Stream to DID
           stream_to_did = true;
           break;
@@ -372,55 +377,57 @@ std::list<Expr*> processForLoopBodies(
       // Lower to MM + RS algorithm
       if (did_to_stream && stream_to_did) {
         NVF_ERROR(
-          body_expr->isA<LoadStoreOp>() &&
-          body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
-          "expected a set operation but got ", body_expr);
+            body_expr->isA<LoadStoreOp>() &&
+                body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
+            "expected a set operation but got ",
+            body_expr);
         NVF_ERROR(
-          body_expr->isA<LoadStoreOp>(),
-          "expected a Tv operation but got ",
-          body_expr);
+            body_expr->isA<LoadStoreOp>(),
+            "expected a Tv operation but got ",
+            body_expr);
         auto* set_op = body_expr->as<LoadStoreOp>();
         auto* input_tv = set_op->in()->as<TensorView>();
         auto* output_tv = set_op->out()->as<TensorView>();
         NVF_ERROR(
-          input_tv->axis(0)->isDeviceDim(),
-          "expected a sharded first axis on the input but got ",
-          input_tv);
+            input_tv->axis(0)->isDeviceDim(),
+            "expected a sharded first axis on the input but got ",
+            input_tv);
         NVF_ERROR(
             output_tv->axis(0)->getParallelType() == ParallelType::Stream,
             "expected a stream parallelized first axis on the output but got ",
             output_tv);
         NVF_ERROR(
-          input_tv->axis(1)->getParallelType() == ParallelType::Stream,
-          "expected a stream parallelized second axis on the input but got ",
-          input_tv);
+            input_tv->axis(1)->getParallelType() == ParallelType::Stream,
+            "expected a stream parallelized second axis on the input but got ",
+            input_tv);
         NVF_ERROR(
             output_tv->axis(1)->isDeviceDim(),
             "expected a sharded second axis on the output but got ",
             output_tv);
         auto* is_sending_to_self =
-          IrBuilder::create<kir::Predicate>(eq(tensor_index, my_device_id));
+            IrBuilder::create<kir::Predicate>(eq(tensor_index, my_device_id));
         auto if_sending_to_self =
-          IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
         auto [slicing_input, is_new] = tensor_slicing_cache.get(
-          input_tv,
-          /*dim*/findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
-          /*index=*/tensor_index);
+            input_tv,
+            /*dim*/
+            findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
+            /*index=*/tensor_index);
         auto [slicing_output, is_new_] =
-          tensor_slicing_cache.get(output_tv, /*dim*/0, /*index=*/recv_peer);
+            tensor_slicing_cache.get(output_tv, /*dim*/ 0, /*index=*/recv_peer);
         auto* local_copy = IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+            LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
         if_sending_to_self->thenBody().push_back(local_copy);
         auto recv = IrBuilder::create<P2PCommunication>(
-          P2PCommunicationType::RECV,
-          slicing_output->out(),
-          recv_peer,
-          CommunicatorBackend::kNccl);
+            P2PCommunicationType::RECV,
+            slicing_output->out(),
+            recv_peer,
+            CommunicatorBackend::kNccl);
         auto send = IrBuilder::create<P2PCommunication>(
-          P2PCommunicationType::SEND,
-          slicing_input->out(),
-          tensor_index,
-          CommunicatorBackend::kNccl);
+            P2PCommunicationType::SEND,
+            slicing_input->out(),
+            tensor_index,
+            CommunicatorBackend::kNccl);
         auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
         auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
         auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
