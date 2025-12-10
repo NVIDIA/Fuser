@@ -17,7 +17,7 @@ namespace nvfuser {
 
 struct HostIrLowerParams {
   CommunicatorBackend communicator_backend = CommunicatorBackend::kNccl;
-  bool do_swizzle_in_stream_lowering = false;
+  bool offset_stream_indexing_by_rank = false;
 };
 
 class HostIrLower {

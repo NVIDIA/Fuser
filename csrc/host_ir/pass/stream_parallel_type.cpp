@@ -270,7 +270,7 @@ std::list<Expr*> addTensorAllocations(
           if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) !=
               -1) {
             if (params.communicator_backend == CommunicatorBackend::kCuda &&
-                !params.do_swizzle_in_stream_lowering &&
+                !params.offset_stream_indexing_by_rank &&
                 isResharding(body_expr)) {
               output->setMemoryType(MemoryType::Symmetric);
             }
@@ -321,22 +321,8 @@ std::list<Expr*> processForLoopBodies(
     };
 
     auto* my_device_id = IrBuilder::create<NamedScalar>("rank", DataType::Int);
-    // We need to make indexing different for when the pipeline will result in
-    // a p2p ring pipeline backed by cuda ipc, or will result in a collective
-    // based pipeline. On the one hand, for the case of collective-based
-    // pipeline, all ranks must index the tensors uniformly, because the
-    // successive collective must be posted in a globally coherent order (this
-    // can actually be relaxed by using different process groups, namely, one
-    // process group per tile, using tags, but this unfortunately hurts
-    // performance). On the other hand, the case with cuda ipc p2p needs a
-    // ring pattern where each rank sends and receives to one and only one
-    // peer, therefore, indexing must be offset by the rank. This is needed
-    // for two reasons, 1) performance-wise, this is a more efficient way to
-    // use the network than to have all ranks send or receive to/from one
-    // device 2) our semantics of sharing the memory handles can only express
-    // this type of scenario. P2p backend by ProcessGroup can relax condition
-    // 2) because there is no explicit need to share the memhandle.
-    auto tensor_index = params.do_swizzle_in_stream_lowering
+
+    auto tensor_index = params.offset_stream_indexing_by_rank
         ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
         : for_loop->index();
 
@@ -396,7 +382,7 @@ std::list<Expr*> processForLoopBodies(
             "expected a stream parallelized first axis on the output but got ",
             output_tv);
 
-        auto send_peer = params.do_swizzle_in_stream_lowering
+        auto send_peer = params.offset_stream_indexing_by_rank
             ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())),
                   for_loop->stop())
             : for_loop->index();
@@ -410,7 +396,7 @@ std::list<Expr*> processForLoopBodies(
             tensor_slicing_cache.get(output_tv, /*dim=*/0, /*index=*/recv_peer);
         new_loop_body.push_back(slicing_output);
 
-        if (params.do_swizzle_in_stream_lowering == false) {
+        if (params.offset_stream_indexing_by_rank == false) {
           auto broadcast = IrBuilder::create<Communication>(
               CommunicationType::Broadcast,
               slicing_output->out(),
