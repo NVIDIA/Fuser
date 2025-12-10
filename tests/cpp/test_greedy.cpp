@@ -12,8 +12,8 @@
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/executor.h>
 #include <runtime/executor_utils.h>
 #include <tests/cpp/utils.h>
@@ -28,7 +28,6 @@ class GreedySchedulerTest : public NVFuserTest {
   void SetUp() override {
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-    EnableOptionsGuard::getCurOptions().set(EnableOption::GreedyScheduler);
   }
 };
 
@@ -985,7 +984,7 @@ class GreedySchedulerTestShmemSize : public GreedySchedulerTest,
 TEST_P(GreedySchedulerTestShmemSize, Argsort) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();
@@ -1035,7 +1034,7 @@ TEST_P(GreedySchedulerTestShmemSize, Argsort) {
 TEST_P(GreedySchedulerTestShmemSize, TopK) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();
@@ -1090,7 +1089,7 @@ TEST_P(GreedySchedulerTestShmemSize, TopK) {
 TEST_P(GreedySchedulerTestShmemSize, Scan) {
   DisableOptionsGuard disable_options_guard;
   DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   const auto size = GetParam();

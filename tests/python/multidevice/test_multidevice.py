@@ -422,3 +422,28 @@ def test_welford(multidevice_direct_test):
 
     torch.testing.assert_close(var, sharded.var(2), rtol=1e-3, atol=1e-3)
     torch.testing.assert_close(mean, sharded.mean(2), rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.mpi
+def test_binary(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        x = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        y = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        z = fd.ops.add(x, y)
+        fd.add_output(z)
+
+        x.set_device_mesh(mesh)
+        y.set_device_mesh(mesh)
+        y.outer_split(0, d)
+        y.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    x = torch.randn(d * 2, 3, dtype=torch.float16)
+    y = torch.randn(d * 2, 3, dtype=torch.float16)
+    (z,) = fd.execute([x.cuda(), multidevice_direct_test.shard_tensor(y, 0, mesh)])
+
+    torch.testing.assert_close(
+        z, multidevice_direct_test.shard_tensor(x.float() + y.float(), 0, mesh)
+    )

@@ -26,7 +26,7 @@ class HostIrJitTest : public NVFuserTest {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
   }
 };
-// Build with: python setup.py install --build-with-host-ir-jit
+
 TEST_F(HostIrJitTest, Set) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard::setCurFusion(hic.get());
@@ -297,7 +297,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
-      CompileParams(),
+      hic->getKernelExecutor(0).compiledKernel().get(),
       std::vector<Val*>{hic_in},
       std::vector<Val*>{hic_out},
       cache_id);
@@ -316,97 +316,48 @@ TEST_F(HostIrJitTest, LaunchKernel) {
 }
 
 TEST_F(HostIrJitTest, Matmul) {
-  constexpr int64_t H = 32;
-  constexpr int64_t M = 64;
-  constexpr int64_t K = 128;
-  constexpr int64_t N = 256;
+  constexpr int64_t kH = 32;
+  constexpr int64_t kM = 64;
+  constexpr int64_t kK = 128;
+  constexpr int64_t kN = 256;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = makeContigTensor(3);
-  TensorView* tv2 = makeContigTensor(3);
-  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
-
-  hic->addInput(tv0);
-  hic->addInput(tv1);
-  hic->addInput(tv2);
-  hic->addOutput(tv2);
-
-  hic->pushBackTopLevelExprs(matmul);
-
-  HostIrJit jit(std::move(hic));
-
-  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  at::Tensor t0 = at::randn({H, M, K}, options);
-  at::Tensor t1 = at::randn({H, K, N}, options);
-  at::Tensor t2 = at::randn({H, M, N}, options);
-  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
-      {tv0, t0}, {tv1, t1}, {tv2, t2}};
-
-  KernelArgumentHolder in_args;
-  in_args.setCacheId(0);
-  in_args.push(t0);
-  in_args.push(t1);
-  in_args.push(t2);
-  KernelArgumentHolder outs = jit.runWithInputs(in_args);
-  EXPECT_EQ(outs.size(), 1);
-  at::Tensor output = outs[0].as<at::Tensor>();
-
-  // validate
-  auto ref_output = at::matmul(t0, t1);
-
-  EXPECT_TRUE(ref_output.allclose(t2));
-}
-
-TEST_F(HostIrJitTest, MatmulOut) {
-  constexpr int64_t H = 32;
-  constexpr int64_t M = 64;
-  constexpr int64_t K = 128;
-  constexpr int64_t N = 256;
-
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-
-  TensorView* tv0 = makeContigTensor(3);
-  TensorView* tv1 = makeContigTensor(3);
-  TensorView* tv2 = makeContigTensor(3);
-  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
-
+  TensorView* tv2 = matmul(tv0, tv1);
   hic->addInput(tv0);
   hic->addInput(tv1);
   hic->addOutput(tv2);
 
-  hic->pushBackTopLevelExprs(matmul);
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<kir::Allocate>(tv2, MemoryType::Global));
+  hic->pushBackTopLevelExprs(tv2->definition());
 
   HostIrJit jit(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  at::Tensor t0 = at::randn({H, M, K}, options);
-  at::Tensor t1 = at::randn({H, K, N}, options);
-  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
-      {tv0, t0}, {tv1, t1}};
+  at::Tensor t0 = at::randn({kH, kM, kK}, options);
+  at::Tensor t1 = at::randn({kH, kK, kN}, options);
 
-  KernelArgumentHolder in_args;
-  in_args.setCacheId(0);
-  in_args.push(t0);
-  in_args.push(t1);
-  KernelArgumentHolder outs = jit.runWithInputs(in_args);
+  KernelArgumentHolder ins;
+  ins.setCacheId(0);
+  ins.push(t0);
+  ins.push(t1);
+  KernelArgumentHolder outs = jit.runWithInputs(ins);
   EXPECT_EQ(outs.size(), 1);
-  at::Tensor output = outs[0].as<at::Tensor>();
+  auto output = outs[0].as<at::Tensor>();
 
-  // validate
   auto ref_output = at::matmul(t0, t1);
-
   EXPECT_TRUE(ref_output.allclose(output));
 }
 
 TEST_F(HostIrJitTest, Linear) {
-  constexpr int64_t B = 32;
-  constexpr int64_t M = 64;
-  constexpr int64_t K = 128;
-  constexpr int64_t N = 256;
+  constexpr int64_t kB = 32;
+  constexpr int64_t kM = 64;
+  constexpr int64_t kK = 128;
+  constexpr int64_t kN = 256;
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
@@ -414,48 +365,42 @@ TEST_F(HostIrJitTest, Linear) {
   TensorView* in = makeContigTensor(3);
   TensorView* weight = makeContigTensor(2);
   TensorView* bias = makeContigTensor(1);
-  TensorView* out_with_bias = makeContigTensor(3);
-  TensorView* out_without_bias = makeContigTensor(3);
-
-  auto linear_op_with_bias =
-      IrBuilder::create<LinearOp>(out_with_bias, in, weight, bias);
-  auto linear_op_without_bias =
-      IrBuilder::create<LinearOp>(out_without_bias, in, weight, nullptr);
+  TensorView* out_with_bias = linear(in, weight, bias);
+  TensorView* out_without_bias = linear(in, weight);
 
   hic->addInput(in);
   hic->addInput(weight);
   hic->addInput(bias);
-  hic->addInput(out_with_bias);
-  hic->addInput(out_without_bias);
+  hic->addOutput(out_with_bias);
+  hic->addOutput(out_without_bias);
 
-  hic->pushBackTopLevelExprs(linear_op_with_bias);
-  hic->pushBackTopLevelExprs(linear_op_without_bias);
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<kir::Allocate>(out_with_bias, MemoryType::Global));
+  hic->pushBackTopLevelExprs(out_with_bias->definition());
+  hic->pushBackTopLevelExprs(
+      IrBuilder::create<kir::Allocate>(out_without_bias, MemoryType::Global));
+  hic->pushBackTopLevelExprs(out_without_bias->definition());
 
   HostIrJit jit(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kFloat);
-  auto in_at = at::randint(5, {B, M, K}, options);
-  auto weight_at = at::randint(5, {N, K}, options);
-  auto bias_at = at::randint(5, {N}, options);
-  auto out_with_bias_at = at::empty({B, M, N}, options);
-  auto out_without_bias_at = at::empty({B, M, N}, options);
+  auto in_at = at::randint(5, {kB, kM, kK}, options);
+  auto weight_at = at::randint(5, {kN, kK}, options);
+  auto bias_at = at::randint(5, {kN}, options);
 
-  KernelArgumentHolder in_args;
-  in_args.setCacheId(0);
-  in_args.push(in_at);
-  in_args.push(weight_at);
-  in_args.push(bias_at);
-  in_args.push(out_with_bias_at);
-  in_args.push(out_without_bias_at);
+  KernelArgumentHolder ins;
+  ins.setCacheId(0);
+  ins.push(in_at);
+  ins.push(weight_at);
+  ins.push(bias_at);
 
-  KernelArgumentHolder outs = jit.runWithInputs(in_args);
-  EXPECT_EQ(outs.size(), 0);
-  // validate
+  KernelArgumentHolder outs = jit.runWithInputs(ins);
+  ASSERT_EQ(outs.size(), 2);
+
   auto ref_output_with_bias = at::linear(in_at, weight_at, bias_at);
   auto ref_output_without_bias = at::linear(in_at, weight_at);
-
-  EXPECT_TRUE(ref_output_with_bias.allclose(out_with_bias_at));
-  EXPECT_TRUE(ref_output_without_bias.allclose(out_without_bias_at));
+  EXPECT_TRUE(ref_output_with_bias.allclose(outs[0].as<at::Tensor>()));
+  EXPECT_TRUE(ref_output_without_bias.allclose(outs[1].as<at::Tensor>()));
 }
 
 TEST_F(HostIrJitTest, Reshape) {

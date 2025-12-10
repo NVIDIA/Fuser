@@ -272,10 +272,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/grouped_reduction.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/container.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/evaluator.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/host_ir.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/passes.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
   ${NVFUSER_SRCS_DIR}/id_model/contiguity.cpp
   ${NVFUSER_SRCS_DIR}/id_model/id_model.cpp
@@ -298,7 +299,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
-  ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
   ${NVFUSER_SRCS_DIR}/iter_visitor.cpp
@@ -314,18 +316,21 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/ipc_handle.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/ipc_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/execution_utils.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/propagation.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/resharding.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/symmetric_tensor.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
   ${NVFUSER_SRCS_DIR}/ops/arith.cpp
   ${NVFUSER_SRCS_DIR}/ops/composite.cpp
   ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
   ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
+  ${NVFUSER_SRCS_DIR}/ops/schedule.cpp
   ${NVFUSER_SRCS_DIR}/ops/utils.cpp
   ${NVFUSER_SRCS_DIR}/options.cpp
   ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
@@ -351,7 +356,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/allocate_and_deallocate.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp
@@ -384,6 +389,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
@@ -395,6 +402,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/reduction_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/reduction_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/registry_utils.cpp
@@ -1012,6 +1021,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_pdl.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
@@ -1211,17 +1221,18 @@ if(BUILD_TEST)
   list(APPEND MULTIDEVICE_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communications.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_communicator.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_stream_parallel_type.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_symmetric_tensor.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
@@ -1467,6 +1478,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
   ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
   ${NVFUSER_ROOT}/runtime/grid_reduction.cu
+  ${NVFUSER_ROOT}/runtime/grid_dependency_control.cu
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
