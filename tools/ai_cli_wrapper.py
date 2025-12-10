@@ -78,7 +78,9 @@ def launch_ai_cli(
 
       # Look for the verdict marker
       verdict_line = next(
-         (line.strip().upper() for line in full_output.splitlines() if line.strip().upper().startswith(VERDICT_MARKER)),
+         (line.strip().upper() for line in full_output.splitlines() if
+            ( line.strip().upper().startswith(VERDICT_MARKER) or line.strip().upper().startswith('**'+ VERDICT_MARKER + '**') )
+         ),
          None
       )
 
