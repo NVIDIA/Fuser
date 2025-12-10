@@ -2125,9 +2125,6 @@ TEST_F(PersistentBufferTest, TmaInnerPersistent) {
   int64_t vectorize_pos = rpos + 3;
   auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
 
-  std::cout << "reference_tv: " << reference_tv->toString() << std::endl;
-  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
-
   // Propagate transformations from reference_tv to all non-TMA tensors
   // TMA tensors keep their simple [BIDx, Bulk] schedule
   std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
