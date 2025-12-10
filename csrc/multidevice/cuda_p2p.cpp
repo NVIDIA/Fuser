@@ -8,6 +8,7 @@
 #include <cuda_utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <nvfuser_resources/multicast.h>

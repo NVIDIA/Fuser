@@ -384,17 +384,4 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   return rfactor_did_idx;
 }
 
-MulticastProtocol getMulticastProtocol() {
-  if (isOptionEnabled(EnableOption::MulticastProtocol)) {
-    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
-      return MulticastProtocol::Multimem;
-    }
-    if (hasEnableOptionArgument(
-            EnableOption::MulticastProtocol, "batch_memcpy")) {
-      return MulticastProtocol::BatchMemcpy;
-    }
-  }
-  return MulticastProtocol::Memcpy;
-}
-
 } // namespace nvfuser
