@@ -191,15 +191,17 @@ def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
     k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
     v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
     bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
-    mask = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
+    mask = torch.rand((N, H, L, S), device="cuda:0") > 0.3
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
         fusion_func,
         [q, k, v, bias, mask],
     )
 
+    mask_bias = torch.where(mask, 0.0, float("-inf")).to(dtype=bias.dtype)
+    attn_mask = bias + mask_bias
     ref_out = torch.nn.functional.scaled_dot_product_attention(
-        q, k, v, bias + mask, True, 0.0, False, None
+        q, k, v, attn_mask=attn_mask
     )
     torch.testing.assert_close(nvf_out[0], ref_out)
 
