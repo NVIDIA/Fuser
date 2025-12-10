@@ -1193,9 +1193,6 @@ int64_t getVectorizationFactor(
       max_vectorization_size_in_bit,
       logical_reorder_map);
 
-  std::cout << "base_vect_factor: " << base_vect_factor << std::endl;
-  std::cout << "max_vect_factor: " << max_vect_factor << std::endl;
-  std::cout << "min_vect_factor: " << min_vect_factor << std::endl;
   // 5. Apply all constraints: must be between min and max
   // Take the minimum of (base_factor, max_factor) to respect the upper bound
   int64_t vectorization_factor = std::min(base_vect_factor, max_vect_factor);
