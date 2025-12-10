@@ -272,8 +272,9 @@ void lowerToReduceScatter(
     const CommunicatorBackend backend,
     std::vector<Expr*>& comms,
     DeviceIdxType my_device_idx) {
-  NVF_ERROR(
-      input_tv->getDeviceMesh() == output_tv->getDeviceMesh(),
+  NVF_ERROR_EQ(
+      input_tv->getDeviceMesh(),
+      output_tv->getDeviceMesh(),
       "ReduceScatter operation must have the same sender and receiver "
       "device mesh. "
       "Insert a Set operation before or after the reduction to reshard to "
@@ -566,8 +567,6 @@ std::vector<Expr*> convertSingleOpToCommunication(
     case CommunicationType::Reduce:
       lowerToReduce(input_tv, output_tv, op_type(e), backend, comms);
       break;
-    default:
-      NVF_THROW("Unexpected communication type: ", communication_info.type);
   }
 
   return comms;
