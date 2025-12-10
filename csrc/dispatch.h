@@ -105,6 +105,8 @@ class Val;
   f(SliceOp);                        \
   f(Split);                          \
   f(ArgsortOp);                      \
+  f(LaunchDependentGridOp);          \
+  f(WaitForPriorGridOp);             \
   f(GroupedMmaOp);                   \
   f(ScaledMmaOp);                    \
   f(CutlassNvfp4GroupedMmaOp);       \

@@ -23,6 +23,7 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
+#include <options.h>
 #include <statement_guard.h>
 #include <transform_replay.h>
 #include <type.h>

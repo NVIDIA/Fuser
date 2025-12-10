@@ -8,7 +8,9 @@
 #include <cuda_utils.h>
 #include <multidevice/cuda_p2p.h>
 #include <multidevice/ipc_handle.h>
+#include <multidevice/ipc_utils.h>
 #include <multidevice/symmetric_tensor.h>
+#include <multidevice/utils.h>
 #include <nvfuser_resources/multicast.h>
 #include <options.h>
 
@@ -31,21 +33,6 @@ P2pProtocol getP2pProtocol() {
 }
 
 namespace {
-
-enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
-
-MulticastProtocol getMulticastProtocol() {
-  if (isOptionEnabled(EnableOption::MulticastProtocol)) {
-    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
-      return MulticastProtocol::Multimem;
-    }
-    if (hasEnableOptionArgument(
-            EnableOption::MulticastProtocol, "batch_memcpy")) {
-      return MulticastProtocol::BatchMemcpy;
-    }
-  }
-  return MulticastProtocol::Memcpy;
-}
 
 void launchMulticastKernel(
     void* dst,
@@ -151,6 +138,19 @@ void launchMulticastKernel(
     NVFUSER_CUDA_SAFE_CALL(
         cuModuleGetFunction(&kernel, module, "multimem_copy_kernel"));
   }
+
+  // Ensure data is 16-byte aligned
+  NVF_CHECK(
+      (uintptr_t)dst % 16 == 0,
+      "Multicast dst must be 16-byte aligned. ptr=",
+      dst);
+  NVF_CHECK(
+      (uintptr_t)src % 16 == 0,
+      "Multicast src must be 16-byte aligned. ptr=",
+      src);
+  // Also assume size is a multiple of 16 for simplicity in the kernel
+  NVF_CHECK(
+      size % 16 == 0, "Multicast size must be a multiple of 16. size=", size);
 
   int threads = 128;
   int blocks = 1;

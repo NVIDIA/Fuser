@@ -7,6 +7,7 @@
 // clang-format on
 #include <multidevice/ipc_utils.h>
 
+#include <options.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -176,6 +177,19 @@ int recvFd(int socket_fd, void* header_data, size_t header_len) {
   close(client_fd);
   NVF_CHECK(recv_fd >= 0, "Did not receive valid FD");
   return recv_fd;
+}
+
+MulticastProtocol getMulticastProtocol() {
+  if (isOptionEnabled(EnableOption::MulticastProtocol)) {
+    if (hasEnableOptionArgument(EnableOption::MulticastProtocol, "multimem")) {
+      return MulticastProtocol::Multimem;
+    }
+    if (hasEnableOptionArgument(
+            EnableOption::MulticastProtocol, "batch_memcpy")) {
+      return MulticastProtocol::BatchMemcpy;
+    }
+  }
+  return MulticastProtocol::Memcpy;
 }
 
 } // namespace nvfuser

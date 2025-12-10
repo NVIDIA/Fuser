@@ -399,7 +399,7 @@ class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   constexpr int64_t kTensorSize = 2 * 1024 * 1024;
 
-  auto [do_swizzle, backend] = GetParam();
+  auto [offset_stream_indexing_by_rank, backend] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -408,7 +408,8 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  if (backend == CommunicatorBackend::kCuda && !do_swizzle) {
+  if (backend == CommunicatorBackend::kCuda &&
+      !offset_stream_indexing_by_rank) {
     tv1->setMemoryType(MemoryType::Symmetric);
   }
 
@@ -420,7 +421,7 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutorParams params;
-  params.lower.do_swizzle_in_stream_lowering = do_swizzle;
+  params.lower.offset_stream_indexing_by_rank = offset_stream_indexing_by_rank;
   params.lower.communicator_backend = backend;
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
@@ -448,7 +449,7 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
 }
 
 TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
-  auto [do_swizzle, backend] = GetParam();
+  auto [offset_stream_indexing_by_rank, backend] = GetParam();
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
@@ -479,7 +480,7 @@ TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutorParams params;
-  params.lower.do_swizzle_in_stream_lowering = do_swizzle;
+  params.lower.offset_stream_indexing_by_rank = offset_stream_indexing_by_rank;
   params.lower.communicator_backend = backend;
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
