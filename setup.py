@@ -97,6 +97,7 @@ def main():
         + "=" * 70 + "\n",
         file=sys.stderr
     )
+    sys.stdout.flush()
 
     # Parse arguments using argparse
     config, forward_args = create_build_config()
