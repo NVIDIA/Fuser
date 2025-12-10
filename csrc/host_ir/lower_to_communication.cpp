@@ -285,6 +285,41 @@ void lowerToReduceScatter(
       backend));
 }
 
+void lowerToAllToAll(
+    TensorView* input_tv,
+    TensorView* output_tv,
+    const CommunicatorBackend backend,
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
+  const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR_EQ(
+      sender_mesh.rank(),
+      1,
+      "AllToAll sender mesh must be a 1D mesh. Given ",
+      sender_mesh);
+  NVF_ERROR_EQ(
+      receiver_mesh.rank(),
+      1,
+      "AllToAll receiver mesh must be a 1D mesh. Given ",
+      receiver_mesh);
+  NVF_ERROR_EQ(
+      sender_mesh,
+      receiver_mesh,
+      "AllToAll sender and receiver meshes must be the same. Given ",
+      sender_mesh,
+      " and ",
+      receiver_mesh);
+  comms.push_back(IrBuilder::create<Communication>(
+      CommunicationType::AllToAll,
+      output_tv,
+      input_tv,
+      sender_mesh.vector(),
+      /*root=*/-1,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      backend));
+}
+
 IterDomain* getLogicalFromLoopId(TensorView* tv, IterDomain* loop_id) {
   std::unordered_set<IterDomain*> logical_ids =
       getInputsInTargetDomain({loop_id}, tv->getLogicalDomain());
@@ -371,8 +406,14 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         // TODO(#4604): This is problematic for 2D sharding.
-        fill_communication_info(
-            CommunicationType::SendRecv, p_logical_id, c_logical_id);
+
+        if (c_logical_id == p2c_map.at(p_logical_id)) {
+          fill_communication_info(
+              CommunicationType::SendRecv, p_logical_id, c_logical_id);
+        } else {
+          fill_communication_info(
+              CommunicationType::AllToAll, p_logical_id, c_logical_id);
+        }
       }
     } else {
       NVF_ERROR(e->isA<ReductionOp>() || e->isA<SqueezeOp>());
