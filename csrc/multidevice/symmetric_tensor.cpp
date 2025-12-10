@@ -51,7 +51,10 @@ int64_t getGranularityForSymmetricMemory(
   mcast_prop.flags = 0;
   mcast_prop.handleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
   mcast_prop.numDevices = Communicator::getInstance().size();
-  mcast_prop.size = requested_size_bytes;
+  // Align requested size to allocation granularity as a baseline
+  mcast_prop.size = ((requested_size_bytes + alloc_granularity - 1) /
+                     alloc_granularity) *
+      alloc_granularity;
 
   size_t mcast_min_granularity = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMulticastGetGranularity(
@@ -222,14 +225,23 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
 
   requested_size_ = local_tensor.numel() * local_tensor.element_size();
   granularity_ = getGranularityForSymmetricMemory(prop, requested_size_);
+
+  CUdeviceptr local_ptr =
+      reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
+  CUdeviceptr base_ptr = 0;
+  size_t base_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuMemGetAddressRange(&base_ptr, &base_size, local_ptr));
+  size_t mem_offset = static_cast<size_t>(local_ptr - base_ptr);
+  size_t offset_diff = mem_offset % granularity_;
+
   aligned_size_ =
-      ((requested_size_ + granularity_ - 1) / granularity_) * granularity_;
+      ((requested_size_ + offset_diff + granularity_ - 1) / granularity_) *
+      granularity_;
 
   alloc_handles_.resize(world_size_);
   remote_ptrs_.resize(world_size_);
 
-  CUdeviceptr local_ptr =
-      reinterpret_cast<CUdeviceptr>(local_tensor_.data_ptr());
   CUmemGenericAllocationHandle local_handle;
   NVFUSER_CUDA_SAFE_CALL(cuMemRetainAllocationHandle(
       &local_handle, reinterpret_cast<void*>(local_ptr)));
@@ -522,12 +534,18 @@ void SymmetricTensor::setupMulticast(
   NVFUSER_CUDA_SAFE_CALL(
       cuMemGetAddressRange(&base_ptr, &base_size, local_ptr));
   size_t mem_offset = static_cast<size_t>(local_ptr - base_ptr);
+  size_t aligned_mem_offset = (mem_offset / granularity_) * granularity_;
+  size_t offset_diff = mem_offset - aligned_mem_offset;
+
+  NVF_CHECK(
+      aligned_mem_offset + aligned_size_ <= base_size,
+      "SymmetricTensor: Physical allocation too small for aligned multicast binding");
 
   NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
       mcast_handle_,
       0,
       alloc_handles_[my_device_id_],
-      0,
+      aligned_mem_offset,
       aligned_size_,
       0));
 
@@ -542,7 +560,7 @@ void SymmetricTensor::setupMulticast(
   access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
-  mc_ptr_ = reinterpret_cast<void*>(mc_ptr + mem_offset);
+  mc_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
   is_multicast_setup_ = true;
 
   comm.barrier();
