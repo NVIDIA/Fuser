@@ -2368,6 +2368,8 @@ class SdpaFwdOp : public Expr {
       TensorView* bias = nullptr,
       TensorView* mask = nullptr);
 
+  SdpaFwdOp(const SdpaFwdOp* src, IrCloner* ir_cloner);
+
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {

@@ -152,7 +152,7 @@ def test_sdpa_fwd(nvfuser_direct_test):
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
-    def fusion_func(fd: FusionDefinition) -> None:
+    with FusionDefinition() as fd:
         q = fd.define_tensor(
             shape=[-1, -1, -1, -1],
             contiguity=True,
@@ -193,13 +193,9 @@ def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
     bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
     mask = torch.rand((N, H, L, S), device="cuda:0") > 0.3
 
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
-        fusion_func,
-        [q, k, v, bias, mask],
-    )
+    nvf_out = fd.execute([q, k, v, bias, mask])
 
-    mask_bias = torch.where(mask, 0.0, float("-inf")).to(dtype=bias.dtype)
-    attn_mask = bias + mask_bias
+    attn_mask = (bias + torch.where(mask, 0.0, float("-inf"))).to(dtype=bias.dtype)
     ref_out = torch.nn.functional.scaled_dot_product_attention(
         q, k, v, attn_mask=attn_mask
     )

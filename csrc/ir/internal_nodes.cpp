@@ -9,7 +9,6 @@
 #include <complex>
 #include <iterator>
 #include <limits>
-#include <numeric>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -27,6 +26,7 @@
 
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
+#include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
@@ -3260,6 +3260,12 @@ SdpaFwdOp::SdpaFwdOp(
     addInput(mask);
   }
 }
+
+SdpaFwdOp::SdpaFwdOp(const SdpaFwdOp* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner),
+      scale_input_index_(src->scale_input_index_),
+      bias_input_index_(src->bias_input_index_),
+      mask_input_index_(src->mask_input_index_) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
