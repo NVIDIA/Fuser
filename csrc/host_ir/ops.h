@@ -26,7 +26,7 @@ namespace nvfuser::hir {
 // destination TensorView will have a loop domain that's consistent with `e` and
 // an allocation domain that's a shard of `source`.
 //
-// Why is `e` unecessary? I made a mistake previously to propagate `source`'s
+// Why is `e` unnecessary? I made a mistake previously to propagate `source`'s
 // loop domain to `destination`. This broke
 // test_stream.py::test_two_matmuls_not_inlinable because, when `source` is an
 // input of `e`, `source`'s loop domain reflects its producing Expr rather than
