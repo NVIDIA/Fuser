@@ -913,9 +913,9 @@ class LowerCollectiveCudaAndNcclTest
             EnableOption::MulticastProtocol, {"batch_memcpy"});
         break;
       case CommunicationProtocol::kMemcpy:
-        // Explicitly clear for memcpy to avoid stale values
-        EnableOptionsGuard::getCurOptions().unset(
-            EnableOption::MulticastProtocol);
+        // Explicitly set for memcpy
+        EnableOptionsGuard::getCurOptions().set(
+            EnableOption::MulticastProtocol, {"memcpy"});
         break;
       case CommunicationProtocol::kNccl:
         // For nccl backend, MulticastProtocol is irrelevant and should not be
