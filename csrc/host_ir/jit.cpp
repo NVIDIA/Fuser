@@ -24,7 +24,7 @@
 #include "runtime/compiled_kernel.h"
 #include "runtime/executor.h"
 
-#include <driver_api.h>
+#include "driver_api.h"
 
 #include <ATen/ATen.h>
 #include <ATen/core/LegacyTypeDispatch.h>
@@ -36,22 +36,22 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <bfs.h>
-#include <expr_evaluator.h>
-#include <fusion_profiler.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/jit.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <linked_hash_map.h>
-#include <ops/all_ops.h>
-#include <polymorphic_value.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_executor_cache.h>
-#include <runtime/fusion_kernel_runtime.h>
-#include <tensor_metadata.h>
-#include <val_graph_visitor.h>
+#include "bfs.h"
+#include "expr_evaluator.h"
+#include "fusion_profiler.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/jit.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "linked_hash_map.h"
+#include "ops/all_ops.h"
+#include "polymorphic_value.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_executor_cache.h"
+#include "runtime/fusion_kernel_runtime.h"
+#include "tensor_metadata.h"
+#include "val_graph_visitor.h"
 
 #include <ranges>
 
