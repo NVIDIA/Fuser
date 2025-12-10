@@ -104,7 +104,6 @@ enum class EnableOption {
   CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
-  GreedyScheduler, //! Enable the grreedy scheduler
   IdModel, //! Enable IdModel
   IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
@@ -143,6 +142,7 @@ enum class DisableOption {
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
+  GreedyScheduler, //! Disable the greedy scheduler
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
   IdModel, //! Disable IdModel
