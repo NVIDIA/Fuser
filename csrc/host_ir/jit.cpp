@@ -138,7 +138,9 @@ llvm::Type* getInt8PtrType(llvm::LLVMContext& context) {
   return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 }
 
-llvm::Type* getInt8PtrStaticArrayType(llvm::LLVMContext& context, int64_t size) {
+llvm::Type* getInt8PtrStaticArrayType(
+    llvm::LLVMContext& context,
+    int64_t size) {
   return llvm::ArrayType::get(getInt8PtrType(context), size);
 }
 
@@ -226,11 +228,11 @@ llvm::Value* createTensorDataPtr(
 // from runtime/tensor.cu
 //
 // Memory layout:
-//   struct Tensor {
-//     Pointer<T> data;                    // 8 bytes (field 0)
-//     Array<nvfuser_index_t, Dims> sizes; // Dims * index_size (field 1)
-//     Array<nvfuser_index_t, AllocDims> strides; // AllocDims * index_size (field 2)
-//   };
+// struct Tensor {
+//   Pointer<T> data;                    // 8 bytes (field 0)
+//   Array<index_t, Dims> sizes; // Dims * index_size (field 1)
+//   Array<index_t, AllocDims> strides; // AllocDims * index_size (field 2)
+// };
 llvm::StructType* createRuntimeTensorType(
     int64_t num_dims,
     PrimDataType index_type,
@@ -569,11 +571,11 @@ void inferTensorShapesAndStrides(
 // kernels. Returns a pointer to the packed buffer (stack-allocated)
 //
 // Memory layout matches runtime/tensor.cu
-//   struct Tensor {
-//     Pointer<T> data;                    // 8 bytes (field 0)
-//     Array<nvfuser_index_t, Dims> sizes; // Dims * index_size (field 1)
-//     Array<nvfuser_index_t, AllocDims> strides; // AllocDims * index_size (field 2)
-//   };
+// struct Tensor {
+//   Pointer<T> data;                    // 8 bytes (field 0)
+//   Array<index_t, Dims> sizes; // Dims * index_size (field 1)
+//   Array<index_t, AllocDims> strides; // AllocDims * index_size (field 2)
+// };
 llvm::Value* packTensorArgument(
     llvm::Value* tensor, // at::Tensor*
     TensorView* tv,
@@ -610,8 +612,8 @@ llvm::Value* packTensorArgument(
 
   // 1. Store data pointer (field 0)
   llvm::Value* data_ptr = createTensorDataPtr(tensor, builder);
-  llvm::Value* data_field_ptr =
-      builder.CreateStructGEP(tensor_struct_type, runtime_tensor, 0, "data_field");
+  llvm::Value* data_field_ptr = builder.CreateStructGEP(
+      tensor_struct_type, runtime_tensor, 0, "data_field");
   builder.CreateStore(data_ptr, data_field_ptr);
 
   // Apply AdjustLastDim to sizes
