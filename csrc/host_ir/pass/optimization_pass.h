@@ -6,15 +6,16 @@
  */
 // clang-format on
 #pragma once
+
+#include <atomic>
 #include <string_view>
+
 #include "debug.h"
 #include "exceptions.h"
 #include "host_ir/container.h"
 #include "instrumentation.h"
 #include "ir/interface_nodes.h"
 #include "options.h"
-
-#include <atomic>
 
 namespace nvfuser::hir_pass {
 

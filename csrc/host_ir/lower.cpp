@@ -6,7 +6,9 @@
  */
 // clang-format on
 #include "host_ir/lower.h"
+
 #include <limits>
+
 #include "device_lower/utils.h"
 #include "host_ir/lower_to_communication.h"
 #include "host_ir/pass/convert_op_to_communication.h"

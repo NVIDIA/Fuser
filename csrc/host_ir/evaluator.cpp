@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include "host_ir/evaluator.h"
+
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
@@ -15,7 +17,6 @@
 
 #include "dynamic_transform.h"
 #include "fusion_profiler.h"
-#include "host_ir/evaluator.h"
 #include "host_ir/lower_to_communication.h"
 #include "host_ir/pass/convert_op_to_communication.h"
 #include "instrumentation.h"

@@ -7,6 +7,7 @@
 // clang-format on
 
 #include "host_ir/lower_to_communication.h"
+
 #include "host_ir/container.h"
 #include "ir/all_nodes.h"
 #include "ir/allocation_utils.h"

@@ -5,10 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "host_ir/jit.h"
+
 #include <cstdint>
 #include <memory>
+#include <ranges>
 #include <unordered_map>
 
+#include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
+#include <c10/core/MemoryFormat.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
@@ -21,26 +33,15 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
-#include "runtime/compiled_kernel.h"
-#include "runtime/executor.h"
 
 #include "driver_api.h"
-
-#include <ATen/ATen.h>
-#include <ATen/core/LegacyTypeDispatch.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/llvm_jit_strings.h>
-#include <ATen/native/cuda/jit_utils.h>
-#include <c10/core/DeviceGuard.h>
-#include <c10/core/MemoryFormat.h>
-#include <c10/cuda/CUDAFunctions.h>
-#include <c10/cuda/CUDAStream.h>
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
 
 #include "bfs.h"
 #include "expr_evaluator.h"
 #include "fusion_profiler.h"
 #include "host_ir/evaluator.h"
-#include "host_ir/jit.h"
 #include "instrumentation.h"
 #include "ir/all_nodes.h"
 #include "ir/iostream.h"
@@ -52,8 +53,6 @@
 #include "runtime/fusion_kernel_runtime.h"
 #include "tensor_metadata.h"
 #include "val_graph_visitor.h"
-
-#include <ranges>
 
 namespace nvfuser {
 

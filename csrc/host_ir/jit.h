@@ -6,7 +6,9 @@
  */
 // clang-format on
 #pragma once
+
 #include <memory>
+
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "multidevice/communicator.h"
