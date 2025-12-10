@@ -399,6 +399,10 @@ class StreamParallelBackendTest : public MultiDeviceStreamParallelTypeTest,
 TEST_P(StreamParallelBackendTest, AllgatherP2p) {
   constexpr int64_t kTensorSize = 2 * 1024 * 1024;
 
+  // set the protocol to batch_memcpy to avoid relying on multicast support
+  EnableOptionsGuard guard;
+  guard.getCurOptions().set(EnableOption::MulticastProtocol, {"batch_memcpy"});
+
   auto [offset_stream_indexing_by_rank, backend] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
@@ -459,6 +463,10 @@ TEST_P(StreamParallelBackendTest, AG_matmul_P2p) {
     GTEST_SKIP() << "M must be a multiple of D, but got M = " << M
                  << ", D = " << D;
   }
+
+  // set the protocol to batch_memcpy to avoid relying on multicast support
+  EnableOptionsGuard guard;
+  guard.getCurOptions().set(EnableOption::MulticastProtocol, {"batch_memcpy"});
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
