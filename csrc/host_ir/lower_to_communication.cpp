@@ -147,12 +147,14 @@ void lowerToBroadcast(
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
 
-  NVF_ERROR(
-      sender_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      sender_mesh.rank(),
+      1,
       "Broadcast only supports a 1D sender mesh. Given ",
       sender_mesh);
   NVF_ERROR(
-      receiver_mesh.rank() == 1,
+      receiver_mesh.rank(),
+      1,
       "Broadcast only supports a 1D receiver mesh. Given ",
       receiver_mesh);
 
@@ -171,7 +173,7 @@ void lowerToBroadcast(
       backend));
 }
 
-// Adds several Broadcast or SendRecv communications to the vector 'comms'
+// Adds several SendRecv communications to the vector 'comms'
 // For now, we assume that this function is called only if
 // the input and output have the same sharding. Later we could support more
 // general cases.
@@ -182,20 +184,20 @@ void lowerToSendRecv(
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
-  NVF_ERROR(
-      sender_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      sender_mesh.rank(),
+      1,
       "SendRecv only supports a 1D sender mesh. Given ",
       sender_mesh);
-  NVF_ERROR(
-      receiver_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      receiver_mesh.rank(),
+      1,
       "SendRecv only supports a 1D receiver mesh. Given ",
       receiver_mesh);
-  NVF_ERROR(
-      sender_mesh.size() == receiver_mesh.size(),
-      "the receiver and sender meshes have different sizes: ",
+  NVF_ERROR_EQ(
       sender_mesh.size(),
-      " vs ",
-      receiver_mesh.size());
+      receiver_mesh.size(),
+      "Receiver and sender meshes have different sizes.");
   for (auto i : c10::irange(sender_mesh.size())) {
     const DeviceIdxType sender = sender_mesh.at(i);
     const DeviceIdxType receiver = receiver_mesh.at(i);
