@@ -46,7 +46,7 @@ from torch.distributed.tensor import DTensor
 
 import thunder
 from thunder.dynamo.compiler import thunderfx
-from thunder.benchmarks.layers_for_inference_benchmark import (
+from layers_for_inference_benchmark import (
     GroupedSwiGLU,
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,

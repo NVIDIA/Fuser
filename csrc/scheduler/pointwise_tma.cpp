@@ -85,6 +85,20 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->cparams.index_type = prop.index_type;
   params->use_tma_load = true;
 
+  // ========== Step 0: Determine Break Point ==========
+  // The break point determines the scheduling strategy:
+  //
+  // break_point == 0: Use 1D scheduler
+  //   - All iteration domains are flattened into a single dimension
+  //   - This is then split into [tma_domain_outer, tma_domain_inner]
+  //
+  // break_point > 0: Use 2D scheduler
+  //   - Iteration domains are merged at the break point into two dimensions
+  //   - These directly correspond to [tma_domain_outer, tma_domain_inner]
+  auto bp_info = pointwise_utils::getBreakPoint(
+      fusion, prop, data_cache, /*is_tma =*/true);
+  params->break_point = bp_info.break_point;
+
   // ========== Step 1: Compute TMA Domain Dimensions ==========
   // The TMA domain splits the entire problem into
   // [tma_domain_outer, tma_domain_inner]
@@ -98,16 +112,36 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // where tma_domain_outer * tma_domain_inner = n_elems
   constexpr int64_t tma_domain_inner_target = 512;
 
-  const int64_t tma_domain_inner = scheduler_utils::getTmaDomainInner(
-      prop.n_elems,
-      tma_domain_inner_target,
-      prop.min_dtype_size_bit_for_vectorization);
+  const int64_t tma_domain_inner = bp_info.break_point == 0
+      ? scheduler_utils::getTmaDomainInner(
+            prop.n_elems,
+            tma_domain_inner_target,
+            prop.min_dtype_size_bit_for_vectorization)
+      : bp_info.right_elem_count;
   NVF_ERROR(
       tma_domain_inner > 1 && prop.n_elems % tma_domain_inner == 0,
       "Illegal tma_domain_inner size: ",
       tma_domain_inner,
       ", n_elems: ",
       prop.n_elems);
+
+  // TMA requires 128-bit alignment. When break_point > 0, tma_domain_inner is
+  // determined by right_elem_count, which may not satisfy this requirement.
+  // Reject such cases early to avoid generating invalid TMA schedules.
+  //
+  // TODO: The break_point selection logic should account for alignment
+  // requirements. For instance, a 512x127 tensor could use a 1D scheduler
+  // (break_point=0) but fails with a 2D scheduler if 127 elements don't meet
+  // 128-bit alignment. This limitation affects both TMA and non-TMA pointwise
+  // schedulers. See TmaDomainBroadcastIllegal test for an example.
+  if (bp_info.break_point > 0) {
+    const int64_t ref_elem_size_bits = dataTypeSizeBit(
+        prop.largest_out->getDataType().value(), prop.index_type);
+    const int64_t tma_domain_inner_bits = tma_domain_inner * ref_elem_size_bits;
+    if (tma_domain_inner_bits % 128 != 0) {
+      return nullptr;
+    }
+  }
 
   const int64_t tma_domain_outer = prop.n_elems / tma_domain_inner;
   params->tma_domain_inner = tma_domain_inner;
@@ -227,6 +261,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n==== Pointwise TMA Scheduler Heuristics ====\n";
     debug() << "Domain sizes:\n";
     debug() << "  n_elems: " << prop.n_elems << "\n";
+    debug() << "  break_point: " << bp_info.break_point << "\n";
     debug() << "  tma_domain_inner: " << tma_domain_inner << "\n";
     debug() << "  tma_domain_outer: " << tma_domain_outer << "\n";
     debug() << "\nMemory and CTA configuration:\n";
@@ -271,7 +306,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Merge all dimensions into a single iteration domain. The TMA domain split
   // will be handled later via domain size parameters.
   auto schedule_info_opt =
-      pointwise_utils::commonPointwiseSchedule(fusion, /*break_point=*/0);
+      pointwise_utils::commonPointwiseSchedule(fusion, pparams->break_point);
   if (!schedule_info_opt.has_value()) {
     // Zero-dimensional tensors, nothing to schedule
     return;
@@ -326,7 +361,16 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Transform the flattened domain through a two-level hierarchy:
   // Step 1: [I0] -> [tma_domain_outer, tma_domain_inner]
   //   Split into outer and inner domains based on tma_domain_inner
-  reference_tv->split(0, pparams->tma_domain_inner);
+  // Note: Skip this split if break_point != 0, as the reference tensor has
+  // already been transformed into [lhs, rhs] domains at the break point by
+  // commonPointwiseSchedule, which provides the required 2D TMA structure.
+  // TODO: consider device domain and non-concretized domain.
+  if (pparams->break_point == 0) {
+    NVF_ERROR_EQ(reference_tv->nDims(), 1);
+    reference_tv->split(0, pparams->tma_domain_inner);
+  } else {
+    NVF_ERROR_EQ(reference_tv->nDims(), 2);
+  }
 
   // Step 2: [tma_domain_outer, tma_domain_inner] ->
   //         [tma_domain_outer/tma_tile_outer, tma_tile_outer,

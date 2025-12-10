@@ -15,6 +15,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
+#include <runtime/compiled_kernel.h>
 #include <scheduler/heuristic.h>
 
 namespace nvfuser::hir {
@@ -115,10 +116,11 @@ class LaunchKernel : public Expr {
       IrBuilderPasskey passkey,
       int64_t group_id,
       const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
+      CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
       Val* cache_id);
+  LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -152,6 +154,13 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
+  }
+
+ private:
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {
@@ -476,6 +485,43 @@ class ShardByStream : public Expr {
 
   Val* stream_index() const {
     return inputs().at(1);
+  }
+};
+
+// SymmetricContiguousView takes a sharded TensorView with contiguous symmetric
+// memory type (where the outermost dimension is parallelized with DIDx) and
+// produces an unsharded TensorView. At runtime, it performs IPC handle exchange
+// and creates a contiguous virtual address mapping across all ranks. This
+// effectively "unshards" the tensor by making all ranks' data visible in a
+// contiguous address space.
+class SymmetricContiguousView : public Expr {
+ public:
+  using Expr::Expr;
+  SymmetricContiguousView(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in);
+
+  SymmetricContiguousView(const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView& operator=(const SymmetricContiguousView& other) =
+      delete;
+  SymmetricContiguousView(SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView& operator=(SymmetricContiguousView&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SymmetricContiguousView";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return outputs().at(0)->as<TensorView>();
   }
 };
 

@@ -2627,4 +2627,168 @@ TEST_F(ReductionTest, TensorRankLimit) {
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Test scheduling inner reduction kernels with 1D bulk TMA.
+// ndims: Test 2 or 3 dimensions. The first dim is always non-reduce, all the
+//        rest are reduce dimensions. Inner dimensions should be merged by the
+//        schedule.
+// inner_size: The size of the inner-most dimension.
+using TmaInnerReductionTestParams =
+    std::tuple<int64_t, int64_t>; // <ndims, inner_size>
+
+class TmaInnerReductionTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+TEST_P(TmaInnerReductionTest, Basic) {
+  [[maybe_unused]] auto dtype = DataType::Float;
+  [[maybe_unused]] int64_t dtype_bytes = dataTypeSizeByte(dtype);
+  [[maybe_unused]] auto [ndims, inner_size] = GetParam();
+
+  std::vector<int64_t> element_at_each_dim;
+  if (ndims == 2) {
+    element_at_each_dim = {64, inner_size};
+  } else {
+    element_at_each_dim = {64, 8, inner_size};
+  }
+
+  std::vector<int64_t> reduced_dims;
+  int64_t reduced_elem_count = 1;
+  for (int i = 1; i < ndims; ++i) {
+    reduced_dims.push_back(i);
+    reduced_elem_count *= element_at_each_dim[i];
+  }
+
+  if (reduced_elem_count * dtype_bytes % 16 != 0) {
+    GTEST_SKIP() << "Reduced bytes is not divisible by 16, can't use TMA, "
+                    "reduced_elem_count: "
+                 << reduced_elem_count << ", dtype_bytes: " << dtype_bytes;
+    return;
+  }
+
+  const int64_t smem_elems =
+      at::cuda::getDeviceProperties(0)->sharedMemPerBlockOptin / dtype_bytes;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigTensor(ndims);
+  fusion.addInput(tv0);
+  auto tv1 = sum(tv0, reduced_dims);
+  fusion.addOutput(tv1);
+  auto fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(element_at_each_dim, options);
+
+  // Phase-1, Set input and output cache and TMA load
+  auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0smem->setMemoryType(MemoryType::Shared);
+
+  auto redu_tv = tv1->cacheBefore();
+
+  // Phase-2, Merge contiguous reduction dimensions
+  // [I, R1, R2] -> [I, R1*R2]
+  for (int64_t i = redu_tv->nDims() - 2; i >= 0; --i) {
+    if (redu_tv->axis(i)->isReduction() &&
+        redu_tv->axis(i + 1)->isReduction()) {
+      redu_tv->merge(i, i + 1);
+    }
+  }
+
+  // Phase-3, Schedule common transformations shared by TMA and non-TMA tensors
+  ParallelType outer_type = ParallelType::BIDx;
+  const int64_t smem_split_offset = (reduced_elem_count > smem_elems) ? 1 : 0;
+  if (smem_split_offset > 0) {
+    // Split the reduction axis to fit into shared memory.
+    int64_t split_size = std::gcd(smem_elems, reduced_elem_count);
+
+    // [I, R] -> [I, R/split_size, split_size]
+    redu_tv->split(1, split_size);
+    redu_tv->axis(1)->parallelize(ParallelType::BIDx);
+
+    // Reduction block extent may be larger than 65535, so it needs BIDx.
+    outer_type = ParallelType::BIDy;
+  }
+
+  redu_tv->axis(0)->parallelize(outer_type);
+
+  // Phase-4, Propagate common transformations to all tensors
+  TransformPropagator propagator(redu_tv);
+  MaxLogicalDomainInfoSpanningTree(redu_tv).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(redu_tv);
+
+  // Phase-5, Schedule for reduction and rFactor thread local reductions
+  const int64_t vect = 4;
+  const int64_t tidx = 256;
+  const int64_t unroll = 4;
+
+  const int64_t vect_axis = 5 + smem_split_offset;
+  const int64_t tid_axis = 4 + smem_split_offset;
+  const int64_t unroll_axis = 3 + smem_split_offset;
+  const int64_t unswitch_axis = 2 + smem_split_offset;
+  const int64_t tma_axis = 1 + smem_split_offset;
+
+  tv0smem->axis(tma_axis)->parallelize(ParallelType::Bulk);
+
+  // [I, R] -> [I, R/vect, vect]
+  redu_tv->split(tma_axis, vect);
+
+  // [I, R/vect, vect] -> [I, R/vect/tidx, tidx, vect]
+  redu_tv->split(tma_axis, tidx);
+
+  // [I, R/vect/tidx, tidx, vect] -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
+  redu_tv->split(tma_axis, unroll);
+  redu_tv->split(tma_axis, 1);
+
+  redu_tv->axis(vect_axis)->parallelize(ParallelType::Serial);
+  redu_tv->axis(tid_axis)->parallelize(ParallelType::TIDx);
+  redu_tv->axis(unroll_axis)->parallelize(ParallelType::Unroll);
+  redu_tv->axis(unswitch_axis)->parallelize(ParallelType::Unswitch);
+  redu_tv->axis(tma_axis)->parallelize(ParallelType::Serial);
+
+  std::vector<int64_t> rfactor_axes;
+  for (int64_t i = 0; i < redu_tv->nDims(); i++) {
+    if (redu_tv->axis(i)->isReduction() && !redu_tv->axis(i)->isThread()) {
+      rfactor_axes.push_back(i);
+    }
+  }
+  redu_tv->rFactor(rfactor_axes);
+
+  // Step 6: Inline
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaInnerReductionTest,
+    ::testing::Combine(
+        ::testing::Values(2, 3), // ndims
+        ::testing::ValuesIn([] { // inner_size
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }())),
+    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+      int64_t ndims = std::get<0>(info.param);
+      int64_t inner_size = std::get<1>(info.param);
+      return "ndim_" + std::to_string(ndims) + "_inner_size_" +
+          std::to_string(inner_size);
+    });
+
 } // namespace nvfuser

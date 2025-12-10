@@ -47,6 +47,29 @@ kir::IfThenElse* cloneIfThenElse(kir::IfThenElse* ite) {
 
 namespace ir_utils {
 
+bool isScheduleOp(const Val* val) {
+  NVF_ERROR(val != nullptr, "Val is nullptr");
+  if (!val->isA<TensorView>()) {
+    return false;
+  }
+  auto tv = val->as<TensorView>();
+  if (tv->definition() == nullptr) {
+    return false;
+  }
+  if (!tv->definition()->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>()) {
+    return false;
+  }
+  bool only_broadcast_domains = std::all_of(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      [](const IterDomain* id) { return id->isBroadcast(); });
+  NVF_ERROR(
+      only_broadcast_domains,
+      "Expected output TensorView is always broadcast-only for schedule "
+      "operations.");
+  return true;
+}
+
 std::vector<IterDomain*> iterDomainInputsOf(
     const std::vector<IterDomain*>& input_ids,
     const std::vector<IterDomain*>& all_inputs) {
@@ -129,6 +152,8 @@ bool isTvOp(const Expr* expr) {
           ScanOp,
           PreprocessGroupedMatmulInputSf,
           BlockQuantizationOp,
+          LaunchDependentGridOp,
+          WaitForPriorGridOp,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
