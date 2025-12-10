@@ -152,7 +152,7 @@ void lowerToBroadcast(
       1,
       "Broadcast only supports a 1D sender mesh. Given ",
       sender_mesh);
-  NVF_ERROR(
+  NVF_ERROR_EQ(
       receiver_mesh.rank(),
       1,
       "Broadcast only supports a 1D receiver mesh. Given ",
@@ -569,6 +569,7 @@ std::vector<Expr*> convertSingleOpToCommunication(
     default:
       NVF_THROW("Unexpected communication type: ", communication_info.type);
   }
+
   return comms;
 }
 
