@@ -500,21 +500,20 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
                  << ", D = " << D;
   }
 
-  EnableOptionsGuard::getCurOptions().set(
-      EnableOption::InsertReshardingAfter);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   // Only the reduced dimension is actually sharded, the D dimension is for M
   // Ideally we split it instead of making this assumption
-  TensorView* tv0 = makeContigTensor(4);         // [DIDx(D), D, M/D, K/D]
-  TensorView* tv1 = makeContigTensor(3);         // [DIDx(D), K/D, N]
-  TensorView* tv1b = broadcast(
-      tv1, {false, true, false, false});         // [DIDx(D), 1, K/D, N]
+  TensorView* tv0 = makeContigTensor(4); // [DIDx(D), Stream(D), M/D, K/D]
+  TensorView* tv1 = makeContigTensor(3); // [DIDx(D), K/D, N]
+  TensorView* tv1b =
+      broadcast(tv1, {false, true, false, false}); // [DIDx(D), 1, K/D, N]
   TensorView* tv2_unreduced = matmul(tv0, tv1b); // [Stream(D), DIDx(D), M/D, N]
   // Ideally we would have an rFactor here instead of manually adding the sum
-  TensorView* tv2 = sum(tv2_unreduced, {0});     // [r(D), DIDx(D), M/D, N]
+  TensorView* tv2 = sum(tv2_unreduced, {0}); // [r(D), DIDx(D), M/D, N]
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -550,14 +549,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
 
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
-  auto t1b_unsharded =
-      t1_unsharded.unsqueeze(1); // {D, 1, K / D, N}
+  auto t1b_unsharded = t1_unsharded.unsqueeze(1); // {D, 1, K / D, N}
   auto t2_unreduced_unsharded =
       at::matmul(t0_unsharded, t1b_unsharded); // {D, D, M / D, N}
-  auto t2_unreduced =
-      at::sum(t2_unreduced_unsharded, {0}); // {D, M / D, N}
-  auto t2_ref =
-      shardTensor(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
+  auto t2_unreduced = at::sum(t2_unreduced_unsharded, {0}); // {D, M / D, N}
+  auto t2_ref = shardTensor(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
