@@ -15,8 +15,16 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
-#include <runtime/compiled_kernel.h>
 #include <scheduler/heuristic.h>
+
+namespace nvfuser {
+// This works around a circular dependency: compiled_kernel.h ==>
+// expr_evaluator.h ==> ir/all_nodes.h ==> host_ir/ir.h ==> compiled_kernel.h
+//
+// ir/all_nodes.h probably shouldn't include host_ir/ir.h. The former is for
+// fusion IR and the latter is for host IR.
+class CompiledKernel;
+} // namespace nvfuser
 
 namespace nvfuser::hir {
 
