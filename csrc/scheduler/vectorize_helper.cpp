@@ -1197,7 +1197,7 @@ int64_t getVectorizationFactor(
   int64_t vectorization_factor = std::min(base_vect_factor, max_vect_factor);
 
   // TODO: validate vectorization_factor >= min_vect_factor
-  // we can't do this becuase canSchedule runtime check uses computeHeuristics
+  // we can't do this because canSchedule runtime check uses computeHeuristics
   // will trigger an error in test
   // BlockQuantizationCanScheduleTests.CanRuntimeScheduleFailFromNoVectorization
 
