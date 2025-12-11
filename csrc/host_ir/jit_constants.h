@@ -12,8 +12,6 @@
 
 namespace nvfuser {
 
-// Shared constants for LLVM JIT compilation
-// Used across jit.cpp, jit_tensor_utils.cpp, and jit_external.cpp
 inline constexpr std::string_view kMainFuncName = "main";
 inline constexpr std::string_view kTensorSizeFuncName = "tensor_size";
 inline constexpr std::string_view kTensorStrideFuncName = "tensor_stride";

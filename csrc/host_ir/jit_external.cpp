@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "host_ir/jit_constants.h"
+#include "host_ir/jit_external.h"
 
 #include <cstdint>
 
@@ -22,6 +22,7 @@
 
 #include "driver_api.h"
 #include "fusion_profiler.h"
+#include "host_ir/jit_constants.h"
 #include "instrumentation.h"
 
 namespace nvfuser {

@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include "host_ir/jit.h"
-#include "host_ir/jit_constants.h"
 
 #include <cstdint>
 #include <memory>
@@ -43,6 +42,9 @@
 #include "expr_evaluator.h"
 #include "fusion_profiler.h"
 #include "host_ir/evaluator.h"
+#include "host_ir/jit_constants.h"
+#include "host_ir/jit_external.h"
+#include "host_ir/jit_tensor_utils.h"
 #include "instrumentation.h"
 #include "ir/all_nodes.h"
 #include "ir/iostream.h"
@@ -68,36 +70,6 @@ llvm::Value* getOrCreateValue(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder);
-
-// Functions implemented in jit_tensor_utils.cpp
-llvm::StructType* createRuntimeTensorType(
-    int64_t num_dims,
-    PrimDataType index_type,
-    llvm::LLVMContext& context);
-
-llvm::Value* createTensorSize(
-    llvm::Value* tensor,
-    int64_t dim,
-    llvm::IRBuilder<>& builder);
-
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides);
-
-llvm::Value* packTensorArgument(
-    llvm::Value* tensor,
-    TensorView* tv,
-    PrimDataType index_type,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
-
-// Function implemented in jit_external.cpp
-void registerExternalFunctionsImpl(
-    llvm::orc::LLJIT* jit,
-    llvm::orc::JITDylib& dest_dynamic_lib);
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {

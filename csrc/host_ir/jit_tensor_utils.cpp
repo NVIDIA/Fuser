@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "host_ir/jit_constants.h"
+#include "host_ir/jit_tensor_utils.h"
 
 #include <cstdint>
 #include <memory>
@@ -19,6 +19,7 @@
 
 #include "bfs.h"
 #include "expr_evaluator.h"
+#include "host_ir/jit_constants.h"
 #include "ir/all_nodes.h"
 #include "linked_hash_map.h"
 #include "ops/all_ops.h"
@@ -26,27 +27,8 @@
 
 namespace nvfuser {
 
-// Forward declarations
-llvm::StructType* createRuntimeTensorType(
-    int64_t num_dims,
-    PrimDataType index_type,
-    llvm::LLVMContext& context);
-
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides);
-
-llvm::Value* packTensorArgument(
-    llvm::Value* tensor,
-    TensorView* tv,
-    PrimDataType index_type,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
-
-// Helper functions exposed for use in jit.cpp (unpackInputs)
+// Helper function to generate LLVM IR that extracts tensor size for a given
+// dimension
 llvm::Value* createTensorSize(
     llvm::Value* tensor,
     int64_t dim,
