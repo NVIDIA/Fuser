@@ -234,10 +234,10 @@ class P2PCommunication : public Expr {
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor);
+    at::Tensor output_tensor,
+    DeviceIdxType root_index = -1);
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,

@@ -89,10 +89,10 @@ TEST_P(CommunicationTest, Gather) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     if (communicator_->deviceId() == kRoot) {
@@ -125,7 +125,6 @@ TEST_P(CommunicationTest, Allgather) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
         output_tensor);
@@ -166,10 +165,10 @@ TEST_P(CommunicationTest, Scatter) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     auto ref = at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
@@ -200,10 +199,10 @@ TEST_P(CommunicationTest, Broadcast) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     if (work != nullptr) {
       work->wait();
     }
@@ -255,7 +254,7 @@ TEST_P(CommunicationTest, SendRecv) {
     }
 
     auto work = postSingleCommunication(
-        communication, rank, kRoot, backend, input_tensor, output_tensor);
+        communication, rank, backend, input_tensor, output_tensor, kRoot);
     work->wait();
 
     if (rank == receiver) {
@@ -291,10 +290,10 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
     postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     validate(output_tensor, ref);
@@ -321,10 +320,10 @@ TEST_P(CommunicationTest, Reduce) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     if (communicator_->deviceId() == kRoot) {
@@ -360,7 +359,6 @@ TEST_P(CommunicationTest, Allreduce) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
         output_tensor);
@@ -406,7 +404,6 @@ TEST_P(CommunicationTest, ReduceScatter) {
     auto work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        kRoot,
         backend_,
         input_tensor,
         output_tensor);

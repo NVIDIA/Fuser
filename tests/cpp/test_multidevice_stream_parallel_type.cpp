@@ -527,11 +527,11 @@ INSTANTIATE_TEST_SUITE_P(
             CommunicatorBackend::kCuda)),
     [](const testing::TestParamInfo<std::tuple<bool, CommunicatorBackend>>&
            info) {
-      std::string swizzle = std::get<0>(info.param) ? "Swizzle" : "Broadcast";
+      std::string p2p = std::get<0>(info.param) ? "p2p" : "Broadcast";
       std::string backend =
           std::get<1>(info.param) == CommunicatorBackend::kNccl ? "Nccl"
                                                                 : "Cuda";
-      return swizzle + "_" + backend;
+      return p2p + "_" + backend;
     });
 
 } // namespace nvfuser
