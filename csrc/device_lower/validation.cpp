@@ -823,6 +823,7 @@ class ExprValidator : public OptOutDispatch {
     // TIDx is innermost since there is no group IDs.
     if (is_mxfp8_output && !grouped_id) {
       auto tidx_extent = thread_x->extent();
+      inp_tv->fusion()->print();
       NVF_ERROR(
           tidx_extent->isConstInt() &&
               (tidx_extent->evaluate().as<int64_t>() % 32 == 0),
