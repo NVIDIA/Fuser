@@ -37,8 +37,8 @@ class NVFuserTest(TestCase):
         if self.cache is not None:
             prev_size = self.cache.num_fusions()
 
-            # Run compilation twice to test lru cache; The number of fusions should not increase
-            # during the second round.
+            # Run compilation twice to test lru cache; The number of fusions
+            # should not increase during the second round.
             for _ in range(2):
                 with FusionDefinition() as fd:
                     fusion_func(fd)
@@ -46,6 +46,11 @@ class NVFuserTest(TestCase):
                 fd.fec = self.cache.cache_compile(fd.fusion)
                 del fd._fusion
 
+            # The LRU cache is shared across all tests. If you run all the tests
+            # together, a fusion can be cached from an earlier test. If you run
+            # a test standalone, then the fusion will not exist. Skip this
+            # assertion for this case but check that cache_compile works
+            # correctly.
             if new_fusion_expected is not None:
                 assert self.cache.num_fusions() == prev_size + int(new_fusion_expected)
         else:
