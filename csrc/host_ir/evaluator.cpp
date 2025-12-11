@@ -199,17 +199,19 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     args.push(getKnownConcreteValue(input));
   }
 
-  // Collect intermediate buffers (allocated in Host IR)
-  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
-    args.push(getKnownConcreteValue(intermediate));
-  }
-
   // All output buffers are known already, pass them to the executor
+  // Note: KernelExecutor::run() will merge them as args + outputs + intermediates
   KernelArgumentHolder outputs;
   for (Val* output : launch_kernel->outputs()) {
     if (expr_evaluator_.isKnown(output)) {
       outputs.push(getKnownConcreteValue(output));
     }
+  }
+
+  // Collect intermediate buffers (allocated in Host IR)
+  // These will be appended after outputs by KernelExecutor::run()
+  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
+    args.push(getKnownConcreteValue(intermediate));
   }
 
   NVF_ERROR_EQ(
