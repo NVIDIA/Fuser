@@ -148,6 +148,36 @@ Expr* cloneWithNewOperands(
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
+//! Extract intermediate buffers from a CompiledKernel's summary and clone them
+//! into Host IR. Intermediates are global allocations that are neither fusion
+//! outputs nor aliases.
+std::vector<Val*> getIntermediateBuffersForKernel(
+    const CompiledKernel& compiled_kernel,
+    IrCloner& ir_cloner) {
+  std::vector<Val*> intermediates;
+
+  const kir::KernelSummary& summary = compiled_kernel.kernel()->summary();
+
+  for (const auto* alloc : summary.global_allocations) {
+    TensorView* tv = alloc->buffer()->as<TensorView>();
+
+    // Skip if it's a fusion output
+    if (tv->isFusionOutput()) {
+      continue;
+    }
+
+    // Skip if it's an alias
+    if (alloc->alias() != nullptr) {
+      continue;
+    }
+
+    // This is an intermediate - clone it into Host IR
+    intermediates.push_back(ir_cloner.clone(tv));
+  }
+
+  return intermediates;
+}
+
 void lowerSegment(
     const SegmentedGroup& group,
     const AliasInfoMap& aliases,
@@ -333,6 +363,14 @@ void lowerSegment(
       std::vector<Val*> ins = ir_cloner.clone(group.inputs());
       std::vector<Val*> outs = ir_cloner.clone(group.outputs());
 
+      // Get KernelExecutor to access compiled kernel
+      const int group_id = group.groupId();
+      KernelExecutor& ke = hic.getKernelExecutor(group_id);
+
+      // Extract intermediate buffers from kernel summary
+      std::vector<Val*> intermediates =
+          getIntermediateBuffersForKernel(*ke.compiledKernel(), ir_cloner);
+
       // Allocate the output TensorViews.
       for (auto* out : outs) {
         auto* out_tv = dynamic_cast<TensorView*>(out);
@@ -353,9 +391,14 @@ void lowerSegment(
         innermost_scope.push_back(allocate);
       }
 
+      // Allocate intermediate buffers
+      for (auto* intermediate : intermediates) {
+        auto* allocate =
+            IrBuilder::create<kir::Allocate>(intermediate, MemoryType::Global);
+        innermost_scope.push_back(allocate);
+      }
+
       // Add the LaunchKernel instruction.
-      const int group_id = group.groupId();
-      KernelExecutor& ke = hic.getKernelExecutor(group_id);
       // Needed for KernelExecutor. Should be removed once #4927 is fixed.
       auto* cache_id =
           IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
@@ -365,7 +408,7 @@ void lowerSegment(
           ke.compiledKernel().get(),
           ins,
           outs,
-          {},  // intermediates (empty for now, will be populated in Phase 1)
+          intermediates,  // Pass intermediate buffers
           cache_id);
       innermost_scope.push_back(launch_kernel);
     }
