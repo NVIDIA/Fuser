@@ -264,6 +264,7 @@ class InferenceBenchmark:
     def __init__(self, config: InferenceBenchmarkConfig):
         self.config = config
         self.metrics = InferenceMetrics()
+        # profiler_toggle is used to start/stop profiler for moe debugging
         self.profiler_toggle = False
 
         # NOTE: Model resides on meta device
@@ -353,6 +354,7 @@ class InferenceBenchmark:
         if self.config.enable_nvfp4:
             _quantize_llama4(model)
 
+        # If debug_moe is on, we'll only compile the moe section, which is much easier to digest.
         if self.config.debug_moe:
             def compile_wrapper(model, jitter):
                 class ModelWrapper(torch.nn.Module):
@@ -361,6 +363,7 @@ class InferenceBenchmark:
                         super().__init__()
                         self.model = jitter._compile_model(model)
                         assert not hasattr(jitter.model, "_backend")
+                        # store a reference to the compiled backend, so we can print the trace later.
                         if jitter.config.mode == "thunder":
                             jitter.model._backend = self.model._backend
                         self.jitter = jitter
@@ -376,6 +379,7 @@ class InferenceBenchmark:
                 return ModelWrapper(model, jitter)
 
             self.model = model
+            # reuse the `replace` function with compilation.
             _replace_with_custom_fn_if_matches_filter_with_name(
                 model,
                 lambda model, cur_fqn: compile_wrapper(model, self),
@@ -594,13 +598,14 @@ class InferenceBenchmark:
             past_key_values.reset()
 
             is_under_nsys = bool(os.environ.get("NSYS_PROFILING_SESSION_ID"))
-            self.profiler_toggle = is_under_nsys
             # Wrap each non-warmup iteration with cudaProfilerStart() and
             # cudaProfilerStop(). This allows the user to run
             # ```shell
             # nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<N> ...
             # ```
             # to record only the non-warmup iterations.
+            # Note when debug_moe is on, we'll defer the flag inside the moe wrapper.
+            self.profiler_toggle = is_under_nsys
             if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStart()
             iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
