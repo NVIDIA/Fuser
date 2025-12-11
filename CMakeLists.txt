@@ -268,6 +268,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/ops.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/passes.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
@@ -349,7 +350,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/allocate_and_deallocate.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/allocate_and_deallocate.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp

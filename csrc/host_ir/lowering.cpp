@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <host_ir/ir.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/lowering.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/utils.h>
-#include <runtime/executor_abstract.h>
-#include <transform_replay.h>
+#include "host_ir/lowering.h"
+
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "host_ir/ir.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/ops.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/propagation.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/utils.h"
+#include "runtime/executor_abstract.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 
