@@ -610,10 +610,10 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     Communication* communication,
     DeviceIdxType my_device_index,
-    DeviceIdxType root_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor) {
+    at::Tensor output_tensor,
+    DeviceIdxType root_index) {
   const Team& team = communication->team();
   if (std::find(team.begin(), team.end(), my_device_index) == team.end()) {
     return nullptr;

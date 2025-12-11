@@ -348,10 +348,10 @@ void HostIrEvaluator::handle(Communication* communication) {
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        expr_evaluator_.evaluate(communication->root()).as<int64_t>(),
         backend,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>());
   }
 }
 
@@ -374,8 +374,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       sendPost(p2p_ipc_handle, count, current_stream);
     }
   } else {
-    validateSizesAndStrides(
-        {buffer}, {communication->buffer()}, expr_evaluator_);
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
