@@ -843,7 +843,7 @@ struct BlockQuantizationResults {
 // quantized ouptuts and block scales.
 // Quantized outputs can be nvFP4(DataType::Float4_e2m1fn) or mxFP8
 // (DataType::Float8_e4m3fn).
-// Block scales for nvFP4 is DataType::Float4_e4m3fn and
+// Block scales for nvFP4 is DataType::Float8_e4m3fn and
 // for mxFP8 is DataType::Float8_e8m0fnu.
 // We optionally take a block size as an input but currenlty just support 16 (32
 // for mxFP8). The flag swizzle_scales which generates swizzled block scales is
