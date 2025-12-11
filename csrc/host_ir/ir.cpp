@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/ir.h>
+#include "host_ir/ir.h"
 
 #include <algorithm>
 #include <memory>
@@ -14,12 +14,12 @@
 #include <string>
 #include <vector>
 
-#include <host_ir/container.h>
-#include <ir/builder.h>
-#include <ir/builder_passkey.h>
-#include <ir/cloner.h>
-#include <ir/iostream.h>
-#include <utils.h>
+#include "host_ir/container.h"
+#include "ir/builder.h"
+#include "ir/builder_passkey.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "utils.h"
 
 namespace nvfuser::hir {
 
