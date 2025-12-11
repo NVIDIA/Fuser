@@ -536,7 +536,13 @@ def test_transformer_forward(
 
 
 def transformer_backward_definition(
-    fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
+    fd: FusionDefinition,
+    batch: int,
+    sequence: int,
+    head: int,
+    hidden: int,
+    parallelism: Parallelism,
+    num_devices: int,
 ) -> None:
     b, s, h, e = batch, sequence, head, hidden
 
@@ -704,10 +710,10 @@ def transformer_backward_definition(
     T27 = fd.ops.mul(S26, T24)
     T28 = fd.ops.cast(fd.mlp_dropout_mask, dtype=DataType.Float)
     T29 = fd.ops.mul(T25, T23)
-    T30 = fd.ops.mul(T28, T27)
+    mlp_linear1_out_grad = fd.ops.mul(T28, T27)
     S31 = fd.define_scalar(0.0447150, dtype=DataType.Double)
     T32 = fd.ops.mul(S31, T29)
-    T33 = fd.ops.cast(T30, dtype=DataType.BFloat16)
+    T33 = fd.ops.cast(mlp_linear1_out_grad, dtype=DataType.BFloat16)
     T34 = fd.ops.add(T23, T32)
     T38 = fd.ops.reshape(T33, new_shape=[b * s, e])
     S39 = fd.define_scalar(0.797885, dtype=DataType.Double)
@@ -802,8 +808,8 @@ def transformer_backward_definition(
     T185 = fd.ops.add(T184, T183)
     S186 = fd.define_scalar(1.11111, dtype=DataType.Double)
     T187 = fd.ops.mul(S186, T185)
-    T188 = fd.ops.mul(T77, T187)
-    T189 = fd.ops.cast(T188, dtype=DataType.BFloat16)
+    mha_linear1_out_grad = fd.ops.mul(T77, T187)
+    T189 = fd.ops.cast(mha_linear1_out_grad, dtype=DataType.BFloat16)
     T193 = fd.ops.reshape(T189, new_shape=[b * s, e])
     T194 = fd.ops.matmul(T193, fd.mha_linear1_weight)
 
@@ -940,7 +946,9 @@ def transformer_backward_definition(
     T431 = fd.ops.sum(T418, dims=[0, 1], keepdim=False, dtype=DataType.Null)
     T435 = fd.ops.reshape(T419, new_shape=[b * s, e])
     T436 = fd.ops.permute(T294, dims=[1, 0])
-    T437 = fd.ops.sum(T188, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T437 = fd.ops.sum(
+        mha_linear1_out_grad, dims=[0, 1], keepdim=False, dtype=DataType.Null
+    )
     T441 = fd.ops.reshape(T424, new_shape=[b * s, e])
     T442 = fd.ops.permute(T193, dims=[1, 0])
     T443 = fd.ops.sum(T425, dims=[0, 1], keepdim=False, dtype=DataType.Null)
@@ -948,7 +956,9 @@ def transformer_backward_definition(
     T445 = fd.ops.sum(T71, dims=[0, 1], keepdim=False, dtype=DataType.Null)
     T449 = fd.ops.reshape(T426, new_shape=[b * s, e])
     T450 = fd.ops.permute(T76, dims=[1, 0])
-    T451 = fd.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T451 = fd.ops.sum(
+        mlp_linear1_out_grad, dims=[0, 1], keepdim=False, dtype=DataType.Null
+    )
     T455 = fd.ops.reshape(T427, new_shape=[b * s, e * 4])
     T456 = fd.ops.permute(T38, dims=[1, 0])
     inp_grad = fd.ops.cast(T428, dtype=DataType.BFloat16)
@@ -977,78 +987,59 @@ def transformer_backward_definition(
     fd.add_output(layernorm0_bias_grad)
     fd.add_output(layernorm0_weight_grad)
     fd.add_output(inp_grad)
-
-
-def transformer_backward_multidevice_schedule(
-    fd: FusionDefinition, num_devices: int, parallelism: Parallelism
-):
     mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
     inputs = fd.fusion.inputs()
-    (
-        mlp_linear0_out,
-        out_grad,
-        mlp_dropout_mask,
-        mlp_linear1_weight,
-        mha_dropout_mask,
-        mha_linear1_out,
-        mlp_linear0_weight,
-        layernorm1_weight,
-        layernorm1_mean,
-        inp,
-        layernorm1_rstd,
-        mha_linear1_weight,
-        mha_linear0_out,
-        sdpa_out,
-        sdpa_logsum_exp,
-        sdpa_seed,
-        sdpa_offset,
-        mha_linear0_weight,
-        layernorm0_weight,
-        layernorm0_mean,
-        layernorm0_rstd,
-        layernorm0_bias,
-        layernorm1_bias,
-    ) = inputs
     for tv in inputs:
         tv.set_device_mesh(mesh)
 
     for tv in [
-        mha_linear0_weight,
-        mlp_linear0_weight,
+        fd.mha_linear0_weight,
+        fd.mlp_linear0_weight,
     ]:
         tv.outer_split(0, num_devices)
         tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
-        sdpa_out,
-        sdpa_logsum_exp,
+        fd.sdpa_out,
+        fd.sdpa_logsum_exp,
     ]:
         tv.outer_split(1, num_devices)
         tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
-        mlp_linear0_out,
-        mha_linear0_out,
-        mha_linear1_weight,
-        mlp_linear1_weight,
+        fd.mlp_linear0_out,
+        fd.mha_linear0_out,
+        fd.mha_linear1_weight,
+        fd.mlp_linear1_weight,
     ]:
         tv.outer_split(-1, num_devices)
         tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     if parallelism == Parallelism.SEQUENCE_PARALLEL:
         for tv in [
-            out_grad,
-            mlp_dropout_mask,
-            mha_dropout_mask,
-            mha_linear1_out,
-            layernorm1_mean,
-            layernorm1_rstd,
-            inp,
-            layernorm0_mean,
-            layernorm0_rstd,
+            fd.out_grad,
+            fd.mlp_dropout_mask,
+            fd.mha_dropout_mask,
+            fd.mha_linear1_out,
+            fd.layernorm1_mean,
+            fd.layernorm1_rstd,
+            fd.inp,
+            fd.layernorm0_mean,
+            fd.layernorm0_rstd,
         ]:
             tv.outer_split(1, num_devices)
             tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+        # weight_grad = [3*e, e, r{s}]. Specify sharding to avoid s being sharded.
+        # sharding of `s` leads to reduce scatter and resharding of out_grad.
+        for tv in [mha_linear0_weight_grad, mlp_linear0_weight_grad]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(0, num_devices)
+            tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        # Allgather before computing in, bias, weight grad for MHA/MLP down projection.
+        # This ensures we have 1 Allgather instead of 2 Allgathers + 1 AllReduce.
+        for tv in [mlp_linear1_out_grad, mha_linear1_out_grad]:
+            tv.set_device_mesh(mesh)
 
 
 @pytest.mark.skipif(
@@ -1153,8 +1144,7 @@ def test_transformer_backward(
     ]
 
     with FusionDefinition() as fd:
-        transformer_backward_definition(fd, b, s, h, e)
-        transformer_backward_multidevice_schedule(fd, d, parallelism)
+        transformer_backward_definition(fd, b, s, h, e, parallelism, d)
 
     # Resize scheduler disabled due to #4890
     warmup_fn, benchmark_fn = get_benchmark_fns(
