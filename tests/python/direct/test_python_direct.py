@@ -15,6 +15,7 @@ import pytest
 import io
 import re
 from contextlib import redirect_stdout, redirect_stderr
+from typing import Callable
 
 
 def test_python_version_API():
@@ -583,12 +584,9 @@ def test_lru_cache():
         fd.add_output(t2)
 
     @LruFusionCache(max_fusions=10)
-    def create_fusion(select_first_fd: bool):
+    def create_fusion(create_fd: Callable):
         with FusionDefinition() as fd:
-            if select_first_fd:
-                create_fd1(fd)
-            else:
-                create_fd2(fd)
+            create_fd(fd)
         return fd
 
     empty_stats = """Max Fusions Allowed: 10
@@ -597,11 +595,11 @@ The fusion cache is empty.\n"""
 
     # Test LRU cache compilation
     for i in range(5):
-        fd1 = create_fusion(select_first_fd=True)
+        fd1 = create_fusion(create_fd1)
         outputs = fd1.execute(inputs)
         assert torch.allclose(outputs[0], inputs[0] / inputs[1])
 
-        fd2 = create_fusion(select_first_fd=False)
+        fd2 = create_fusion(create_fd2)
         outputs = fd2.execute(inputs)
         assert torch.allclose(outputs[0], inputs[1] / inputs[0])
         assert fd1.fusion == fd1.fusion
