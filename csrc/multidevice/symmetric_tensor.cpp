@@ -52,8 +52,8 @@ int64_t getGranularityForSymmetricMemory(
   mcast_prop.handleTypes = CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
   mcast_prop.numDevices = Communicator::getInstance().size();
   // Align requested size to allocation granularity as a baseline
-  mcast_prop.size = ((requested_size_bytes + alloc_granularity - 1) /
-                     alloc_granularity) *
+  mcast_prop.size =
+      ((requested_size_bytes + alloc_granularity - 1) / alloc_granularity) *
       alloc_granularity;
 
   size_t mcast_min_granularity = 0;
@@ -539,7 +539,8 @@ void SymmetricTensor::setupMulticast(
 
   NVF_CHECK(
       aligned_mem_offset + aligned_size_ <= base_size,
-      "SymmetricTensor: Physical allocation too small for aligned multicast binding");
+      "SymmetricTensor: Physical allocation too small for aligned multicast "
+      "binding");
 
   NVFUSER_CUDA_SAFE_CALL(cuMulticastBindMem(
       mcast_handle_,
