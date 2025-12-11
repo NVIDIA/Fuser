@@ -746,18 +746,15 @@ class ExprValidator : public OptOutDispatch {
         grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
     auto input_dtype = inp_tv->dtype();
 
-    if (is_mxfp8_output && !grouped_id) {
-      // TODO. Check that TIDx is known and a multiple of 32
-      // TODO. TIDx is innermost
-      return;
-    }
-
+    // Check the extents of group id based on inputdata type
+    // if group id is present
     NVF_ERROR(
-        ((inner_extent == 4 || inner_extent == 2) &&
-         input_dtype == DataType::Float) ||
-            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
-             (input_dtype == DataType::BFloat16 ||
-              input_dtype == DataType::Half)),
+        (!grouped_id ||
+         ((inner_extent == 4 || inner_extent == 2) &&
+          input_dtype == DataType::Float) ||
+         ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+          (input_dtype == DataType::BFloat16 ||
+           input_dtype == DataType::Half))),
         "The group dimension must be  2/4 (FP32) or 2/4/8 "
         "(BF16). Found: ",
         inner_extent,
@@ -821,6 +818,29 @@ class ExprValidator : public OptOutDispatch {
         ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
           traverseFrontierWithContiguityCheck(frontier, expr);
         });
+
+    // Check that TIDx is multiple of 32
+    // TIDx is innermost since there is no group IDs.
+    if (is_mxfp8_output && !grouped_id) {
+      auto tidx_extent = thread_x->extent();
+      NVF_ERROR(
+          tidx_extent->isConstInt() &&
+              (tidx_extent->evaluate().as<int64_t>() % 32 == 0),
+          "When quantizing to Float8_e4m3fn without grouping, TIDx extent must "
+          "be a "
+          "multiple of 32. Found extent: ",
+          tidx_extent->toString(),
+          ". Expr: ",
+          bqop->toString());
+
+      NVF_ERROR(
+          ids_to_transform.back() == thread_x,
+          "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+          "innermost ID. Expr: ",
+          bqop->toString());
+
+      return;
+    }
 
     // The grouped ID must correspond to the innermost loop-like domain
     NVF_ERROR(
