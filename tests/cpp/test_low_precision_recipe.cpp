@@ -320,10 +320,6 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
   EXPECT_TRUE(baseline_block_scales.equal(block_scales))
       << "Block scales do not match exactly";
 
-  // Compare quantized tensors with tolerance
-  // This is because we cannot exactly reproduce the fast
-  // reciprocal of 2^biased_exp used in the block_quantize_to_mxfp8 runtime
-  // function.
   constexpr double atol = 0.1;
   constexpr double rtol = 1;
 
@@ -336,39 +332,54 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
     cudaFree(gpu_ptr);
 }
 
-TEST_F(MXFP8QuantizationTest, BlockSizeNotDivisibleError) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+// Test class for MXFP8 quantization scheduling validation
+class MXFP8QuantizationValidationTest : public BlackwellBase {
+ protected:
+  std::unique_ptr<Fusion> fusion;
+  std::unique_ptr<FusionGuard> fg;
+  TensorView* tv_data_hp;
+  TensorView* t0;
+  TensorView* block_scales;
+  TensorView* quantized_tensor;
+  TensorView* tv_quantized_out;
+  std::vector<TensorView*> tensors;
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv_data_hp);
+  void setupFusion(int32_t block_size = 32) {
+    fusion = std::make_unique<Fusion>();
+    fg = std::make_unique<FusionGuard>(fusion.get());
 
-  auto t0 = set(tv_data_hp);
-  auto quantization_results =
-      blockQuantize(t0, nullptr, 32, false, DataType::Float8_e4m3fn);
-  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+    tv_data_hp = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tv_data_hp);
 
-  fusion->addOutput(tv_quantized_out);
-  fusion->addOutput(quantization_results.block_scales);
+    t0 = set(tv_data_hp);
+    auto quantization_results =
+        blockQuantize(t0, nullptr, block_size, false, DataType::Float8_e4m3fn);
+    block_scales = quantization_results.block_scales;
+    quantized_tensor = quantization_results.quantized_tensor;
+    tv_quantized_out = set(quantized_tensor);
 
-  std::vector<TensorView*> tensors = {
-      tv_data_hp,
-      t0,
-      quantization_results.quantized_tensor,
-      quantization_results.block_scales,
-      tv_quantized_out};
+    fusion->addOutput(tv_quantized_out);
+    fusion->addOutput(block_scales);
 
+    tensors.push_back(tv_data_hp);
+    tensors.push_back(t0);
+    tensors.push_back(quantized_tensor);
+    tensors.push_back(block_scales);
+    tensors.push_back(tv_quantized_out);
+  }
+};
+
+TEST_F(MXFP8QuantizationValidationTest, BlockSizeNotDivisible) {
+  setupFusion(32);
+
+  // Split by 16 which is not divisible by block size 32
   for (auto t : tensors) {
-    // Merge all dims.
     t->merge(-2);
-    // I -> I/16, 16
     t->split(-1, 16);
-    // I/16, 16 -> I/16, 1, 16
     t->split(-2, 1);
 
     if (t != tv_data_hp) {
-      if (t == quantization_results.block_scales ||
-          t == quantization_results.quantized_tensor) {
+      if (t == block_scales || t == quantized_tensor) {
         t->axis(-1)->parallelize(ParallelType::TIDx);
         t->axis(-3)->parallelize(ParallelType::BIDx);
       }
@@ -382,37 +393,16 @@ TEST_F(MXFP8QuantizationTest, BlockSizeNotDivisibleError) {
           "block size 32")));
 }
 
-TEST_F(MXFP8QuantizationTest, ThreadXNotInnerMostError) {
-  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
+TEST_F(MXFP8QuantizationValidationTest, ThreadXNotInnermost) {
+  setupFusion(32);
 
-  auto tv_data_hp = makeContigTensor(2, DataType::Float);
-  fusion->addInput(tv_data_hp);
-
-  auto t0 = set(tv_data_hp);
-  auto quantization_results =
-      blockQuantize(t0, nullptr, 32, false, DataType::Float8_e4m3fn);
-  auto tv_quantized_out = set(quantization_results.quantized_tensor);
-
-  fusion->addOutput(tv_quantized_out);
-  fusion->addOutput(quantization_results.block_scales);
-
-  std::vector<TensorView*> tensors = {
-      tv_data_hp,
-      t0,
-      quantization_results.quantized_tensor,
-      quantization_results.block_scales,
-      tv_quantized_out};
-
+  // Parallelize TIDx on a non-innermost dimension
   for (auto t : tensors) {
-    // Merge all dims.
     t->merge(-2);
-    // I -> I/32, 32
     t->split(-1, 32);
 
     if (t != tv_data_hp) {
-      if (t == quantization_results.block_scales ||
-          t == quantization_results.quantized_tensor) {
+      if (t == block_scales || t == quantized_tensor) {
         t->axis(-1)->parallelize(ParallelType::BIDx);
         t->axis(-2)->parallelize(ParallelType::TIDx);
       }
@@ -424,6 +414,35 @@ TEST_F(MXFP8QuantizationTest, ThreadXNotInnerMostError) {
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
           "innermost ID.")));
+}
+
+TEST_F(MXFP8QuantizationValidationTest, AllocationDomainNotSupported) {
+  setupFusion(32);
+
+  for (auto t : tensors) {
+    t->merge(-2);
+    t->split(-1, 32);
+    t->split(-2, 1);
+
+    if (t != tv_data_hp) {
+      if (t == block_scales || t == quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+        t->axis(-3)->parallelize(ParallelType::BIDx);
+      }
+    }
+  }
+
+  // Set an allocation domain on block scales, which is not supported
+  std::vector<IterDomain*> tv_alloc{
+      block_scales->axis(0), block_scales->axis(2), block_scales->axis(1)};
+
+  block_scales->setAllocationDomain(tv_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block scaling factor must not have an allocation domain when "
+          "quantizing to Float8_e4m3fn.")));
 }
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
