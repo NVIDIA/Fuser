@@ -447,3 +447,31 @@ def test_binary(multidevice_direct_test):
     torch.testing.assert_close(
         z, multidevice_direct_test.shard_tensor(x.float() + y.float(), 0, mesh)
     )
+
+
+@pytest.mark.mpi
+def test_alltoall(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor((-1, -1, -1), contiguity=True, dtype=DataType.Half)
+        out = fd.ops.set(inp)
+        fd.add_output(out)
+
+        inp.set_device_mesh(mesh)
+        inp.outer_split(2, d)
+        inp.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
+        out.set_device_mesh(mesh)
+        out.outer_split(1, d)
+        out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.arange(d * 3 * d * d, dtype=torch.float16).reshape(d, d, d * 3)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 2, mesh)
+    (out,) = fd.execute([sharded])
+
+    print(unsharded, out)
+
+    torch.testing.assert_close(
+        out, multidevice_direct_test.shard_tensor(unsharded, 1, mesh)
+    )

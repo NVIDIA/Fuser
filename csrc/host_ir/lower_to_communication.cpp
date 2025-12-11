@@ -296,8 +296,7 @@ void lowerToAllToAll(
     TensorView* input_tv,
     TensorView* output_tv,
     const CommunicatorBackend backend,
-    std::vector<Expr*>& comms,
-    DeviceIdxType my_device_idx) {
+    std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   NVF_ERROR_EQ(
@@ -419,7 +418,9 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
               CommunicationType::SendRecv, p_logical_id, c_logical_id);
         } else {
           fill_communication_info(
-              CommunicationType::AllToAll, p_logical_id, c_logical_id);
+              CommunicationType::AllToAll,
+              c2p_map.at(c_logical_id),
+              c_logical_id);
         }
       }
     } else {
@@ -607,6 +608,9 @@ std::vector<Expr*> convertSingleOpToCommunication(
       break;
     case CommunicationType::Reduce:
       lowerToReduce(input_tv, output_tv, op_type(e), backend, comms);
+      break;
+    case CommunicationType::AllToAll:
+      lowerToAllToAll(input_tv, output_tv, backend, comms);
       break;
   }
 
