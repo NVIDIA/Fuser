@@ -96,7 +96,9 @@ def test_sdpa_fwd(nvfuser_direct_test):
             is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
         if has_scale:
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
-        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, dropout_p, is_causal, scale)
+        attn, *_ = fd.ops.sdpfa_fwd(
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+        )
         fd.add_output(attn)
 
     N, H, L, S, E = 4, 8, 16, 16, 8
@@ -403,7 +405,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
         output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
         )
         grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
             grad_out,

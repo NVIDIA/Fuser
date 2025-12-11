@@ -3367,10 +3367,10 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   if (mask.defined()) {
     NVF_CHECK_EQ(mask.dtype(), at::kBool);
     auto mask_bias =
-        at::where(mask, 0.0, -std::numeric_limits<float>::infinity())
+        at::where(mask, 0.0f, -std::numeric_limits<float>::infinity())
             .to(query.dtype());
     if (attn_bias.defined()) {
-      attn_bias = attn_bias + mask_bias;
+      attn_bias += mask_bias;
     } else {
       attn_bias = mask_bias;
     }
