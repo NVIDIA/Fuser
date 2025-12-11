@@ -111,7 +111,8 @@ class KernelExecutor : public ExecutorAbstract {
   run(KernelArgumentHolder args,
       KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams());
+      CompileParams compile_params = CompileParams(),
+      const KernelArgumentHolder& intermediates = {});
 
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to

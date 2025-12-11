@@ -1016,7 +1016,8 @@ KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder args,
     KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params) {
+    CompileParams compile_params,
+    const KernelArgumentHolder& intermediate_args) {
   FUSER_PERF_SCOPE("KernelExecutor::run");
 
   if (isProfilerEnabled()) {
@@ -1073,13 +1074,8 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   // Check if intermediates are pre-allocated (from Host IR)
-  // Expected args size: num_inputs + num_intermediates (when called from Host IR)
-  const size_t expected_inputs_only =
-      compiled_kernel_->kernel()->inputs().size();
-  const bool intermediates_preallocated =
-      static_cast<size_t>(num_inputs) > expected_inputs_only &&
-      static_cast<size_t>(num_inputs) ==
-          expected_inputs_only + executor_entry->intermediates.size();
+  // When Host IR pre-allocates, it passes them via the intermediate_args parameter
+  const bool intermediates_preallocated = !intermediate_args.empty();
 
   if (!(executor_entry->launch_params.nThreads() <=
             compiled_kernel_->blockSizeHighWatermark() &&
@@ -1140,11 +1136,11 @@ KernelArgumentHolder KernelExecutor::run(
 
   args.push(output_args);
 
-  KernelArgumentHolder intermediate_args;
   at::Tensor profile_buffer;
 
   // Skip intermediate allocation if they're pre-allocated (from Host IR)
   if (!intermediates_preallocated) {
+    KernelArgumentHolder local_intermediate_args;
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
     // Intermediates just use logical sizes and strides even though they're
     // really allocation sizes and strides.
@@ -1200,24 +1196,22 @@ KernelArgumentHolder KernelExecutor::run(
             intermediate_buffer, buf_info.shape_info.logical_sizes);
       }
       args.push(intermediate_buffer);
-      intermediate_args.push(intermediate_buffer);
+      local_intermediate_args.push(intermediate_buffer);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
     }
   } else {
     // Intermediates were pre-allocated (from Host IR)
-    // Extract them from args to populate intermediate_args for profiling
-    const size_t num_user_inputs =
-        compiled_kernel_->kernel()->inputs().size();
-    for (size_t i = num_user_inputs; i < static_cast<size_t>(num_inputs);
-         ++i) {
-      intermediate_args.push(args[i]);
-      // Check for profile buffer
-      const size_t intermediate_idx = i - num_user_inputs;
-      if (intermediate_idx < executor_entry->intermediates.size() &&
-          executor_entry->intermediates.at(intermediate_idx).is_profile_buffer) {
-        profile_buffer = args[i].as<at::Tensor>();
+    // They're passed via intermediate_args parameter
+    // Push them to args now: [inputs, outputs, intermediates]
+    args.push(intermediate_args);
+
+    // Check for profile buffer
+    for (size_t i = 0; i < static_cast<size_t>(intermediate_args.size()); ++i) {
+      if (i < executor_entry->intermediates.size() &&
+          executor_entry->intermediates.at(i).is_profile_buffer) {
+        profile_buffer = intermediate_args[i].as<at::Tensor>();
       }
     }
   }
