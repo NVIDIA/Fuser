@@ -292,7 +292,7 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
   inputs.push_back(input_tensor);
   auto outputs_baseline = fec.runFusionWithInputs(inputs);
 
-  // Using the block quantiation op in nvFuser.
+  // Using the block quantization op in nvFuser.
   std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
   FusionGuard fg2(fusion_new_op.get());
 
@@ -1504,7 +1504,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(
             std::make_pair(1024, 1024),
             std::make_pair(2048, 128),
-            std::make_pair(128, 64), // Doen't vectorize
+            std::make_pair(128, 64), // Doesn't vectorize
             std::make_pair(2048, 2048))),
     [](const testing::TestParamInfo<std::tuple<DataType, std::pair<int, int>>>&
            info) {

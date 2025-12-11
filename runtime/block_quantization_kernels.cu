@@ -46,16 +46,18 @@ __device__ __inline__ void convertToFloatAndComputeLocalMax(
       is_float || is_half_or_bfloat,
       "Input type must be float, __half or __bfloat");
 
+  constexpr bool valid_items_per_thread =
+      (is_float &&
+       (ITEMS_PER_THREAD == 1 || ITEMS_PER_THREAD == 2 ||
+        ITEMS_PER_THREAD == 4)) ||
+      (is_half_or_bfloat &&
+       (ITEMS_PER_THREAD == 1 || ITEMS_PER_THREAD == 2 ||
+        ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 8));
+
   static_assert(
-      (is_float && (ITEMS_PER_THREAD == 4 || ITEMS_PER_THREAD == 2) ||
-       ITEMS_PER_THREAD == 1) ||
-          (is_half_or_bfloat &&
-           (ITEMS_PER_THREAD == 8 || ITEMS_PER_THREAD == 4 ||
-            ITEMS_PER_THREAD == 2 || ITEMS_PER_THREAD == 1)),
-      "ITEMS_PER_THREAD must be 1, 2, 4 for float type or 2, 4, or 8 for "
-      "__bfloat "
-      "or __half "
-      "type");
+      valid_items_per_thread,
+      "ITEMS_PER_THREAD must be 1, 2, or 4 for float type, or 1, 2, 4, or 8 "
+      "for __half or __bfloat type");
 
   vec_in.set(0.0f);
 

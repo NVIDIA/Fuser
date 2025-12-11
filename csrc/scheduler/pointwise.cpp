@@ -309,7 +309,7 @@ bool PointWiseScheduler::canScheduleRunTime(
     auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
-      // This sholdn't be a common path thus
+      // This shouldn't be a common path thus
       // using the expensive step of getting all the bqops
       auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
       for (auto op : bq_ops) {
