@@ -819,8 +819,11 @@ class ExprValidator : public OptOutDispatch {
           traverseFrontierWithContiguityCheck(frontier, expr);
         });
 
-    // Check that TIDx is multiple of 32
-    // TIDx is innermost since there is no group IDs.
+    // Check that TIDx is multiple of block size.
+    // We hardcode block size of 32 here for now.
+    // As there are no group ids, tidx must now be the innermost
+    // as we reduce across it. We also check that all merges leading
+    // to tidx are contiguous.
     if (is_mxfp8_output && !grouped_id) {
       Val* is_divisible = SimplifyingIrBuilder::eqExpr(
           SimplifyingIrBuilder::modExpr(
@@ -829,11 +832,8 @@ class ExprValidator : public OptOutDispatch {
 
       NVFUSER_LOWER_VALIDATE(
           is_divisible,
-          "Inner dimension of BlockQuantizationOp input must be divisible by "
-          "block "
-          "size (",
-          32,
-          "), but got extent ",
+          "Block dim X of BlockQuantizationOp input must be divisible by "
+          "block size 32 but got extent ",
           thread_x->extent()->toInlineString(),
           " in ",
           bqop->toString());

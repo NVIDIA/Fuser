@@ -253,7 +253,7 @@ TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
       << ", atol=" << atol << ")";
 }
 
-TEST_F(MXFP8QuantizationTest, AutoScheduleOpNonParametric) {
+TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
   const auto data_hp_dtype = DataType::Float;
   const int m = 1024;
   const int n = 1024;
@@ -334,6 +334,96 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpNonParametric) {
   // Free allocated memory
   if (gpu_ptr)
     cudaFree(gpu_ptr);
+}
+
+TEST_F(MXFP8QuantizationTest, BlockSizeNotDivisibleError) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results =
+      blockQuantize(t0, nullptr, 32, false, DataType::Float8_e4m3fn);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  std::vector<TensorView*> tensors = {
+      tv_data_hp,
+      t0,
+      quantization_results.quantized_tensor,
+      quantization_results.block_scales,
+      tv_quantized_out};
+
+  for (auto t : tensors) {
+    // Merge all dims.
+    t->merge(-2);
+    // I -> I/16, 16
+    t->split(-1, 16);
+    // I/16, 16 -> I/16, 1, 16
+    t->split(-2, 1);
+
+    if (t != tv_data_hp) {
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+        t->axis(-3)->parallelize(ParallelType::BIDx);
+      }
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block dim X of BlockQuantizationOp input must be divisible by "
+          "block size 32")));
+}
+
+TEST_F(MXFP8QuantizationTest, ThreadXNotInnerMostError) {
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv_data_hp = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv_data_hp);
+
+  auto t0 = set(tv_data_hp);
+  auto quantization_results =
+      blockQuantize(t0, nullptr, 32, false, DataType::Float8_e4m3fn);
+  auto tv_quantized_out = set(quantization_results.quantized_tensor);
+
+  fusion->addOutput(tv_quantized_out);
+  fusion->addOutput(quantization_results.block_scales);
+
+  std::vector<TensorView*> tensors = {
+      tv_data_hp,
+      t0,
+      quantization_results.quantized_tensor,
+      quantization_results.block_scales,
+      tv_quantized_out};
+
+  for (auto t : tensors) {
+    // Merge all dims.
+    t->merge(-2);
+    // I -> I/32, 32
+    t->split(-1, 32);
+
+    if (t != tv_data_hp) {
+      if (t == quantization_results.block_scales ||
+          t == quantization_results.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::BIDx);
+        t->axis(-2)->parallelize(ParallelType::TIDx);
+      }
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+          "innermost ID.")));
 }
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
