@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
+// Host Irs are used to represent a host program. They need to be registered in
+// a HostIrContainer. Each Ir represents a Host data or instruction.
+
 #pragma once
 
 #include <fusion.h>
@@ -13,8 +17,15 @@
 #include <multidevice/communication.h>
 #include <scheduler/heuristic.h>
 
-// Host Irs are used to represent a host program. They need to be registered in
-// a HostIrContainer. Each Ir represents a Host data or instruction.
+namespace nvfuser {
+// This works around a circular dependency: compiled_kernel.h ==>
+// expr_evaluator.h ==> ir/all_nodes.h ==> host_ir/ir.h ==> compiled_kernel.h
+//
+// ir/all_nodes.h probably shouldn't include host_ir/ir.h. The former is for
+// fusion IR and the latter is for host IR.
+class CompiledKernel;
+} // namespace nvfuser
+
 namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
@@ -113,10 +124,11 @@ class LaunchKernel : public Expr {
       IrBuilderPasskey passkey,
       int64_t group_id,
       const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
+      CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
       Val* cache_id);
+  LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -150,6 +162,13 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
+  }
+
+ private:
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {
@@ -476,21 +495,6 @@ class ShardByStream : public Expr {
     return inputs().at(1);
   }
 };
-
-// Creates a ShardByStream without needing the destination TensorView. Returns
-// the destination TensorView. `e` is the Expr from which we propagate the loop
-// domain from. `source` must be either an input or an output of `e`.  The
-// destination TensorView will have a loop domain that's consistent
-// with `e` and an allocation domain that's a shard of `source`.
-//
-// I made a mistake previously to propagate `source`'s loop domain to
-// `destination`. This broke test_stream.py::test_two_matmuls_not_inlinable
-// because, when `source` is an input of `e`, `source`'s loop domain reflects
-// its producing Expr rather than `e`.
-//
-// TODO(wujingyue): Move this to csrc/ops. It's not a host IR expr but a
-// wrapper.
-TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e);
 
 // SymmetricContiguousView takes a sharded TensorView with contiguous symmetric
 // memory type (where the outermost dimension is parallelized with DIDx) and

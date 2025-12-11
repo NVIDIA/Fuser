@@ -10,6 +10,7 @@
 #include <host_ir/ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
+#include <host_ir/ops.h>
 #include <ir/utils.h>
 #include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
@@ -358,7 +359,7 @@ void lowerSegment(
       auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
           group_id,
           launch_params,
-          ke.compiledKernel()->compileParams(),
+          ke.compiledKernel().get(),
           ins,
           outs,
           cache_id);

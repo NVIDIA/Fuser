@@ -429,7 +429,10 @@ bool Expr::sameOp(const Expr* other) const {
     return false;
   }
   for (const auto i : arange(attributes().size())) {
-    if (!attribute(i)->sameAs(other->attribute(i))) {
+    if (attribute(i) == nullptr && other->attribute(i) != nullptr) {
+      return false;
+    }
+    if (attribute(i) != nullptr && !attribute(i)->sameAs(other->attribute(i))) {
       return false;
     }
   }
