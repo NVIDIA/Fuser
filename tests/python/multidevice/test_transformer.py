@@ -751,7 +751,7 @@ def transformer_backward_definition(
     T78 = fd.ops.cast(fd.mha_linear1_out, dtype=DataType.Float)
     T79 = fd.ops.matmul(T76, fd.mlp_linear0_weight)
     T80 = fd.ops.mul(T78, T77)
-    T85 = fd.ops.reshape(T79, new_shape=[b, s, e])
+    layernorm1_out_grad = fd.ops.reshape(T79, new_shape=[b, s, e])
     T90 = fd.ops.broadcast_in_dim(
         fd.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
     )
@@ -761,7 +761,7 @@ def transformer_backward_definition(
     S96 = fd.define_scalar(1.11111, dtype=DataType.Double)
     T97 = fd.ops.mul(T80, S96)
     T98 = fd.ops.cast(fd.inp, dtype=DataType.Float)
-    T99 = fd.ops.cast(T85, dtype=DataType.Float)
+    T99 = fd.ops.cast(layernorm1_out_grad, dtype=DataType.Float)
     T100 = fd.ops.cast(T90, dtype=DataType.Float)
     T105 = fd.ops.broadcast_in_dim(T95, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T106 = fd.ops.add(T98, T97)
@@ -866,14 +866,14 @@ def transformer_backward_definition(
     T291 = fd.ops.reshape(T290, new_shape=[b, s, 3 * e])
     T294 = fd.ops.reshape(T291, new_shape=[b * s, 3 * e])
     T295 = fd.ops.matmul(T294, fd.mha_linear0_weight)
-    T300 = fd.ops.reshape(T295, new_shape=[b, s, e])
+    layernorm0_out_grad = fd.ops.reshape(T295, new_shape=[b, s, e])
     T305 = fd.ops.broadcast_in_dim(
         fd.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
     )
     T310 = fd.ops.broadcast_in_dim(
         fd.layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    T311 = fd.ops.cast(T300, dtype=DataType.Float)
+    T311 = fd.ops.cast(layernorm0_out_grad, dtype=DataType.Float)
     T312 = fd.ops.cast(T305, dtype=DataType.Float)
     T317 = fd.ops.broadcast_in_dim(T310, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T318 = fd.ops.mul(T312, T311)
@@ -1040,6 +1040,11 @@ def transformer_backward_definition(
         # This ensures we have 1 Allgather instead of 2 Allgathers + 1 AllReduce.
         for tv in [mlp_linear1_out_grad, mha_linear1_out_grad]:
             tv.set_device_mesh(mesh)
+
+        for tv in [layernorm0_out_grad, layernorm1_out_grad]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(1, num_devices)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
 
 @pytest.mark.skipif(
