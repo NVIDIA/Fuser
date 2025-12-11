@@ -10,6 +10,7 @@
 #include <host_ir/ir.h>
 #include <host_ir/lower_to_communication.h>
 #include <host_ir/lowering.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/propagation.h>
 #include <multidevice/resharding.h>
@@ -334,16 +335,14 @@ void lowerSegment(
       for (auto* out : outs) {
         auto* out_tv = dynamic_cast<TensorView*>(out);
         NVF_ERROR(
-            out_tv != nullptr,
-            "Output must be a TensorView but got: ",
-            out->toString());
+            out_tv != nullptr, "Output must be a TensorView but got: ", out);
 
         const AliasInfo& alias = aliases.get(out_tv);
         NVF_ERROR_EQ(
             alias.type,
             AllocationType::New,
             "Output ",
-            out_tv->toString(),
+            out_tv,
             " must not be an alias, got ",
             alias);
 
