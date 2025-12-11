@@ -11,11 +11,11 @@
 
 #pragma once
 
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/builder.h>
-#include <multidevice/communication.h>
-#include <scheduler/heuristic.h>
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/builder.h"
+#include "multidevice/communication.h"
+#include "scheduler/heuristic.h"
 
 namespace nvfuser {
 // This works around a circular dependency: compiled_kernel.h ==>
