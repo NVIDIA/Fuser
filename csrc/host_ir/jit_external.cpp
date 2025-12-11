@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "host_ir/jit_constants.h"
+
 #include <cstdint>
 
 #include <ATen/ATen.h>
@@ -25,21 +27,6 @@
 namespace nvfuser {
 
 namespace {
-
-constexpr std::string_view kTensorSizeFuncName = "tensor_size";
-constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
-constexpr std::string_view kTensorDataPtrFuncName = "tensor_data_ptr";
-constexpr std::string_view kNewTensorFuncName = "new_tensor";
-constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
-constexpr std::string_view kSetTensorFuncName = "set_tensor";
-constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
-constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
-constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kLaunchKernelDirectFuncName = "launch_kernel_direct";
-constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearOutFuncName = "linear_out";
-constexpr std::string_view kPermuteFuncName = "permute";
-constexpr std::string_view kReshapeFuncName = "reshape";
 
 // Helper function to register external functions in JIT
 void registerExternalFunction(

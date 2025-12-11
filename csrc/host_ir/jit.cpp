@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include "host_ir/jit.h"
+#include "host_ir/jit_constants.h"
 
 #include <cstdint>
 #include <memory>
@@ -58,25 +59,6 @@ namespace nvfuser {
 
 // cacheId, inputTensors, outputTensors
 using main_func_t = void (*)(int64_t, const void**, void**);
-constexpr std::string_view kMainFuncName = "main";
-constexpr std::string_view kTensorSizeFuncName = "tensor_size";
-constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
-constexpr std::string_view kTensorDataPtrFuncName = "tensor_data_ptr";
-constexpr std::string_view kLaunchKernelDirectFuncName = "launch_kernel_direct";
-constexpr std::string_view kNewTensorFuncName = "new_tensor";
-constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
-constexpr std::string_view kSetTensorFuncName = "set_tensor";
-constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
-constexpr std::string_view kAtTensorType = "at.Tensor";
-constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
-constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearOutFuncName = "linear_out";
-constexpr std::string_view kPermuteFuncName = "permute";
-constexpr std::string_view kReshapeFuncName = "reshape";
-constexpr std::string_view kMainFuncOutputTensorName =
-    "output_aten_tensor_addr";
-constexpr int64_t kMaxTensorDim = 8;
 
 llvm::Value* getOrCreateValueForExtent(
     IterDomain* id,
@@ -92,6 +74,11 @@ llvm::StructType* createRuntimeTensorType(
     int64_t num_dims,
     PrimDataType index_type,
     llvm::LLVMContext& context);
+
+llvm::Value* createTensorSize(
+    llvm::Value* tensor,
+    int64_t dim,
+    llvm::IRBuilder<>& builder);
 
 void inferTensorShapesAndStrides(
     const TensorView* tv,

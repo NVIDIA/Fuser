@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "host_ir/jit_constants.h"
+
 #include <cstdint>
 #include <memory>
 #include <ranges>
@@ -44,14 +46,7 @@ llvm::Value* packTensorArgument(
     std::unordered_map<Val*, llvm::Value*>& val_to_value,
     llvm::IRBuilder<>& builder);
 
-namespace {
-
-constexpr std::string_view kTensorSizeFuncName = "tensor_size";
-constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
-constexpr std::string_view kTensorDataPtrFuncName = "tensor_data_ptr";
-
-// Helper function to generate LLVM IR that extracts tensor size for a given
-// dimension
+// Helper functions exposed for use in jit.cpp (unpackInputs)
 llvm::Value* createTensorSize(
     llvm::Value* tensor,
     int64_t dim,
@@ -62,6 +57,8 @@ llvm::Value* createTensorSize(
 
   return builder.CreateCall(tensor_size_func, {tensor, dim_val});
 }
+
+namespace {
 
 // Helper function to generate LLVM IR that extracts tensor stride for a given
 // dimension
