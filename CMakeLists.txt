@@ -382,6 +382,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp

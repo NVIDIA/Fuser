@@ -114,8 +114,7 @@ __device__ void block_quantize_to_nvfp4(
   // Compute the max accross  16/ITEMS_PER_THREAD threads
   // This assumes each thread has already computed is local max of 2, 4 (fp32)
   // or 2,4, 8 (bf16/fp16) elements.
-  constexpr int NUM_ELEMENTS = 16 / ITEMS_PER_THREAD;
-  reduceAcrossThreads<NUM_ELEMENTS>(local_max);
+  reduceAcrossThreads<THREADS_PER_SCALING_FACTOR>(local_max);
   float block_max = local_max;
 
   constexpr float rcp_6f = 1.0f / 6.0f;
@@ -225,8 +224,7 @@ __device__ void block_quantize_to_mxfp8(
   // Compute the max accross  32/ITEMS_PER_THREAD threads
   // This assumes each thread has already computed is local max of 2, 4 (fp32)
   // or 2,4, 8 (bf16/fp16) elements.
-  constexpr int NUM_ELEMENTS = 32 / ITEMS_PER_THREAD;
-  reduceAcrossThreads<NUM_ELEMENTS>(local_max);
+  reduceAcrossThreads<THREADS_PER_SCALING_FACTOR>(local_max);
   float block_max = local_max;
 
   static constexpr float max_norm_rcp = 1.0f / 448;

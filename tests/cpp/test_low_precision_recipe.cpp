@@ -242,8 +242,9 @@ TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
       << "Block scales do not match exactly";
 
   // Compare quantized tensors with tolerance
-  // Compare quantized tensors with tolerance
   // This is because we cannot exactly reproduce the fast
+  // reciprocal of 2^biased_exp used in the block_quantize_to_mxfp8 runtime
+  // function.
   constexpr double atol = 0.1;
   constexpr double rtol = 1;
 
