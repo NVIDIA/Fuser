@@ -16,8 +16,6 @@
 #include <optional>
 #include <unordered_map>
 
-class FusionKernelRuntime; // Forward declaration
-
 namespace nvfuser::python {
 
 class LRUCache {
@@ -26,7 +24,6 @@ class LRUCache {
     NVF_ERROR_GT(max_fusions_, 0, "Max fusions must be greater than 0");
   }
   //! Copy and Assignment of the LRUCache is not supported
-  //! clang-tidy: deleted member function should be public
   LRUCache(const LRUCache&) = delete;
   LRUCache& operator=(const LRUCache&) = delete;
 
