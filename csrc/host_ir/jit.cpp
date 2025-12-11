@@ -1164,6 +1164,11 @@ class HostIrCompileDispatcher : public OptInDispatch {
       packArgument(out);
     }
 
+    // Pack intermediate buffers
+    for (auto* intermediate : launch_kernel->intermediateBuffers()) {
+      packArgument(intermediate);
+    }
+
     // Create kernel_args array (void**)
     auto* args_array_type =
         llvm::ArrayType::get(void_ptr_type, packed_buffers.size());
