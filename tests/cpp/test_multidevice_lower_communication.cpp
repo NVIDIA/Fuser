@@ -844,20 +844,17 @@ class LowerCollectiveCudaAndNcclTest
     communicator_->barrier();
     cudaDeviceSynchronize();
 
-    float cpu_elapsed_ms_sum = 0.0f;
+    auto cpu_start = std::chrono::high_resolution_clock::now();
     cudaProfilerStart();
     for (int i = 0; i < timing_iters; ++i) {
-      communicator_->barrier();
-      cudaDeviceSynchronize();
-      auto cpu_start = std::chrono::high_resolution_clock::now();
       out_tensor = executor.runWithInput(inputs)[0].as<at::Tensor>();
-      cudaDeviceSynchronize();
-      auto cpu_end = std::chrono::high_resolution_clock::now();
-      std::chrono::duration<double, std::milli> cpu_duration =
-          cpu_end - cpu_start;
-      cpu_elapsed_ms_sum += cpu_duration.count();
     }
+    cudaDeviceSynchronize();
     cudaProfilerStop();
+    auto cpu_end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> cpu_duration =
+        cpu_end - cpu_start;
+    float cpu_elapsed_ms_sum = cpu_duration.count();
 
     float avg_cpu_time_ms = cpu_elapsed_ms_sum / timing_iters;
 
@@ -1061,11 +1058,15 @@ std::string paramToStringLowerCollectiveCudaAndNcclTest(
   const auto& [msg_size_bytes, protocol_enum] = info.param;
   std::stringstream ss;
   ss << getProtocolString(protocol_enum) << "_";
-  int64_t size_mb = msg_size_bytes / (1024 * 1024);
-  if (size_mb >= 1024) {
-    ss << (size_mb / 1024) << "GB";
+  if (msg_size_bytes < 1024 * 1024) {
+    ss << (msg_size_bytes / 1024) << "KB";
   } else {
-    ss << size_mb << "MB";
+    int64_t size_mb = msg_size_bytes / (1024 * 1024);
+    if (size_mb >= 1024) {
+      ss << (size_mb / 1024) << "GB";
+    } else {
+      ss << size_mb << "MB";
+    }
   }
   return ss.str();
 }
@@ -1076,9 +1077,16 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveCudaAndNcclTest,
     testing::Combine(
         testing::Values(
+            128 * 1024LL, // 128 KB
+            256 * 1024LL, // 256 KB
+            512 * 1024LL, // 512 KB
+            1 * 1024 * 1024LL, // 1 MB
             2 * 1024 * 1024LL, // 2 MB
+            4 * 1024 * 1024LL, // 4 MB
             8 * 1024 * 1024LL, // 8 MB
+            16 * 1024 * 1024LL, // 16 MB
             32 * 1024 * 1024LL, // 32 MB
+            64 * 1024 * 1024LL, // 64 MB
             128 * 1024 * 1024LL, // 128 MB
             256 * 1024 * 1024LL // 256 MB
             ),
