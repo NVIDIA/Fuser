@@ -229,6 +229,7 @@ def test_overlap_allgather_matmul_shard_outermost(
     params = nvfuser.multidevice.MultiDeviceExecutorParams()
     params.backend_type = backend_type
     params.use_allocation_cache = True
+    params.offset_stream_indexing_by_rank = True
     multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup
