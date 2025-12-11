@@ -194,13 +194,12 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
 
-  // Collect user inputs
+  // Collect user inputs only
   for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
 
   // All output buffers are known already, pass them to the executor
-  // Note: KernelExecutor::run() will merge them as args + outputs + intermediates
   KernelArgumentHolder outputs;
   for (Val* output : launch_kernel->outputs()) {
     if (expr_evaluator_.isKnown(output)) {
@@ -208,16 +207,17 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     }
   }
 
-  // Collect intermediate buffers (allocated in Host IR)
-  // These will be appended after outputs by KernelExecutor::run()
-  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
-    args.push(getKnownConcreteValue(intermediate));
-  }
-
   NVF_ERROR_EQ(
       outputs.size(),
       std::ssize(launch_kernel->outputs()),
       "Not all outputs to the kernel were preallocated");
+
+  // Collect intermediate buffers (allocated in Host IR)
+  // Pass them separately to avoid confusion with inputs/outputs
+  KernelArgumentHolder intermediates;
+  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
+    intermediates.push(getKnownConcreteValue(intermediate));
+  }
 
   args.setDeviceIndex();
 
@@ -227,7 +227,8 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
           args,
           outputs,
           launch_kernel->launchParams(),
-          launch_kernel->compileParams());
+          launch_kernel->compileParams(),
+          intermediates);
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
