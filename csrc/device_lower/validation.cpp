@@ -822,16 +822,20 @@ class ExprValidator : public OptOutDispatch {
     // Check that TIDx is multiple of 32
     // TIDx is innermost since there is no group IDs.
     if (is_mxfp8_output && !grouped_id) {
-      auto tidx_extent = thread_x->extent();
-      inp_tv->fusion()->print();
-      NVF_ERROR(
-          tidx_extent->isConstInt() &&
-              (tidx_extent->evaluate().as<int64_t>() % 32 == 0),
-          "When quantizing to Float8_e4m3fn without grouping, TIDx extent must "
-          "be a "
-          "multiple of 32. Found extent: ",
-          tidx_extent->toString(),
-          ". Expr: ",
+      Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+          SimplifyingIrBuilder::modExpr(
+              thread_x->extent(), IrBuilder::create<Val>(32, DataType::Index)),
+          bqop->fusion()->zeroVal());
+
+      NVFUSER_LOWER_VALIDATE(
+          is_divisible,
+          "Inner dimension of BlockQuantizationOp input must be divisible by "
+          "block "
+          "size (",
+          32,
+          "), but got extent ",
+          thread_x->extent()->toInlineString(),
+          " in ",
           bqop->toString());
 
       NVF_ERROR(
