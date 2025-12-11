@@ -3294,19 +3294,10 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-namespace spda_meta {
+namespace sdpa_meta {
 
-std::tuple<
-    at::Tensor,
-    at::Tensor,
-    at::Tensor,
-    at::Tensor,
-    c10::SymInt,
-    c10::SymInt,
-    at::Tensor,
-    at::Tensor,
-    at::Tensor>
-_scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+_scaled_dot_product_attention_meta(const at::Tensor& query) {
   const auto sizes = query.sizes();
   const int batch_size = sizes[0];
   int num_heads = sizes[1];
@@ -3321,19 +3312,10 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
   auto rng_state = at::empty({2}, meta_u64);
   auto rng_offset = at::empty({}, meta_u64);
-  return std::make_tuple(
-      query,
-      logsumexp,
-      at::Tensor(),
-      at::Tensor(),
-      c10::SymInt(seqlen_q),
-      c10::SymInt(seqlen_q),
-      rng_state,
-      rng_offset,
-      at::Tensor());
+  return std::make_tuple(query, logsumexp, rng_state, rng_offset);
 }
 
-} // namespace spda_meta
+} // namespace sdpa_meta
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
@@ -3341,32 +3323,20 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   auto query = inputs.at(0).as<at::Tensor>();
   auto key = inputs.at(1).as<at::Tensor>();
   auto value = inputs.at(2).as<at::Tensor>();
-
+  auto bias = bias_input_index_ >= 0
+      ? inputs.at(bias_input_index_).as<at::Tensor>()
+      : at::Tensor();
+  auto mask = mask_input_index_ >= 0
+      ? inputs.at(mask_input_index_).as<at::Tensor>()
+      : at::Tensor();
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
-
-  const bool has_scale = scale_input_index_ >= 0;
-  const bool has_bias = bias_input_index_ >= 0;
-  const bool has_mask = mask_input_index_ >= 0;
-  const bool use_flash_attention = !(has_bias || has_mask);
-
   const auto last_dim_size = query.size(-1);
-  const auto seqlen_q = query.size(-2);
-  auto batch_dims = query.sizes().slice(0, query.dim() - 3);
-  NVF_CHECK_GE(batch_dims.size(), 1);
+  auto scale = scale_input_index_ >= 0
+      ? inputs.at(scale_input_index_).as<double>()
+      : 1.0 / std::sqrt(last_dim_size);
 
-  auto scale = has_scale ? inputs.at(scale_input_index_).as<double>()
-                         : 1.0 / std::sqrt(last_dim_size);
-
-  auto maybe_cast_tensor = [&](int index) -> at::Tensor {
-    auto tensor = inputs.at(index).as<at::Tensor>();
-    if (tensor.scalar_type() != query.scalar_type()) {
-      tensor = tensor.to(query.scalar_type());
-    }
-    return tensor;
-  };
-
-  // Flash attention requires the last dimension to be padded to 8.
+  // Flash/efficient attention require the last dimension to be padded to 8.
   auto pad_last_dim = [last_dim_size](
                           at::Tensor inp, int alignment_size) -> at::Tensor {
     if (last_dim_size % alignment_size == 0) {
@@ -3377,107 +3347,79 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     return padded_inp;
   };
 
-  auto query_tensor = use_flash_attention ? pad_last_dim(query, 8) : query;
-  auto key_tensor = use_flash_attention ? pad_last_dim(key, 8) : key;
-  auto value_tensor = use_flash_attention ? pad_last_dim(value, 8) : value;
+  query = pad_last_dim(query, 8);
+  key = pad_last_dim(key, 8);
+  value = pad_last_dim(value, 8);
 
-  auto flatten_batch = [&](at::Tensor t) -> at::Tensor {
-    if (batch_dims.size() > 1) {
-      return t.flatten(0, -4);
-    }
-    return t;
+  auto batch_dims = query.sizes().slice(0, query.dim() - 3);
+  NVF_CHECK_GE(batch_dims.size(), 1);
+  auto flatten_batch = [](at::Tensor t) -> at::Tensor {
+    return t.flatten(0, -4);
   };
+  query = flatten_batch(query);
+  key = flatten_batch(key);
+  value = flatten_batch(value);
+  NVF_ERROR_EQ(query.dim(), 4);
+  NVF_ERROR_EQ(key.dim(), 4);
+  NVF_ERROR_EQ(value.dim(), 4);
 
-  query_tensor = flatten_batch(query_tensor);
-  key_tensor = flatten_batch(key_tensor);
-  value_tensor = flatten_batch(value_tensor);
-  NVF_ERROR_EQ(query_tensor.dim(), 4);
-  NVF_ERROR_EQ(key_tensor.dim(), 4);
-  NVF_ERROR_EQ(value_tensor.dim(), 4);
-
-  at::Tensor attn_bias_tensor;
-  if (!use_flash_attention) {
-    if (has_bias) {
-      attn_bias_tensor = flatten_batch(maybe_cast_tensor(bias_input_index_));
+  at::Tensor attn_bias = bias;
+  if (mask.defined()) {
+    NVF_CHECK_EQ(mask.dtype(), at::kBool);
+    auto mask_bias =
+        at::where(mask, 0.0, -std::numeric_limits<float>::infinity())
+            .to(query.dtype());
+    if (attn_bias.defined()) {
+      attn_bias = attn_bias + mask_bias;
+    } else {
+      attn_bias = mask_bias;
     }
-    if (has_mask) {
-      auto mask_tensor = inputs.at(mask_input_index_).as<at::Tensor>();
-      NVF_CHECK(
-          mask_tensor.scalar_type() == at::kBool,
-          "mask must be a boolean tensor, but got ",
-          mask_tensor.scalar_type());
-      mask_tensor = flatten_batch(mask_tensor);
-      auto opts = query_tensor.options();
-      auto zero = at::zeros({}, opts);
-      auto neg_inf =
-          at::full({}, -std::numeric_limits<double>::infinity(), opts);
-      auto mask_bias_tensor = at::where(mask_tensor, zero, neg_inf);
-      if (attn_bias_tensor.defined()) {
-        attn_bias_tensor = attn_bias_tensor + mask_bias_tensor;
-      } else {
-        attn_bias_tensor = mask_bias_tensor;
-      }
-    }
-    NVF_CHECK(
-        attn_bias_tensor.defined(),
-        "attn_bias_tensor must be defined when using efficient attention.");
+  }
+  if (attn_bias.defined()) {
+    attn_bias = flatten_batch(attn_bias);
   }
 
-  // ATen reference:
-  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
-  at::Tensor output;
-  at::Tensor log_sumexp;
-  at::Tensor philox_seed;
-  at::Tensor philox_offset;
+  auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
+    if (query.is_meta()) {
+      return sdpa_meta::_scaled_dot_product_attention_meta(query);
+    }
 
-  if (use_flash_attention) {
+    if (attn_bias.defined()) {
+      return at::_scaled_dot_product_efficient_attention(
+          query,
+          key,
+          value,
+          attn_bias,
+          /*compute_log_sumexp=*/true,
+          dropout_p,
+          is_causal,
+          scale);
+    }
+
     auto
-        [flash_out,
-         flash_log_sumexp,
+        [out,
+         log_sumexp,
          cum_seq_q,
          cum_seq_k,
          query_seq_len,
          key_seq_len,
-         flash_seed,
-         flash_offset,
-         debug_attn_mask] = query_tensor.is_meta()
-        ? spda_meta::_scaled_dot_product_flash_attention_meta(query_tensor)
-        : at::_scaled_dot_product_flash_attention(
-              query_tensor,
-              key_tensor,
-              value_tensor,
-              dropout_p,
-              is_causal,
-              /*return_debug_mask=*/false,
-              scale);
-    output = flash_out;
-    log_sumexp = flash_log_sumexp;
-    philox_seed = flash_seed;
-    philox_offset = flash_offset;
-  } else {
-    auto [eff_out, eff_log_sumexp, eff_seed, eff_offset] =
-        at::_scaled_dot_product_efficient_attention(
-            query_tensor,
-            key_tensor,
-            value_tensor,
-            attn_bias_tensor,
-            /*compute_log_sumexp=*/true,
-            dropout_p,
-            is_causal,
-            scale);
-    output = eff_out;
-    log_sumexp = eff_log_sumexp;
-    philox_seed = eff_seed;
-    philox_offset = eff_offset;
-  }
+         philox_seed,
+         philox_offset,
+         debug_attn_mask] =
+            at::_scaled_dot_product_flash_attention(
+                query,
+                key,
+                value,
+                dropout_p,
+                is_causal,
+                /*return_debug_mask=*/false,
+                scale);
+    return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+  }();
 
-  // If the inputs were padded, slice the output to restore the original
-  // size
-  if (use_flash_attention && output.size(-1) != last_dim_size) {
+  // If the inputs were padded, slice the output to restore the original size
+  if (output.size(-1) != last_dim_size) {
     output = output.slice(-1, 0, last_dim_size);
-  }
-  if (!use_flash_attention && log_sumexp.size(-1) != seqlen_q) {
-    log_sumexp = log_sumexp.slice(-1, 0, seqlen_q);
   }
 
   auto unflatten_batch_dim = [](at::Tensor t,
