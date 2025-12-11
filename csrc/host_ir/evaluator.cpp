@@ -193,8 +193,15 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
+
+  // Collect user inputs
   for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
+  }
+
+  // Collect intermediate buffers (allocated in Host IR)
+  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
+    args.push(getKnownConcreteValue(intermediate));
   }
 
   // All output buffers are known already, pass them to the executor
