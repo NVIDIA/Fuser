@@ -64,6 +64,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
         hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
+        std::vector<Val*>{},  // No intermediates
         cache_id);
 
     hic->addInput(in);
@@ -134,6 +135,7 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
           hic->getKernelExecutor(0).compiledKernel().get(),
           std::vector<Val*>{x, y},
           std::vector<Val*>{x},
+          std::vector<Val*>{},  // No intermediates
           cache_id);
       for_loop->body().push_back(launch_kernel);
     }
@@ -203,6 +205,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
+        std::vector<Val*>{},  // No intermediates
         cache_id);
     for_loop->body().push_back(launch_kernel);
 
