@@ -29,6 +29,10 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 // IPC Utils for sharing file descriptors
 
+enum class MulticastProtocol { Memcpy, Multimem, BatchMemcpy };
+
+MulticastProtocol getMulticastProtocol();
+
 // Creates a listening Unix domain socket bound to path.
 // If path starts with '@', it uses the abstract namespace (replaced with \0).
 // Returns the socket file descriptor.
