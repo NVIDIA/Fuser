@@ -245,7 +245,8 @@ void registerExternalFunctionsImpl(
   registerExternalFunction(
       reshape_func_ptr, name_to_symbol, mangler, kReshapeFuncName);
 
-  auto err = dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol));
+  auto err =
+      dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol));
   if (err) {
     NVF_THROW(llvm::toString(std::move(err)));
   }
