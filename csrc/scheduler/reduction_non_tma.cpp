@@ -71,26 +71,19 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
 // The returned value is the product of vectorization_factor and
 // reduction_unroll_factor for 2d inner reduction heuristics. The estimation is
 // based on properties of the fusion and hardware memory bandwidth.
-int64_t getVectUnroll(
+int64_t getUnrollFactor(
     const int64_t max_dtype_size_bit_for_vectorization,
-    const int64_t max_vectorize_factor,
+    const int64_t vectorization_factor,
     const int64_t n_tensor_inputs,
     const int64_t target_threads_per_sm,
     const bool has_mufu_computation) {
-  // empirical value, derived from A100 & H100
-  int64_t vect_factor = ceilDiv(
-      // Available unrolling based on size of data type
-      (int64_t)128 / max_dtype_size_bit_for_vectorization,
-      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(std::max(n_tensor_inputs >> 2, (int64_t)1)));
-
   // If has computation uses mufu units, thread local computation is already
   // expensive, don't need further unroll. This is opposite to pointwise
   // scheduler where extra unroll is beneficial if we have expensive ops. Why?
   // Probably because the reduction after pointwise ops is already expensive
   // enough to hide the memory access latency of other blocks.
   if (has_mufu_computation) {
-    return vect_factor;
+    return 1;
   }
 
   int64_t required_bits_in_flight = scheduler_utils::getRequiredBitsInFlight();
@@ -99,18 +92,14 @@ int64_t getVectUnroll(
   int64_t bits_per_element =
       max_dtype_size_bit_for_vectorization * n_tensor_inputs;
   int64_t unroll_vect = ceilDiv(required_bits_per_thread, bits_per_element);
-
-  // prioritize vectorization over unrolling
-  vect_factor = std::min(vect_factor, scheduler_utils::lastPow2(unroll_vect));
+  if (unroll_vect < vectorization_factor) {
+    return 1;
+  }
 
   // When fully vectorized, unroll by at least 2 to provide some
   // instruction level parallelism. This is for A100-40G whose bandwidth is much
   // lower and won't need unroll if only based on bytes in flight.
-  int64_t unroll_factor = 1;
-  if (vect_factor == max_vectorize_factor) {
-    unroll_factor = std::max(2L, ceilDiv(unroll_vect, vect_factor));
-  }
-  return unroll_factor * vect_factor;
+  return std::max(2L, ceilDiv(unroll_vect, vectorization_factor));
 }
 
 int64_t getL1L2WarpSize(
@@ -161,7 +150,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     const int64_t total_iteration_numel,
     const int64_t n_tensor_inputs,
     const int64_t max_dtype_size_bit_for_vectorization,
-    const int64_t max_vectorize_factor,
+    const int64_t vectorize_factor,
     const bool has_mufu_computation) {
   // Get device properties
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
@@ -177,28 +166,23 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
       n_tensor_inputs,
       max_dtype_size_bit_for_vectorization);
 
-  // Set target_vect_unroll
-  auto target_vect_unroll = getVectUnroll(
+  // Set target_inner_unroll
+  const int64_t target_inner_unroll = getUnrollFactor(
       max_dtype_size_bit_for_vectorization,
-      max_vectorize_factor,
+      vectorize_factor,
       n_tensor_inputs,
       target_threads_per_sm,
       has_mufu_computation);
 
   // redu = [i-remainder, i-Unroll, TIDx, Vect]
-  int64_t inner_unroll = 1, bdimx = 1, vect_factor = 1;
+  int64_t inner_unroll = 1, bdimx = 1;
   auto getInnerRemainder = [&]() {
     return ceilDiv(
-        ceilDiv(total_reduction_numel / vect_factor, bdimx), inner_unroll);
+        ceilDiv(total_reduction_numel / vectorize_factor, bdimx), inner_unroll);
   };
 
-  // Max vectorization factor
-  vect_factor = std::min(
-      scheduler_utils::lastPow2(target_vect_unroll),
-      (int64_t)max_vectorize_factor);
   const int64_t four_warps = 4 * threads_per_warp;
-  int64_t target_inner_unroll = target_vect_unroll / vect_factor;
-  int64_t after_vect = total_reduction_numel / vect_factor;
+  int64_t after_vect = total_reduction_numel / vectorize_factor;
 
   // Empirical CTA size, both values allow thread uses 255 registers, so we
   // don't need to set maxrregcount which may affect occupancy since it is
@@ -325,9 +309,9 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
         ? bdimx
         : bdimx + min_warp_size - bdimx % min_warp_size;
   }
-  rparams->unroll_factor_inner_reduction = vect_factor;
+  rparams->unroll_factor_inner_reduction = vectorize_factor;
   rparams->unroll_factor_top_of_vectorization = inner_unroll;
-  rparams->vectorize_inner_reduction = vect_factor > 1;
+  rparams->vectorize_inner_reduction = vectorize_factor > 1;
   if (rparams->multiple_reds_per_blk) {
     rparams->block_dim_iter_dom = ParallelType::TIDy;
   }
@@ -377,7 +361,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
     debug() << "\n===== Inner 2D Reduction Stats ========\n"
             << "total_reduction_numel: " << total_reduction_numel << "\n"
             << "total_iteration_numel: " << total_iteration_numel << "\n"
-            << "target_vect_unroll: " << target_vect_unroll << "\n"
+            << "target_inner_unroll: " << target_inner_unroll << "\n"
             << "vectorize_factor: " << vect_factor << "\n"
             << "inner_unroll: " << inner_unroll << "\n"
             << "outer_unroll: " << outer_unroll << "\n"
