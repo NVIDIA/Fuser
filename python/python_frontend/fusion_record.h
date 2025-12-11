@@ -3089,7 +3089,7 @@ struct SdpaFwdOpRecord : RecordFunctor {
         ? fd.getFusionState(args_.at(7).index)->as<Val>()
         : nullptr;
     auto output =
-        sdpfa_fwd(query, key, value, dropout_p, is_causal, scale, bias, mask);
+        sdpfa_fwd(query, key, value, bias, mask, dropout_p, is_causal, scale);
     fd.setFusionState(outputs_.at(0).index, output.output);
     fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
     fd.setFusionState(outputs_.at(2).index, output.philox_seed);

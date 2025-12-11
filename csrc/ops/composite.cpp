@@ -588,11 +588,11 @@ SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
-    Val* scale,
-    TensorView* bias,
-    TensorView* mask) {
+    Val* scale) {
   checkAllEqual({query->dtype(), key->dtype(), value->dtype()});
 
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());

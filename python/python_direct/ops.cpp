@@ -3379,11 +3379,11 @@ void bindSdpaOps(py::module_& ops) {
             query,
             key,
             value,
+            bias,
+            mask,
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
-            convertToVal(scale),
-            bias,
-            mask);
+            convertToVal(scale));
         return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
       },
       py::arg("query"),

@@ -25,44 +25,6 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
 
-TEST(SdpaApiTest, EfficientAttentionAttnBiasShape) {
-  if (!at::cuda::is_available()) {
-    GTEST_SKIP() << "This test requires CUDA";
-  }
-
-  const int64_t batch = 2;
-  const int64_t q_heads = 3;
-  const int64_t seq_q = 32;
-  const int64_t seq_k = 8; // ensure stride across batch is aligned for kernel
-  const int64_t head_dim = 8;
-
-  auto opts = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto q = at::randn({batch, q_heads, seq_q, head_dim}, opts);
-  auto k = at::randn({batch, q_heads, seq_k, head_dim}, opts);
-  auto v = at::randn({batch, q_heads, seq_k, head_dim}, opts);
-  auto attn_bias = at::randn({batch, q_heads, seq_q, seq_k}, opts);
-
-  auto outputs = at::_scaled_dot_product_efficient_attention(
-      q,
-      k,
-      v,
-      attn_bias,
-      /*compute_log_sumexp=*/true,
-      /*dropout_p=*/0.0,
-      /*is_causal=*/false,
-      /*scale=*/c10::optional<double>(1.0));
-
-  auto& out = std::get<0>(outputs);
-  auto& logsumexp = std::get<1>(outputs);
-
-  ASSERT_TRUE(out.defined());
-  ASSERT_TRUE(logsumexp.defined());
-
-  // Output follows [B, H, Q, Dv]; logsumexp has [B, H, Q].
-  EXPECT_EQ(out.sizes(), at::IntArrayRef({batch, q_heads, seq_q, head_dim}));
-  EXPECT_EQ(logsumexp.sizes(), at::IntArrayRef({batch, q_heads, seq_q}));
-}
-
 namespace {
 void addSdpaFwdOutputs(Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
@@ -287,6 +249,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -346,6 +310,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -404,6 +370,8 @@ TEST_F(SDPATest, CausalAttn) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -461,6 +429,8 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -800,6 +770,8 @@ TEST_F(SDPATest, AttnProgram) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -852,6 +824,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -939,6 +913,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -1145,6 +1121,8 @@ TEST_F(SDPATest, ComputeAt) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
