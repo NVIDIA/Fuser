@@ -361,6 +361,7 @@ void lowerSegment(
           ke.compiledKernel().get(),
           ins,
           outs,
+          {},  // intermediates (empty for now, will be populated in Phase 1)
           cache_id);
       innermost_scope.push_back(launch_kernel);
     }
