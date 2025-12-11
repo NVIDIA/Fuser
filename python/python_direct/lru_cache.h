@@ -66,6 +66,11 @@ class LRUCache {
     }
   };
 
+  // Cumulative number of fusions compiled
+  inline size_t numFusionsCompiled() const {
+    return num_cache_lookups_ - num_cache_hits_;
+  }
+
   // The list stores key-value pairs to maintain the order of use.
   // Front of the list is the most recently used.
   std::list<Item> items_list;
@@ -83,9 +88,6 @@ class LRUCache {
 
   //! The max allowed number of fusions in the cache
   size_t max_fusions_ = 0;
-
-  // Cumulative number of fusions compiled
-  size_t num_fusions_compiled_ = 0;
 
   // Number of visits to the cache
   size_t num_cache_lookups_ = 0;

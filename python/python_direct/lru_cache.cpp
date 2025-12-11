@@ -36,9 +36,9 @@ FusionExecutorCache* LRUCache::cacheCompile(std::shared_ptr<Fusion> fusion) {
   items_list.push_front(
       {fusion,
        std::make_unique<FusionExecutorCache>(
-           std::make_unique<Fusion>(*fusion), num_fusions_compiled_),
+           std::make_unique<Fusion>(*fusion),
+           /*fusion_id=*/numFusionsCompiled()),
        /*visits=*/0});
-  num_fusions_compiled_++;
   // Store the iterator to the new item in the map
   items_map.emplace(fusion, items_list.begin());
 
@@ -57,7 +57,7 @@ std::string LRUCache::stats() const {
   }
 
   ss << "Total Fusions in Cache: " << items_list.size() << "\n";
-  ss << "Total Unique Fusions Compiled: " << num_fusions_compiled_ << "\n";
+  ss << "Total Unique Fusions Compiled: " << numFusionsCompiled() << "\n";
 
   ss << "Cache Hits by LRU ordering:\n";
   for (const auto&& [index, item] : enumerate(items_list)) {
