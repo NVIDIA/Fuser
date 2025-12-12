@@ -10,25 +10,14 @@
 #include <cstdint>
 #include <unordered_map>
 
-// Forward declarations for LLVM types
-namespace llvm {
-class Value;
-template <typename T, typename Inserter>
-class IRBuilder;
-class ConstantFolder;
-class IRBuilderDefaultInserter;
-class StructType;
-class LLVMContext;
-template <typename T>
-class SmallVectorImpl;
-} // namespace llvm
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/IR/IRBuilder.h"
+#include "llvm/IR/LLVMContext.h"
+
+#include <ir/all_nodes.h>
+#include <type.h>
 
 namespace nvfuser {
-
-// Forward declarations for nvfuser types
-class TensorView;
-class Val;
-enum class PrimDataType;
 
 // Creates an LLVM struct type that matches runtime::Tensor<T, Dims, AllocDims>
 // from runtime/tensor.cu

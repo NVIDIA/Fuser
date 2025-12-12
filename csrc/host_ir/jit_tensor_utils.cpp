@@ -67,11 +67,8 @@ llvm::Value* createTensorDataPtr(
   return builder.CreateCall(tensor_data_ptr_func, {tensor});
 }
 
-// Forward declarations for value creation functions
-llvm::Value* getOrCreateValueForExtent(
-    IterDomain* id,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
+// Forward declaration for value creation function (used mutually by helper
+// functions below)
 llvm::Value* getOrCreateValue(
     Val* val,
     std::unordered_map<Val*, llvm::Value*>& val_to_value,

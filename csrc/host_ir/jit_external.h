@@ -7,13 +7,7 @@
 // clang-format on
 #pragma once
 
-// Forward declarations for LLVM types
-namespace llvm {
-namespace orc {
-class LLJIT;
-class JITDylib;
-} // namespace orc
-} // namespace llvm
+#include "llvm/ExecutionEngine/Orc/LLJIT.h"
 
 namespace nvfuser {
 

@@ -62,15 +62,6 @@ namespace nvfuser {
 // cacheId, inputTensors, outputTensors
 using main_func_t = void (*)(int64_t, const void**, void**);
 
-llvm::Value* getOrCreateValueForExtent(
-    IterDomain* id,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
-llvm::Value* getOrCreateValue(
-    Val* val,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
-
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
  public:
