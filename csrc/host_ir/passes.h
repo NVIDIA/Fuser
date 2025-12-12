@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <host_ir/container.h>
+#include "host_ir/container.h"
 
 namespace nvfuser::hir {
 

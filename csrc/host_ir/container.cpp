@@ -6,16 +6,16 @@
  */
 // clang-format on
 
-#include <host_ir/container.h>
+#include "host_ir/container.h"
 
-#include <host_ir/ir.h>
-#include <ir/builder.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
+#include "host_ir/ir.h"
+#include "ir/builder.h"
+#include "ir/cloner.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
 
 namespace nvfuser {
 
