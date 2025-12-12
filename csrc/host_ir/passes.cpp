@@ -6,9 +6,9 @@
  */
 // clang-format on
 
-#include <host_ir/passes.h>
+#include "host_ir/passes.h"
 
-#include <host_ir/pass/allocate_and_deallocate.h>
+#include "host_ir/allocate_and_deallocate.h"
 
 namespace nvfuser::hir {
 
