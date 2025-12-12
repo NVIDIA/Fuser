@@ -14,6 +14,7 @@
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
+#include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
