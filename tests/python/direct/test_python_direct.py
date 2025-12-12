@@ -9,6 +9,7 @@ from nvfuser_direct import (
     DataType,
     version,
     LruFusionCache,
+    LRUCache,
 )
 import torch
 import pytest
@@ -565,7 +566,7 @@ def test_fusion_profiler_with_noncodegen_kernels():
         )
 
 
-def test_lru_cache():
+def test_lru_fusion_cache_decorator():
     inputs = [
         torch.randn(2, 4, device="cuda"),
         torch.randn(2, 4, device="cuda"),
@@ -616,3 +617,70 @@ Cache Lookups: 10
 Cache Hits: 8
 Hit Rate: 80%\n"""
     assert create_fusion.stats() == expected_stats
+
+
+def test_lru_cache():
+    bcast_input = torch.randn(1, 4, device="cuda")
+    full_input = torch.randn(2, 4, device="cuda")
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, -1],
+            contiguity=[None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.sub(T0, T1)
+        fd.add_output(T2)
+
+    # nvfuser_fusion_id1 reverses the input argument order of nvfuser_fusion_id0
+    def nvfuser_fusion_id1(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T0 = fd.define_tensor(
+            shape=[1, -1],
+            contiguity=[None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.sub(T0, T1)
+        fd.add_output(T2)
+
+    cache = LRUCache(max_fusions=10)
+
+    with FusionDefinition() as fd0:
+        nvfuser_fusion_id0(fd0)
+
+    assert cache.num_fusions() == 0
+    cache.cache_compile(fd0.fusion)
+    # Check that LRUCache caches the first fusion
+    assert cache.num_fusions() == 1
+
+    with FusionDefinition() as fd1:
+        nvfuser_fusion_id1(fd1)
+
+    assert cache.num_fusions() == 1
+    cache.cache_compile(fd1.fusion)
+    # Check that LRUCache creates a separate entry for second fusion
+    assert cache.num_fusions() == 2
+
+    assert torch.allclose(
+        fd0.execute([bcast_input, full_input])[0], bcast_input - full_input
+    )
+    assert torch.allclose(
+        fd1.execute([full_input, bcast_input])[0], bcast_input - full_input
+    )
