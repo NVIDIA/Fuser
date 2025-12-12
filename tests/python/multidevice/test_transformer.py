@@ -1030,14 +1030,13 @@ def transformer_backward_definition(
             tv.outer_split(1, num_devices)
             tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
-        # weight_grad = [3*e, e, r{s}]. Specify sharding to avoid s being sharded.
-        # sharding of `s` leads to reduce scatter and resharding of out_grad.
+        # Manually scheduling intermediate tensorviews to avoid
+        # sub-optimal communication. See Issue #5673 for details.
         for tv in [mha_linear0_weight_grad, mlp_linear0_weight_grad]:
             tv.set_device_mesh(mesh)
             tv.outer_split(0, num_devices)
             tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
-        # Allgather before computing in, bias, weight grad for MHA/MLP down projection.
-        # This ensures we have 1 Allgather instead of 2 Allgathers + 1 AllReduce.
+
         for tv in [mlp_linear1_out_grad, mha_linear1_out_grad]:
             tv.set_device_mesh(mesh)
 
