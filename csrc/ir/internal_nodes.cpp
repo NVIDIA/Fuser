@@ -3230,11 +3230,11 @@ SdpaFwdOp::SdpaFwdOp(
     Val* query,
     Val* key,
     Val* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
-    Val* scale,
-    TensorView* bias,
-    TensorView* mask)
+    Val* scale)
     : Expr(passkey) {
   addOutput(output);
   addOutput(log_sumexp);

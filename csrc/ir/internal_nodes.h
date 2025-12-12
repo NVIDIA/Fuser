@@ -2362,11 +2362,11 @@ class SdpaFwdOp : public Expr {
       Val* query,
       Val* key,
       Val* value,
+      TensorView* bias,
+      TensorView* mask,
       Val* dropout_p,
       Val* is_causal,
-      Val* scale,
-      TensorView* bias = nullptr,
-      TensorView* mask = nullptr);
+      Val* scale);
 
   SdpaFwdOp(const SdpaFwdOp* src, IrCloner* ir_cloner);
 

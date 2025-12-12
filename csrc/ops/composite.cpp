@@ -721,13 +721,13 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
+      bias,
+      mask,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       scale == nullptr
           ? scale
-          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale),
-      bias,
-      mask);
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
