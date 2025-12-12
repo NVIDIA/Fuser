@@ -6,10 +6,12 @@
  */
 // clang-format on
 #pragma once
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <multidevice/communicator.h>
+
 #include <memory>
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "multidevice/communicator.h"
 namespace nvfuser {
 
 constexpr int64_t kHostIrJitCompileThreads = 4;

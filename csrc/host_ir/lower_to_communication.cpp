@@ -6,18 +6,19 @@
  */
 // clang-format on
 
-#include <host_ir/container.h>
-#include <host_ir/lower_to_communication.h>
-#include <ir/all_nodes.h>
-#include <ir/allocation_utils.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/iostream.h>
-#include <kernel_ir.h>
-#include <multidevice/communication.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
+#include "host_ir/lower_to_communication.h"
+
+#include "host_ir/container.h"
+#include "ir/all_nodes.h"
+#include "ir/allocation_utils.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/iostream.h"
+#include "kernel_ir.h"
+#include "multidevice/communication.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
 
 namespace nvfuser {
 

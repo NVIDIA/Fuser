@@ -448,16 +448,22 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   }
 
   // As part of runtime validation
-  // make sure that the inner dimension of the input is divisible by 16.
+  // make sure that the inner dimension of the input is divisible by block size.
   auto* inner_id = bqop->in()->as<TensorView>()->getLogicalDomain().back();
   Val* is_divisible = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
-          inner_id->extent(), IrBuilder::create<Val>(16)),
+          inner_id->extent(),
+          IrBuilder::create<Val>(bqop->blockSize(), DataType::Index)),
       bqop->fusion()->zeroVal());
 
   NVFUSER_LOWER_VALIDATE(
       is_divisible,
-      "Inner dim of input of Block Quantization is not divisble by 16",
+      "Inner dimension of BlockQuantizationOp input must be divisible by block "
+      "size (",
+      bqop->blockSize(),
+      "), but got extent ",
+      inner_id->extent()->toInlineString(),
+      " in ",
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(

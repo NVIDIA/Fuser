@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <host_ir/ir.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/lowering.h>
-#include <host_ir/ops.h>
-#include <ir/utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/utils.h>
-#include <runtime/executor_abstract.h>
-#include <transform_replay.h>
+#include "host_ir/lowering.h"
+
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "host_ir/ir.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/ops.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/propagation.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/utils.h"
+#include "runtime/executor_abstract.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 
@@ -200,7 +202,7 @@ void lowerSegment(
 
         // Allocate the recv buffers of communications
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
         if (getShardedIterDomain(
                 out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
             getShardedIterDomain(
@@ -307,7 +309,7 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
             innermost.parent_scope->insert(
                 innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
@@ -333,20 +335,21 @@ void lowerSegment(
 
       // Allocate the output TensorViews.
       for (auto* out : outs) {
+        auto* out_tv = dynamic_cast<TensorView*>(out);
         NVF_ERROR(
-            out->isA<TensorView>(),
-            "Output must be a TensorView but got ",
-            out);
-        const AliasInfo& alias = aliases.get(out);
+            out_tv != nullptr, "Output must be a TensorView but got: ", out);
+
+        const AliasInfo& alias = aliases.get(out_tv);
         NVF_ERROR_EQ(
             alias.type,
             AllocationType::New,
             "Output ",
-            out->toString(),
+            out_tv,
             " must not be an alias, got ",
             alias);
+
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
+            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.push_back(allocate);
       }
 
