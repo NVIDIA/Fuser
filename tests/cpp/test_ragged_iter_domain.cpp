@@ -191,11 +191,10 @@ TEST_F(RaggedIterDomainTest, IterVisitor) {
       extents, IterType::Iteration, ParallelType::Serial);
 
   // Collect all statements reachable from the RaggedIterDomain
-  // Use traverse_members=true to visit member fields
   std::vector<Val*> from_vals = {ragged_id};
   auto all_stmts = StmtSort::getStmtsTo(from_vals, /*traverse_members=*/true);
 
-  // Verify the extents TensorView is visited (this is the critical check)
+  // Verify the extents TensorView is visited
   EXPECT_TRUE(
       std::find(all_stmts.begin(), all_stmts.end(), extents) != all_stmts.end())
       << "IterVisitor should traverse the extents_ field of RaggedIterDomain";
