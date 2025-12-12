@@ -22,6 +22,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -892,6 +893,95 @@ std::string RaggedIterDomain::toString(int indent_size) const {
 
 std::string RaggedIterDomain::toInlineString(int indent_size) const {
   return toString(indent_size);
+}
+
+std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
+    IterDomain* in,
+    TensorView* offsets) {
+  NVF_ERROR(in != nullptr, "partition: input IterDomain is null");
+
+  NVF_ERROR(
+      !in->isA<RaggedIterDomain>(),
+      "partition: input is already RaggedIterDomain, cannot partition again");
+
+  NVF_ERROR_EQ(in->getParallelType(), ParallelType::Serial,
+               "Partitioning of parallelized IterDomain not supported: ",
+               in->toString());
+
+  NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
+
+  NVF_ERROR(
+      offsets->dtype() == DataType::Index,
+      "partition: offsets must have Index type, got ",
+      offsets->dtype());
+
+  const auto& offsets_domain = offsets->getLogicalDomain();
+  NVF_ERROR(
+      !offsets_domain.empty(),
+      "partition: offsets tensor must have at least one dimension");
+
+  auto container = in->container();
+
+  // Compute extents from offsets: extents[i] = offsets[i+1] - offsets[i]
+  // Slice along the last dimension of the offsets tensor
+  // offsets_left = offsets[..., :-1]   (all but last element in last dim)
+  // offsets_right = offsets[..., 1:]   (all but first element in last dim)
+
+  const auto last_dim = offsets_domain.size() - 1;
+  auto offsets_len = offsets_domain[last_dim]->extent();
+
+  auto zero = container->zeroVal(DataType::Index);
+  auto one = container->oneVal(DataType::Index);
+  auto len_minus_one = sub(offsets_len, one);
+
+  // Build slice ranges for all dimensions
+  // For all dimensions except the last, use full range (:)
+  // For the last dimension, use [:-1] for left and [1:] for right
+  std::vector<Slice> left_ranges;
+  std::vector<Slice> right_ranges;
+
+  for (const auto i : arange(offsets_domain.size())) {
+    if (i < last_dim) {
+      // Full range for non-last dimensions
+      Slice s;
+      s.start = zero;
+      s.stop = offsets_domain[i]->extent();
+      left_ranges.push_back(s);
+      right_ranges.push_back(s);
+    } else {
+      // Last dimension: left uses [:-1], right uses [1:]
+      Slice left_s;
+      left_s.start = zero;
+      left_s.stop = len_minus_one;
+      left_ranges.push_back(left_s);
+
+      Slice right_s;
+      right_s.start = one;
+      right_s.stop = offsets_len;
+      right_ranges.push_back(right_s);
+    }
+  }
+
+  auto offsets_left = slice(offsets, left_ranges);
+  auto offsets_right = slice(offsets, right_ranges);
+
+  // Compute extents: extents = offsets_right - offsets_left
+  auto extents = sub(offsets_right, offsets_left);
+
+  // Create batch IterDomain
+  // Batch extent = number of components = len(offsets) - 1
+  auto batch_extent = len_minus_one;
+  auto batch_id = IterDomainBuilder(zero, batch_extent)
+                      .parallel_type(ParallelType::Serial)
+                      .iter_type(IterType::Iteration)
+                      .build();
+
+  // Create RaggedIterDomain with computed extents
+  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
+      extents, in->getIterType());
+
+  // Return pair
+  return {batch_id, ragged_id};
 }
 
 TensorDomain::TensorDomain(

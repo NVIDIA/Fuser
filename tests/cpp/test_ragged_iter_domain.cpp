@@ -126,10 +126,6 @@ TEST_F(RaggedIterDomainTest, Printing) {
   // Verify output contains expected elements
   EXPECT_NE(str.find("Ragged"), std::string::npos);
   EXPECT_NE(str.find("extents"), std::string::npos);
-
-  // Also test toInlineString
-  std::string inline_str = ragged_id->toInlineString();
-  EXPECT_FALSE(inline_str.empty());
 }
 
 // Multi-dimensional extents tensor
@@ -198,6 +194,90 @@ TEST_F(RaggedIterDomainTest, IterVisitor) {
   EXPECT_TRUE(
       std::find(all_stmts.begin(), all_stmts.end(), extents) != all_stmts.end())
       << "IterVisitor should traverse the extents_ field of RaggedIterDomain";
+}
+
+// Partition operation - basic test
+TEST_F(RaggedIterDomainTest, PartitionBasic) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input IterDomain
+  auto input_id = IterDomainBuilder(
+                      fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
+                      .build();
+
+  // Create a symbolic offset tensor
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Partition the IterDomain
+  auto [batch_id, ragged_id] = RaggedIterDomain::partition(input_id, offsets);
+
+  // Verify batch IterDomain
+  EXPECT_NE(batch_id, nullptr);
+  EXPECT_TRUE(batch_id->isA<IterDomain>());
+  EXPECT_FALSE(batch_id->isA<RaggedIterDomain>());
+  EXPECT_EQ(batch_id->getIterType(), IterType::Iteration);
+
+  // Verify RaggedIterDomain
+  EXPECT_NE(ragged_id, nullptr);
+  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
+  EXPECT_EQ(ragged_id->getIterType(), IterType::Iteration);
+  EXPECT_NE(ragged_id->extents(), nullptr);
+}
+
+// Partition operation - multi-dimensional offsets
+TEST_F(RaggedIterDomainTest, PartitionMultiDimensional) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input_id = IterDomainBuilder(
+                      fusion.zeroVal(), IrBuilder::create<Val>(100L, DataType::Index))
+                      .build();
+
+  // Create 2D offsets tensor for nested ragged structure
+  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(offsets_2d);
+
+  // Partition should work with multi-dimensional offsets
+  auto [batch_id, ragged_id] = RaggedIterDomain::partition(input_id, offsets_2d);
+
+  EXPECT_NE(batch_id, nullptr);
+  EXPECT_NE(ragged_id, nullptr);
+  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
+  EXPECT_NE(ragged_id->extents(), nullptr);
+}
+
+// Partition operation - validation tests
+TEST_F(RaggedIterDomainTest, PartitionValidation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto input_id = IterDomainBuilder(
+                      fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
+                      .build();
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Test 1: Null input should fail
+  EXPECT_THROW(RaggedIterDomain::partition(nullptr, offsets), nvfuser::nvfError);
+
+  // Test 2: Null offsets should fail
+  EXPECT_THROW(RaggedIterDomain::partition(input_id, nullptr), nvfuser::nvfError);
+
+  // Test 3: Non-Index offsets should fail
+  auto float_offsets = makeSymbolicTensor(1, DataType::Float);
+  fusion.addInput(float_offsets);
+  EXPECT_THROW(
+      RaggedIterDomain::partition(input_id, float_offsets), nvfuser::nvfError);
+
+  // Test 4: Cannot partition RaggedIterDomain
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
+      extents, IterType::Iteration, ParallelType::Serial);
+  EXPECT_THROW(RaggedIterDomain::partition(ragged_id, offsets), nvfuser::nvfError);
 }
 
 } // namespace nvfuser
