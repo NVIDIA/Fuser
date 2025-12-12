@@ -1033,7 +1033,8 @@ TEST_F(SegmentationTest, ReshapeWithCrossSegmentExtent) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t_a = at::randn({batch_size, seq_len_val, hidden_val}, options);
-  at::Tensor t_b = at::randn({batch_size, n_head_val, seq_len_val, head_dim_val}, options);
+  at::Tensor t_b =
+      at::randn({batch_size, n_head_val, seq_len_val, head_dim_val}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_a, t_b});
