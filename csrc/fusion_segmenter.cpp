@@ -5094,8 +5094,9 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     if (visited.count(stack_top_val)) {
       to_visit.pop_back();
     } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def can be a scalar, a tensor dim,
-      //  or a composite fusion input
+      // Constant scalars and parallel indices need no definition in the kernel
+      // Other definition-less scalars are added to the group's input_vals_,
+      //  such as fusion inputs or dimensions of tensors outside the group
       visited.insert(stack_top_val);
       if (!input_set.count(stack_top_val) && !stack_top_val->isConstScalar()) {
         bool is_parallel_dim_or_index = stack_top_val->isA<NamedScalar>() &&
