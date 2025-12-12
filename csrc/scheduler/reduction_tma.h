@@ -11,14 +11,22 @@
 #include <scheduler/reduction.h>
 
 namespace nvfuser {
+
+class TmaInnerReductionParams : public HeuristicParams {
+ public:
+  TmaInnerReductionParams(
+      SchedulerType scheduler_type = SchedulerType::Reduction)
+      : HeuristicParams(scheduler_type) {};
+};
+
 namespace reduction {
 namespace tma {
-std::unique_ptr<ReductionParams> getReductionHeuristics(
+std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache);
 
-void scheduleReduction(Fusion* fusion, const ReductionParams* pparams);
+void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams);
 } // namespace tma
 } // namespace reduction
 } // namespace nvfuser
