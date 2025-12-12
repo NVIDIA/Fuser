@@ -177,4 +177,28 @@ TEST_F(RaggedIterDomainTest, ValidationNonIntegerExtents) {
       nvfuser::nvfError);
 }
 
+// IterVisitor test - ensure graph traversal visits extents field
+TEST_F(RaggedIterDomainTest, IterVisitor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create extents TensorView
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  // Create RaggedIterDomain
+  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
+      extents, IterType::Iteration, ParallelType::Serial);
+
+  // Collect all statements reachable from the RaggedIterDomain
+  // Use traverse_members=true to visit member fields
+  std::vector<Val*> from_vals = {ragged_id};
+  auto all_stmts = StmtSort::getStmtsTo(from_vals, /*traverse_members=*/true);
+
+  // Verify the extents TensorView is visited (this is the critical check)
+  EXPECT_TRUE(
+      std::find(all_stmts.begin(), all_stmts.end(), extents) != all_stmts.end())
+      << "IterVisitor should traverse the extents_ field of RaggedIterDomain";
+}
+
 } // namespace nvfuser
