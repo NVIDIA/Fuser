@@ -6,16 +6,17 @@
  */
 // clang-format on
 
-#include <ATen/ops/unique_dim.h>
-#include <multidevice/device_mesh.h>
+#include "multidevice/device_mesh.h"
 
-#include <utils.h>
 #include <numeric>
+
+#include <ATen/ops/unique_dim.h>
 
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
 
-#include <type.h>
+#include "type.h"
+#include "utils.h"
 
 namespace nvfuser {
 

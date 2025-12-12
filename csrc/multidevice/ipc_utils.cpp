@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/ipc_utils.h>
+#include "multidevice/ipc_utils.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -14,7 +14,7 @@
 #include <cerrno>
 #include <cstring>
 
-#include <exceptions.h>
+#include "exceptions.h"
 
 namespace nvfuser {
 
