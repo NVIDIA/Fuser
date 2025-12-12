@@ -1144,28 +1144,31 @@ int64_t getVectorizationFactor(
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
   FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
 
-  // 1. Compute byte constraint (for sub-byte types)
-  // Use -1 to disable this constraint
+  // 1. Compute minimum vectorization factor from byte alignment constraints.
+  // This is required for sub-byte data types (e.g., int4, fp8) to ensure
+  // proper memory alignment.
+  // TODO: Enable and test for all schedulers (currently pointwise only).
   int64_t min_vect_factor = 1;
   if (min_dtype_size_bit > 0) {
     min_vect_factor = getByteConstraint(min_dtype_size_bit);
   }
 
-  // 2. Apply register pressure constraint (based on data types and tensor
-  // count). Use -1 for max_dtype_size_bit or n_vectorizable_tensors to disable
+  // 2. Apply register pressure constraint to avoid excessive register usage.
+  // This heuristic limits vectorization based on data types and tensor count.
+  // Optional: use -1 for max_dtype_size_bit or n_vectorizable_tensors to skip.
   int64_t max_vect_factor = max_vectorization_size_in_bit;
   if (max_dtype_size_bit > 0 && n_vectorizable_tensors > 0) {
     max_vect_factor = max_vectorization_size_in_bit / max_dtype_size_bit;
     max_vect_factor =
         getRegisterPressureConstraint(n_vectorizable_tensors, max_vect_factor);
-    // Respect minimum vectorization factor
+    // Ensure we respect the minimum vectorization factor
     max_vect_factor = std::max(max_vect_factor, min_vect_factor);
   }
 
-  // 3. Apply wave occupancy constraint: don't vectorize at the cost of getting
-  // a full wave on the GPU (unless we have sub-byte data types that require
-  // minimum vectorization). n_waves represents ceilDiv(n_elems, SM_count *
-  // threads_per_block). Use -1 to disable.
+  // 3. Apply wave occupancy constraint to maintain GPU utilization.
+  // Limits vectorization to avoid reducing occupancy below a full wave.
+  // n_waves = ceilDiv(n_elems, SM_count * threads_per_block).
+  // Optional: use -1 for n_waves to skip. Sub-byte types always respect min.
   if (n_waves > 0 && max_vect_factor > min_vect_factor) {
     max_vect_factor =
         std::min(max_vect_factor, scheduler_utils::lastPow2(n_waves));
@@ -1184,7 +1187,8 @@ int64_t getVectorizationFactor(
       min_vect_factor,
       ")");
 
-  // 4. Get layout constraint (contiguity and alignment analysis)
+  // 4. Compute layout-based constraint from contiguity and alignment analysis.
+  // This is a required constraint applied for all schedulers.
   int64_t base_vect_factor = getLayoutConstraint(
       runtime_info,
       reference_tv,
@@ -1192,8 +1196,7 @@ int64_t getVectorizationFactor(
       break_point,
       max_vectorization_size_in_bit,
       logical_reorder_map);
-  // 5. Apply all constraints: must be between min and max
-  // Take the minimum of (base_factor, max_factor) to respect the upper bound
+  // 5. Apply all constraints: take the minimum to respect all upper bounds.
   int64_t vectorization_factor = std::min(base_vect_factor, max_vect_factor);
 
   // TODO: validate vectorization_factor >= min_vect_factor

@@ -310,15 +310,18 @@ class NVF_API ContiguousInnerDimensionsMapper
   std::unordered_map<IterDomain*, Val*> projected_extent_;
 };
 
-// Unified function for schedulers to get vectorization factor with all
-// constraints applied automatically. This is the main entry point that
-// schedulers should use.
+// Unified function to compute vectorization factor with all constraints
+// applied automatically. This is the main entry point for schedulers.
 //
-// This function handles:
-// 1. Byte constraint - minimum vectorization for sub-byte data types
-// 2. Register pressure constraint - based on data types and tensor count
-// 3. Wave occupancy constraint - don't vectorize at cost of GPU utilization
-// 4. Layout constraint - contiguity and alignment analysis
+// Applies the following constraints in order:
+// 1. [Required] Byte alignment - enforces minimum vectorization for sub-byte
+//               data types (e.g., int4, fp8) to ensure proper memory alignment
+// 2. [Optional] Register pressure - limits vectorization based on data types
+//               and tensor count to avoid register spilling or low occupancy
+// 3. [Optional] Wave occupancy - limits vectorization to maintain GPU
+//               utilization by avoiding reduction below a full wave
+// 4. [Required] Layout - enforces contiguity and alignment based on memory
+//               layout analysis
 //
 // Parameters:
 // - runtime_info: Runtime information including alignment and device properties
@@ -326,26 +329,26 @@ class NVF_API ContiguousInnerDimensionsMapper
 // - data_cache: Cache for heuristic data
 // - break_point: Position in logical domain where vectorization starts
 // - max_vectorization_size_in_bit: Target vector width in bits (typically 128)
-// - min_dtype_size_bit: *(optional)* Minimum data type size in bits. Use -1 to
-//   disable byte constraint (default).
-// - max_dtype_size_bit: *(optional)* Maximum data type size in bits. Use -1 to
-//   disable register pressure constraint (default).
-// - n_vectorizable_tensors: *(optional)* Number of vectorizable inputs/outputs.
+// - min_dtype_size_bit: Minimum data type size in bits.
+//   Use -1 to disable byte constraint (default).
+// - max_dtype_size_bit: Maximum data type size in bits.
 //   Use -1 to disable register pressure constraint (default).
-// - n_waves: *(optional)* Wave occupancy hint: ceilDiv(n_elems, SM_count *
-//   threads_per_block). Use -1 to disable wave constraint (default).
-// - logical_reorder: Optional reordering map for the reference tensor's logical
-//   domain
+// - n_vectorizable_tensors: Number of vectorizable inputs/outputs.
+//   Use -1 to disable register pressure constraint (default).
+// - n_waves: Wave occupancy = ceilDiv(n_elems, SM_count * threads_per_block).
+//   Use -1 to disable wave occupancy constraint (default).
+// - logical_reorder: Optional reordering map for the reference tensor's
+//   logical domain
 //
 // Examples:
 //   // Reduction/Normalization: Layout constraints only
 //   getVectorizationFactor(runtime_info, tv, cache, bp);
 //
-//   // Pointwise: All constraints
+//   // Pointwise: All constraints enabled
 //   getVectorizationFactor(runtime_info, tv, cache, bp, 128,
 //                          min_dtype, max_dtype, n_tensors, n_waves);
 //
-// Returns: Final vectorization factor satisfying all constraints
+// Returns: Final vectorization factor satisfying all enabled constraints
 int64_t getVectorizationFactor(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
