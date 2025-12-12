@@ -148,30 +148,27 @@ Expr* cloneWithNewOperands(
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
-//! Extract intermediate buffers from a CompiledKernel's summary and clone them
-//! into Host IR. Intermediates are global allocations that are neither fusion
-//! outputs nor aliases.
-std::vector<Val*> getIntermediateBuffersForKernel(
-    const CompiledKernel& compiled_kernel,
+//! Extract intermediate buffers from a Fusion (before lowering to kernel IR).
+//! Intermediates are TensorViews that are:
+//! - Not fusion inputs or outputs
+//! - Have MemoryType::Global (explicitly set by schedulers)
+std::vector<Val*> getIntermediateBuffersFromFusion(
+    Fusion* fusion,
     IrCloner& ir_cloner) {
   std::vector<Val*> intermediates;
 
-  const kir::KernelSummary& summary = compiled_kernel.kernel()->summary();
-
-  for (const auto* alloc : summary.global_allocations) {
-    TensorView* tv = alloc->buffer()->as<TensorView>();
-
-    // Skip if it's a fusion output
-    if (tv->isFusionOutput()) {
+  for (auto* tv : fusion->allTvs()) {
+    // Skip inputs and outputs
+    if (tv->isFusionInput() || tv->isFusionOutput()) {
       continue;
     }
 
-    // Skip if it's an alias
-    if (alloc->alias() != nullptr) {
+    // Only include global memory intermediates
+    if (tv->getMemoryType() != MemoryType::Global) {
       continue;
     }
 
-    // This is an intermediate - clone it into Host IR
+    // Clone to Host IR
     intermediates.push_back(ir_cloner.clone(tv));
   }
 
@@ -180,6 +177,7 @@ std::vector<Val*> getIntermediateBuffersForKernel(
 
 void lowerSegment(
     const SegmentedGroup& group,
+    const SegmentedFusion& segmented_fusion,
     const AliasInfoMap& aliases,
     const LaunchParams& launch_params,
     hir::HostIrContainer& hic,
@@ -367,10 +365,6 @@ void lowerSegment(
       const int group_id = group.groupId();
       KernelExecutor& ke = hic.getKernelExecutor(group_id);
 
-      // Extract intermediate buffers from kernel summary
-      std::vector<Val*> intermediates =
-          getIntermediateBuffersForKernel(*ke.compiledKernel(), ir_cloner);
-
       // Allocate the output TensorViews.
       for (auto* out : outs) {
         auto* out_tv = dynamic_cast<TensorView*>(out);
@@ -390,6 +384,14 @@ void lowerSegment(
             IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
         innermost_scope.push_back(allocate);
       }
+
+      // Get the segment fusion for this group
+      auto [segment_cloner, segment_fusion] =
+          segmented_fusion.makeFusion(const_cast<SegmentedGroup*>(&group));
+
+      // Extract intermediate buffers from segment fusion (before lowering)
+      std::vector<Val*> intermediates =
+          getIntermediateBuffersFromFusion(segment_fusion.get(), ir_cloner);
 
       // Allocate intermediate buffers
       for (auto* intermediate : intermediates) {
@@ -485,6 +487,7 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     // can be made class members instead of having to be passed around.
     lowerSegment(
         *group,
+        segmented_fusion,
         segmented_fusion.completeFusion()->getOutputAliases(),
         launch_params_per_segment.at(group->groupId()),
         *hic,
