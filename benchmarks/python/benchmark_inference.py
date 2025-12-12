@@ -424,7 +424,7 @@ class InferenceBenchmark:
                 max_cache_len=input_ids.shape[1] + self.config.output_length,
                 device=DEVICE,
                 dtype=torch.bfloat16,
-                tp_size=WORLD_SIZE if mesh else 1,
+                tp_size=WORLD_SIZE,
             )
         else:
             past_key_values = HybridChunkedCache(
