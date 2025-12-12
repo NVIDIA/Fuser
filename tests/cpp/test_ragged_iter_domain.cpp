@@ -23,7 +23,7 @@ TEST_F(RaggedIterDomainTest, Construction) {
   FusionGuard fg(&fusion);
 
   // Create a TensorView to use as extents
-  // This represents component sizes [3, 5, 2]
+  // This represents component sizes such as [3, 5, 2]
   auto extents = makeSymbolicTensor(1, DataType::Index);
   fusion.addInput(extents);
 
@@ -41,6 +41,20 @@ TEST_F(RaggedIterDomainTest, Construction) {
 
   // Verify extent is not null (it's the sum of extents)
   EXPECT_NE(ragged_id->extent(), nullptr);
+
+  // Verify ValType is RaggedIterDomain, not IterDomain
+  EXPECT_EQ(ragged_id->vtype(), ValType::RaggedIterDomain);
+  EXPECT_NE(ragged_id->vtype(), ValType::IterDomain);
+  EXPECT_TRUE(ragged_id->getValType().has_value());
+  EXPECT_EQ(ragged_id->getValType().value(), ValType::RaggedIterDomain);
+
+  // Compare with a regular IterDomain to ensure different types
+  auto regular_id =
+      IterDomainBuilder(
+          fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
+          .build();
+  EXPECT_EQ(regular_id->vtype(), ValType::IterDomain);
+  EXPECT_NE(ragged_id->vtype(), regular_id->vtype());
 }
 
 // RaggedIterDomain with parallelization
@@ -161,37 +175,6 @@ TEST_F(RaggedIterDomainTest, ValidationNonIntegerExtents) {
       IrBuilder::create<RaggedIterDomain>(
           float_extents, IterType::Iteration, ParallelType::Serial),
       nvfuser::nvfError);
-}
-
-// ValType test - ensure RaggedIterDomain has correct ValType
-TEST_F(RaggedIterDomainTest, ValType) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto extents = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(extents);
-
-  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
-      extents, IterType::Iteration, ParallelType::Serial);
-
-  // Verify ValType is RaggedIterDomain, not IterDomain
-  EXPECT_EQ(ragged_id->vtype(), ValType::RaggedIterDomain);
-  EXPECT_NE(ragged_id->vtype(), ValType::IterDomain);
-
-  // Verify getValType also returns the correct type
-  EXPECT_TRUE(ragged_id->getValType().has_value());
-  EXPECT_EQ(ragged_id->getValType().value(), ValType::RaggedIterDomain);
-
-  // Compare with a regular IterDomain
-  auto regular_id =
-      IterDomainBuilder(
-          fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
-          .build();
-  EXPECT_EQ(regular_id->vtype(), ValType::IterDomain);
-  EXPECT_NE(regular_id->vtype(), ValType::RaggedIterDomain);
-
-  // Verify they have different types
-  EXPECT_NE(ragged_id->vtype(), regular_id->vtype());
 }
 
 } // namespace nvfuser
