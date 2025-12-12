@@ -225,7 +225,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // Don't limit vectorization factor by number of IO tensors or wave count
   // since some of inputs are TMA-loaded which uses shared memory instead of
   // registers.
-#include <scheduler/vectorize_helper.h>
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       prop.largest_out,
       data_cache,
