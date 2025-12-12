@@ -1140,67 +1140,67 @@ KernelArgumentHolder KernelExecutor::run(
 
   // Skip intermediate allocation if they're pre-allocated (from Host IR)
   if (!intermediates_preallocated) {
-    KernelArgumentHolder local_intermediate_args;
-    FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
-    // Intermediates just use logical sizes and strides even though they're
-    // really allocation sizes and strides.
-    //
-    // This is simply because the convention used is that allocation
-    // sizes/strides are optional, logical are not.
-    for (const auto intermediate_i :
-         arange(executor_entry->intermediates.size())) {
-      const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
-      bool has_expansion = false;
-      std::vector<int64_t> unexpanded_sizes;
-      unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
-      NVF_ERROR(
-          buf_info.shape_info.logical_sizes.size() ==
-          buf_info.shape_info.logical_strides.size())
-      for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
-        if (buf_info.shape_info.logical_strides[j] == 0) {
-          has_expansion = true;
-          unexpanded_sizes.push_back(1L);
-        } else {
-          unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
-        }
-      }
-      at::Tensor intermediate_buffer;
-      if (buf_info.zero_init) {
-        if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
-            buf_info.resets_to_zero) {
-          // Allow access to reusable zeroed memory if buffer is guaranteed
-          // to reset to zero upon completion of the kernel, or if we have
-          // enabled the option (unsafe)
-          intermediate_buffer = contigZeroedTensor(
-              unexpanded_sizes, buf_info.type, compiled_kernel_->device());
-        } else {
-          intermediate_buffer = at::zeros(
-              unexpanded_sizes,
-              at::TensorOptions()
-                  .dtype(buf_info.type)
-                  .device(compiled_kernel_->device()));
-        }
-      } else {
-        intermediate_buffer = at::native::empty_cuda(
-            unexpanded_sizes,
-            buf_info.type,
-            c10::nullopt,
-            compiled_kernel_->device(),
-            c10::nullopt);
-        if (shouldFillAllocationWithNan()) {
-          fillTensorWithNan(intermediate_buffer);
-        }
-      }
-      if (has_expansion) {
-        intermediate_buffer = at::native::expand(
-            intermediate_buffer, buf_info.shape_info.logical_sizes);
-      }
-      args.push(intermediate_buffer);
-      local_intermediate_args.push(intermediate_buffer);
-      if (buf_info.is_profile_buffer) {
-        profile_buffer = intermediate_buffer;
-      }
-    }
+    //KernelArgumentHolder local_intermediate_args;
+    //FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
+    //// Intermediates just use logical sizes and strides even though they're
+    //// really allocation sizes and strides.
+    ////
+    //// This is simply because the convention used is that allocation
+    //// sizes/strides are optional, logical are not.
+    //for (const auto intermediate_i :
+    //     arange(executor_entry->intermediates.size())) {
+    //  const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
+    //  bool has_expansion = false;
+    //  std::vector<int64_t> unexpanded_sizes;
+    //  unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
+    //  NVF_ERROR(
+    //      buf_info.shape_info.logical_sizes.size() ==
+    //      buf_info.shape_info.logical_strides.size())
+    //  for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
+    //    if (buf_info.shape_info.logical_strides[j] == 0) {
+    //      has_expansion = true;
+    //      unexpanded_sizes.push_back(1L);
+    //    } else {
+    //      unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
+    //    }
+    //  }
+    //  at::Tensor intermediate_buffer;
+    //  if (buf_info.zero_init) {
+    //    if (isOptionEnabled(EnableOption::ReuseZeroedMemory) ||
+    //        buf_info.resets_to_zero) {
+    //      // Allow access to reusable zeroed memory if buffer is guaranteed
+    //      // to reset to zero upon completion of the kernel, or if we have
+    //      // enabled the option (unsafe)
+    //      intermediate_buffer = contigZeroedTensor(
+    //          unexpanded_sizes, buf_info.type, compiled_kernel_->device());
+    //    } else {
+    //      intermediate_buffer = at::zeros(
+    //          unexpanded_sizes,
+    //          at::TensorOptions()
+    //              .dtype(buf_info.type)
+    //              .device(compiled_kernel_->device()));
+    //    }
+    //  } else {
+    //    intermediate_buffer = at::native::empty_cuda(
+    //        unexpanded_sizes,
+    //        buf_info.type,
+    //        c10::nullopt,
+    //        compiled_kernel_->device(),
+    //        c10::nullopt);
+    //    if (shouldFillAllocationWithNan()) {
+    //      fillTensorWithNan(intermediate_buffer);
+    //    }
+    //  }
+    //  if (has_expansion) {
+    //    intermediate_buffer = at::native::expand(
+    //        intermediate_buffer, buf_info.shape_info.logical_sizes);
+    //  }
+    //  args.push(intermediate_buffer);
+    //  local_intermediate_args.push(intermediate_buffer);
+    //  if (buf_info.is_profile_buffer) {
+    //    profile_buffer = intermediate_buffer;
+    //  }
+    //}
   } else {
     // Intermediates were pre-allocated (from Host IR)
     // They're passed via intermediate_args parameter
