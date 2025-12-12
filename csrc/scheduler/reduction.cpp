@@ -196,7 +196,8 @@ std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
 
-  bool use_tma = false;
+  // TODO: add canScheduleTMA
+  bool use_tma = true;
   std::unique_ptr<HeuristicParams> rparams = nullptr;
   if (use_tma) {
     rparams = reduction::tma::getReductionHeuristics(
@@ -213,14 +214,20 @@ void ReductionScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  auto rparams = dynamic_cast<const ReductionParams*>(params);
-  NVF_ERROR(
-      rparams != nullptr,
-      "Incorrect parameters sent to ReductionScheduler::schedule",
-      params);
-  if (false) {
+  bool use_tma = true;
+  if (use_tma) {
+    auto rparams = dynamic_cast<const TmaInnerReductionParams*>(params);
+    NVF_ERROR(
+        rparams != nullptr,
+        "Incorrect parameters sent to ReductionScheduler::schedule",
+        params);
     reduction::tma::scheduleReduction(fusion, rparams);
   } else {
+    auto rparams = dynamic_cast<const ReductionParams*>(params);
+    NVF_ERROR(
+        rparams != nullptr,
+        "Incorrect parameters sent to ReductionScheduler::schedule",
+        params);
     // NVF_ERROR(
     //     !rparams->use_tma_store,
     //     "Using TMA store without use TMA load is not supported");
