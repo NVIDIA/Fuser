@@ -330,7 +330,7 @@ class NVF_API ContiguousInnerDimensionsMapper
 // - break_point: Position in logical domain where vectorization starts
 // - max_vectorization_size_in_bit: Target vector width in bits (typically 128)
 // - min_dtype_size_bit: Minimum data type size in bits.
-//   Use -1 to disable byte constraint (default).
+//   should not be disabled.
 // - max_dtype_size_bit: Maximum data type size in bits.
 //   Use -1 to disable register pressure constraint (default).
 // - n_vectorizable_tensors: Number of vectorizable inputs/outputs.
