@@ -462,6 +462,8 @@ target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 # Add LLVM JIT related sources
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_external.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_tensor_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
