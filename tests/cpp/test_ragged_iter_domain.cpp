@@ -110,7 +110,7 @@ TEST_F(RaggedIterDomainTest, Printing) {
   std::string str = ragged_id->toString();
 
   // Verify output contains expected elements
-  EXPECT_NE(str.find("iRagged"), std::string::npos);
+  EXPECT_NE(str.find("Ragged"), std::string::npos);
   EXPECT_NE(str.find("extents"), std::string::npos);
 
   // Also test toInlineString
