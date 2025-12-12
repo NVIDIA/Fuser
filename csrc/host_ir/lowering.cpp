@@ -148,28 +148,60 @@ Expr* cloneWithNewOperands(
   return e->newObjectFunc()(e->container(), new_ins, new_outs, e->attributes());
 }
 
-//! Extract intermediate buffers from a Fusion (before lowering to kernel IR).
-//! Intermediates are TensorViews that are:
-//! - Not fusion inputs or outputs
-//! - Have MemoryType::Global (explicitly set by schedulers)
-std::vector<Val*> getIntermediateBuffersFromFusion(
-    Fusion* fusion,
-    IrCloner& ir_cloner) {
+//! Extract intermediate buffers from kernel IR and reconstruct them in Host IR.
+//! Intermediates are global allocations that are:
+//! - Not fusion outputs
+//! - Not aliases
+//! These are created during kernel lowering (work buffers, sync buffers, etc.)
+std::vector<Val*> getIntermediateBuffersFromKernelIR(
+    const kir::Kernel* kernel,
+    hir::HostIrContainer* host_container) {
   std::vector<Val*> intermediates;
 
-  for (auto* tv : fusion->allTvs()) {
-    // Skip inputs and outputs
-    if (tv->isFusionInput() || tv->isFusionOutput()) {
+  // Set Host IR as active container for building new IR nodes
+  FusionGuard fg(host_container);
+
+  // Create an IrCloner to clone symbolic expressions from kernel IR to Host IR
+  IrCloner kernel_to_host_cloner(host_container);
+
+  const kir::KernelSummary& summary = kernel->summary();
+
+  for (const auto* alloc : summary.global_allocations) {
+    TensorView* kernel_tv = alloc->buffer()->as<TensorView>();
+
+    // Skip if it's a fusion output
+    if (kernel_tv->isFusionOutput()) {
       continue;
     }
 
-    // Only include global memory intermediates
-    if (tv->getMemoryType() != MemoryType::Global) {
+    // Skip if it's an alias
+    if (alloc->alias() != nullptr) {
       continue;
     }
 
-    // Clone to Host IR
-    intermediates.push_back(ir_cloner.clone(tv));
+    // Reconstruct the TensorView in Host IR
+    // We need to manually rebuild it to ensure all symbolic extents are
+    // properly cloned with their definitions
+    std::vector<IterDomain*> new_ids;
+    for (IterDomain* kernel_id : kernel_tv->getLoopDomain()) {
+      // Clone the extent and its definition to Host IR
+      Val* extent = kernel_to_host_cloner.clone(kernel_id->extent());
+
+      // Build new IterDomain in Host IR
+      auto* new_id = IterDomainBuilder(kernel_id->start(), extent)
+                         .iter_type(kernel_id->getIterType())
+                         .build();
+      new_ids.push_back(new_id);
+    }
+
+    // Create TensorDomain
+    auto* td = IrBuilder::create<TensorDomain>(new_ids);
+
+    // Create TensorView in Host IR
+    auto* host_tv = IrBuilder::create<TensorView>(
+        td, kernel_tv->dtype(), kernel_tv->getMemoryType());
+
+    intermediates.push_back(host_tv);
   }
 
   return intermediates;
@@ -177,7 +209,6 @@ std::vector<Val*> getIntermediateBuffersFromFusion(
 
 void lowerSegment(
     const SegmentedGroup& group,
-    const SegmentedFusion& segmented_fusion,
     const AliasInfoMap& aliases,
     const LaunchParams& launch_params,
     hir::HostIrContainer& hic,
@@ -385,13 +416,10 @@ void lowerSegment(
         innermost_scope.push_back(allocate);
       }
 
-      // Get the segment fusion for this group
-      auto [segment_cloner, segment_fusion] =
-          segmented_fusion.makeFusion(const_cast<SegmentedGroup*>(&group));
-
-      // Extract intermediate buffers from segment fusion (before lowering)
+      // Extract intermediate buffers from the kernel IR (after lowering)
+      // These include work buffers, sync buffers, etc. created during lowering
       std::vector<Val*> intermediates =
-          getIntermediateBuffersFromFusion(segment_fusion.get(), ir_cloner);
+          getIntermediateBuffersFromKernelIR(ke.compiledKernel()->kernel(), &hic);
 
       // Allocate intermediate buffers
       for (auto* intermediate : intermediates) {
@@ -487,7 +515,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     // can be made class members instead of having to be passed around.
     lowerSegment(
         *group,
-        segmented_fusion,
         segmented_fusion.completeFusion()->getOutputAliases(),
         launch_params_per_segment.at(group->groupId()),
         *hic,
