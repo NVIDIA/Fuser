@@ -853,10 +853,11 @@ bool RaggedIterDomain::sameAs(const Statement* other) const {
 
 std::string RaggedIterDomain::toString(int indent_size) const {
   std::stringstream ss;
-  ss << "iRagged{";
+  ss << getIterType();
+  ss << getParallelType();
+  ss << name();
+  ss << "Ragged{";
   ss << "extents=" << extents_->toString();
-  ss << ", iter_type=" << getIterType();
-  ss << ", parallel_type=" << getParallelType();
   ss << "}";
   return ss.str();
 }
