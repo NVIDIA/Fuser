@@ -222,7 +222,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
 
   // ========== Step 5: Determine Vectorization Factor ==========
-  params->vectorization_factor = getVectorizationFactor(
+  // Don't limit vectorization factor by number of IO tensors or wave count
+  // since some of inputs are TMA-loaded which uses shared memory instead of
+  // registers.
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       prop.largest_out,
       data_cache,
@@ -230,8 +233,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       /*max_vectorization_size_in_bit=*/128,
       prop.min_dtype_size_bit_for_vectorization,
       prop.max_dtype_size_bit_for_vectorization,
-      /*n_vectorizable_tensors=*/(int64_t)vectorizable_inputs_outputs.size(),
-      /*n_waves=*/tma_tile_inner > bdimx ? -1 : 1,
+      /*n_vectorizable_tensors=*/-1,
+      /*n_waves=*/-1,
       /*logical_reorder_map=*/
       pointwise_utils::getLogicalReorderMap(
           prop.largest_out, prop.has_reshapes, data_cache));
@@ -270,8 +273,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << prop.max_dtype_size_bit_for_vectorization << "\n";
     debug() << "  min_dtype_size_bit: "
             << prop.min_dtype_size_bit_for_vectorization << "\n";
-    debug() << "  max_vectorization_size_in_bit: "
-            << max_vectorization_size_in_bit << "\n";
     debug() << "  vectorization_factor: " << params->vectorization_factor
             << "\n";
     debug() << "============================================\n" << std::endl;
