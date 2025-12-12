@@ -130,7 +130,34 @@ IterDomain::IterDomain(
     bool is_padded_dimension,
     bool is_clustered_blocks,
     std::optional<int64_t> padded_to_size)
-    : Val(passkey, ValType::IterDomain),
+    : IterDomain(
+          passkey,
+          ValType::IterDomain,
+          start,
+          extent,
+          expanded_extent,
+          stop_offset,
+          parallel_type,
+          iter_type,
+          is_rfactor_domain,
+          is_padded_dimension,
+          is_clustered_blocks,
+          padded_to_size) {}
+
+IterDomain::IterDomain(
+    IrBuilderPasskey passkey,
+    ValType vtype,
+    Val* start,
+    Val* extent,
+    Val* expanded_extent,
+    Val* stop_offset,
+    ParallelType parallel_type,
+    IterType iter_type,
+    bool is_rfactor_domain,
+    bool is_padded_dimension,
+    bool is_clustered_blocks,
+    std::optional<int64_t> padded_to_size)
+    : Val(passkey, vtype),
       start_(start),
       extent_(extent),
       expanded_extent_(expanded_extent),
@@ -794,6 +821,7 @@ RaggedIterDomain::RaggedIterDomain(
     ParallelType parallel_type)
     : IterDomain(
           passkey,
+          ValType::RaggedIterDomain,
           /*start=*/passkey.ir_container_->zeroVal(),
           /*extent=*/passkey.ir_container_->oneVal(), // Placeholder
           /*expanded_extent=*/nullptr,

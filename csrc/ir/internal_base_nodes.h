@@ -391,6 +391,23 @@ class NVF_API IterDomain : public Val {
   friend TensorDomain;
   friend ReplayTransformations;
   friend IndexReferenceReplay;
+  friend RaggedIterDomain;
+
+  //! Protected constructor for derived classes (e.g., RaggedIterDomain)
+  //! that need to override the ValType
+  IterDomain(
+      IrBuilderPasskey passkey,
+      ValType vtype,
+      Val* start,
+      Val* extent,
+      Val* expanded_extent,
+      Val* stop_offset,
+      ParallelType parallel_type,
+      IterType iter_type,
+      bool is_rfactor_domain,
+      bool is_padded_dimension,
+      bool is_clustered_blocks,
+      std::optional<int64_t> padded_to_size);
 
  private:
   //! Valid range is defined as [start:-stop_offset]
