@@ -26,6 +26,7 @@
 
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
+#include <ir/allocation_utils.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/internal_nodes.h>
@@ -3313,10 +3314,29 @@ _scaled_dot_product_attention_meta(const at::Tensor& query) {
   // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
   auto rng_state = at::empty({2}, meta_u64);
   auto rng_offset = at::empty({}, meta_u64);
+  // FIXME: the output doesn't always have the same shape as `query` -- the
+  // hidden dimension might be different.
   return std::make_tuple(query, logsumexp, rng_state, rng_offset);
 }
 
 } // namespace sdpa_meta
+
+namespace {
+
+at::Tensor flattenBatchDims(at::Tensor t) {
+  at::DimVector new_shape({-1});
+  auto non_batch_dims = t.sizes().slice(t.dim() - 3);
+  new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
+  return t.view(new_shape);
+}
+
+at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
+  at::DimVector new_shape(batch_dims);
+  auto non_batch_dims = t.sizes().slice(1);
+  new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
+  return t.view(new_shape);
+}
+} // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
@@ -3337,29 +3357,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
       ? inputs.at(scale_input_index()).as<double>()
       : 1.0 / std::sqrt(last_dim_size);
 
-  // Flash/efficient attention require the last dimension to be padded to 8.
-  auto pad_last_dim = [last_dim_size](
-                          at::Tensor inp, int alignment_size) -> at::Tensor {
-    if (last_dim_size % alignment_size == 0) {
-      return inp;
-    }
-    auto pad_count = alignment_size - (last_dim_size % alignment_size);
-    auto padded_inp = at::pad(inp, {0, pad_count});
-    return padded_inp;
-  };
-
-  query = pad_last_dim(query, 8);
-  key = pad_last_dim(key, 8);
-  value = pad_last_dim(value, 8);
-
   auto batch_dims = query.sizes().slice(0, query.dim() - 3);
   NVF_CHECK_GE(batch_dims.size(), 1);
-  auto flatten_batch = [](at::Tensor t) -> at::Tensor {
-    return t.flatten(0, -4);
-  };
-  query = flatten_batch(query);
-  key = flatten_batch(key);
-  value = flatten_batch(value);
+  query = flattenBatchDims(query);
+  key = flattenBatchDims(key);
+  value = flattenBatchDims(value);
   NVF_ERROR_EQ(query.dim(), 4);
   NVF_ERROR_EQ(key.dim(), 4);
   NVF_ERROR_EQ(value.dim(), 4);
@@ -3379,7 +3381,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
   }
   if (attn_bias.defined()) {
-    attn_bias = flatten_batch(attn_bias);
+    attn_bias = flattenBatchDims(attn_bias);
   }
 
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
@@ -3388,16 +3390,67 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
 
     if (attn_bias.defined()) {
-      return at::_scaled_dot_product_efficient_attention(
+      NVF_CHECK_EQ(
+          dropout_p,
+          0.0,
+          "at::_scaled_dot_product_attention_math does not output rng_state "
+          "and rng_offset for dropout backprop. So we only use it when "
+          "dropout_p is 0.0.");
+      auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
+      auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
+      auto [out, log_sumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
           attn_bias,
-          /*compute_log_sumexp=*/true,
           dropout_p,
           is_causal,
+          /*dropout_mask=*/std::nullopt,
           scale);
+
+      // at::_scaled_dot_product_attention_math produces a contiguous attention
+      // output, but SdpaFwdOp requires the attention output to be in the same
+      // layout as the query input:
+      // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+      // Therefore, we relayout the attention output according to attn_out()'s
+      // allocation domain.
+      NVF_ERROR(out.is_contiguous());
+      const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
+      NVF_CHECK(
+          out_layout.has_value(),
+          "Failed to canonicalize output layout of ",
+          attn_out());
+      const std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              attn_out()->getLogicalDomain(), out_layout->allocation_domain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The allocation domain of a canonicalized layout of ",
+          attn_out(),
+          " is not a permutation of its logical domain.");
+      out = unflattenBatchDim(out, batch_dims);
+      out = out.permute(*permutation)
+                .contiguous()
+                .permute(ir_utils::inversePermutation(*permutation));
+      out = flattenBatchDims(out);
+
+      return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
     }
+
+    // Flash attention require the last dimension to be padded to 8.
+    auto pad_last_dim = [last_dim_size](
+                            at::Tensor inp, int alignment_size) -> at::Tensor {
+      if (last_dim_size % alignment_size == 0) {
+        return inp;
+      }
+      auto pad_count = alignment_size - (last_dim_size % alignment_size);
+      auto padded_inp = at::pad(inp, {0, pad_count});
+      return padded_inp;
+    };
+
+    query = pad_last_dim(query, 8);
+    key = pad_last_dim(key, 8);
+    value = pad_last_dim(value, 8);
 
     auto
         [out,
@@ -3417,25 +3470,17 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 is_causal,
                 /*return_debug_mask=*/false,
                 scale);
+
+    // If the inputs were padded, slice the output to restore the original size
+    if (out.size(-1) != last_dim_size) {
+      out = out.slice(-1, 0, last_dim_size);
+    }
     return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
   }();
 
-  // If the inputs were padded, slice the output to restore the original size
-  if (output.size(-1) != last_dim_size) {
-    output = output.slice(-1, 0, last_dim_size);
-  }
-
-  auto unflatten_batch_dim = [](at::Tensor t,
-                                at::IntArrayRef batch_dims) -> at::Tensor {
-    at::DimVector new_shape(batch_dims);
-    auto non_batch_dims = t.sizes().slice(1);
-    new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
-    return t.reshape(new_shape);
-  };
-
   if (batch_dims.size() > 1) {
-    output = unflatten_batch_dim(output, batch_dims);
-    log_sumexp = unflatten_batch_dim(log_sumexp, batch_dims);
+    output = unflattenBatchDim(output, batch_dims);
+    log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for

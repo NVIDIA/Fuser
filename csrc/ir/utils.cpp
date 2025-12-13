@@ -1519,6 +1519,15 @@ TensorView* getTvInput(const Expr* expr) {
   return nullptr;
 }
 
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation) {
+  std::vector<int64_t> inverse(permutation.size());
+  for (auto [out_index, in_index] : enumerate(permutation)) {
+    inverse[in_index] = out_index;
+  }
+  return inverse;
+}
+
 std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order) {
