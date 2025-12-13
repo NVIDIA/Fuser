@@ -364,6 +364,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   reference_tv->split(1, pparams->tma_tile_inner);
   reference_tv->split(0, pparams->tma_tile_outer);
 
+  // reorder to [outer_grid, inner_grid, outer_tile, inner_tile] for better
+  // inlining
+  reference_tv->reorder({{1, 2}});
+
   // Propagate these transformations to all tensors in the fusion
   TransformPropagator propagator(reference_tv);
   MaxLogicalDomainInfoSpanningTree(reference_tv).traverse(&propagator);
@@ -371,8 +375,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // ========== Phase 4: Parallelize TMA Tensors ==========
   // Parallelization strategy for TMA:
   //   axis(0) [tma_domain_outer/tma_tile_outer]: Grid (BIDy or BIDx)
-  //   axis(1) [tma_tile_outer]:                  Bulk (TMA tile)
-  //   axis(2) [tma_domain_inner/tma_tile_inner]: Grid (BIDx or BIDy)
+  //   axis(1) [tma_domain_inner/tma_tile_inner]: Grid (BIDx or BIDy)
+  //   axis(2) [tma_tile_outer]:                  Bulk (TMA tile)
   //   axis(3) [tma_tile_inner]:                  Bulk (TMA tile)
 
   // outer_cord_pt/inner_cord_pt: Grid parallelization types (BIDx/BIDy)
@@ -384,8 +388,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   // Apply TMA parallelization to reference
   reference_tv->axis(0)->parallelize(outer_cord_pt); // Outer grid
-  reference_tv->axis(1)->parallelize(ParallelType::Bulk); // Outer tile (TMA)
-  reference_tv->axis(2)->parallelize(inner_cord_pt); // Inner grid
+  reference_tv->axis(1)->parallelize(inner_cord_pt); // Inner grid
+  reference_tv->axis(2)->parallelize(ParallelType::Bulk); // Outer tile (TMA)
   reference_tv->axis(3)->parallelize(ParallelType::Bulk); // Inner tile (TMA)
 
   // Apply same parallelization to all TMA input tensors
@@ -394,25 +398,27 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Reset reference tensor's tile axes to Serial for subsequent scheduling
   // (TMA tensors keep Bulk parallelization; reference is for non-TMA
   // scheduling)
-  reference_tv->axis(1)->parallelize(ParallelType::Serial);
+  reference_tv->axis(2)->parallelize(ParallelType::Serial);
   reference_tv->axis(3)->parallelize(ParallelType::Serial);
 
   // ========== Phase 5: Schedule Non-TMA Tensors ==========
-  // Starting structure: [tma_domain_outer/tma_tile_outer, tma_tile_outer,
-  //                      tma_domain_inner/tma_tile_inner, tma_tile_inner]
-  // Target structure:   [outer_grid, outer_tile/y, y, inner_grid,
-  //                      inner_tile/v/x, x, v]
+  // Starting structure: [outer_grid, inner_grid, outer_tile, inner_tile]
+  // Target structure:   [outer_grid, inner_grid, outer_tile/y, y,
+  // inner_tile/v/x, x, v]
   //   where y = TIDy (threads), x = TIDx (threads), v = vectorization
 
-  int64_t opos = 1; // Position of outer tile dimension (tma_tile_outer)
-  int64_t ipos = 3; // Position of inner tile dimension (tma_tile_inner)
+  int64_t opos = 2; // Position of outer tile dimension (outer_tile)
+  int64_t ipos = 3; // Position of inner tile dimension (inner_tile)
 
-  // Split inner tile: tma_tile_inner -> [tma_tile_inner/v/x, x, v]
+  // Split inner tile: inner_tile -> [inner_tile/v/x, x, v]
   reference_tv->split(ipos, pparams->vectorization_factor);
   reference_tv->split(ipos, pparams->lparams.bdimx());
 
   // Split outer tile: tma_tile_outer -> [tma_tile_outer/y, y]
   reference_tv->split(opos, pparams->lparams.bdimy());
+
+  // reorder to [outer_grid, inner_grid, outer_tile/y, inner_tile/v/x, y, x, v]
+  reference_tv->reorder({{3, 4}});
 
   // Propagate these transformations to all non-TMA tensors
   // (TMA tensors already have their final schedule from Phase 4)
@@ -424,16 +430,18 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
       .traverse(&non_tma_propagator);
 
   // ========== Phase 6: Apply Thread Parallelization ==========
-  // Final axis structure: [outer_grid, outer_tile/y, y, inner_grid,
-  //                        inner_tile/v/x, x, v]
+  // Final axis structure: [outer_grid, inner_grid, outer_tile/y,
+  // inner_tile/v/x, y, x, v]
   //   axis(0): Outer grid dimension
-  //   axis(2): Thread block Y dimension (TIDy)
-  //   axis(3): Inner grid dimension
+  //   axis(1): Inner grid dimension
+  //   axis(2): Outer tile / TIDy serial
+  //   axis(3): Inner tile / vect / TIDx serial
+  //   axis(4): Thread block Y dimension (TIDy)
   //   axis(5): Thread block X dimension (TIDx)
   //   axis(6): Vectorization dimension
   reference_tv->axis(0)->parallelize(outer_cord_pt); // Grid outer
-  reference_tv->axis(2)->parallelize(ParallelType::TIDy); // Thread Y
-  reference_tv->axis(3)->parallelize(inner_cord_pt); // Grid inner
+  reference_tv->axis(1)->parallelize(inner_cord_pt); // Grid inner
+  reference_tv->axis(4)->parallelize(ParallelType::TIDy); // Thread Y
   reference_tv->axis(5)->parallelize(ParallelType::TIDx); // Thread X
 
   int64_t vect_pos = 6; // Position of vectorization axis
@@ -462,9 +470,29 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     }
   }
 
-  // ========== Phase 8: Inline Intermediate Operations ==========
-  // Inline all intermediate computations to minimize register pressure
-  inlineMost();
+  // ========== Phase 8: Inline ==========
+  // Inline TMA and LDG loads right after the last block parallelization axis.
+  // This ensures global memory loads are issued early, before computations.
+  // LDG tensors are typically broadcasts with minimal register usage.
+  auto getLastBlockParallelizationAxisPosition = [](TensorView* tv) -> int64_t {
+    for (auto i : arange(tv->nDims()) | std::views::reverse) {
+      if (tv->axis(i)->isBlockDim()) {
+        return i + 1;
+      }
+    }
+    return 0;
+  };
+  std::vector<TensorView*> tma_or_ldg_tvs(tma_tvs.begin(), tma_tvs.end());
+  tma_or_ldg_tvs.insert(tma_or_ldg_tvs.end(), ldg_tvs.begin(), ldg_tvs.end());
+  for (auto tv : tma_or_ldg_tvs) {
+    int64_t inline_pos = getLastBlockParallelizationAxisPosition(tv);
+    NVF_ERROR_LT(inline_pos, tv->nDims());
+    tv->inlineAt(inline_pos);
+  }
+  // inline other tensors to minimize register pressure
+  std::vector<TensorView*> compute_tvs = ir_utils::allTvsExcept(
+      fusion, {tma_or_ldg_tvs.begin(), tma_or_ldg_tvs.end()});
+  inlineMost(compute_tvs);
 }
 
 } // namespace tma
