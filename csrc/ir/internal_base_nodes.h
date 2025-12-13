@@ -480,12 +480,14 @@ class NVF_API RaggedIterDomain : public IterDomain {
   //! Creates a component IterDomain and a RaggedIterDomain based on offsets
   //!
   //! \param in Input IterDomain to partition (must be regular IterDomain)
-  //! \param offsets Offset tensor defining partition boundaries
+  //! \param offsets Offset tensor defining partition boundaries (must be 1D)
   //!        Shape: [num_components + 1], values: [0, off1, off2, ..., total]
   //!        Extents are computed as: extents[i] = offsets[i+1] - offsets[i]
   //! \return Pair of (component_id, ragged_id)
   //!         component_id: IterDomain with extent = num_components
   //!         ragged_id: RaggedIterDomain with extents computed from offsets
+  //!
+  //! TODO: Support multi-dimensional offsets for nested ragged structures
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
       TensorView* offsets);

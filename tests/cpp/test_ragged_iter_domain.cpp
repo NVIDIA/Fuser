@@ -288,7 +288,16 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
   EXPECT_THROW(
       RaggedIterDomain::partition(input_id, offsets_2d), nvfuser::nvfError);
 
-  // Test 5: Cannot partition RaggedIterDomain
+  // Test 5: Non-Iteration IterType should fail
+  auto reduction_id =
+      IterDomainBuilder(
+          fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
+          .iter_type(IterType::Reduction)
+          .build();
+  EXPECT_THROW(
+      RaggedIterDomain::partition(reduction_id, offsets), nvfuser::nvfError);
+
+  // Test 6: Cannot partition RaggedIterDomain
   auto extents = makeSymbolicTensor(1, DataType::Index);
   fusion.addInput(extents);
   auto ragged_id = IrBuilder::create<RaggedIterDomain>(

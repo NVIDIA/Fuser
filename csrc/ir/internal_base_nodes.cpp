@@ -910,6 +910,14 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       "Partitioning of parallelized IterDomain not supported: ",
       in->toString());
 
+  NVF_ERROR_EQ(
+      in->getIterType(),
+      IterType::Iteration,
+      "partition: only IterType::Iteration is supported, got ",
+      in->getIterType(),
+      " for IterDomain: ",
+      in->toString());
+
   NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
 
   NVF_ERROR_EQ(
