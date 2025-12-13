@@ -1091,6 +1091,8 @@ TEST_P(DistributedTransformerTest, LoopSplitMHAFwd) {
       q_permuted,
       k_permuted,
       v_permuted,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(kSdpaProb),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/nullptr);

@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
@@ -2359,9 +2360,11 @@ class SdpaFwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
-      Val* query,
-      Val* key,
-      Val* value,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* bias,
+      TensorView* mask,
       Val* dropout_p,
       Val* is_causal,
       Val* scale);
@@ -2403,6 +2406,24 @@ class SdpaFwdOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  int64_t bias_input_index() const {
+    return attribute<int64_t>(1);
+  }
+
+  TensorView* bias() const {
+    return bias_input_index() >= 0 ? input(bias_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
+  int64_t mask_input_index() const {
+    return attribute<int64_t>(2);
+  }
+
+  TensorView* mask() const {
+    return mask_input_index() >= 0 ? input(mask_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
   Val* dropout_p() const {
     return input(3);
   }
@@ -2411,11 +2432,12 @@ class SdpaFwdOp : public Expr {
     return input(4);
   }
 
+  int64_t scale_input_index() const {
+    return attribute<int64_t>(0);
+  }
+
   Val* scale() const {
-    if (inputs().size() > 5) {
-      return input(5);
-    }
-    return nullptr;
+    return scale_input_index() >= 0 ? input(scale_input_index()) : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(

@@ -96,7 +96,9 @@ def test_sdpa_fwd(nvfuser_direct_test):
             is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
         if has_scale:
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
-        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, dropout_p, is_causal, scale)
+        attn, *_ = fd.ops.sdpfa_fwd(
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+        )
         fd.add_output(attn)
 
     N, H, L, S, E = 4, 8, 16, 16, 8
@@ -146,6 +148,61 @@ def test_sdpa_fwd(nvfuser_direct_test):
                     *qkv, dropout_p=dropout_p, is_causal=is_causal, scale=scale
                 )
             torch.testing.assert_close(nvf_out[0], ref_out)
+
+
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
+    with FusionDefinition() as fd:
+        q = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        k = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        v = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        bias = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+        )
+        mask = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.Bool,
+            is_cpu=False,
+        )
+        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, bias=bias, mask=mask)
+        fd.add_output(attn)
+
+    N, H, L, S, E = 2, 4, 8, 8, 16
+    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
+    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
+    mask = torch.rand((N, H, L, S), device="cuda:0") > 0.3
+
+    nvf_out = fd.execute([q, k, v, bias, mask])
+
+    attn_mask = (bias + torch.where(mask, 0.0, float("-inf"))).to(dtype=bias.dtype)
+    ref_out = torch.nn.functional.scaled_dot_product_attention(
+        q, k, v, attn_mask=attn_mask
+    )
+    torch.testing.assert_close(nvf_out[0], ref_out)
 
 
 def test_sdpa_bwd(nvfuser_direct_test):
@@ -350,7 +407,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
         output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
         )
         grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
             grad_out,

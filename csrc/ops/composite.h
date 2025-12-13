@@ -130,6 +130,8 @@ NVF_API SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale);

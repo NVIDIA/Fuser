@@ -588,6 +588,8 @@ SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
@@ -620,6 +622,40 @@ SdpfaFwdResult sdpfa_fwd(
   // value to output. Note: There is no mapping for S, E. This may change in the
   // future if we add additional reduction ids to the output.
   auto ndims_out = query_domain.size();
+  auto validate_bias_like = [&](TensorView* tv, const char* name) {
+    if (tv == nullptr) {
+      return;
+    }
+    auto tv_domain = TensorDomain::noReductions(tv->getLogicalDomain());
+    NVF_CHECK(
+        tv_domain.size() == ndims_out,
+        name,
+        " must have the same rank as query. Got ",
+        tv_domain.size(),
+        " but expected ",
+        ndims_out);
+    NVF_CHECK(
+        tv->dtype() == query->dtype(),
+        name,
+        " must match query dtype. Got ",
+        tv->dtype(),
+        " but expected ",
+        query->dtype());
+  };
+  validate_bias_like(bias, "bias");
+  if (mask != nullptr) {
+    auto mask_domain = TensorDomain::noReductions(mask->getLogicalDomain());
+    NVF_CHECK(
+        mask_domain.size() == ndims_out,
+        "mask must have the same rank as query. Got ",
+        mask_domain.size(),
+        " but expected ",
+        ndims_out);
+    NVF_CHECK(
+        mask->dtype() == DataType::Bool,
+        "mask must be boolean, got ",
+        mask->dtype());
+  }
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
@@ -685,6 +721,8 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
+      bias,
+      mask,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       scale == nullptr
