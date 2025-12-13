@@ -912,60 +912,43 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
 
   NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
 
-  NVF_ERROR(
-      offsets->dtype() == DataType::Index,
+  NVF_ERROR_EQ(
+      offsets->dtype(),
+      DataType::Index,
       "partition: offsets must have Index type, got ",
       offsets->dtype());
 
   const auto& offsets_domain = offsets->getLogicalDomain();
-  NVF_ERROR(
-      !offsets_domain.empty(),
-      "partition: offsets tensor must have at least one dimension");
+  NVF_ERROR_EQ(
+      offsets_domain.size(),
+      1,
+      "partition: offsets tensor must be 1D, got ",
+      offsets_domain.size(),
+      "D tensor. Multi-dimensional offsets not yet supported.");
 
   auto container = in->container();
 
   // Compute extents from offsets: extents[i] = offsets[i+1] - offsets[i]
-  // Slice along the last dimension of the offsets tensor
-  // offsets_left = offsets[..., :-1]   (all but last element in last dim)
-  // offsets_right = offsets[..., 1:]   (all but first element in last dim)
+  // offsets_left = offsets[:-1]   (all but last element)
+  // offsets_right = offsets[1:]   (all but first element)
 
-  const auto last_dim = offsets_domain.size() - 1;
-  auto offsets_len = offsets_domain[last_dim]->extent();
+  auto offsets_len = offsets_domain[0]->extent();
 
   auto zero = container->zeroVal(DataType::Index);
   auto one = container->oneVal(DataType::Index);
   auto len_minus_one = sub(offsets_len, one);
 
-  // Build slice ranges for all dimensions
-  // For all dimensions except the last, use full range (:)
-  // For the last dimension, use [:-1] for left and [1:] for right
-  std::vector<Slice> left_ranges;
-  std::vector<Slice> right_ranges;
+  // Slice offsets[:-1]
+  Slice left_slice;
+  left_slice.start = zero;
+  left_slice.stop = len_minus_one;
+  auto offsets_left = slice(offsets, {left_slice});
 
-  for (const auto i : arange(offsets_domain.size())) {
-    if (i < last_dim) {
-      // Full range for non-last dimensions
-      Slice s;
-      s.start = zero;
-      s.stop = offsets_domain[i]->extent();
-      left_ranges.push_back(s);
-      right_ranges.push_back(s);
-    } else {
-      // Last dimension: left uses [:-1], right uses [1:]
-      Slice left_s;
-      left_s.start = zero;
-      left_s.stop = len_minus_one;
-      left_ranges.push_back(left_s);
-
-      Slice right_s;
-      right_s.start = one;
-      right_s.stop = offsets_len;
-      right_ranges.push_back(right_s);
-    }
-  }
-
-  auto offsets_left = slice(offsets, left_ranges);
-  auto offsets_right = slice(offsets, right_ranges);
+  // Slice offsets[1:]
+  Slice right_slice;
+  right_slice.start = one;
+  right_slice.stop = offsets_len;
+  auto offsets_right = slice(offsets, {right_slice});
 
   // Compute extents: extents = offsets_right - offsets_left
   auto extents = sub(offsets_right, offsets_left);
