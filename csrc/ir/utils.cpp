@@ -225,7 +225,7 @@ Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
 void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
   auto uses = old_val->uses();
   for (auto use_of_old_val : uses) {
-    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+    replaceValInExprInputs(use_of_old_val, old_val, new_val);
   }
   if (old_val->isFusionOutput()) {
     old_val->fusion()->replaceOutput(old_val, new_val);
@@ -365,19 +365,19 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals) {
 
 std::vector<TensorView*> producerTvsOf(const TensorView* tv) {
   auto producer_vals = producerValsOf(tv);
-  auto producer_tvs = ir_utils::filterByType<TensorView>(producer_vals);
+  auto producer_tvs = filterByType<TensorView>(producer_vals);
   return {producer_tvs.begin(), producer_tvs.end()};
 }
 
 std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
   auto consumer_vals = consumerValsOf(tv);
-  auto consumer_tvs = ir_utils::filterByType<TensorView>(consumer_vals);
+  auto consumer_tvs = filterByType<TensorView>(consumer_vals);
   return {consumer_tvs.begin(), consumer_tvs.end()};
 }
 
 std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
   auto sibling_vals = siblingValsOf(tv);
-  auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
+  auto sibling_tvs = filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
 }
 
@@ -413,14 +413,14 @@ std::vector<TensorView*> outputTvsOf(TensorView* tv) {
 
 std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs) {
   auto inp_vals = IterVisitor::getInputsTo({tvs.begin(), tvs.end()});
-  auto filtered = ir_utils::filterByType<TensorView>(inp_vals);
+  auto filtered = filterByType<TensorView>(inp_vals);
   std::vector<TensorView*> inp_tvs(filtered.begin(), filtered.end());
   return uniqueEntries<TensorView>(inp_tvs);
 }
 
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs) {
   auto out_vals = DependencyCheck::getAllOutputsOf({tvs.begin(), tvs.end()});
-  auto filtered = ir_utils::filterByType<TensorView>(out_vals);
+  auto filtered = filterByType<TensorView>(out_vals);
   std::vector<TensorView*> out_tvs(filtered.begin(), filtered.end());
   return uniqueEntries<TensorView>(out_tvs);
 }
@@ -429,8 +429,8 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs) {
   VectorOfUniqueEntries<TensorView*> all_tvs;
   for (auto expr : exprs) {
-    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    auto input_tvs = filterByType<TensorView>(expr->inputs());
+    auto output_tvs = filterByType<TensorView>(expr->outputs());
     for (const auto& tvs : {input_tvs, output_tvs}) {
       all_tvs.pushBack(tvs.begin(), tvs.end());
     }
@@ -611,7 +611,7 @@ bool isReductionOp(const Expr* expr) {
 }
 
 bool isReductionTvOp(const Expr* expr) {
-  return ir_utils::isTvOp(expr) && isReductionOp(expr);
+  return isTvOp(expr) && isReductionOp(expr);
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
@@ -619,7 +619,7 @@ bool isPointwiseTvOp(const Expr* expr) {
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
+       (expr->isA<LoadStoreOp>() && !getTvOutput(expr)->hasRoot()));
 }
 
 bool isSegmentSet(const Expr* e) {
@@ -634,7 +634,7 @@ bool isSegmentSet(const Expr* e) {
 std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ReshapeOp>(all_exprs);
+  auto all_view_ops = filterByType<ReshapeOp>(all_exprs);
 
   std::vector<ReshapeOp*> view_ops;
 
