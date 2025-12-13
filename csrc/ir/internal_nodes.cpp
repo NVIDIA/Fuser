@@ -3391,6 +3391,21 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
 
     if (attn_bias.defined()) {
+      // This is a functional but suboptimal implementation for testing
+      // triangle attention:
+      // https://docs.nvidia.com/cuda/cuequivariance/api/generated/cuequivariance_torch.triangle_attention.html.
+      //
+      // To accommodate 5D, we combine `bias` and `mask` into `attn_bias`, a
+      // fully-allocated 5D tensor even though `bias` and `mask` have degenerate
+      // dimensions. Then, we flatten all inputs to 4D before running
+      // `at::_scaled_dot_product_attention_math`.
+      //
+      // This is suboptimal because:
+      // 1. Broadcasting `bias` and `mask` outside the kernel wastes GPU memory.
+      // 2. `at::_scaled_dot_product_attention_math` isn't fused. I
+      // didn't use `at::_scaled_dot_product_efficient_attention` because it
+      // comes with various sizes and strides constraints that make testing
+      // hard.
       NVF_CHECK_EQ(
           dropout_p,
           0.0,
