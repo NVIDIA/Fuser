@@ -1471,6 +1471,14 @@ int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
       ->tma_domain_inner;
 }
 
+int64_t getVectorizationFactor(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->vectorization_factor;
+}
 } // namespace tma_check
 
 // Non-parameterized TMA pointwise test fixture (for TEST_F)
@@ -1978,4 +1986,41 @@ TEST_F(TmaPointwiseTestF, TmaDomainBroadcastIllegal) {
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
+  int64_t dim0 = 16384;
+  int64_t dim1 = 16384;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  // tv0 is loaded with tma
+  // tv1 is loaded with vectorization with a factor of 4, 128 bytes
+  // tv2 is loaded with vectorization with a factor of 4, 64 bytes
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  auto tv2 = makeContigTensor(1, DataType::BFloat16);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = broadcast(tv2, {false, true});
+  auto tv5 = castOp(DataType::Float, tv4);
+  auto tv6 = add(tv0, tv3);
+  auto tv7 = add(tv6, tv5);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto t2 = at::randn({dim0}, options_bf16);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  EXPECT_EQ(tma_check::getVectorizationFactor(executor_cache), 4);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
