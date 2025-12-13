@@ -106,8 +106,8 @@ def test_triangle_attention_starting_node():
         z_out = fd.ops.linear(o, w_o)  # [b, i, j, c_z]
         fd.add_output(z_out)
 
-    batch_size = 2
-    n_tokens = 3
+    batch_size = 3
+    n_tokens = 5
     z_in = torch.testing.make_tensor(
         batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
     )
