@@ -471,6 +471,11 @@ class NVF_API RaggedIterDomain : public IterDomain {
 
   std::string toInlineString(int indent_size = 0) const override;
 
+  //! Accessor for the extents tensor
+  TensorView* extents() const {
+    return extents_;
+  }
+
   //! Partition an IterDomain into component and ragged dimensions
   //! Creates a component IterDomain and a RaggedIterDomain based on offsets
   //!
@@ -484,11 +489,6 @@ class NVF_API RaggedIterDomain : public IterDomain {
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
       TensorView* offsets);
-
-  //! Accessor for the extents tensor
-  TensorView* extents() const {
-    return extents_;
-  }
 
  private:
   //! Extent tensor containing all component extents

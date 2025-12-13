@@ -32,7 +32,7 @@ TEST_F(RaggedIterDomainTest, Construction) {
       extents, IterType::Iteration, ParallelType::Serial);
 
   // Verify properties
-  EXPECT_TRUE(ragged_id != nullptr);
+  EXPECT_NE(ragged_id, nullptr);
   EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
   EXPECT_EQ(ragged_id->getIterType(), IterType::Iteration);
   EXPECT_EQ(ragged_id->getParallelType(), ParallelType::Serial);
@@ -40,7 +40,7 @@ TEST_F(RaggedIterDomainTest, Construction) {
   EXPECT_FALSE(ragged_id->isRFactorProduct());
 
   // Verify extent is not null (it's the sum of extents)
-  EXPECT_TRUE(ragged_id->extent() != nullptr);
+  EXPECT_NE(ragged_id->extent(), nullptr);
 
   // Verify ValType is RaggedIterDomain, not IterDomain
   EXPECT_EQ(ragged_id->vtype(), ValType::RaggedIterDomain);
@@ -126,6 +126,10 @@ TEST_F(RaggedIterDomainTest, Printing) {
   // Verify output contains expected elements
   EXPECT_NE(str.find("Ragged"), std::string::npos);
   EXPECT_NE(str.find("extents"), std::string::npos);
+
+  // Also test toInlineString
+  std::string inline_str = ragged_id->toInlineString();
+  EXPECT_FALSE(inline_str.empty());
 }
 
 // Multi-dimensional extents tensor

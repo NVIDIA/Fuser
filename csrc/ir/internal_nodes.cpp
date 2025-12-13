@@ -546,6 +546,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
+    case UnaryOpType::Ceil:
+      return {ceil(in)};
+      break;
     case UnaryOpType::LogicalNot:
       return {!in};
       break;

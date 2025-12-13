@@ -880,19 +880,19 @@ bool RaggedIterDomain::sameAs(const Statement* other) const {
   return extents_->sameAs(other_ragged->extents_);
 }
 
-std::string RaggedIterDomain::toString(int indent_size) const {
+std::string RaggedIterDomain::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getIterType();
   ss << getParallelType();
   ss << name();
   ss << "Ragged{";
-  ss << "extents=" << extents_->toString();
+  ss << "extents=" << extents_->toInlineString();
   ss << "}";
   return ss.str();
 }
 
-std::string RaggedIterDomain::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string RaggedIterDomain::toString(int indent_size) const {
+  return toInlineString(indent_size);
 }
 
 std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
@@ -961,14 +961,11 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
                           .iter_type(IterType::Iteration)
                           .build();
 
-  // Create RaggedIterDomain with computed extents
   auto ragged_id =
       IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
 
-  // Create the Partition expr to represent this transformation
   IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
 
-  // Return pair
   return {component_id, ragged_id};
 }
 
