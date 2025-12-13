@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
@@ -2359,16 +2360,14 @@ class SdpaFwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
-      Val* query,
-      Val* key,
-      Val* value,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
       TensorView* bias,
       TensorView* mask,
       Val* dropout_p,
       Val* is_causal,
       Val* scale);
-
-  SdpaFwdOp(const SdpaFwdOp* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -2407,6 +2406,24 @@ class SdpaFwdOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  int64_t bias_input_index() const {
+    return attribute<int64_t>(1);
+  }
+
+  TensorView* bias() const {
+    return bias_input_index() >= 0 ? input(bias_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
+  int64_t mask_input_index() const {
+    return attribute<int64_t>(2);
+  }
+
+  TensorView* mask() const {
+    return mask_input_index() >= 0 ? input(mask_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
   Val* dropout_p() const {
     return input(3);
   }
@@ -2415,28 +2432,17 @@ class SdpaFwdOp : public Expr {
     return input(4);
   }
 
+  int64_t scale_input_index() const {
+    return attribute<int64_t>(0);
+  }
+
   Val* scale() const {
-    return scale_input_index_ >= 0 ? input(scale_input_index_) : nullptr;
-  }
-
-  TensorView* bias() const {
-    return bias_input_index_ >= 0 ? input(bias_input_index_)->as<TensorView>()
-                                  : nullptr;
-  }
-
-  TensorView* mask() const {
-    return mask_input_index_ >= 0 ? input(mask_input_index_)->as<TensorView>()
-                                  : nullptr;
+    return scale_input_index() >= 0 ? input(scale_input_index()) : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
-
- private:
-  int scale_input_index_ = -1;
-  int bias_input_index_ = -1;
-  int mask_input_index_ = -1;
 };
 
 class Scope {

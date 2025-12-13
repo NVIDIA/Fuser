@@ -3227,9 +3227,9 @@ SdpaFwdOp::SdpaFwdOp(
     TensorView* log_sumexp,
     TensorView* philox_seed,
     TensorView* philox_offset,
-    Val* query,
-    Val* key,
-    Val* value,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
     TensorView* bias,
     TensorView* mask,
     Val* dropout_p,
@@ -3246,26 +3246,27 @@ SdpaFwdOp::SdpaFwdOp(
   addInput(value);
   addInput(dropout_p);
   addInput(is_causal);
-  auto next_index = inputs().size();
+  auto next_index = std::ssize(inputs());
+  int64_t scale_input_index = -1;
   if (scale != nullptr) {
-    scale_input_index_ = next_index++;
+    scale_input_index = next_index++;
     addInput(scale);
   }
+  int64_t bias_input_index = -1;
   if (bias != nullptr) {
-    bias_input_index_ = next_index++;
+    bias_input_index = next_index++;
     addInput(bias);
   }
+  int64_t mask_input_index = -1;
   if (mask != nullptr) {
-    mask_input_index_ = next_index++;
+    mask_input_index = next_index++;
     addInput(mask);
   }
-}
 
-SdpaFwdOp::SdpaFwdOp(const SdpaFwdOp* src, IrCloner* ir_cloner)
-    : Expr(src, ir_cloner),
-      scale_input_index_(src->scale_input_index_),
-      bias_input_index_(src->bias_input_index_),
-      mask_input_index_(src->mask_input_index_) {}
+  addDataAttribute(scale_input_index);
+  addDataAttribute(bias_input_index);
+  addDataAttribute(mask_input_index);
+}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
@@ -3323,17 +3324,17 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   auto query = inputs.at(0).as<at::Tensor>();
   auto key = inputs.at(1).as<at::Tensor>();
   auto value = inputs.at(2).as<at::Tensor>();
-  auto bias = bias_input_index_ >= 0
-      ? inputs.at(bias_input_index_).as<at::Tensor>()
+  auto bias = this->bias() != nullptr
+      ? inputs.at(bias_input_index()).as<at::Tensor>()
       : at::Tensor();
-  auto mask = mask_input_index_ >= 0
-      ? inputs.at(mask_input_index_).as<at::Tensor>()
+  auto mask = this->mask() != nullptr
+      ? inputs.at(mask_input_index()).as<at::Tensor>()
       : at::Tensor();
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
   const auto last_dim_size = query.size(-1);
-  auto scale = scale_input_index_ >= 0
-      ? inputs.at(scale_input_index_).as<double>()
+  auto scale = this->scale() != nullptr
+      ? inputs.at(scale_input_index()).as<double>()
       : 1.0 / std::sqrt(last_dim_size);
 
   // Flash/efficient attention require the last dimension to be padded to 8.
@@ -3370,7 +3371,9 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
         at::where(mask, 0.0f, -std::numeric_limits<float>::infinity())
             .to(query.dtype());
     if (attn_bias.defined()) {
-      attn_bias += mask_bias;
+      // Don't write `attn_bias += mask_bias` because the sum can be a larger
+      // shape than `attn_bias`.
+      attn_bias = attn_bias + mask_bias;
     } else {
       attn_bias = mask_bias;
     }
