@@ -683,8 +683,171 @@ void validateIndexCasts(
       "Int32");
 }
 
+//! Initialize CUDA context with optional SM (Streaming Multiprocessor) limiting
+//!
+//! This function allows limiting the number of SMs available to kernels via
+//! CUDA MPS execution affinity. This is useful for:
+//! - Performance testing with different SM counts
+//! - Resource partitioning between multiple processes
+//! - Simulating smaller GPUs
+//!
+//! USAGE:
+//! ------
+//! 1. Start CUDA MPS server with per-context SM partitioning:
+//!    export CUDA_MPS_PIPE_DIRECTORY=/tmp/nvidia-mps
+//!    export CUDA_MPS_LOG_DIRECTORY=/tmp/nvidia-mps
+//!    export CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1
+//!    nvidia-cuda-mps-control -d
+//!
+//! 2. Set desired SM count:
+//!    export NVFUSER_SM_COUNT=32
+//!    If not set, SM limiting is disabled (normal behavior)
+//!
+//! REQUIREMENTS:
+//! -------------
+//! - Volta+ GPU (compute capability >= 7.0)
+//! - CUDA 12.5+ (uses cuCtxCreate_v4)
+//! - CUDA MPS server running with per-context SM partitioning enabled
+//! - CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1
+//!
+//! NOTE:
+//! -----
+//! This uses cuCtxCreate_v4 with CU_EXEC_AFFINITY_TYPE_SM_COUNT to create
+//! a CUDA context limited to a specific number of SMs. Under MPS, this
+//! provides precise control over SM allocation per context.
 void initializeCudaContext() {
-  at::cuda::jit::initializeCudaContext();
+  // Check if SM limiting is requested via environment variable
+  const char* sm_count_env = std::getenv("NVFUSER_SM_COUNT");
+  if (sm_count_env == nullptr) {
+    // SM limiting not requested, use default PyTorch context initialization
+    at::cuda::jit::initializeCudaContext();
+    return;
+  }
+
+  // Parse desired SM count
+  int desired_sms = std::atoi(sm_count_env);
+  if (desired_sms <= 0) {
+    NVF_ERROR(
+        false,
+        "Invalid NVFUSER_SM_COUNT=",
+        sm_count_env,
+        ". Must be a positive integer.");
+  }
+
+  // SM limiting enabled - create context with execution affinity
+  // Note: This requires MPS to be running with:
+  // export CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1
+
+  CUresult status;
+
+  // Initialize CUDA driver API
+  status = cuInit(0);
+  if (status != CUDA_SUCCESS) {
+    const char* err_name;
+    cuGetErrorName(status, &err_name);
+    NVF_ERROR(
+        false,
+        "cuInit failed: ",
+        err_name,
+        ". Cannot initialize CUDA context with SM affinity.");
+  }
+
+  // Get current CUDA device
+  int device_id = 0;
+  cudaGetDevice(&device_id);
+
+  CUdevice dev;
+  status = cuDeviceGet(&dev, device_id);
+  if (status != CUDA_SUCCESS) {
+    const char* err_name;
+    cuGetErrorName(status, &err_name);
+    NVF_ERROR(false, "cuDeviceGet failed: ", err_name);
+  }
+
+  // Query total SM count
+  int total_sms = 0;
+  status = cuDeviceGetAttribute(
+      &total_sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev);
+  if (status != CUDA_SUCCESS) {
+    const char* err_name;
+    cuGetErrorName(status, &err_name);
+    NVF_ERROR(false, "cuDeviceGetAttribute failed: ", err_name);
+  }
+
+  // Validate desired SM count
+  if (desired_sms > total_sms) {
+    NVF_ERROR(
+        false,
+        "Invalid NVFUSER_SM_COUNT=",
+        desired_sms,
+        ". GPU has only ",
+        total_sms,
+        " SMs available.");
+  }
+
+  // If limiting to full SM count, just use default initialization
+  if (desired_sms == total_sms) {
+    if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      debug() << "SM limiting: Using all " << total_sms
+              << " SMs (default context)" << std::endl;
+    }
+    at::cuda::jit::initializeCudaContext();
+    return;
+  }
+
+  // Create execution affinity parameter for SM count limiting
+  CUexecAffinityParam affinity = {};
+  affinity.type = CU_EXEC_AFFINITY_TYPE_SM_COUNT;
+  affinity.param.smCount.val = (unsigned int)desired_sms;
+
+  // Wrap affinity params in CUctxCreateParams for v4 API
+  CUctxCreateParams ctx_params = {};
+  ctx_params.execAffinityParams = &affinity;
+  ctx_params.numExecAffinityParams = 1;
+
+  // Create new context with SM affinity using cuCtxCreate_v4
+  // This function is available in CUDA 12.5+ and is the preferred API
+  CUcontext affinity_ctx = nullptr;
+  status = cuCtxCreate(
+      &affinity_ctx,
+      &ctx_params,
+      0, // flags
+      dev);
+
+  if (status != CUDA_SUCCESS) {
+    const char* err_name;
+    const char* err_string;
+    cuGetErrorName(status, &err_name);
+    cuGetErrorString(status, &err_string);
+    NVF_ERROR(
+        false,
+        "cuCtxCreate_v4 failed: ",
+        err_name,
+        " - ",
+        err_string,
+        ". This feature requires:\n",
+        "  1. Volta+ GPU (compute capability >= 7.0)\n",
+        "  2. CUDA 12.5+ with cuCtxCreate_v4 support\n",
+        "  3. CUDA MPS server running\n",
+        "  4. Environment variable: ",
+        "CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1\n",
+        "See CUDA MPS documentation for setup instructions.");
+  }
+
+  // Set the new context as current
+  status = cuCtxSetCurrent(affinity_ctx);
+  if (status != CUDA_SUCCESS) {
+    const char* err_name;
+    cuGetErrorName(status, &err_name);
+    // Clean up the created context
+    cuCtxDestroy(affinity_ctx);
+    NVF_ERROR(false, "cuCtxSetCurrent failed: ", err_name);
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+    debug() << "SM limiting: Created context limited to " << desired_sms
+            << " SMs out of " << total_sms << " total SMs" << std::endl;
+  }
 }
 } // namespace executor_utils
 } // namespace nvfuser

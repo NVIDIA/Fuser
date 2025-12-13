@@ -243,6 +243,10 @@ void validateIndexCasts(
     ExpressionEvaluator& expr_eval,
     const LaunchParams& launch_params);
 
+//! Initialize CUDA context with optional SM limiting via MPS execution
+//! affinity. Set NVFUSER_SM_COUNT=N to limit kernel execution to N streaming
+//! multiprocessors. If NVFUSER_SM_COUNT is not set, normal CUDA context is
+//! used. Requires CUDA MPS with per-context SM partitioning enabled.
 void initializeCudaContext();
 } // namespace executor_utils
 } // namespace nvfuser
