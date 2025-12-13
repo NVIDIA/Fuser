@@ -1277,11 +1277,10 @@ TensorView* asNested(
   NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
 
   // Only 1D offset tensors are currently supported
-  NVF_CHECK(
-      offsets->nDims() == 1,
-      "asNested currently only supports 1D offset tensors, got ",
+  NVF_ERROR_EQ(
       offsets->nDims(),
-      "D");
+      1,
+      "asNested currently only supports 1D offset tensors");
 
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());
@@ -1324,10 +1323,11 @@ TensorView* asNested(
   // Create a Partition expression to represent this transformation
   // The Partition Expr outputs the component_id and ragged_id, and sets up
   // the definitions for those IterDomains
-  IrBuilder::create<Partition>(component_id, ragged_id, root_domain.at(ragged_dim), offsets);
+  IrBuilder::create<Partition>(
+      component_id, ragged_id, root_domain.at(ragged_dim), offsets);
 
-  // Set the output TensorView's definition - this should be done via LoadStoreOp
-  // since we're creating an alias view
+  // Set the output TensorView's definition - this should be done via
+  // LoadStoreOp since we're creating an alias view
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, data);
 
   return out;
