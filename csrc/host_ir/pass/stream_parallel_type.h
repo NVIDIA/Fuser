@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <host_ir/lower.h>
-#include <host_ir/pass/optimization_pass.h>
+#include "fusion.h"
+#include "host_ir/lower.h"
+#include "host_ir/pass/optimization_pass.h"
 
 namespace nvfuser::hir_pass {
 

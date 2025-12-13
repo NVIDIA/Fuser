@@ -6,6 +6,7 @@ import sys
 import traceback
 import warnings
 from typing import Iterable, Optional
+import functools
 
 if "nvfuser" in sys.modules:
     warnings.warn(
@@ -65,6 +66,56 @@ def execute_with_dtensors(fd, in_dtensors: Iterable[DTensor]) -> list[DTensor]:
             placements.append(Replicate() if axis == -1 else Shard(axis))
         out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
     return out_dtensors
+
+
+class LruFusionCache:
+    """
+    A class that caches the FusionExecutorCache with the Fusion as the key.
+    The cache is a LRU cache that evicts the least recently used FusionExecutorCache.
+    The cache is used to avoid recompiling the same FusionExecutorCache.
+    """
+
+    def __init__(self, max_fusions=16384):
+        """
+        Initialize a new LruFusionCache instance.
+        """
+        self.cache = _C_DIRECT.LRUCache(max_fusions)
+
+    def __call__(self, create_fusion_definition):
+        """
+        A decorator that caches the FusionExecutorCache with the Fusion as the key.
+        It returns the compiled fusion definition.
+        The cache is a LRU cache that evicts the least recently used FusionExecutorCache.
+        The cache is used to avoid recompiling the same FusionExecutorCache.
+        """
+
+        @functools.wraps(create_fusion_definition)
+        def wrapper(*args, **kwargs):
+            fusion_definition = create_fusion_definition(*args, **kwargs)
+            if not hasattr(fusion_definition, "fec"):
+                fusion_definition.fec = self.cache.cache_compile(
+                    fusion_definition.fusion
+                )
+                # A copy of fusion is created after construction FusionExecutorCache
+                # Delete the _fusion and reference the fusion inside FusionExecutorCache
+                del fusion_definition._fusion
+            return fusion_definition
+
+        def stats():
+            """
+            Get the stats of the cache.
+            """
+            return self.cache.stats()
+
+        def num_fusions():
+            """
+            Get the number of fusions in the cache.
+            """
+            return self.cache.num_fusions()
+
+        wrapper.stats = stats
+        wrapper.num_fusions = num_fusions
+        return wrapper
 
 
 class FusionDefinition:
