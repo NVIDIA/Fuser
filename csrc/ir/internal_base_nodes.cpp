@@ -22,6 +22,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -894,6 +895,88 @@ std::string RaggedIterDomain::toString(int indent_size) const {
   return toInlineString(indent_size);
 }
 
+std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
+    IterDomain* in,
+    TensorView* offsets) {
+  NVF_ERROR(in != nullptr, "partition: input IterDomain is null");
+
+  NVF_ERROR(
+      !in->isA<RaggedIterDomain>(),
+      "partition: input is already RaggedIterDomain, cannot partition again");
+
+  NVF_ERROR_EQ(
+      in->getParallelType(),
+      ParallelType::Serial,
+      "Partitioning of parallelized IterDomain not supported: ",
+      in->toString());
+
+  NVF_ERROR_EQ(
+      in->getIterType(),
+      IterType::Iteration,
+      "partition: only IterType::Iteration is supported, got ",
+      in->getIterType(),
+      " for IterDomain: ",
+      in->toString());
+
+  NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
+
+  NVF_ERROR_EQ(
+      offsets->dtype(),
+      DataType::Index,
+      "partition: offsets must have Index type, got ",
+      offsets->dtype());
+
+  const auto& offsets_domain = offsets->getLogicalDomain();
+  NVF_ERROR_EQ(
+      offsets_domain.size(),
+      1,
+      "partition: offsets tensor must be 1D, got ",
+      offsets_domain.size(),
+      "D tensor. Multi-dimensional offsets not yet supported.");
+
+  auto container = in->container();
+
+  // Compute extents from offsets: extents[i] = offsets[i+1] - offsets[i]
+  // offsets_left = offsets[:-1]   (all but last element)
+  // offsets_right = offsets[1:]   (all but first element)
+
+  auto offsets_len = offsets_domain[0]->extent();
+
+  auto zero = container->zeroVal(DataType::Index);
+  auto one = container->oneVal(DataType::Index);
+  auto len_minus_one = sub(offsets_len, one);
+
+  // Slice offsets[:-1]
+  Slice left_slice;
+  left_slice.start = zero;
+  left_slice.stop = len_minus_one;
+  auto offsets_left = slice(offsets, {left_slice});
+
+  // Slice offsets[1:]
+  Slice right_slice;
+  right_slice.start = one;
+  right_slice.stop = offsets_len;
+  auto offsets_right = slice(offsets, {right_slice});
+
+  // Compute extents: extents = offsets_right - offsets_left
+  auto extents = sub(offsets_right, offsets_left);
+
+  // Create component IterDomain
+  // Component extent = number of components = len(offsets) - 1
+  auto component_extent = len_minus_one;
+  auto component_id = IterDomainBuilder(zero, component_extent)
+                          .parallel_type(ParallelType::Serial)
+                          .iter_type(IterType::Iteration)
+                          .build();
+
+  auto ragged_id =
+      IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
+
+  IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
+
+  return {component_id, ragged_id};
+}
+
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
@@ -1496,6 +1579,22 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
   loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
   loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
+}
+
+// Partition "axis" into component and ragged dimensions. Follow the
+// pattern of TensorDomain::split.
+void TensorDomain::partition(int64_t axis, TensorView* offsets) {
+  NVF_ERROR(nDims() > 0, "Tried to do partition on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto [component_id, ragged_id] = RaggedIterDomain::partition(id, offsets);
+
+  // Remove the original axis and insert component and ragged dimensions
+  loop_domain_.erase(loop_domain_.begin() + axis);
+  loop_domain_.insert(loop_domain_.begin() + axis, ragged_id);
+  loop_domain_.insert(loop_domain_.begin() + axis, component_id);
 }
 
 // Reorder axes according to map[old_pos] = new_pos

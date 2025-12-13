@@ -619,6 +619,15 @@ class NVF_API TensorView : public Val {
     return merge(axis, axis + 1);
   }
 
+  // Partition "axis" into component and ragged dimensions based on offsets
+  // The offsets tensor defines partition boundaries where:
+  //   Shape: [num_components + 1], values: [0, off1, off2, ..., total]
+  //   Extents are computed as: extents[i] = offsets[i+1] - offsets[i]
+  // Returns this TensorView with the axis replaced by component and ragged dims
+  // e.g. partition(0, offsets) on tv[id{N}] results in:
+  //   tv[id{num_components}, ragged_id{extents}]
+  TensorView* partition(int64_t axis, TensorView* offsets);
+
   // Flatten the axis from `from` to `to` into a single axis.
   // Both `from` and `to` are inclusive.
   TensorView* flatten(int64_t from = 0, int64_t to = -1);
