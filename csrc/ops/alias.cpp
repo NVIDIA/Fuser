@@ -1268,4 +1268,69 @@ TensorView* repeat(
   return out_tv;
 }
 
+TensorView* asNested(
+    TensorView* data,
+    TensorView* offsets,
+    int64_t ragged_dim) {
+  // Basic null checks
+  NVF_ERROR(data != nullptr, "asNested: data tensor is null");
+  NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
+
+  // Only 1D offset tensors are currently supported
+  NVF_CHECK(
+      offsets->nDims() == 1,
+      "asNested currently only supports 1D offset tensors, got ",
+      offsets->nDims(),
+      "D");
+
+  // Get the logical domain of the input, excluding reductions
+  auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());
+
+  // Clone the logical domain to create the root domain for output
+  std::vector<IterDomain*> root_domain;
+  root_domain.reserve(inp_logical.size());
+  for (auto* id : inp_logical) {
+    root_domain.push_back(id->cloneWithoutRFactor());
+  }
+
+  // Partition the specified dimension in root domain
+  // This replaces one IterDomain with (component_id, ragged_id)
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(root_domain.at(ragged_dim), offsets);
+
+  // Build the logical domain: replace ragged_dim with component and ragged
+  std::vector<IterDomain*> logical_domain;
+  logical_domain.reserve(root_domain.size() + 1); // One extra for the split
+
+  for (const auto i : arange(root_domain.size())) {
+    if (static_cast<int64_t>(i) == ragged_dim) {
+      // Replace with component and ragged dimensions
+      logical_domain.push_back(component_id);
+      logical_domain.push_back(ragged_id);
+    } else {
+      logical_domain.push_back(root_domain.at(i));
+    }
+  }
+
+  // Create the output TensorView with the partitioned structure
+  auto* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      data->getDataType().value());
+
+  // Create a Partition expression to represent this transformation
+  // The Partition Expr outputs the component_id and ragged_id, and sets up
+  // the definitions for those IterDomains
+  IrBuilder::create<Partition>(component_id, ragged_id, root_domain.at(ragged_dim), offsets);
+
+  // Set the output TensorView's definition - this should be done via LoadStoreOp
+  // since we're creating an alias view
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, data);
+
+  return out;
+}
+
 } // namespace nvfuser

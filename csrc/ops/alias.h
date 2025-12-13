@@ -156,6 +156,29 @@ NVF_API TensorView* slice(
     const std::vector<int64_t>& starts,
     const std::vector<int64_t>& stops);
 
+//! Create a nested tensor view from a data tensor and offsets.
+//! This is a convenience wrapper around TensorView::partition().
+//!
+//! The function partitions the specified dimension of the data tensor into
+//! a component dimension and a ragged dimension based on the provided offsets.
+//!
+//! \param data Input tensor to be converted to nested representation
+//! \param offsets Offset tensor defining partition boundaries
+//!        Shape: [num_components + 1], values: [0, off1, off2, ..., total]
+//!        Extents are computed as: extents[i] = offsets[i+1] - offsets[i]
+//! \param ragged_dim Dimension to partition into nested structure (0-indexed)
+//! \return TensorView with a RaggedIterDomain at the specified dimension
+//!
+//! Example:
+//!   data shape: [10, ...]
+//!   offsets: [0, 3, 8, 10]
+//!   ragged_dim: 0
+//!   Result: nested tensor with 3 components of sizes [3, 5, 2]
+NVF_API TensorView* asNested(
+    TensorView* data,
+    TensorView* offsets,
+    int64_t ragged_dim);
+
 // Splits `in`'s dimension `dim` into `chunks` chunks. All but the last chunk
 // will be of size `ceil(dim_size/chunks)`. Unlike `torch.chunk` which returns
 // only positive-size chunks and therefore may return fewer than `chunks` of
