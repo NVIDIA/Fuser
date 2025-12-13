@@ -2609,6 +2609,39 @@ std::string Merge::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
 
+Partition::Partition(
+    IrBuilderPasskey passkey,
+    IterDomain* component,
+    RaggedIterDomain* ragged,
+    IterDomain* in,
+    TensorView* extents)
+    : Expr(passkey) {
+  addOutput(component);
+  addOutput(ragged);
+  addInput(in);
+  // Should the extents tensor be an input rather than an attribute?
+  addAttribute(extents);
+}
+
+std::string Partition::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Partition: ";
+  ss << in()->toString();
+  ss << " by extents " << extents()->toString();
+  ss << " -> component: ";
+  ss << component()->toString();
+  ss << ", ragged: ";
+  ss << ragged()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Partition::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Partition can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Partition)
+
 Swizzle::Swizzle(
     IrBuilderPasskey passkey,
     IterDomain* out_x,

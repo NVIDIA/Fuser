@@ -471,15 +471,15 @@ class NVF_API RaggedIterDomain : public IterDomain {
 
   std::string toInlineString(int indent_size = 0) const override;
 
-  //! Partition an IterDomain into batch and ragged dimensions
-  //! Creates a batch IterDomain and a RaggedIterDomain based on offsets
+  //! Partition an IterDomain into component and ragged dimensions
+  //! Creates a component IterDomain and a RaggedIterDomain based on offsets
   //!
   //! \param in Input IterDomain to partition (must be regular IterDomain)
   //! \param offsets Offset tensor defining partition boundaries
   //!        Shape: [num_components + 1], values: [0, off1, off2, ..., total]
   //!        Extents are computed as: extents[i] = offsets[i+1] - offsets[i]
-  //! \return Pair of (batch_id, ragged_id)
-  //!         batch_id: IterDomain with extent = num_components
+  //! \return Pair of (component_id, ragged_id)
+  //!         component_id: IterDomain with extent = num_components
   //!         ragged_id: RaggedIterDomain with extents computed from offsets
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,

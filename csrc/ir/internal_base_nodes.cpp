@@ -904,9 +904,11 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       !in->isA<RaggedIterDomain>(),
       "partition: input is already RaggedIterDomain, cannot partition again");
 
-  NVF_ERROR_EQ(in->getParallelType(), ParallelType::Serial,
-               "Partitioning of parallelized IterDomain not supported: ",
-               in->toString());
+  NVF_ERROR_EQ(
+      in->getParallelType(),
+      ParallelType::Serial,
+      "Partitioning of parallelized IterDomain not supported: ",
+      in->toString());
 
   NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
 
@@ -968,20 +970,23 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
   // Compute extents: extents = offsets_right - offsets_left
   auto extents = sub(offsets_right, offsets_left);
 
-  // Create batch IterDomain
-  // Batch extent = number of components = len(offsets) - 1
-  auto batch_extent = len_minus_one;
-  auto batch_id = IterDomainBuilder(zero, batch_extent)
-                      .parallel_type(ParallelType::Serial)
-                      .iter_type(IterType::Iteration)
-                      .build();
+  // Create component IterDomain
+  // Component extent = number of components = len(offsets) - 1
+  auto component_extent = len_minus_one;
+  auto component_id = IterDomainBuilder(zero, component_extent)
+                          .parallel_type(ParallelType::Serial)
+                          .iter_type(IterType::Iteration)
+                          .build();
 
   // Create RaggedIterDomain with computed extents
-  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
-      extents, in->getIterType());
+  auto ragged_id =
+      IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
+
+  // Create the Partition expr to represent this transformation
+  IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
 
   // Return pair
-  return {batch_id, ragged_id};
+  return {component_id, ragged_id};
 }
 
 TensorDomain::TensorDomain(
