@@ -1593,6 +1593,22 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
 }
 
+// Partition "axis" into component and ragged dimensions. Follow the
+// pattern of TensorDomain::split.
+void TensorDomain::partition(int64_t axis, TensorView* offsets) {
+  NVF_ERROR(nDims() > 0, "Tried to do partition on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto [component_id, ragged_id] = RaggedIterDomain::partition(id, offsets);
+
+  // Remove the original axis and insert component and ragged dimensions
+  loop_domain_.erase(loop_domain_.begin() + axis);
+  loop_domain_.insert(loop_domain_.begin() + axis, ragged_id);
+  loop_domain_.insert(loop_domain_.begin() + axis, component_id);
+}
+
 // Reorder axes according to map[old_pos] = new_pos
 void TensorDomain::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {

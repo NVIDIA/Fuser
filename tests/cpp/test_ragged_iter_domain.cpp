@@ -311,4 +311,38 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
       RaggedIterDomain::partition(ragged_id, offsets), nvfuser::nvfError);
 }
 
+// TensorView::partition operation
+TEST_F(RaggedIterDomainTest, TensorViewPartition) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 2D TensorView
+  auto tv0 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(tv0);
+
+  // Create offsets tensor
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Partition the first axis
+  tv0->partition(0, offsets);
+
+  // Verify the tensor now has 3 dimensions: [component, ragged, original_dim1]
+  EXPECT_EQ(tv0->nDims(), 3);
+
+  // First axis should be a regular IterDomain (component)
+  EXPECT_TRUE(tv0->axis(0)->isA<IterDomain>());
+
+  // Second axis should be a RaggedIterDomain
+  EXPECT_TRUE(tv0->axis(1)->isA<RaggedIterDomain>());
+
+  // Third axis should be the original second dimension
+  EXPECT_TRUE(tv0->axis(2)->isA<IterDomain>());
+
+  // Verify both partition outputs have the same definition
+  EXPECT_TRUE(tv0->axis(0)->definition() != nullptr);
+  EXPECT_TRUE(tv0->axis(0)->definition()->isA<Partition>());
+  EXPECT_EQ(tv0->axis(0)->definition(), tv0->axis(1)->definition());
+}
+
 } // namespace nvfuser

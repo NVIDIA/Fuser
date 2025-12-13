@@ -790,6 +790,9 @@ class NVF_API TensorDomain : public Val {
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
 
+  // Partition axis into component and ragged dimensions based on offsets
+  void partition(int64_t axis, TensorView* offsets);
+
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
 

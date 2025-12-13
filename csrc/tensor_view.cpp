@@ -561,6 +561,51 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+// Partition "axis" into component and ragged dimensions based on
+// offsets. Follow the pattern of TensorView::split.
+TensorView* TensorView::partition(int64_t axis, TensorView* offsets) {
+  NVF_ERROR(
+      nDims() > 0,
+      "Tried to do partition on a 0-dim TensorView. ",
+      "Tensor: ",
+      toString());
+
+  axis = wrapDim(axis);
+
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
+      "Cannot partition axis within compute at position. Axis = ",
+      axis,
+      " computePosition = ",
+      getMaxComputePosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
+      "Cannot partition axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaybeMaxProducerPosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Partitioning an axis (",
+      this->axis(axis)->toString(),
+      ") of non-Serial parallel type is not supported at this time."
+      " Parallelization strategy must be set after calling partition: ",
+      toString());
+
+  if (offsets->dtype() != DataType::Index) {
+    offsets = castOp(DataType::Index, offsets);
+  }
+
+  domain()->partition(axis, offsets);
+  return this;
+}
+
 TensorView* TensorView::resize(
     int64_t axis,
     Val* left_expansion,
