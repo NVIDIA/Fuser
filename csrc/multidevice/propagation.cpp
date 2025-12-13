@@ -6,18 +6,18 @@
  */
 // clang-format on
 
-#include <multidevice/propagation.h>
+#include "multidevice/propagation.h"
 
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
 
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <linked_hash_map.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "linked_hash_map.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 

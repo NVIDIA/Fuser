@@ -12,10 +12,10 @@
 
 #include <ATen/ATen.h>
 
-#include <exceptions.h>
-#include <multidevice/multidevice.h>
-#include <type.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "multidevice/multidevice.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
