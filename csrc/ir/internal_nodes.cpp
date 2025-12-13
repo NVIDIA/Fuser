@@ -3384,6 +3384,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     attn_bias = flattenBatchDims(attn_bias);
   }
 
+  // 4D SDPA
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
       return sdpa_meta::_scaled_dot_product_attention_meta(query);
