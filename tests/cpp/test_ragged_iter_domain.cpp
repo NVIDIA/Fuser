@@ -144,7 +144,7 @@ TEST_F(RaggedIterDomainTest, MultiDimensionalExtents) {
   auto ragged_nested = IrBuilder::create<RaggedIterDomain>(
       extents_2d, IterType::Iteration, ParallelType::Serial);
 
-  EXPECT_NE(ragged_nested, nullptr);
+  EXPECT_TRUE(ragged_nested != nullptr);
   EXPECT_EQ(ragged_nested->extents(), extents_2d);
 }
 
