@@ -11,6 +11,7 @@
 
 #include <fusion.h>
 #include <scheduler/normalization_inner.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_heuristic.h>
 
 namespace nvfuser {
@@ -18,16 +19,19 @@ namespace nvfuser {
 class SchedulerRuntimeInfo;
 class HeuristicDataCache;
 
-namespace inner_persistent {
+namespace normalization_inner {
 namespace non_tma {
+
+using PersistentKernelProperties =
+    normalization_scheduler_utils::PersistentKernelProperties;
 
 std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
+    const PersistentKernelProperties& prop,
     HeuristicDataCache* data_cache);
 
 void scheduleInnerPersistent(Fusion* fusion, const ReductionParams* rparams);
 
 } // namespace non_tma
-} // namespace inner_persistent
+} // namespace normalization_inner
 } // namespace nvfuser

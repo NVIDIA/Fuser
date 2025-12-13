@@ -23,7 +23,7 @@
 #include <vector>
 
 namespace nvfuser {
-namespace inner_persistent {
+namespace normalization_inner {
 namespace non_tma {
 
 using PersistentKernelProperties =
@@ -1142,17 +1142,9 @@ void innerPersistentHeuristic3D(
 
 std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
+    const PersistentKernelProperties& prop,
     HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
-
-  // properties of the fusion
-  const auto& prop =
-      normalization_scheduler_utils::getPersistentKernelProperties(
-          fusion,
-          runtime_info,
-          data_cache,
-          InnerPersistentKernelScheduler::schedulerType());
 
   std::unique_ptr<ReductionParams> rparams = std::make_unique<ReductionParams>(
       InnerPersistentKernelScheduler::schedulerType());
@@ -1203,5 +1195,5 @@ void scheduleInnerPersistent(Fusion* fusion, const ReductionParams* rparams) {
 }
 
 } // namespace non_tma
-} // namespace inner_persistent
+} // namespace normalization_inner
 } // namespace nvfuser

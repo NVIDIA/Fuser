@@ -12,6 +12,7 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/inlining.h>
@@ -1989,6 +1990,14 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
 }
 
+namespace tma_check {
+bool isTmaParams(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
+  return hparams->isA<InnerNormTmaParams>();
+}
+} // namespace tma_check
+
 class TmaPersistentTestF : public PersistentBufferTest {
  protected:
   void SetUp() override {
@@ -2162,4 +2171,141 @@ TEST_F(TmaPersistentTestF, TmaInnerPersistent) {
 
   testValidate(&unscheduled_fusion_copy, outputs, {t0});
 }
+
+// Base class for parameterized TMA inner persistent tests using TEST_P
+// <dtype, dim_0, dim_1>
+using TmaPersistentTestParams = std::tuple<DataType, int64_t, int64_t>;
+class TmaPersistentTestP
+    : public NVFuserFixtureParamTest<TmaPersistentTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentLayerNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv2 = makeContigConcreteTensor({y}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  auto res = layer_norm(tv0, 1, tv1, tv2, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, res.output);
+  fusion.addOutput(output);
+  fusion.addOutput(res.mean);
+  fusion.addOutput(res.invstd);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+  auto t2 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(
+      &unscheduled_fusion_copy, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentSoftmax) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto res = softmax(tv0, 1);
+  auto output = maybeCastOp(DataType::BFloat16, res);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaPersistentTestP,
+    ::testing::Combine(
+        testing::Values(DataType::BFloat16),
+        testing::Values(
+            deviceSMCount() / 2,
+            1024), // batch size, less or larger than sm count
+        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+    [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
+      auto dtype = std::get<0>(info.param);
+      auto x = std::get<1>(info.param);
+      auto y = std::get<2>(info.param);
+      std::ostringstream os;
+      os << dtype << "_" << x << "_" << y;
+      return os.str();
+    });
 } // namespace nvfuser
