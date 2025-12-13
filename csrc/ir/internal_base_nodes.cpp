@@ -879,19 +879,19 @@ bool RaggedIterDomain::sameAs(const Statement* other) const {
   return extents_->sameAs(other_ragged->extents_);
 }
 
-std::string RaggedIterDomain::toString(int indent_size) const {
+std::string RaggedIterDomain::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getIterType();
   ss << getParallelType();
   ss << name();
   ss << "Ragged{";
-  ss << "extents=" << extents_->toString();
+  ss << "extents=" << extents_->toInlineString();
   ss << "}";
   return ss.str();
 }
 
-std::string RaggedIterDomain::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string RaggedIterDomain::toString(int indent_size) const {
+  return toInlineString(indent_size);
 }
 
 TensorDomain::TensorDomain(
