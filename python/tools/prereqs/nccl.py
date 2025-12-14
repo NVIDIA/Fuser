@@ -22,7 +22,9 @@ NCCL can be found in several locations:
 4. Custom installation: via NCCL_ROOT or NCCL_INCLUDE_DIR env vars
 
 This module checks these locations to detect NCCL before the build starts.
-Detection is skipped if NVFUSER_BUILD_WITHOUT_DISTRIBUTED is set.
+Detection is skipped if:
+- NVFUSER_BUILD_WITHOUT_DISTRIBUTED is set, OR
+- PyTorch was built without distributed support (torch._C._has_distributed() == False)
 """
 
 import os
@@ -227,8 +229,9 @@ def check_nccl_available() -> Optional[Tuple[str, str]]:
     This function replicates the compiler's header search and CMake's library
     detection to ensure validation accurately predicts build success.
 
-    When NVFUSER_BUILD_WITHOUT_DISTRIBUTED is set, this check is skipped
-    and returns None (distributed support disabled).
+    This check is skipped when:
+    - NVFUSER_BUILD_WITHOUT_DISTRIBUTED env var is set, OR
+    - PyTorch was built without distributed support (torch._C._has_distributed() == False)
 
     Returns:
         Optional[Tuple[str, str]]: (header_path, library_path) if found,
@@ -247,8 +250,15 @@ def check_nccl_available() -> Optional[Tuple[str, str]]:
         >>> check_nccl_available()
         None
     """
-    # Check if distributed is disabled
+    # Check if distributed is disabled via env var
     if os.environ.get("NVFUSER_BUILD_WITHOUT_DISTRIBUTED"):
+        return None
+
+    # Check if PyTorch was built without distributed support
+    # This mirrors CMake's USE_DISTRIBUTED check (see gen_nvfuser_version.py)
+    import torch
+
+    if not torch._C._has_distributed():
         return None
 
     # Get search paths
