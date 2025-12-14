@@ -448,7 +448,7 @@ set(LLVM_MINIMUM_VERSION "18.1")
 # Check for project-local LLVM installations first (no sudo required)
 # This searches .llvm/ directory for version-specific installations
 if(NOT LLVM_DIR)
-  file(GLOB LLVM_CANDIDATES 
+  file(GLOB LLVM_CANDIDATES
     "${CMAKE_SOURCE_DIR}/.llvm/*/lib/cmake/llvm"
     "${CMAKE_SOURCE_DIR}/third_party/llvm/*/lib/cmake/llvm"
   )

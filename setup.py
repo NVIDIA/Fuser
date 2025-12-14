@@ -94,8 +94,9 @@ def main():
         "\n" + "=" * 70 + "\n"
         "DEPRECATED: 'python setup.py develop' is deprecated.\n"
         "Recommended: pip install --no-build-isolation -e python -v\n"
-        + "=" * 70 + "\n",
-        file=sys.stderr
+        + "=" * 70
+        + "\n",
+        file=sys.stderr,
     )
     sys.stdout.flush()
 
@@ -107,9 +108,10 @@ def main():
         config.build_setup = False
 
     # Prerequisite validation (can be skipped with NVFUSER_BUILD_SKIP_VALIDATION)
-    if config.build_setup and not os.environ.get('NVFUSER_BUILD_SKIP_VALIDATION'):
+    if config.build_setup and not os.environ.get("NVFUSER_BUILD_SKIP_VALIDATION"):
         try:
             from python.tools.prereqs import validate_prerequisites
+
             validate_prerequisites()
         except ImportError as e:
             # Prerequisite validation not available (shouldn't happen in dev)
@@ -118,8 +120,10 @@ def main():
             # Prerequisite check failed
             print(f"\n{e}\n", file=sys.stderr)
             sys.exit(1)
-    elif os.environ.get('NVFUSER_BUILD_SKIP_VALIDATION'):
-        print("[nvFuser] Skipping prerequisite validation (NVFUSER_BUILD_SKIP_VALIDATION set)")
+    elif os.environ.get("NVFUSER_BUILD_SKIP_VALIDATION"):
+        print(
+            "[nvFuser] Skipping prerequisite validation (NVFUSER_BUILD_SKIP_VALIDATION set)"
+        )
 
     if config.cpp_standard < 20:
         raise ValueError("nvfuser requires C++20 standard or higher")

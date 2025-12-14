@@ -4,11 +4,11 @@
 """
 Git submodules validation for nvFuser build.
 
-nvFuser has third-party dependencies managed as git submodules (cutlass, 
-flatbuffers, googletest, benchmark). Uninitialized submodules cause cryptic 
+nvFuser has third-party dependencies managed as git submodules (cutlass,
+flatbuffers, googletest, benchmark). Uninitialized submodules cause cryptic
 "file not found" CMake errors during configuration.
 
-This module detects uninitialized git submodules and provides actionable 
+This module detects uninitialized git submodules and provides actionable
 instructions to initialize them.
 """
 

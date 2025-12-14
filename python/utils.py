@@ -416,25 +416,25 @@ def get_cmake_bin():
 def get_pip_nccl_include_dir() -> Optional[str]:
     """
     Find NCCL include directory from pip-installed nvidia-nccl-cu* package.
-    
+
     PyTorch's pip package depends on nvidia-nccl-cu* which bundles NCCL headers
     at {site-packages}/nvidia/nccl/include/nccl.h. This path is needed for
     compiling nvFuser's distributed support.
-    
+
     Note: Similar logic exists in tools/prereqs/nccl.py::_get_pip_nccl_paths()
     for validation. That function returns both include AND lib paths for complete
     prerequisite checking, while this function only needs the include path to pass
     to CMake. The duplication is intentional to keep validation and build logic
     independent.
-    
+
     Returns:
         Path to NCCL include directory if found, None otherwise
     """
     for site_path in sys.path:
         if not site_path:
             continue
-        nccl_include = Path(site_path) / 'nvidia' / 'nccl' / 'include'
-        if (nccl_include / 'nccl.h').exists():
+        nccl_include = Path(site_path) / "nvidia" / "nccl" / "include"
+        if (nccl_include / "nccl.h").exists():
             return str(nccl_include)
     return None
 
