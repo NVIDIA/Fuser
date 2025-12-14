@@ -15,8 +15,11 @@ from typing import Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
 from .requirements import (
-    PYTORCH, CUDA, PYBIND11,
-    format_version, parse_version,
+    PYTORCH,
+    CUDA,
+    PYBIND11,
+    format_version,
+    parse_version,
     pytorch_install_instructions,
     CUDA_AVAILABLE,
 )
@@ -25,49 +28,48 @@ from .requirements import (
 def _detect_system_cuda() -> Optional[str]:
     """
     Detect system CUDA toolkit version via nvcc.
-    
+
     Returns:
         Optional[str]: CUDA version string (e.g., "12.5", "13.0"), or None if not found
-        
+
     Example:
         >>> version = _detect_system_cuda()
         >>> version
         '12.5'
     """
     # Check if nvcc exists
-    if not shutil.which('nvcc'):
+    if not shutil.which("nvcc"):
         return None
-    
+
     try:
         result = subprocess.run(
-            ['nvcc', '--version'],
-            capture_output=True,
-            text=True,
-            check=True
+            ["nvcc", "--version"], capture_output=True, text=True, check=True
         )
-        
+
         # Parse version from output
         # Example: "Cuda compilation tools, release 12.5, V12.5.40"
         # or: "release 13.0, V13.0.76"
         for line in result.stdout.splitlines():
-            match = re.search(r'release (\d+\.\d+)', line.lower())
+            match = re.search(r"release (\d+\.\d+)", line.lower())
             if match:
                 return match.group(1)
-        
+
         return None
-        
+
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
 
 
-def _get_torch_install_instructions(upgrade: bool = False, force_reinstall: bool = False) -> str:
+def _get_torch_install_instructions(
+    upgrade: bool = False, force_reinstall: bool = False
+) -> str:
     """
     Generate PyTorch installation instructions with appropriate pip flags.
-    
+
     Args:
         upgrade: If True, adds --upgrade flag
         force_reinstall: If True, adds --force-reinstall flag
-        
+
     Returns:
         Formatted installation instructions for available CUDA versions
     """
@@ -76,29 +78,32 @@ def _get_torch_install_instructions(upgrade: bool = False, force_reinstall: bool
         # Custom handling for force_reinstall since the centralized function
         # only supports upgrade flag
         from .requirements import pytorch_index_url
+
         lines = []
         for cuda in CUDA_AVAILABLE:
             lines.append(f"  # For CUDA {format_version(cuda)}:")
-            lines.append(f"  pip install --force-reinstall torch --index-url {pytorch_index_url(cuda)}")
-        return '\n'.join(lines)
-    
+            lines.append(
+                f"  pip install --force-reinstall torch --index-url {pytorch_index_url(cuda)}"
+            )
+        return "\n".join(lines)
+
     return pytorch_install_instructions(upgrade=upgrade)
 
 
 def _get_torch_install_for_cuda_major(cuda_major: int) -> str:
     """
     Generate PyTorch install command for a specific CUDA major version.
-    
+
     Finds the best matching CUDA version from CUDA_AVAILABLE.
-    
+
     Args:
         cuda_major: CUDA major version (e.g., 12, 13)
-        
+
     Returns:
         Formatted pip install command string
     """
     from .requirements import pytorch_index_url
-    
+
     # Find matching CUDA version from available versions
     matching = [cuda for cuda in CUDA_AVAILABLE if cuda[0] == cuda_major]
     if matching:
@@ -113,20 +118,20 @@ def _get_torch_install_for_cuda_major(cuda_major: int) -> str:
 def check_pybind11_installed() -> str:
     """
     Check that pybind11 is installed with CMake support.
-    
+
     pybind11 with CMake support is required for building nvFuser's Python bindings.
     The [global] extra is recommended as it provides CMake integration files.
-    
+
     In pybind11 3.0+, CMake configuration files are included in the base package,
     so [global] is optional but still recommended.
-    
+
     Returns:
         str: pybind11 version string
-        
+
     Raises:
         PrerequisiteMissingError: If pybind11 is not installed, version is too old,
                                  or CMake support is missing
-        
+
     Example:
         >>> version = check_pybind11_installed()
         [nvFuser] pybind11: 2.13.6 with CMake support ✓
@@ -146,10 +151,10 @@ def check_pybind11_installed() -> str:
             f"Or install {PYBIND11.name} individually:\n"
             f"  pip install 'pybind11[global]>={PYBIND11.min_str}'"
         )
-    
+
     # Check version
     version = pybind11.__version__
-    
+
     # Parse version using centralized parser
     try:
         detected = parse_version(version)
@@ -161,7 +166,7 @@ def check_pybind11_installed() -> str:
             f"Or reinstall {PYBIND11.name} individually:\n"
             f"  pip install --force-reinstall 'pybind11[global]>={PYBIND11.min_str}'"
         )
-    
+
     # Check minimum version requirement
     if not PYBIND11.check(detected):
         raise PrerequisiteMissingError(
@@ -172,12 +177,12 @@ def check_pybind11_installed() -> str:
             f"Or upgrade {PYBIND11.name} individually:\n"
             f"  pip install --upgrade 'pybind11[global]>={PYBIND11.min_str}'"
         )
-    
+
     # Check for CMake support
     # In pybind11 2.x and earlier, CMake support may not be available
     # In pybind11 3.0+, CMake files are included in the base package
     # The [global] extra is recommended but optional in 3.0+
-    
+
     # Check if get_cmake_dir() exists and returns a valid path
     try:
         cmake_dir = pybind11.get_cmake_dir()
@@ -191,10 +196,13 @@ def check_pybind11_installed() -> str:
             f"Or upgrade {PYBIND11.name} individually:\n"
             f"  pip install --upgrade 'pybind11[global]>={PYBIND11.min_str}'"
         )
-    
+
     # Verify the cmake directory exists and contains config files
     import os
-    if not os.path.exists(cmake_dir) or not os.path.exists(os.path.join(cmake_dir, 'pybind11Config.cmake')):
+
+    if not os.path.exists(cmake_dir) or not os.path.exists(
+        os.path.join(cmake_dir, "pybind11Config.cmake")
+    ):
         raise PrerequisiteMissingError(
             f"ERROR: {PYBIND11.name} CMake configuration is missing or invalid.\n\n"
             f"Found: {PYBIND11.name} {version} (CMake dir: {cmake_dir})\n\n"
@@ -203,28 +211,28 @@ def check_pybind11_installed() -> str:
             f"Or reinstall {PYBIND11.name} individually:\n"
             f"  pip install --force-reinstall 'pybind11[global]>={PYBIND11.min_str}'"
         )
-    
+
     return version
 
 
 def check_torch_installed() -> Tuple[str, str]:
     """
     Check that PyTorch with CUDA support is installed.
-    
-    Note: CUDA versions earlier than the minimum have known compatibility issues 
+
+    Note: CUDA versions earlier than the minimum have known compatibility issues
     with nvFuser (missing Float8 types). Use the minimum CUDA version or newer.
-    
+
     nvFuser requires PyTorch compiled with CUDA support. CPU-only PyTorch
     builds are not supported. The CUDA version must match the system CUDA toolkit
     that will be used to build nvFuser.
-    
+
     Returns:
         Tuple[str, str]: (torch_version, cuda_version_str)
-        
+
     Raises:
         PrerequisiteMissingError: If PyTorch is not installed, version is too old,
                                  is CPU-only, or has CUDA below minimum
-        
+
     Example:
         >>> version, cuda = check_torch_installed()
         [nvFuser] PyTorch: X.Y.Z with CUDA X.Y ✓
@@ -244,10 +252,10 @@ def check_torch_installed() -> Tuple[str, str]:
             f"{_get_torch_install_instructions()}\n\n"
             f"Visit https://pytorch.org for more installation options."
         )
-    
+
     # Get PyTorch version (remove any +cu130 suffix)
-    torch_version = torch.__version__.split('+')[0]
-    
+    torch_version = torch.__version__.split("+")[0]
+
     # Parse version using centralized parser
     try:
         torch_detected = parse_version(torch_version)
@@ -257,7 +265,7 @@ def check_torch_installed() -> Tuple[str, str]:
             f"Please reinstall {PYTORCH.name}:\n"
             f"{_get_torch_install_instructions(force_reinstall=True)}"
         )
-    
+
     # Check minimum version requirement
     if not PYTORCH.check(torch_detected):
         raise PrerequisiteMissingError(
@@ -266,7 +274,7 @@ def check_torch_installed() -> Tuple[str, str]:
             f"Upgrade {PYTORCH.name} (match your system {CUDA.name} version):\n"
             f"{_get_torch_install_instructions(upgrade=True)}"
         )
-    
+
     # Check if PyTorch has CUDA support (not CPU-only)
     cuda_version_str = torch.version.cuda
     if cuda_version_str is None:
@@ -279,7 +287,7 @@ def check_torch_installed() -> Tuple[str, str]:
             f"Install {PYTORCH.name} with {CUDA.name} support:\n"
             f"{_get_torch_install_instructions()}"
         )
-    
+
     # Parse CUDA version using centralized parser
     try:
         cuda_detected = parse_version(cuda_version_str)
@@ -289,7 +297,7 @@ def check_torch_installed() -> Tuple[str, str]:
             f"Please reinstall {PYTORCH.name} with {CUDA.name} {CUDA.min_display}:\n"
             f"{_get_torch_install_instructions(force_reinstall=True)}"
         )
-    
+
     # Check CUDA version requirement
     # CUDA versions earlier than minimum have known issues (missing Float8 types)
     if not CUDA.check(cuda_detected):
@@ -301,12 +309,12 @@ def check_torch_installed() -> Tuple[str, str]:
             f"Please upgrade {PYTORCH.name} to {CUDA.name} {CUDA.min_display}:\n"
             f"{_get_torch_install_instructions(upgrade=True)}"
         )
-    
+
     # Detect and validate system CUDA toolkit
     system_cuda = _detect_system_cuda()
     cuda_major = cuda_detected[0]
     cuda_minor = cuda_detected[1] if len(cuda_detected) > 1 else 0
-    
+
     if system_cuda is None:
         # System CUDA not found - this is a problem
         raise PrerequisiteMissingError(
@@ -322,12 +330,14 @@ def check_torch_installed() -> Tuple[str, str]:
             f"  sudo apt update\n"
             f"  sudo apt install cuda-toolkit-{cuda_major}-8  # Match {PYTORCH.name} {CUDA.name} major version\n"
         )
-    
+
     # Parse system CUDA version
     try:
         system_cuda_detected = parse_version(system_cuda)
         system_cuda_major = system_cuda_detected[0]
-        system_cuda_minor = system_cuda_detected[1] if len(system_cuda_detected) > 1 else 0
+        system_cuda_minor = (
+            system_cuda_detected[1] if len(system_cuda_detected) > 1 else 0
+        )
     except ValueError:
         raise PrerequisiteMissingError(
             f"ERROR: Could not parse {CUDA.name} versions.\n"
@@ -335,7 +345,7 @@ def check_torch_installed() -> Tuple[str, str]:
             f"System {CUDA.name}: {system_cuda}\n\n"
             f"Please verify your {CUDA.name} installations are correct."
         )
-    
+
     # Validate major version match (REQUIRED)
     if cuda_major != system_cuda_major:
         raise PrerequisiteMissingError(
@@ -351,14 +361,15 @@ def check_torch_installed() -> Tuple[str, str]:
             f"  2. Install system {CUDA.name} toolkit matching {PYTORCH.name} {CUDA.name} {cuda_major}:\n"
             f"     See: https://developer.nvidia.com/cuda-downloads\n"
         )
-    
+
     # Check minor version (WARNING only, not error)
     if cuda_minor != system_cuda_minor:
         print(f"[nvFuser] WARNING: {CUDA.name} minor version mismatch")
         print(f"  {PYTORCH.name} {CUDA.name}: {cuda_version_str}")
         print(f"  System {CUDA.name}: {system_cuda}")
         print(f"  Major versions match ({cuda_major}), but minor versions differ.")
-        print(f"  Build should work, but consider matching minor versions for best compatibility.")
-    
-    return torch_version, cuda_version_str
+        print(
+            "  Build should work, but consider matching minor versions for best compatibility."
+        )
 
+    return torch_version, cuda_version_str

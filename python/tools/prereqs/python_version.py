@@ -20,13 +20,13 @@ from .requirements import PYTHON, format_version
 def check_python_version() -> Tuple[int, int, int]:
     """
     Check that Python version meets nvFuser's minimum requirement.
-    
+
     Returns:
         Tuple[int, int, int]: Python version as (major, minor, patch) tuple
-        
+
     Raises:
         PrerequisiteMissingError: If Python version is below minimum
-        
+
     Example:
         >>> version = check_python_version()
         [nvFuser] Python: 3.10.12 ✓
@@ -36,7 +36,7 @@ def check_python_version() -> Tuple[int, int, int]:
     version = sys.version_info
     major, minor, patch = version.major, version.minor, version.micro
     detected = (major, minor, patch)
-    
+
     # Check minimum version requirement
     if not PYTHON.check(detected):
         platform_info = detect_platform()
@@ -51,10 +51,10 @@ def check_python_version() -> Tuple[int, int, int]:
             f"{PYTHON.name} {PYTHON.min_display} is required; {PYTHON.name} {recommended} is recommended and used in the commands below.\n\n"
             f"To install {PYTHON.name} {recommended}:\n"
         )
-        
+
         # Add platform-specific installation guidance
-        if platform_info['os'] == 'Linux':
-            if platform_info.get('ubuntu_based', False):
+        if platform_info["os"] == "Linux":
+            if platform_info.get("ubuntu_based", False):
                 error_msg += (
                     f"\n"
                     f"On Ubuntu or Ubuntu-based distros:\n"
@@ -87,7 +87,7 @@ def check_python_version() -> Tuple[int, int, int]:
                     f"  If your distro does not package {PYTHON.name} {recommended}, consider using pyenv, Conda,\n"
                     f"  or your distro's documented method to install a newer Python.\n"
                 )
-        elif platform_info['os'] == 'Darwin':
+        elif platform_info["os"] == "Darwin":
             error_msg += (
                 f"\n"
                 f"On macOS:\n"
@@ -99,7 +99,7 @@ def check_python_version() -> Tuple[int, int, int]:
                 f"  source nvfuser_env/bin/activate\n"
                 f"  python -m pip install --upgrade pip\n"
             )
-        
+
         # Add conda as alternative (common in ML/PyTorch community)
         error_msg += (
             f"\n"
@@ -108,8 +108,7 @@ def check_python_version() -> Tuple[int, int, int]:
             f"  conda activate nvfuser\n"
             f"  python -m pip install --upgrade pip\n"
         )
-        
-        raise PrerequisiteMissingError(error_msg)
-    
-    return (major, minor, patch)
 
+        raise PrerequisiteMissingError(error_msg)
+
+    return (major, minor, patch)

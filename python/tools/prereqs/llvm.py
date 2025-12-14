@@ -14,7 +14,6 @@ the LLVM APT repository.
 """
 
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -27,7 +26,7 @@ from .requirements import LLVM, parse_version, format_version, llvm_download_url
 def _find_llvm_config() -> Optional[str]:
     """
     Locate llvm-config binary in order of priority.
-    
+
     Priority:
     1. LLVM_CONFIG environment variable
     2. LLVM_DIR/bin/llvm-config environment variable (CMake convention)
@@ -35,10 +34,10 @@ def _find_llvm_config() -> Optional[str]:
     4. llvm-config on PATH
     5. System known locations
     6. Project-local locations (scanning for compatible versions)
-    
+
     Returns:
         Optional[str]: Path to llvm-config if found, None otherwise
-        
+
     Example:
         >>> llvm_config = _find_llvm_config()
         >>> llvm_config
@@ -46,77 +45,83 @@ def _find_llvm_config() -> Optional[str]:
     """
     candidates = []
     llvm_major = LLVM.min_version[0]  # e.g., 18
-    
+
     # 1. Explicit LLVM_CONFIG env var
-    if llvm_config_env := os.environ.get('LLVM_CONFIG'):
+    if llvm_config_env := os.environ.get("LLVM_CONFIG"):
         candidates.append(llvm_config_env)
-    
+
     # 2. LLVM_DIR (CMake convention)
     # CMake typically sets LLVM_DIR to lib/cmake/llvm or similar
     # Try multiple navigation patterns for robustness
-    if llvm_dir := os.environ.get('LLVM_DIR'):
+    if llvm_dir := os.environ.get("LLVM_DIR"):
         llvm_dir_path = Path(llvm_dir)
-        candidates.append(llvm_dir_path / '..' / '..' / '..' / 'bin' / 'llvm-config')  # lib/cmake/llvm -> root/bin
-        candidates.append(llvm_dir_path / '..' / '..' / 'bin' / 'llvm-config')  # cmake/llvm -> root/bin
-        candidates.append(llvm_dir_path / 'bin' / 'llvm-config')  # if LLVM_DIR points to root
-    
+        candidates.append(
+            llvm_dir_path / ".." / ".." / ".." / "bin" / "llvm-config"
+        )  # lib/cmake/llvm -> root/bin
+        candidates.append(
+            llvm_dir_path / ".." / ".." / "bin" / "llvm-config"
+        )  # cmake/llvm -> root/bin
+        candidates.append(
+            llvm_dir_path / "bin" / "llvm-config"
+        )  # if LLVM_DIR points to root
+
     # 3. LLVM_ROOT (alternative convention)
-    if llvm_root := os.environ.get('LLVM_ROOT'):
-        candidates.append(os.path.join(llvm_root, 'bin', 'llvm-config'))
-    
+    if llvm_root := os.environ.get("LLVM_ROOT"):
+        candidates.append(os.path.join(llvm_root, "bin", "llvm-config"))
+
     # 4. PATH lookup
-    if llvm_in_path := shutil.which('llvm-config'):
+    if llvm_in_path := shutil.which("llvm-config"):
         candidates.append(llvm_in_path)
-    
+
     # 5. System known locations (use minimum major version)
     system_paths = [
-        f'/usr/lib/llvm-{llvm_major}/bin/llvm-config',
-        f'/usr/local/llvm-{llvm_major}/bin/llvm-config',
-        '/opt/llvm/bin/llvm-config',
+        f"/usr/lib/llvm-{llvm_major}/bin/llvm-config",
+        f"/usr/local/llvm-{llvm_major}/bin/llvm-config",
+        "/opt/llvm/bin/llvm-config",
     ]
     candidates.extend(system_paths)
-    
+
     # 6. Project-local locations (wildcards for minor version variations)
     # Navigate from python/tools/prereqs to repo root (3 levels up)
     repo_root = Path(__file__).resolve().parents[3]
     project_paths = []
-    
+
     # Check for compatible versions in project locations
-    for parent in [repo_root / '.llvm', repo_root / 'third_party' / 'llvm']:
+    for parent in [repo_root / ".llvm", repo_root / "third_party" / "llvm"]:
         if parent.exists():
             # Scan for compatible versions (minimum and above)
             for major in range(llvm_major, llvm_major + 3):  # e.g., 18, 19, 20
-                for child in parent.glob(f'{major}.*'):
+                for child in parent.glob(f"{major}.*"):
                     if child.is_dir():
-                        project_paths.append(child / 'bin' / 'llvm-config')
-    
+                        project_paths.append(child / "bin" / "llvm-config")
+
     candidates.extend([str(p) for p in project_paths])
-    
+
     # Try each candidate
     for candidate in candidates:
         if candidate:
             candidate_path = Path(candidate)
             if candidate_path.exists() and os.access(candidate_path, os.X_OK):
                 return str(candidate_path)
-    
+
     return None
 
 
 def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, ...]]:
     """
     Parse LLVM version string into tuple.
-    
+
     LLVM version format examples:
     - "18.1.8"
     - "18.1.8git"
     - "19.0.0"
-    
+
     Args:
         version_str: Version string from llvm-config --version
-        
+
     Returns:
         Optional[Tuple[int, ...]]: Version tuple or None if parse fails
-        
+
     Example:
         >>> _parse_llvm_version("18.1.8")
         (18, 1, 8)
@@ -132,18 +137,18 @@ def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, ...]]:
 def check_llvm_installed() -> str:
     """
     Validate that LLVM meets minimum version requirement for building nvFuser.
-    
+
     This is the main validation function that should be called during
     nvFuser's setup process. It checks:
     1. llvm-config is available (in PATH or common locations)
     2. LLVM version meets minimum requirement
-    
+
     Returns:
         str: LLVM version string (e.g., "18.1.8")
-        
+
     Raises:
         PrerequisiteMissingError: If LLVM not found or version below minimum
-        
+
     Example:
         >>> version = check_llvm_installed()
         [nvFuser] LLVM: 18.1.8 ✓
@@ -154,12 +159,12 @@ def check_llvm_installed() -> str:
     repo_root = Path(__file__).resolve().parents[3]
     llvm_major = LLVM.min_version[0]
     download_url = llvm_download_url()
-    tarball_name = download_url.split('/')[-1]
-    dir_name = tarball_name.replace('.tar.xz', '')
-    
+    tarball_name = download_url.split("/")[-1]
+    dir_name = tarball_name.replace(".tar.xz", "")
+
     # Find llvm-config
     llvm_config = _find_llvm_config()
-    
+
     if not llvm_config:
         raise PrerequisiteMissingError(
             f"ERROR: {LLVM.name} not found.\n\n"
@@ -182,14 +187,11 @@ def check_llvm_installed() -> str:
             f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
             f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
         )
-    
+
     # Get version
     try:
         result = subprocess.run(
-            [llvm_config, '--version'],
-            capture_output=True,
-            text=True,
-            check=True
+            [llvm_config, "--version"], capture_output=True, text=True, check=True
         )
         version_str = result.stdout.strip()
     except subprocess.CalledProcessError as e:
@@ -203,17 +205,17 @@ def check_llvm_installed() -> str:
             f"ERROR: llvm-config found at {llvm_config} but cannot be executed.\n\n"
             f"The file may not have execute permissions or may be corrupted.\n"
         )
-    
+
     # Parse version
     version_tuple = _parse_llvm_version(version_str)
-    
+
     if version_tuple is None:
         raise PrerequisiteMissingError(
             f"ERROR: Could not parse {LLVM.name} version from: {version_str}\n\n"
             f"llvm-config location: {llvm_config}\n"
             f"Expected version format: {LLVM.recommended_str} or similar\n"
         )
-    
+
     # Check version requirement
     if not LLVM.check(version_tuple):
         raise PrerequisiteMissingError(
@@ -235,6 +237,5 @@ def check_llvm_installed() -> str:
             f"  sudo ./llvm.sh {llvm_major}\n"
             f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
         )
-    
-    return version_str
 
+    return version_str

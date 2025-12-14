@@ -12,12 +12,12 @@ checks, enabling clear and actionable error messages.
 class PrerequisiteMissingError(Exception):
     """
     Raised when a prerequisite for building nvFuser is missing or has an incorrect version.
-    
+
     This exception should include:
     - What prerequisite is missing or incorrect
     - Why it's required
     - Exact commands to install or fix it
     - Platform-specific guidance when applicable
     """
-    pass
 
+    pass
