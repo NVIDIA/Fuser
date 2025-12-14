@@ -167,7 +167,8 @@ NINJA = Requirement("Ninja", None)  # Any version accepted
 PYTORCH = Requirement("PyTorch", (2, 0))
 CUDA = Requirement("CUDA", (12, 8))  # Minimum PyTorch CUDA version
 PYBIND11 = Requirement("pybind11", (2, 0))
-GCC = Requirement("GCC", (13,))  # Major version only
+GCC = Requirement("GCC", (13,))  # Major version only; requires <format> header
+CLANG = Requirement("Clang", (19,))  # Major version only; Clang 19 has <format> support
 LLVM = Requirement("LLVM", (18, 1), recommended=(18, 1, 8))
 
 

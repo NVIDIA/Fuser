@@ -20,11 +20,11 @@ from .python_version import check_python_version
 from .build_tools import check_cmake_version, check_ninja_installed
 from .python_packages import check_pybind11_installed, check_torch_installed
 from .git import check_git_submodules_initialized
-from .gcc import validate_gcc
+from .compiler import validate_compiler
 from .nccl import check_nccl_available
 from .llvm import check_llvm_installed
 from .requirements import (
-    PYTHON, CMAKE, NINJA, PYTORCH, CUDA, PYBIND11, GCC, LLVM,
+    PYTHON, CMAKE, NINJA, PYTORCH, CUDA, PYBIND11, GCC, CLANG, LLVM,
     format_version,
 )
 
@@ -45,7 +45,7 @@ def validate_prerequisites() -> Dict[str, Any]:
     5. PyTorch with CUDA (includes system CUDA validation)
     6. pybind11
     7. Git submodules initialized
-    8. GCC with C++20 <format> header
+    8. C++ compiler (GCC 13+ or Clang 19+) with <format> header
     9. NCCL headers/library (if distributed enabled)
     10. LLVM
     
@@ -74,7 +74,7 @@ def validate_prerequisites() -> Dict[str, Any]:
         
         >>> metadata.keys()
         dict_keys(['platform', 'python', 'cmake', 'ninja', 'torch', 'cuda', 
-                   'pybind11', 'git_submodules', 'gcc', 'nccl', 'llvm'])
+                   'pybind11', 'git_submodules', 'compiler', 'nccl', 'llvm'])
     """
     # Prominent banner - start of validation
     print("\n" + "=" * 60)
@@ -115,9 +115,10 @@ def validate_prerequisites() -> Dict[str, Any]:
     else:
         print(f"[nvFuser] ✓ Git submodules: N/A (not a git repository)")
     
-    # GCC validation
-    gcc_ver = validate_gcc()
-    print(f"[nvFuser] ✓ {GCC.name} {format_version(gcc_ver)} >= {GCC.min_str} with <format> header")
+    # C++ compiler validation (GCC 13+ or Clang 19+)
+    compiler_type, compiler_ver = validate_compiler()
+    req = CLANG if compiler_type == "clang" else GCC
+    print(f"[nvFuser] ✓ {req.name} {format_version(compiler_ver)} >= {req.min_str} with <format> header")
     
     # NCCL check (only when distributed is enabled)
     nccl_result = check_nccl_available()
@@ -147,7 +148,7 @@ def validate_prerequisites() -> Dict[str, Any]:
         'cuda': cuda_ver,
         'pybind11': pybind11_ver,
         'git_submodules': submodules,
-        'gcc': gcc_ver,
+        'compiler': (compiler_type, compiler_ver),
         'nccl': nccl_result,
         'llvm': llvm_ver,
     }

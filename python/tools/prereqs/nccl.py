@@ -26,11 +26,43 @@ Detection is skipped if NVFUSER_BUILD_WITHOUT_DISTRIBUTED is set.
 """
 
 import os
+import platform
 import sys
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
+
+
+def _get_multiarch_lib_path() -> Path:
+    """
+    Get the architecture-specific library path for Debian/Ubuntu multiarch.
+    
+    Returns the correct path based on the current CPU architecture:
+    - x86_64 → /usr/lib/x86_64-linux-gnu
+    - aarch64 → /usr/lib/aarch64-linux-gnu
+    - armv7l → /usr/lib/arm-linux-gnueabihf
+    
+    Returns:
+        Path: Architecture-specific library directory
+        
+    Example:
+        >>> _get_multiarch_lib_path()
+        PosixPath('/usr/lib/x86_64-linux-gnu')  # on x86_64
+        PosixPath('/usr/lib/aarch64-linux-gnu')  # on ARM64
+    """
+    machine = platform.machine()
+    
+    if machine == "x86_64":
+        return Path("/usr/lib/x86_64-linux-gnu")
+    elif machine == "aarch64":
+        return Path("/usr/lib/aarch64-linux-gnu")
+    elif machine.startswith("arm"):
+        # 32-bit ARM (armv7l, armv6l, etc.)
+        return Path("/usr/lib/arm-linux-gnueabihf")
+    else:
+        # Fallback for unknown architectures
+        return Path("/usr/lib")
 
 
 def _get_pip_nccl_paths() -> Tuple[Optional[Path], Optional[Path]]:
@@ -136,7 +168,7 @@ def _get_nccl_search_paths() -> Tuple[List[Path], List[Path]]:
     include_paths.extend(system_include_paths)
     
     system_library_paths = [
-        Path('/usr/lib/x86_64-linux-gnu'),  # Debian/Ubuntu multiarch
+        _get_multiarch_lib_path(),           # Debian/Ubuntu multiarch (arch-aware)
         Path('/usr/lib64'),                  # RHEL/CentOS
         Path('/usr/lib'),
         Path('/usr/local/lib'),
