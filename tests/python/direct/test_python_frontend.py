@@ -2753,7 +2753,9 @@ def test_expanded_to_size_one(nvfuser_direct_test):
     ]
 
     def fusion_func(fd: FusionDefinition):
-        tv0 = fd.define_tensor(shape=[1, -1], contiguity=[None, None], dtype=DataType.Int)
+        tv0 = fd.define_tensor(
+            shape=[1, -1], contiguity=[None, None], dtype=DataType.Int
+        )
         fd.add_output(tv0)
 
     with FusionDefinition() as fd:
