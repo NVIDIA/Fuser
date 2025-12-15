@@ -51,6 +51,11 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   if (isProfilerEnabled()) {
+    // avoid using the default pytorch's cuda context for profiling when MPS SM
+    // affinity is enabled
+    if (isOptionEnabled(EnableOption::MpsSmAffinity)) {
+      executor_utils::initializeCudaContext();
+    }
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
 

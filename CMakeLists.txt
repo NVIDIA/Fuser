@@ -1222,6 +1222,9 @@ if(BUILD_TEST)
   add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
   list(APPEND TEST_BINARIES test_layout_op)
 
+  add_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "")
+  list(APPEND TEST_BINARIES test_mps)
+
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
