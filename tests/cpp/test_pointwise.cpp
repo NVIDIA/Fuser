@@ -1479,6 +1479,15 @@ int64_t getVectorizationFactor(const FusionExecutorCache& executor_cache) {
       ->as<PointwiseParams>()
       ->vectorization_factor;
 }
+
+bool flipGridBinding(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->flip_grid_binding;
+}
 } // namespace tma_check
 
 // Non-parameterized TMA pointwise test fixture (for TEST_F)
@@ -2022,5 +2031,28 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
   EXPECT_EQ(tma_check::getVectorizationFactor(executor_cache), 4);
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+// Without flip grid binding, the grid y dimension is too large, which will
+// cause the kernel to fail to launch.
+TEST_F(TmaPointwiseTestF, FlipGridBinding) {
+  int64_t dim0 = 32768;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  EXPECT_TRUE(tma_check::flipGridBinding(executor_cache));
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

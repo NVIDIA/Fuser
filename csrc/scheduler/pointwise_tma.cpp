@@ -8,6 +8,7 @@
 
 #include <scheduler/pointwise_tma.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_utils.h>
@@ -17,7 +18,6 @@
 #include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
-
 namespace nvfuser {
 namespace pointwise {
 namespace tma {
@@ -201,6 +201,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   params->tma_tile_inner = tma_tile_inner;
   params->tma_tile_outer = tma_tile_outer;
+
+  // typical max gdimy is 65535, while max gdimx is 2^31 − 1 for most devices no
+  // need to check gdimx overflow.
+  const int64_t max_grid_y_dim =
+      at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+  int64_t gdimy = ceilDiv(tma_domain_outer, tma_tile_outer);
+  params->flip_grid_binding = gdimy > max_grid_y_dim;
 
   // ========== Step 4: Configure Thread Block Dimensions ==========
   // bdimx strategy:
