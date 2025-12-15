@@ -184,7 +184,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
-          {"mps_sm_affinity", EnableOption::MpsSmAffinity},
       };
   return available_options;
 }
