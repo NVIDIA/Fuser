@@ -1272,7 +1272,6 @@ TensorView* asNested(
     TensorView* data,
     TensorView* offsets,
     int64_t ragged_dim) {
-  // Basic null checks
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
   NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
 
@@ -1320,14 +1319,9 @@ TensorView* asNested(
           TensorDomain::getContiguityFilledWith(logical_domain, true)),
       data->getDataType().value());
 
-  // Create a Partition expression to represent this transformation
-  // The Partition Expr outputs the component_id and ragged_id, and sets up
-  // the definitions for those IterDomains
-  IrBuilder::create<Partition>(
-      component_id, ragged_id, root_domain.at(ragged_dim), offsets);
-
-  // Set the output TensorView's definition - this should be done via
-  // LoadStoreOp since we're creating an alias view
+  // For now, just use LoadStoreOp to represent the nesting
+  // operation. Does it make more sense to have a specific TensorView
+  // op like ReshapeOp?
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, data);
 
   return out;
