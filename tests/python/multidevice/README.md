@@ -1,3 +1,9 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
 # How to run multidevice tests?
 
 1. Install NvFuser with distributed supported enabled. Set `export NVFUSER_BUILD_WITHOUT_DISTRIBUTED=0`.
