@@ -130,7 +130,34 @@ IterDomain::IterDomain(
     bool is_padded_dimension,
     bool is_clustered_blocks,
     std::optional<int64_t> padded_to_size)
-    : Val(passkey, ValType::IterDomain),
+    : IterDomain(
+          passkey,
+          ValType::IterDomain,
+          start,
+          extent,
+          expanded_extent,
+          stop_offset,
+          parallel_type,
+          iter_type,
+          is_rfactor_domain,
+          is_padded_dimension,
+          is_clustered_blocks,
+          padded_to_size) {}
+
+IterDomain::IterDomain(
+    IrBuilderPasskey passkey,
+    ValType vtype,
+    Val* start,
+    Val* extent,
+    Val* expanded_extent,
+    Val* stop_offset,
+    ParallelType parallel_type,
+    IterType iter_type,
+    bool is_rfactor_domain,
+    bool is_padded_dimension,
+    bool is_clustered_blocks,
+    std::optional<int64_t> padded_to_size)
+    : Val(passkey, vtype),
       start_(start),
       extent_(extent),
       expanded_extent_(expanded_extent),
@@ -786,6 +813,86 @@ void validateLoopDomain(
 }
 
 } // namespace
+
+RaggedIterDomain::RaggedIterDomain(
+    IrBuilderPasskey passkey,
+    TensorView* extents,
+    IterType iter_type,
+    ParallelType parallel_type)
+    : IterDomain(
+          passkey,
+          ValType::RaggedIterDomain,
+          /*start=*/passkey.ir_container_->zeroVal(),
+          /*extent=*/passkey.ir_container_->oneVal(), // Placeholder
+          /*expanded_extent=*/nullptr,
+          /*stop_offset=*/nullptr,
+          parallel_type,
+          iter_type,
+          /*is_rfactor_domain=*/false,
+          /*is_padded_dimension=*/false,
+          /*is_clustered_blocks=*/false,
+          /*padded_to_size=*/std::nullopt),
+      extents_(extents) {
+  // Extents must be non-null
+  NVF_ERROR(
+      extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
+
+  // Extents must have integer dtype
+  NVF_ERROR_EQ(
+      extents_->dtype(),
+      DataType::Index,
+      "RaggedIterDomain extents must have index type, got ",
+      extents_->dtype());
+
+  // Only IterType::Iteration is supported at this moment
+  NVF_ERROR_EQ(
+      iter_type,
+      IterType::Iteration,
+      "Only IterType::Iteration is supported: ",
+      iter_type);
+}
+
+RaggedIterDomain::RaggedIterDomain(
+    const RaggedIterDomain* src,
+    IrCloner* ir_cloner)
+    : IterDomain(src, ir_cloner), extents_(ir_cloner->clone(src->extents_)) {}
+
+NVFUSER_DEFINE_CLONE(RaggedIterDomain)
+
+bool RaggedIterDomain::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+
+  if (!other->isA<RaggedIterDomain>()) {
+    return false;
+  }
+
+  auto other_ragged = other->as<RaggedIterDomain>();
+
+  // Compare parent IterDomain properties
+  if (!IterDomain::sameAs(other)) {
+    return false;
+  }
+
+  // Compare extents tensor
+  return extents_->sameAs(other_ragged->extents_);
+}
+
+std::string RaggedIterDomain::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getIterType();
+  ss << getParallelType();
+  ss << name();
+  ss << "Ragged{";
+  ss << "extents=" << extents_->toInlineString();
+  ss << "}";
+  return ss.str();
+}
+
+std::string RaggedIterDomain::toString(int indent_size) const {
+  return toInlineString(indent_size);
+}
 
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,

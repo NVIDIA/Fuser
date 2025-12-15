@@ -14,6 +14,7 @@
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
+#include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 
@@ -222,37 +223,22 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->lparams.bindUnsafe(bdimy, ParallelType::TIDy);
 
   // ========== Step 5: Determine Vectorization Factor ==========
-  // This is a heuristic parameter for output stores. We have flexibility in
-  // how outputs are written:
-  // - Vectorized store: Use vectorization for efficient memory writes
-  // - TMA store: Use TMA instructions for output writes
-  // - Hybrid: Different outputs can use different methods (e.g., one output
-  //   uses TMA store while another uses vectorized store)
-  //
-  // Note: tma_tile_inner is already selected to be a multiple of 16 bytes,
-  // so no further analysis is needed for memory alignment.
-  //
-  // Strategy: Start from 1, grow by powers of 2 until reaching vect_factor_max
-  // vect_factor_max is constrained by:
-  // 1. Hardware limit: max_vectorization_size_in_bit (128 bits)
-  // 2. Ensure each thread handles at least one element (tma_tile_inner / bdimx)
-  // 3. Ensure divisibility: tma_tile_inner is scheduled as
-  //    [tma_tile_inner/vect/bdimx, bdimx, vect]
-  int64_t vectorization_factor = 1;
-  constexpr int64_t max_vectorization_size_in_bit = 128;
-  int64_t vect_factor_max = std::min(
-      max_vectorization_size_in_bit / prop.max_dtype_size_bit_for_vectorization,
-      tma_tile_inner / bdimx);
-
-  // Conservatively set max vectorization factor to 1 before adding analsysis
-  // considering reshape operations.
-  vect_factor_max = std::min((int64_t)1, vect_factor_max);
-
-  while (vectorization_factor * 2 <= vect_factor_max &&
-         tma_tile_inner % (vectorization_factor * 2) == 0) {
-    vectorization_factor *= 2;
-  }
-  params->vectorization_factor = vectorization_factor;
+  // Don't limit vectorization factor by number of IO tensors or wave count
+  // since some of inputs are TMA-loaded which uses shared memory instead of
+  // registers.
+  params->vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      prop.largest_out,
+      data_cache,
+      bp_info.break_point,
+      /*max_vectorization_size_in_bit=*/128,
+      prop.min_dtype_size_bit_for_vectorization,
+      prop.max_dtype_size_bit_for_vectorization,
+      /*n_vectorizable_tensors=*/-1,
+      /*n_waves=*/-1,
+      /*logical_reorder_map=*/
+      pointwise_utils::getLogicalReorderMap(
+          prop.largest_out, prop.has_reshapes, data_cache));
 
   // TMA store
   params->use_tma_store = false;
@@ -288,8 +274,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << prop.max_dtype_size_bit_for_vectorization << "\n";
     debug() << "  min_dtype_size_bit: "
             << prop.min_dtype_size_bit_for_vectorization << "\n";
-    debug() << "  max_vectorization_size_in_bit: "
-            << max_vectorization_size_in_bit << "\n";
     debug() << "  vectorization_factor: " << params->vectorization_factor
             << "\n";
     debug() << "============================================\n" << std::endl;

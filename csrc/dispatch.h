@@ -61,6 +61,7 @@ class Val;
 
 #define DISPATCH_FOR_ALL_VALS(f) \
   f(IterDomain);                 \
+  f(RaggedIterDomain);           \
   f(TensorDomain);               \
   f(TensorView);                 \
   f(NamedScalar);

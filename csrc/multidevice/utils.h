@@ -9,8 +9,8 @@
 
 #include <iosfwd>
 
-#include <fusion.h>
-#include <ir/interface_nodes.h>
+#include "fusion.h"
+#include "ir/interface_nodes.h"
 
 namespace nvfuser {
 
