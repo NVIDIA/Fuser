@@ -2744,7 +2744,7 @@ def test_broadcast_in_dim_no_redundant_set(nvfuser_direct_test):
     assert str(fd_bid) == str(fd_exp)
 
 
-def test_expanded_to_size_one():
+def test_expanded_to_size_one(nvfuser_direct_test):
     """
     Test expanded to size one, which was failing a false positive assert
     """
