@@ -1291,6 +1291,8 @@ TensorView* asNested(
     root_domain.push_back(id->cloneWithoutRFactor());
   }
 
+  ragged_dim = wrapDim(ragged_dim, std::ssize(inp_logical));
+
   // Partition the specified dimension in root domain
   // This replaces one IterDomain with (component_id, ragged_id)
   auto [component_id, ragged_id] =
