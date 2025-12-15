@@ -814,6 +814,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/heuristic_params.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/internal_ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/lru_cache.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
@@ -996,6 +997,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_ragged_iter_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp

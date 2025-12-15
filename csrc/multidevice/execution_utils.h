@@ -12,11 +12,11 @@
 #include <ATen/core/Tensor.h>
 #include <c10/util/ArrayRef.h>
 
-#include <fusion.h>
-#include <ir/interface_nodes.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/multidevice.h>
-#include <visibility.h>
+#include "fusion.h"
+#include "ir/interface_nodes.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/multidevice.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
