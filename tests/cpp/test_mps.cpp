@@ -20,10 +20,9 @@
 // fusion and scheduling logic, while still enabling important experiments:
 //
 //   - Understanding performance scaling with SM count
-//   - Simulating smaller GPUs
-//   - Research into SM allocation strategies
+//   - Simulating gpus with higher bandwidth per SM
 //
-// Setup: Starting MPS
+// Setup: Starting MPS, see tools/start_mps.sh
 // -------------------
 // MPS must be running with per-context SM partitioning enabled:
 //
@@ -33,60 +32,17 @@
 //   mkdir -p /tmp/nvidia-mps
 //   nvidia-cuda-mps-control -d
 //
-// To stop MPS:
-//   echo quit | nvidia-cuda-mps-control
+// To stop MPS, see tools/start_mps.sh
+//   ./tools/start_mps.sh stop
 //
-// Usage in Tests/Benchmarks:
-// --------------------------
-//   MPSContextManager ctx;
-//   if (ctx.initialize(8)) {  // Limit to 8 SMs and set as current context
-//     // Create tensors (PyTorch may switch contexts here)
-//     auto t0 = at::randn({1024, 1024}, options);
-//
-//     // Re-activate our context before fusion execution
-//     ctx.makeContextCurrent();
-//
-//     // Run fusion - will use our 8 SMs
-//     fec.runFusionWithInputs({t0});
-//   }
-//
-// IMPORTANT - Context Management:
-// -------------------------------
-// PyTorch tensor operations (at::randn, at::zeros, etc.) may create/switch to
-// PyTorch's primary context. Best practice:
-//   1. Initialize MPSContextManager first (creates SM-limited context)
-//   2. Create tensors (PyTorch may switch context)
-//   3. Call makeContextCurrent() before fusion execution
-//   4. Fusion kernels will run with SM limit
-//
-// See runPointwiseFusion() for example pattern.
-//
-// Example Benchmark Script:
-// -------------------------
-//   #!/bin/bash
-//   for sm_count in 8 16 32 64 128; do
-//     echo "=== Testing with $sm_count SMs ==="
-//     MPS_SM_COUNT=$sm_count ./test_mps --gtest_filter=*PointwiseWithUtility
-//   done
-//
-// Requirements:
-// -------------
-//   1. Volta+ GPU (compute capability >= 7.0)
-//   2. CUDA 12.5+ (for cuCtxCreate with execution affinity)
-//   3. MPS running with
-//   CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1
-//   4. **CRITICAL**: Initialize MPSContextManager BEFORE any CUDA/PyTorch
-//   operations
-//      - Before at::randn, at::zeros, etc.
-//      - Before any tensor allocations
-//      - Otherwise PyTorch will create its own context first
-//
+
 #include <cstdlib>
 #include <iostream>
 
 #include <gtest/gtest.h>
 
 #include <cuda.h>
+#include <cuda_utils.h>
 #include <driver_api.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
@@ -120,37 +76,27 @@ class MPSContextManager {
     // Check if MPS is running
     int ret = system("pgrep -x nvidia-cuda-mps > /dev/null 2>&1");
     if (ret != 0) {
-      std::cerr << "MPS not running. See file header for setup instructions."
-                << std::endl;
+      std::cerr
+          << "MPS not running. See tools/start_mps.sh for setup instructions."
+          << std::endl;
       return false;
     }
 
     // Initialize CUDA driver API
-    CUresult status = cuInit(0);
-    if (status != CUDA_SUCCESS) {
-      std::cerr << "Failed to initialize CUDA driver API" << std::endl;
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuInit(0));
 
-    // Get current device
+    // Use device 0 in Driver API enumeration
+    // Note: cuDeviceGet uses Driver API device ordinals, which respect
+    // CUDA_VISIBLE_DEVICES. So device 0 here is the first visible device.
     int device_id = 0;
-    cudaGetDevice(&device_id);
 
     CUdevice dev;
-    status = cuDeviceGet(&dev, device_id);
-    if (status != CUDA_SUCCESS) {
-      std::cerr << "Failed to get CUDA device" << std::endl;
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGet(&dev, device_id));
 
     // Query total SM count
     int total_sms = 0;
-    status = cuDeviceGetAttribute(
-        &total_sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev);
-    if (status != CUDA_SUCCESS) {
-      std::cerr << "Failed to query SM count" << std::endl;
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &total_sms, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev));
 
     if (num_sms > total_sms) {
       std::cerr << "Requested " << num_sms << " SMs but GPU only has "
@@ -160,8 +106,8 @@ class MPSContextManager {
 
     // Check if context already exists
     CUcontext existing_ctx = nullptr;
-    status = cuCtxGetCurrent(&existing_ctx);
-    if (status == CUDA_SUCCESS && existing_ctx != nullptr) {
+    NVFUSER_CUDA_SAFE_CALL(cuCtxGetCurrent(&existing_ctx));
+    if (existing_ctx != nullptr) {
       std::cerr << "CUDA context already exists. MPSContextManager must be "
                 << "initialized before any CUDA operations." << std::endl;
       return false;
@@ -178,21 +124,7 @@ class MPSContextManager {
     ctx_params.numExecAffinityParams = 1;
 
     // Create context with SM affinity
-    status = cuCtxCreate(&sm_limited_ctx_, &ctx_params, 0, dev);
-
-    if (status != CUDA_SUCCESS) {
-      const char* err_name = "UNKNOWN";
-      const char* err_string = "UNKNOWN";
-      cuGetErrorName(status, &err_name);
-      cuGetErrorString(status, &err_string);
-      std::cerr
-          << "Failed to create SM-limited context: " << err_name << " - "
-          << err_string << "\n"
-          << "Ensure MPS is running with: "
-          << "CUDA_MPS_ENABLE_PER_CTX_DEVICE_MULTIPROCESSOR_PARTITIONING=1"
-          << std::endl;
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuCtxCreate(&sm_limited_ctx_, &ctx_params, 0, dev));
 
     sm_count_ = num_sms;
     total_sms_ = total_sms;
@@ -200,14 +132,7 @@ class MPSContextManager {
 
     // Set our SM-limited context as current
     // This ensures PyTorch operations (tensor allocation, etc.) use our context
-    status = cuCtxSetCurrent(sm_limited_ctx_);
-    if (status != CUDA_SUCCESS) {
-      std::cerr << "Failed to set SM-limited context as current" << std::endl;
-      cuCtxDestroy(sm_limited_ctx_);
-      sm_limited_ctx_ = nullptr;
-      initialized_ = false;
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuCtxSetCurrent(sm_limited_ctx_));
 
     std::cout << "MPSContextManager: Created and activated context with "
               << num_sms << " SMs (out of " << total_sms << " total)"
@@ -223,11 +148,8 @@ class MPSContextManager {
     }
 
     CUexecAffinityParam affinity = {};
-    CUresult res =
-        cuCtxGetExecAffinity(&affinity, CU_EXEC_AFFINITY_TYPE_SM_COUNT);
-    if (res != CUDA_SUCCESS) {
-      return -1;
-    }
+    NVFUSER_CUDA_SAFE_CALL(
+        cuCtxGetExecAffinity(&affinity, CU_EXEC_AFFINITY_TYPE_SM_COUNT));
 
     return affinity.param.smCount.val;
   }
@@ -254,10 +176,7 @@ class MPSContextManager {
     }
 
     CUcontext current_ctx = nullptr;
-    CUresult status = cuCtxGetCurrent(&current_ctx);
-    if (status != CUDA_SUCCESS) {
-      return false;
-    }
+    NVFUSER_CUDA_SAFE_CALL(cuCtxGetCurrent(&current_ctx));
 
     return current_ctx == sm_limited_ctx_;
   }
@@ -268,8 +187,8 @@ class MPSContextManager {
       return false;
     }
 
-    CUresult status = cuCtxSetCurrent(sm_limited_ctx_);
-    return status == CUDA_SUCCESS;
+    NVFUSER_CUDA_SAFE_CALL(cuCtxSetCurrent(sm_limited_ctx_));
+    return true;
   }
 
   // Destructor - synchronize before cleanup
