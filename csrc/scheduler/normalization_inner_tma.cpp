@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 #include <exceptions.h>
 #include <iter_visitor.h>
@@ -146,20 +147,19 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       tv->setMemoryType(MemoryType::Shared);
       tma_tvs.push_back(tv);
       if (!params->vectorize_load_smem_to_regs) {
-          continue;
+        continue;
       }
-        // Create register cache for vectorized smem->reg loads
-        auto regs_cache = tv->cacheAfter();
-        smem2reg_tvs.push_back(regs_cache);
-        // Replicate cache for multiple consumers to avoid conflicts
-        const auto& consumers = ir_utils::consumerTvsOf(regs_cache);
-        for (auto consumer : ir_utils::consumerTvsOf(regs_cache) | std::views::drop(1)) {
-          auto consumer = consumers.at(i);
-          auto cached_tv_replicate = RecomputeTv::recompute(regs_cache, {tv});
-          ir_utils::replaceValInExprInputs(
-              consumer->definition(), regs_cache, cached_tv_replicate);
-          smem2reg_tvs.push_back(cached_tv_replicate);
-        }
+      // Create register cache for vectorized smem->reg loads
+      auto regs_cache = tv->cacheAfter();
+      smem2reg_tvs.push_back(regs_cache);
+      // Replicate cache for multiple consumers to avoid conflicts
+      const auto& consumers = ir_utils::consumerTvsOf(regs_cache);
+      for (auto consumer :
+           ir_utils::consumerTvsOf(regs_cache) | std::views::drop(1)) {
+        auto cached_tv_replicate = RecomputeTv::recompute(regs_cache, {tv});
+        ir_utils::replaceValInExprInputs(
+            consumer->definition(), regs_cache, cached_tv_replicate);
+        smem2reg_tvs.push_back(cached_tv_replicate);
       }
     } else {
       ldg_tvs.push_back(tv);
@@ -237,7 +237,7 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
   // Helper lambda to find the vectorization position (one past TIDx axis)
-  auto get_vect_pos = [](TensorView* tv) {
+  auto get_vect_pos = [](TensorView* tv) -> std::optional<int64_t> {
     auto it = std::find_if(
         tv->domain()->loop().begin(),
         tv->domain()->loop().end(),
@@ -246,16 +246,16 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
         });
 
     if (it == tv->domain()->loop().end()) {
-      return -1;
+      return std::nullopt;
     }
-    return std::distance(tv->domain()->loop().begin(), it) + 1;
+    return (int64_t)std::distance(tv->domain()->loop().begin(), it) + 1;
   };
 
   // Apply vectorization to non-TMA global loads
   for (auto tv : ldg_tvs) {
     auto vect_pos = get_vect_pos(tv);
-    if (vect_pos > 0) {
-      tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    if (vect_pos.has_value()) {
+      tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
     }
   }
 
@@ -263,8 +263,8 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   for (auto [_, output_idx] : cached_outputs) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     auto vect_pos = get_vect_pos(output);
-    if (vect_pos > 0) {
-      output->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+    if (vect_pos.has_value()) {
+      output->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
     }
   }
 
@@ -272,8 +272,8 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   if (params->vectorize_load_smem_to_regs) {
     for (auto tv : smem2reg_tvs) {
       auto vect_pos = get_vect_pos(tv);
-      if (vect_pos > 0) {
-        tv->axis(vect_pos)->parallelize(ParallelType::Vectorize);
+      if (vect_pos.has_value()) {
+        tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
       }
     }
   }
