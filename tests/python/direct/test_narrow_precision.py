@@ -442,6 +442,12 @@ def test_scaled_mm_nv_quantized(
         inputs_baseline,
         new_fusion_expected=None,
     )
+    outputs_baseline2 = torch._scaled_mm(
+        mat1_quantized,
+        mat2_quantized.t(),
+        linear_to_swizzled_128_4(mat1_scale_inv),
+        linear_to_swizzled_128_4(mat2_scale_inv),
+        None, None, torch.bfloat16) * alpha
 
     # Validate: nvfuser quantization should match baseline
     abs_diff = torch.abs(outputs[0] - outputs_baseline[0])
@@ -454,6 +460,7 @@ def test_scaled_mm_nv_quantized(
     assert (
         large_diff_ratio < 0.1
     ), f"Large diff ratio {large_diff_ratio:.2%} exceeds 10% threshold"
+    breakpoint()
 
 
 @pytest.mark.skipif(

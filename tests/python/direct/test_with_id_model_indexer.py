@@ -5,6 +5,7 @@
 
 import torch
 
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from nvfuser_direct import (
     FusionDefinition,
     DataType,
@@ -236,7 +237,7 @@ def test_block_quantize_op_and_layout_op(
     # k dimension is multiple of 4 * 16 to avoid padding on block scaling factor
     m, n, k = config
     assert k % 64 == 0
-    tokens_per_expert = tokens_per_expert_neg_one
+    tokens_per_expert = list(tokens_per_expert_neg_one)
     tokens_per_expert.append(m - sum(tokens_per_expert))
     g = len(tokens_per_expert)
 
@@ -311,7 +312,32 @@ def test_block_quantize_op_and_layout_op(
         )
 
         # quantization math with nv_block_quantize op
-        fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(mat1)
+        if True:
+            fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(mat1)
+        else:
+            m_size = m
+            k_size = k
+            k_tile_size = k_size // 16
+            # using primitive operations to handle quantization
+            reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
+
+            # quantization math to compute block scaling factor
+            scale1 = fd.ops.abs(reshaped_mat1)
+            scale1 = fd.ops.max(scale1, 2)
+            scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
+            scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
+            broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
+            reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
+            reshaped_scaled_mat1 = fd.ops.clamp(
+                        reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX
+                        )
+
+            scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
+
+            # cast the quantized tv and block sf to proper dtype
+            fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
+            fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+
         # swizzle & pad block sf
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(
             fp8_scale1, offsets, blockscale_offsets
@@ -389,6 +415,7 @@ def test_block_quantize_op_and_layout_op(
         mat1, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
     )
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
+    o_decomposed_ref2 = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
         l = offsets[i]
         l_sf = blockscale_offsets[i]
@@ -401,11 +428,11 @@ def test_block_quantize_op_and_layout_op(
         # This triggers a cublas invalid value error.
         o_decomposed_ref[l:r] = (
             mm_fd.execute(
-                 mat1_fp4[l:r],
+                 [mat1_fp4[l:r],
                  mat2_scaled[i].transpose(-1, -2),
                  scale1[l_sf:r_sf],
                  scale2[i],
-                 mat2_gs[i])[0]
+                 mat2_gs[i]])[0]
             # torch._scaled_mm(
             #     mat1_fp4[l:r],
             #     mat2_scaled[i].transpose(-1, -2),
@@ -417,7 +444,20 @@ def test_block_quantize_op_and_layout_op(
             # )
             # * mat2_gs[i]
         )
+        o_decomposed_ref2[l:r] = (
+            torch._scaled_mm(
+                mat1_fp4[l:r],
+                mat2_scaled[i].transpose(-1, -2),
+                scale1[l_sf:r_sf],
+                scale2[i],
+                None,
+                None,
+                torch.bfloat16,
+            )
+            * mat2_gs[i]
+        )
 
+    breakpoint()
     torch.testing.assert_close(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
 
 
@@ -441,7 +481,7 @@ def test_quant_layout_op(
     # k dimension is multiple of 4 * 16 to avoid padding on block scaling factor
     m, n, k = config
     assert k % 64 == 0
-    tokens_per_expert = tokens_per_expert_neg_one
+    tokens_per_expert = list(tokens_per_expert_neg_one)
     tokens_per_expert.append(m - sum(tokens_per_expert))
     g = len(tokens_per_expert)
 
@@ -548,7 +588,7 @@ def test_quant_layout_op(
         )
         fd.add_output(fp4_mat1)
         fd.add_output(fp8_scale1)
-        fd.add_output(layout_fp8_scale1)
+        #fd.add_output(layout_fp8_scale1)
 
     def nvfuser_fusion_blockop(fd: FusionDefinition) -> None:
         mat1 = fd.define_tensor(
@@ -591,7 +631,7 @@ def test_quant_layout_op(
         )
         fd.add_output(fp4_mat1)
         fd.add_output(fp8_scale1)
-        fd.add_output(layout_fp8_scale1)
+        #fd.add_output(layout_fp8_scale1)
     
     inputs = [
         mat1,
@@ -611,7 +651,6 @@ def test_quant_layout_op(
     mat1_fp4, scale1 = activation_scale_to_nvfp4(
         mat1, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
     )
-    breakpoint()
     # o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     # for i in range(g):
     #     l = offsets[i]
