@@ -6,8 +6,10 @@
  */
 // clang-format on
 #pragma once
+
 #include <cuda.h>
-#include <multidevice/ipc_handle.h>
+
+#include "multidevice/ipc_handle.h"
 
 namespace nvfuser {
 

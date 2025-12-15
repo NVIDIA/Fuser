@@ -376,7 +376,7 @@ template <typename T>
 size_t hashVector(const std::vector<T>& statements) {
   size_t hash = 0;
   for (const auto& s : statements) {
-    hashCombine(hash, s->hash());
+    hashCombine(hash, (s == nullptr) ? 0 : s->hash());
   }
   return hash;
 }

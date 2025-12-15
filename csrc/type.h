@@ -45,6 +45,7 @@ namespace nvfuser {
 enum class ValType {
   TensorDomain,
   IterDomain,
+  RaggedIterDomain,
   TensorView,
   NamedScalar,
   Predicate,
