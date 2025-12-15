@@ -2033,8 +2033,8 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
-// Without flip grid binding, the grid y dimension is too large, which will
-// cause the kernel to fail to launch.
+// Prefer split grid y dimension instead of flip grid binding for slightly
+// better performance.
 TEST_F(TmaPointwiseTestF, FlipGridBinding) {
   int64_t dim0 = 32768;
   int64_t dim1 = 32768;
@@ -2052,7 +2052,7 @@ TEST_F(TmaPointwiseTestF, FlipGridBinding) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors = executor_cache.runFusionWithInputs({t0});
   EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
-  EXPECT_TRUE(tma_check::flipGridBinding(executor_cache));
+  EXPECT_FALSE(tma_check::flipGridBinding(executor_cache));
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
