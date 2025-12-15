@@ -80,6 +80,7 @@ class IrGraphGenerator : private OptInConstDispatch {
   void handle(const TensorDomain*) override;
   void handle(const TensorView*) override;
   void handle(const IterDomain*) override;
+  void handle(const RaggedIterDomain*) override;
 
   void handle(const Val*) override;
   void handle(const NamedScalar*) override;
