@@ -339,6 +339,43 @@ def test_block_quantize_op_and_layout_op(
         blockscale_offsets,
     ]
 
+    def nvfp4_mm_baseline(fd: FusionDefinition) -> None:
+        """Defines baseline fusion using pre-quantized inputs."""
+        mat1_fp4 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False
+        )
+        mat2_fp4 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=True,
+            dtype=DataType.Float4_e2m1fn,
+            is_cpu=False,
+            stride_order=[0, 1],
+        )
+        scale1 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        scale2 = fd.define_tensor(
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
+        )
+        alpha = fd.define_tensor(
+            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
+        )
+    
+        out, _, _ = fd.ops.scaled_mm(
+            mat1_fp4,
+            mat2_fp4,
+            scale1,
+            scale2,
+            alpha,
+            bias=None,
+            beta=None,
+            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
+        )
+        fd.add_output(out)
+
+    with FusionDefinition() as mm_fd:
+        nvfp4_mm_baseline(mm_fd)
+
     # FIXME: force indexing to use IdModel indexer to avoid indexing error.
     # see issue: https://github.com/NVIDIA/Fuser/issues/5200
     with set_env(NVFUSER_ENABLE="id_model(all)"):
@@ -363,16 +400,22 @@ def test_block_quantize_op_and_layout_op(
         # For some reason I cannot feed mat2_gs[i] as alpha in the torch kernel.
         # This triggers a cublas invalid value error.
         o_decomposed_ref[l:r] = (
-            torch._scaled_mm(
-                mat1_fp4[l:r],
-                mat2_scaled[i].transpose(-1, -2),
-                scale1[l_sf:r_sf],
-                scale2[i],
-                None,
-                None,
-                torch.bfloat16,
-            )
-            * mat2_gs[i]
+            mm_fd.execute(
+                 mat1_fp4[l:r],
+                 mat2_scaled[i].transpose(-1, -2),
+                 scale1[l_sf:r_sf],
+                 scale2[i],
+                 mat2_gs[i])[0]
+            # torch._scaled_mm(
+            #     mat1_fp4[l:r],
+            #     mat2_scaled[i].transpose(-1, -2),
+            #     scale1[l_sf:r_sf],
+            #     scale2[i],
+            #     None,
+            #     None,
+            #     torch.bfloat16,
+            # )
+            # * mat2_gs[i]
         )
 
     torch.testing.assert_close(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
