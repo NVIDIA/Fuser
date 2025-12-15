@@ -145,7 +145,9 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       load_op->setOpType(LoadStoreOpType::CpAsyncBulk);
       tv->setMemoryType(MemoryType::Shared);
       tma_tvs.push_back(tv);
-      if (params->vectorize_load_smem_to_regs) {
+      if (!params->vectorize_load_smem_to_regs) {
+          continue;
+      }
         // Create register cache for vectorized smem->reg loads
         auto regs_cache = tv->cacheAfter();
         smem2reg_tvs.push_back(regs_cache);
