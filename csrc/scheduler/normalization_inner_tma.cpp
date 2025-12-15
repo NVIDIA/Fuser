@@ -153,9 +153,8 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       auto regs_cache = tv->cacheAfter();
       smem2reg_tvs.push_back(regs_cache);
       // Replicate cache for multiple consumers to avoid conflicts
-      const auto& consumers = ir_utils::consumerTvsOf(regs_cache);
       for (auto consumer :
-           ir_utils::consumerTvsOf(regs_cache) | std::views::drop(1)) {
+           consumers | std::views::drop(1)) {
         auto cached_tv_replicate = RecomputeTv::recompute(regs_cache, {tv});
         ir_utils::replaceValInExprInputs(
             consumer->definition(), regs_cache, cached_tv_replicate);
