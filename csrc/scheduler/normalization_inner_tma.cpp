@@ -246,7 +246,7 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
     if (it == tv->domain()->loop().end()) {
       return -1;
     }
-    return int(it - tv->domain()->loop().begin()) + 1;
+    return std::distance(tv->domain()->loop().begin(), it) + 1;
   };
 
   // Apply vectorization to non-TMA global loads
