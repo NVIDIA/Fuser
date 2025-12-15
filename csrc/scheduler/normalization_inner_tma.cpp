@@ -133,7 +133,7 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   std::vector<TensorView*> ldg_tvs, tma_tvs, smem2reg_tvs;
   const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
   for (auto [tv, input_idx] : cached_inputs) {
-    auto input = fusion->inputs()[input_idx]->as<TensorView>();
+    auto input = fusion->inputs().at(input_idx)->as<TensorView>();
     if (!params->tma_load_non_persistent_buffers &&
         !persistent_inputs.contains(input)) {
       // Non-persistent input: use regular global load
