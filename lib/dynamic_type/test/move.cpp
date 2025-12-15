@@ -13,9 +13,9 @@
 
 using namespace dynamic_type;
 
-class DynamicTypeTest : public ::testing::Test {};
+class MoveTest : public ::testing::Test {};
 
-TEST_F(DynamicTypeTest, MoveCtor) {
+TEST_F(MoveTest, MoveCtor) {
   struct NonCopyable {
     NonCopyable() = default;
     NonCopyable(const NonCopyable&) = delete;

@@ -13,12 +13,12 @@
 
 using namespace dynamic_type;
 
-using DoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
+using HashDoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
 
-class DynamicTypeTest : public ::testing::Test {};
+class HashTest : public ::testing::Test {};
 
-TEST_F(DynamicTypeTest, Hash) {
-  static_assert(has_cross_type_equality<DoubleInt64Bool>);
+TEST_F(HashTest, Hash) {
+  static_assert(has_cross_type_equality<HashDoubleInt64Bool>);
   using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
   static_assert(!has_cross_type_equality<IntOrStr>);
   std::unordered_map<IntOrStr, double> m;
@@ -33,21 +33,21 @@ TEST_F(DynamicTypeTest, Hash) {
 }
 
 template <>
-struct std::hash<DoubleInt64Bool> {
-  size_t operator()(const DoubleInt64Bool& x) const {
+struct std::hash<HashDoubleInt64Bool> {
+  size_t operator()(const HashDoubleInt64Bool& x) const {
     return 0;
   }
 };
 
-TEST_F(DynamicTypeTest, Hash2) {
-  std::unordered_map<DoubleInt64Bool, double> m;
-  m[DoubleInt64Bool(false)] = 0;
-  m[DoubleInt64Bool(299792458L)] = 299792458;
-  m[DoubleInt64Bool(3.14159)] = 3.14159;
-  EXPECT_EQ(m.at(DoubleInt64Bool(false)), 0);
-  EXPECT_EQ(m.at(DoubleInt64Bool(0L)), 0);
-  EXPECT_EQ(m.at(DoubleInt64Bool(0.0)), 0);
-  EXPECT_EQ(m.at(DoubleInt64Bool(299792458L)), 299792458);
-  EXPECT_EQ(m.at(DoubleInt64Bool(299792458.0)), 299792458);
-  EXPECT_EQ(m.at(DoubleInt64Bool(3.14159)), 3.14159);
+TEST_F(HashTest, Hash2) {
+  std::unordered_map<HashDoubleInt64Bool, double> m;
+  m[HashDoubleInt64Bool(false)] = 0;
+  m[HashDoubleInt64Bool(299792458L)] = 299792458;
+  m[HashDoubleInt64Bool(3.14159)] = 3.14159;
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(false)), 0);
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(0L)), 0);
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(0.0)), 0);
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(299792458L)), 299792458);
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(299792458.0)), 299792458);
+  EXPECT_EQ(m.at(HashDoubleInt64Bool(3.14159)), 3.14159);
 }

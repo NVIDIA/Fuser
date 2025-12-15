@@ -14,6 +14,12 @@ set(CMAKE_INSTALL_MESSAGE LAZY)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# EXPERIMENTAL: Enable unity builds globally to reduce clean build time
+# Unity builds combine multiple .cpp files, reducing redundant header parsing
+# Note: Third-party libraries (flatbuffers, benchmark) are excluded below
+set(CMAKE_UNITY_BUILD ON)
+set(CMAKE_UNITY_BUILD_BATCH_SIZE 12)
+
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
@@ -102,7 +108,19 @@ set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
 # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
+# Disable unity builds for third-party flatbuffers (has static function naming conflicts)
+set_target_properties(flatbuffers PROPERTIES UNITY_BUILD OFF)
+set_target_properties(flatc PROPERTIES UNITY_BUILD OFF)
 include(cmake/Dependencies.cmake)
+# Disable unity builds for other third-party libraries
+set_target_properties(gtest PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gtest_main PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gmock PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gmock_main PROPERTIES UNITY_BUILD OFF)
+if(TARGET benchmark)
+  set_target_properties(benchmark PROPERTIES UNITY_BUILD OFF)
+  set_target_properties(benchmark_main PROPERTIES UNITY_BUILD OFF)
+endif()
 
 # set CUDA_ARCH for cu tests.
 if(TORCH_CUDA_ARCH_LIST)
@@ -1178,6 +1196,7 @@ endfunction()
 if(BUILD_TEST)
   set(TEST_BINARIES)
   add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  # Unity build settings inherited from global CMAKE_UNITY_BUILD
   list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})

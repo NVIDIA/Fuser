@@ -15,94 +15,94 @@
 
 using namespace dynamic_type;
 
-class DynamicTypeTest : public ::testing::Test {};
+class MemberTest : public ::testing::Test {};
 
-struct A {
+struct MemberA {
   int x;
   int y;
 };
-struct B {
+struct MemberB {
   int x;
   int y;
 };
-struct C {
+struct MemberC {
   int x;
   int y;
 };
-struct D {
+struct MemberD {
   int x;
   int y;
 };
-struct E {
+struct MemberE {
   int x;
   int y;
 };
 
-struct CD {
-  std::variant<C, D> v;
+struct MemberCD {
+  std::variant<MemberC, MemberD> v;
 
-  constexpr const int& operator->*(int C::* member) const {
-    return std::get<C>(v).*member;
+  constexpr const int& operator->*(int MemberC::* member) const {
+    return std::get<MemberC>(v).*member;
   }
 
-  constexpr const int& operator->*(int D::* member) const {
-    return std::get<D>(v).*member;
+  constexpr const int& operator->*(int MemberD::* member) const {
+    return std::get<MemberD>(v).*member;
   }
 
-  constexpr int& operator->*(int C::* member) {
-    return std::get<C>(v).*member;
+  constexpr int& operator->*(int MemberC::* member) {
+    return std::get<MemberC>(v).*member;
   }
 
-  constexpr int& operator->*(int D::* member) {
-    return std::get<D>(v).*member;
+  constexpr int& operator->*(int MemberD::* member) {
+    return std::get<MemberD>(v).*member;
   }
 };
 
-TEST_F(DynamicTypeTest, MemberPointer) {
-  using ABCD = DynamicType<NoContainers, A, B, CD>;
-  constexpr ABCD a = A{1, 2};
-  static_assert(a->*&A::x == 1);
-  static_assert(a->*&A::y == 2);
-  constexpr ABCD b = B{3, 4};
-  static_assert(b->*&B::x == 3);
-  static_assert(b->*&B::y == 4);
-  constexpr ABCD c = CD{C{5, 6}};
+TEST_F(MemberTest, MemberPointer) {
+  using ABCD = DynamicType<NoContainers, MemberA, MemberB, MemberCD>;
+  constexpr ABCD a = MemberA{1, 2};
+  static_assert(a->*&MemberA::x == 1);
+  static_assert(a->*&MemberA::y == 2);
+  constexpr ABCD b = MemberB{3, 4};
+  static_assert(b->*&MemberB::x == 3);
+  static_assert(b->*&MemberB::y == 4);
+  constexpr ABCD c = MemberCD{MemberC{5, 6}};
 #if __cplusplus >= 202002L
-  static_assert(c->*&C::x == 5);
-  static_assert(c->*&C::y == 6);
+  static_assert(c->*&MemberC::x == 5);
+  static_assert(c->*&MemberC::y == 6);
 #else
-  EXPECT_EQ(c->*&C::x, 5);
-  EXPECT_EQ(c->*&C::y, 6);
+  EXPECT_EQ(c->*&MemberC::x, 5);
+  EXPECT_EQ(c->*&MemberC::y, 6);
 #endif
-  constexpr ABCD d = CD{D{7, 8}};
+  constexpr ABCD d = MemberCD{MemberD{7, 8}};
 #if __cplusplus >= 202002L
-  static_assert(d->*&D::x == 7);
-  static_assert(d->*&D::y == 8);
+  static_assert(d->*&MemberD::x == 7);
+  static_assert(d->*&MemberD::y == 8);
 #else
-  EXPECT_EQ(d->*&D::x, 7);
-  EXPECT_EQ(d->*&D::y, 8);
+  EXPECT_EQ(d->*&MemberD::x, 7);
+  EXPECT_EQ(d->*&MemberD::y, 8);
 #endif
-  static_assert(opcheck<ABCD>->*opcheck<int A::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int B::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int C::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int D::*>);
-  static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
+  static_assert(opcheck<ABCD>->*opcheck<int MemberA::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int MemberB::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int MemberC::*>);
+  static_assert(opcheck<ABCD>->*opcheck<int MemberD::*>);
+  static_assert(!(opcheck<ABCD>->*opcheck<int MemberE::*>));
 
   ABCD aa = a;
-  EXPECT_EQ(aa->*&A::x, 1);
-  EXPECT_EQ(aa->*&A::y, 2);
-  aa->*& A::x = 299792458;
-  aa->*& A::y = 314159;
-  EXPECT_EQ(aa->*&A::x, 299792458);
-  EXPECT_EQ(aa->*&A::y, 314159);
+  EXPECT_EQ(aa->*&MemberA::x, 1);
+  EXPECT_EQ(aa->*&MemberA::y, 2);
+  aa->*& MemberA::x = 299792458;
+  aa->*& MemberA::y = 314159;
+  EXPECT_EQ(aa->*&MemberA::x, 299792458);
+  EXPECT_EQ(aa->*&MemberA::y, 314159);
 
   ABCD cc = c;
-  EXPECT_EQ(cc->*&C::x, 5);
-  EXPECT_EQ(cc->*&C::y, 6);
-  cc->*& C::x = 299792458;
-  cc->*& C::y = 314159;
-  EXPECT_EQ(cc->*&C::x, 299792458);
-  EXPECT_EQ(cc->*&C::y, 314159);
+  EXPECT_EQ(cc->*&MemberC::x, 5);
+  EXPECT_EQ(cc->*&MemberC::y, 6);
+  cc->*& MemberC::x = 299792458;
+  cc->*& MemberC::y = 314159;
+  EXPECT_EQ(cc->*&MemberC::x, 299792458);
+  EXPECT_EQ(cc->*&MemberC::y, 314159);
 }
 
 struct F {
@@ -130,8 +130,8 @@ struct F {
 
 struct G : public F {};
 
-TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
-  using EFG = DynamicType<NoContainers, E, F, G>;
+TEST_F(MemberTest, NonMemberPointerArrowStarRef) {
+  using EFG = DynamicType<NoContainers, MemberE, F, G>;
 
   constexpr EFG f = F{1, 2};
 #if __cplusplus >= 202002L
@@ -216,8 +216,8 @@ struct H {
 
 struct I : public H {};
 
-TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
-  using EHI = DynamicType<NoContainers, E, H, I>;
+TEST_F(MemberTest, NonMemberPointerArrowStaAccessor) {
+  using EHI = DynamicType<NoContainers, MemberE, H, I>;
 
   EHI h = H{1, 2};
   EXPECT_EQ(h->*"x", 1);
@@ -239,7 +239,7 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(hh->*"y", 314159);
 }
 
-TEST_F(DynamicTypeTest, MemberFunctions) {
+TEST_F(MemberTest, MemberFunctions) {
   struct J {
     constexpr std::string_view no_qualifiers() {
       return "no qualifiers";
@@ -290,7 +290,7 @@ TEST_F(DynamicTypeTest, MemberFunctions) {
     }
   };
 
-  using EJ = DynamicType<NoContainers, E, J>;
+  using EJ = DynamicType<NoContainers, MemberE, J>;
   constexpr EJ j = J{};
   static_assert((j->*&J::const_qualifiers)() == "const qualifiers");
   static_assert(
@@ -315,7 +315,7 @@ TEST_F(DynamicTypeTest, MemberFunctions) {
   EXPECT_EQ((jj->*&J::noexcept_true_qualifiers)(), "noexcept(true) qualifiers");
 }
 
-TEST_F(DynamicTypeTest, ArrowOp) {
+TEST_F(MemberTest, ArrowOp) {
   int num_dtor_calls = 0;
   struct S {
     int aaa;

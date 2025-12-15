@@ -24,7 +24,7 @@
 
 using namespace nvfuser;
 
-static void setupFusion(Fusion* fusion) {
+static void setupGeluBackwardFusion(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   const float k_079 = 0.79788456;
@@ -77,7 +77,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(t27);
 }
 
-static KernelArgumentHolder setupInputs() {
+static KernelArgumentHolder setupGeluBackwardInputs() {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -96,7 +96,7 @@ static void NvFuserScheduler_GeluBackward_SetupFusion(
     benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
-    setupFusion(&fusion);
+    setupGeluBackwardFusion(&fusion);
   }
 }
 
@@ -111,8 +111,8 @@ static void NvFuserScheduler_GeluBackward_AutoSchedule(
     // Setup (not included in the measurement)
     benchmark_state.PauseTiming();
     Fusion fusion;
-    setupFusion(&fusion);
-    KernelArgumentHolder args = setupInputs();
+    setupGeluBackwardFusion(&fusion);
+    KernelArgumentHolder args = setupGeluBackwardInputs();
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
@@ -130,10 +130,10 @@ static void NvFuserScheduler_GeluBackward_Lower(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupGeluBackwardFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupGeluBackwardInputs();
 
   SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
@@ -151,10 +151,10 @@ static void NvFuserScheduler_GeluBackward_Compile(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupGeluBackwardFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupGeluBackwardInputs();
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
@@ -174,10 +174,10 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupGeluBackwardFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupGeluBackwardInputs();
 
   // outputs
   KernelArgumentHolder outputs;
@@ -207,10 +207,10 @@ static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupGeluBackwardFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupGeluBackwardInputs();
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
@@ -232,10 +232,10 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupGeluBackwardFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupGeluBackwardInputs();
 
   // outputs
   KernelArgumentHolder outputs;

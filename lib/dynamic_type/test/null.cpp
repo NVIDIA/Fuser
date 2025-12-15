@@ -10,9 +10,9 @@
 
 using namespace dynamic_type;
 
-using DoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
+using NullDoubleInt64Bool = DynamicType<NoContainers, double, int64_t, bool>;
 
-constexpr DoubleInt64Bool a, b;
+constexpr NullDoubleInt64Bool a, b;
 static_assert(a.isNull());
 static_assert(!a.hasValue());
 static_assert(b.isNull());
