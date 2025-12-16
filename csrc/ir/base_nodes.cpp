@@ -365,7 +365,7 @@ Expr::Expr(
 Expr* Expr::shallowCopy() const {
   auto result =
       newObjectFunc()(ir_container_, inputs(), outputs(), attributes());
-  if (container()->isA<kir::Kernel>()) {
+  if (container()->fusion() != nullptr && container()->fusion()->isA<kir::Kernel>()) {
     result->predicate_ = predicate_;
     result->write_predicate_ = write_predicate_;
   }
@@ -484,14 +484,16 @@ bool Expr::sameAs(const Statement* other) const {
 
 kir::Predicate* Expr::predicate() const {
   NVF_ERROR(
-      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      container()->fusion() != nullptr &&
+          (container()->fusion()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
   NVF_ERROR(
-      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      container()->fusion() != nullptr &&
+          (container()->fusion()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "Function invalid for fusion.");
   predicate_ = predicate;
 }
@@ -503,12 +505,12 @@ Expr* Expr::withPredicate(kir::Predicate* predicate) {
 }
 
 kir::Predicate* Expr::writePredicate() const {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->fusion() != nullptr && container()->fusion()->isA<kir::Kernel>(), "Function invalid for fusion.");
   return write_predicate_;
 }
 
 void Expr::setWritePredicate(kir::Predicate* write_predicate) {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->fusion() != nullptr && container()->fusion()->isA<kir::Kernel>(), "Function invalid for fusion.");
   write_predicate_ = write_predicate;
 }
 
