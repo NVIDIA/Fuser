@@ -95,6 +95,7 @@ class ExprPasskey {
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  friend class IrContainer;
 
  public:
   Statement() = delete;

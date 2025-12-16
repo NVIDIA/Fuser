@@ -3005,7 +3005,7 @@ CatOp::CatOp(
       passkey.ir_container_ != nullptr,
       "IrContainer must be provided to create a CatOp.");
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
   addOutput(out);

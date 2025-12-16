@@ -111,9 +111,13 @@ void swap(Fusion& a, Fusion& b) noexcept {
   // Update back-references after swapping containers
   if (a.container_) {
     a.container_->setOwningFusion(&a);
+    // Update all statements to point to the swapped container
+    a.container_->updateAllStatementContainerPointers();
   }
   if (b.container_) {
     b.container_->setOwningFusion(&b);
+    // Update all statements to point to the swapped container
+    b.container_->updateAllStatementContainerPointers();
   }
 
   swap(a.inputs_, b.inputs_);
@@ -671,6 +675,14 @@ void Fusion::printTransforms() {
   FusionGuard fg(this);
   IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
+}
+
+void Fusion::registerStmt(Statement* stmt) {
+  if (stmt->isVal()) {
+    registerVal(stmt->asVal());
+  } else {
+    registerExpr(stmt->asExpr());
+  }
 }
 
 void Fusion::registerVal(Val* val) {

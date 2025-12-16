@@ -241,6 +241,20 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   return true;
 }
 
+void IrContainer::updateAllStatementContainerPointers() {
+  // Update all Val pointers
+  for (auto* val : vals_) {
+    // Access the protected ir_container_ member through Statement base class
+    const_cast<Statement*>(static_cast<const Statement*>(val))->ir_container_ =
+        this;
+  }
+  // Update all Expr pointers
+  for (auto* expr : exprs_) {
+    const_cast<Statement*>(static_cast<const Statement*>(expr))->ir_container_ =
+        this;
+  }
+}
+
 // Shortcuts for frequently used vals
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {

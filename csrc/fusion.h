@@ -577,6 +577,10 @@ class NVF_API Fusion : public PolymorphicBase {
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
+  friend class IrBuilder;
+
+  //! Register a statement (Val or Expr) with this fusion
+  virtual void registerStmt(Statement* stmt);
 
   //! Register the Val with this fusion
   virtual void registerVal(Val* val);

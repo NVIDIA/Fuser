@@ -51,6 +51,10 @@ class IrContainer : public PolymorphicBase {
         inContainer(stmt), msg, " it was not found in the active container.");
   }
 
+  //! Update all statements in this container to point to this container
+  //! This is needed after swapping containers between Fusions
+  void updateAllStatementContainerPointers();
+
   //! Return values in insertion order
   const std::deque<Val*> deterministic_vals() const noexcept {
     std::deque<Val*> vals_deque;
