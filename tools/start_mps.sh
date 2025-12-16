@@ -25,4 +25,4 @@ echo "Starting MPS server..."
 nvidia-cuda-mps-control -d
 
 echo "MPS started. Usage:"
-echo "  export NVFUSER_ENABLE=mps_sm_affinity(8)"
+echo "  MPS_SM_COUNT=8 ./test_mps --gtest_filter=*PointwiseWithUtility"
