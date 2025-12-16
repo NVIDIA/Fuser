@@ -17,6 +17,7 @@
 #include <scheduler/vectorize_helper.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include "exceptions.h"
 
 namespace nvfuser {
 namespace pointwise {
@@ -497,6 +498,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   for (auto tv : tma_or_ldg_tvs) {
     int64_t inline_pos = getLastBlockParallelizationAxisPosition(tv);
     NVF_ERROR_LT(inline_pos, tv->nDims());
+    // All domains after inline position must have const extent
+    NVF_ERROR(
+        std::ranges::all_of(
+            tv->getLoopDomain() | std::views::drop(inline_pos),
+            [](const IterDomain* id) { return id->extent()->isConst(); }),
+        "All loop domains after inline position ",
+        inline_pos,
+        " must have constant extent for TensorView ",
+        tv->toString());
     tv->inlineAt(inline_pos);
   }
   // inline other tensors to minimize register pressure
