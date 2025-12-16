@@ -115,25 +115,28 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     int64_t total_threads = bdimx * bdimy * bdimz;
     if (total_threads > 256) {
       int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
+      int64_t computation_threads =
+          total_threads - kWarpSpecializationPaddedThreads;
       ws.num_registers = scheduler_utils::getRegisterSharing(
-          reg_per_thread, bdimx * bdimy, kWarpSpecializationPaddedThreads);
+          reg_per_thread,
+          computation_threads,
+          kWarpSpecializationPaddedThreads);
     }
     CircularBufferOptions circular_buffer_options{
         .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
     params->circular_buffer_options = circular_buffer_options;
+    // Set launch parameters
+    params->lparams = LaunchParams(
+        gdimx,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        bdimx,
+        bdimy,
+        bdimz);
   }
 
   // Set index type
   params->cparams.index_type = prop.index_type;
-
-  // Set launch parameters
-  params->lparams = LaunchParams(
-      gdimx,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      bdimx,
-      bdimy,
-      bdimz);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << prop.toString() << std::endl;
