@@ -38,12 +38,14 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   FusionGuard fg(fusion);
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t warp_size = dev_prop->warpSize;
+  const int64_t sm_count = dev_prop->multiProcessorCount;
   const int64_t max_threads_per_cta = dev_prop->maxThreadsPerBlock;
   auto params = std::make_unique<InnerNormTmaParams>(
       InnerPersistentKernelScheduler::schedulerType());
   params->tag = "Inner Persistent TMA heuristics";
 
   const int64_t total_redu_count = prop.inner_most_dimension_numel;
+  const int64_t total_iter_count = prop.total_iteration_numel;
 
   // Always project persistent buffers to inputs since inputs are cached in
   // shared memory, reducing the size of persistent buffers
@@ -76,17 +78,62 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   }
   params->persistent_batch_size = pbs;
 
+  // set warp specialized circular buffer options
+  // don't use warp specialized if the total iteration count is too small
+  // TODO: heuristic tuning determine when to use warp specialized version
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
+  int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
+  const int64_t n_compute_warp_groups = 2;
+  const int64_t n_rows_per_compute_warp_group = 2;
+  const int64_t iter_limited_stages = total_iter_count /
+      (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
+  const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
+      n_compute_warp_groups * n_rows_per_compute_warp_group;
+  const int64_t smem_limited_stages =
+      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
+  const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
+  if (n_stages >= 2 && bdimx == 128) {
+    gdimx = sm_count;
+    bdimx = 128; // 4 warps per warp group
+    bdimy = n_compute_warp_groups;
+    bdimz = 1; // warp specialized kernel requires static CTA shape
+    params->n_grouped_rows = n_rows_per_compute_warp_group;
+    ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
+    WarpSpecialized ws(ws_pt);
+    if (ws_pt == ParallelType::TIDy) {
+      bdimy += 1;
+      ws.stage_slice_position = 3;
+      // Limitation in grouped reduction runtime function
+      NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
+      NVF_ERROR(
+          params->n_grouped_rows > 1,
+          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
+    } else {
+      bdimx += kWarpSpecializationPaddedThreads;
+    }
+    int64_t total_threads = bdimx * bdimy * bdimz;
+    if (total_threads > 256) {
+      int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
+      ws.num_registers = scheduler_utils::getRegisterSharing(
+          reg_per_thread, bdimx * bdimy, kWarpSpecializationPaddedThreads);
+    }
+    CircularBufferOptions circular_buffer_options{
+        .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
+    params->circular_buffer_options = circular_buffer_options;
+  }
+
   // Set index type
   params->cparams.index_type = prop.index_type;
 
   // Set launch parameters
   params->lparams = LaunchParams(
+      gdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL,
-      LaunchParams::UNINITIALIZED_VAL);
+      bdimx,
+      bdimy,
+      bdimz);
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << prop.toString() << std::endl;
@@ -177,24 +224,55 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // Parallelization strategy:
   //   - axis(0): BIDx - each block handles one or more batch elements
   //   - axis(1): Bulk - TMA asynchronously copies entire reduction dimension
-  int64_t ipos = 0, rpos = 1;
-  if (params->rows_per_block > 1) {
+  int64_t ipos = 0, rpos = 1, tidy_pos = -1, group_pos = -1;
+  if (params->circular_buffer_options.isEnable()) {
+    if (params->n_grouped_rows > 1) {
+      // [I, R] -> [I/Group, Group, R]
+      reduction_tv->split(ipos, params->n_grouped_rows);
+      group_pos = ipos + 1;
+      rpos++;
+    }
+    if (params->lparams.bdimy() > 2) {
+      NVF_ERROR_EQ(
+          std::get<WarpSpecialized>(params->circular_buffer_options.type).on,
+          ParallelType::TIDy);
+      // [I/Group, Group, R] -> [I/Group/TIDy, TIDy, Group, R]
+      reduction_tv->split(ipos, params->lparams.bdimy() - 1);
+      tidy_pos = ipos + 1;
+      rpos++;
+      group_pos++;
+    }
+    if (params->lparams.gdimx() > 1) {
+      // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
+      // Group, R]
+      reduction_tv->split(ipos, params->lparams.gdimx());
+      reduction_tv->axis(ipos + 1)->parallelize(ParallelType::BIDx);
+      rpos++;
+      tidy_pos++;
+      group_pos++;
+    }
+
+  } else if (params->n_grouped_rows > 1) {
     // [I, R] -> [I/TIDy, TIDy, R]
-    reduction_tv->split(ipos, params->rows_per_block);
-    TransformPropagator propagator(reduction_tv);
-    MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+    reduction_tv->split(ipos, params->n_grouped_rows);
     reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
     reduction_tv->axis(ipos + 1)->parallelize(ParallelType::TIDy);
     rpos = ipos + 2;
   } else {
     reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
   }
+  TransformPropagator propagator(reduction_tv);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
   reduction_tv->axis(rpos)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
   // Reset reduction_tv's reduction axis back to Serial (only TMA loads use
   // Bulk)
   reduction_tv->axis(rpos)->parallelize(ParallelType::Serial);
-
+  // For TMA tvs, we use serial to use 1 producer to serve all consumers
+  // parallelized by TIDy
+  if (tidy_pos > 0) {
+    reduction_tv->axis(tidy_pos)->parallelize(ParallelType::TIDy);
+  }
   // Transform reduction domain for efficient computation:
   //   [I, R] -> [I, b, us, x, v]
   // Where:
@@ -236,6 +314,18 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
         ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   }
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+  if (params->circular_buffer_options.isEnable()) {
+    if (group_pos > 0) {
+      for (auto reduction_tv : reduction_tvs) {
+        reduction_tv->axis(group_pos)->parallelize(ParallelType::Group);
+      }
+    }
+  } else {
+    NVF_CHECK_EQ(
+        group_pos,
+        -1,
+        "Grouped reduction is only supported in warp specialized mode");
+  }
 
   // Helper lambda to find the vectorization position (one past TIDx axis)
   auto get_vect_pos = [](TensorView* tv) -> std::optional<int64_t> {
@@ -290,9 +380,56 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   if (params->pre_load_ldg_tvs) {
     exclude_tvs.insert(ldg_tvs.begin(), ldg_tvs.end());
   }
+  if (params->circular_buffer_options.isEnable()) {
+    // when warp specialized, the iteration domain of tma tv is scheduled as:
+    // 1. GridStrideLoop
+    // 2. BIDx
+    // 3. Serial (Compute Warp Groups, TIDy in compute warp groups)
+    // 4. Serial (Multiple TMAs share one mbarrier, serial or grouped reduction
+    //            in compuate warp groups)
+    constexpr int64_t pos_after_bidx = 2;
+    for (auto tv : tma_tvs) {
+      inlineSelectedAt({tv}, tv, pos_after_bidx);
+      exclude_tvs.insert(tv);
+    }
+
+    // Happens in layer norm where the result of the 1st reduction is used by
+    // the 2nd reduction. Since each reduction is grouped in its iteration
+    // dimension we can't inline deeper than the group position.
+    if (group_pos > 0 && reduction_tvs.size() > 1) {
+      for (auto tv1 : reduction_tvs) {
+        for (auto tv2 : reduction_tvs) {
+          if (tv1 == tv2) {
+            continue;
+          }
+          auto all_vals = DependencyCheck::getAllValsBetween({tv1}, {tv2});
+          auto gp_tvs = ir_utils::filterByType<TensorView>(all_vals);
+          for (auto gp_tv : gp_tvs) {
+            if (gp_tv->hasBroadcast() && !exclude_tvs.contains(gp_tv)) {
+              inlineSelectedAt({gp_tv}, gp_tv, group_pos);
+              exclude_tvs.insert(gp_tv);
+            }
+          }
+        }
+      }
+    }
+  }
   std::vector<TensorView*> inline_most_tvs =
       ir_utils::allTvsExcept(fusion, exclude_tvs);
   inlineMost(inline_most_tvs);
+
+  if (params->circular_buffer_options.isEnable()) {
+    int64_t number_of_stages = params->circular_buffer_options.stage;
+    int64_t prefetch_distance = params->circular_buffer_options.prefetch;
+    CircularBufferType circular_buffer_type =
+        params->circular_buffer_options.type;
+    for (auto tv : tma_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }
 
   // Refine cache policies for optimal memory hierarchy usage
   refineCachePolicy(fusion);
