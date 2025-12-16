@@ -756,28 +756,9 @@ def test_block_quantize_op_and_layout_op(
             shape=[-1], contiguity=True, dtype=DataType.Int32, is_cpu=False
         )
 
+        # Note: the decomposed quantization seems to give much better numerics.
         # quantization math with nv_block_quantize op
         fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(mat1)
-        # # Note: the decomposed quantization seems to give much better numerics.
-        # m_size = m
-        # k_size = k
-        # k_tile_size = k_size // 16
-        # # using primitive operations to handle quantization
-        # reshaped_mat1 = fd.ops.reshape(mat1, [m_size, k_tile_size, 16])
-        # # quantization math to compute block scaling factor
-        # scale1 = fd.ops.abs(reshaped_mat1)
-        # scale1 = fd.ops.max(scale1, 2)
-        # scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
-        # scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
-        # broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
-        # reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
-        # reshaped_scaled_mat1 = fd.ops.clamp(
-        #             reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX
-        #             )
-        # scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
-        # # cast the quantized tv and block sf to proper dtype
-        # fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
-        # fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
 
         # swizzle & pad block sf
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(
@@ -806,48 +787,7 @@ def test_block_quantize_op_and_layout_op(
         blockscale_offsets,
     ]
 
-    def nvfp4_mm_baseline(fd: FusionDefinition) -> None:
-        """Defines baseline fusion using pre-quantized inputs."""
-        mat1_fp4 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float4_e2m1fn, is_cpu=False
-        )
-        mat2_fp4 = fd.define_tensor(
-            shape=[-1, -1],
-            contiguity=True,
-            dtype=DataType.Float4_e2m1fn,
-            is_cpu=False,
-            stride_order=[0, 1],
-        )
-        scale1 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
-        )
-        scale2 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.Float8_e4m3fn, is_cpu=False
-        )
-        alpha = fd.define_tensor(
-            shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
-        )
-
-        out, _, _ = fd.ops.scaled_mm(
-            mat1_fp4,
-            mat2_fp4,
-            scale1,
-            scale2,
-            alpha,
-            bias=None,
-            beta=None,
-            dtype=torch_dtype_to_nvfuser_dtype(out_dtype),
-        )
-        fd.add_output(out)
-
-    with FusionDefinition() as mm_fd:
-        nvfp4_mm_baseline(mm_fd)
-
-    # FIXME: force indexing to use IdModel indexer to avoid indexing error.
-    # see issue: https://github.com/NVIDIA/Fuser/issues/5200
-    with set_env(NVFUSER_ENABLE="id_model(all)"):
-        o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
-
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
     # quantization for activation is needed for reference.
     # note: following sglang implementation, not computing global scaling factor for mat1
     #       similarly, we don't need to apply mat1_gs to alpha
@@ -856,7 +796,6 @@ def test_block_quantize_op_and_layout_op(
         mat1, mat1_gs, offsets, blockscale_offsets, BLOCK_SIZE
     )
     o_decomposed_ref = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
-    o_decomposed_ref2 = torch.empty(m, n, dtype=torch.bfloat16, device="cuda:0")
     for i in range(g):
         l = offsets[i]
         l_sf = blockscale_offsets[i]
@@ -868,24 +807,6 @@ def test_block_quantize_op_and_layout_op(
         # For some reason I cannot feed mat2_gs[i] as alpha in the torch kernel.
         # This triggers a cublas invalid value error.
         o_decomposed_ref[l:r] = (
-            mm_fd.execute(
-                 [mat1_fp4[l:r],
-                 mat2_scaled[i].transpose(-1, -2),
-                 scale1[l_sf:r_sf],
-                 scale2[i],
-                 mat2_gs[i]])[0]
-            # torch._scaled_mm(
-            #     mat1_fp4[l:r],
-            #     mat2_scaled[i].transpose(-1, -2),
-            #     scale1[l_sf:r_sf],
-            #     scale2[i],
-            #     None,
-            #     None,
-            #     torch.bfloat16,
-            # )
-            # * mat2_gs[i]
-        )
-        o_decomposed_ref2[l:r] = (
             torch._scaled_mm(
                 mat1_fp4[l:r],
                 mat2_scaled[i].transpose(-1, -2),
@@ -898,10 +819,8 @@ def test_block_quantize_op_and_layout_op(
             * mat2_gs[i]
         )
 
-    breakpoint()
-    # torch.testing.assert_close(o_decomposed_ref, o[0], atol=1e-2, rtol=1e-2)
     # Validate: nvfuser quantization should match baseline
-    abs_diff = torch.abs(o[0] - o_decomposed_ref2)
+    abs_diff = torch.abs(o[0] - o_decomposed_ref)
     max_diff = torch.max(abs_diff)
     assert max_diff <= 10.0, f"Max difference {max_diff:.4f} exceeds threshold of 10.0"
     
