@@ -51,7 +51,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     ke->compile(&fusion, {in_tensor});
     hic->addKernelExecutor(std::move(ke));
 
-    IrCloner ir_cloner(hic.get());
+    IrCloner ir_cloner(hic->container());
     Val* in = ir_cloner.clone(fusion.inputs().at(0));
     Val* out = ir_cloner.clone(fusion.outputs().at(0));
 
@@ -176,7 +176,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   auto hic = std::make_unique<HostIrContainer>();
   {
     FusionGuard fg(hic.get());
-    IrCloner ir_cloner(hic.get());
+    IrCloner ir_cloner(hic->container());
     auto* in = ir_cloner.clone(fusion.inputs().at(0))->as<TensorView>();
     auto* out = ir_cloner.clone(fusion.outputs().at(0))->as<TensorView>();
     hic->addInput(in);

@@ -77,7 +77,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto hu = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   auto tv0 = ir_cloner.clone(
       hu->fusion_to_execute()->inputs().at(0)->as<TensorView>());
   auto tv1 = ir_cloner.clone(
@@ -173,7 +173,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   auto hu = IrBuilder::create<HostUnit>(std::move(fusion));
 
   // [Step 4)] Create TensorViews at the Host level
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   auto tv0 = ir_cloner.clone(
       hu->fusion_to_execute()->inputs().at(0)->as<TensorView>());
   auto tv1 = ir_cloner.clone(

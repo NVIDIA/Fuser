@@ -285,7 +285,7 @@ TEST_F(HostIrJitTest, LaunchKernel) {
 
   hic->addKernelExecutor(std::move(ke));
 
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   auto hic_in = ir_cloner.clone(in);
   auto hic_out = ir_cloner.clone(out);
 
