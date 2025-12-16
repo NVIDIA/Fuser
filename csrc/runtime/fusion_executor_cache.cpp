@@ -31,6 +31,8 @@
 #include <scheduler/registry.h>
 #include <utils.h>
 
+#include <iostream>
+
 namespace nvfuser {
 
 FusionExecutorCache::FusionExecutorCache(
@@ -48,6 +50,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
+  std::cout << "FusionExecutorCache::runFusionWithInputs" << std::endl;
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
   if (isProfilerEnabled()) {
@@ -407,6 +410,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
 void FusionExecutorCache::deserialize(
     const serde::FusionExecutorCache* buffer,
     int64_t fusion_id) {
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - START for fusion_id " << fusion_id << std::endl;
   // See definitions in serde/fusion_cache.fbs for tables
   // FusionExecutorCache and KernelRuntimes
 
@@ -417,14 +421,20 @@ void FusionExecutorCache::deserialize(
 
   fusion_id_ = buffer->fusion_id();
 
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Deserializing inputs_id_lookup" << std::endl;
   inputs_id_lookup_.deserialize(buffer->inputs_cache());
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - inputs_id_lookup deserialized" << std::endl;
 
   // For the id_to_kernel_runtime_ cache, we need a flat collection of all
   // FusionKernelRuntime objects.
   std::vector<FusionKernelRuntime*> all_runtimes;
 
   // 1. Deserialize kernel_runtimes_ unordered_map
+  size_t num_device_runtimes = buffer->kernel_runtimes_map()->size();
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Deserializing " << num_device_runtimes << " device runtime(s)" << std::endl;
+  size_t device_runtime_idx = 0;
   for (auto fb_device_runtimes : *buffer->kernel_runtimes_map()) {
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Processing device runtime " << device_runtime_idx << "/" << num_device_runtimes << std::endl;
     const auto& initial_info = initialInfo();
     NVF_ERROR(
         initial_info.isDynamic() ==
@@ -454,29 +464,64 @@ void FusionExecutorCache::deserialize(
       deterministic_conc_info_.emplace_back(config);
     }
 
+    size_t num_kernel_runtimes = fb_device_runtimes->runtimes()->size();
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Device runtime has " << num_kernel_runtimes << " kernel runtime(s)" << std::endl;
+    size_t kernel_runtime_idx = 0;
     for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - ===== Processing kernel runtime " << kernel_runtime_idx << "/" << num_kernel_runtimes << " =====" << std::endl;
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 1: Creating conc_fusion (copying fusion_)" << std::endl;
+      std::cout.flush();
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 1: conc_fusion created successfully" << std::endl;
+      std::cout.flush();
+      
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 2: Creating FusionGuard" << std::endl;
+      std::cout.flush();
       FusionGuard fg(conc_fusion.get());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 2: FusionGuard created successfully" << std::endl;
+      std::cout.flush();
 
       // Concretize original unscheduled fusion_ for this kernel runtime
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3: Checking if dynamic (isDynamic=" << initial_info.isDynamic() << ")" << std::endl;
+      std::cout.flush();
       if (initial_info.isDynamic()) {
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3a: Getting managed DynamicTransformInitialInfo" << std::endl;
+        std::cout.flush();
         const auto& conc_initial_info =
             conc_fusion->getManaged<DynamicTransformInitialInfo>(
                 "initial_info");
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3b: Got initial_info, checking conc_info" << std::endl;
+        std::cout.flush();
         NVF_ERROR(conc_info != nullptr);
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3c: Setting initial info on conc_info" << std::endl;
+        std::cout.flush();
         conc_info->setInitialInfo(&conc_initial_info);
 
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3d: Calling DynamicTransform::concretizeFusion" << std::endl;
+        std::cout.flush();
         DynamicTransform::concretizeFusion(conc_fusion.get(), conc_info);
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3e: concretizeFusion completed, stopping management of initial_info" << std::endl;
+        std::cout.flush();
         // Initial info is used during concretization and is owned by
         // conc_fusion. After concretization, we stop managing it so that we
         // won't keep cloning it for every subsequent Fusion copy.
         conc_fusion->stopManaging("initial_info");
+        std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 3f: Stopped managing initial_info" << std::endl;
+        std::cout.flush();
       }
 
       // 1. Deserialize arguments for this FusionKernelRuntime
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 4: Creating KernelArgumentHolder" << std::endl;
+      std::cout.flush();
       KernelArgumentHolder args;
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 4a: Deserializing args from fb_fusion_kernel_runtime" << std::endl;
+      std::cout.flush();
       args.deserialize(fb_fusion_kernel_runtime->args());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 4b: Args deserialized, device_index=" << (int)args.getDeviceIndex() << std::endl;
+      std::cout.flush();
 
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 4c: Verifying device ID match" << std::endl;
+      std::cout.flush();
       NVF_ERROR(
           (int8_t)fb_device_runtimes->device_id() == args.getDeviceIndex(),
           "Expected serde FusionKernelRuntime device_id ",
@@ -484,8 +529,12 @@ void FusionExecutorCache::deserialize(
           " to match KernelArgumentHolder metadata device id ",
           ((int64_t)args.getDeviceIndex()),
           ".");
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 4d: Device ID verified successfully" << std::endl;
+      std::cout.flush();
 
       // 2. Construct new FusionKernelRuntime
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 5: Constructing FusionKernelRuntime (emplace_back)" << std::endl;
+      std::cout.flush();
       device_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
           std::move(conc_fusion),
           args,
@@ -494,22 +543,38 @@ void FusionExecutorCache::deserialize(
           fusion_id_,
           fb_device_runtimes->concrete_id(),
           device_runtimes.size()));
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 5a: FusionKernelRuntime constructed, size=" << device_runtimes.size() << std::endl;
+      std::cout.flush();
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the KernelExecutor objects.
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 6: Calling FusionKernelRuntime::deserialize()" << std::endl;
+      std::cout.flush();
       device_runtimes.back()->deserialize(
           fb_fusion_kernel_runtime, args.getDeviceIndex());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 6a: FusionKernelRuntime::deserialize() completed" << std::endl;
+      std::cout.flush();
 
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 7: Adding to all_runtimes" << std::endl;
+      std::cout.flush();
       all_runtimes.emplace_back(device_runtimes.back().get());
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - STEP 7a: Added to all_runtimes, total=" << all_runtimes.size() << std::endl;
+      std::cout << "[DEBUG] FusionExecutorCache::deserialize() - ===== Finished kernel runtime " << kernel_runtime_idx << "/" << num_kernel_runtimes << " =====" << std::endl;
+      std::cout.flush();
+      kernel_runtime_idx++;
     }
+    std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Finished device runtime " << device_runtime_idx << "/" << num_device_runtimes << std::endl;
+    device_runtime_idx++;
   }
 
   // 2. Rebuild input id to kernel cache
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - Rebuilding kernel cache" << std::endl;
   for (auto idx : arange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
   }
+  std::cout << "[DEBUG] FusionExecutorCache::deserialize() - COMPLETED for fusion_id " << fusion_id << std::endl;
 }
 
 void FusionExecutorCache::evictCache(size_t cache_id) {

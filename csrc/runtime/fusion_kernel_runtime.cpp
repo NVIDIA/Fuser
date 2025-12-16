@@ -71,43 +71,86 @@ FusionKernelRuntime::FusionKernelRuntime(
       concrete_id_{concrete_id},
       runtime_id_{runtime_id},
       auto_schedule_{auto_schedule} {
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - ENTRY (fusion_id=" << fusion_id << ", concrete_id=" << concrete_id << ", runtime_id=" << runtime_id << ")" << std::endl;
+  std::cout.flush();
+  
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP A: Checking hasDynamicTransform" << std::endl;
+  std::cout.flush();
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP A: Dynamic transform check passed" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP B: Running PreSegmenter optimization pass" << std::endl;
+  std::cout.flush();
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP B: PreSegmenter pass completed" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C: Checking debug dump enabled" << std::endl;
+  std::cout.flush();
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C1: Debug dump is enabled, getting communicator" << std::endl;
+    std::cout.flush();
     const auto& communicator = Communicator::getInstance();
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
     if (!communicator.is_available() || communicator.local_rank() == 0) {
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C2: Printing fusion IR" << std::endl;
+      std::cout.flush();
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
       fusion->print();
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C3: Fusion IR printed" << std::endl;
+      std::cout.flush();
     }
   }
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP C: Debug dump check completed" << std::endl;
+  std::cout.flush();
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP D: Getting all TVs from fusion" << std::endl;
+  std::cout.flush();
   std::vector<TensorView*> all_tvs = fusion->allTvs();
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP D: Got " << all_tvs.size() << " TVs" << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP E: Creating SchedulerRuntimeInfo" << std::endl;
+  std::cout.flush();
   SchedulerRuntimeInfo runtime_info(
       fusion.get(), args, nullptr, all_tvs, forced_index_type);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP E: SchedulerRuntimeInfo created" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F: Checking serde_buffer (nullptr=" << (serde_buffer == nullptr) << ")" << std::endl;
+  std::cout.flush();
   if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F1: Default path - calling SegmentCandidateFinder::segment" << std::endl;
+    std::cout.flush();
     segmented_fusion_ =
         SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F1: Segmentation completed" << std::endl;
+    std::cout.flush();
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2: Serde path - getting segmented_groups" << std::endl;
+    std::cout.flush();
     // Convert Welford to two-pass if option is enabled and the original
     // heuristic is persistent
     const flatbuffers::Vector<flatbuffers::Offset<serde::SegmentedGroup>>*
         segmented_groups = serde_buffer->segmented_fusion()->groups();
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2a: Got " << segmented_groups->size() << " segmented groups" << std::endl;
+    std::cout.flush();
+    
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2b: Checking for persistent heuristics" << std::endl;
+    std::cout.flush();
     bool has_persistent_heuristic = std::any_of(
         segmented_groups->begin(),
         segmented_groups->end(),
@@ -117,34 +160,79 @@ FusionKernelRuntime::FusionKernelRuntime(
               heuristic == SchedulerType::OuterPersistent ||
               heuristic == SchedulerType::InnerOuterPersistent;
         });
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2c: has_persistent_heuristic=" << has_persistent_heuristic << std::endl;
+    std::cout.flush();
 
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2d: Checking for Welford ops" << std::endl;
+    std::cout.flush();
     bool has_welford_ops = ir_utils::hasOpsOfType<WelfordOp>(fusion.get());
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2e: has_welford_ops=" << has_welford_ops << std::endl;
+    std::cout.flush();
+    
     if (has_welford_ops && has_persistent_heuristic) {
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2f: Translating Welford in fusion" << std::endl;
+      std::cout.flush();
       SegmentCandidateFinder::translateWelfordInFusion(fusion.get(), args);
+      std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2g: Welford translation completed" << std::endl;
+      std::cout.flush();
     }
+    
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2h: Creating SegmentedFusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2i: Deserializing segmented_fusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_->deserialize(serde_buffer->segmented_fusion());
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP F2j: Deserialization completed" << std::endl;
+    std::cout.flush();
   }
 
   // Pre-compute the executor order so that the run time path
   //  would go directly to kernel launch.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP G: Preparing runtime order" << std::endl;
+  std::cout.flush();
   runtime_workspace_ = prepareRuntimeOrder(*segmented_fusion_);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP G: Runtime order prepared" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP H: Resizing executors (num_groups=" << segmented_fusion_->groups().size() << ")" << std::endl;
+  std::cout.flush();
   executors_.resize(segmented_fusion_->groups().size());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP H: Executors resized" << std::endl;
+  std::cout.flush();
 
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I: Checking debug dump for segments" << std::endl;
+  std::cout.flush();
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I1: Printing segmented fusion" << std::endl;
+    std::cout.flush();
     segmented_fusion_->print();
+    std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP I2: Segmented fusion printed" << std::endl;
+    std::cout.flush();
   }
 
   // Even if we go through the segmented path we may still end up
   //  with a segmented fusion with one group. This case still
   //  counts as un-segmented.
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP J: Setting is_segmented flag" << std::endl;
+  std::cout.flush();
   is_segmented_ = segmented_fusion_->groups().size() > 1;
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP J: is_segmented=" << is_segmented_ << std::endl;
+  std::cout.flush();
 
   // Create Initial Heuristics for Segmented Fusion
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K: Getting heuristics" << std::endl;
+  std::cout.flush();
   auto maybe_heuristics = getMaybeHeuristicsFor(args, forced_index_type);
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K1: Got maybe_heuristics, checking if has_value" << std::endl;
+  std::cout.flush();
   NVF_CHECK(maybe_heuristics.has_value());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K2: Heuristics have value, moving" << std::endl;
+  std::cout.flush();
   heuristics_ = std::move(maybe_heuristics.value());
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - STEP K3: Heuristics moved successfully" << std::endl;
+  std::cout << "[DEBUG] FusionKernelRuntime::ctor - EXIT (constructor completed successfully)" << std::endl;
+  std::cout.flush();
 }
 
 void FusionKernelRuntime::evictCache(size_t input_id) {
@@ -544,63 +632,125 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     getMaybeHeuristicsFor(
         const KernelArgumentHolder& args,
         std::optional<PrimDataType> forced_index_type) {
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - ENTRY" << std::endl;
+  std::cout.flush();
+  
   FUSER_PERF_SCOPE("FusionKernelRuntime::getMaybeHeuristicsFor");
 
   // The runtime group run order is different from the segmented_fusion group
   // order. Instead of using HeuristicParamsList::emplaceBack, we initialize
   // HeuristicParamsList with the desired number of groups.
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 1: Getting num_groups from runtime_workspace" << std::endl;
+  std::cout.flush();
   const int64_t num_groups = std::ssize(runtime_workspace_.group_run_order);
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 1a: num_groups=" << num_groups << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 2: Creating HeuristicParamsList" << std::endl;
+  std::cout.flush();
   std::unique_ptr<HeuristicParamsList> heuristics =
       std::make_unique<HeuristicParamsList>(num_groups);
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 2a: HeuristicParamsList created" << std::endl;
+  std::cout.flush();
 
   // We make a mutable copy of args so that we can use it in an
   // ArgumentManager
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 3: Creating ArgumentManager" << std::endl;
+  std::cout.flush();
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 3a: ArgumentManager created" << std::endl;
+  std::cout.flush();
+  
   // Follow group run order
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 4: Starting loop over " << num_groups << " groups" << std::endl;
+  std::cout.flush();
   for (auto [run_order_id, group_to_run] :
        enumerate(runtime_workspace_.group_run_order)) {
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - ===== LOOP ITERATION " << run_order_id << "/" << num_groups << " =====" << std::endl;
+    std::cout.flush();
+    
     // Create fusion for this segmented group
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP A: Getting fusion from group" << std::endl;
+    std::cout.flush();
     Fusion* fusion_to_run = group_to_run->getFusion();
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP A1: Got fusion, checking non-null" << std::endl;
+    std::cout.flush();
     NVF_ERROR(fusion_to_run != nullptr);
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP A2: Creating FusionGuard" << std::endl;
+    std::cout.flush();
     FusionGuard fg(fusion_to_run);
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP A3: FusionGuard created" << std::endl;
+    std::cout.flush();
 
     // Get input arguments for SchedulerRuntimeInfo
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP B: Translating vals to args" << std::endl;
+    std::cout.flush();
     KernelArgumentHolder group_runtime_inputs =
         args_manager.translateValsToArgs(group_to_run->inputs());
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP B1: Setting device index" << std::endl;
+    std::cout.flush();
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP B2: Device index set" << std::endl;
+    std::cout.flush();
 
     // Create PrecomputedValues for fusion segment
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C: Creating PrecomputedValues" << std::endl;
+    std::cout.flush();
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
     {
       FUSER_PERF_SCOPE(
           "FusionKernelRuntime::getMaybeHeuristicsFor::PrecomputedValues");
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C1: make_unique PrecomputedValues" << std::endl;
+      std::cout.flush();
       evaluator_precomputed_values =
           std::make_unique<PrecomputedValues>(fusion_to_run);
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C2: bindInputs" << std::endl;
+      std::cout.flush();
       evaluator_precomputed_values->bindInputs(group_runtime_inputs);
       // TODO Remove binding the original fusion inputs when creating
       // heuristics for fusion segment.
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C3: bindValues" << std::endl;
+      std::cout.flush();
       evaluator_precomputed_values->bindValues(
           group_to_run->getCompleteFusionInputs(), args);
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C4: evaluate" << std::endl;
+      std::cout.flush();
       evaluator_precomputed_values->evaluate();
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP C5: PrecomputedValues created and evaluated" << std::endl;
+      std::cout.flush();
     }
 
     // Get all tensorviews for segmented fusion
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP D: Getting all TVs" << std::endl;
+    std::cout.flush();
     std::vector<TensorView*> all_tvs_for_fusion_to_run =
         fusion_to_run->allTvs();
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP D1: Got " << all_tvs_for_fusion_to_run.size() << " TVs" << std::endl;
+    std::cout.flush();
 
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP E: Creating SchedulerRuntimeInfo" << std::endl;
+    std::cout.flush();
     SchedulerRuntimeInfo fusion_to_run_info(
         fusion_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values.get(),
         all_tvs_for_fusion_to_run,
         forced_index_type);
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP E1: SchedulerRuntimeInfo created" << std::endl;
+    std::cout.flush();
 
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F: Checking heuristics_ (nullptr=" << (heuristics_ == nullptr) << ")" << std::endl;
+    std::cout.flush();
     if (heuristics_ == nullptr) {
       // Add new scheduler entry for this segmented group
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F1: Making initial heuristic params (group_id=" << group_to_run->groupId() << ")" << std::endl;
+      std::cout.flush();
       heuristics->at(group_to_run->groupId()) =
           segmented_fusion_->makeInitialHeuristicParams(
               group_to_run, fusion_to_run_info);
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F1a: Initial heuristic params created" << std::endl;
+      std::cout.flush();
     } else {
       // Try to get scheduler entry
       // NOTE: we are able to skip compile time checks here since the fusion
@@ -611,21 +761,37 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
       // canScheduleRuntime, but it is safe to skip canScheduleCompileTime. We
       // skip it here to avoid performing expensive fusion traversals on the
       // dynamic shape path.
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2: Getting maybe heuristic params (group_id=" << group_to_run->groupId() << ")" << std::endl;
+      std::cout.flush();
       auto maybe_heuristic_params =
           group_to_run->getMaybeHeuristicParams(fusion_to_run_info);
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2a: Got maybe heuristic params, has_value=" << maybe_heuristic_params.has_value() << std::endl;
+      std::cout.flush();
       // If unavailable, then return std::nullopt
       if (!maybe_heuristic_params.has_value()) {
+        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2b: No heuristic params available, returning nullopt" << std::endl;
+        std::cout.flush();
         return std::nullopt;
       }
       // Check if this scheduler entry matches the previous entry for this
       // segmented group. If no match, then return std::nullptr
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2c: Moving heuristic params" << std::endl;
+      std::cout.flush();
       auto heuristic_params = std::move(maybe_heuristic_params.value());
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2d: Checking sameAs" << std::endl;
+      std::cout.flush();
       if (!heuristic_params->sameAs(
               heuristics_->at(group_to_run->groupId()).get())) {
+        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2e: Heuristic params don't match, returning nullopt" << std::endl;
+        std::cout.flush();
         return std::nullopt;
       }
       // Add new scheduler entry for this segmented group
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2f: Heuristic params match, storing" << std::endl;
+      std::cout.flush();
       heuristics->at(group_to_run->groupId()) = std::move(heuristic_params);
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP F2g: Heuristic params stored" << std::endl;
+      std::cout.flush();
     }
 
     // Generate metadata for the fusion's outputs. If these outputs are
@@ -633,18 +799,34 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     // compute the sizes and strides based on this assumption. If these outputs
     // are generated by ExpressionEvaluator, we use tensors on meta device and
     // actually invoking ExpressionEvaluator to compute the sizes and strides.
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G: Creating group_runtime_outputs" << std::endl;
+    std::cout.flush();
     KernelArgumentHolder group_runtime_outputs;
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G1: Getting heuristic_params" << std::endl;
+    std::cout.flush();
     const auto& heuristic_params = heuristics->at(group_to_run->groupId());
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G2: Checking scheduler_type" << std::endl;
+    std::cout.flush();
     const bool is_expr_eval =
         heuristic_params->scheduler_type == SchedulerType::ExprEval;
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G3: is_expr_eval=" << is_expr_eval << std::endl;
+    std::cout.flush();
     if (is_expr_eval) {
       // For expr evaluated fusion, the striding rules follow that of ATen.
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4: Creating ExpressionEvaluator" << std::endl;
+      std::cout.flush();
       ExpressionEvaluator eval_fusion;
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4a: Binding inputs" << std::endl;
+      std::cout.flush();
       for (auto [i, v] : enumerate(group_to_run->inputs())) {
+        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4a-" << i << ": Checking tensor" << std::endl;
+        std::cout.flush();
         auto tensor_pv = args_manager.checkTensorMap(v);
         if (tensor_pv.is<at::Tensor>()) {
           const auto t = tensor_pv.as<at::Tensor>();
           if (t.defined()) {
+            std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4a-" << i << ": Creating meta tensor" << std::endl;
+            std::cout.flush();
             const auto meta_t = at::empty_strided(
                 t.sizes(),
                 t.strides(),
@@ -657,26 +839,47 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
           eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
         }
       }
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4b: Evaluating outputs" << std::endl;
+      std::cout.flush();
       for (auto v : fusion_to_run->outputs()) {
+        std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4b: Evaluating output:" << std::endl;
+        std::cout << v->toString() << std::endl;
+        if (v->definition()) {
+          std::cout << v->definition()->toString() << std::endl;
+        }
+        std::cout.flush();
         auto result = eval_fusion.evaluate(v);
         group_runtime_outputs.push(result);
       }
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G4c: ExprEval completed" << std::endl;
+      std::cout.flush();
     } else {
       // For codegen fusion, we always allocate contiguous output tensors.
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G5: Inferring output sizes (codegen fusion)" << std::endl;
+      std::cout.flush();
       group_runtime_outputs = inferOutputSizes(
           fusion_to_run,
           group_runtime_inputs,
           evaluator_precomputed_values.get());
+      std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP G5a: Output sizes inferred" << std::endl;
+      std::cout.flush();
     }
 
     // If the outputs are generated by ExpressionEvaluator, we need to update
     // the contiguity of the outputs based on the result of ExpressionEvaluator.
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP H: Updating args_manager with segment outputs" << std::endl;
+    std::cout.flush();
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(),
         group_runtime_outputs,
         run_order_id,
         is_expr_eval);
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - LOOP " << run_order_id << " STEP H1: Args manager updated" << std::endl;
+    std::cout << "[DEBUG] getMaybeHeuristicsFor - ===== COMPLETED LOOP ITERATION " << run_order_id << "/" << num_groups << " =====" << std::endl;
+    std::cout.flush();
   }
+  std::cout << "[DEBUG] getMaybeHeuristicsFor - STEP 5: All loop iterations completed, returning heuristics" << std::endl;
+  std::cout.flush();
   return heuristics;
 }
 

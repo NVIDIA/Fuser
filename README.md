@@ -1,75 +1,44 @@
-<!--
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
- * All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
--->
-
-# Fuser
-
-A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
-
-## Installation
-
-We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org and https://pypi.nvidia.com.
-**Wheels are published for Python version: _3.10_, _3.12_**.
-
-Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
-
-
-### Nightly nvfuser pip wheel
-
-You can install a nightly nvfuser pip package built against torch nightly code base with
-`pip install --pre nvfuser-cu128 --extra-index-url https://pypi.nvidia.com`
-
-As we build against nightly torch wheel and there's no compatibility promised on nightly wheels,
-we have explicitly marked the nightly torch wheel as an optional dependency.
-You can choose to install the torch wheel along with nvfuser package,
-e.g.  `pip install --pre "nvfuser-cu128[torch]" --extra-index-url https://pypi.nvidia.com`.
-Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
-
-### Nvfuser pip wheel against pytorch stable release
-
-Nvfuser pip wheel built against stable torch releases is published on both https://pypi.org and https://pypi.nvidia.com.
-Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu128-torch27`.
-
-For old nvfuser builds against old version pytorch, e.g. `nvfuser-cuXXY-torchZW`,
-there are packages available at [PyPI](https://pypi.org/search/?q=nvfuser).
-We build and publish builds against the latest stable pytorch on https://pypi.org on 1st and 15th of every month regularly and
-when major changes are added.
-
-We always recommend use of the latest nvfuser build with latest cuda and pytorch versions.
-
-PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
-
-## Developer
-
-Docs: https://github.com/NVIDIA/Fuser/wiki
-
-### Install From Source:
-```bash
-git clone https://github.com/NVIDIA/Fuser.git
-cd Fuser
-pip install -r python/requirements.txt
-
-[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
-pip install --no-build-isolation -e python -v
-```
-
-Supported compilers:
-
-**GCC:**
-
-We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 3/2/2025, they are:
-
-- gcc 12.4
-- gcc 13.3
-- gcc 14.2
-
-**Clang:**
-
-- clang 16+
-
-Supported C++ standard:
-
-- C++20
+self.test_addcmul()
+self.test_alias_output_to_input()
+self.test_all_dim_var_mean()
+self.test_allocation_domain_concretization()
+self.test_allocation_domain_index_select()
+self.test_arithmetic_ops()
+self.test_basic()
+self.test_basic_fp16()
+self.test_bcast_squeeze_replace_aliased_output()
+self.test_broadcast_and_stride_order()
+self.test_broadcast_in_dim_with_dynamic_shapes()
+self.test_broadcast_mixing()
+self.test_cast_double_to_half()
+self.test_cat()
+self.test_cat_symbolic()
+self.test_complex_constants()
+self.test_complex_rsqrt()
+self.test_compute_contiguity()
+self.test_compute_tensor_descriptor()
+self.test_constant_nans()
+self.test_cuda_code_and_scheduled_fusion_ir_strings()
+self.test_cumsum()
+self.test_cumsum_int()
+self.test_debug_output()
+self.test_def_op_in_schedule()
+self.test_deterministic_random()
+self.test_dynamic_reshape()
+self.test_empty_reshape()
+self.test_enable_disable_options()
+self.test_execute_with_tuple_and_list()
+self.test_expand()
+self.test_expand_to_zero()
+self.test_expanded_bcast_tensor()
+self.test_expanded_reduction()
+self.test_explicit_broadcast_input()
+self.test_fix_2549()
+self.test_from_pytorch_fails_on_cpu_tensor()
+self.test_func_definition()
+self.test_fusion_definition_error_cache()
+self.test_fusion_information()
+self.test_fusion_profiler()
+self.test_fusion_profiler_user_schedule()
+self.test_fusion_profiler_with_noncodegen_kernels()
+self.test_gather

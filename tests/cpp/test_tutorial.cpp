@@ -11,9 +11,8 @@
 #include <fusion.h>
 #include <id_model/id_model.h>
 #include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
+#include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -1552,6 +1551,340 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   ke.compile(&fusion, {t}, {}, index32bit);
   auto outputs = ke.run({t});
   ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
+}
+
+TEST_F(Tutorial, ReproLinearAddFusion) {
+  // Reproduces tests/python/test_repro_standalone.py
+  // This test performs a linear operation followed by an add:
+  // T3 = linear(T0, T2)  # equivalent to T0 @ T2.T
+  // T4 = T3 + T1
+  // The test runs multiple times to reproduce caching/serialization behavior
+  
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create input tensors matching the Python test:
+  // T0: (2, 4, 16) - bfloat16
+  // T1: (2, 4, 16) - bfloat16
+  // T2: (16, 16) - bfloat16
+  auto tv0 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv2 = makeSymbolicTensor(2, DataType::BFloat16);
+  
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  
+  // Linear operation: T3 = linear(T0, T2)
+  // In nvFuser C++ API, linear(input, weight) computes: input @ weight.T
+  auto tv3 = linear(tv0, tv2);
+  
+  // Add operation: T4 = T3 + T1
+  auto tv4 = add(tv3, tv1);
+  
+  fusion->addOutput(tv4);
+  
+  if (verbose_) {
+    fusion->printMath();
+  }
+  
+  // Create actual tensors with the same shapes and dtype as Python test
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({2, 4, 16}, options);
+  at::Tensor t1 = at::randn({2, 4, 16}, options);
+  at::Tensor t2 = at::randn({16, 16}, options);
+  
+  // Use FusionExecutorCache with a fusion_id for serialization/deserialization
+  // This mimics enable_automatic_serialization() from the Python test
+  FusionExecutorCache executor_cache(std::move(fusion), /*fusion_id=*/1);
+  
+  // First run to compile the kernel
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  (void)outputs;
+  
+  if (verbose_) {
+    executor_cache.fusion()->printKernel();
+  }
+  
+  // Validate first run
+  // at::Tensor ref = at::linear(t0, t2) + t1;
+  // testValidate(
+  //     executor_cache.fusion(), outputs, {t0, t1, t2}, {ref}, __LINE__, __FILE__);
+  
+  // Serialize the FusionExecutorCache to test serde path
+  // This reproduces the serialization behavior when enable_automatic_serialization() is used
+  flatbuffers::FlatBufferBuilder builder(1024);
+  auto serialized = executor_cache.serialize(builder);
+  builder.Finish(serialized);
+  
+  // Get the serialized buffer
+  uint8_t* buf = builder.GetBufferPointer();
+  
+  // Create a new fusion and executor cache for deserialization
+  auto fusion2 = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion2.get());
+  
+  auto tv0_2 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv1_2 = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv2_2 = makeSymbolicTensor(2, DataType::BFloat16);
+  
+  fusion2->addInput(tv0_2);
+  fusion2->addInput(tv1_2);
+  fusion2->addInput(tv2_2);
+  
+  auto tv3_2 = linear(tv0_2, tv2_2);
+  auto tv4_2 = add(tv3_2, tv1_2);
+  fusion2->addOutput(tv4_2);
+  
+  FusionExecutorCache executor_cache2(std::move(fusion2), /*fusion_id=*/1);
+  
+  // Deserialize into the new executor cache
+  // Cast the buffer to the FusionExecutorCache flatbuffer type
+  auto buffer = flatbuffers::GetRoot<serde::FusionExecutorCache>(buf);
+  executor_cache2.deserialize(buffer, /*fusion_id=*/1);
+  
+  // Run with the deserialized cache
+  auto outputs2 = executor_cache2.runFusionWithInputs({t0, t1, t2});
+  (void)outputs2;
+  
+  // // Validate deserialized run
+  // testValidate(
+  //     executor_cache2.fusion(),
+  //     outputs2,
+  //     {t0, t1, t2},
+  //     {ref},
+  //     __LINE__,
+  //     __FILE__);
+}
+
+TEST_F(Tutorial, MetaLinearHang) {
+  // Test to reproduce hanging at::linear call with meta tensors
+  // This test uses the exact shapes, strides, and dtype from the debug output
+  
+  std::cout << "[TEST] Creating meta tensors for at::linear" << std::endl;
+  std::cout.flush();
+  
+  // Create input tensor: [2, 4, 16] with strides [64, 16, 1], bfloat16, meta device
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kMeta);
+  std::cout << "[TEST] Creating input tensor with shape [2, 4, 16]" << std::endl;
+  std::cout.flush();
+  at::Tensor in = at::empty_strided(
+      {2, 4, 16},      // sizes
+      {64, 16, 1},     // strides
+      options);
+  
+  std::cout << "[TEST] Input tensor created:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < in.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << in.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < in.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << in.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << in.dtype() << std::endl;
+  std::cout << "  device: " << in.device() << std::endl;
+  std::cout << "  is_contiguous: " << in.is_contiguous() << std::endl;
+  std::cout << "  numel: " << in.numel() << std::endl;
+  std::cout.flush();
+  
+  // Create weight tensor: [16, 16] with strides [16, 1], bfloat16, meta device
+  std::cout << "[TEST] Creating weight tensor with shape [16, 16]" << std::endl;
+  std::cout.flush();
+  at::Tensor weight = at::empty_strided(
+      {16, 16},        // sizes
+      {16, 1},         // strides
+      options);
+  
+  std::cout << "[TEST] Weight tensor created:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < weight.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << weight.dtype() << std::endl;
+  std::cout << "  device: " << weight.device() << std::endl;
+  std::cout << "  is_contiguous: " << weight.is_contiguous() << std::endl;
+  std::cout << "  numel: " << weight.numel() << std::endl;
+  std::cout.flush();
+  
+  // Call at::linear - this is where the hang occurs
+  std::cout << "[TEST] Calling at::linear(in, weight) - THIS MAY HANG!" << std::endl;
+  std::cout.flush();
+  at::Tensor result = at::linear(in, weight);
+  std::cout << "[TEST] at::linear completed successfully!" << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[TEST] Result tensor:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < result.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << result.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << result.dtype() << std::endl;
+  std::cout << "  device: " << result.device() << std::endl;
+  std::cout.flush();
+  
+  // Expected output shape should be [2, 4, 16]
+  ASSERT_EQ(result.dim(), 3);
+  ASSERT_EQ(result.size(0), 2);
+  ASSERT_EQ(result.size(1), 4);
+  ASSERT_EQ(result.size(2), 16);
+  
+  std::cout << "[TEST] Test completed successfully!" << std::endl;
+  std::cout.flush();
+}
+
+TEST_F(Tutorial, MetaLinearHangViaLinearOp) {
+  // Test to reproduce hanging at::linear call using LinearOp::evaluate
+  // This tests the actual nvfuser code path through LinearOp
+  
+  std::cout << "[TEST] Creating fusion with LinearOp" << std::endl;
+  std::cout.flush();
+  
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  
+  // Create input tensors matching the hanging scenario
+  // Input: [2, 4, 16], Weight: [16, 16], both bfloat16
+  auto tv_input = makeSymbolicTensor(3, DataType::BFloat16);
+  auto tv_weight = makeSymbolicTensor(2, DataType::BFloat16);
+  
+  fusion->addInput(tv_input);
+  fusion->addInput(tv_weight);
+  
+  // Create linear operation (no bias)
+  auto tv_output = linear(tv_input, tv_weight);
+  fusion->addOutput(tv_output);
+  
+  if (verbose_) {
+    std::cout << "[TEST] Fusion definition:" << std::endl;
+    fusion->printMath();
+    std::cout.flush();
+  }
+  
+  // Create meta tensors with exact shapes from debug output
+  std::cout << "[TEST] Creating meta tensors with exact shapes" << std::endl;
+  std::cout.flush();
+  
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kMeta);
+  
+  std::cout << "[TEST] Creating input tensor: [2, 4, 16] with strides [64, 16, 1]" << std::endl;
+  std::cout.flush();
+  at::Tensor input_tensor = at::empty_strided(
+      {2, 4, 16},      // sizes
+      {64, 16, 1},     // strides
+      options);
+  
+  std::cout << "[TEST] Input tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < input_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << input_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < input_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << input_tensor.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << input_tensor.dtype() << std::endl;
+  std::cout << "  device: " << input_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  std::cout << "[TEST] Creating weight tensor: [16, 16] with strides [16, 1]" << std::endl;
+  std::cout.flush();
+  at::Tensor weight_tensor = at::empty_strided(
+      {16, 16},        // sizes
+      {16, 1},         // strides
+      options);
+  
+  std::cout << "[TEST] Weight tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < weight_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  strides: [";
+  for (int64_t i = 0; i < weight_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << weight_tensor.stride(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << weight_tensor.dtype() << std::endl;
+  std::cout << "  device: " << weight_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  // Now get the LinearOp and call its evaluate method directly
+  std::cout << "[TEST] Finding LinearOp in fusion" << std::endl;
+  std::cout.flush();
+  
+  // The output tensor's definition should be a LinearOp
+  ASSERT_TRUE(tv_output->definition() != nullptr);
+  ASSERT_TRUE(tv_output->definition()->isA<LinearOp>());
+  
+  auto linear_op = tv_output->definition()->as<LinearOp>();
+  std::cout << "[TEST] Found LinearOp: " << linear_op->toString() << std::endl;
+  std::cout.flush();
+  
+  // Create ExpressionEvaluator (though we won't use it for this test)
+  ExpressionEvaluator ee;
+  
+  // Prepare inputs vector for LinearOp::evaluate
+  std::vector<PolymorphicValue> inputs;
+  inputs.push_back(input_tensor);
+  inputs.push_back(weight_tensor);
+  
+  std::cout << "[TEST] Calling LinearOp::evaluate - THIS MAY HANG!" << std::endl;
+  std::cout << "[TEST] This will internally call at::linear(input, weight)" << std::endl;
+  std::cout << "========================================================================" << std::endl;
+  std::cout.flush();
+  
+  // Call LinearOp::evaluate - this should trigger the hang
+  auto result = linear_op->evaluate(ee, inputs);
+  
+  std::cout << "========================================================================" << std::endl;
+  std::cout << "[TEST] LinearOp::evaluate completed successfully!" << std::endl;
+  std::cout.flush();
+  
+  // Verify result
+  ASSERT_EQ(result.size(), 1);
+  ASSERT_TRUE(result[0].is<at::Tensor>());
+  
+  auto result_tensor = result[0].as<at::Tensor>();
+  std::cout << "[TEST] Result tensor metadata:" << std::endl;
+  std::cout << "  sizes: [";
+  for (int64_t i = 0; i < result_tensor.dim(); i++) {
+    if (i > 0) std::cout << ", ";
+    std::cout << result_tensor.size(i);
+  }
+  std::cout << "]" << std::endl;
+  std::cout << "  dtype: " << result_tensor.dtype() << std::endl;
+  std::cout << "  device: " << result_tensor.device() << std::endl;
+  std::cout.flush();
+  
+  // Verify expected shape [2, 4, 16]
+  ASSERT_EQ(result_tensor.dim(), 3);
+  ASSERT_EQ(result_tensor.size(0), 2);
+  ASSERT_EQ(result_tensor.size(1), 4);
+  ASSERT_EQ(result_tensor.size(2), 16);
+  
+  std::cout << "[TEST] Test completed successfully!" << std::endl;
+  std::cout.flush();
 }
 
 } // namespace nvfuser
