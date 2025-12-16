@@ -154,5 +154,34 @@ int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx);
 int64_t getComputeBdimx(
     const CircularBufferOptions& circular_buffer_opt,
     int64_t bdimx);
+
+int64_t getL1L2WarpSize(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_dtype_size_bit_for_vectorization);
+
+int64_t getVectUnroll(
+    const int64_t max_dtype_size_bit_for_vectorization,
+    const int64_t max_vectorize_factor,
+    const int64_t n_tensor_inputs,
+    const int64_t target_threads_per_sm,
+    const bool has_mufu_computation);
+
+struct ReductionKernelParams {
+  int64_t total_reduction_numel = 0;
+  int64_t total_iteration_numel = 0;
+  int64_t inner_most_dimension_numel = 0;
+  bool fastest_dim_reduction = false;
+  int64_t n_tensor_inputs = 0;
+  int64_t max_dtype_size_bit_for_vectorization = 0;
+  int64_t vectorize_factor = 1;
+  bool has_mufu_computation = false;
+};
+
+ReductionKernelParams getReductionKernelParams(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
