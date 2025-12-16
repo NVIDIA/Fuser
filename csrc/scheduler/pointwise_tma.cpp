@@ -450,7 +450,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   //   axis(ogpos + 3): Inner tile / vect / TIDx serial
   //   axis(ogpos + 4): Thread block Y dimension (TIDy)
   //   axis(ogpos + 5): Thread block X dimension (TIDx)
-  //   axis(ogpos + 5): Vectorization dimension
+  //   axis(ogpos + 6): Vectorization dimension
   reference_tv->axis(ogpos + 4)->parallelize(ParallelType::TIDy); // Thread Y
   reference_tv->axis(ogpos + 5)->parallelize(ParallelType::TIDx); // Thread X
 
