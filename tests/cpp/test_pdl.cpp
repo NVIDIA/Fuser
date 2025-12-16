@@ -106,4 +106,80 @@ TEST_F(ProgrammaticDependentLaunchTest, Basic) {
   testValidate(presched_fusion.get(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(ProgrammaticDependentLaunchTest, BasicOverlap) {
+  auto create_fusion = []() {
+    std::shared_ptr<Fusion> fusion_ptr = std::make_shared<Fusion>();
+    Fusion& fusion = *fusion_ptr;
+    FusionGuard fg(&fusion);
+
+    TensorView* tv0 = makeContigTensor(2);
+    TensorView* tv1 = makeContigTensor(2);
+    fusion.addInput(tv0);
+    fusion.addInput(tv1);
+
+    TensorView* tv2 = add(tv0, tv1);
+    fusion.addOutput(tv2);
+
+    // Cache the inputs and output
+    TensorView* tv0_cached = tv0->cacheAfter();
+    TensorView* tv1_cached = tv1->cacheAfter();
+    TensorView* tv2_cached = tv2->cacheBefore();
+
+    TensorView* grid_wait = wait_for_prior_grid({tv0, tv1});
+    tv0_cached->addDependency(grid_wait);
+    tv1_cached->addDependency(grid_wait);
+
+    TensorView* grid_launch = launch_dependent_grid({tv2_cached});
+    tv2->addDependency(grid_launch);
+
+    constexpr int tdx = 128;
+    constexpr int vectorize_factor = 4;
+    tv2->merge(0, 1);
+    tv2->split(-1, vectorize_factor);
+    tv2->split(-2, tdx);
+
+    TransformPropagatorWithCheck propagator(tv2);
+    MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+    // Parallelize the cached tensor
+    tv2->axis(-2)->parallelize(ParallelType::TIDx);
+    tv2->axis(-3)->parallelize(ParallelType::BIDx);
+    scheduler_utils::parallelizeAllLike(tv2);
+
+    tv0_cached->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv1_cached->axis(-1)->parallelize(ParallelType::Vectorize);
+    tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+
+    inlineMost();
+    return fusion_ptr;
+  };
+
+  at::Tensor t0 = at::randn({8, 512}).cuda();
+  at::Tensor t1 = at::randn({8, 512}).cuda();
+  at::Tensor t2 = at::randn({8, 512}).cuda();
+  at::Tensor t3 = at::randn({8, 512}).cuda();
+
+  std::shared_ptr<Fusion> primary = create_fusion();
+  std::shared_ptr<Fusion> secondary = create_fusion();
+
+  KernelExecutor primary_ke;
+  KernelExecutor secondary_ke;
+
+  primary_ke.compile(primary.get(), {t0, t1});
+  secondary_ke.compile(secondary.get(), {t2, t3});
+
+  // Validate that the kernel is compiled with PDL support
+  EXPECT_TRUE(primary_ke.compiledKernel()
+                  ->kernel()
+                  ->summary()
+                  .enable_programmatic_dependent_launch);
+  EXPECT_TRUE(secondary_ke.compiledKernel()
+                  ->kernel()
+                  ->summary()
+                  .enable_programmatic_dependent_launch);
+
+  primary_ke.run({t0, t1});
+  secondary_ke.run({t2, t3});
+}
+
 } // namespace nvfuser
