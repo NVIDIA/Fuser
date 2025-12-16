@@ -2025,6 +2025,7 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
 }
 
 TEST_F(TmaPointwiseTestF, SplitGridDim1D) {
+  maybeClearAllocator(/*max_bytes=*/0);
   int64_t dim0 = 32768;
   int64_t dim1 = 32768;
   DataType dtype = DataType::Float;
@@ -2045,6 +2046,7 @@ TEST_F(TmaPointwiseTestF, SplitGridDim1D) {
 }
 
 TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
+  maybeClearAllocator(/*max_bytes=*/0);
   // use a large dim0, ensure it is larger than the max grid y dimension
   // after split by outer tma domain
   const int64_t max_grid_y_dim =
