@@ -9,6 +9,42 @@
 // MPS SM Affinity Utilities and Tests
 // =====================================
 //
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// CRITICAL BUILD AND EXECUTION CONSTRAINTS - READ CAREFULLY
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//
+// 1. ISOLATION REQUIREMENT: This test file MUST be built into its OWN test
+//    binary that does NOT include any other test files.
+//
+//    WHY: MPS SM-limited contexts can only be created BEFORE any CUDA contexts
+//    exist in the process. If other test files are linked into the same binary,
+//    they may initialize CUDA before the MPS tests run, causing MPS
+//    initialization to fail.
+//
+//    BUILD SYSTEM: Ensure the build configuration creates a separate test
+//    executable (e.g., test_mps) that ONLY contains this file. Do NOT add this
+//    to a combined test binary with other tests.
+//
+// 2. EXECUTION REQUIREMENT: MPSContextManager.initialize() MUST be called
+//    BEFORE any CUDA or PyTorch operations in the process.
+//
+//    WHY: The CUDA driver API function cuCtxCreate() with SM affinity
+//    parameters will fail if a CUDA context already exists (see lines 105-111).
+//
+//    ENFORCEMENT: The initialize() method checks for existing contexts and
+//    returns false if one is found, but this is a runtime check, not a
+//    compile-time guarantee.
+//
+// 3. LIMITATION: Each SM count requires a separate process execution.
+//    Parameterized tests (TEST_P) cannot be used because the MPS context
+//    can only be created once per process.
+//
+// UNFORTUNATELY: These constraints are NOT automatically enforced by the
+// compiler or build system. Violations will manifest as runtime failures.
+// Reviewers and maintainers must manually verify these requirements are met.
+//
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//
 // This file provides utilities for experimenting with MPS (Multi-Process
 // Service) SM (Streaming Multiprocessor) affinity - limiting kernels to use
 // only a subset of available SMs on a GPU.
@@ -259,13 +295,26 @@ void runPointwiseFusion(MPSContextManager* mps_ctx = nullptr) {
 } // namespace nvfuser
 
 // Test fixture for MPS SM limiting
-// NOTE: Does NOT inherit from NVFuserTest to avoid early CUDA init.
-// MPS SM-limited context can only be created ONCE per process, so
-// parameterized testing (TEST_P) doesn't work - each SM count requires
-// a separate process.
 //
-// To test different SM counts with MPSContextManager, create a benchmark
-// that runs each SM count in a separate process.
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// CRITICAL DESIGN CONSTRAINTS:
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//
+// 1. Does NOT inherit from NVFuserTest - that base class may initialize CUDA
+//    in its SetUp(), which would prevent MPS context creation.
+//
+// 2. This test file MUST be built into an ISOLATED test binary. Linking other
+//    test files into the same executable risks CUDA initialization before MPS.
+//
+// 3. Parameterized testing (TEST_P) CANNOT be used - the MPS context can only
+//    be created ONCE per process. Each SM count requires a separate process:
+//      MPS_SM_COUNT=8 ./test_mps
+//      MPS_SM_COUNT=16 ./test_mps  # Must be a separate invocation
+//
+// 4. To test different SM counts, run separate processes or create a benchmark
+//    that spawns child processes for each configuration.
+//
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 class MPSSmLimitTest : public ::testing::Test {};
 
 // Test: SM limiting with MPS using MPSContextManager
@@ -279,6 +328,41 @@ class MPSSmLimitTest : public ::testing::Test {};
 // NVFUSER_PROF=print MPS_SM_COUNT=32 ./test_mps
 // --gtest_filter=*PointwiseWithUtility
 TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
+  // =========================================================================
+  // RUNTIME ENFORCEMENT: Verify this is an isolated test binary
+  // =========================================================================
+  // Check that only MPS tests are registered in this binary
+  // This catches accidental inclusion of other test files at runtime
+  auto* unit_test = ::testing::UnitTest::GetInstance();
+  int total_test_suites = unit_test->total_test_suite_count();
+
+  // We expect exactly ONE test suite: MPSSmLimitTest
+  if (total_test_suites != 1) {
+    GTEST_FAIL() << "ISOLATION VIOLATION: test_mps binary contains "
+                 << total_test_suites
+                 << " test suites, expected exactly 1 (MPSSmLimitTest).\n"
+                 << "This binary MUST be isolated to prevent CUDA context "
+                    "initialization "
+                 << "before MPS setup.\n"
+                 << "Test suites found:\n";
+    for (int i = 0; i < total_test_suites; i++) {
+      const auto* suite = unit_test->GetTestSuite(i);
+      std::cerr << "  - " << suite->name() << " (" << suite->total_test_count()
+                << " tests)\n";
+    }
+    std::cerr
+        << "See test_mps.cpp and CMakeLists.txt for isolation requirements.\n";
+  }
+
+  // Additional check: Verify the suite name is what we expect
+  const auto* current_suite = unit_test->GetTestSuite(0);
+  if (std::string(current_suite->name()) != "MPSSmLimitTest") {
+    GTEST_FAIL()
+        << "ISOLATION VIOLATION: Expected test suite 'MPSSmLimitTest', "
+        << "found '" << current_suite->name() << "'\n";
+  }
+  // =========================================================================
+
   // Check for MPS_SM_COUNT environment variable, default to 8
   const char* sm_count_env = std::getenv("MPS_SM_COUNT");
   int requested_sms = 8; // Default value
@@ -293,8 +377,19 @@ TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
   std::cout << "Testing with " << requested_sms
             << " SMs (set MPS_SM_COUNT to override)" << std::endl;
 
-  // Initialize MPS context with requested SM count
-  // IMPORTANT: This must be done BEFORE any CUDA/PyTorch operations
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  // CRITICAL: Initialize MPS context with requested SM count
+  //
+  // This MUST be done BEFORE any CUDA/PyTorch operations. The call will FAIL
+  // if a CUDA context already exists. This is why:
+  // 1. This test file must be in its own binary (no other tests linked)
+  // 2. This initialization must happen before tensor creation or any CUDA calls
+  //
+  // If initialization fails, check:
+  // - Is this test in an isolated binary?
+  // - Are other tests running in this process?
+  // - Did any global initializers trigger CUDA?
+  // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   MPSContextManager mps_ctx;
   if (!mps_ctx.initialize(requested_sms)) {
     GTEST_SKIP() << "Failed to initialize MPS context. "
@@ -320,9 +415,25 @@ TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
             << " SMs" << std::endl;
 }
 
-// Reference test commented out to avoid context conflicts with MPS tests.
-// The MPS test must create its context before any other CUDA operations.
-// Uncomment to test the fusion without MPS, but run in a separate process.
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+// Reference test INTENTIONALLY COMMENTED OUT
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+//
+// This demonstrates the isolation requirement. The reference test uses
+// NVFuserTest which initializes CUDA in its constructor/SetUp(), which would
+// create a CUDA context BEFORE the MPS test can run its initialization.
+//
+// DO NOT uncomment this test in the same binary as the MPS tests.
+//
+// If you need a non-MPS reference test:
+// 1. Create a separate test file (e.g., test_reference_pointwise.cpp)
+// 2. Build it into a different binary
+// 3. Run the binaries separately
+//
+// This serves as a reminder that NO tests using NVFuserTest or performing
+// CUDA operations can coexist in this binary with MPS tests.
+//
+// !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 //
 // namespace nvfuser {
 //
