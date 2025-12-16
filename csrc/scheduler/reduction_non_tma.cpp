@@ -1299,36 +1299,36 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
 }
 
 std::unique_ptr<ReductionParams> reductionHeuristic(
-    const reduction_scheduler_utils::ReductionKernelParams& k_params) {
-  if (k_params.fastest_dim_reduction) {
-    if (k_params.total_reduction_numel == k_params.inner_most_dimension_numel) {
+    const reduction_scheduler_utils::FusionRuntimeProperties& prop) {
+  if (prop.fastest_dim_reduction) {
+    if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
       return inner2dReductionHeuristic(
-          k_params.total_reduction_numel,
-          k_params.total_iteration_numel,
-          (int64_t)k_params.n_tensor_inputs,
-          (int64_t)k_params.max_dtype_size_bit_for_vectorization,
-          (int64_t)k_params.vectorize_factor,
-          k_params.has_mufu_computation);
+          prop.total_reduction_numel,
+          prop.total_iteration_numel,
+          (int64_t)prop.n_tensor_inputs,
+          (int64_t)prop.max_dtype_size_bit_for_vectorization,
+          (int64_t)prop.vectorize_factor,
+          prop.has_mufu_computation);
     } else {
       return inner3dReductionHeuristic(
-          k_params.total_reduction_numel,
-          k_params.total_iteration_numel,
-          k_params.inner_most_dimension_numel,
-          (int64_t)k_params.n_tensor_inputs,
-          (int64_t)k_params.max_dtype_size_bit_for_vectorization,
-          k_params.vectorize_factor,
-          k_params.has_mufu_computation);
+          prop.total_reduction_numel,
+          prop.total_iteration_numel,
+          prop.inner_most_dimension_numel,
+          (int64_t)prop.n_tensor_inputs,
+          (int64_t)prop.max_dtype_size_bit_for_vectorization,
+          prop.vectorize_factor,
+          prop.has_mufu_computation);
     }
 
   } else {
     // 3D schedules not enabled for outer reductions
     return outerReductionHeuristic(
-        k_params.total_reduction_numel,
-        k_params.total_iteration_numel,
-        (int64_t)k_params.n_tensor_inputs,
-        (int64_t)k_params.max_dtype_size_bit_for_vectorization,
-        k_params.vectorize_factor,
-        k_params.has_mufu_computation);
+        prop.total_reduction_numel,
+        prop.total_iteration_numel,
+        (int64_t)prop.n_tensor_inputs,
+        (int64_t)prop.max_dtype_size_bit_for_vectorization,
+        prop.vectorize_factor,
+        prop.has_mufu_computation);
   }
 }
 
@@ -1338,10 +1338,10 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  auto k_params = reduction_scheduler_utils::getReductionKernelParams(
+  auto prop = reduction_scheduler_utils::getFusionRuntimeProperties(
       fusion, runtime_info, data_cache);
 
-  auto heuristic = reductionHeuristic(k_params);
+  auto heuristic = reductionHeuristic(prop);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }

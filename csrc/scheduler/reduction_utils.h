@@ -168,7 +168,7 @@ int64_t getVectUnroll(
     const int64_t target_threads_per_sm,
     const bool has_mufu_computation);
 
-struct ReductionKernelParams {
+struct FusionRuntimeProperties {
   int64_t total_reduction_numel = 0;
   int64_t total_iteration_numel = 0;
   int64_t inner_most_dimension_numel = 0;
@@ -179,7 +179,7 @@ struct ReductionKernelParams {
   bool has_mufu_computation = false;
 };
 
-ReductionKernelParams getReductionKernelParams(
+FusionRuntimeProperties getFusionRuntimeProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache);

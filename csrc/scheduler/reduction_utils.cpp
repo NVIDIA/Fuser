@@ -1236,7 +1236,7 @@ int64_t getL1L2WarpSize(
   return std::min(warp_size_based_on_l1, warp_size_based_on_l2);
 }
 
-ReductionKernelParams getReductionKernelParams(
+FusionRuntimeProperties getFusionRuntimeProperties(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
@@ -1339,18 +1339,18 @@ ReductionKernelParams getReductionKernelParams(
 
   bool has_mufu_computation = scheduler_utils::hasExpensiveMUFUops(fusion);
 
-  ReductionKernelParams k_params;
-  k_params.total_reduction_numel = properties.total_reduction_numel;
-  k_params.total_iteration_numel = properties.total_iteration_numel;
-  k_params.inner_most_dimension_numel = properties.inner_most_dimension_numel;
-  k_params.fastest_dim_reduction = properties.fastest_dim_reduction;
-  k_params.n_tensor_inputs = n_tensor_inputs;
-  k_params.max_dtype_size_bit_for_vectorization =
+  FusionRuntimeProperties prop;
+  prop.total_reduction_numel = properties.total_reduction_numel;
+  prop.total_iteration_numel = properties.total_iteration_numel;
+  prop.inner_most_dimension_numel = properties.inner_most_dimension_numel;
+  prop.fastest_dim_reduction = properties.fastest_dim_reduction;
+  prop.n_tensor_inputs = n_tensor_inputs;
+  prop.max_dtype_size_bit_for_vectorization =
       max_dtype_size_bit_for_vectorization;
-  k_params.vectorize_factor = vectorize_factor;
-  k_params.has_mufu_computation = has_mufu_computation;
+  prop.vectorize_factor = vectorize_factor;
+  prop.has_mufu_computation = has_mufu_computation;
 
-  return k_params;
+  return prop;
 }
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser
