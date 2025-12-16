@@ -27,6 +27,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -2834,6 +2835,9 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
+  if (heuristic_params->isA<InnerNormTmaParams>()) {
+    return true;
+  }
   return heuristic_params->as<ReductionParams>()->persistent_kernel &&
       !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
 }
