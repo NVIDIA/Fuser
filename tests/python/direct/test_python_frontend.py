@@ -2742,3 +2742,24 @@ def test_broadcast_in_dim_no_redundant_set(nvfuser_direct_test):
     # by comparing the IR string representations - they should be identical since
     # broadcast is a no-op in this case
     assert str(fd_bid) == str(fd_exp)
+
+
+def test_expanded_to_size_one(nvfuser_direct_test):
+    """
+    Test expanded to size one, which was failing a false positive assert
+    """
+    inputs = [
+        torch.randint(0, 10, (1, 1), device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.define_tensor(
+            shape=[1, -1], contiguity=[None, None], dtype=DataType.Int
+        )
+        fd.add_output(tv0)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(out[0], inputs[0])
