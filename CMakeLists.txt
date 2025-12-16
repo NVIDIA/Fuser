@@ -1222,7 +1222,7 @@ if(BUILD_TEST)
   add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
   list(APPEND TEST_BINARIES test_layout_op)
 
-  add_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "")
+  add_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "CUDA::cuda_driver")
   list(APPEND TEST_BINARIES test_mps)
 
   set(MATMUL_TEST_SRCS)

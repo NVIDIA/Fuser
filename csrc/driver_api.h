@@ -44,7 +44,6 @@
   fn(cuMulticastAddDevice, 13000);         \
   fn(cuMulticastBindMem, 13000);           \
   fn(cuMulticastGetGranularity, 13000);    \
-  fn(cuCtxCreate, 13000);                  \
   fn(cuMulticastUnbind, 13000)
 #else
 #define NVF_FOR_EACH_DRIVER_API_GE_130(fn)
@@ -74,12 +73,6 @@
   fn(cuStreamWriteValue32, 12000);                        \
   fn(cuTensorMapEncodeTiled, 12000);                      \
   fn(cuDeviceGet, 12000);                                 \
-  /* Context management */                                \
-  fn(cuInit, 12000);                                      \
-  fn(cuCtxDestroy, 12000);                                \
-  fn(cuCtxGetCurrent, 12000);                             \
-  fn(cuCtxSetCurrent, 12000);                             \
-  fn(cuCtxGetExecAffinity, 12000);                        \
   /* Virtual memory management */                         \
   fn(cuMemAddressReserve, 12000);                         \
   fn(cuMemAddressFree, 12000);                            \

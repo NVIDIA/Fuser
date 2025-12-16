@@ -43,7 +43,6 @@
 
 #include <cuda.h>
 #include <cuda_utils.h>
-#include <driver_api.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ops/all_ops.h>
@@ -52,8 +51,6 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-
-namespace nvfuser {
 
 namespace {
 
@@ -223,6 +220,10 @@ class MPSContextManager {
   bool initialized_ = false;
 };
 
+} // namespace
+
+namespace nvfuser {
+
 // Common test fusion: (t0 + t1) * (t0 + t1)
 void runPointwiseFusion(MPSContextManager* mps_ctx = nullptr) {
   auto fusion = std::make_unique<Fusion>();
@@ -255,7 +256,7 @@ void runPointwiseFusion(MPSContextManager* mps_ctx = nullptr) {
   testValidate(fec.fusion(), outputs, {t0, t1}, {expected}, __LINE__, __FILE__);
 }
 
-} // namespace
+} // namespace nvfuser
 
 // Test fixture for MPS SM limiting
 // NOTE: Does NOT inherit from NVFuserTest to avoid early CUDA init.
@@ -309,7 +310,7 @@ TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
 
   // Run the fusion with limited SMs
   // Pass mps_ctx so it can re-activate context after tensor creation
-  runPointwiseFusion(&mps_ctx);
+  nvfuser::runPointwiseFusion(&mps_ctx);
 
   // Verify context is still current after operations
   ASSERT_TRUE(mps_ctx.isContextCurrent())
@@ -319,8 +320,14 @@ TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
             << " SMs" << std::endl;
 }
 
-TEST_F(NVFuserTest, PointwiseReference) {
-  runPointwiseFusion();
-}
-
-} // namespace nvfuser
+// Reference test commented out to avoid context conflicts with MPS tests.
+// The MPS test must create its context before any other CUDA operations.
+// Uncomment to test the fusion without MPS, but run in a separate process.
+//
+// namespace nvfuser {
+//
+// TEST_F(NVFuserTest, PointwiseReference) {
+//   runPointwiseFusion();
+// }
+//
+// } // namespace nvfuser
