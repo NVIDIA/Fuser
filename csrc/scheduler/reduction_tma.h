@@ -17,6 +17,11 @@ class TmaInnerReductionParams : public HeuristicParams {
   TmaInnerReductionParams(
       SchedulerType scheduler_type = SchedulerType::Reduction)
       : HeuristicParams(scheduler_type) {};
+
+  // Unrolling/Vectorization factor
+  int64_t unroll_factor = 1;
+
+  int64_t target_threads_per_block;
 };
 
 namespace reduction {

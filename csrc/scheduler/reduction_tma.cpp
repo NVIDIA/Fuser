@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <ATen/cuda/CUDAContext.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/reduction_tma.h>
 #include <scheduler/reduction_utils.h>
@@ -22,7 +23,59 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FusionGuard fg(fusion);
+
+  [[maybe_unused]] auto k_params =
+      reduction_scheduler_utils::getReductionKernelParams(
+          fusion, runtime_info, data_cache);
+
+  NVF_ERROR(k_params.fastest_dim_reduction);
+  NVF_ERROR(
+      k_params.total_reduction_numel == k_params.inner_most_dimension_numel);
+
+  // Get device properties
+  [[maybe_unused]] auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  [[maybe_unused]] const int64_t threads_per_warp = dev_prop->warpSize;
+  [[maybe_unused]] const int64_t max_threads_per_block =
+      dev_prop->maxThreadsPerBlock;
+  [[maybe_unused]] const int64_t max_threads_per_sm =
+      dev_prop->maxThreadsPerMultiProcessor;
+  [[maybe_unused]] const int64_t sm_count = dev_prop->multiProcessorCount;
+  [[maybe_unused]] const int64_t target_threads_per_sm = max_threads_per_sm / 2;
+
+  [[maybe_unused]] const int64_t min_warp_size =
+      reduction_scheduler_utils::getL1L2WarpSize(
+          k_params.total_reduction_numel,
+          k_params.total_iteration_numel,
+          k_params.n_tensor_inputs,
+          k_params.max_dtype_size_bit_for_vectorization);
+
+  // Set target_vect_unroll
+  [[maybe_unused]] auto target_vect_unroll =
+      reduction_scheduler_utils::getVectUnroll(
+          k_params.max_dtype_size_bit_for_vectorization,
+          k_params.vectorize_factor,
+          k_params.n_tensor_inputs,
+          target_threads_per_sm,
+          k_params.has_mufu_computation);
+
+  [[maybe_unused]] int64_t vect_factor = 1;
+
+  // Max vectorization factor
+  vect_factor = std::min(
+      scheduler_utils::lastPow2(target_vect_unroll),
+      (int64_t)k_params.vectorize_factor);
+  [[maybe_unused]] const int64_t four_warps = 4 * threads_per_warp;
+  [[maybe_unused]] int64_t target_inner_unroll =
+      target_vect_unroll / vect_factor;
+  [[maybe_unused]] int64_t after_vect =
+      k_params.total_reduction_numel / vect_factor;
+
   auto params = std::make_unique<TmaInnerReductionParams>();
+
+  params->unroll_factor = vect_factor;
+
+  params->target_threads_per_block = k_params.has_mufu_computation ? 128 : 256;
+
   params->tag = "Reduction TMA heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
   return params;
@@ -75,14 +128,15 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
   TensorView* reduction_tv = reduction_tvs.at(0);
 
   // TODO: Compute as heuristic on TmaInnerReductionParams
-  const int64_t vect = 4;
-  const int64_t tidx = 256;
   const int64_t unroll = 4;
 
-  reduction_tv->split(inner_reduce_axis, vect);
-  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Serial);
+  if (pparams->unroll_factor > 1) {
+    reduction_tv->split(inner_reduce_axis, pparams->unroll_factor);
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(ParallelType::Serial);
+  }
 
-  reduction_tv->split(inner_reduce_axis, tidx);
+  reduction_tv->split(inner_reduce_axis, pparams->target_threads_per_block);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
 
   reduction_tv->split(inner_reduce_axis, unroll);
