@@ -6,10 +6,10 @@
  */
 // clang-format on
 
-#include <scheduler/pointwise_tma.h>
-
+#include <ATen/cuda/CUDAContext.h>
 #include <ir/utils.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/pointwise_tma.h>
 #include <scheduler/pointwise_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -202,6 +202,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->tma_tile_inner = tma_tile_inner;
   params->tma_tile_outer = tma_tile_outer;
 
+  // typical max gdimy is 65535, while max gdimx is 2^31 − 1 for most devices no
+  // need to check for gdimx
+  const int64_t max_grid_y_dim =
+      at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+  int64_t gdimy = ceilDiv(tma_domain_outer, tma_tile_outer);
+  params->split_grid_y_dim = gdimy > max_grid_y_dim;
+
   // ========== Step 4: Configure Thread Block Dimensions ==========
   // bdimx strategy:
   // - Use min(32, tma_tile_inner) to avoid using more threads than elements
@@ -361,12 +368,19 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   //          tma_domain_inner/tma_tile_inner, tma_tile_inner]
   //   Split each domain into tiles based on tma_tile sizes
   //   This creates: [outer_grid, outer_tile, inner_grid, inner_tile]
-  reference_tv->split(1, pparams->tma_tile_inner);
-  reference_tv->split(0, pparams->tma_tile_outer);
-
-  // reorder to [outer_grid, inner_grid, outer_tile, inner_tile] for better
-  // inlining
-  reference_tv->reorder({{1, 2}});
+  int64_t ogpos = 0; // outer grid position
+  reference_tv->split(ogpos + 1, pparams->tma_tile_inner);
+  reference_tv->split(ogpos, pparams->tma_tile_outer);
+  if (pparams->split_grid_y_dim) {
+    const int64_t max_grid_y_dim =
+        at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+    reference_tv->split(0, max_grid_y_dim);
+    ogpos++; // 1
+  }
+  // [outer_serial[optional], outer_grid, outer_tile, inner_grid, inner_tile]
+  // reorder to:
+  // [outer_serial[optional], outer_grid, inner_grid, outer_tile, inner_tile]
+  reference_tv->reorder({{ogpos + 1, ogpos + 2}});
 
   // Propagate these transformations to all tensors in the fusion
   TransformPropagator propagator(reference_tv);
@@ -374,10 +388,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
 
   // ========== Phase 4: Parallelize TMA Tensors ==========
   // Parallelization strategy for TMA:
-  //   axis(0) [tma_domain_outer/tma_tile_outer]: Grid (BIDy or BIDx)
-  //   axis(1) [tma_domain_inner/tma_tile_inner]: Grid (BIDx or BIDy)
-  //   axis(2) [tma_tile_outer]:                  Bulk (TMA tile)
-  //   axis(3) [tma_tile_inner]:                  Bulk (TMA tile)
+  //   axis(ogpos) [tma_domain_outer/tma_tile_outer]: Grid (BIDy or BIDx)
+  //   axis(ogpos+1) [tma_domain_inner/tma_tile_inner]: Grid (BIDx or BIDy)
+  //   axis(ogpos+2) [tma_tile_outer]:                  Bulk (TMA tile)
+  //   axis(ogpos+3) [tma_tile_inner]:                  Bulk (TMA tile)
 
   // outer_cord_pt/inner_cord_pt: Grid parallelization types (BIDx/BIDy)
   auto outer_cord_pt = ParallelType::BIDy;
@@ -387,10 +401,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   }
 
   // Apply TMA parallelization to reference
-  reference_tv->axis(0)->parallelize(outer_cord_pt); // Outer grid
-  reference_tv->axis(1)->parallelize(inner_cord_pt); // Inner grid
-  reference_tv->axis(2)->parallelize(ParallelType::Bulk); // Outer tile (TMA)
-  reference_tv->axis(3)->parallelize(ParallelType::Bulk); // Inner tile (TMA)
+  reference_tv->axis(ogpos)->parallelize(outer_cord_pt); // Outer grid
+  reference_tv->axis(ogpos + 1)->parallelize(inner_cord_pt); // Inner grid
+  reference_tv->axis(ogpos + 2)->parallelize(ParallelType::Bulk); // Outer tile
+  reference_tv->axis(ogpos + 3)->parallelize(ParallelType::Bulk); // Inner tile
 
   // Apply same parallelization to all TMA input tensors
   scheduler_utils::parallelizeAllLike(reference_tv, tma_tvs);
@@ -398,8 +412,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // Reset reference tensor's tile axes to Serial for subsequent scheduling
   // (TMA tensors keep Bulk parallelization; reference is for non-TMA
   // scheduling)
-  reference_tv->axis(2)->parallelize(ParallelType::Serial);
-  reference_tv->axis(3)->parallelize(ParallelType::Serial);
+  reference_tv->axis(ogpos + 2)->parallelize(ParallelType::Serial);
+  reference_tv->axis(ogpos + 3)->parallelize(ParallelType::Serial);
 
   // ========== Phase 5: Schedule Non-TMA Tensors ==========
   // Starting structure: [outer_grid, inner_grid, outer_tile, inner_tile]
@@ -407,19 +421,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // inner_tile/v/x, x, v]
   //   where y = TIDy (threads), x = TIDx (threads), v = vectorization
 
-  int64_t opos = 2; // Position of outer tile dimension (outer_tile)
-  int64_t ipos = 3; // Position of inner tile dimension (inner_tile)
-
   // Split inner tile: inner_tile -> [inner_tile/v/x, x, v]
-  reference_tv->split(ipos, pparams->vectorization_factor);
-  reference_tv->split(ipos, pparams->lparams.bdimx());
+  reference_tv->split(ogpos + 3, pparams->vectorization_factor);
+  reference_tv->split(ogpos + 3, pparams->lparams.bdimx());
 
   // Split outer tile: tma_tile_outer -> [tma_tile_outer/y, y]
-  reference_tv->split(opos, pparams->lparams.bdimy());
+  reference_tv->split(ogpos + 2, pparams->lparams.bdimy());
 
-  // reorder to [outer_grid, inner_grid, outer_tile/y, inner_tile/v/x, y, x, v]
-  reference_tv->reorder({{3, 4}});
-
+  // from: [..., inner_grid, outer_tile/y, y, inner_tile/v/x, x, v]
+  //   to: [..., inner_grid, outer_tile/y, inner_tile/v/x, y, x, v]
+  // basically swap [y] with [inner_tile/v/x]
+  reference_tv->reorder({{ogpos + 3, ogpos + 4}});
   // Propagate these transformations to all non-TMA tensors
   // (TMA tensors already have their final schedule from Phase 4)
   std::vector<TensorView*> non_tma_tvs =
@@ -432,19 +444,17 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // ========== Phase 6: Apply Thread Parallelization ==========
   // Final axis structure: [outer_grid, inner_grid, outer_tile/y,
   // inner_tile/v/x, y, x, v]
-  //   axis(0): Outer grid dimension
-  //   axis(1): Inner grid dimension
-  //   axis(2): Outer tile / TIDy serial
-  //   axis(3): Inner tile / vect / TIDx serial
-  //   axis(4): Thread block Y dimension (TIDy)
-  //   axis(5): Thread block X dimension (TIDx)
-  //   axis(6): Vectorization dimension
-  reference_tv->axis(0)->parallelize(outer_cord_pt); // Grid outer
-  reference_tv->axis(1)->parallelize(inner_cord_pt); // Grid inner
-  reference_tv->axis(4)->parallelize(ParallelType::TIDy); // Thread Y
-  reference_tv->axis(5)->parallelize(ParallelType::TIDx); // Thread X
+  //   axis(ogpos): Outer grid dimension
+  //   axis(ogpos + 1): Inner grid dimension
+  //   axis(ogpos + 2): Outer tile / TIDy serial
+  //   axis(ogpos + 3): Inner tile / vect / TIDx serial
+  //   axis(ogpos + 4): Thread block Y dimension (TIDy)
+  //   axis(ogpos + 5): Thread block X dimension (TIDx)
+  //   axis(ogpos + 5): Vectorization dimension
+  reference_tv->axis(ogpos + 4)->parallelize(ParallelType::TIDy); // Thread Y
+  reference_tv->axis(ogpos + 5)->parallelize(ParallelType::TIDx); // Thread X
 
-  int64_t vect_pos = 6; // Position of vectorization axis
+  int64_t vect_pos = ogpos + 6; // Position of vectorization axis
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
 
   // ========== Phase 7: Apply Vectorization ==========
