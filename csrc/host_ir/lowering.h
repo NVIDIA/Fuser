@@ -10,9 +10,9 @@
 
 #include <vector>
 
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <runtime/executor_abstract.h>
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "runtime/executor_abstract.h"
 
 namespace nvfuser {
 

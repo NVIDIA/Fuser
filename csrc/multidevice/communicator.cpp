@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda_utils.h>
-#include <multidevice/communicator.h>
-#include <options.h>
-#include <utils.h>
+#include "multidevice/communicator.h"
 
 #include <netdb.h>
+
+#include <cstdlib>
 #include <map>
+#include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
@@ -23,6 +23,10 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
 #endif
+
+#include "cuda_utils.h"
+#include "options.h"
+#include "utils.h"
 
 namespace nvfuser {
 
