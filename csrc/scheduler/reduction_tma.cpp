@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <scheduler/cache_policy_refiner.h>
 #include <scheduler/reduction_tma.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/runtime_info.h>
@@ -73,58 +74,29 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
   NVF_ERROR(!reduction_tvs.empty());
   TensorView* reduction_tv = reduction_tvs.at(0);
 
-  [[maybe_unused]] auto serialize = [&reduction_tv](
-                                        int64_t axis, int64_t factor) {
-    reduction_tv->split(axis, factor);
-    reduction_tv->axis(axis + 1)->parallelize(ParallelType::Serial);
-  };
-
-  [[maybe_unused]] auto vectorize = [&reduction_tv](
-                                        int64_t axis, int64_t factor) {
-    reduction_tv->split(axis, factor);
-    reduction_tv->axis(axis + 1)->parallelize(ParallelType::Vectorize);
-  };
-
-  [[maybe_unused]] auto inner_unswitch = [&reduction_tv](int64_t axis) {
-    reduction_tv->split(axis, 1);
-    reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unswitch);
-  };
-
-  [[maybe_unused]] auto inner_unroll = [&reduction_tv](
-                                           int64_t axis, int64_t factor) {
-    reduction_tv->split(axis, factor);
-    reduction_tv->axis(axis + 1)->parallelize(ParallelType::Unroll);
-  };
-
-  [[maybe_unused]] auto inner_parallel_static =
-      [&reduction_tv](int64_t axis, ParallelType ptype, int64_t factor) {
-        reduction_tv->split(axis, factor);
-        reduction_tv->axis(axis + 1)->parallelize(ptype);
-      };
-
-  [[maybe_unused]] auto inner_parallel = [&reduction_tv](
-                                             int64_t axis, ParallelType ptype) {
-    reduction_tv->split(axis, NamedScalar::getParallelDim(ptype));
-    reduction_tv->axis(axis + 1)->parallelize(ptype);
-  };
-
   // TODO: Compute as heuristic on TmaInnerReductionParams
-  [[maybe_unused]] const int64_t vect = 4;
-  [[maybe_unused]] const int64_t tidx = 256;
-  [[maybe_unused]] const int64_t unroll = 4;
+  const int64_t vect = 4;
+  const int64_t tidx = 256;
+  const int64_t unroll = 4;
 
-  serialize(inner_reduce_axis, vect);
+  reduction_tv->split(inner_reduce_axis, vect);
+  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Serial);
 
-  inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, tidx);
+  reduction_tv->split(inner_reduce_axis, tidx);
+  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
 
-  inner_unroll(inner_reduce_axis, unroll);
+  reduction_tv->split(inner_reduce_axis, unroll);
+  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Unroll);
 
-  inner_unswitch(inner_reduce_axis);
+  reduction_tv->split(inner_reduce_axis, 1);
+  reduction_tv->axis(inner_reduce_axis + 1)
+      ->parallelize(ParallelType::Unswitch);
 
   reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
   reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
 
-  // TODO: rFactor reduction tv
+  int64_t vectorize_pos = inner_reduce_axis + 3;
+  auto reference_tv = reduction_tv->rFactor({inner_reduce_axis, vectorize_pos});
 
   // Schedule non-TMA tvs based on reduction tv
   std::vector<TensorView*> non_tma_tvs =
@@ -134,12 +106,21 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
   MaxLogicalDomainInfoSpanningTree(reduction_tv, &selector)
       .traverse(&non_tma_propagator);
 
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
+    non_tma_tvs =
+        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  }
+
   scheduler_utils::parallelizeAllLike(reduction_tv, non_tma_tvs);
 
   // TODO: Vectorize load from smem
   // TODO: TMA or vectorize store
 
   inlineMost();
+
+  refineCachePolicy(fusion);
 }
 } // namespace tma
 } // namespace reduction
