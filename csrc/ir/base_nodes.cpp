@@ -71,16 +71,17 @@ std::string Statement::toInlineString(int indent_size) const {
 }
 
 Fusion* Statement::fusion() const {
-  NVF_ERROR(
-      ir_container_->isA<Fusion>(), "Statement does not belong to a fusion.");
-  return ir_container_->as<Fusion>();
+  Fusion* fusion = ir_container_->fusion();
+  NVF_ERROR(fusion != nullptr, "Statement does not belong to a fusion.");
+  return fusion;
 }
 
 kir::Kernel* Statement::kernel() const {
+  Fusion* fusion = ir_container_->fusion();
   NVF_ERROR(
-      ir_container_->isA<kir::Kernel>(),
+      fusion != nullptr && fusion->isA<kir::Kernel>(),
       "Statement does not belong to a kernel.");
-  return ir_container_->as<kir::Kernel>();
+  return fusion->as<kir::Kernel>();
 }
 
 NVFUSER_DEFINE_CLONE(Val)

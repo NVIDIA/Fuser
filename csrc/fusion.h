@@ -142,7 +142,7 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion {
+class NVF_API Fusion : public PolymorphicBase {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -251,28 +251,6 @@ class NVF_API Fusion {
 
   void assumeNonNegative(Val* val) {
     container_->assumeNonNegative(val);
-  }
-
-  // Type checking methods (previously inherited from PolymorphicBase via IrContainer)
-  template <typename T>
-  bool isA() const {
-    // Note: We can't use dynamic_cast<T*>(this) != nullptr because
-    // the compiler knows 'this' is never null and warns about it.
-    // Instead, we use the cast result's type checking
-    return std::is_same_v<T, Fusion> ||
-           std::is_base_of_v<T, std::remove_pointer_t<decltype(this)>>;
-  }
-
-  template <typename T>
-  T* as() {
-    NVF_ERROR(isA<T>(), "Invalid cast to ", typeid(T).name());
-    return static_cast<T*>(this);
-  }
-
-  template <typename T>
-  const T* as() const {
-    NVF_ERROR(isA<T>(), "Invalid cast to ", typeid(T).name());
-    return static_cast<const T*>(this);
   }
 
   // Hash the fusion. This is used to identify the fusion in the cache.

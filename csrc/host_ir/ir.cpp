@@ -26,7 +26,7 @@ namespace nvfuser::hir {
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
 }
 
 HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
@@ -72,7 +72,7 @@ PostOnStream::PostOnStream(
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -223,7 +223,7 @@ bool Stream::sameAs(const Statement* other) const {
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {stream}, {}, {stream}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
@@ -247,7 +247,7 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
 
 GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
   auto stream = IrBuilder::createInContainer<Stream>(passkey.ir_container_);
   addAttribute(stream);
 }
@@ -265,7 +265,7 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
     : Expr(passkey, {}, {}, {expr}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -297,7 +297,7 @@ Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {}, {}, {stream}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -322,7 +322,7 @@ bool Synchronize::sameAs(const Statement* other) const {
 StartCoalescing::StartCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -342,7 +342,7 @@ std::string StartCoalescing::toInlineString(int indent_size) const {
 EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
 }
@@ -365,7 +365,7 @@ ShareMemHandles::ShareMemHandles(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   addDataAttribute(std::move(communications));
@@ -396,7 +396,7 @@ HirAliasSelect::HirAliasSelect(
     : Expr(passkey, {in, index}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -439,7 +439,7 @@ ShardByStream::ShardByStream(
     Val* stream_index)
     : Expr(passkey, {in, stream_index}, {out}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
   NVF_ERROR_EQ(
       TensorDomain::noReductions(in->getLogicalDomain()).size(),
       out->getLogicalDomain().size());
@@ -466,7 +466,7 @@ SymmetricContiguousView::SymmetricContiguousView(
     TensorView* in)
     : Expr(passkey, {in}, {out}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
   NVF_ERROR(
       in->getMemoryType() == MemoryType::Symmetric,
       "Input tensor must have symmetric memory type, got: ",
@@ -489,7 +489,7 @@ std::string SymmetricContiguousView::toInlineString(int indent_size) const {
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
     : Expr(passkey, {index, start, stop}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  NVF_ERROR(passkey.ir_container_->fusion()->isA<HostIrContainer>());
 
   addDataAttribute(Scope(this));
 }

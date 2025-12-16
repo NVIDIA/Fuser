@@ -54,8 +54,8 @@ ForLoop::ForLoop(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>() ||
-          passkey.ir_container_->isA<hir::HostIrContainer>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>() ||
+          passkey.ir_container_->fusion()->isA<hir::HostIrContainer>(),
       "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
@@ -356,7 +356,7 @@ Predicate::Predicate(
       thread_pred_(thread_pred) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(ptype != PredicateType::Unswitch && ptype != PredicateType::Manual);
 }
@@ -372,7 +372,7 @@ Predicate::Predicate(
       tma_1d_load_loops_(std::move(tma_1d_load_loops)) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(ptype == PredicateType::OneDimTmaLoadExpectArrive);
   NVF_ERROR(!tma_1d_load_loops_.empty());
@@ -384,7 +384,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
       unrolled_loop_(unrolled_loop) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(unrolled_loop != nullptr);
 }
@@ -395,7 +395,7 @@ Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
       value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      (passkey.ir_container_->fusion()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "IR type only valid for Kernel or HostIr container.");
   NVF_ERROR(value != nullptr);
 }
@@ -425,7 +425,7 @@ TensorIndex::TensorIndex(
       index_(index) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   auto uint16x2 = ArrayType{std::make_shared<DataType>(DataType::UInt16), 2};
   NVF_ERROR(
@@ -478,7 +478,7 @@ Allocate::Allocate(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      (passkey.ir_container_->fusion()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "IR type only valid for Kernel or HostIr container.");
   if (!shape.empty()) {
     NVF_ERROR(
@@ -854,7 +854,7 @@ AllocTMem::AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       ir_utils::getTv(address)->getMemoryType() == MemoryType::Shared,
@@ -886,7 +886,7 @@ BlockSync::BlockSync(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
   addDataAttribute(optional_compute_or_load_sync);
@@ -911,7 +911,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(BlockSync)
 ClusterSync::ClusterSync(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -953,7 +953,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
 FenceAsyncProxy::FenceAsyncProxy(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -970,7 +970,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(FenceAsyncProxy)
 WgMmaFence::WgMmaFence(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -991,7 +991,7 @@ SetMaxNReg::SetMaxNReg(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addInput(number_of_registers);
   addDataAttribute(increase_registers);
@@ -1016,7 +1016,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
 Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -1035,7 +1035,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -1247,7 +1247,7 @@ AsyncWait::AsyncWait(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(async_op_type);
   addDataAttribute(keep_stages);
@@ -1298,7 +1298,7 @@ AsyncCommit::AsyncCommit(IrBuilderPasskey passkey, AsyncOpType async_op_type)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(async_op_type);
 }
@@ -1343,7 +1343,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(AsyncCommit)
 InitMagicZero::InitMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -1362,7 +1362,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(InitMagicZero)
 UpdateMagicZero::UpdateMagicZero(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
 }
 
@@ -1420,7 +1420,7 @@ GridReduction::GridReduction(
     : ReductionOp(passkey, reduction_op_type, init, out, in, is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == num_reduction_op_attr,
@@ -1503,7 +1503,7 @@ GroupedGridReduction::GroupedGridReduction(
           is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedReductionOpAttr(),
@@ -1571,7 +1571,7 @@ GridBroadcast::GridBroadcast(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(broadcast_op);
   addAttribute(broadcast_buffer);
@@ -1609,7 +1609,7 @@ GridWelford::GridWelford(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(welford_op);
   addAttribute(var_buffer);
@@ -1708,7 +1708,7 @@ GroupedGridWelford::GroupedGridWelford(
           is_allreduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       attributes().size() == numGroupedWelfordOpAttr(),
@@ -1842,7 +1842,7 @@ VectorizedWelfordOp::VectorizedWelfordOp(
     : WelfordOp(passkey, output, input, init, false) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(count);
   addAttribute(reciprocal_of_count);
@@ -1857,7 +1857,7 @@ AllocateFusedReduction::AllocateFusedReduction(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addAttribute(grid_expr);
 }
@@ -2039,7 +2039,7 @@ RNGOp::RNGOp(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(out->isA<kir::TensorIndex>());
   NVF_ERROR(rng_result->isA<TensorView>());
@@ -2105,7 +2105,7 @@ ClusterReductionOp::ClusterReductionOp(
           is_all_reduce) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addInput(mbarrier);
 }
@@ -2136,7 +2136,7 @@ GroupedLoadStoreOp::GroupedLoadStoreOp(
     int64_t group_size)
     : Expr(passkey) {
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
+      passkey.ir_container_->fusion()->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   NVF_ERROR(
       in->isScalar(), "Expected to have a scalar input: ", in->toString());
