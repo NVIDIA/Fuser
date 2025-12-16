@@ -1799,6 +1799,9 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     assert prof.profile.kernel_profiles[0].scheduler == "user"
 
 
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
 def test_warp_specialized_circular_buffering_pointwise():
     def _definition_func(fd: FusionDefinition, inputs):
         tv0 = fd.from_pytorch(inputs[0])
