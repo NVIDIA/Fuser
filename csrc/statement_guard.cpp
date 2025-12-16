@@ -23,7 +23,7 @@ StatementGuard::StatementGuard(Fusion* fusion)
       prev_num_vals_(fusion_->numVals(/*include_shortcuts=*/false)) {}
 
 StatementGuard::~StatementGuard() {
-  fusion_->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
+  fusion_->container()->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
 }
 
 } // namespace nvfuser

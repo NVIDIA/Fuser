@@ -152,6 +152,17 @@ class IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
+  // Get the owning Fusion (if this container is owned by a Fusion)
+  // Returns nullptr for standalone containers
+  Fusion* fusion() const {
+    return owning_fusion_;
+  }
+
+  // Set the owning fusion - should only be called by Fusion
+  void setOwningFusion(Fusion* fusion) {
+    owning_fusion_ = fusion;
+  }
+
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
@@ -159,6 +170,9 @@ class IrContainer : public PolymorphicBase {
 
   // Let mutator remove Exprs.
   friend OptOutMutator;
+
+  // Allow Fusion to access protected members since it now uses composition
+  friend class Fusion;
 
   virtual void removeExpr(Expr* expr);
 
@@ -234,6 +248,10 @@ class IrContainer : public PolymorphicBase {
   std::unique_ptr<NamedScalar> magic_zero_val_;
   std::unique_ptr<std::vector<Val*>> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+  // Back-reference to owning Fusion (if any) for composition pattern
+  // This is set by Fusion when it creates/owns this container
+  Fusion* owning_fusion_ = nullptr;
 };
 
 } // namespace nvfuser

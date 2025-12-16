@@ -20,6 +20,12 @@
 
 namespace nvfuser {
 
+IrContainer* IrBuilder::getActiveContainer() {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  NVF_ERROR(fusion != nullptr, "Need an active fusion to build IR.");
+  return fusion->container();
+}
+
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
       lhs != nullptr && rhs != nullptr,

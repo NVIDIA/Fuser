@@ -123,7 +123,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();
   FusionGuard fg(hic.get());
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   auto clone =
       [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
     std::vector<Val*> cloned_vals(vals.size());

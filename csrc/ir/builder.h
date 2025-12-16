@@ -29,13 +29,16 @@ class Val;
 
 //! IR builder interface
 class IrBuilder {
+ private:
+  // Helper to get container from current fusion
+  static IrContainer* getActiveContainer();
+
  public:
   //! Allocate a new IR node, forwarding the arguments to the appropriate
   //! constructor and registering with the container
   template <class T, class... Args>
   static T* create(Args&&... args) {
-    Fusion* fusion = FusionGuard::getCurFusion();
-    return createInContainer<T>(fusion, std::forward<Args>(args)...);
+    return createInContainer<T>(getActiveContainer(), std::forward<Args>(args)...);
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate

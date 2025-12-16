@@ -142,11 +142,11 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrContainer {
+class NVF_API Fusion {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
-  Fusion() = default;
+  Fusion();
 
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
@@ -154,11 +154,126 @@ class NVF_API Fusion : public IrContainer {
   Fusion& operator=(const Fusion& other);
   Fusion& operator=(Fusion&& other) noexcept;
 
-  ~Fusion() override;
+  virtual ~Fusion();
 
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;
+
+  // Accessor for the underlying container
+  IrContainer* container() {
+    return container_.get();
+  }
+  const IrContainer* container() const {
+    return container_.get();
+  }
+
+  // Forward IrContainer methods
+  bool inContainer(const Statement* stmt) const {
+    return container_->inContainer(stmt);
+  }
+
+  void assertInContainer(const Statement* stmt, const std::string& msg) const {
+    container_->assertInContainer(stmt, msg);
+  }
+
+  const std::deque<Val*> deterministic_vals() const noexcept {
+    return container_->deterministic_vals();
+  }
+
+  const std::deque<Expr*> deterministic_exprs() const noexcept {
+    return container_->deterministic_exprs();
+  }
+
+  const std::unordered_map<Val*, int64_t> deterministic_vals_map() const noexcept {
+    return container_->deterministic_vals_map();
+  }
+
+  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map() const noexcept {
+    return container_->deterministic_exprs_map();
+  }
+
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
+    return container_->unordered_exprs();
+  }
+
+  const std::unordered_set<Val*>& vals() const noexcept {
+    return container_->vals();
+  }
+
+  int64_t numExprs() const noexcept {
+    return container_->numExprs();
+  }
+
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return container_->numVals(include_shortcuts);
+  }
+
+  Val* zeroVal() {
+    return container_->zeroVal();
+  }
+
+  Val* oneVal() {
+    return container_->oneVal();
+  }
+
+  Val* falseVal() {
+    return container_->falseVal();
+  }
+
+  Val* trueVal() {
+    return container_->trueVal();
+  }
+
+  NamedScalar* magicZeroVal() {
+    return container_->magicZeroVal();
+  }
+
+  Val* zeroVal(DataType dtype) {
+    return container_->zeroVal(dtype);
+  }
+
+  Val* oneVal(DataType dtype) {
+    return container_->oneVal(dtype);
+  }
+
+  Val* metadataOf(Val* val) {
+    return container_->metadataOf(val);
+  }
+
+  const std::vector<Val*>& axioms() {
+    return container_->axioms();
+  }
+
+  void assumePositive(Val* val) {
+    container_->assumePositive(val);
+  }
+
+  void assumeNonNegative(Val* val) {
+    container_->assumeNonNegative(val);
+  }
+
+  // Type checking methods (previously inherited from PolymorphicBase via IrContainer)
+  template <typename T>
+  bool isA() const {
+    // Note: We can't use dynamic_cast<T*>(this) != nullptr because
+    // the compiler knows 'this' is never null and warns about it.
+    // Instead, we use the cast result's type checking
+    return std::is_same_v<T, Fusion> ||
+           std::is_base_of_v<T, std::remove_pointer_t<decltype(this)>>;
+  }
+
+  template <typename T>
+  T* as() {
+    NVF_ERROR(isA<T>(), "Invalid cast to ", typeid(T).name());
+    return static_cast<T*>(this);
+  }
+
+  template <typename T>
+  const T* as() const {
+    NVF_ERROR(isA<T>(), "Invalid cast to ", typeid(T).name());
+    return static_cast<const T*>(this);
+  }
 
   // Hash the fusion. This is used to identify the fusion in the cache.
   size_t hash() const;
@@ -168,11 +283,11 @@ class NVF_API Fusion : public IrContainer {
 
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
-  void removeExpr(Expr* expr) override;
+  virtual void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  void removeVal(Val* val) override;
+  virtual void removeVal(Val* val);
 
   //! Register input as an input of the fusion
   void addInput(Val* input);
@@ -485,11 +600,8 @@ class NVF_API Fusion : public IrContainer {
   friend class TranslateApplicableWelford;
   friend Val;
 
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
-
   //! Register the Val with this fusion
-  void registerVal(Val* val) override;
+  virtual void registerVal(Val* val);
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
@@ -497,7 +609,7 @@ class NVF_API Fusion : public IrContainer {
   //! definitions of outputs and register this Expr as the definition. Otherwise
   //! will update definition if not previously set, but will not remove old
   //! definitions.
-  void registerExpr(Expr* expr) override;
+  virtual void registerExpr(Expr* expr);
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in
@@ -512,6 +624,9 @@ class NVF_API Fusion : public IrContainer {
   }
 
  private:
+  // Container that owns all IR nodes
+  std::unique_ptr<IrContainer> container_;
+
   // Fusion inputs and outputs
   std::vector<Val*> inputs_;
   std::vector<Val*> outputs_;

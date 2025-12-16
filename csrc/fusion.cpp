@@ -106,12 +106,27 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
   using std::swap;
 
-  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  swap(a.container_, b.container_);
+
+  // Update back-references after swapping containers
+  if (a.container_) {
+    a.container_->setOwningFusion(&a);
+  }
+  if (b.container_) {
+    b.container_->setOwningFusion(&b);
+  }
 
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
 
   swap(a.io_alias_, b.io_alias_);
+
+  swap(a.all_tv_uses_valid_, b.all_tv_uses_valid_);
+  swap(a.is_during_update_uses_, b.is_during_update_uses_);
+  swap(a.managed_data_, b.managed_data_);
+  swap(a.managed_named_data_, b.managed_named_data_);
+  swap(a.expected_dynamic_smem_bytes_, b.expected_dynamic_smem_bytes_);
+  swap(a.all_tvs_ptr_, b.all_tvs_ptr_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -122,9 +137,9 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner = IrContainer::copy(from, to);
+  auto ir_cloner = IrContainer::copy(from->container(), to->container());
 
-  for (auto val : from->vals_) {
+  for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -183,17 +198,21 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
-// Clang tidy complains when using default constructor for IrContainer instead
-// of copy constructor. Fusion::copy has a call to IrContainer::copy, so it's
-// redundant to use the IrContainer copy constructor, but it is harmless since
-// Fusion::copy starts by calling clear().
-Fusion::Fusion(const Fusion& other) : IrContainer(other) {
+Fusion::Fusion() : container_(std::make_unique<IrContainer>()) {
+  container_->setOwningFusion(this);
+}
+
+Fusion::Fusion(const Fusion& other)
+    : container_(std::make_unique<IrContainer>()) {
   FUSER_PERF_SCOPE("Fusion copy");
+  container_->setOwningFusion(this);
   Fusion::copy(&other, this);
 }
 
-Fusion::Fusion(Fusion&& other) noexcept {
+Fusion::Fusion(Fusion&& other) noexcept
+    : container_(std::make_unique<IrContainer>()) {
   FUSER_PERF_SCOPE("Fusion move");
+  container_->setOwningFusion(this);
   swap(*this, other);
 }
 
@@ -222,7 +241,9 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  IrContainer::clear();
+  if (container_) {
+    container_->clear();
+  }
 
   inputs_.clear();
   outputs_.clear();
@@ -259,7 +280,7 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrContainer::removeExpr(expr);
+  container_->removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -285,7 +306,7 @@ void Fusion::removeVal(Val* val) {
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : exprs_) {
+  for (Expr* e : unordered_exprs()) {
     if (!inContainer(e)) {
       continue;
     }
@@ -298,7 +319,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrContainer::removeVal(val);
+  container_->removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -662,7 +683,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrContainer::registerVal(val);
+  container_->registerVal(IrBuilderPasskey(container()), val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -675,7 +696,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrContainer::registerExpr(expr);
+  container_->registerExpr(IrBuilderPasskey(container()), expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
@@ -718,7 +739,7 @@ void Fusion::resetTvUses() {
   // getExprs only uses definition, so even if we've modified uses already to
   // remove dead exprs, this could reinsert them. getExprs is also boundeds by
   // inputs as registered inputs will return nullptr as their definition.
-  const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
+  const auto all_tvs = ir_utils::filterByType<TensorView>(vals());
   const auto used_exprs = StmtSort::getExprs(this);
 
   for (auto tv : all_tvs) {

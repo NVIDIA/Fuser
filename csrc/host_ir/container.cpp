@@ -23,7 +23,7 @@ namespace hir {
 
 Stream* HostIrContainer::getDefaultStream() {
   if (default_stream_ == nullptr) {
-    default_stream_ = IrBuilder::createInContainer<Stream>(this);
+    default_stream_ = IrBuilder::createInContainer<Stream>(this->container());
   }
   return default_stream_;
 }
