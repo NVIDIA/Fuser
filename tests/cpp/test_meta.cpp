@@ -543,7 +543,8 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // mat2: [G, N, K/2] = [4, 128, 64] (packed FP4)
   // output: [M, N] = [128, 128]
   auto mat1 = makeContigConcreteTensor({128, 64}, DataType::Float4_e2m1fn_x2);
-  auto mat2 = makeContigConcreteTensor({4, 128, 64}, DataType::Float4_e2m1fn_x2);
+  auto mat2 =
+      makeContigConcreteTensor({4, 128, 64}, DataType::Float4_e2m1fn_x2);
   auto scale1 = makeContigConcreteTensor({128, 8}, DataType::Float8_e4m3fn);
   auto scale2 = makeContigConcreteTensor({4, 128, 8}, DataType::Float8_e4m3fn);
   auto alpha = makeContigConcreteTensor({4}, DataType::Float);
@@ -561,13 +562,24 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   fusion->addInput(sf_offsets);
 
   auto result = cutlass_nvfp4_grouped_mm(
-      mat1, mat2, scale1, scale2, alpha, problem_sizes, expert_offsets, sf_offsets, DataType::BFloat16);
+      mat1,
+      mat2,
+      scale1,
+      scale2,
+      alpha,
+      problem_sizes,
+      expert_offsets,
+      sf_offsets,
+      DataType::BFloat16);
   fusion->addOutput(result);
 
   // Create real inputs with appropriate data types
-  auto options_fp4 = at::TensorOptions().dtype(at::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
-  auto options_fp8 = at::TensorOptions().dtype(at::kFloat8_e4m3fn).device(at::kCUDA, 0);
-  auto options_fp32 = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_fp4 =
+      at::TensorOptions().dtype(at::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
+  auto options_fp8 =
+      at::TensorOptions().dtype(at::kFloat8_e4m3fn).device(at::kCUDA, 0);
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
   at::Tensor mat1_input = at::randn({128, 64}, options_fp4);
@@ -600,11 +612,17 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto meta_mat2 = at::empty_strided(
       mat2_input.sizes(), mat2_input.strides(), options_fp4.device(at::kMeta));
   auto meta_scale1 = at::empty_strided(
-      scale1_input.sizes(), scale1_input.strides(), options_fp8.device(at::kMeta));
+      scale1_input.sizes(),
+      scale1_input.strides(),
+      options_fp8.device(at::kMeta));
   auto meta_scale2 = at::empty_strided(
-      scale2_input.sizes(), scale2_input.strides(), options_fp8.device(at::kMeta));
+      scale2_input.sizes(),
+      scale2_input.strides(),
+      options_fp8.device(at::kMeta));
   auto meta_alpha = at::empty_strided(
-      alpha_input.sizes(), alpha_input.strides(), options_fp32.device(at::kMeta));
+      alpha_input.sizes(),
+      alpha_input.strides(),
+      options_fp32.device(at::kMeta));
   auto meta_problem_sizes = at::empty_strided(
       problem_sizes_input.sizes(),
       problem_sizes_input.strides(),
