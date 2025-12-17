@@ -451,12 +451,17 @@ class InferenceBenchmark:
         input_ids = torch.randint(0, self.vocab_size, (batch_size, input_length), device=DEVICE)
         if LooseVersion(transformers.__version__) >= LooseVersion("4.55"):
             # Transformers deprecated HybridChunkedCache in favour of static in 4.55.x
+            # NOTE: tp_size should only reflect tensor parallelism size, not total world size.
+            # If 2D parallelism (data parallel + tensor parallel) is added in the future,
+            # tp_size should be set to the tensor parallelism size only (e.g., WORLD_SIZE // DP_SIZE),
+            # not WORLD_SIZE, so that StaticCache correctly handles sharded KV heads.
             past_key_values = StaticCache(
                 config=self.hf_config,
                 max_batch_size=input_ids.shape[0],
                 max_cache_len=input_ids.shape[1] + self.config.output_length,
                 device=DEVICE,
                 dtype=torch.bfloat16,
+                tp_size=WORLD_SIZE,
             )
         else:
             past_key_values = HybridChunkedCache(

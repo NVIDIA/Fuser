@@ -129,6 +129,8 @@ enum class EnableOption {
   FastMath, //! Enable fast math optimizations (--use_fast_math)
   P2pProtocol, //! Prescribe P2P protocol: put|get
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
+  MulticastProtocol, //! Prescribe multicast protocol:
+                     //! memcpy|multimem|batch_memcpy
   EndOfOption //! Placeholder for counting the number of elements
 };
 

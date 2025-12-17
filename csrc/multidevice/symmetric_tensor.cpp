@@ -281,6 +281,16 @@ void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   }
   Communicator& comm = Communicator::getInstance();
   CUmemGenericAllocationHandle local_handle = alloc_handles_[my_device_id_];
+  CUdeviceptr local_ptr = remote_ptrs_[my_device_id_];
+
+  CUdeviceptr base_ptr = 0;
+  size_t va_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
+  NVF_CHECK(
+      base_ptr == local_ptr && va_size == aligned_size_,
+      "Local pointer is not aligned with the allocated size. This is needed "
+      "because cuMemMap does not support (for now) mapping a subregion of a "
+      "VMM-backed allocation.");
 
   int shared_fd;
   NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
