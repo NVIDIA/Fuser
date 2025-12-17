@@ -146,12 +146,23 @@ def compute_nvfp4_global_scale(tensor):
         Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor))
     """
     amax = torch.max(torch.abs(tensor)).to(torch.float32)
-    x_global_scale = (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / amax
-    x_global_scale = torch.clamp(x_global_scale, max=torch.finfo(torch.float32).max)
+    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, amax)
+    x_global_scale = torch.min(
+        x_global_scale,
+        torch.tensor(
+            torch.finfo(torch.float32).max,
+            device=x_global_scale.device,
+            dtype=torch.float32,
+        ),
+    )
 
     # Handle edge cases: zero input or invalid scale
-    invalid_mask = (amax == 0.0) | (x_global_scale == 0.0)
-    x_global_scale = torch.where(invalid_mask, 1.0, x_global_scale)
+    if x_global_scale == torch.tensor(
+        0.0, device=x_global_scale.device, dtype=torch.float32
+    ):
+        x_global_scale = torch.tensor(
+            1.0, device=x_global_scale.device, dtype=torch.float32
+        )
 
     return x_global_scale
 
