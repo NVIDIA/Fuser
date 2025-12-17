@@ -218,6 +218,7 @@ class PrecomputedValues {
     defined_[index] = true;
     values_[index] = value;
     binding_log_.emplace_back(index, value);
+    validate();
   }
   template <typename T>
   void bindValue(int index, const T& value) {
