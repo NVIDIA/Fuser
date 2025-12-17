@@ -68,90 +68,6 @@ void reduceProductTo(int64_t& z, int64_t& y, int64_t& x, const int64_t max) {
   }
 }
 
-// The returned value is the product of vectorization_factor and
-// reduction_unroll_factor for 2d inner reduction heuristics. The estimation is
-// based on properties of the fusion and hardware memory bandwidth.
-int64_t getVectUnroll(
-    const int64_t max_dtype_size_bit_for_vectorization,
-    const int64_t max_vectorize_factor,
-    const int64_t n_tensor_inputs,
-    const int64_t target_threads_per_sm,
-    const bool has_mufu_computation) {
-  // empirical value, derived from A100 & H100
-  int64_t vect_factor = ceilDiv(
-      // Available unrolling based on size of data type
-      (int64_t)128 / max_dtype_size_bit_for_vectorization,
-      // Reduce unrolling if we have many inputs, start reduction at 4 inputs
-      scheduler_utils::lastPow2(std::max(n_tensor_inputs >> 2, (int64_t)1)));
-
-  // If has computation uses mufu units, thread local computation is already
-  // expensive, don't need further unroll. This is opposite to pointwise
-  // scheduler where extra unroll is beneficial if we have expensive ops. Why?
-  // Probably because the reduction after pointwise ops is already expensive
-  // enough to hide the memory access latency of other blocks.
-  if (has_mufu_computation) {
-    return vect_factor;
-  }
-
-  int64_t required_bits_in_flight = scheduler_utils::getRequiredBitsInFlight();
-  int64_t required_bits_per_thread =
-      ceilDiv(required_bits_in_flight, target_threads_per_sm);
-  int64_t bits_per_element =
-      max_dtype_size_bit_for_vectorization * n_tensor_inputs;
-  int64_t unroll_vect = ceilDiv(required_bits_per_thread, bits_per_element);
-
-  // prioritize vectorization over unrolling
-  vect_factor = std::min(vect_factor, scheduler_utils::lastPow2(unroll_vect));
-
-  // When fully vectorized, unroll by at least 2 to provide some
-  // instruction level parallelism. This is for A100-40G whose bandwidth is much
-  // lower and won't need unroll if only based on bytes in flight.
-  int64_t unroll_factor = 1;
-  if (vect_factor == max_vectorize_factor) {
-    unroll_factor = std::max(2L, ceilDiv(unroll_vect, vect_factor));
-  }
-  return unroll_factor * vect_factor;
-}
-
-int64_t getL1L2WarpSize(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t n_tensor_inputs,
-    const int64_t max_dtype_size_bit_for_vectorization) {
-  const int64_t n_elems = total_reduction_numel * total_iteration_numel;
-  // Conservative value, could be set to larger based on arch if necessary.
-  constexpr int64_t l1_cache_bit = (int64_t)32 * 1024 * 8;
-  // Could change per generation, but for l1 we want to consider active threads,
-  // not resident
-  constexpr int64_t active_threads = 1024;
-
-  // if data fits in l2 and we need more parallelization in the reduction dim,
-  // we can use a smaller warp size. While thread local data fits in l1, and
-  // reduction dim is really small, we can use <32 threads per warp.
-  const bool fits_in_l2 =
-      n_elems * max_dtype_size_bit_for_vectorization * n_tensor_inputs <
-      at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8;
-
-  // If it fits in l2, we just want to make sure each warp uses 256 bits. Set
-  // minimum warp as 16 threads instead of 32 as if we have a small reduction
-  // dim going a bit smaller than 32 usually helps.
-  const int64_t warp_size_based_on_l2 =
-      fits_in_l2 ? (int64_t)256 / max_dtype_size_bit_for_vectorization : 16;
-
-  // Check how many elements it would take per thread to start thrashing l1
-  // set that to minimum number we want to reduce per thread.
-  const int64_t warp_size_based_on_l1 = std::min(
-      ceilDiv(
-          total_reduction_numel,
-          std::max(
-              l1_cache_bit /
-                  (n_tensor_inputs * max_dtype_size_bit_for_vectorization *
-                   active_threads),
-              (int64_t)1)),
-      (int64_t)16);
-  return std::min(warp_size_based_on_l1, warp_size_based_on_l2);
-}
-
 // Parallelization strategy:
 // [] indicates optional
 // Reduction dim: Serial, [BIDx or unroll], TIDx, Vect
@@ -171,14 +87,14 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   const int64_t sm_count = dev_prop->multiProcessorCount;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
 
-  const int64_t min_warp_size = getL1L2WarpSize(
+  const int64_t min_warp_size = reduction_scheduler_utils::getL1L2WarpSize(
       total_reduction_numel,
       total_iteration_numel,
       n_tensor_inputs,
       max_dtype_size_bit_for_vectorization);
 
   // Set target_vect_unroll
-  auto target_vect_unroll = getVectUnroll(
+  auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(
       max_dtype_size_bit_for_vectorization,
       max_vectorize_factor,
       n_tensor_inputs,
@@ -421,7 +337,7 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
           std::max((int64_t)n_tensor_inputs >> 2, (int64_t)1)));
 
   // Take the smaller
-  const int64_t min_warp_size = getL1L2WarpSize(
+  const int64_t min_warp_size = reduction_scheduler_utils::getL1L2WarpSize(
       total_reduction_numel,
       total_iteration_numel,
       n_tensor_inputs,
@@ -1383,273 +1299,37 @@ std::unique_ptr<ReductionParams> outerReductionHeuristic(
 }
 
 std::unique_ptr<ReductionParams> reductionHeuristic(
-    const int64_t total_reduction_numel,
-    const int64_t total_iteration_numel,
-    const int64_t inner_most_dimension_numel,
-    const bool fastest_dim_reduction,
-    const int64_t n_tensor_inputs,
-    const int64_t max_dtype_size_bit_for_vectorization,
-    const size_t vectorize_factor,
-    const bool has_mufu_computation) {
-  if (fastest_dim_reduction) {
-    if (total_reduction_numel == inner_most_dimension_numel) {
+    const reduction_scheduler_utils::FusionRuntimeProperties& prop) {
+  if (prop.fastest_dim_reduction) {
+    if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
       return inner2dReductionHeuristic(
-          total_reduction_numel,
-          total_iteration_numel,
-          (int64_t)n_tensor_inputs,
-          (int64_t)max_dtype_size_bit_for_vectorization,
-          (int64_t)vectorize_factor,
-          has_mufu_computation);
+          prop.total_reduction_numel,
+          prop.total_iteration_numel,
+          (int64_t)prop.n_tensor_inputs,
+          (int64_t)prop.max_dtype_size_bit_for_vectorization,
+          (int64_t)prop.vectorize_factor,
+          prop.has_mufu_computation);
     } else {
       return inner3dReductionHeuristic(
-          total_reduction_numel,
-          total_iteration_numel,
-          inner_most_dimension_numel,
-          (int64_t)n_tensor_inputs,
-          (int64_t)max_dtype_size_bit_for_vectorization,
-          vectorize_factor,
-          has_mufu_computation);
+          prop.total_reduction_numel,
+          prop.total_iteration_numel,
+          prop.inner_most_dimension_numel,
+          (int64_t)prop.n_tensor_inputs,
+          (int64_t)prop.max_dtype_size_bit_for_vectorization,
+          prop.vectorize_factor,
+          prop.has_mufu_computation);
     }
 
   } else {
     // 3D schedules not enabled for outer reductions
     return outerReductionHeuristic(
-        total_reduction_numel,
-        total_iteration_numel,
-        (int64_t)n_tensor_inputs,
-        (int64_t)max_dtype_size_bit_for_vectorization,
-        vectorize_factor,
-        has_mufu_computation);
+        prop.total_reduction_numel,
+        prop.total_iteration_numel,
+        (int64_t)prop.n_tensor_inputs,
+        (int64_t)prop.max_dtype_size_bit_for_vectorization,
+        prop.vectorize_factor,
+        prop.has_mufu_computation);
   }
-}
-
-std::unique_ptr<ReductionParams> getReductionHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
-
-  auto reduction_tv_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  auto reduction_tv = reduction_tvs[0];
-
-  NVF_ERROR(
-      reduction_tv->hasReduction(), "TensorView doesn't have a reduction.");
-
-  const auto red_expr = reduction_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, reduction_tv);
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      !tv_inps.empty(),
-      "Tried to schedule a fusion with no tensor inputs, currently not "
-      "supported.");
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
-
-  auto unrollable_inputs_outputs_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduced_tv]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduced_tv, false, false));
-          });
-
-  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
-
-  // Although properties contains runtime information
-  // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicDataCacheEntry<
-      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
-      data_cache, [&reduction_tv, &reduced_tv, &properties]() {
-        return std::make_unique<int64_t>(
-            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-                reduction_tv,
-                reduced_tv,
-                properties.inner_most_dimension_ndims));
-      });
-
-  // `getVectorizationFactor` makes comparisons assuming the break point
-  // is wrt to the logical domain size. Schedulers such as reduction
-  // compute it based on loop domain size, whereas pointwise computes it
-  // based on non-device/non-reduction domain size and accounts for device
-  // dimensions during scheduling.
-  // TODO (priya): We should make this consistent across all schedulers
-  int64_t num_device_dims = numDeviceDims(reduced_tv);
-  int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info, reduced_tv, data_cache, no_device_break_point);
-
-  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
-  // share inner dimension with data pattern we're looking at).
-  int64_t max_dtype_size_bit_for_vectorization = 0;
-
-  // TODO: This might be better if it was the larger of input or outputs. Would
-  // be even better if we had better analysis as not all unrolled elements have
-  // to be alive at the same time.
-  int64_t n_tensor_inputs = 0;
-  for (auto tv : unrollable_inputs_outputs) {
-    max_dtype_size_bit_for_vectorization = std::max(
-        max_dtype_size_bit_for_vectorization,
-        static_cast<int64_t>(dataTypeSizeBit(
-            tv->getDataType().value(), runtime_info.getIndexType())));
-    if (!tv->isFusionInput()) {
-      continue;
-    }
-    n_tensor_inputs++;
-  }
-
-  // If max_dtype_size_bit_for_vectorization is 0, it means there
-  // is no vectorizable input/output. For this case, we set it to 8
-  // as a default value to prevent having a too large vectorization factor.
-  // TODO: run a benchmark and see if there is a better default value.
-  if (max_dtype_size_bit_for_vectorization == 0) {
-    max_dtype_size_bit_for_vectorization = 8;
-  }
-
-  // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, 1l);
-
-  bool has_mufu_computation = scheduler_utils::hasExpensiveMUFUops(fusion);
-
-  auto heuristic = reductionHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      properties.inner_most_dimension_numel,
-      properties.fastest_dim_reduction,
-      n_tensor_inputs,
-      max_dtype_size_bit_for_vectorization,
-      vectorize_factor,
-      has_mufu_computation);
-  heuristic->cparams.index_type = runtime_info.getIndexType();
-  return heuristic;
-}
-
-// fusion is the input IR that will be modified by this function
-void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
-  FusionGuard fg(fusion);
-
-  bool unroll = rparams->isUnrolled();
-
-  // Cache inputs if unrolled
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, unroll);
-
-  // Cache and fork outputs
-  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
-
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion);
-
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
-  auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-
-  NVF_ERROR(!reduction_tvs.empty());
-
-  // Registry assumes the reference tv is the first reduction_tv, if this
-  // changes registry needs to change.
-  auto reduction_tv = reduction_tvs[0];
-
-  if (!ir_utils::getReshapeOps(fusion).empty()) {
-    // Propagate reshape transforms through the graph, expecially the reference.
-    scheduler_utils::propagateReshapeTransforms(fusion);
-
-    // Reorder reference_tv after propagating the view operation. This will
-    // reorder for better merging.
-    reduction_tv->reorder(
-        scheduler_utils::domainReorderAsLogicalMap(reduction_tv));
-  }
-
-  if (isSharded(reduction_tv)) {
-    NVF_ERROR(
-        !rparams->schedule_3D,
-        "Multidevice nvFuser does not support 3D reduction schedules");
-  }
-
-  auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
-
-  bool has_iter_axis = dim_analysis.first;
-  bool has_red_axis = dim_analysis.second;
-
-  NVF_ERROR(
-      has_red_axis,
-      "Could not find reduction axis in tensor used for reduction scheduler.");
-
-  if (!has_iter_axis) {
-    NVF_ERROR(
-        rparams->fastest_dim,
-        "If all dims are reduction, should be sending it to fastest dim "
-        "scheduler.");
-  }
-
-  TensorView* reference_tv = reduction_scheduler_utils::scheduleReductionTV(
-      rparams, reduction_tv, has_iter_axis);
-
-  // Reduction tensor views and rfactor tensor views are setup. Let's finish off
-  // the scheduling, particularly inlining and unrolling.
-  NVF_ERROR(
-      reference_tv != nullptr && reduction_tv != nullptr,
-      "Need these two tensor views to finish the scheduling.");
-  const bool is_vectorize =
-      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-
-  // allow iter domain grouped reduction for block and grid outer reductions.
-  // TODO: the var name is confusing, should rename
-  // [cross_grid/block_inner_reduction] to [cross_grid/block_reduction], see
-  // https://github.com/NVIDIA/Fuser/issues/1863
-  // grouped welford is only enabled for grid persistent.
-  // see validateAndConvertIterDomainGrouping
-  const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
-  const bool use_iter_grouped_reduction = !rparams->fastest_dim &&
-      (has_welford
-           ? rparams->cross_grid_inner_reduction && rparams->persistent_kernel
-           : rparams->cross_block_inner_reduction);
-
-  scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
-
-  // Propagate transformations before we rfactor the other reductions
-  reduction_scheduler_utils::propagateTransformation(reference_tv);
-  // If reduction_tv is rfactored, rfactor all reductions.
-  if (reference_tv != reduction_tv) {
-    reduction_scheduler_utils::propagateRFactor(
-        reference_tv, reduction_tv, reduction_tvs);
-  }
-
-  const auto& unroll_vectorizable_cached_tvs =
-      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv, is_vectorize, cached_inputs, cached_outputs);
-
-  reduction_scheduler_utils::propagateParallelization(
-      reduction_tv,
-      reference_tv,
-      unroll,
-      use_iter_grouped_reduction,
-      reduction_tvs,
-      unroll_vectorizable_cached_tvs);
-
-  // Inline the schedule
-  inlineMost();
-
-  scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
-
-  markAliases(fusion);
 }
 
 } // namespace
@@ -1658,115 +1338,10 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
+  auto prop = reduction_scheduler_utils::getFusionRuntimeProperties(
+      fusion, runtime_info, data_cache);
 
-  auto reduction_tv_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>(
-          data_cache, [&fusion]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getReductionTvs(fusion));
-          });
-
-  auto& reduction_tvs = reduction_tv_entry.get();
-
-  NVF_ERROR(!reduction_tvs.empty(), "Need reduction tensor views to schedule.");
-
-  auto reduction_tv = reduction_tvs[0];
-
-  NVF_ERROR(
-      reduction_tv->hasReduction(), "TensorView doesn't have a reduction.");
-
-  const auto red_expr = reduction_tv->definition();
-
-  NVF_ERROR(
-      ir_utils::isReductionOp(red_expr),
-      "TensorView doesn't have a reduction.");
-
-  auto properties = scheduler_utils::getReductionProperties(
-      fusion, runtime_info, reduction_tv);
-
-  auto tv_inps = ir_utils::filterByType<TensorView>(fusion->inputs());
-  NVF_ERROR(
-      !tv_inps.empty(),
-      "Tried to schedule a fusion with no tensor inputs, currently not "
-      "supported.");
-
-  auto reduced_tv = ir_utils::getSoleProducerTv(reduction_tv);
-
-  auto unrollable_inputs_outputs_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::UnrollableInputsAndOutputs>(
-          data_cache, [&reduced_tv]() {
-            return std::make_unique<std::vector<TensorView*>>(
-                scheduler_utils::getInputsOutputsWithInnerDim(
-                    reduced_tv, false, false));
-          });
-
-  auto& unrollable_inputs_outputs = unrollable_inputs_outputs_entry.get();
-
-  // Although properties contains runtime information
-  // "inner_most_dimension_ndims" is a compile time value
-  auto vec_break_point = HeuristicDataCacheEntry<
-      HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>(
-      data_cache, [&reduction_tv, &reduced_tv, &properties]() {
-        return std::make_unique<int64_t>(
-            vectorize_helper::getVectorizationBreakPointOfReductionProducer(
-                reduction_tv,
-                reduced_tv,
-                properties.inner_most_dimension_ndims));
-      });
-
-  // `getVectorizationFactor` makes comparisons assuming the break point
-  // is wrt to the logical domain size. Schedulers such as reduction
-  // compute it based on loop domain size, whereas pointwise computes it
-  // based on non-device/non-reduction domain size and accounts for device
-  // dimensions during scheduling.
-  // TODO (priya): We should make this consistent across all schedulers
-  int64_t num_device_dims = numDeviceDims(reduced_tv);
-  int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
-      runtime_info, reduced_tv, data_cache, no_device_break_point);
-
-  // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
-  // share inner dimension with data pattern we're looking at).
-  int64_t max_dtype_size_bit_for_vectorization = 0;
-
-  // TODO: This might be better if it was the larger of input or outputs. Would
-  // be even better if we had better analysis as not all unrolled elements have
-  // to be alive at the same time.
-  int64_t n_tensor_inputs = 0;
-  for (auto tv : unrollable_inputs_outputs) {
-    max_dtype_size_bit_for_vectorization = std::max(
-        max_dtype_size_bit_for_vectorization,
-        static_cast<int64_t>(dataTypeSizeBit(
-            tv->getDataType().value(), runtime_info.getIndexType())));
-    if (!tv->isFusionInput()) {
-      continue;
-    }
-    n_tensor_inputs++;
-  }
-
-  // If max_dtype_size_bit_for_vectorization is 0, it means there
-  // is no vectorizable input/output. For this case, we set it to 8
-  // as a default value to prevent having a too large vectorization factor.
-  // TODO: run a benchmark and see if there is a better default value.
-  if (max_dtype_size_bit_for_vectorization == 0) {
-    max_dtype_size_bit_for_vectorization = 8;
-  }
-
-  // Protect heuristics div by 0:
-  n_tensor_inputs = std::max(n_tensor_inputs, 1l);
-
-  bool has_mufu_computation = scheduler_utils::hasExpensiveMUFUops(fusion);
-
-  auto heuristic = reductionHeuristic(
-      properties.total_reduction_numel,
-      properties.total_iteration_numel,
-      properties.inner_most_dimension_numel,
-      properties.fastest_dim_reduction,
-      n_tensor_inputs,
-      max_dtype_size_bit_for_vectorization,
-      vectorize_factor,
-      has_mufu_computation);
+  auto heuristic = reductionHeuristic(prop);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
