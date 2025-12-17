@@ -533,4 +533,109 @@ TEST_F(MetaTest, Matmul1D) {
   EXPECT_EQ(meta_out.strides(), real_out.strides());
 }
 
+// Test CutlassNvfp4GroupedMmaOp with meta device
+TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // mat1: [M, K/2] = [128, 64] (packed FP4)
+  // mat2: [G, N, K/2] = [4, 128, 64] (packed FP4)
+  // output: [M, N] = [128, 128]
+  auto mat1 = makeContigConcreteTensor({128, 64}, DataType::Float4_e2m1fn_x2);
+  auto mat2 = makeContigConcreteTensor({4, 128, 64}, DataType::Float4_e2m1fn_x2);
+  auto scale1 = makeContigConcreteTensor({128, 8}, DataType::Float8_e4m3fn);
+  auto scale2 = makeContigConcreteTensor({4, 128, 8}, DataType::Float8_e4m3fn);
+  auto alpha = makeContigConcreteTensor({4}, DataType::Float);
+  auto problem_sizes = makeContigConcreteTensor({4, 3}, DataType::Index);
+  auto expert_offsets = makeContigConcreteTensor({4}, DataType::Index);
+  auto sf_offsets = makeContigConcreteTensor({4}, DataType::Index);
+
+  fusion->addInput(mat1);
+  fusion->addInput(mat2);
+  fusion->addInput(scale1);
+  fusion->addInput(scale2);
+  fusion->addInput(alpha);
+  fusion->addInput(problem_sizes);
+  fusion->addInput(expert_offsets);
+  fusion->addInput(sf_offsets);
+
+  auto result = cutlass_nvfp4_grouped_mm(
+      mat1, mat2, scale1, scale2, alpha, problem_sizes, expert_offsets, sf_offsets, DataType::BFloat16);
+  fusion->addOutput(result);
+
+  // Create real inputs with appropriate data types
+  auto options_fp4 = at::TensorOptions().dtype(at::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
+  auto options_fp8 = at::TensorOptions().dtype(at::kFloat8_e4m3fn).device(at::kCUDA, 0);
+  auto options_fp32 = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
+
+  at::Tensor mat1_input = at::randn({128, 64}, options_fp4);
+  at::Tensor mat2_input = at::randn({4, 128, 64}, options_fp4);
+  at::Tensor scale1_input = at::randn({128, 8}, options_fp8);
+  at::Tensor scale2_input = at::randn({4, 128, 8}, options_fp8);
+  at::Tensor alpha_input = at::ones({4}, options_fp32);
+  at::Tensor problem_sizes_input = at::tensor(
+      {{32, 128, 128}, {32, 128, 128}, {32, 128, 128}, {32, 128, 128}},
+      options_int);
+  at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
+  at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
+
+  // CUDA path
+  ExpressionEvaluator ee_cuda;
+  ee_cuda.bind(fusion->inputs().at(0), mat1_input);
+  ee_cuda.bind(fusion->inputs().at(1), mat2_input);
+  ee_cuda.bind(fusion->inputs().at(2), scale1_input);
+  ee_cuda.bind(fusion->inputs().at(3), scale2_input);
+  ee_cuda.bind(fusion->inputs().at(4), alpha_input);
+  ee_cuda.bind(fusion->inputs().at(5), problem_sizes_input);
+  ee_cuda.bind(fusion->inputs().at(6), expert_offsets_input);
+  ee_cuda.bind(fusion->inputs().at(7), sf_offsets_input);
+  auto real_out = ee_cuda.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Meta evaluation
+  ExpressionEvaluator ee_meta;
+  auto meta_mat1 = at::empty_strided(
+      mat1_input.sizes(), mat1_input.strides(), options_fp4.device(at::kMeta));
+  auto meta_mat2 = at::empty_strided(
+      mat2_input.sizes(), mat2_input.strides(), options_fp4.device(at::kMeta));
+  auto meta_scale1 = at::empty_strided(
+      scale1_input.sizes(), scale1_input.strides(), options_fp8.device(at::kMeta));
+  auto meta_scale2 = at::empty_strided(
+      scale2_input.sizes(), scale2_input.strides(), options_fp8.device(at::kMeta));
+  auto meta_alpha = at::empty_strided(
+      alpha_input.sizes(), alpha_input.strides(), options_fp32.device(at::kMeta));
+  auto meta_problem_sizes = at::empty_strided(
+      problem_sizes_input.sizes(),
+      problem_sizes_input.strides(),
+      options_int.device(at::kMeta));
+  auto meta_expert_offsets = at::empty_strided(
+      expert_offsets_input.sizes(),
+      expert_offsets_input.strides(),
+      options_int.device(at::kMeta));
+  auto meta_sf_offsets = at::empty_strided(
+      sf_offsets_input.sizes(),
+      sf_offsets_input.strides(),
+      options_int.device(at::kMeta));
+
+  ee_meta.bind(fusion->inputs().at(0), meta_mat1);
+  ee_meta.bind(fusion->inputs().at(1), meta_mat2);
+  ee_meta.bind(fusion->inputs().at(2), meta_scale1);
+  ee_meta.bind(fusion->inputs().at(3), meta_scale2);
+  ee_meta.bind(fusion->inputs().at(4), meta_alpha);
+  ee_meta.bind(fusion->inputs().at(5), meta_problem_sizes);
+  ee_meta.bind(fusion->inputs().at(6), meta_expert_offsets);
+  ee_meta.bind(fusion->inputs().at(7), meta_sf_offsets);
+  auto meta_out = ee_meta.evaluate(fusion->outputs().at(0)).as<at::Tensor>();
+
+  // Checks
+  EXPECT_TRUE(meta_out.is_meta());
+  EXPECT_EQ(meta_out.scalar_type(), at::kBFloat16);
+  EXPECT_EQ(meta_out.sizes(), real_out.sizes());
+  EXPECT_EQ(meta_out.strides(), real_out.strides());
+#else
+  GTEST_SKIP() << "Test requires CUTLASS support";
+#endif
+}
+
 } // namespace nvfuser
