@@ -387,14 +387,13 @@ FusionCache* FusionCache::get(
                   << std::endl;
 
         // Hide exception message by default because it should be resolved by
-        // saving a new workspace. Enable NVFUSER_ENABLE=parallel_serde to
-        // print the full exception message for debugging.
+        // saving a new workspace.
         if (isOptionEnabled(EnableOption::ParallelSerde)) {
-          std::cout << deserialize_exception.what() << std::endl;
-        } else {
           std::cout << "Remove `parallel_serde` from NVFUSER_ENABLE "
                        "environment variable to print exception message."
                     << std::endl;
+        } else {
+          std::cout << deserialize_exception.what() << std::endl;
         }
 
         // Delete incompatible workspace
