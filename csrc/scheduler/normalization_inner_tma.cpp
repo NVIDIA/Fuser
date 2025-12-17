@@ -57,8 +57,20 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   params->tma_load_non_persistent_buffers = false;
   // Vectorize loads from shared memory to registers for better memory bandwidth
   params->vectorize_load_smem_to_regs = true;
-  // Issue ldg (load global) instructions early to hide memory latency
-  params->pre_load_ldg_tvs = true;
+  // Issue ldg (load global) instructions early to hide memory latency at the
+  // cost of increased register usage. Should only be used when extra register
+  // usage is less than half of the buffer reserved register file size, that is
+  // 16K registers, cut-off at hidden size of 32K for RMSNorm BFloat16 case.
+  const int64_t n_inputs = prop.n_tensor_inputs;
+  const int64_t n_persistent_inputs = prop.persistent_buffers.size();
+  const int64_t bits_per_input =
+      prop.max_persistent_buffer_size_bit / n_persistent_inputs;
+  const int64_t n_non_persistent_inputs = n_inputs - n_persistent_inputs;
+  const int64_t non_persistent_inputs_size_bits =
+      n_non_persistent_inputs * bits_per_input;
+  params->pre_load_ldg_tvs = n_non_persistent_inputs == 1 &&
+      non_persistent_inputs_size_bits <=
+          scheduler_utils::register_file_size_bit / 2;
 
   // Configure reduction domain structure: [persistent_batch_size, bdimx, vect]
   // Prioritize vectorization for memory access efficiency
@@ -77,70 +89,76 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     pbs = ceilDiv(after_vect, bdimx);
   }
   params->persistent_batch_size = pbs;
+  bdimx = ceilDiv(after_vect, pbs);
 
-  // set warp specialized circular buffer options
-  // don't use warp specialized if the total iteration count is too small
-  // TODO: heuristic tuning determine when to use warp specialized version
-  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
-  int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
-  int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
-  const int64_t n_compute_warp_groups = 2;
-  const int64_t n_rows_per_compute_warp_group = 2;
-  const int64_t iter_limited_stages = total_iter_count /
-      (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
-  const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
-      n_compute_warp_groups * n_rows_per_compute_warp_group;
-  const int64_t smem_limited_stages =
-      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
-  const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
-  if (n_stages >= 2 && bdimx == 128) {
-    gdimx = sm_count;
-    bdimx = 128; // 4 warps per warp group
-    bdimy = n_compute_warp_groups;
-    bdimz = 1; // warp specialized kernel requires static CTA shape
-    params->n_grouped_rows = n_rows_per_compute_warp_group;
-    ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
-    WarpSpecialized ws(ws_pt);
-    if (ws_pt == ParallelType::TIDy) {
-      bdimy += 1;
-      ws.stage_slice_position = 3;
-      // Limitation in grouped reduction runtime function
-      NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
-      NVF_ERROR(
-          params->n_grouped_rows > 1,
-          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
-    } else {
-      bdimx += kWarpSpecializationPaddedThreads;
+  bool try_warp_specialized = false;
+  if (try_warp_specialized) {
+    // set warp specialized circular buffer options
+    // don't use warp specialized if the total iteration count is too small
+    // TODO: heuristic tuning determine when to use warp specialized version
+    int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+    int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
+    int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
+    const int64_t n_compute_warp_groups = 2;
+    const int64_t n_rows_per_compute_warp_group = 2;
+    const int64_t iter_limited_stages = total_iter_count /
+        (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
+    const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
+        n_compute_warp_groups * n_rows_per_compute_warp_group;
+    const int64_t smem_limited_stages =
+        (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
+    const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
+    if (n_stages >= 2 && bdimx == 128) {
+      gdimx = sm_count;
+      bdimx = 128; // 4 warps per warp group
+      bdimy = n_compute_warp_groups;
+      bdimz = 1; // warp specialized kernel requires static CTA shape
+      params->n_grouped_rows = n_rows_per_compute_warp_group;
+      ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
+      WarpSpecialized ws(ws_pt);
+      if (ws_pt == ParallelType::TIDy) {
+        bdimy += 1;
+        ws.stage_slice_position = 3;
+        // Limitation in grouped reduction runtime function
+        NVF_ERROR(
+            bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
+        NVF_ERROR(
+            params->n_grouped_rows > 1,
+            "n_grouped_rows must be greater than 1 for TIDy warp "
+            "specialization");
+      } else {
+        bdimx += kWarpSpecializationPaddedThreads;
+      }
+      int64_t total_threads = bdimx * bdimy * bdimz;
+      if (total_threads > 256) {
+        int64_t reg_per_thread =
+            getRegPerThreadGivenThreadsPerSM(total_threads);
+        int64_t computation_threads =
+            total_threads - kWarpSpecializationPaddedThreads;
+        ws.num_registers = scheduler_utils::getRegisterSharing(
+            reg_per_thread,
+            computation_threads,
+            kWarpSpecializationPaddedThreads);
+      }
+      CircularBufferOptions circular_buffer_options{
+          .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
+      params->circular_buffer_options = circular_buffer_options;
+      // Set launch parameters
+      // LaunchParams is not used in cache hash and comparison, here we add CTA
+      // shape to heuristic params to include CTA shape in the hash and
+      // comparison.
+      params->bdimx = bdimx;
+      params->bdimy = bdimy;
+      params->bdimz = bdimz;
+      params->lparams = LaunchParams(
+          gdimx,
+          LaunchParams::UNINITIALIZED_VAL,
+          LaunchParams::UNINITIALIZED_VAL,
+          bdimx,
+          bdimy,
+          bdimz);
     }
-    int64_t total_threads = bdimx * bdimy * bdimz;
-    if (total_threads > 256) {
-      int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
-      int64_t computation_threads =
-          total_threads - kWarpSpecializationPaddedThreads;
-      ws.num_registers = scheduler_utils::getRegisterSharing(
-          reg_per_thread,
-          computation_threads,
-          kWarpSpecializationPaddedThreads);
-    }
-    CircularBufferOptions circular_buffer_options{
-        .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
-    params->circular_buffer_options = circular_buffer_options;
-    // Set launch parameters
-    // LaunchParams is not used in cache hash and comparison, here we add CTA
-    // shape to heuristic params to include CTA shape in the hash and
-    // comparison.
-    params->bdimx = bdimx;
-    params->bdimy = bdimy;
-    params->bdimz = bdimz;
-    params->lparams = LaunchParams(
-        gdimx,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        bdimx,
-        bdimy,
-        bdimz);
   }
-
   // Set index type
   params->cparams.index_type = prop.index_type;
 
