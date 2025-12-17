@@ -1217,12 +1217,7 @@ TensorView* newForReduction(
                    .iter_type(IterType::Reduction)
                    .build();
     } else {
-      new_id = IterDomainBuilder(id)
-                   .extent(id->extent())
-                   .resetSchedulingParams()
-                   .parallel_type(id->getParallelType())
-                   .iter_type(id->getIterType())
-                   .build();
+      new_id = id->cloneWithoutRFactor();
     }
     new_domain.push_back(new_id);
   }
