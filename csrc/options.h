@@ -128,6 +128,8 @@ enum class EnableOption {
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
   P2pProtocol, //! Prescribe P2P protocol: put|get
+  MulticastProtocol, //! Prescribe multicast protocol:
+                     //! memcpy|multimem|batch_memcpy
   EndOfOption //! Placeholder for counting the number of elements
 };
 

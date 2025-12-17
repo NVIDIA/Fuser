@@ -1198,6 +1198,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
@@ -1455,6 +1456,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/index_utils.cu
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
+  ${NVFUSER_ROOT}/runtime/multicast.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
