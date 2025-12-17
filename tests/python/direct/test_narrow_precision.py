@@ -183,7 +183,7 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
     x = torch.randn(sizes, dtype=dtype, device="cuda")
 
-    if swizzle_scales and sizes[0] % 128 != 0 or sizes[1] % 4 != 0:
+    if swizzle_scales and (sizes[0] % 128 != 0 or sizes[1] % 4 != 0):
         # otherwise, nvfuser_direct_test.exec_nvfuser would assert on identical result from captured fusion.
         pytest.skip("Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs")
 
