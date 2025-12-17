@@ -740,23 +740,17 @@ TEST_F(RaggedIterDomainTest, ReductionOnNonRaggedDim) {
   fusion.addOutput(result);
 
   // Result should be: [component, ragged]
-  // Debug: print the result structure
-  std::cout << "ReductionOnNonRaggedDim result dimensions: " << result->nDims()
-            << std::endl;
-  for (auto i : c10::irange(result->nDims())) {
-    std::cout << "  axis " << i << ": "
-              << (result->axis(i)->isA<RaggedIterDomain>() ? "RaggedIterDomain"
-                                                           : "IterDomain")
-              << std::endl;
-  }
+  // Get non-reduction dimensions
+  auto non_reduction_domain =
+      TensorDomain::noReductions(result->getLogicalDomain());
 
-  EXPECT_EQ(result->nDims(), 2);
-  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
-  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_EQ(non_reduction_domain.size(), 2);
+  EXPECT_TRUE(non_reduction_domain[0]->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(non_reduction_domain[1]->isA<RaggedIterDomain>());
 }
 
-// Test reduction on ragged dimension
-TEST_F(RaggedIterDomainTest, ReductionOnRaggedDim) {
+// Test reduction on ragged dimension - should error
+TEST_F(RaggedIterDomainTest, ReductionOnRaggedDimError) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -769,28 +763,36 @@ TEST_F(RaggedIterDomainTest, ReductionOnRaggedDim) {
   // Create nested tensor: [component, ragged, dim1]
   auto nested = asNested(data, offsets, 0);
 
-  // Reduce along the ragged dimension (axis 1)
-  auto result = sum(nested, {1});
+  // Try to reduce along the ragged dimension (axis 1)
+  // This should throw an error because reducing RaggedIterDomain is not allowed
+  EXPECT_THROW(sum(nested, {1}), nvfuser::nvfError);
+}
 
-  fusion.addOutput(result);
+// Test reduction on component dimension - should error (TODO)
+TEST_F(RaggedIterDomainTest, ReductionOnComponentDimError) {
+  GTEST_SKIP() << "TODO: Implement validation to prevent reduction of "
+                  "component dimension. "
+               << "Currently there is no explicit marking of which IterDomains "
+                  "are component dimensions, "
+               << "so this validation cannot be implemented yet.";
 
-  // Result should be: [component, dim1]
-  // Both should be regular IterDomains (ragged dimension is reduced away)
-  // Debug: print the result structure
-  std::cout << "ReductionOnRaggedDim result dimensions: " << result->nDims()
-            << std::endl;
-  for (auto i : c10::irange(result->nDims())) {
-    std::cout << "  axis " << i << ": "
-              << (result->axis(i)->isA<RaggedIterDomain>() ? "RaggedIterDomain"
-                                                           : "IterDomain")
-              << std::endl;
-  }
+  Fusion fusion;
+  FusionGuard fg(&fusion);
 
-  EXPECT_EQ(result->nDims(), 2);
-  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
-  EXPECT_FALSE(result->axis(0)->isA<RaggedIterDomain>());
-  EXPECT_TRUE(result->axis(1)->isStrictlyA<IterDomain>());
-  EXPECT_FALSE(result->axis(1)->isA<RaggedIterDomain>());
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to reduce along the component dimension (axis 0)
+  // This should throw an error because reducing component dimensions is not
+  // allowed The component dimension defines the batch structure of the ragged
+  // tensor, and reducing it would destroy the ragged structure
+  EXPECT_THROW(sum(nested, {0}), nvfuser::nvfError);
 }
 
 } // namespace nvfuser

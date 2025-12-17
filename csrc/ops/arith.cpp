@@ -1209,6 +1209,14 @@ TensorView* newForReduction(
             " of tensor ",
             tv);
       }
+      NVF_CHECK(
+          !id->isA<RaggedIterDomain>(),
+          "Cannot reduce a RaggedIterDomain. Reduction of ragged dimensions is "
+          "not supported. "
+          "Tried to reduce ID = ",
+          id,
+          " of tensor ",
+          tv);
       new_id = IterDomainBuilder(id)
                    // If the domain is being reduced, but it's coming in as an
                    // expanded extent, we need to realize the expand.
@@ -1217,12 +1225,18 @@ TensorView* newForReduction(
                    .iter_type(IterType::Reduction)
                    .build();
     } else {
-      new_id = IterDomainBuilder(id)
-                   .extent(id->extent())
-                   .resetSchedulingParams()
-                   .parallel_type(id->getParallelType())
-                   .iter_type(id->getIterType())
-                   .build();
+      // For non-reduced dimensions, preserve RaggedIterDomain if present
+      if (id->isA<RaggedIterDomain>()) {
+        // Cast away const since cloneWithoutRFactor is not const
+        new_id = const_cast<IterDomain*>(id)->cloneWithoutRFactor();
+      } else {
+        new_id = IterDomainBuilder(id)
+                     .extent(id->extent())
+                     .resetSchedulingParams()
+                     .parallel_type(id->getParallelType())
+                     .iter_type(id->getIterType())
+                     .build();
+      }
     }
     new_domain.push_back(new_id);
   }
