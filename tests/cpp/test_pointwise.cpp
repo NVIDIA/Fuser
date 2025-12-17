@@ -2023,4 +2023,60 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
+
+TEST_F(TmaPointwiseTestF, SplitGridDim1D) {
+  maybeClearAllocator(/*max_bytes=*/0);
+  int64_t dim0 = 32768;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
+  maybeClearAllocator(/*max_bytes=*/0);
+  // use a large dim0, ensure it is larger than the max grid y dimension
+  // after split by outer tma domain
+  const int64_t max_grid_y_dim =
+      at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+  int64_t dim0 = max_grid_y_dim * 20;
+  int64_t dim1 = 2048;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  auto tv2 = makeContigTensor(1, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {true, false});
+  auto tv4 = broadcast(tv2, {false, true});
+  auto tv5 = add(tv0, tv3);
+  auto tv6 = add(tv5, tv4);
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim1}, options);
+  auto t2 = at::randn({dim0}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
