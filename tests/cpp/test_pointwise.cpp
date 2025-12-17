@@ -2052,7 +2052,7 @@ TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
   const int64_t max_grid_y_dim =
       at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
   int64_t dim0 = max_grid_y_dim * 20;
-  int64_t dim1 = 2048;
+  int64_t dim1 = 16;
   DataType dtype = DataType::BFloat16;
   auto fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
