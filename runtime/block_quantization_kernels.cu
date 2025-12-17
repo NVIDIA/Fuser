@@ -120,7 +120,6 @@ __device__ void block_quantize_to_nvfp4(
   constexpr float float_max = 3.40282346638528859811704183484516925440e+38f;
   scaled_max = block_max / 6.0f;
   if constexpr (USE_GLOBAL_SCALE) {
-    // scaled_max = block_max * global_scale[0] * rcp_6f;
     scaled_max = scaled_max * global_scale[0];
   }
   scaled_max = fminf(scaled_max, float_max);
