@@ -185,7 +185,9 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
 
     if swizzle_scales and (sizes[0] % 128 != 0 or sizes[1] % 4 != 0):
         # otherwise, nvfuser_direct_test.exec_nvfuser would assert on identical result from captured fusion.
-        pytest.skip("Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs")
+        pytest.skip(
+            "Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs"
+        )
 
     # Compute global scale for nvfuser block quantization
     x_global_scale = compute_nvfp4_global_scale(x)
