@@ -311,7 +311,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
       continue;
-    } else if (expr->isOneOf<ScatterOp, SliceOp, PadOp>()) {
+    } else if (
+        expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
       options.setProducerIndex(true);
       options.setConsumerIndex(true);
       options.setInlinePredicate(true);
