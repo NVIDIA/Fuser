@@ -36,6 +36,7 @@ using testing::ElementsAre;
 using HirLowerStreamTest = NVFuserTest;
 
 TEST_F(HirLowerStreamTest, InputsAreNotStreamParallelized) {
+  GTEST_SKIP() << "Inputs can now be stream parallelized";
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv = makeContigTensor(2);
@@ -507,6 +508,7 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
 using MultiDeviceExecutorLowerStreamTest = NVFuserTest;
 
 TEST_F(MultiDeviceExecutorLowerStreamTest, InputsAreNotStreamParallelized) {
+  GTEST_SKIP() << "Inputs can now be stream parallelized";
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv = makeContigTensor(2);
