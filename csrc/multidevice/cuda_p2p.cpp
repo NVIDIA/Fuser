@@ -6,10 +6,14 @@
  */
 // clang-format on
 #include "multidevice/cuda_p2p.h"
+#include "nvfuser_resources/multicast.h"
 
 #include "cuda_utils.h"
 #include "multidevice/ipc_handle.h"
+#include "multidevice/ipc_utils.h"
 #include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
+#include "options.h"
 
 namespace nvfuser {
 
@@ -30,6 +34,168 @@ P2pProtocol getP2pProtocol() {
 }
 
 namespace {
+
+void launchMulticastKernel(
+    void* dst,
+    const void* src,
+    size_t size,
+    CUstream stream) {
+  static CUmodule module = nullptr;
+  static CUfunction kernel = nullptr;
+
+  if (module == nullptr) {
+    nvrtcProgram prog;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcCreateProgram(
+        &prog,
+        nvfuser_resources::multicast_cu,
+        "multicast.cu",
+        0,
+        nullptr,
+        nullptr));
+
+    int major = 0;
+    int minor = 0;
+    int device = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+    cudaDeviceProp prop;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, device));
+    major = prop.major;
+    minor = prop.minor;
+
+    NVF_CHECK(
+        major >= 9,
+        "Multicast kernel using 'multimem' protocol requires Compute "
+        "Capability >= 9.0 (Hopper+). ",
+        "Current device ",
+        device,
+        " is Compute Capability ",
+        major,
+        ".",
+        minor);
+
+    std::string arch_arg = "--gpu-architecture=compute_" +
+        std::to_string(major) + std::to_string(minor);
+    std::vector<const char*> opts = {arch_arg.c_str(), "--std=c++17"};
+
+    // st.multimem requires PTX ISA 8.0+
+    if (major >= 9) {
+      opts.push_back("--ptx-isa-version=8.0");
+    }
+
+    nvrtcResult res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    if (res != NVRTC_SUCCESS && major >= 9) {
+      // If 8.0 is not supported (e.g. older NVRTC), try without it
+      opts.pop_back();
+      res = nvrtcCompileProgram(prog, (int)opts.size(), opts.data());
+    }
+
+    if (res != NVRTC_SUCCESS) {
+      size_t logSize;
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLogSize(prog, &logSize));
+      std::vector<char> log(logSize);
+      NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(prog, log.data()));
+      NVF_ERROR(false, "Multicast kernel compilation failed:\n", log.data());
+    }
+
+    size_t ptxSize;
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTXSize(prog, &ptxSize));
+    std::vector<char> ptx(ptxSize);
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcGetPTX(prog, ptx.data()));
+    NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&prog));
+
+    CUresult load_result = cuModuleLoadData(&module, ptx.data());
+
+    if (load_result != CUDA_SUCCESS) {
+      // Fallback to extensive logging only on failure
+      constexpr size_t kLogSize = 8192;
+      char error_log[kLogSize];
+      char info_log[kLogSize];
+      CUjit_option options[] = {
+          CU_JIT_ERROR_LOG_BUFFER,
+          CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_INFO_LOG_BUFFER,
+          CU_JIT_INFO_LOG_BUFFER_SIZE_BYTES,
+          CU_JIT_LOG_VERBOSE};
+      void* option_values[] = {
+          (void*)error_log,
+          (void*)kLogSize,
+          (void*)info_log,
+          (void*)kLogSize,
+          (void*)1};
+
+      // Reload to capture logs
+      cuModuleLoadDataEx(&module, ptx.data(), 5, options, option_values);
+
+      NVF_ERROR(
+          false,
+          "Multicast kernel module load failed with error: ",
+          load_result,
+          "\nInfo Log:\n",
+          info_log,
+          "\nError Log:\n",
+          error_log);
+    }
+
+    NVFUSER_CUDA_SAFE_CALL(
+        cuModuleGetFunction(&kernel, module, "multimem_copy_kernel"));
+  }
+
+  // Ensure data is 16-byte aligned
+  NVF_CHECK(
+      (uintptr_t)dst % 16 == 0,
+      "Multicast dst must be 16-byte aligned. ptr=",
+      dst);
+  NVF_CHECK(
+      (uintptr_t)src % 16 == 0,
+      "Multicast src must be 16-byte aligned. ptr=",
+      src);
+  // Also assume size is a multiple of 16 for simplicity in the kernel
+  NVF_CHECK(
+      size % 16 == 0, "Multicast size must be a multiple of 16. size=", size);
+
+  int threads = 128;
+  int blocks = 1;
+
+  int device;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDevice(&device));
+  int num_sms;
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaDeviceGetAttribute(&num_sms, cudaDevAttrMultiProcessorCount, device));
+
+  // Maximize occupancy
+  int max_blocks_per_sm;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_blocks_per_sm, kernel, threads, 0));
+
+  blocks = num_sms * max_blocks_per_sm;
+
+  // Limit number of blocks so that we don't launch more threads than needed
+  // to cover the message size (vectorized 16 bytes per thread).
+  size_t vec_size = 16;
+  size_t total_work_units = (size + vec_size - 1) / vec_size;
+  size_t max_needed_blocks = (total_work_units + threads - 1) / threads;
+
+  if ((size_t)blocks > max_needed_blocks) {
+    blocks = std::max(1, (int)max_needed_blocks);
+  }
+  const auto& args = getEnableOptionArguments(EnableOption::MulticastProtocol);
+  if (args.size() >= 2) {
+    try {
+      threads = std::stoi(args[1]);
+    } catch (...) {
+    }
+  }
+  if (args.size() >= 3) {
+    try {
+      blocks = std::stoi(args[2]);
+    } catch (...) {
+    }
+  }
+
+  void* args_kernel[] = {&dst, &src, &size};
+  NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
+      kernel, blocks, 1, 1, threads, 1, 1, 0, stream, args_kernel, nullptr));
+}
 
 // We choose  duplicate the state of the semaphore on both the local and peer
 // devices to avoid cuStreamWaitValue32 to poll on a remote buffer and pollutes
@@ -96,12 +262,64 @@ void postBroadcastWithCudaBackend(
     // Root: compute src_ptr and count
     const void* src_ptr = input.data_ptr();
     const int64_t count = input.numel() * input.element_size();
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-        multicast_handle->bufferMulticastPtr(),
-        src_ptr,
-        count,
-        cudaMemcpyDeviceToDevice,
-        stream));
+
+    MulticastProtocol protocol = getMulticastProtocol();
+    if (protocol == MulticastProtocol::Multimem) {
+      launchMulticastKernel(
+          multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
+    } else if (protocol == MulticastProtocol::BatchMemcpy) {
+      std::vector<void*> dsts(world_size);
+      std::vector<const void*> srcs(world_size, src_ptr);
+      std::vector<size_t> counts(world_size, count);
+      std::vector<cudaMemcpyAttributes> attributes(world_size);
+      std::vector<size_t> attrsIdxs(world_size);
+      size_t numAttrs = world_size;
+      for (int64_t rank = 0; rank < world_size; ++rank) {
+        dsts[rank] = multicast_handle->bufferUnicastPtr(rank);
+        attrsIdxs[rank] = rank;
+        struct cudaMemLocation dst_location = {
+            .type = cudaMemLocationTypeDevice, .id = (int)rank};
+        struct cudaMemLocation src_location = {
+            .type = cudaMemLocationTypeDevice, .id = (int)root};
+        unsigned int flags = cudaMemcpyFlagPreferOverlapWithCompute;
+        attributes[rank].dstLocHint = dst_location;
+        attributes[rank].srcLocHint = src_location;
+        attributes[rank].flags = flags;
+        attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
+      }
+      NVF_CHECK(
+          stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+#if CUDA_VERSION >= 13000
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+          dsts.data(),
+          srcs.data(),
+          counts.data(),
+          world_size,
+          attributes.data(),
+          attrsIdxs.data(),
+          numAttrs,
+          (cudaStream_t)stream));
+#else
+      size_t failIdx = 0;
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+          dsts.data(),
+          srcs.data(),
+          counts.data(),
+          world_size,
+          attributes.data(),
+          attrsIdxs.data(),
+          numAttrs,
+          &failIdx,
+          (cudaStream_t)stream));
+#endif
+    } else {
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+          multicast_handle->bufferMulticastPtr(),
+          src_ptr,
+          count,
+          cudaMemcpyDeviceToDevice,
+          stream));
+    }
 
     // Root writes kIdle to all non-root semaphores using batched unicast writes
     std::vector<CUstreamBatchMemOpParams> write_idle_ops(world_size - 1);
@@ -190,12 +408,69 @@ void postAllgatherWithCudaBackend(
       cuStreamBatchMemOp(stream, world_size - 1, wait_ready_ops.data(), 0));
 
   // Step 3: Each rank copies its data to its multicast buffer
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
-      allgather_handle->bufferMulticastPtr(my_device_index),
-      input.data_ptr(),
-      input.numel() * input.element_size(),
-      cudaMemcpyDeviceToDevice,
-      stream));
+  MulticastProtocol protocol = getMulticastProtocol();
+  const void* src_ptr = input.data_ptr();
+  const int64_t count = input.numel() * input.element_size();
+
+  if (protocol == MulticastProtocol::Multimem) {
+    launchMulticastKernel(
+        allgather_handle->bufferMulticastPtr(my_device_index),
+        src_ptr,
+        count,
+        stream);
+  } else if (protocol == MulticastProtocol::BatchMemcpy) {
+    std::vector<void*> dsts(world_size);
+    std::vector<const void*> srcs(world_size, src_ptr);
+    std::vector<size_t> counts(world_size, count);
+    std::vector<cudaMemcpyAttributes> attributes(world_size);
+    std::vector<size_t> attrsIdxs(world_size);
+    size_t numAttrs = world_size;
+    for (int64_t rank = 0; rank < world_size; ++rank) {
+      dsts[rank] = allgather_handle->bufferUnicastPtr(my_device_index, rank);
+      attrsIdxs[rank] = rank;
+      struct cudaMemLocation dst_location = {
+          .type = cudaMemLocationTypeDevice, .id = (int)rank};
+      struct cudaMemLocation src_location = {
+          .type = cudaMemLocationTypeDevice, .id = (int)my_device_index};
+      unsigned int flags = cudaMemcpyFlagPreferOverlapWithCompute;
+      attributes[rank].dstLocHint = dst_location;
+      attributes[rank].srcLocHint = src_location;
+      attributes[rank].flags = flags;
+      attributes[rank].srcAccessOrder = cudaMemcpySrcAccessOrderAny;
+    }
+    NVF_CHECK(
+        stream != 0, "cudaMemcpyBatchAsync does not support default stream");
+#if CUDA_VERSION >= 13000
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+        dsts.data(),
+        srcs.data(),
+        counts.data(),
+        world_size,
+        attributes.data(),
+        attrsIdxs.data(),
+        numAttrs,
+        (cudaStream_t)stream));
+#else
+    size_t failIdx = 0;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
+        dsts.data(),
+        srcs.data(),
+        counts.data(),
+        world_size,
+        attributes.data(),
+        attrsIdxs.data(),
+        numAttrs,
+        &failIdx,
+        (cudaStream_t)stream));
+#endif
+  } else {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+        allgather_handle->bufferMulticastPtr(my_device_index),
+        src_ptr,
+        count,
+        cudaMemcpyDeviceToDevice,
+        stream));
+  }
 
   // Step 4: Each rank signals completion by writing kIdle to all peer
   // semaphores using batched unicast writes
