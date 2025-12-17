@@ -20,7 +20,6 @@ from python.direct_utils import (
     round_up,
     activation_scale_to_nvfp4,
     to_fp4,
-    dequantize_fp4,
     swizzled_to_linear_128_4,
 )
 
@@ -134,7 +133,6 @@ def nvfp4_quantize_with_te(input_tensor):
         return None
 
 
-# https://github.com/NVIDIA/TransformerEngine/blob/d126cdd6c0a8d6ce0419dcf1ffe027ef7aadf7e8/tests/cpp/operator/test_cast_nvfp4_transpose.cu#L56-L68
 def compute_nvfp4_global_scale(tensor):
     """Compute global scale factor for NVFP4 quantization.
 
@@ -188,7 +186,7 @@ def extract_te_nvfp4_metadata(input_tensor):
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 @pytest.mark.parametrize("swizzle_scales", [True, False])
-@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+@pytest.mark.parametrize("dtype", [torch.float, torch.bfloat16])
 def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype):
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
     x = torch.randn((1024, 1024), dtype=dtype, device="cuda")
@@ -231,16 +229,14 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype)
         te_scales = swizzled_to_linear_128_4(te_scales, 1024, 1024)
         fuser_scales = swizzled_to_linear_128_4(fuser_scales, 1024, 1024)
 
-    ref_fp32 = dequantize_fp4(te_data, te_scales, torch.max(torch.abs(x)).float())
-    fuser_fp32 = dequantize_fp4(
-        fuser_data, fuser_scales, torch.max(torch.abs(x)).float()
-    )
-    abs_diff = torch.abs(ref_fp32 - fuser_fp32)
-    assert torch.max(abs_diff) <= 2.0
+    te_scales = te_scales.view(torch.uint8)
+    fuser_scales = fuser_scales.view(torch.uint8)
 
-    # The percentage of mismatched values is LT 10%.
-    nonzero = torch.count_nonzero(torch.ne(abs_diff, 0.0))
-    assert (nonzero / abs_diff.numel()) < 0.1
+    # Compare scales and data
+    assert torch.equal(
+        te_scales, fuser_scales
+    ), "Scales don't match between TE and Fuser"
+    assert torch.equal(te_data, fuser_data), "Data don't match between TE and Fuser"
 
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
