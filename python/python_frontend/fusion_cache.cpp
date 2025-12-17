@@ -386,14 +386,15 @@ FusionCache* FusionCache::get(
                      "deleting incompatible workspace."
                   << std::endl;
 
-        // Hide exception message because it should be resolved by saving a new
-        // workspace.
-        if (!isOptionDisabled(DisableOption::ParallelSerde)) {
-          std::cout << "Use NVFUSER_DISABLE=parallel_serde to print exception "
-                       "message."
-                    << std::endl;
-        } else {
+        // Hide exception message by default because it should be resolved by
+        // saving a new workspace. Enable NVFUSER_ENABLE=parallel_serde to
+        // print the full exception message for debugging.
+        if (isOptionEnabled(EnableOption::ParallelSerde)) {
           std::cout << deserialize_exception.what() << std::endl;
+        } else {
+          std::cout << "Remove `parallel_serde` from NVFUSER_ENABLE "
+                       "environment variable to print exception message."
+                    << std::endl;
         }
 
         // Delete incompatible workspace
@@ -918,7 +919,7 @@ void FusionCache::deserialize(std::string filename) {
     // Create an executor so the following code can deserialize it.
     fusion_schedule->createExecutorIfNotExists();
 
-    if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+    if (isOptionEnabled(EnableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
       getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
@@ -938,13 +939,15 @@ void FusionCache::deserialize(std::string filename) {
     }
   }
 
-  if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+  if (isOptionEnabled(EnableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while deserializing fusions in parallel.\n",
-        "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
+        "Print the exception message by disabling parallel serialization. "
+        "i.e., Remove `parallel_serde` from NVFUSER_ENABLE environment "
+        "variable.");
   }
 }
 
