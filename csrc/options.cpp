@@ -184,6 +184,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
+          {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
 }
@@ -223,7 +224,6 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
-          {"parallel_serde", DisableOption::ParallelSerde},
           {"predicate_elimination", DisableOption::PredicateElimination},
           {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
           {"kernel_reuse", DisableOption::KernelReuse},
