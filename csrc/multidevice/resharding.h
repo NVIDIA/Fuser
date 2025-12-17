@@ -9,9 +9,9 @@
 
 #include <unordered_set>
 
-#include <ir/interface_nodes.h>
-#include <multidevice/utils.h>
-#include <visibility.h>
+#include "ir/interface_nodes.h"
+#include "multidevice/utils.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

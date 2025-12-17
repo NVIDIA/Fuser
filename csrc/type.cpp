@@ -322,6 +322,8 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
+    case ValType::RaggedIterDomain:
+      return "RaggedIterDomain";
     case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:

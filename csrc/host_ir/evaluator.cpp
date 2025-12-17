@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include "host_ir/evaluator.h"
+
 #include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
@@ -13,27 +15,26 @@
 
 #include <c10/cuda/CUDAFunctions.h>
 
-#include <dynamic_transform.h>
-#include <fusion_profiler.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
-#include <instrumentation.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/communication.h>
-#include <multidevice/cuda_p2p.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/symmetric_tensor.h>
-#include <multidevice/utils.h>
-#include <options.h>
-#include <runtime/allocations.h>
-#include <runtime/executor_dispatch.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_kernel_runtime.h>
-#include <scheduler/heuristic.h>
-#include <tensor_metadata.h>
+#include "dynamic_transform.h"
+#include "fusion_profiler.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/pass/convert_op_to_communication.h"
+#include "instrumentation.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/communication.h"
+#include "multidevice/cuda_p2p.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
+#include "options.h"
+#include "runtime/allocations.h"
+#include "runtime/executor_dispatch.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_kernel_runtime.h"
+#include "scheduler/heuristic.h"
+#include "tensor_metadata.h"
 
 namespace nvfuser::hir {
 
@@ -322,6 +323,13 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
+
+#ifndef NDEBUG
+  validateSizesAndStrides(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+#endif
 
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {

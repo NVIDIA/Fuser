@@ -71,7 +71,8 @@ class TensorIndexer {
       TensorView* tv,
       const Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
+      bool ld_st_matrix = false) const;
 
   // Get the index of a loop domain.
   Val* getLoopIndex(
@@ -93,7 +94,8 @@ class TensorIndexer {
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
       const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index) const;
+      const std::unordered_map<IterDomain*, Val*>& override_index,
+      bool ld_st_matrix = false) const;
 
   // Grab all for-loops whose indices are actually used in the given
   // index vals. Note that IndexingInfo.loop_group_dependencies can be

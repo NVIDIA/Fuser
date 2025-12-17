@@ -376,7 +376,7 @@ template <typename T>
 size_t hashVector(const std::vector<T>& statements) {
   size_t hash = 0;
   for (const auto& s : statements) {
-    hashCombine(hash, s->hash());
+    hashCombine(hash, (s == nullptr) ? 0 : s->hash());
   }
   return hash;
 }
@@ -429,7 +429,10 @@ bool Expr::sameOp(const Expr* other) const {
     return false;
   }
   for (const auto i : arange(attributes().size())) {
-    if (!attribute(i)->sameAs(other->attribute(i))) {
+    if (attribute(i) == nullptr && other->attribute(i) != nullptr) {
+      return false;
+    }
+    if (attribute(i) != nullptr && !attribute(i)->sameAs(other->attribute(i))) {
       return false;
     }
   }

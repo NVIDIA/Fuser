@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/communication.h>
+#include "multidevice/communication.h"
 
 #include <algorithm>
 #include <iterator>
@@ -19,12 +19,12 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
-#include <ir/cloner.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/utils.h>
-#include <utils.h>
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "multidevice/allocation_utils.h"
+#include "multidevice/utils.h"
+#include "utils.h"
 
 namespace nvfuser {
 
