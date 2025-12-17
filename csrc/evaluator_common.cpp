@@ -376,15 +376,15 @@ void PrecomputedValues::validate() {
       if (ir_node != nullptr) {
         error_msg << "IR node: " << ir_node->toString() << "\n";
       }
-      error_msg << "Computed value: " << values_[index] << "\n"
-                << "Expected value: " << expected_value;
+      error_msg << "Computed value: " << toString(values_[index]) << "\n"
+                << "Expected value: " << toString(expected_value);
       
       // Debug: Show binding history for this index
       debug() << "[DEBUG] ===== VALIDATION FAILED =====" << std::endl;
       debug() << "[DEBUG] Binding history for index " << index << ":" << std::endl;
       for (const auto& [idx, val, node] : binding_log_) {
         if (idx == index) {
-          debug() << "[DEBUG]   Bound to: " << val;
+          debug() << "[DEBUG]   Bound to: " << toString(val);
           if (node != nullptr) {
             debug() << " (node: " << node->toString() << ")";
           }

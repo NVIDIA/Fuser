@@ -225,7 +225,8 @@ class PrecomputedValues {
       if (ir_node != nullptr) {
         debug() << " (node: " << ir_node->toString() << ")";
       }
-      debug() << " from " << values_[index] << " to " << value << std::endl;
+      debug() << " from " << PolymorphicValue_functions::toString(values_[index]) 
+              << " to " << PolymorphicValue_functions::toString(value) << std::endl;
     }
     
     defined_[index] = true;
