@@ -27,6 +27,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -2834,6 +2835,9 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
+  if (heuristic_params->isA<InnerNormTmaParams>()) {
+    return true;
+  }
   return heuristic_params->as<ReductionParams>()->persistent_kernel &&
       !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
 }
@@ -5094,16 +5098,18 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     if (visited.count(stack_top_val)) {
       to_visit.pop_back();
     } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def can be a scalar, a tensor dim,
-      //  or a composite fusion input
-      // The first two cases are handled in finalize(),
-      //  the last case needs to add new input_val to this group.
+      // Constant scalars and parallel indices need no definition in the kernel
+      // Other definition-less scalars are added to the group's input_vals_,
+      //  such as fusion inputs or dimensions of tensors outside the group
       visited.insert(stack_top_val);
-      // If this is a composite fusion scalar input, make sure this group has
-      // it
-      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
-        group->input_vals_.pushBack(stack_top_val);
-        input_set.insert(stack_top_val);
+      if (!input_set.count(stack_top_val) && !stack_top_val->isConstScalar()) {
+        bool is_parallel_dim_or_index = stack_top_val->isA<NamedScalar>() &&
+            (stack_top_val->as<NamedScalar>()->getParallelDim() ||
+             stack_top_val->as<NamedScalar>()->getParallelIndex());
+        if (!is_parallel_dim_or_index) {
+          group->input_vals_.pushBack(stack_top_val);
+          input_set.insert(stack_top_val);
+        }
       }
       to_visit.pop_back();
     } else {

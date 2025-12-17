@@ -7,19 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <ir/base_nodes.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <multidevice/communicator.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
 #else
-#include <multidevice/c10d_mock.h>
+#include "multidevice/c10d_mock.h"
 #endif
-#include <type.h>
-#include <visibility.h>
+
+#include "ir/base_nodes.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "multidevice/communicator.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/multidevice.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

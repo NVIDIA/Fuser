@@ -68,6 +68,14 @@ class IrNodeLabel final : private OptInConstDispatch {
     label_ << ")";
   }
 
+  void handle(const RaggedIterDomain* id) override {
+    label_ << "Ragged" << id->getIterType();
+    label_ << id->getParallelType();
+    label_ << "(extents=";
+    label_ << IrNodeLabel::gen(id->extents());
+    label_ << ")";
+  }
+
   void handle(const Split* split) override {
     label_ << "Split(inner=" << (split->innerSplit() ? "true" : "false")
            << ", factor=" << IrNodeLabel::gen(split->factor()) << ")";
@@ -354,6 +362,14 @@ void IrGraphGenerator::handle(const IterDomain* id) {
   }
 
   addArc(id->extent(), id, "[color=gray]");
+}
+
+void IrGraphGenerator::handle(const RaggedIterDomain* id) {
+  graph_def_ << "    " << getid(id) << " [label=\"" << IrNodeLabel::gen(id)
+             << "\", shape=cds, color=orange, fontsize=10];\n";
+
+  // Add arc from extents tensor to the ragged dimension
+  addArc(id->extents(), id, "[color=orange]");
 }
 
 void IrGraphGenerator::handle(const Val* s) {

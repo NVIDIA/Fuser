@@ -5,13 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/symmetric_tensor.h>
+#include "multidevice/symmetric_tensor.h"
 
-#include <cuda_utils.h>
-#include <driver_api.h>
-#include <multidevice/communicator.h>
-#include <multidevice/ipc_utils.h>
-#include <multidevice/utils.h>
+#include <numeric>
+
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/communicator.h"
+#include "multidevice/ipc_utils.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 

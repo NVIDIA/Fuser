@@ -6,23 +6,23 @@
  */
 // clang-format on
 
-#include <host_ir/pass/stream_parallel_type.h>
+#include "host_ir/pass/stream_parallel_type.h"
 
 #include <list>
 
-#include <host_ir/container.h>
-#include <host_ir/lower.h>
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <multidevice/cuda_p2p.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
+#include "host_ir/container.h"
+#include "host_ir/lower.h"
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
+#include "multidevice/cuda_p2p.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
 
 namespace nvfuser::hir_pass {
 
