@@ -4622,6 +4622,45 @@ std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
+  // Meta-device fast path: when inputs are meta tensors, synthesize the
+  // output shape directly on Meta without calling the CUTLASS kernel
+  if (inputs.size() >= 8 && inputs[0].is<at::Tensor>() &&
+      inputs[1].is<at::Tensor>() && inputs[2].is<at::Tensor>() &&
+      inputs[3].is<at::Tensor>() && inputs[4].is<at::Tensor>() &&
+      inputs[5].is<at::Tensor>() && inputs[6].is<at::Tensor>() &&
+      inputs[7].is<at::Tensor>()) {
+    const auto& mat1_meta = inputs[0].as<at::Tensor>();
+    const auto& mat2_meta = inputs[1].as<at::Tensor>();
+    const auto& scale1_meta = inputs[2].as<at::Tensor>();
+    const auto& scale2_meta = inputs[3].as<at::Tensor>();
+    const auto& alpha_meta = inputs[4].as<at::Tensor>();
+    const auto& problem_sizes_meta = inputs[5].as<at::Tensor>();
+    const auto& expert_offsets_meta = inputs[6].as<at::Tensor>();
+    const auto& sf_offsets_meta = inputs[7].as<at::Tensor>();
+    
+    if (mat1_meta.is_meta() || mat2_meta.is_meta() || 
+        scale1_meta.is_meta() || scale2_meta.is_meta() ||
+        alpha_meta.is_meta() || problem_sizes_meta.is_meta() ||
+        expert_offsets_meta.is_meta() || sf_offsets_meta.is_meta()) {
+      // Output shape should match the grouped matmul result
+      // Assuming output is [total_m, n] where dimensions come from problem_sizes
+      std::vector<int64_t> result_sizes = {
+          mat1_meta.size(0), mat2_meta.size(-1)};
+      
+      auto options = mat1_meta.options()
+                         .device(c10::Device(c10::kMeta))
+                         .dtype(data_type_to_aten(out()->dtype()));
+      at::Tensor result = at::empty(result_sizes, options);
+      
+      if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+          rfactor_did_idx != -1) {
+        result = result.unsqueeze(rfactor_did_idx);
+      }
+      
+      return {result};
+    }
+  }
+
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
