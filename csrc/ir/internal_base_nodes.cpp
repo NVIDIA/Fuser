@@ -895,6 +895,20 @@ std::string RaggedIterDomain::toString(int indent_size) const {
   return toInlineString(indent_size);
 }
 
+IterDomain* RaggedIterDomain::cloneWithoutRFactor(bool map_with_original) {
+  // Create a new RaggedIterDomain with the same extents and properties
+  auto cloned = IrBuilder::create<RaggedIterDomain>(
+      extents_, getIterType(), getParallelType());
+
+  // Optionally map the clone with the original in the Exact graph
+  if (map_with_original) {
+    // TODO: Implement mapping if needed
+    NVF_THROW("Not implemented");
+  }
+
+  return cloned;
+}
+
 std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
     IterDomain* in,
     TensorView* offsets) {

@@ -122,7 +122,7 @@ class NVF_API IterDomain : public Val {
   //!
   //! When map_with_original is true, the clone of the original is
   //! mapped in the Exact graph.
-  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
+  virtual IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
@@ -491,6 +491,9 @@ class NVF_API RaggedIterDomain : public IterDomain {
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
       TensorView* offsets);
+
+  //! Override cloneWithoutRFactor to preserve RaggedIterDomain type
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false) override;
 
  private:
   //! Extent tensor containing all component extents

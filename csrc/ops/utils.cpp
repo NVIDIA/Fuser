@@ -316,8 +316,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 }
 
 RaggedIterDomain* newOutputRaggedIterDomain(
-    const std::vector<IterDomain*>& input_ids,
-    const std::optional<IterType> force_iter_type) {
+    const std::vector<IterDomain*>& input_ids) {
   NVF_ERROR(
       std::ranges::all_of(
           input_ids,
@@ -328,8 +327,6 @@ RaggedIterDomain* newOutputRaggedIterDomain(
 
   NVF_ERROR(!input_ids.empty());
   RaggedIterDomain* ref_input_id = input_ids.front()->as<RaggedIterDomain>();
-
-  NVF_ERROR(!force_iter_type.has_value(), "forced iter type not considered");
 
   return IrBuilder::create<RaggedIterDomain>(
       ref_input_id->extents(),
@@ -349,8 +346,16 @@ IterDomain* newOutputIterDomain(
   NVF_ERROR(!input_ids.empty());
 
   // If any input ID is a RaggedIterDomain, the output should also be ragged
-  if (input_ids.front()->isA<RaggedIterDomain>()) {
-    return newOutputRaggedIterDomain(input_ids, force_iter_type);
+  bool has_ragged =
+      std::any_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
+        return id->isA<RaggedIterDomain>();
+      });
+
+  if (has_ragged) {
+    NVF_ERROR(
+        !force_iter_type.has_value(),
+        "force_iter_type not supported for RaggedIterDomain");
+    return newOutputRaggedIterDomain(input_ids);
   }
 
   // For the start and stop offsets, take the maximum of input axes.
