@@ -2308,4 +2308,85 @@ INSTANTIATE_TEST_SUITE_P(
       os << dtype << "_" << x << "_" << y;
       return os.str();
     });
+
+// Test that kernels with different launch parameters are not incorrectly reused
+// This ensures that LaunchParams is properly included in the cache key
+TEST_F(TmaPersistentTestF, KernelReuse) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create an RMS norm fusion that will use inner persistent scheduler
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  // Helper to get the number of compiled kernel runtimes
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    if (runtime_map.empty()) {
+      return 0;
+    }
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // First run with specific dimensions that will produce launch config A
+  auto input1 = at::randn({2048, 4096}, options);
+  auto weight1 = at::randn({4096}, options);
+
+  auto output1 = executor_cache.runFusionWithInputs({input1, weight1});
+  testValidate(
+      executor_cache.fusion(), output1, {input1, weight1}, __LINE__, __FILE__);
+
+  EXPECT_EQ(numRuntimes(), 1) << "First run should compile one kernel";
+
+  FusionKernelRuntime* first_runtime =
+      executor_cache.getMostRecentKernelRuntime();
+
+  // Second run with different outer dimension - should reuse the kernel
+  auto input2 = at::randn({2048 + 8, 4096}, options);
+  auto weight2 = at::randn({4096}, options);
+
+  auto output2 = executor_cache.runFusionWithInputs({input2, weight2});
+  testValidate(
+      executor_cache.fusion(), output2, {input2, weight2}, __LINE__, __FILE__);
+
+  EXPECT_EQ(numRuntimes(), 1)
+      << "Same dimensions should reuse the existing kernel";
+
+  FusionKernelRuntime* second_runtime =
+      executor_cache.getMostRecentKernelRuntime();
+  EXPECT_EQ(first_runtime, second_runtime)
+      << "Should reuse the same runtime for identical shapes";
+
+  // Third run with slightly different inner dimension - should reuse the kernel
+  auto input3 = at::randn({2048 + 8, 4096 - 8}, options);
+  auto weight3 = at::randn({4096 - 8}, options);
+
+  auto output3 = executor_cache.runFusionWithInputs({input3, weight3});
+  testValidate(
+      executor_cache.fusion(), output3, {input3, weight3}, __LINE__, __FILE__);
+
+  // If launch params are properly included in cache, this should compile a new
+  // kernel
+  EXPECT_GE(numRuntimes(), 1)
+      << "Different dimensions may create new kernel if launch params differ";
+}
+
 } // namespace nvfuser

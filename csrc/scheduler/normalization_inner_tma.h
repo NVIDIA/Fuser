@@ -49,6 +49,9 @@ class InnerNormTmaParams : public HeuristicParams {
   // Circular buffer options
   CircularBufferOptions circular_buffer_options;
 
+  // warp specialized version requires static CTA shape
+  int64_t bdimx = -1, bdimy = -1, bdimz = -1;
+
   bool sameAs(const HeuristicParams* other_base) const override {
     auto other = dynamic_cast<const InnerNormTmaParams*>(other_base);
     if (other == nullptr) {
@@ -63,7 +66,8 @@ class InnerNormTmaParams : public HeuristicParams {
         other->tma_load_non_persistent_buffers ==
         tma_load_non_persistent_buffers &&
         other->n_grouped_rows == n_grouped_rows &&
-        other->circular_buffer_options == circular_buffer_options;
+        other->circular_buffer_options == circular_buffer_options &&
+        other->bdimx == bdimx && other->bdimy == bdimy && other->bdimz == bdimz;
   }
 
   std::string toString() const override {
@@ -98,7 +102,10 @@ class InnerNormTmaParams : public HeuristicParams {
         static_cast<size_t>(tma_load_non_persistent_buffers) << (bits - 6) ^
         static_cast<size_t>(n_grouped_rows) << (bits - 7) ^
         static_cast<size_t>(circular_buffer_options.stage) << (bits - 8) ^
-        static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9);
+        static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9) ^
+        static_cast<size_t>(bdimx) << (bits - 10) ^
+        static_cast<size_t>(bdimy) << (bits - 11) ^
+        static_cast<size_t>(bdimz) << (bits - 12);
     return attr_hash;
   }
 

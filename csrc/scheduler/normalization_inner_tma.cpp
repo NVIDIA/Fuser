@@ -126,6 +126,12 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
         .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
     params->circular_buffer_options = circular_buffer_options;
     // Set launch parameters
+    // LaunchParams is not used in cache hash and comparison, here we add CTA
+    // shape to heuristic params to include CTA shape in the hash and
+    // comparison.
+    params->bdimx = bdimx;
+    params->bdimy = bdimy;
+    params->bdimz = bdimz;
     params->lparams = LaunchParams(
         gdimx,
         LaunchParams::UNINITIALIZED_VAL,
