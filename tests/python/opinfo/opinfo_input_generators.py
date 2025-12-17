@@ -922,9 +922,7 @@ def topk_error_generator(
     ), RuntimeError, "Invalid resized domain extent"
 
     #  error coming from aten fallback.
-    yield SampleInput(
-        a, 16, 1, True, False
-    ), RuntimeError, "k .* range"
+    yield SampleInput(a, 16, 1, True, False), RuntimeError, "k .* range"
 
 
 def index_select_generator(
