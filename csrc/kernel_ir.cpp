@@ -312,7 +312,7 @@ namespace {
 class RuntimeReductionFinder : kir::ConstIrVisitor {
  public:
   static bool exists(const Expr* expr) {
-    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    NVF_CHECK(expr->container()->fusion()->isA<kir::Kernel>());
     RuntimeReductionFinder finder;
     finder.handle(std::vector<const Expr*>{expr});
     return finder.is_found_;

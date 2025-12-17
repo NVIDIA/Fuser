@@ -195,7 +195,9 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
   auto dest_container = ir_cloner->container();
   auto src_container = src_stmt->container();
 
-  dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
+  // Use the same registration helper as createInContainer to ensure
+  // proper registration through Fusion if one exists
+  registerWithContainer(dest_container, dest_stmt);
 
   if (src_container != dest_container) {
     dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());

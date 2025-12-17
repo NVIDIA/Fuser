@@ -144,8 +144,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   auto ir_cloner = IrContainer::copy(from->container(), to->container());
 
   for (auto val : from->vals()) {
-    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
-    ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
+    Val* cloned_val = ir_cloner.clone(val);
+    // Only set definition if not already set during Fusion::registerExpr()
+    // This avoids overwriting definitions that were properly set during cloning
+    if (cloned_val->definition() == nullptr && val->definition_ != nullptr) {
+      cloned_val->setDefinition(ir_cloner.clone(val->definition_));
+    }
+    cloned_val->setUses(ir_cloner.clone(val->uses_));
   }
 
   to->inputs_ = ir_cloner.clone(from->inputs_);
@@ -729,7 +734,14 @@ void Fusion::registerExpr(Expr* expr) {
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
-      removeExpr(output->definition());
+      // Only remove old definition if it belongs to THIS container
+      // During cloning, old definition might be from source container
+      if (inContainer(output->definition())) {
+        removeExpr(output->definition());
+      } else {
+        // Old definition is from a different container - clear it
+        output->definition_ = nullptr;
+      }
     }
     if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
@@ -739,6 +751,13 @@ void Fusion::registerExpr(Expr* expr) {
         // introduce whole new branches, so we need to recompute the uses_
         // vector after setDefinition.
         invalidateTvsAndUses();
+      }
+    } else {
+      // DEBUG: This branch means definition was not set!
+      // This happens in non-SSA contexts (Kernel/HostIrContainer) when
+      // output already has a definition and we don't overwrite it
+      if (output->isA<TensorView>() && !is_ssa) {
+        // Expected for non-SSA - multiple definitions allowed
       }
     }
   }

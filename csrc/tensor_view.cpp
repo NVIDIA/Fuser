@@ -165,7 +165,7 @@ void TensorView::inlineAt(
     bool best_effort,
     MaxPosCalculator* calc) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
   std::unique_ptr<MaxPosCalculator> calc_owner;
@@ -272,7 +272,7 @@ TensorView* TensorView::computeAt(
     int64_t position,
     ComputeAtMode mode) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // Make sure this and consumer are not the same tensor, that's illegal
   NVF_CHECK(!sameAs(consumer), "Cannot call this->computeAt(this, ...)");
@@ -301,7 +301,7 @@ TensorView* TensorView::computeAt(
 
 void TensorView::computeWith(int64_t pos, bool best_effort) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
   if (isFusionInput()) {
@@ -403,7 +403,7 @@ int64_t TensorView::getComputePosition(const TensorView* consumer) const {
 }
 
 bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(container()->fusion()->isA<kir::Kernel>(), "Function invalid for fusion.");
 
   auto siblings = ir_utils::filterByType<TensorView>(definition()->outputs());
 
@@ -452,7 +452,7 @@ bool TensorView::resolveComputeWith(const std::vector<Expr*>& sorted_exprs) {
 void TensorView::clearComputeWith() {
   //! This should be only used while in a Fusion container.
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
 
   compute_with_pos_ = getComputeAtPosition();
@@ -619,7 +619,7 @@ TensorView* TensorView::flatten(int64_t from, int64_t to) {
 TensorView* TensorView::reorder(
     const std::unordered_map<int64_t, int64_t>& old2new_) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   NVF_ERROR(
       !(nDims() == 0 && !old2new_.empty()),
@@ -803,7 +803,7 @@ TensorView* TensorView::swizzle(
 
 TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // TODO: I think we should do this but
   // NVFuserTest.FusionSmemBlockGemmCache_CUDA prevents it from going in at the
@@ -954,7 +954,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
     TensorView* tv,
     const std::vector<int64_t>& axes) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   // Hack:
   // Semantically we should always keep the outputs of multi reduction ops
@@ -986,7 +986,7 @@ std::vector<TensorView*> TensorView::rFactor(
     const std::vector<int64_t>& axes,
     const std::vector<TensorView*>& tvs) {
   NVF_CHECK(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   NVF_CHECK(nDims() > 0, "Tried to rFactor a 0-dim TensorView");
   FusionGuard fg(fusion());
@@ -1090,7 +1090,7 @@ std::vector<TensorView*> TensorView::rFactor(
 
 TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
@@ -1186,7 +1186,7 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
 
 TensorView* TensorView::cacheFork() {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
@@ -1246,7 +1246,7 @@ TensorView* TensorView::cacheAfter(
     bool propagate_allocation_domain,
     std::vector<Expr*> cached_uses) {
   NVF_ERROR(
-      !container()->isA<kir::Kernel>(),
+      !container()->fusion()->isA<kir::Kernel>(),
       "Function invalid for kernel container.");
   FusionGuard fg(fusion());
 
