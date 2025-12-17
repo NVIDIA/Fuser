@@ -115,7 +115,6 @@ __device__ void block_quantize_to_nvfp4(
   reduceAcrossThreads<THREADS_PER_SCALING_FACTOR>(local_max);
   float block_max = local_max;
 
-  constexpr float rcp_6f = 1.0f / 6.0f;
   float scaled_max = 0;
   constexpr float float_max = 3.40282346638528859811704183484516925440e+38f;
   scaled_max = block_max / 6.0f;
@@ -133,7 +132,7 @@ __device__ void block_quantize_to_nvfp4(
     auto decode_scale = 1.0f / global_scale[0];
     scaled_max = fminf(1.0f / (scaled_max * decode_scale), float_max);
   } else {
-    scaled_max = fminf(1.0f / (scaled_max * 1.0f), float_max);
+    scaled_max = fminf(1.0f / scaled_max, float_max);
   }
 
   // Write out the block scaling factor to global memory.
