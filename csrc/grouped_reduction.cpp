@@ -56,7 +56,7 @@ bool validateReductionGrouping(
   NVF_ERROR(inputs.size() == outputs.size());
   NVF_ERROR(!inputs.empty());
 
-  auto fusion = dynamic_cast<Fusion*>(outputs[0]->container());
+  auto fusion = dynamic_cast<Fusion*>(outputs[0]->container()->fusion());
   NVF_ERROR(
       fusion != nullptr, "Grouping of reductions must be done within a Fusion");
 

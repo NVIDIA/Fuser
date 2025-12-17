@@ -32,7 +32,7 @@ class IrContainerPasskey {
   explicit IrContainerPasskey() = default;
 };
 
-class IrContainer : public PolymorphicBase {
+class IrContainer {
  public:
   NVF_API IrContainer();
 
@@ -42,7 +42,7 @@ class IrContainer : public PolymorphicBase {
   IrContainer& operator=(const IrContainer& other);
   IrContainer& operator=(IrContainer&& other) noexcept;
 
-  ~IrContainer() override;
+  ~IrContainer();
 
   bool inContainer(const Statement* stmt) const;
 
@@ -108,13 +108,13 @@ class IrContainer : public PolymorphicBase {
   }
 
   //! Register the Statement with this container
-  NVF_API virtual void registerStmt(IrBuilderPasskey, Statement* stmt);
+  NVF_API void registerStmt(IrBuilderPasskey, Statement* stmt);
 
   //! Register the Val with this container
-  NVF_API virtual void registerVal(IrBuilderPasskey, Val* val);
+  NVF_API void registerVal(IrBuilderPasskey, Val* val);
 
   //! Register expr with this container.
-  NVF_API virtual void registerExpr(IrBuilderPasskey, Expr* expr);
+  NVF_API void registerExpr(IrBuilderPasskey, Expr* expr);
 
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
@@ -178,17 +178,17 @@ class IrContainer : public PolymorphicBase {
   // Allow Fusion to access protected members since it now uses composition
   friend class Fusion;
 
-  virtual void removeExpr(Expr* expr);
+  void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  virtual void removeVal(Val* val);
+  void removeVal(Val* val);
 
   //! Register the Val with this container
-  virtual void registerVal(Val* val);
+  void registerVal(Val* val);
 
   //! Register expr with this container.
-  virtual void registerExpr(Expr* expr);
+  void registerExpr(Expr* expr);
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
