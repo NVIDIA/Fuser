@@ -117,11 +117,13 @@ __device__ void block_quantize_to_nvfp4(
 
   constexpr float rcp_6f = 1.0f / 6.0f;
   float scaled_max = 0;
+  constexpr float float_max = 3.40282346638528859811704183484516925440e+38f;
+  scaled_max = block_max / 6.0f;
   if constexpr (USE_GLOBAL_SCALE) {
-    scaled_max = block_max * global_scale[0] * rcp_6f;
-  } else {
-    scaled_max = block_max * rcp_6f;
+    // scaled_max = block_max * global_scale[0] * rcp_6f;
+    scaled_max = scaled_max * global_scale[0];
   }
+  scaled_max = fminf(scaled_max, float_max);
 
   __e4m3 clamped_max_fp8 = __float2e4m3(scaled_max);
 
@@ -129,9 +131,12 @@ __device__ void block_quantize_to_nvfp4(
   scaled_max = __e4m32float(clamped_max_fp8);
 
   if constexpr (USE_GLOBAL_SCALE) {
-    scaled_max = global_scale[0] / scaled_max;
+    // scaled_max = global_scale[0] / scaled_max;
+    auto decode_scale = 1.0f / global_scale[0];
+    scaled_max = fminf(1.0f / (scaled_max * decode_scale), float_max);
   } else {
-    scaled_max = 1.0f / scaled_max;
+    // scaled_max = 1.0f / scaled_max;
+    scaled_max = fminf(1.0f / (scaled_max * 1.0f), float_max);
   }
 
   // Write out the block scaling factor to global memory.
