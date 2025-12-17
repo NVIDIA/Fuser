@@ -50,6 +50,10 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
+  // Print fusion IR every run
+  debug() << "Fusion IR in FusionExecutorCache::runFusionWithInputs:" << std::endl;
+  fusion_->print();
+
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
