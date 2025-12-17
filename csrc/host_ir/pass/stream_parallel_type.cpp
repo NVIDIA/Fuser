@@ -19,6 +19,7 @@
 #include "ir/utils.h"
 #include "kernel_ir.h"
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/resharding.h"
 #include "multidevice/utils.h"
 #include "ops/all_ops.h"
 #include "ops/utils.h"
