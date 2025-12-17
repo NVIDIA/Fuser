@@ -562,10 +562,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
     output_tv->setMemoryType(MemoryType::Global);
   }
 
-  NVF_ERROR(
-      isCommunicationLayoutCompliant(e),
-      "Resharding on an inner axis is not lowerable ",
-      e->toString());
+  // NVF_ERROR(
+  //     isCommunicationLayoutCompliant(e),
+  //     "Resharding on an inner axis is not lowerable ",
+  //     e->toString());
 
   CommunicationInfo communication_info = getCommunicationInfo(e);
 

@@ -556,3 +556,24 @@ def test_fusion_profiler_with_noncodegen_kernels():
             "FusionDefinition did not run correctly with profile enabled! Error: "
             + str(e)
         )
+
+
+def test_split_allocation_domain():
+    k, m, n = 2, 6, 5
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor((k, m, n), contiguity=True, dtype=DataType.Half)
+        out = fd.ops.set(inp)
+        fd.add_output(out)
+
+        inp.set_allocation_domain(inp.get_loop_domain(), True)
+        out.outer_split(1, 2)  # [k, 2, m//2, n]
+        out.reorder({1: 0})  # [2, k, m//2, n]
+        out.set_allocation_domain(out.get_loop_domain(), True)
+        print(out.domain())
+
+    in_tensor = torch.arange(k * m * n, dtype=torch.float16, device="cuda").reshape(
+        k, m, n
+    )
+    (out,) = fd.execute([in_tensor])
+    print("in_tensor: \n", in_tensor)
+    print("out flattened: \n", out.as_strided((k * m * n,), (1,)))
