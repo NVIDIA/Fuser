@@ -218,6 +218,16 @@ class PrecomputedValues {
     if (index < 0 || is_constant_[index]) {
       return;
     }
+    
+    // Debug: show if we're rebinding a value
+    if (defined_[index]) {
+      debug() << "[DEBUG] REBINDING index " << index;
+      if (ir_node != nullptr) {
+        debug() << " (node: " << ir_node->toString() << ")";
+      }
+      debug() << " from " << values_[index] << " to " << value << std::endl;
+    }
+    
     defined_[index] = true;
     values_[index] = value;
     binding_log_.emplace_back(index, value, ir_node);

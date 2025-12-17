@@ -208,6 +208,7 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
+  debug() << "[DEBUG] PrecomputedValues::bindInputs called" << std::endl;
   if (hasValidValues()) {
     invalidate();
   }
@@ -222,6 +223,9 @@ void PrecomputedValues::bindValues(
       std::ssize(inputs),
       "kernel inputs size does not match args");
 
+  debug() << "[DEBUG] PrecomputedValues::bindValues called with " 
+          << inputs.size() << " inputs" << std::endl;
+  
   for (const auto i : arange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
@@ -374,6 +378,21 @@ void PrecomputedValues::validate() {
       }
       error_msg << "Computed value: " << values_[index] << "\n"
                 << "Expected value: " << expected_value;
+      
+      // Debug: Show binding history for this index
+      debug() << "[DEBUG] ===== VALIDATION FAILED =====" << std::endl;
+      debug() << "[DEBUG] Binding history for index " << index << ":" << std::endl;
+      for (const auto& [idx, val, node] : binding_log_) {
+        if (idx == index) {
+          debug() << "[DEBUG]   Bound to: " << val;
+          if (node != nullptr) {
+            debug() << " (node: " << node->toString() << ")";
+          }
+          debug() << std::endl;
+        }
+      }
+      debug() << "[DEBUG] ================================" << std::endl;
+      
       NVF_ERROR(false, error_msg.str());
     }
   }
@@ -390,6 +409,21 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  
+  debug() << "[DEBUG] bindTensorMetaData for TV: " << tv->toString() << std::endl;
+  debug() << "[DEBUG]   Actual tensor.sizes(): [";
+  for (size_t i = 0; i < tensor.sizes().size(); ++i) {
+    if (i > 0) debug() << ", ";
+    debug() << tensor.sizes()[i];
+  }
+  debug() << "]" << std::endl;
+  debug() << "[DEBUG]   Unsharded logical_sizes: [";
+  for (size_t i = 0; i < logical_sizes.size(); ++i) {
+    if (i > 0) debug() << ", ";
+    debug() << logical_sizes[i];
+  }
+  debug() << "]" << std::endl;
+  
   adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
@@ -406,6 +440,8 @@ void PrecomputedValues::bindTensorMetaData(
             id->expandedExtent());
       }
     } else {
+      debug() << "[DEBUG]   Binding " << id->extent()->toString() 
+              << " = " << dim_size << std::endl;
       bindValue(id->extent()->evaluatorIndex(), dim_size, id->extent());
     }
   }
