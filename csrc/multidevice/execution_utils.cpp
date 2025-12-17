@@ -87,6 +87,12 @@ std::vector<int64_t> unshardedSizes(
                 sharded_id) != tv->getLogicalDomain().end()) {
           return 1;
         }
+        if (std::find(
+          tv->getMayAllocateDomain().begin(),
+          tv->getMayAllocateDomain().end(),
+          sharded_id) != tv->getMayAllocateDomain().end()) {
+          return 1;
+        }
 
         NVF_ERROR(
             sharded_id->extent()->isConstInt(),
