@@ -155,8 +155,12 @@ struct KernelSummary {
 
   //! Do we have any clustered blocks?
   bool has_cluster_reduction = false;
+
   //! Do the kernel need streamIdx?
   bool stream_parallelized = false;
+
+  //! Do we need to enable programmatic dependent launch?
+  bool enable_programmatic_dependent_launch = false;
 };
 
 class KernelPerformanceProfile {

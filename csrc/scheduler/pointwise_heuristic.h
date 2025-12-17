@@ -56,6 +56,26 @@ class PointwiseParams : public HeuristicParams {
   // Also used in 1D scheduler.
   int64_t unroll_factor_inner = 1;
 
+  // ========== TMA (Tensor Memory Accelerator) Configuration ==========
+  // Enable TMA for hardware-accelerated global <-> shared memory transfers
+  bool use_tma_load = false; // Use TMA for loading inputs
+  bool use_tma_store = false; // Use TMA for storing outputs
+
+  // TMA Domain: Defines the 2D logical structure [tma_domain_outer,
+  // tma_domain_inner] The problem is split as: [I0 = n_elems] ->
+  // [tma_domain_outer, tma_domain_inner] Example: n_elems=2048,
+  // tma_domain_inner=512 -> TMA domain [4, 512]
+  int64_t tma_domain_inner = -1; // Size of inner (contiguous) dimension
+
+  // TMA Tile: Defines the 2D box size [tma_tile_outer, tma_tile_inner] loaded
+  // by each TMA operation The domain is tiled as: [tma_domain_outer,
+  // tma_domain_inner] ->
+  //   [tma_domain_outer/tma_tile_outer, tma_tile_outer,
+  //    tma_domain_inner/tma_tile_inner, tma_tile_inner]
+  // Example: TMA domain [4, 512] with tiles [2, 128] requires 2*4=8 TMA loads
+  int64_t tma_tile_outer = -1; // Outer tile dimension size
+  int64_t tma_tile_inner = -1; // Inner tile dimension size
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
@@ -72,7 +92,12 @@ class PointwiseParams : public HeuristicParams {
         other->vectorization_factor == vectorization_factor &&
         other->vectorize_casts == vectorize_casts &&
         other->unroll_factor_outer == unroll_factor_outer &&
-        other->unroll_factor_inner == unroll_factor_inner;
+        other->unroll_factor_inner == unroll_factor_inner &&
+        other->use_tma_load == use_tma_load &&
+        other->use_tma_store == use_tma_store &&
+        other->tma_domain_inner == tma_domain_inner &&
+        other->tma_tile_outer == tma_tile_outer &&
+        other->tma_tile_inner == tma_tile_inner;
     return attr_equal;
   }
 
@@ -98,6 +123,14 @@ class PointwiseParams : public HeuristicParams {
     if (flip_grid_binding) {
       ss << "Flip BIDx/BIDy bindings\n";
     }
+    if (use_tma_load || use_tma_store) {
+      ss << "TMA Configuration:\n";
+      ss << "  use_tma_load: " << (use_tma_load ? "true" : "false") << "\n";
+      ss << "  use_tma_store: " << (use_tma_store ? "true" : "false") << "\n";
+      ss << "  tma_domain_inner: " << tma_domain_inner << "\n";
+      ss << "  tma_tile_outer: " << tma_tile_outer << "\n";
+      ss << "  tma_tile_inner: " << tma_tile_inner << "\n";
+    }
     ss << "====================================\n";
     return ss.str();
   }
@@ -110,7 +143,12 @@ class PointwiseParams : public HeuristicParams {
         static_cast<size_t>(split_grid_y_dim) << 6 ^
         static_cast<size_t>(unroll_factor_outer) << 7 ^
         static_cast<size_t>(unroll_factor_inner) << 9 ^
-        static_cast<size_t>(flip_grid_binding) << 10;
+        static_cast<size_t>(flip_grid_binding) << 10 ^
+        static_cast<size_t>(use_tma_load) << 11 ^
+        static_cast<size_t>(use_tma_store) << 12 ^
+        static_cast<size_t>(tma_domain_inner) << 13 ^
+        static_cast<size_t>(tma_tile_outer) << 15 ^
+        static_cast<size_t>(tma_tile_inner) << 17;
     return attr_hash;
   }
 

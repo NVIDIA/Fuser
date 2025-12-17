@@ -5,16 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#pragma once
-
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/builder.h>
-#include <multidevice/communication.h>
-#include <scheduler/heuristic.h>
 
 // Host Irs are used to represent a host program. They need to be registered in
 // a HostIrContainer. Each Ir represents a Host data or instruction.
+
+#pragma once
+
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/builder.h"
+#include "multidevice/communication.h"
+#include "scheduler/heuristic.h"
+
+namespace nvfuser {
+// This works around a circular dependency: compiled_kernel.h ==>
+// expr_evaluator.h ==> ir/all_nodes.h ==> host_ir/ir.h ==> compiled_kernel.h
+//
+// ir/all_nodes.h probably shouldn't include host_ir/ir.h. The former is for
+// fusion IR and the latter is for host IR.
+class CompiledKernel;
+} // namespace nvfuser
+
 namespace nvfuser::hir {
 
 // HostUnit represents a Fusion in the Host Program. In other words, it
@@ -65,20 +76,18 @@ class HostUnit : public Expr {
   std::unique_ptr<Fusion> fusion_;
 };
 
-/*
-  PostOnStream represents the host instruction of executing a HostUnit. Its I/O
-  represents in the host program the concrete I/O that will be bound at runtime
-  to the Fusion's I/O for compilation and execution. At runtime, PostOnStream
-  will compile and launch the kernel lowered from the HostUnit's embedded
-  Fusion.
-
-  Note: later PostOnStream will take a "Stream" argument
-
-  Note: later PostOnStream will also be able to launch network Communications
-
-  Note: later compilation and kernel launch will be separated and represented by
-  distinct Host IRs
-*/
+// PostOnStream represents the host instruction of executing a HostUnit. Its I/O
+// represents in the host program the concrete I/O that will be bound at runtime
+// to the Fusion's I/O for compilation and execution. At runtime, PostOnStream
+// will compile and launch the kernel lowered from the HostUnit's embedded
+// Fusion.
+//
+// Note: later PostOnStream will take a "Stream" argument
+//
+// Note: later PostOnStream will also be able to launch network Communications
+//
+// Note: later compilation and kernel launch will be separated and represented
+// by distinct Host IRs
 class PostOnStream : public Expr {
  public:
   using Expr::Expr;
@@ -115,10 +124,11 @@ class LaunchKernel : public Expr {
       IrBuilderPasskey passkey,
       int64_t group_id,
       const LaunchParams& launch_constraints,
-      const CompileParams& compile_params,
+      CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
       Val* cache_id);
+  LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner);
 
   LaunchKernel(const LaunchKernel& other) = delete;
   LaunchKernel& operator=(const LaunchKernel& other) = delete;
@@ -152,6 +162,13 @@ class LaunchKernel : public Expr {
   Val* cacheId() const {
     return attributeVal(3);
   }
+
+  CompiledKernel* compiledKernel() const {
+    return compiled_kernel_;
+  }
+
+ private:
+  CompiledKernel* compiled_kernel_ = nullptr;
 };
 
 class Deallocate : public Expr {
@@ -479,11 +496,42 @@ class ShardByStream : public Expr {
   }
 };
 
-// Creates a ShardByStream without needing the output TensorView. Returns the
-// output TensorView.
-//
-// Should this be moved to csrc/ops? It's not a host IR expr but a wrapper.
-TensorView* shardByStream(TensorView* in, Val* stream_index);
+// SymmetricContiguousView takes a sharded TensorView with contiguous symmetric
+// memory type (where the outermost dimension is parallelized with DIDx) and
+// produces an unsharded TensorView. At runtime, it performs IPC handle exchange
+// and creates a contiguous virtual address mapping across all ranks. This
+// effectively "unshards" the tensor by making all ranks' data visible in a
+// contiguous address space.
+class SymmetricContiguousView : public Expr {
+ public:
+  using Expr::Expr;
+  SymmetricContiguousView(
+      IrBuilderPasskey passkey,
+      TensorView* out,
+      TensorView* in);
+
+  SymmetricContiguousView(const SymmetricContiguousView& other) = delete;
+  SymmetricContiguousView& operator=(const SymmetricContiguousView& other) =
+      delete;
+  SymmetricContiguousView(SymmetricContiguousView&& other) = delete;
+  SymmetricContiguousView& operator=(SymmetricContiguousView&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::SymmetricContiguousView";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return outputs().at(0)->as<TensorView>();
+  }
+};
 
 class ForLoop : public Expr {
  public:
@@ -498,7 +546,7 @@ class ForLoop : public Expr {
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
-  static ForLoop* createFromIterDomain(Val* index, IterDomain* iter_domain);
+  static ForLoop* createFromIterDomain(IterDomain* iter_domain);
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;

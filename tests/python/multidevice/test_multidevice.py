@@ -240,7 +240,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
     def _multidevice_schedule(fd: FusionDefinition) -> None:
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(1, d, inner_split=False)
+            t.outer_split(1, d)
             t.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 1024
@@ -323,7 +323,7 @@ def test_privatize_squeeze(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     with FusionDefinition() as fd:
@@ -351,7 +351,7 @@ def test_inner_reduction(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition) -> None:
         for t in fd.fusion.inputs():
             t.set_device_mesh(mesh)
-            t.split(0, d, inner_split=False)
+            t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.ones(d * 3, 5)
@@ -363,3 +363,87 @@ def test_inner_reduction(multidevice_direct_test):
     ref_out = sharded.sum(1)
     (out,) = fd.execute([sharded])
     assert torch.allclose(ref_out, out)
+
+
+@pytest.mark.mpi
+def test_insert_resharding_after(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor((-1, -1), contiguity=True)
+        out = fd.ops.relu(inp)
+        fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        for t in fd.fusion.inputs():
+            t.set_device_mesh(mesh)
+            t.outer_split(0, d)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        (out,) = fd.fusion.outputs()
+        out.set_device_mesh(mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    unsharded = torch.randn(d * 3, 5)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    (out,) = fd.execute([sharded])
+    torch.testing.assert_close(out.cpu(), unsharded.relu())
+
+
+@pytest.mark.mpi
+def test_welford(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    b, s, e = 1, 2048, 12288
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor(shape=[b, s, e], contiguity=True)
+        var, mean = fd.ops.var_mean(inp, dims=[2], correction=0, keepdim=False)
+        fd.add_output(var)
+        fd.add_output(mean)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        (inp,) = fd.fusion.inputs()
+        inp.set_device_mesh(mesh)
+        inp.outer_split(1, d)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.randn(b, s, e)
+    sharded = multidevice_direct_test.shard_tensor(unsharded, 1, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+    var, mean = fd.execute([sharded])
+
+    torch.testing.assert_close(var, sharded.var(2), rtol=1e-3, atol=1e-3)
+    torch.testing.assert_close(mean, sharded.mean(2), rtol=1e-3, atol=1e-3)
+
+
+@pytest.mark.mpi
+def test_binary(multidevice_direct_test):
+    d = multidevice_direct_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    with FusionDefinition() as fd:
+        x = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        y = fd.define_tensor((-1, -1), contiguity=True, dtype=DataType.Half)
+        z = fd.ops.add(x, y)
+        fd.add_output(z)
+
+        x.set_device_mesh(mesh)
+        y.set_device_mesh(mesh)
+        y.outer_split(0, d)
+        y.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    x = torch.randn(d * 2, 3, dtype=torch.float16)
+    y = torch.randn(d * 2, 3, dtype=torch.float16)
+    (z,) = fd.execute([x.cuda(), multidevice_direct_test.shard_tensor(y, 0, mesh)])
+
+    torch.testing.assert_close(
+        z, multidevice_direct_test.shard_tensor(x.float() + y.float(), 0, mesh)
+    )

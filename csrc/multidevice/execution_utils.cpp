@@ -6,16 +6,16 @@
  */
 // clang-format on
 
-#include <multidevice/execution_utils.h>
+#include "multidevice/execution_utils.h"
 
 #include <algorithm>
 #include <unordered_set>
 #include <vector>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/utils.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -53,7 +53,11 @@ std::vector<int64_t> unshardedSizes(
     c10::IntArrayRef sizes) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
   for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
-    IterDomain* sharded_id = getShardedIterDomain(tv, parallel_type);
+    const DomainType domain_type = parallel_type == ParallelType::Stream
+        ? DomainType::kAllocation
+        : DomainType::kLoop;
+    IterDomain* sharded_id =
+        getShardedIterDomain(tv, parallel_type, domain_type);
     if (sharded_id == nullptr) {
       continue;
     }
@@ -66,8 +70,8 @@ std::vector<int64_t> unshardedSizes(
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
-        // Hack for MultiDeviceExecutor.  MultiDeviceExecutor looks for
-        // ParallelType::Stream only in logical domains and assumes a
+        // TODO(#5525): hack for MultiDeviceExecutor.  MultiDeviceExecutor looks
+        // for ParallelType::Stream only in logical domains and assumes a
         // stream-parallelized dimension is always fully allocated.  So we set
         // the multiplier to 1 when `sharded_id` is a logical IterDomain. This
         // will have to change when FusionExecutorCache requires a logical

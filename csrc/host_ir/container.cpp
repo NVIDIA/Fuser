@@ -6,18 +6,16 @@
  */
 // clang-format on
 
-#include <host_ir/container.h>
+#include "host_ir/container.h"
 
-#include <iterator>
-
-#include <host_ir/host_ir.h>
-#include <ir/builder.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
+#include "host_ir/ir.h"
+#include "ir/builder.h"
+#include "ir/cloner.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
 
 namespace nvfuser {
 
@@ -34,10 +32,6 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   IrPrinter op_exprs(os);
   op_exprs.handle(this);
   return os;
-}
-
-const Scope& HostIrContainer::topLevel() const {
-  return top_level_;
 }
 
 void HostIrContainer::resetTopLevelExprs(std::list<Expr*> exprs) {

@@ -33,11 +33,8 @@ Expr* getGemmExpr(Fusion* fusion) {
   auto scaled_mma_exprs = fusion->exprs() |
       std::views::filter([](Expr* e) { return e->isA<ScaledMmaOp>(); });
   const int64_t num_exprs = std::ranges::distance(scaled_mma_exprs);
-  NVF_ERROR_NE(num_exprs, 0, "No ScaledMmaOps detected");
-  NVF_ERROR_EQ(
-      num_exprs,
-      1,
-      "Found multiple ScaledMmaOps. Cannot determine which to return");
+  NVF_CUTLASS_REJECT_IF(num_exprs == 0, "No ScaledMmaOps detected");
+  NVF_CUTLASS_REJECT_IF(num_exprs != 1, "Found multiple ScaledMmaOps");
   return scaled_mma_exprs.front();
 }
 
@@ -51,12 +48,9 @@ TensorView* getAccTv(Fusion* fusion) {
 //! https://dx.doi.org/10.1145/3620666.3651369
 class EVTConverter : OptInDispatch {
  public:
-  static mma_utils::DataWrapperOpt<EVTModel> convert(Fusion* fusion) {
+  static EVTModel convert(Fusion* fusion) {
     EVTConverter conv(fusion);
     conv.run();
-    if (!conv.failureReason().empty()) {
-      return {conv.failureReason().c_str()};
-    }
     return std::move(conv.model());
   }
 
@@ -67,43 +61,35 @@ class EVTConverter : OptInDispatch {
     return model_;
   }
 
-  const std::string& failureReason() const {
-    return failure_reason_;
-  }
-
-  //! We pass both inputs and output tensors to the launcher code via a vector
-  //! of inputs and outputs, where the outputs are after the inputs. Given a TV,
-  //! this function returns something like
-  //!
-  //!   static_cast<cutlass::bfloat16_t*>(inputs.at(4).data_ptr)
-  //!
-  std::string getPointerCode(TensorView* tv) {
-    int64_t index = -1;
-    if (tv->isFusionInput()) {
-      index = fusionInputPosition(fusion_, tv);
-    } else if (tv->isFusionOutput()) {
-      index = fusion_->inputs().size() + fusionOutputPosition(fusion_, tv);
-    } else {
-      NVF_THROW(
-          "Cannot get pointer for TV ",
-          tv->toString(),
-          " which is not a fusion input or output");
-    }
-    return "static_cast<" + dtypeToCutlass(tv->dtype()) + "*>(inputs.at(" +
-        std::to_string(index) + ").data_ptr)";
-  }
-
   void findMma() {
     mma_ = getGemmExpr(fusion_);
 
     auto* scaled_mma = dynamic_cast<ScaledMmaOp*>(mma_);
-    NVF_ERROR(
-        scaled_mma,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma == nullptr,
         "Only ScaledMmaOp is currently supported for EVT translation");
     mma_out_ = mma_->output(0)->as<TensorView>();
     alpha_ = scaled_mma->alpha();
     beta_ = scaled_mma->beta();
     bias_ = scaled_mma->bias();
+
+    auto check_input = [](TensorView* inp) {
+      if (inp == nullptr) {
+        return;
+      }
+      // Check that input is contiguous
+      const std::vector<std::optional<bool>>& contig = inp->getContiguity();
+      NVF_CUTLASS_REJECT_IF(
+          std::any_of(
+              contig.begin(),
+              contig.end(),
+              [](const std::optional<bool>& c) { return !c.value_or(true); }),
+          "Expected all inputs to ScaledMmaOp to be contiguous but found ",
+          inp->toString());
+    };
+    check_input(alpha_);
+    check_input(beta_);
+    check_input(bias_);
 
     // The default kernel uses EpilogueScheduleAuto, which in turn uses
     // LinearCombination as the epilogue. That means an epilogue that looks like
@@ -116,44 +102,109 @@ class EVTConverter : OptInDispatch {
     // Otherwise, we replicate the default EVT defined here:
     // https://github.com/NVIDIA/cutlass/blob/c6aeb9179c5f74a0fcdbd28527bf4b6ba8c60752/include/cutlass/epilogue/fusion/sm90_callbacks_tma_warpspecialized.hpp#L118-L134
 
-    NVF_ERROR(beta_ == nullptr, "Beta not yet supported for EVT translation");
-    NVF_ERROR(bias_ == nullptr, "Bias not yet supported for EVT translation");
-
-    NVF_ERROR(
-        scaled_mma->outScale() == nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma->outScale() != nullptr,
         "Output block scale factor not supported for EVT translation");
-    NVF_ERROR(
-        scaled_mma->outGamma() == nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        scaled_mma->outGamma() != nullptr,
         "Output global scale factor not supported for EVT translation");
   }
 
-  void makeAlphaNode() {
+  // Creates a node to represent alpha*acc.
+  // Provide DataType::Float here if there is additional fusion required
+  EVTModel::Node* makeAlphaAccNode(DataType dtype) {
+    EVTModel::Node* acc_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch");
     if (alpha_ == nullptr) {
-      return;
+      if (dtype != DataType::Float) {
+        // handle casting to dtype when neither alpha or bias is given and there
+        // is no epilogue. i.e. simple GEMM. In this case we use the Identity op
+        // with specified output type to perform a cast
+        acc_node = makeUnaryOpNode(
+            UnaryOpType::Cast,
+            /*in_type=*/DataType::Float,
+            /*out_type=*/dtype,
+            acc_node);
+      }
+      return acc_node;
     }
-    NVF_ERROR(
-        alpha_->nDims() == 0,
+    NVF_CUTLASS_REJECT_IF(
+        alpha_->nDims() != 0,
         "Only zero-dimensional alpha is supported for EVT translation");
-    NVF_ERROR(
-        alpha_->dtype() == DataType::Float,
+    NVF_CUTLASS_REJECT_IF(
+        alpha_->dtype() != DataType::Float,
         "Only Float alpha is supported for EVT translation");
     // Broadcast alpha to the same dimensions as the accumulator
     EVTModel::Node* alpha_bcast_node = model_.makeNode(
-        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<float>");
-    alpha_bcast_node->arguments.emplace_back(
-        "scalar_ptrs", "{" + getPointerCode(alpha_) + "}");
+        "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+        dtypeToCutlass(alpha_->dtype()) + ">");
+    alpha_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.alpha}");
     val_nodes_.emplace(alpha_, alpha_bcast_node);
 
-    EVTModel::Node* alpha_acc_node = makeBinaryOpNode(
+    return makeBinaryOpNode(
         BinaryOpType::Mul,
         /*in_type=*/DataType::Float,
         // NOTE: CUTLASS does not have explicit cast EVT nodes.
-        /*out_type=*/mma_out_->dtype(),
+        /*out_type=*/dtype,
         /*lhs_node=*/alpha_bcast_node,
-        /*rhs_node=*/
-        model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
+        /*rhs_node=*/acc_node);
+  }
 
-    val_nodes_.emplace(mma_out_, alpha_acc_node);
+  // Create a node to represent beta*bias
+  EVTModel::Node* makeBetaBiasNode() {
+    if (bias_ == nullptr) {
+      return nullptr;
+    }
+
+    // Make a node to load the bias
+    EVTModel::Node* beta_bias_node = model_.makeNode(
+        "cutlass::epilogue::fusion::Sm90SrcFetch<" +
+        dtypeToCutlass(bias_->dtype()) + ">");
+
+    if (beta_ != nullptr) {
+      NVF_CUTLASS_REJECT_IF(
+          beta_->nDims() != 0,
+          "Only zero-dimensional beta is supported for EVT translation");
+      NVF_CUTLASS_REJECT_IF(
+          beta_->dtype() != DataType::Float,
+          "Only Float beta is supported for EVT translation");
+      EVTModel::Node* beta_bcast_node = model_.makeNode(
+          "cutlass::epilogue::fusion::Sm90ScalarBroadcast<" +
+          dtypeToCutlass(beta_->dtype()) + ">");
+      beta_bcast_node->arguments.emplace_back("scalar_ptrs", "{inputs.beta}");
+      // Note: this casts beta and bias to float then multiplies and outputs
+      // float, since we will always be adding it straight to alpha*acc
+      // anyway
+      beta_bias_node = makeBinaryOpNode(
+          BinaryOpType::Mul,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/DataType::Float,
+          /*lhs_node=*/beta_bcast_node,
+          /*rhs_node=*/beta_bias_node);
+    }
+
+    return beta_bias_node;
+  }
+
+  // Make a node to represent alpha*acc + beta*bias with a final cast to the
+  // type of mma_out_
+  void makeMmaOutNode() {
+    // If there is a bias, then alpha*acc should be Float so that we avoid
+    // down-casting until after adding it. Otherwise, we should go ahead and
+    // cast to mma_out_'s dtype now.
+    EVTModel::Node* mma_out_node = makeAlphaAccNode(
+        bias_ == nullptr ? mma_out_->dtype() : DataType::Float);
+
+    if (EVTModel::Node* beta_bias_node = makeBetaBiasNode()) {
+      mma_out_node = makeBinaryOpNode(
+          BinaryOpType::Add,
+          /*in_type=*/DataType::Float,
+          /*out_type=*/mma_out_->dtype(),
+          /*lhs_node=*/mma_out_node,
+          /*rhs_node=*/beta_bias_node);
+    }
+
+    val_nodes_.emplace(mma_out_, mma_out_node);
   }
 
   // Detect block scaled outputs. Any output that is block scaled will
@@ -197,14 +248,7 @@ class EVTConverter : OptInDispatch {
   void run() {
     findMma();
 
-    // Start by making nodes for the accumulator and for any epilogue inputs
-    if (alpha_ == nullptr && (beta_ == nullptr || bias_ == nullptr)) {
-      // No epilogue
-      val_nodes_.emplace(
-          mma_out_, model_.makeNode("cutlass::epilogue::fusion::Sm90AccFetch"));
-    }
-
-    makeAlphaNode();
+    makeMmaOutNode();
 
     // TODO: add load nodes for epilogue inputs defined in Fusion (i.e. not as
     // ScaledMmaOp inputs)
@@ -213,15 +257,15 @@ class EVTConverter : OptInDispatch {
 
     // Traverse from the accumulator to the unquantized outputs, creating nodes
     // in the EVT for each of these
-    NVF_ERROR(model_.getRootTensorView() != nullptr);
+    NVF_CUTLASS_REJECT_IF(
+        model_.getRootTensorView() == nullptr, "Could not set root TV");
     for (Statement* stmt :
          StmtSort::getStmtsBetween({getAccTv(fusion_)}, unquantized_outputs)) {
       dispatch(stmt);
     }
-    NVF_ERROR_EQ(
-        unquantized_outputs.size(),
-        1,
-        "Only one unquantized output is supported");
+    NVF_CUTLASS_REJECT_IF(
+        unquantized_outputs.size() != 1,
+        "Only one unquantized output is currently supported");
     model_.setRoot(val_nodes_.at(unquantized_outputs.front()));
   }
 
@@ -251,7 +295,7 @@ class EVTConverter : OptInDispatch {
         op_name = "minus";
         break;
       default:
-        NVF_THROW("Unhandled binary op type: ", op_type);
+        NVF_CUTLASS_REJECT("Unhandled binary op type: ", op_type);
     }
     // This node and its inputs is essentially a function signature
     EVTModel::Node* func_node =
@@ -276,6 +320,45 @@ class EVTConverter : OptInDispatch {
     return visitor_node;
   }
 
+  EVTModel::Node* makeUnaryOpNode(
+      UnaryOpType op_type,
+      DataType in_type,
+      DataType out_type,
+      EVTModel::Node* in_node) {
+    // TODO: translate all of the supported UnaryOpTypes
+    std::string op_name;
+    switch (op_type) {
+      case UnaryOpType::Cast:
+        op_name = "epilogue::thread::Identity";
+        break;
+      case UnaryOpType::Relu:
+        op_name = "epilogue::thread::ReLU";
+        break;
+      default:
+        NVF_CUTLASS_REJECT("Unhandled unary op type: ", op_type);
+    }
+    // This node and its inputs is essentially a function signature
+    EVTModel::Node* func_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
+    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(out_type)));
+    // Compute type determines what precision the operation will take place in.
+    // The op is computed as (out_type)(op((compute_type)x))
+    func_node->inputs.push_back(model_.makeNode(dtypeToCutlass(in_type)));
+    // rounding mode
+    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
+    func_node->inputs.push_back(
+        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
+
+    // We combine the signature with tree visitor node
+    EVTModel::Node* visitor_node =
+        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
+    visitor_node->inputs.push_back(func_node);
+    visitor_node->inputs.push_back(in_node);
+
+    return visitor_node;
+  }
+
   using OptInDispatch::dispatch;
 
   void dispatch(Expr* expr) {
@@ -294,20 +377,20 @@ class EVTConverter : OptInDispatch {
     // scaling EVT node which will handle the scaling and outputting the scale
     // factors.
     const BlockScaledOutputPattern& pattern = it->second;
-    NVF_ERROR(
-        pattern.global_scale_factor != nullptr &&
-            pattern.global_scale_factor->isFusionInput(),
+    NVF_CUTLASS_REJECT_IF(
+        pattern.global_scale_factor == nullptr ||
+            !pattern.global_scale_factor->isFusionInput(),
         "Block-scaled outputs currently require a global scale factor "
         "residing in global memory");
-    NVF_ERROR(
-        tv->definition() != nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        tv->definition() == nullptr,
         "Must have already processed pre-scaled output's definition but it "
         "has no definition");
     // Assume we have already processed val's definition, so it should have an
     // EVT node
     EVTModel::Node* unquantized_node = getNodeFor(pattern.unquantized_output);
-    NVF_ERROR(
-        unquantized_node != nullptr,
+    NVF_CUTLASS_REJECT_IF(
+        unquantized_node == nullptr,
         "Could not find EVT node for unquantized output");
 
     EVTModel::Node* scaling_node = model_.makeNode(
@@ -318,8 +401,8 @@ class EVTConverter : OptInDispatch {
         dtypeToCutlass(pattern.block_scale_factors->dtype()) +
         ", cutlass::FloatRoundStyle::round_to_nearest>");
     scaling_node->arguments = {
-        {"ptr_scale_factor", getPointerCode(pattern.block_scale_factors)},
-        {"norm_constant_ptr", getPointerCode(pattern.global_scale_factor)},
+        {"ptr_scale_factor", "inputs.main_output_block_scale_factor"},
+        {"norm_constant_ptr", "inputs.main_output_global_scale_factor"},
         {"norm_constant_stride", "{}"}};
 
     EVTModel::Node* visitor_node =
@@ -333,42 +416,18 @@ class EVTConverter : OptInDispatch {
   void handle(LoadStoreOp* uop) {}
 
   void handle(UnaryOp* uop) {
-    // TODO: translate all of the supported UnaryOpTypes
-    std::string op_name;
-    switch (uop->getUnaryOpType()) {
-      case UnaryOpType::Relu:
-        op_name = "epilogue::thread::ReLU";
-        break;
-      default:
-        NVF_THROW("Unhandled unary op type: ", uop->getUnaryOpType());
-    }
-    // This node and its inputs is essentially a function signature
-    EVTModel::Node* func_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90Compute");
-    func_node->inputs.push_back(model_.makeNode("cutlass::" + op_name));
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->out()->dtype())));
-    // Compute type determines what precision the operation will take place in.
-    // The op is computed as (out_type)(op((compute_type)x))
-    func_node->inputs.push_back(
-        model_.makeNode(dtypeToCutlass(uop->in()->dtype())));
-    // rounding mode
-    // https://github.com/NVIDIA/cutlass/blob/2b8dff1f90605452c378c02298dd0cacaf65753c/include/cutlass/numeric_conversion.h#L56
-    func_node->inputs.push_back(
-        model_.makeNode("cutlass::FloatRoundStyle::round_to_nearest"));
-
-    // We combine the signature with tree visitor node
-    EVTModel::Node* visitor_node =
-        model_.makeNode("cutlass::epilogue::fusion::Sm90EVT");
-    visitor_node->inputs.push_back(func_node);
-    visitor_node->inputs.push_back(getNodeFor(uop->in()));
-
-    val_nodes_.emplace(uop->out(), visitor_node);
+    val_nodes_.emplace(
+        uop->out(),
+        makeUnaryOpNode(
+            uop->getUnaryOpType(),
+            /*in_type=*/uop->in()->dtype(),
+            /*out_type=*/uop->out()->dtype(),
+            getNodeFor(uop->in())));
   }
 
   void handle(BinaryOp* bop) {
-    NVF_ERROR(
-        bop->lhs()->dtype() == bop->rhs()->dtype(),
+    NVF_CUTLASS_REJECT_IF(
+        bop->lhs()->dtype() != bop->rhs()->dtype(),
         "We require both inputs to have the same dtype but found ",
         bop->lhs()->dtype(),
         " and ",
@@ -394,7 +453,6 @@ class EVTConverter : OptInDispatch {
   EVTModel model_;
   std::unordered_map<Val*, EVTModel::Node*> val_nodes_;
   std::unordered_map<Val*, BlockScaledOutputPattern> block_scaling_patterns_;
-  std::string failure_reason_;
 };
 
 } // namespace
@@ -482,14 +540,15 @@ CommentedString argumentArgString(EVTModel::Node* node, int64_t indent_size) {
 //     { ... }  // args for input N
 //   }
 CommentedString argStringWithInputs(EVTModel::Node* node, int64_t indent_size) {
+  std::stringstream ss;
   if (node->name == "cutlass::epilogue::fusion::Sm90Compute") {
     // Sm90Compute does not require arguments
     // TODO: We should probably not represent Sm90Compute's template parameters
     // as nodes in the EVT
-    return {"{}", node->name};
+    indent(ss, indent_size) << "{}";
+    return {ss.str(), node->name};
   }
 
-  std::stringstream ss;
   indent(ss, indent_size) << "{  // " << node->name << "\n";
   CommentedString prev_cs;
   const auto print_line = [&](bool last) {
@@ -613,8 +672,7 @@ std::string EVTModel::toString() const {
   return ss.str();
 }
 
-// TODO: DataWrapperOpt belongs in scheduler_utils
-mma_utils::DataWrapperOpt<EVTModel> extractEVTModel(Fusion* fusion) {
+EVTModel extractEVTModel(Fusion* fusion) {
   return EVTConverter::convert(fusion);
 }
 

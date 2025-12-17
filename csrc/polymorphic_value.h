@@ -11,7 +11,6 @@
 #include <any>
 #include <complex>
 #include <cstddef>
-#include <functional>
 #include <numeric>
 #include <ostream>
 #include <unordered_map>
@@ -226,6 +225,8 @@ using PolymorphicValue = dynamic_type::DynamicType<
 
 namespace PolymorphicValue_functions {
 
+NVF_API size_t hash(const PolymorphicValue& v);
+
 NVF_API std::string toString(const PolymorphicValue& v);
 
 template <typename T>
@@ -395,6 +396,19 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
     return a.as<at::Tensor>().abs();
   }
   NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue ceil(const PolymorphicValue& a) {
+  if (a.is<int64_t>() || a.is<bool>()) {
+    return a;
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::ceil(a.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().ceil();
+  }
+  NVF_THROW("PolymorphicValue ceil not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue erf(const PolymorphicValue& a) {

@@ -122,7 +122,20 @@ std::optional<Layout> canonicalizeLayout(const TensorView* tv) {
     //
     // When split->outer() and split->inner() are both parallelized, we could
     // replace either of them with split->in() and remove the other.
-    NVF_ERROR(!split->inner()->isParallelized());
+    //
+    // `markAliases` and hence `canonicalizeLayout` is called by schedulers
+    // after scheduling tensorviews. In such cases, it is possible for the
+    // allocation domain to have other parallel types. For example, we encounter
+    // this case when scheduling a reduction fusion: logical: [b, s, e]
+    // allocation/loop: [DIDx(d), b, s//d, e] `s//d` is parallelized on
+    // ParallelType::BIDx by the scheduler. Here, we can still revert the split
+    // by replacing s->inner() with s->in() and ignoring other parallel types.
+    NVF_ERROR(
+        !(split->inner()->isDeviceDim() || split->inner()->isStream()),
+        "Unexpected parallelization of ",
+        split->toString(),
+        " in ",
+        toDelimitedString(tv->getAllocationDomain()));
 
     const auto [outer_contiguity, next_i] =
         allocation_to_contiguity.erase(split->outer());

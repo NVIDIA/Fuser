@@ -20,8 +20,9 @@ using testing::UnorderedElementsAre;
 
 class MovePadTest : public NVFuserTest {
  protected:
-  MovePadTest() {
+  void SetUp() override {
     DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 

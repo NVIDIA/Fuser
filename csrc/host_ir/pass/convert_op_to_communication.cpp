@@ -6,20 +6,21 @@
  */
 // clang-format on
 
-#include <host_ir/pass/convert_op_to_communication.h>
+#include "host_ir/pass/convert_op_to_communication.h"
 
 #include <list>
 
-#include <host_ir/container.h>
-#include <host_ir/lower.h>
-#include <host_ir/lower_to_communication.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <multidevice/communication.h>
-#include <multidevice/utils.h>
+#include "host_ir/container.h"
+#include "host_ir/lower.h"
+#include "host_ir/lower_to_communication.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
+#include "multidevice/communication.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser::hir_pass {
 
@@ -42,7 +43,7 @@ void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
         TensorView* tv = communication->out();
         if (tv->getDeviceMesh().has(my_device_index)) {
           auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              IrBuilder::create<kir::Allocate>(tv, tv->getMemoryType());
           new_top_level_exprs.push_back(allocate);
         }
       }

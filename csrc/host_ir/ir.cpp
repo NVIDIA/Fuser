@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/host_ir.h>
+#include "host_ir/ir.h"
 
 #include <algorithm>
 #include <memory>
@@ -14,20 +14,12 @@
 #include <string>
 #include <vector>
 
-#include <host_ir/container.h>
-#include <ir/builder.h>
-#include <ir/builder_passkey.h>
-#include <ir/cloner.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/communication.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <transform_replay.h>
-#include <utils.h>
+#include "host_ir/container.h"
+#include "ir/builder.h"
+#include "ir/builder_passkey.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "utils.h"
 
 namespace nvfuser::hir {
 
@@ -133,16 +125,24 @@ LaunchKernel::LaunchKernel(
     IrBuilderPasskey passkey,
     int64_t group_id,
     const LaunchParams& launch_constraints,
-    const CompileParams& compile_params,
+    CompiledKernel* compiled_kernel,
     const std::vector<Val*>& inputs,
     const std::vector<Val*>& outputs,
     Val* cache_id)
-    : Expr(passkey, inputs, outputs, {}) {
+    : Expr(passkey, inputs, outputs, {}), compiled_kernel_(compiled_kernel) {
+  NVF_CHECK(
+      compiled_kernel != nullptr,
+      "LaunchKernel requires a non-null CompiledKernel pointer");
+  NVF_CHECK(cache_id != nullptr, "LaunchKernel requires a non-null cache_id");
+
   addDataAttribute(group_id);
   addDataAttribute(launch_constraints);
-  addDataAttribute(compile_params);
+  addDataAttribute(compiled_kernel->compileParams());
   addAttribute(cache_id);
 }
+
+LaunchKernel::LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner)
+    : Expr(src, ir_cloner), compiled_kernel_(src->compiled_kernel_) {}
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
@@ -271,7 +271,7 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
   NVF_ERROR(
       (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
       expr,
-      "must be a Communication, a P2PCommunication, or a EndCoalescing");
+      " must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
@@ -460,99 +460,30 @@ std::string ShardByStream::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
-TensorView* shardByStream(TensorView* in, Val* stream_index) {
-  auto* out = ops::newValLike(in, *in->getDataType())->as<TensorView>();
-
+SymmetricContiguousView::SymmetricContiguousView(
+    IrBuilderPasskey passkey,
+    TensorView* out,
+    TensorView* in)
+    : Expr(passkey, {in}, {out}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
   NVF_ERROR(
-      getShardedIterDomain(in, ParallelType::Stream) == nullptr,
-      "Input allocation shouldn't be sharded on stream: ",
-      in);
-  TransformReplay::selfReplay(in->domain(), out->domain());
+      in->getMemoryType() == MemoryType::Symmetric,
+      "Input tensor must have symmetric memory type, got: ",
+      in->getMemoryType());
+}
 
-  shardAllocationAsLoop(out, {ParallelType::Stream});
-  NVF_ERROR(
-      getShardedIterDomain(out, ParallelType::Stream) != nullptr,
-      "Output allocation should be sharded on stream after "
-      "shardAllocationAsLoop: ",
-      out);
+NVFUSER_DEFINE_CLONE_AND_CREATE(SymmetricContiguousView)
 
-  // Refine the contiguity flags so `out` aliases `in`. This is done similar to
-  // AliasFinder::handle(const SliceOp*). We scan through the allocation domain
-  // in minor-to-major order. If an IterDomain is parallelized on Stream (thus
-  // "sliced"), the next non-broadcast-non-reduction IterDomain has to be marked
-  // non-contiguous. For example,
-  //
-  //   [m, n]
-  //      /\.
-  //     s  n/s
-  //   contiguity = [t, t, t]
-  //
-  // will become contiguity = [f, t, t].
-  //
-  //    [m, n]
-  //    /\.
-  //   s m/s
-  //   contiguity = [t, t, t]
-  //
-  // will remain [t, t, t] because the stream-parallel IterDomain is allocated
-  // outermost.
-  //
-  // Contiguity refinement is done after shardAllocationAsLoop because
-  // FinalizeMultideviceDomainPass (which also uses shardAllocationAsLoop)
-  // doesn't want to compute contiguity this way.
-  //
-  // Let's say the loop domains look like the following during finalization:
-  // ```
-  //   in: [m, n]
-  //          / \.
-  //         s
-  //         |
-  //         | op1
-  //         v
-  //    x: [m, n]
-  //          / \.
-  //         s
-  //         |
-  //         | op2
-  //         v
-  //  out: [m, n]
-  //          / \.
-  //         s
-  // ```
-  // `x`'s allocation should be parallelized on stream because `op2` isn't
-  // resharding, and the new contiguity ought to be `[t, t, t]`. However, the
-  // code below would refine the contiguity to `[f, t, t]`.
-  //
-  // The issue stems from a time-dependent contract on allocation domains:
-  // pre-finalization we treat allocations as unsharded, while post-finalization
-  // we commit them to the target sharding. Because shardByStream runs after
-  // finalization, it follows a different set of assumptions than the
-  // finalization pass.  We anticipated that a "when" in the contract could
-  // cause mismatches; this example validates that concern.  I don't see an
-  // easy fix. The principled approach is to remove the "when" and pay the cost
-  // to make sharding propagation and decomposition reason about both loop and
-  // allocation consistently.
-  std::vector<IterDomain*> out_allocation = out->getMaybeAllocationDomain();
-  std::vector<std::optional<bool>> out_contiguity = out->getContiguity();
-  bool next_will_be_noncontiguous = false;
-  for (auto [i, alloc_id] : enumerate(out_allocation) | std::views::reverse) {
-    std::optional<bool>& contiguity = out_contiguity[i];
+std::string SymmetricContiguousView::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = SymmetricContiguousView("
+                          << in()->toString() << ")" << std::endl;
+  return ss.str();
+}
 
-    if (alloc_id->isBroadcast() || alloc_id->isReduction()) {
-      contiguity = std::nullopt;
-    } else if (next_will_be_noncontiguous) {
-      contiguity = false;
-      next_will_be_noncontiguous = false;
-    }
-
-    if (alloc_id->isStream()) {
-      next_will_be_noncontiguous = true;
-    }
-  }
-  out->setContiguity(out_contiguity);
-
-  IrBuilder::create<ShardByStream>(out, in, stream_index);
-  return out;
+std::string SymmetricContiguousView::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 ForLoop::ForLoop(IrBuilderPasskey passkey, Val* index, Val* start, Val* stop)
@@ -568,19 +499,23 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
 std::string ForLoop::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "FOR " << index()->toString() << " from "
-                          << start()->toString() << " to " << stop()->toString()
-                          << ":\n"
+                          << start()->toInlineString() << " to "
+                          << stop()->toInlineString() << ":" << std::endl
                           << body().toString(indent_size + 1);
   return ss.str();
 }
 
 std::string ForLoop::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "FOR " << index()->toInlineString() << " from "
+                          << start()->toInlineString() << " to "
+                          << stop()->toInlineString();
+  return ss.str();
 }
 
-/*static*/ ForLoop* ForLoop::createFromIterDomain(
-    Val* index,
-    IterDomain* iter_domain) {
+/*static*/ ForLoop* ForLoop::createFromIterDomain(IterDomain* iter_domain) {
+  FusionGuard fg(iter_domain->fusion());
+  auto* index = IrBuilder::create<Val>(DataType::Index);
   return IrBuilder::create<ForLoop>(
       index, iter_domain->start(), iter_domain->stop());
 }

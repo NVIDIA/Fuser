@@ -11,8 +11,8 @@
 #include <fusion.h>
 #include <multidevice/execution_utils.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -1105,8 +1105,7 @@ TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1144,8 +1143,7 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1183,8 +1181,7 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
     reorderParallelizedToFront(tv);
   }
 
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   at::Tensor input = at::randn({s, h, e / h}, tensor_options_);
@@ -1199,4 +1196,91 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
   EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
 }
 
+TEST_F(MultiDeviceTest, MultipleCompatibleReshapes) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t d = communicator_->size();
+  int64_t b = 1, s = 2048, h = 96;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide H=" << h;
+  }
+
+  TensorView* tv0 = makeContigConcreteTensor({b, s, h}, DataType::BFloat16);
+  TensorView* tv1 = castOp(DataType::Float, tv0);
+  TensorView* tv2 = reshape(tv1, {b, s, h}, {b, s, d, h / d});
+  TensorView* tv3 = reshape(tv1, {b, s, h}, {b, s, d, h / d});
+  TensorView* tv4 = add(tv2, tv2);
+  TensorView* tv5 = add(tv3, tv3);
+  TensorView* tv6 = castOp(DataType::BFloat16, tv4);
+  TensorView* tv7 = castOp(DataType::BFloat16, tv5);
+
+  for (TensorView* tv : {tv0}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    fusion->addInput(tv);
+  }
+
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  at::Tensor input = at::randn({b, s, h}, tensor_options_.dtype(at::kBFloat16));
+  at::Tensor sharded_input = shardTensor(input, 2, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_input})[0].as<at::Tensor>();
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+}
+
+TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t d = communicator_->size();
+  int64_t b = 1, s = 2048, h = 96;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide H=" << h;
+  }
+
+  TensorView* tv0 = makeContigConcreteTensor({b, s, h}, DataType::BFloat16);
+  TensorView* tv1 = castOp(DataType::Float, tv0);
+  TensorView* tv2 = reshape(tv1, {b, s, h}, {b, s, d, h / d});
+  TensorView* tv3 = reshape(tv1, {b, s, h}, {b, s, d * 2, h / 2 / d});
+  TensorView* tv4 = add(tv2, tv2);
+  TensorView* tv5 = add(tv3, tv3);
+  TensorView* tv6 = castOp(DataType::BFloat16, tv4);
+  TensorView* tv7 = castOp(DataType::BFloat16, tv5);
+
+  for (TensorView* tv : {tv0}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    fusion->addInput(tv);
+  }
+
+  fusion->addOutput(tv6);
+  fusion->addOutput(tv7);
+  at::Tensor input = at::randn({b, s, h}, tensor_options_.dtype(at::kBFloat16));
+  at::Tensor sharded_input = shardTensor(input, 2, mesh);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_input})[0].as<at::Tensor>();
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  if (d > 1) {
+    EXPECT_TRUE(runtime->isSegmented());
+  } else {
+    EXPECT_FALSE(runtime->isSegmented());
+  }
+}
 } // namespace nvfuser

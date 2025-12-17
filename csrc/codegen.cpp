@@ -1807,7 +1807,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   // Special handling of BlockQuantizationOp to call the runtime function.
-  // TODO: add support for global scaling factor
   void handle(const BlockQuantizationOp* bqop) final {
     // This operator is plumbed down to a runtime function call.
     // One of the assumptions is that the device runtime expects
@@ -1815,58 +1814,88 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4, or 8 for Half. We achieve this by having the quantized output tv
     // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    int64_t group_size = 1;
+    auto output_dtype = output->getDataType();
 
-    // Get the loop domain of the TensorView output and check for group
-    // parallel types. This assumes that both parallel types aren't present.
+    // Extract group size from the loop domain
+    int64_t group_size = 1;
     const auto& loop_domain = output->getLoopDomain();
-    for (auto* domain : loop_domain) {
-      auto parallel_type = domain->getParallelType();
-      if (parallel_type == ParallelType::Group) {
-        if (domain->extent()->isConstInt()) {
-          group_size = domain->extent()->evaluate().as<int64_t>();
+    for (const auto* domain : loop_domain) {
+      if (domain->getParallelType() == ParallelType::Group &&
+          domain->extent()->isConstInt()) {
+        group_size = domain->extent()->evaluate().as<int64_t>();
+        break;
+      }
+    }
+
+    // Validate group size based on input data type
+    const auto input_dtype =
+        bqop->in()->as<kir::TensorIndex>()->view()->getDataType().value();
+    const bool is_half_precision =
+        (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
+    const bool is_valid_group_size = is_half_precision
+        ? (group_size == 2 || group_size == 4 || group_size == 8)
+        : (group_size == 2 || group_size == 4);
+
+    NVF_ERROR(
+        is_valid_group_size,
+        "Group size should be ",
+        is_half_precision ? "2, 4 or 8" : "2 or 4",
+        " for BlockQuantizationOp with input type ",
+        input_dtype,
+        ". Found: ",
+        group_size,
+        ". Expr: ",
+        bqop->toString());
+
+    // Build template arguments
+    ArgumentBuilder template_args;
+    // No global scale is required when quantizing to mxfp8
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      template_args.arg(bqop->hasGlobalScale());
+    }
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Build function arguments
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(
+        bqop->input(0)->as<kir::TensorIndex>()->view())); // input data
+    func_args.arg(genInline(output)); // quantized output
+    func_args.arg(genInline(
+        bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
+    func_args.arg(genInline(
+        bqop->attributeVal(0))); // linearized index for runtime function
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      func_args.arg(
+          bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
+    }
+
+    // Add swizzled allocation domain parameters if needed
+    // This is always skipped when quantizing to mxfp8
+    auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
+    if (block_scales_tv->hasAllocation()) {
+      auto logical_domain =
+          TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
+      auto allocation_domain =
+          TensorDomain::noReductions(block_scales_tv->getAllocationDomain());
+
+      // Swizzled layout: 2D logical -> 5D allocation
+      if (logical_domain.size() == 2 && allocation_domain.size() == 5) {
+        // Add logical domain extent of the inner dimension
+        func_args.arg(genInline(logical_domain[1]->extent()));
+
+        // Add all allocation domain extents
+        for (const auto* alloc_id : allocation_domain) {
+          func_args.arg(genInline(alloc_id->extent()));
         }
       }
     }
 
-    auto input_dtype =
-        bqop->in()->as<kir::TensorIndex>()->view()->getDataType();
+    auto fn_call = output_dtype == DataType::Float4_e2m1fn
+        ? "bq::block_quantize_to_nvfp4"
+        : "bq::block_quantize_to_mxfp8";
 
-    if (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half) {
-      NVF_ERROR(
-          group_size == 8 || group_size == 4 || group_size == 2,
-          "Group size should be 2, 4 or 8 for "
-          "BlockQuantizationOp: ",
-          bqop->toString());
-
-    } else {
-      NVF_ERROR(
-          group_size == 4 || group_size == 2,
-          "Group size should be 2 or 4 for "
-          "BlockQuantizationOp: ",
-          bqop->toString());
-    }
-
-    ArgumentBuilder template_args;
-    template_args.arg(group_size); // ITEMS_PER_THREAD
-
-    // Function arguments
-    ArgumentBuilder func_args;
-
-    // First argument: input data array
-    // Second argument: quantized output
-    // Third argument: block scale output
-    func_args.arg(genInline(bqop->input(0)->as<kir::TensorIndex>()->view()));
-    func_args.arg(genInline(output));
-    func_args.arg(
-        genInline(bqop->blockScales()->as<kir::TensorIndex>()->view()));
-
-    // Fourth argument: This holds the linearized index that will be used to
-    // write out the block scaling factors in the runtime function.
-    func_args.arg(genInline(bqop->attributeVal(0)));
-
-    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
-             << ";\n";
+    // Generate the function call
+    indent() << genCall(fn_call, template_args, func_args) << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
@@ -4652,6 +4681,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     template_args,
                     func_args)
              << ";\n";
+  }
+
+  void handle(const LaunchDependentGridOp* launch) {
+    indent() << launch->getOpString() << "();\n";
+  }
+
+  void handle(const WaitForPriorGridOp* wait) {
+    indent() << wait->getOpString() << "();\n";
   }
 
  private:

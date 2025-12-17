@@ -18,7 +18,13 @@ namespace nvfuser {
 
 using testing::Contains;
 
-using MoveSplitCatTest = NVFuserTest;
+class MoveSplitCatTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(MoveSplitCatTest, Cancellable_SplitImmediatelyFollowedByCat) {
   auto fusion = std::make_unique<Fusion>();

@@ -7,13 +7,22 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-#include <fusion.h>
-#include <ir/interface_nodes.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
+#include <iosfwd>
+
+#include "fusion.h"
+#include "ir/interface_nodes.h"
 
 namespace nvfuser {
+
+// Identifies which TensorView domain to inspect.
+enum class DomainType : int {
+  kRoot,
+  kLogical,
+  kLoop,
+  kAllocation,
+};
+
+std::ostream& operator<<(std::ostream& os, DomainType domain_type);
 
 // Returns whether a TensorView has a non-reduction axis parallelized Didx
 // Checks that the other non-reduction axis are not parallelized on Didx
@@ -32,52 +41,10 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);
 
-// Returns whether an Expr embeds multi-device resharding
-NVF_API bool isResharding(const Expr* expr);
-
-// Returns whether two tensors have different shardings. Expect a
-// producer/consumer relationship between the arguments.
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const std::unordered_set<ParallelType>& parallel_types);
-
-// Returns a set that contains DIDs and Stream.
-std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
-
-std::unordered_set<ParallelType> deviceParallelTypes();
-
 // Collect device and stream parallelized IterDomains in `domain` and return
 // them as a ParallelType-to-IterDomain map. Excludes reduction iterdomains.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(
     const std::vector<IterDomain*>& domain);
-
-// Shards all tensors in tvs like reference.
-// Accepts a set of parallel types to shard on.
-// If empty, all DID parallel types are used.
-void shardAllLike(
-    TensorView* ref,
-    const std::vector<TensorView*>& tvs,
-    const std::unordered_set<ParallelType>& parallel_types);
-
-// Shards all TVs between from and to AND between TVs created inside a fusion
-// and to. This is required for (1) expressions like rng_uniform that create a
-// TV inside a fusion that is not between a path from user visible TVs. (2)
-// multi-output expressions may have output tensors that are not along a path to
-// the fusion output which would not be reachable otherwise. (2) sharding
-// propagation checks all TVs in the fusion are assigned a device mesh
-// regardless if they are reachable. To keep the checks simple, we require all
-// TVs are assigned a mesh if they exist in the fusion.
-void shardBetween(
-    const std::vector<TensorView*>& from,
-    const std::vector<TensorView*>& to,
-    TensorView* ref);
-// Same as above but using the outputs of the from and to expressions
-// to form the from and to TVs.
-void shardBetween(
-    const std::vector<Expr*>& from,
-    const std::vector<Expr*>& to,
-    TensorView* ref);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
@@ -90,13 +57,20 @@ void shardBetween(
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
 
-// Returns the IterDomain that's parallelized on `parallel_type`.  If it's not
-// found, returns nullptr. `parallel_type` decides which domain to look at.
-// ParallelType::Stream looks at the allocation domain and DIDs look at the loop
-// domain. Refer to the implementation for the reason.
+// Returns the IterDomain that's parallelized on `parallel_type` in the domain
+// of type `domain_type`.
+//
+// The allocation domain for multidevice TensorViews is set during
+// presegmentation, which happens after concretization. At that point fusion
+// inputs still lack allocation domains, so callers must explicitly choose
+// which domain to inspect. Use `domain_type` to pick loop vs. allocation (or
+// root/logical) depending on the information you need.
+// Returns the IterDomain that's parallelized on `parallel_type` within
+// `domain_type`. If it's not found, returns nullptr.
 IterDomain* getShardedIterDomain(
     const TensorView* tv,
-    ParallelType parallel_type);
+    ParallelType parallel_type,
+    DomainType domain_type);
 
 // Reorders a TensorView's loop domain so that parallelized IterDomains are in
 // front, making the order most convenient for (inter-GPU and intra-GPU)
@@ -108,5 +82,13 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // Validate the expression is a valid DID split: expr is an outer split with
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
+
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
 } // namespace nvfuser
