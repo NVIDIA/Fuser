@@ -13,6 +13,7 @@
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/vectorize_helper.h>
 
 namespace nvfuser {
 namespace pointwise_utils {
@@ -224,8 +225,10 @@ BreakPointInfo getBreakPoint(
         transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
   }
 
-  // Calculate optimal break point for 2D scheduling
-  int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
+  // Calculate optimal break point for 2D scheduling, use it if can save IO
+  // bits.
+  int64_t min_total_transfer_bit = transfer_size_1d_bit;
+  std::cout << "transfer_size_1d_bit: " << transfer_size_1d_bit << std::endl;
   // Don't check the inner most dimension, scheduler assumes there's always
   // an rhs
   for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
@@ -241,12 +244,14 @@ BreakPointInfo getBreakPoint(
       cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
     }
 
-    // For tma scheduling, allow no element in the left side of break point,
-    // e.g. break at pos-0 for non-broadcasted case.
     auto cur_left_elem_count = n_elems / cur_right_elem_count;
-    if (!is_tma && cur_left_elem_count <= 1) {
+    if (cur_left_elem_count <= 1) {
       continue;
     }
+
+    std::cout << "break_point_i: " << break_point_i << std::endl;
+    std::cout << "cur_left_elem_count: " << cur_left_elem_count << std::endl;
+    std::cout << "cur_right_elem_count: " << cur_right_elem_count << std::endl;
 
     auto lhs_bit_multiple = broadcast_bit_multiples[break_point_i].lhs_multiple;
     auto rhs_bit_multiple = broadcast_bit_multiples[break_point_i].rhs_multiple;
@@ -259,11 +264,15 @@ BreakPointInfo getBreakPoint(
       cur_transfer_size_bit =
           cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
     }
+    std::cout << "left_transfer_size_bit: " << cur_transfer_size_bit
+              << std::endl;
 
     for (const auto right_i : arange(break_point_i, ref_loop.size())) {
       right_transfer_size_bit =
           right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
     }
+    std::cout << "right_transfer_size_bit: " << right_transfer_size_bit
+              << std::endl;
     cur_transfer_size_bit *= right_transfer_size_bit;
 
     if (!is_tma) {
@@ -297,12 +306,18 @@ BreakPointInfo getBreakPoint(
       if (cur_transfer_size_bit >= min_total_transfer_bit) {
         continue;
       }
+      if (cur_right_elem_count <= 1) {
+        continue;
+      }
     }
 
     // Use this break point
     result.break_point = static_cast<int>(break_point_i);
     min_total_transfer_bit = cur_transfer_size_bit;
     result.right_elem_count = cur_right_elem_count;
+    std::cout << "break_point_i: " << break_point_i
+              << ", min_total_transfer_bit: " << min_total_transfer_bit
+              << std::endl;
 
     // when lhs byte multiple is smaller than rhs byte multiple,
     // there is broadcast in the lhs, which is outer broadcast.
@@ -551,6 +566,44 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
   info.rhs_i = rhs_i;
 
   return info;
+}
+
+int64_t computeVectorizationFactor(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& vectorizable_inputs_outputs,
+    TensorView* largest_out,
+    HeuristicDataCache* data_cache,
+    int64_t max_vect_factor,
+    int64_t break_point,
+    bool has_reshapes) {
+  int64_t vectorization_factor = max_vect_factor;
+
+  // If we have sub-byte data types, we wouldn't want to clamp vectorization
+  // factor to 1, otherwise we could end up with illegal array type with
+  // sub-byte length.
+  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
+  // necessarily need vectorization, but rather just consecutive elements being
+  // handled together so we have byte-sized buffer per thread.
+  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
+        return dataTypeSizeBit(inp->getDataType().value()) < 8;
+      })) {
+    vectorization_factor = std::max(2l, max_vect_factor);
+  }
+
+  std::unordered_map<int64_t, int64_t> logical_reorder_map =
+      getLogicalReorderMap(largest_out, has_reshapes, data_cache);
+
+  vectorization_factor = std::min(
+      vectorization_factor,
+      vectorize_helper::getVectorizationFactor(
+          runtime_info,
+          largest_out,
+          data_cache,
+          break_point,
+          /*max_vectorization_size_in_bit=*/128,
+          logical_reorder_map));
+
+  return vectorization_factor;
 }
 
 } // namespace pointwise_utils

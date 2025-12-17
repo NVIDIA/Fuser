@@ -14,6 +14,7 @@
 #include <multidevice/utils.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/mark_aliases.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -339,9 +340,15 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     auto broadcast_info_for_debug =
         scheduler_utils::getBroadcastMultiples(largest_out, index_type);
 
+    // Get logical reorder map for debug output
+    std::unordered_map<int64_t, int64_t> logical_reorder_map =
+        pointwise_utils::getLogicalReorderMap(
+            prop.largest_out, prop.has_reshapes, data_cache);
+
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
+            << "break_point: " << break_point << "\n"
             << "max_dtype_size_bit_for_vectorization: "
             << max_dtype_size_bit_for_vectorization << "\n"
             << "unroll_factor_inner: " << params->unroll_factor_inner

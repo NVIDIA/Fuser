@@ -2024,6 +2024,202 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
+TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
+  int64_t dim0 = 16384 + 8;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  // tv1 is suitable for TMA, tv0 is not. Then non-TMA version is used.
+  auto tv0 = makeContigTensor(1, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_float =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto t1 = at::randn({dim0}, options_float);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+// input is not contiguous, should not use TMA.
+TEST_F(TmaPointwiseTestF, InnermostNonContiguous) {
+  int64_t dim0 = 8192 * 8192;
+  int64_t dim1 = 1;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// input is not contiguous, should not use TMA.
+TEST_F(TmaPointwiseTestF, OutermostNonContiguous) {
+  int64_t dim0 = 1;
+  int64_t dim1 = 8192 * 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Only use TMA for inputs with all dimensions are contiguous, e.t. tv1 is TMA
+// suitable but not tv0.
+TEST_F(TmaPointwiseTestF, OneInputContiguousOneInputNonContiguous) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  auto tv0 = TensorViewBuilder()
+                 .ndims(5)
+                 .shape({51, 1, 2, 4, 10})
+                 .contiguity({true, std::nullopt, true, true, true})
+                 .build();
+  fusion->addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({51, 2, 4, 10});
+  fusion->addInput(tv1);
+
+  auto tv2 = broadcast(tv1, {false, true, false, false, false});
+  auto tv3 = add(tv2, tv0);
+  fusion->addOutput(tv3);
+
+  // Create input tensors
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({51, 1, 2, 4, 10}, options);
+  auto t1 = at::randn({51, 2, 4, 10}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// reference tv is [dim0, dim1, 1], pos-2 is not a valid breakpoint since the
+// right side has only 1 element. Thus, break point is 0, which uses 1D
+// scheduler both inputs are loaded with TMA.
+TEST_F(TmaPointwiseTestF, OutputBroadcast1ElementInner) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = broadcast(tv2, {false, false, true});
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_TRUE(pparams->use_tma_load);
+  EXPECT_EQ(pparams->break_point, 0);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// reference tv is [1, dim0, dim1], pos-1 is not a valid breakpoint since the
+// left side has only 1 element. Thus, break point is 0, which uses 1D scheduler
+// both inputs are loaded with TMA.
+TEST_F(TmaPointwiseTestF, OutputBroadcast1ElementOuter) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = broadcast(tv2, {true, false, false});
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_TRUE(pparams->use_tma_load);
+  EXPECT_EQ(pparams->break_point, 0);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// reference tv is [dim0, 1, dim1], pos-1 is not a valid breakpoint since it
+// can't save IO bits.
+// Thus, break point is 0, which uses 1D scheduler both inputs are loaded with
+// TMA.
+TEST_F(TmaPointwiseTestF, OutputBroadcast1ElementMiddle) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = broadcast(tv2, {false, true, false});
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_TRUE(pparams->use_tma_load);
+  EXPECT_EQ(pparams->break_point, 0);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 TEST_F(TmaPointwiseTestF, SplitGridDim1D) {
   maybeClearAllocator(/*max_bytes=*/0);
   int64_t dim0 = 32768;
@@ -2079,4 +2275,5 @@ TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
+
 } // namespace nvfuser

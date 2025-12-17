@@ -127,5 +127,20 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
     Fusion* fusion,
     int64_t break_point);
 
+// Compute vectorization factor with special handling for sub-byte data types
+// This function:
+// 1. Ensures sub-byte types have a minimum vectorization factor of 2 to avoid
+//    illegal single sub-byte element arrays
+// 2. Clamps vectorization based on actual alignment constraints from
+//    vectorize_helper
+int64_t computeVectorizationFactor(
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& vectorizable_inputs_outputs,
+    TensorView* largest_out,
+    HeuristicDataCache* data_cache,
+    int64_t max_vect_factor,
+    int64_t break_point,
+    bool has_reshapes);
+
 } // namespace pointwise_utils
 } // namespace nvfuser
