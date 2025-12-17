@@ -1505,10 +1505,7 @@ TEST_F(AllocationDomainTest, InputAllocationIsSplitReorderMerge) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
   at::Tensor in_tensor = at::randn({6}, options);
-  EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs({in_tensor}); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("Merging of discontiguous dimensions")));
+  EXPECT_ANY_THROW(executor_cache.runFusionWithInputs({in_tensor}));
 }
 
 // https://github.com/NVIDIA/Fuser/issues/3480

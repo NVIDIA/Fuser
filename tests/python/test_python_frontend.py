@@ -5314,3 +5314,102 @@ def test_cat_qwen2_v2():
         qwen2_cat_fusion_2(fd)
 
     fd.execute(inputs)
+
+
+def test_issue4888():
+    # https://github.com/NVIDIA/Fuser/issues/4888
+    def nvfuser_fusion_id2(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[4096, 4097],
+            contiguity=[True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[4096, 4097],
+            contiguity=[True, True],
+            dtype=DataType.Bool,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.define_tensor(
+            shape=[4096, 4097],
+            contiguity=[True, True],
+            dtype=DataType.Bool,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T3 = fd.define_tensor(
+            shape=[1, 32, 4096, 4096],
+            contiguity=[None, True, True, True],
+            dtype=DataType.BFloat16,
+            is_cpu=False,
+            stride_order=[3, 2, 1, 0],
+        )
+        T4 = fd.ops.cast(T0, dtype=DataType.Float)
+        T5 = fd.ops.bitwise_or(T1, T2)
+        T6 = fd.ops.set(T5)
+        fd.add_output(T6, T1)
+        T7 = fd.ops.cast(T6, dtype=DataType.Float)
+        T8 = fd.ops.mul(T4, T7)
+        T9 = fd.ops.cast(T8, dtype=DataType.BFloat16)
+        T10 = fd.ops.set(T9)
+        fd.add_output(T10, T0)
+        T15 = fd.ops.broadcast_in_dim(T10, shape=[1, 4096, 4097], broadcast_dims=[1, 2])
+        T21 = fd.ops.broadcast_in_dim(
+            T15, shape=[1, 1, 4096, 4097], broadcast_dims=[0, 2, 3]
+        )
+        T27 = fd.ops.broadcast_in_dim(
+            T21, shape=[1, 1, 4096, 4097], broadcast_dims=[0, 1, 2, 3]
+        )
+        T43 = fd.ops.slice(
+            T27,
+            start_indices=[0, 0, 0, 0],
+            end_indices=[1, 1, 4096, 4096],
+            strides=[1, 1, 1, 1],
+            manual_normalization=0,
+        )
+        T49 = fd.ops.broadcast_in_dim(
+            T43, shape=[1, 32, 4096, 4096], broadcast_dims=[0, 1, 2, 3]
+        )
+        T50 = fd.ops.cast(T49, dtype=DataType.Float)
+        T51 = fd.ops.cast(T3, dtype=DataType.Float)
+        S52 = fd.define_scalar(0.0883883, dtype=DataType.Double)
+        T53 = fd.ops.mul(T51, S52)
+        T54 = fd.ops.add(T53, T50)
+        T55 = fd.ops.max(T54, dims=[3], keepdim=False, dtype=DataType.Null)
+        T61 = fd.ops.broadcast_in_dim(
+            T55, shape=[1, 32, 4096, 1], broadcast_dims=[0, 1, 2]
+        )
+        T67 = fd.ops.broadcast_in_dim(
+            T61, shape=[1, 32, 4096, 4096], broadcast_dims=[0, 1, 2, 3]
+        )
+        T68 = fd.ops.sub(T54, T67)
+        T69 = fd.ops.exp(T68)
+        T70 = fd.ops.sum(T69, dims=[3], keepdim=False, dtype=DataType.Null)
+        T76 = fd.ops.broadcast_in_dim(
+            T70, shape=[1, 32, 4096, 1], broadcast_dims=[0, 1, 2]
+        )
+        T82 = fd.ops.broadcast_in_dim(
+            T76, shape=[1, 32, 4096, 4096], broadcast_dims=[0, 1, 2, 3]
+        )
+        T83 = fd.ops.reciprocal(T82)
+        T84 = fd.ops.mul(T69, T83)
+        T85 = fd.ops.cast(T84, dtype=DataType.BFloat16)
+        fd.add_output(T49)
+        fd.add_output(T84)
+        fd.add_output(T85)
+
+    with FusionDefinition() as fd:
+        nvfuser_fusion_id2(fd)
+
+    inputs = [
+        torch.testing.make_tensor((4096, 4097), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor((4096, 4097), dtype=torch.bool, device="cuda:0"),
+        torch.testing.make_tensor((4096, 4097), dtype=torch.bool, device="cuda:0"),
+        torch.testing.make_tensor(
+            (1, 32, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"
+        ),
+    ]
+    fd.execute(inputs)
