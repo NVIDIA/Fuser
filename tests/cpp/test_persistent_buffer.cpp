@@ -2196,8 +2196,8 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
   const float kEps = 1e-6;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
-  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
-  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
