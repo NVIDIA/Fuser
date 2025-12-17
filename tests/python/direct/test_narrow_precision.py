@@ -189,7 +189,7 @@ def extract_te_nvfp4_metadata(input_tensor):
 @pytest.mark.parametrize("dtype", [torch.float, torch.bfloat16])
 def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype):
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
-    x = torch.randn((1024, 1024), dtype=dtype, device="cuda")
+    x = torch.testing.make_tensor((1024, 1024), dtype=dtype, device="cuda")
 
     # Compute global scale for nvfuser block quantization
     x_global_scale = compute_nvfp4_global_scale(x)
@@ -339,8 +339,8 @@ def test_scaled_mm_nv_quantized(
     a baseline using pre-quantized inputs from Transformer Engine.
     """
     m, k, n = config
-    mat1_ref = torch.randn((m, k), dtype=torch.bfloat16, device="cuda")
-    mat2_ref = torch.randn((n, k), dtype=torch.bfloat16, device="cuda")
+    mat1_ref = torch.testing.make_tensor((m, k), dtype=torch.float, device="cuda")
+    mat2_ref = torch.testing.make_tensor((n, k), dtype=torch.float, device="cuda")
 
     # Quantize both matrices using Transformer Engine
     mat1_quantized, mat1_scale_inv, global_sf1 = extract_te_nvfp4_metadata(mat1_ref)
@@ -362,7 +362,7 @@ def test_scaled_mm_nv_quantized(
     def fusion_with_nv_block_quantize(fd: FusionDefinition) -> None:
         """Defines fusion that quantizes mat1 on-the-fly before scaled_mm."""
         mat1_bf16 = fd.define_tensor(
-            shape=[-1, -1], contiguity=True, dtype=DataType.BFloat16, is_cpu=False
+            shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
         mat2_fp4 = fd.define_tensor(
             shape=[-1, -1],
@@ -450,17 +450,7 @@ def test_scaled_mm_nv_quantized(
         new_fusion_expected=None,
     )
 
-    # Validate: nvfuser quantization should match baseline
-    abs_diff = torch.abs(outputs[0] - outputs_baseline[0])
-    max_diff = torch.max(abs_diff)
-    assert max_diff <= 10.0, f"Max difference {max_diff:.4f} exceeds threshold of 10.0"
-
-    # Check that large differences (> 5.0) are rare (< 10% of elements)
-    large_diff_count = torch.count_nonzero(torch.gt(abs_diff, 5.0))
-    large_diff_ratio = large_diff_count / abs_diff.numel()
-    assert (
-        large_diff_ratio < 0.1
-    ), f"Large diff ratio {large_diff_ratio:.2%} exceeds 10% threshold"
+    torch.testing.assert_close(outputs[0], outputs_baseline[0], atol=1e-2, rtol=1e-2)
 
 
 @pytest.mark.skipif(
