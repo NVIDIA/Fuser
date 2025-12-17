@@ -354,35 +354,48 @@ TEST_F(RaggedIterDomainTest, AsNestedBasic) {
   // Create nested tensor from dimension 0
   auto nested = asNested(data, offsets, 0);
 
-  fusion.addOutput(nested);
+  // This should still be a nested tensor
+  auto copy_of_nested = set(nested);
 
-  // Verify the output is a new TensorView
-  EXPECT_TRUE(nested != nullptr);
-  EXPECT_NE(nested, data);
-  EXPECT_TRUE(nested->isA<TensorView>());
+  fusion.addOutput(copy_of_nested);
 
-  // Verify nested tensor has 3 dimensions: [component, ragged, original_dim1]
-  EXPECT_EQ(nested->nDims(), 3);
+  for (auto nested_tv : {nested, copy_of_nested}) {
+    // Verify the output is a new TensorView
+    EXPECT_TRUE(nested_tv != nullptr);
+    EXPECT_NE(nested_tv, data);
+    EXPECT_TRUE(nested_tv->isA<TensorView>());
 
-  // First axis should be a regular IterDomain (component)
-  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
-  EXPECT_FALSE(nested->axis(0)->isA<RaggedIterDomain>());
+    // Verify nested_tv tensor has 3 dimensions: [component, ragged,
+    // original_dim1]
+    EXPECT_EQ(nested_tv->nDims(), 3);
 
-  // Second axis should be a RaggedIterDomain
-  EXPECT_TRUE(nested->axis(1)->isA<RaggedIterDomain>());
+    // First axis should be a regular IterDomain (component)
+    EXPECT_TRUE(nested_tv->axis(0)->isStrictlyA<IterDomain>());
+    EXPECT_FALSE(nested_tv->axis(0)->isA<RaggedIterDomain>());
 
-  // Third axis should be the original second dimension
-  EXPECT_TRUE(nested->axis(2)->isStrictlyA<IterDomain>());
+    // Second axis should be a RaggedIterDomain
+    EXPECT_TRUE(nested_tv->axis(1)->isA<RaggedIterDomain>());
 
-  // Verify the definition exists (LoadStoreOp for aliasing)
-  EXPECT_TRUE(nested->definition() != nullptr);
-  EXPECT_TRUE(nested->definition()->isA<LoadStoreOp>());
+    // Third axis should be the original second dimension
+    EXPECT_TRUE(nested_tv->axis(2)->isStrictlyA<IterDomain>());
 
-  // Verify the component and ragged IterDomains have Partition as their
-  // definition
-  EXPECT_TRUE(nested->axis(0)->definition() != nullptr);
-  EXPECT_TRUE(nested->axis(0)->definition()->isA<Partition>());
-  EXPECT_EQ(nested->axis(0)->definition(), nested->axis(1)->definition());
+    if (nested_tv == nested) {
+      // Verify the definition exists (LoadStoreOp for aliasing)
+      EXPECT_TRUE(nested_tv->definition() != nullptr);
+      EXPECT_TRUE(nested_tv->definition()->isA<LoadStoreOp>());
+
+      // Verify the component and ragged IterDomains have Partition as their
+      // definition
+      EXPECT_TRUE(nested_tv->axis(0)->definition() != nullptr);
+      EXPECT_TRUE(nested_tv->axis(0)->definition()->isA<Partition>());
+      EXPECT_EQ(
+          nested_tv->axis(0)->definition(), nested_tv->axis(1)->definition());
+    } else {
+      // The copy of the original nested tensor does not inherit the Partition
+      // op
+      EXPECT_TRUE(nested_tv->axis(0)->definition() == nullptr);
+    }
+  }
 }
 
 // asNested on different dimensions

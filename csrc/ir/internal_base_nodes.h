@@ -642,6 +642,8 @@ class NVF_API TensorDomain : public Val {
 
   bool hasSymbolicAxis() const;
 
+  bool hasRaggedIterDomain() const;
+
   std::optional<int64_t> getReductionAxis() const;
 
   // The input logical domain. The root domain of a consumer should equal the

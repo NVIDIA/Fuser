@@ -1496,6 +1496,13 @@ bool TensorDomain::hasVectorize() const {
       });
 }
 
+bool TensorDomain::hasRaggedIterDomain() const {
+  return std::any_of(
+      logical().begin(), logical().end(), [](IterDomain* logical_id) {
+        return logical_id->isA<RaggedIterDomain>();
+      });
+}
+
 std::optional<int64_t> TensorDomain::getReductionAxis() const {
   auto it = std::find_if(
       loop_domain_.begin(), loop_domain_.end(), [](const auto& id) {
