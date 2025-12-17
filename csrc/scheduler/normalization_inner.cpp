@@ -27,8 +27,9 @@ using PersistentKernelProperties =
 namespace {
 
 bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // Hardware requirement: TMA is only available on Hopper (SM 9.0) and later
-  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+  if (dev_prop->major < 9) {
     return false;
   }
 
@@ -42,6 +43,17 @@ bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
   // supported in the TMA version
   if (prop.max_persistent_buffer_size_bit >
       scheduler_utils::register_file_size_bit) {
+    return false;
+  }
+
+  const int64_t smem_limited_ctas_per_sm =
+      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 /
+      prop.max_persistent_buffer_size_bit;
+  std::cout << "sharedMemPerBlockOptin: " << dev_prop->sharedMemPerBlockOptin
+            << std::endl;
+  std::cout << "smem_limited_ctas_per_sm: " << smem_limited_ctas_per_sm
+            << std::endl;
+  if (smem_limited_ctas_per_sm < 2) {
     return false;
   }
 
