@@ -198,7 +198,7 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {
-      Val* ir_node = (index >= 0 && index < (int)symbols_.size())
+      const Val* ir_node = (index >= 0 && index < (int)symbols_.size())
           ? symbols_[index]
           : nullptr;
       bindValue(index, value, ir_node);
