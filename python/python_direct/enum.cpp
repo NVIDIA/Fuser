@@ -81,7 +81,8 @@ void bindEnums(py::module& nvfuser) {
       .value("tensor", MemoryType::Tensor)
       .value("local", MemoryType::Local)
       .value("shared", MemoryType::Shared)
-      .value("global", MemoryType::Global);
+      .value("global", MemoryType::Global)
+      .value("symmetric", MemoryType::Symmetric);
 
   py::enum_<CacheOp>(nvfuser, "CacheOp", py::module_local())
       .value("unspecified", CacheOp::Unspecified)

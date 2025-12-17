@@ -226,11 +226,11 @@ void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     SymMemForBroadcast* multicast_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
   const int64_t world_size = communicator.size();
-  const int64_t root = communication->root();
 
   if (my_device_index != root) {
     // Non-root writes kInProgress to its own semaphore
@@ -343,10 +343,10 @@ void postBroadcastWithCudaBackend(
 void waitBroadcastWithCudaBackend(
     Communication* communication,
     SymMemForBroadcast* multicast_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
-  const int64_t root = communication->root();
 
   if (my_device_index != root) {
     // Non-root waits for its own semaphore to be kIdle
@@ -614,7 +614,8 @@ void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     SymmetricMemoryHandle* symmetric_memory_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
@@ -635,7 +636,7 @@ void postWithCudaBackend(
           dynamic_cast<SymMemForBroadcast*>(symmetric_memory_handle);
       NVF_ERROR(broadcast_handle != nullptr, "Invalid broadcast handle");
       postBroadcastWithCudaBackend(
-          communication, input, broadcast_handle, stream);
+          communication, input, broadcast_handle, stream, root);
       break;
     }
     case CommunicationType::Allgather: {
@@ -657,7 +658,8 @@ void postWithCudaBackend(
 void waitWithCudaBackend(
     Communication* communication,
     SymmetricMemoryHandle* symmetric_memory_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
@@ -677,7 +679,8 @@ void waitWithCudaBackend(
       auto* broadcast_handle =
           dynamic_cast<SymMemForBroadcast*>(symmetric_memory_handle);
       NVF_ERROR(broadcast_handle != nullptr, "Invalid broadcast handle");
-      waitBroadcastWithCudaBackend(communication, broadcast_handle, stream);
+      waitBroadcastWithCudaBackend(
+          communication, broadcast_handle, stream, root);
       break;
     }
     case CommunicationType::Allgather: {
