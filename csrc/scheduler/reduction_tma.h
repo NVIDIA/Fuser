@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <scheduler/reduction.h>
+#include <scheduler/reduction_utils.h>
 
 namespace nvfuser {
 
@@ -18,10 +19,9 @@ class TmaInnerReductionParams : public HeuristicParams {
       SchedulerType scheduler_type = SchedulerType::Reduction)
       : HeuristicParams(scheduler_type) {};
 
-  // Unrolling/Vectorization factor
-  int64_t unroll_factor = 1;
+  int64_t inner_unroll = 1;
 
-  int64_t target_threads_per_block;
+  int64_t threads_per_block;
 };
 
 namespace reduction {
@@ -29,9 +29,10 @@ namespace tma {
 std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache);
+    HeuristicDataCache* data_cache,
+    const reduction_scheduler_utils::FusionRuntimeProperties& props);
 
-void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams);
+void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams);
 } // namespace tma
 } // namespace reduction
 } // namespace nvfuser

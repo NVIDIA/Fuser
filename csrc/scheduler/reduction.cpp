@@ -190,21 +190,47 @@ bool ReductionScheduler::canScheduleRunTime(
   return true;
 }
 
+namespace {
+
+bool mayUseTma(
+    const reduction_scheduler_utils::FusionRuntimeProperties& props) {
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    // return false;
+  }
+
+  if (!props.fastest_dim_reduction) {
+    return false;
+  }
+
+  if (props.total_reduction_numel != props.inner_most_dimension_numel) {
+    return false;
+  }
+
+  return true;
+}
+} // namespace
+
 std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
 
-  // TODO: add canScheduleTMA
-  bool use_tma = true;
+  auto props = reduction_scheduler_utils::getFusionRuntimeProperties(
+      fusion, runtime_info, data_cache);
+
+  bool use_tma =
+      mayUseTma(props) && isOptionEnabled(EnableOption::TmaReduction);
+
   std::unique_ptr<HeuristicParams> rparams = nullptr;
   if (use_tma) {
     rparams = reduction::tma::getReductionHeuristics(
-        fusion, runtime_info, data_cache);
-  } else {
+        fusion, runtime_info, data_cache, props);
+  }
+  // Fallback to non-TMA scheduler if TMA is not applicable
+  if (rparams == nullptr) {
     rparams = reduction::non_tma::getReductionHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, props);
   }
   NVF_ERROR(rparams != nullptr);
   return rparams;
@@ -214,23 +240,14 @@ void ReductionScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  bool use_tma = true;
-  if (use_tma) {
-    auto rparams = dynamic_cast<const TmaInnerReductionParams*>(params);
-    NVF_ERROR(
-        rparams != nullptr,
-        "Incorrect parameters sent to ReductionScheduler::schedule",
-        params);
-    reduction::tma::scheduleReduction(fusion, rparams);
+  if (auto* tma_params = dynamic_cast<const TmaInnerReductionParams*>(params)) {
+    reduction::tma::scheduleReduction(fusion, tma_params);
   } else {
     auto rparams = dynamic_cast<const ReductionParams*>(params);
     NVF_ERROR(
         rparams != nullptr,
         "Incorrect parameters sent to ReductionScheduler::schedule",
         params);
-    // NVF_ERROR(
-    //     !rparams->use_tma_store,
-    //     "Using TMA store without use TMA load is not supported");
     reduction::non_tma::scheduleReduction(fusion, rparams);
   }
 }
