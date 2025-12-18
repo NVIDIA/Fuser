@@ -7,6 +7,7 @@ build
 
 # Project-local LLVM installation (created by following prerequisite validation instructions)
 .llvm/
+llvm.sh
 
 nvfuser_common/version.py
 nvfuser_common/include
