@@ -70,29 +70,7 @@ std::vector<int64_t> unshardedSizes(
 
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
-        // TODO(#5525): hack for MultiDeviceExecutor.  MultiDeviceExecutor looks
-        // for ParallelType::Stream only in logical domains and assumes a
-        // stream-parallelized dimension is always fully allocated.  So we set
-        // the multiplier to 1 when `sharded_id` is a logical IterDomain. This
-        // will have to change when FusionExecutorCache requires a logical
-        // dimension to be stream-parallelized, both loop and allocation. Refer
-        // to
-        // https://github.com/NVIDIA/Fuser/blob/f8e84e52296cdecd318dd2ce904139616d7bd434/tests/cpp/test_overlap.cpp#L155
-        // for an example. An alternative to consider is to create a new
-        // ParallelType for stream parallelization and use it in
-        // FusionExecutorCache.
-        if (std::find(
-                tv->getLogicalDomain().begin(),
-                tv->getLogicalDomain().end(),
-                sharded_id) != tv->getLogicalDomain().end()) {
-          return 1;
-        }
-
-        NVF_ERROR(
-            sharded_id->extent()->isConstInt(),
-            "DIDs/Stream extent is expected to be constant: ",
-            sharded_id);
-        return sharded_id->extent()->evaluate().as<int64_t>();
+        return 1;
       }
 
       if (isParallelTypeDeviceDim(parallel_type)) {
