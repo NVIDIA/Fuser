@@ -248,7 +248,7 @@ def llvm_download_url(version: Tuple[int, ...] = None) -> str:
             f"llvmorg-{v}/clang+llvm-{v}-arm64-apple-macos11.tar.xz"
         )
     else:
-        assert "LLVM does not support this machine"
+        raise NotImplementedError(f"LLVM does not support machine type: {machine}")
 
 
 def pytorch_install_instructions(upgrade: bool = False) -> str:
