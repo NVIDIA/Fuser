@@ -130,6 +130,8 @@ __device__ void block_quantize_to_nvfp4(
 
   if constexpr (USE_GLOBAL_SCALE) {
     scaled_max = global_scale[0] / scaled_max;
+  } else {
+    scaled_max = 1.0f / scaled_max;
   }
 
   // Write out the block scaling factor to global memory.
