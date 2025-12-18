@@ -897,7 +897,7 @@ std::string RaggedIterDomain::toString(int indent_size) const {
 
 std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
     IterDomain* in,
-    TensorView* offsets) {
+    TensorView* extents) {
   NVF_ERROR(in != nullptr, "partition: input IterDomain is null");
 
   NVF_ERROR(
@@ -918,52 +918,28 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       " for IterDomain: ",
       in->toString());
 
-  NVF_ERROR(offsets != nullptr, "partition: offsets tensor is null");
+  NVF_ERROR(extents != nullptr, "partition: extents tensor is null");
 
   NVF_ERROR_EQ(
-      offsets->dtype(),
+      extents->dtype(),
       DataType::Index,
-      "partition: offsets must have Index type, got ",
-      offsets->dtype());
+      "partition: extents must have Index type, got ",
+      extents->dtype());
 
-  const auto& offsets_domain = offsets->getLogicalDomain();
+  const auto& extents_domain = extents->getLogicalDomain();
   NVF_ERROR_EQ(
-      offsets_domain.size(),
+      extents_domain.size(),
       1,
-      "partition: offsets tensor must be 1D, got ",
-      offsets_domain.size(),
-      "D tensor. Multi-dimensional offsets not yet supported.");
+      "partition: extents tensor must be 1D, got ",
+      extents_domain.size(),
+      "D tensor. Multi-dimensional extents not yet supported.");
 
   auto container = in->container();
 
-  // Compute extents from offsets: extents[i] = offsets[i+1] - offsets[i]
-  // offsets_left = offsets[:-1]   (all but last element)
-  // offsets_right = offsets[1:]   (all but first element)
-
-  auto offsets_len = offsets_domain[0]->extent();
-
-  auto zero = container->zeroVal(DataType::Index);
-  auto one = container->oneVal(DataType::Index);
-  auto len_minus_one = sub(offsets_len, one);
-
-  // Slice offsets[:-1]
-  Slice left_slice;
-  left_slice.start = zero;
-  left_slice.stop = len_minus_one;
-  auto offsets_left = slice(offsets, {left_slice});
-
-  // Slice offsets[1:]
-  Slice right_slice;
-  right_slice.start = one;
-  right_slice.stop = offsets_len;
-  auto offsets_right = slice(offsets, {right_slice});
-
-  // Compute extents: extents = offsets_right - offsets_left
-  auto extents = sub(offsets_right, offsets_left);
-
   // Create component IterDomain
-  // Component extent = number of components = len(offsets) - 1
-  auto component_extent = len_minus_one;
+  // Component extent = number of components = length of extents tensor
+  auto zero = container->zeroVal(DataType::Index);
+  auto component_extent = extents_domain.at(0)->extent();
   auto component_id = IterDomainBuilder(zero, component_extent)
                           .parallel_type(ParallelType::Serial)
                           .iter_type(IterType::Iteration)
@@ -1583,13 +1559,13 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
 
 // Partition "axis" into component and ragged dimensions. Follow the
 // pattern of TensorDomain::split.
-void TensorDomain::partition(int64_t axis, TensorView* offsets) {
+void TensorDomain::partition(int64_t axis, TensorView* extents) {
   NVF_ERROR(nDims() > 0, "Tried to do partition on a 0-dim domain");
   axis = wrapDim(axis);
 
   IterDomain* id = this->axis(axis);
 
-  auto [component_id, ragged_id] = RaggedIterDomain::partition(id, offsets);
+  auto [component_id, ragged_id] = RaggedIterDomain::partition(id, extents);
 
   // Remove the original axis and insert component and ragged dimensions
   loop_domain_.erase(loop_domain_.begin() + axis);

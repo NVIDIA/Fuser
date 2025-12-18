@@ -2622,7 +2622,15 @@ Partition::Partition(
   addOutput(component);
   addOutput(ragged);
   addInput(in);
-  // Should the extents tensor be an input rather than an attribute?
+  // Note: extents is held as an attribute rather than an input,
+  // despite it's a TensorView. Inputs and outputs in the existing
+  // IterDomain exprs are always IterDomains. Intuitively, they
+  // transform input iteration spaces into output iteration spaces in
+  // some way. Since the extents tensor itself is not transformed in the
+  // Partition expr, it doesn't seem to be considered as an input. Note that in
+  // Split, the split factor is an attribute. However, that said, none
+  // of the existing exprs has tensors as attributes, which makes this
+  // choice less certain with possible implications.
   addAttribute(extents);
 }
 

@@ -211,13 +211,13 @@ TEST_F(RaggedIterDomainTest, PartitionBasic) {
           fusion.zeroVal(), IrBuilder::create<Val>(-1, DataType::Index))
           .build();
 
-  // Create a symbolic offset tensor
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  // Create a symbolic extents tensor
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Partition the IterDomain
   auto [component_id, ragged_id] =
-      RaggedIterDomain::partition(input_id, offsets);
+      RaggedIterDomain::partition(input_id, extents);
 
   // Verify component IterDomain
   EXPECT_TRUE(component_id != nullptr);
@@ -265,28 +265,28 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
           fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
           .build();
 
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Test 1: Null input should fail
   EXPECT_THROW(
-      RaggedIterDomain::partition(nullptr, offsets), nvfuser::nvfError);
+      RaggedIterDomain::partition(nullptr, extents), nvfuser::nvfError);
 
-  // Test 2: Null offsets should fail
+  // Test 2: Null extents should fail
   EXPECT_THROW(
       RaggedIterDomain::partition(input_id, nullptr), nvfuser::nvfError);
 
-  // Test 3: Non-Index offsets should fail
-  auto float_offsets = makeSymbolicTensor(1, DataType::Float);
-  fusion.addInput(float_offsets);
+  // Test 3: Non-Index extents should fail
+  auto float_extents = makeSymbolicTensor(1, DataType::Float);
+  fusion.addInput(float_extents);
   EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, float_offsets), nvfuser::nvfError);
+      RaggedIterDomain::partition(input_id, float_extents), nvfuser::nvfError);
 
-  // Test 4: Multi-dimensional offsets should fail
-  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
-  fusion.addInput(offsets_2d);
+  // Test 4: Multi-dimensional extents should fail
+  auto extents_2d = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(extents_2d);
   EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, offsets_2d), nvfuser::nvfError);
+      RaggedIterDomain::partition(input_id, extents_2d), nvfuser::nvfError);
 
   // Test 5: Non-Iteration IterType should fail
   auto reduction_id =
@@ -295,15 +295,15 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
           .iter_type(IterType::Reduction)
           .build();
   EXPECT_THROW(
-      RaggedIterDomain::partition(reduction_id, offsets), nvfuser::nvfError);
+      RaggedIterDomain::partition(reduction_id, extents), nvfuser::nvfError);
 
   // Test 6: Cannot partition RaggedIterDomain
-  auto extents = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(extents);
+  auto extents2 = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents2);
   auto ragged_id = IrBuilder::create<RaggedIterDomain>(
-      extents, IterType::Iteration, ParallelType::Serial);
+      extents2, IterType::Iteration, ParallelType::Serial);
   EXPECT_THROW(
-      RaggedIterDomain::partition(ragged_id, offsets), nvfuser::nvfError);
+      RaggedIterDomain::partition(ragged_id, extents), nvfuser::nvfError);
 }
 
 // TensorView::partition operation
@@ -315,12 +315,12 @@ TEST_F(RaggedIterDomainTest, TensorViewPartition) {
   auto tv0 = makeSymbolicTensor(2, DataType::Float);
   fusion.addInput(tv0);
 
-  // Create offsets tensor
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  // Create extents tensor
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Partition the first axis
-  tv0->partition(0, offsets);
+  tv0->partition(0, extents);
 
   // Verify the tensor now has 3 dimensions: [component, ragged, original_dim1]
   EXPECT_EQ(tv0->nDims(), 3);
