@@ -65,10 +65,11 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     return nullptr;
   }
 
-  // TODO: Support merging for contiguous inner dimensions
   if (props.total_reduction_numel != props.inner_most_dimension_numel) {
     return nullptr;
   }
+
+  // Todo: Enforce inner reduction dimension are contiguous
 
   params->tag = "Reduction TMA heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
@@ -83,8 +84,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
 
   // bool isUnrolled = rparams->isUnrolled();
   bool isUnrolled = true;
-
-  // ndim_3_inner_size_256 = [64, 8, 128] ->
 
   // Cache inputs if unrolled
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, isUnrolled);
@@ -126,17 +125,22 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   NVF_ERROR(!reduction_tvs.empty());
   TensorView* reduction_tv = reduction_tvs.at(0);
 
-  // Merge contiguous reduction dimensions
-  // [I, R1, R2] -> [I, R1*R2]
-  for (int64_t i = reduction_tv->nDims() - 2; i >= 0; --i) {
-    if (reduction_tv->axis(i)->isReduction() &&
-        reduction_tv->axis(i + 1)->isReduction()) {
-      reduction_tv->merge(i, i + 1);
-    }
-  }
+  // Merge all iteration and reduction dimensions into canonical form [I, R]
+  auto dim_analysis =
+      scheduler_utils::canonicalDimReduction(fusion, reduction_tv, false);
+  bool has_iter_axis = dim_analysis.first;
+  bool has_red_axis = dim_analysis.second;
+  NVF_ERROR(has_iter_axis && has_red_axis);
 
-  //   auto dim_analysis = scheduler_utils::canonicalDimReduction(
-  //       fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
+  // Propagate the merges to all non-TMA TVs before applying splits
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  {
+    TransformPropagator merge_propagator(reduction_tv);
+    SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+    MaxLogicalDomainInfoSpanningTree(reduction_tv, &selector)
+        .traverse(&merge_propagator);
+  }
 
   if (rparams->inner_unroll > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->inner_unroll);
@@ -161,8 +165,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
 
   // Schedule non-TMA tvs based on reduction tv
-  std::vector<TensorView*> non_tma_tvs =
-      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   TransformPropagator non_tma_propagator(reduction_tv);
   SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
   MaxLogicalDomainInfoSpanningTree(reduction_tv, &selector)
