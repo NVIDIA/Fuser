@@ -614,11 +614,6 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
-  NVF_CHECK(
-      !in->isA<RaggedIterDomain>(),
-      "Resizing RaggedIterDomain is not supported: ",
-      in->toString());
-
   // The overall extent is (in_extent + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -

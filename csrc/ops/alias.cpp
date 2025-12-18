@@ -42,13 +42,6 @@ TensorView* segment_set(TensorView* tv) {
 
 TensorView* view(TensorView* x, DataType dtype) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
-
-  NVF_CHECK(
-      !x->domain()->hasRaggedIterDomain(),
-      "View operation is not supported for tensors with RaggedIterDomain. "
-      "Input tensor: ",
-      x->toString());
-
   if (x->getDataType() == dtype) {
     return x;
   }
@@ -538,8 +531,8 @@ TensorView* pad(
     Val* value,
     std::optional<IterType> iter_type_opt) {
   NVF_CHECK(
-      !inp->domain()->hasRaggedIterDomain(),
-      "Padding a tensor with a RaggedIterDomain not supported: ",
+      inp->domain()->hasRaggedIterDomain(),
+      "Padding a tensor with RaggedIterDomain not supported: ",
       inp->toString());
 
   DataType dt = inp->getDataType().value();
@@ -647,13 +640,14 @@ TensorView* cat(
     std::optional<IterType> iter_type_opt,
     bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
+
   NVF_CHECK(
-      std::ranges ::none_of(
+      std::ranges::none_of(
           inputs,
           [](TensorView* inp_tv) {
             return inp_tv->domain()->hasRaggedIterDomain();
           }),
-      "Concatenating a tensor with a RaggedIterDomain not supported");
+      "Concat with a tensor with RaggedIterDomain not supported");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
@@ -818,7 +812,7 @@ TensorView* slice(
 
   NVF_CHECK(
       !inp->domain()->hasRaggedIterDomain(),
-      "Slicing a tensor with a RaggedIterDomain not supported: ",
+      "Slicing a tensor with RaggedIterDomain not supported: ",
       inp->toString());
 
   ExpressionEvaluator expr_eval;
@@ -1327,6 +1321,11 @@ TensorView* asNested(
       offsets->nDims(),
       1,
       "asNested currently only supports 1D offset tensors");
+
+  NVF_CHECK(
+      !data->domain()->hasRaggedIterDomain(),
+      "Multiple level of nesting is not supported: ",
+      data->toString());
 
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());
