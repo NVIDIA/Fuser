@@ -1011,6 +1011,24 @@ int64_t getTmaDomainInner(
     int64_t total_element,
     int64_t tma_domain_inner_target = 512,
     int64_t min_dtype_bits = 8);
-} // namespace scheduler_utils
 
+// Calculate register sharing between TMA async threads and computation threads
+// for warp specialization. Returns a pair of (tma_branch_registers,
+// compute_branch_registers).
+//
+// Assumes padded threads keep [tma_branch_registers] registers and all others
+// are moved to computation threads. The granularity is 8. When estimated
+// compute_branch_regs is not divisible by granularity, it is rounded down and
+// tma_branch_registers is recomputed.
+//
+// For example, assuming 256 computation threads, initial register = 168,
+// tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
+// divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded down to
+// 232. re-calculate [tma_branch_registers] using: borrowed registers = (232 -
+// 168) * 256 / 128 = 128. tma_branch_registers = 168 - 128 = 40
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads);
+} // namespace scheduler_utils
 } // namespace nvfuser

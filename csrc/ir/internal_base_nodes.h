@@ -483,20 +483,21 @@ class NVF_API RaggedIterDomain : public IterDomain {
   }
 
   //! Partition an IterDomain into component and ragged dimensions
-  //! Creates a component IterDomain and a RaggedIterDomain based on offsets
+  //! Creates a component IterDomain and a RaggedIterDomain based on extents
   //!
   //! \param in Input IterDomain to partition (must be regular IterDomain)
-  //! \param offsets Offset tensor defining partition boundaries (must be 1D)
-  //!        Shape: [num_components + 1], values: [0, off1, off2, ..., total]
-  //!        Extents are computed as: extents[i] = offsets[i+1] - offsets[i]
+  //! \param extents Extents tensor defining the size of each component (must be
+  //! 1D)
+  //!        Shape: [num_components], values: [extent0, extent1, ...,
+  //!        extent(n-1)]
   //! \return Pair of (component_id, ragged_id)
   //!         component_id: IterDomain with extent = num_components
-  //!         ragged_id: RaggedIterDomain with extents computed from offsets
+  //!         ragged_id: RaggedIterDomain with the provided extents
   //!
-  //! TODO: Support multi-dimensional offsets for nested ragged structures
+  //! TODO: Support multi-dimensional extents for nested ragged structures
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
-      TensorView* offsets);
+      TensorView* extents);
 
   //! Override cloneWithoutRFactor to preserve RaggedIterDomain type
   IterDomain* cloneWithoutRFactor(bool map_with_original = false) override;
@@ -803,8 +804,8 @@ class NVF_API TensorDomain : public Val {
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
 
-  // Partition axis into component and ragged dimensions based on offsets
-  void partition(int64_t axis, TensorView* offsets);
+  // Partition axis into component and ragged dimensions based on extents
+  void partition(int64_t axis, TensorView* extents);
 
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);

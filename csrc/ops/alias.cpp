@@ -1311,16 +1311,16 @@ TensorView* repeat(
 
 TensorView* asNested(
     TensorView* data,
-    TensorView* offsets,
+    TensorView* extents,
     int64_t ragged_dim) {
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
-  NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
+  NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
 
-  // Only 1D offset tensors are currently supported
+  // Only 1D extents tensors are currently supported
   NVF_ERROR_EQ(
-      offsets->nDims(),
+      extents->nDims(),
       1,
-      "asNested currently only supports 1D offset tensors");
+      "asNested currently only supports 1D extents tensors");
 
   NVF_CHECK(
       !data->domain()->hasRaggedIterDomain(),
@@ -1342,7 +1342,7 @@ TensorView* asNested(
   // Partition the specified dimension in root domain
   // This replaces one IterDomain with (component_id, ragged_id)
   auto [component_id, ragged_id] =
-      RaggedIterDomain::partition(root_domain.at(ragged_dim), offsets);
+      RaggedIterDomain::partition(root_domain.at(ragged_dim), extents);
 
   // Build the logical domain: replace ragged_dim with component and ragged
   std::vector<IterDomain*> logical_domain;
