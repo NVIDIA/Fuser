@@ -348,11 +348,11 @@ TEST_F(RaggedIterDomainTest, AsNestedBasic) {
   auto data = makeSymbolicTensor(2, DataType::Float);
   fusion.addInput(data);
 
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Create nested tensor from dimension 0
-  auto nested = asNested(data, offsets, 0);
+  auto nested = asNested(data, extents, 0);
 
   fusion.addOutput(nested);
 
@@ -393,11 +393,11 @@ TEST_F(RaggedIterDomainTest, AsNestedDifferentDimension) {
   auto data = makeSymbolicTensor(3, DataType::Float);
   fusion.addInput(data);
 
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Partition dimension 1 (middle dimension)
-  auto nested = asNested(data, offsets, 1);
+  auto nested = asNested(data, extents, 1);
 
   // Verify dimensions: [dim0, component, ragged, dim2]
   EXPECT_EQ(nested->nDims(), 4);
@@ -424,12 +424,12 @@ TEST_F(RaggedIterDomainTest, AsNested1DTensor) {
   auto data = makeSymbolicTensor(1, DataType::Float);
   fusion.addInput(data);
 
-  // Create offsets tensor
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  // Create extents tensor
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Create nested tensor from the only dimension
-  auto nested = asNested(data, offsets, 0);
+  auto nested = asNested(data, extents, 0);
 
   fusion.addOutput(nested);
 
@@ -448,38 +448,38 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationNullData) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto offsets = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(offsets);
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
 
   // Null data should throw
-  EXPECT_THROW(asNested(nullptr, offsets, 0), nvfuser::nvfError);
+  EXPECT_THROW(asNested(nullptr, extents, 0), nvfuser::nvfError);
 }
 
-// asNested validation - null offsets
-TEST_F(RaggedIterDomainTest, AsNestedValidationNullOffsets) {
+// asNested validation - null extents
+TEST_F(RaggedIterDomainTest, AsNestedValidationNullExtents) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto data = makeSymbolicTensor(2, DataType::Float);
   fusion.addInput(data);
 
-  // Null offsets should throw
+  // Null extents should throw
   EXPECT_THROW(asNested(data, nullptr, 0), nvfuser::nvfError);
 }
 
-// asNested validation - multi-dimensional offsets (not yet supported)
-TEST_F(RaggedIterDomainTest, AsNestedValidationMultiDimOffsets) {
+// asNested validation - multi-dimensional extents (not yet supported)
+TEST_F(RaggedIterDomainTest, AsNestedValidationMultiDimExtents) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto data = makeSymbolicTensor(2, DataType::Float);
   fusion.addInput(data);
 
-  // 2D offsets should fail (only 1D supported currently)
-  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
-  fusion.addInput(offsets_2d);
+  // 2D extents should fail (only 1D supported currently)
+  auto extents_2d = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(extents_2d);
 
-  EXPECT_THROW(asNested(data, offsets_2d, 0), nvfuser::nvfError);
+  EXPECT_THROW(asNested(data, extents_2d, 0), nvfuser::nvfError);
 }
 
 } // namespace nvfuser
