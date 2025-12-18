@@ -1196,7 +1196,7 @@ TensorView* newForReduction(
       reduced_axis_iter++;
     }
 
-    const IterDomain* id = orig_domain[dim];
+    IterDomain* id = orig_domain[dim];
 
     IterDomain* new_id = nullptr;
     if (is_reduction) {
