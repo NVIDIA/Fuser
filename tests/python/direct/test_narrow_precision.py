@@ -155,9 +155,7 @@ def compute_nvfp4_global_scale(tensor):
     )
 
     # Handle edge cases: zero input or invalid scale
-    if x_global_scale == torch.tensor(
-        0.0, device=x_global_scale.device, dtype=torch.float32
-    ):
+    if x_global_scale == 0.0:
         x_global_scale = torch.tensor(
             1.0, device=x_global_scale.device, dtype=torch.float32
         )
