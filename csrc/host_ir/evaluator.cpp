@@ -324,10 +324,12 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
 
+#ifndef NDEBUG
   validateSizesAndStrides(
       {input_tensor, output_tensor},
       {communication->in(), communication->out()},
       expr_evaluator_);
+#endif
 
   CommunicatorBackend backend_type = communication->backend();
   if (backend_type == CommunicatorBackend::kCuda) {
