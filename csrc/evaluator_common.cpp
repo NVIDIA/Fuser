@@ -186,7 +186,7 @@ void PrecomputedValues::bindParallelExtents(
     auto raw_val = launch_constraint.getRawVal(it.first);
     if (raw_val > 0) {
       for (auto extent : it.second) {
-        bindValue(extent->evaluatorIndex(), raw_val);
+        bindValue(extent->evaluatorIndex(), raw_val, extent);
       }
     }
   }
@@ -198,13 +198,17 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {
-      bindValue(index, value);
+      const Val* ir_node = (index >= 0 && index < (int)symbols_.size())
+          ? symbols_[index]
+          : nullptr;
+      bindValue(index, value, ir_node);
     }
   }
 }
 
 void PrecomputedValues::bindInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("PrecomputedValues::bindInputs");
+  debug() << "[DEBUG] PrecomputedValues::bindInputs called" << std::endl;
   if (hasValidValues()) {
     invalidate();
   }
@@ -219,6 +223,9 @@ void PrecomputedValues::bindValues(
       std::ssize(inputs),
       "kernel inputs size does not match args");
 
+  debug() << "[DEBUG] PrecomputedValues::bindValues called with " 
+          << inputs.size() << " inputs" << std::endl;
+  
   for (const auto i : arange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
@@ -228,7 +235,7 @@ void PrecomputedValues::bindValues(
         bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), args[i]);
+      bindValue(input->evaluatorIndex(), args[i], input);
     }
   }
 }
@@ -360,15 +367,34 @@ void PrecomputedValues::initializeNamedScalars() {
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
   using namespace PolymorphicValue_functions;
-  for (const auto& it : binding_log_) {
-    NVF_ERROR(
-        isSame(values_[it.first], it.second),
-        "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and "
-        "execution.\n",
-        values_[it.first],
-        " != ",
-        it.second);
+  for (const auto& [index, expected_value, ir_node] : binding_log_) {
+    if (!isSame(values_[index], expected_value)) {
+      std::stringstream error_msg;
+      error_msg << "Precomputed values failed to validate.\n"
+                << "Something unexpected changed between the compilation and "
+                   "execution.\n";
+      if (ir_node != nullptr) {
+        error_msg << "IR node: " << ir_node->toString() << "\n";
+      }
+      error_msg << "Computed value: " << toString(values_[index]) << "\n"
+                << "Expected value: " << toString(expected_value);
+      
+      // Debug: Show binding history for this index
+      debug() << "[DEBUG] ===== VALIDATION FAILED =====" << std::endl;
+      debug() << "[DEBUG] Binding history for index " << index << ":" << std::endl;
+      for (const auto& [idx, val, node] : binding_log_) {
+        if (idx == index) {
+          debug() << "[DEBUG]   Bound to: " << toString(val);
+          if (node != nullptr) {
+            debug() << " (node: " << node->toString() << ")";
+          }
+          debug() << std::endl;
+        }
+      }
+      debug() << "[DEBUG] ================================" << std::endl;
+      
+      NVF_ERROR(false, error_msg.str());
+    }
   }
   has_valid_values_ = true;
 }
@@ -383,6 +409,21 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  
+  debug() << "[DEBUG] bindTensorMetaData for TV: " << tv->toString() << std::endl;
+  debug() << "[DEBUG]   Actual tensor.sizes(): [";
+  for (size_t i = 0; i < tensor.sizes().size(); ++i) {
+    if (i > 0) debug() << ", ";
+    debug() << tensor.sizes()[i];
+  }
+  debug() << "]" << std::endl;
+  debug() << "[DEBUG]   Unsharded logical_sizes: [";
+  for (size_t i = 0; i < logical_sizes.size(); ++i) {
+    if (i > 0) debug() << ", ";
+    debug() << logical_sizes[i];
+  }
+  debug() << "]" << std::endl;
+  
   adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
@@ -391,12 +432,17 @@ void PrecomputedValues::bindTensorMetaData(
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
       // and .ExpandedBroadcast.
-      bindValue(id->extent()->evaluatorIndex(), 1L);
+      bindValue(id->extent()->evaluatorIndex(), 1L, id->extent());
       if (id->hasExpandedExtent()) {
-        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+        bindValue(
+            id->expandedExtent()->evaluatorIndex(),
+            dim_size,
+            id->expandedExtent());
       }
     } else {
-      bindValue(id->extent()->evaluatorIndex(), dim_size);
+      debug() << "[DEBUG]   Binding " << id->extent()->toString() 
+              << " = " << dim_size << std::endl;
+      bindValue(id->extent()->evaluatorIndex(), dim_size, id->extent());
     }
   }
 
@@ -424,7 +470,7 @@ void PrecomputedValues::bindTensorMetaData(
       tv->toString(),
       " with input tensor ",
       tensor);
-  bindValue(metadata_val->evaluatorIndex(), metadata);
+  bindValue(metadata_val->evaluatorIndex(), metadata, metadata_val);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)

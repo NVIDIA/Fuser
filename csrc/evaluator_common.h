@@ -211,17 +211,32 @@ class PrecomputedValues {
 
   //! Bind concrete value to the given index
   //!  if the index is valid.
-  void bindValue_(int index, const PolymorphicValue& value) {
+  void bindValue_(
+      int index,
+      const PolymorphicValue& value,
+      const Val* ir_node = nullptr) {
     if (index < 0 || is_constant_[index]) {
       return;
     }
+    
+    // Debug: show if we're rebinding a value
+    if (defined_[index]) {
+      debug() << "[DEBUG] REBINDING index " << index;
+      if (ir_node != nullptr) {
+        debug() << " (node: " << ir_node->toString() << ")";
+      }
+      debug() << " from " << PolymorphicValue_functions::toString(values_[index]) 
+              << " to " << PolymorphicValue_functions::toString(value) << std::endl;
+    }
+    
     defined_[index] = true;
     values_[index] = value;
-    binding_log_.emplace_back(index, value);
+    binding_log_.emplace_back(index, value, ir_node);
+    validate();
   }
   template <typename T>
-  void bindValue(int index, const T& value) {
-    bindValue_(index, PolymorphicValue(value));
+  void bindValue(int index, const T& value, const Val* ir_node = nullptr) {
+    bindValue_(index, PolymorphicValue(value), ir_node);
   }
 
   //! Invalidate all computed values in the workspace.
@@ -292,7 +307,7 @@ class PrecomputedValues {
   //! An internal log to keep track of all the bindings
   //!  used in each evaluation cycle. To be used for
   //!  consistency check.
-  std::vector<std::pair<int, PolymorphicValue>> binding_log_;
+  std::vector<std::tuple<int, PolymorphicValue, const Val*>> binding_log_;
 
   //! Integer runtime for realizing the values computations.
   std::unique_ptr<NaiveValueMachine> value_machine_;
