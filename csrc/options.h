@@ -128,6 +128,9 @@ enum class EnableOption {
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
   P2pProtocol, //! Prescribe P2P protocol: put|get
+  MulticastProtocol, //! Prescribe multicast protocol:
+                     //! memcpy|multimem|batch_memcpy
+  ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -153,7 +156,6 @@ enum class DisableOption {
   NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
-  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
   PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different

@@ -26,16 +26,34 @@ using PersistentKernelProperties =
 
 namespace {
 
-// TODO: Add TMA detection logic similar to pointwise scheduler
-// For now, TMA is disabled for inner persistent scheduler
-bool mayUseTma(Fusion* fusion, SchedulerRuntimeInfo& runtime_info) {
-  // Hardware requirement: Don't use TMA for pre-Hopper GPUs
+bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
+  // Hardware requirement: TMA is only available on Hopper (SM 9.0) and later
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return false;
   }
-  // TODO: Add checks for TMA compatibility
-  // For now, TMA is not implemented for inner persistent scheduler
-  return false;
+
+  // TMA requires 16-byte alignment (128 bits) for memory transactions
+  if (prop.vectorize_factor * prop.max_dtype_size_bit % 128 != 0) {
+    return false;
+  }
+
+  // Fall back to non-TMA version when persistent buffer size exceeds register
+  // file capacity, as cluster reduction (using shared memory) is not yet
+  // supported in the TMA version
+  if (prop.max_persistent_buffer_size_bit >
+      scheduler_utils::register_file_size_bit) {
+    return false;
+  }
+
+  // TMA scheduler requires at least 128 threads (4 warps) after vectorization
+  // to ensure sufficient parallelism
+  // TODO: Refine this heuristic based on actual performance measurements, as
+  // small reduction sizes may not benefit from TMA overhead
+  if (prop.total_reduction_numel / prop.vectorize_factor < 128) {
+    return false;
+  }
+
+  return true;
 }
 
 } // namespace
@@ -178,20 +196,28 @@ std::unique_ptr<HeuristicParams> InnerPersistentKernelScheduler::
         HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::computeHeuristics");
 
+  // Get properties of the fusion
+  const auto& prop =
+      normalization_scheduler_utils::getPersistentKernelProperties(
+          fusion,
+          runtime_info,
+          data_cache,
+          InnerPersistentKernelScheduler::schedulerType());
+
   // Check if TMA can be used
-  bool use_tma = mayUseTma(fusion, runtime_info) &&
+  bool use_tma = mayUseTma(fusion, prop) &&
       isOptionEnabled(EnableOption::TmaInnerPersistent);
 
   std::unique_ptr<HeuristicParams> rparams = nullptr;
   if (use_tma) {
-    rparams = inner_persistent::tma::getInnerPersistentHeuristics(
-        fusion, runtime_info, data_cache);
+    rparams = normalization_inner::tma::getInnerPersistentHeuristics(
+        fusion, prop, data_cache);
   }
 
   // Fallback to non-TMA scheduler if TMA is not applicable
   if (rparams == nullptr) {
-    rparams = inner_persistent::non_tma::getInnerPersistentHeuristics(
-        fusion, runtime_info, data_cache);
+    rparams = normalization_inner::non_tma::getInnerPersistentHeuristics(
+        fusion, prop, data_cache);
   }
 
   NVF_ERROR(rparams != nullptr);
@@ -202,15 +228,23 @@ void InnerPersistentKernelScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("InnerPersistentKernelScheduler::schedule");
+
+  // Check if this is TMA params
+  if (auto tma_params = dynamic_cast<const InnerNormTmaParams*>(params)) {
+    NVF_ERROR(
+        tma_params->scheduler_type == schedulerType(),
+        "Incorrect scheduler type in InnerNormTmaParams");
+    normalization_inner::tma::scheduleInnerPersistent(fusion, tma_params);
+    return;
+  }
+
+  // Otherwise, use non-TMA implementation with ReductionParams
   auto rparams = dynamic_cast<const ReductionParams*>(params);
   NVF_ERROR(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerPersistentKernelScheduler::schedule",
       params);
-
-  // TODO: Add a flag in ReductionParams to indicate TMA usage
-  // For now, always use non-TMA scheduler
-  inner_persistent::non_tma::scheduleInnerPersistent(fusion, rparams);
+  normalization_inner::non_tma::scheduleInnerPersistent(fusion, rparams);
 }
 
 } // namespace nvfuser
