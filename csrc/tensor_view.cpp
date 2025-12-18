@@ -562,8 +562,8 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
 }
 
 // Partition "axis" into component and ragged dimensions based on
-// offsets. Follow the pattern of TensorView::split.
-TensorView* TensorView::partition(int64_t axis, TensorView* offsets) {
+// extents. Follow the pattern of TensorView::split.
+TensorView* TensorView::partition(int64_t axis, TensorView* extents) {
   NVF_ERROR(
       nDims() > 0,
       "Tried to do partition on a 0-dim TensorView. ",
@@ -598,11 +598,11 @@ TensorView* TensorView::partition(int64_t axis, TensorView* offsets) {
       " Parallelization strategy must be set after calling partition: ",
       toString());
 
-  if (offsets->dtype() != DataType::Index) {
-    offsets = castOp(DataType::Index, offsets);
+  if (extents->dtype() != DataType::Index) {
+    extents = castOp(DataType::Index, extents);
   }
 
-  domain()->partition(axis, offsets);
+  domain()->partition(axis, extents);
   return this;
 }
 
