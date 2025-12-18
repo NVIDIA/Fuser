@@ -132,15 +132,13 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   bool has_red_axis = dim_analysis.second;
   NVF_ERROR(has_iter_axis && has_red_axis);
 
-  // Propagate the merges to all non-TMA TVs before applying splits
+  // Propagate the merges to all TMA TVs before applying splits
   std::vector<TensorView*> non_tma_tvs =
       ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
-  {
-    TransformPropagator merge_propagator(reduction_tv);
-    SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
-    MaxLogicalDomainInfoSpanningTree(reduction_tv, &selector)
-        .traverse(&merge_propagator);
-  }
+  TransformPropagator tma_propagator(reduction_tv);
+  SetSelector tma_selector({tma_tvs.begin(), tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reduction_tv, &tma_selector)
+      .traverse(&tma_propagator);
 
   if (rparams->inner_unroll > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->inner_unroll);
@@ -166,8 +164,8 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
 
   // Schedule non-TMA tvs based on reduction tv
   TransformPropagator non_tma_propagator(reduction_tv);
-  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
-  MaxLogicalDomainInfoSpanningTree(reduction_tv, &selector)
+  SetSelector non_tma_selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reduction_tv, &non_tma_selector)
       .traverse(&non_tma_propagator);
 
   if (reference_tv != reduction_tv) {
