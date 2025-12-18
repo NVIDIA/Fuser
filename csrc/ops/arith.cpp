@@ -276,6 +276,12 @@ TensorView* randn_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "randn_like operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Input tensor: ",
+      tv->toString());
   // Create a new output TV manually so that we carry over IterTypes, instead
   // of inferring them from the shape as we would if we used randn().
   TensorView* out = ops::newOutputTV({tv}, tv->dtype());
@@ -303,6 +309,11 @@ TensorView* rand_like(TensorView* tv, Val* philox_seed, Val* philox_offset) {
       isFloatingPointType(tv->dtype()),
       "input must have floating point type, but got ",
       tv->dtype());
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "rand_like operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      tv->toString());
   // Create a new output TV manually so that we carry over IterTypes, instead
   // of inferring them from the shape as we would if we used rand().
   TensorView* out = ops::newOutputTV({tv}, tv->dtype());
@@ -339,6 +350,11 @@ TensorView* full(
 }
 
 TensorView* full_like(TensorView* tv, Val* fill_value, DataType dtype) {
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "full_like operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      tv->toString());
   fill_value = maybeCastOp(dtype, fill_value);
   TensorView* out = ops::newOutputTV({tv}, dtype);
   IrBuilder::create<FullOp>(out, fill_value);
@@ -1576,6 +1592,31 @@ WelfordResult WelfordRaw(
     TensorView* init_var,
     Val* init_N) {
   NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "WelfordRaw operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Input tensor (tv): ",
+      tv->toString());
+
+  if (init_avg != nullptr) {
+    NVF_CHECK(
+        !init_avg->domain()->hasRaggedIterDomain(),
+        "WelfordRaw operation is not supported for tensors with "
+        "RaggedIterDomain. "
+        "Initial average tensor (init_avg): ",
+        init_avg->toString());
+  }
+
+  if (init_var != nullptr) {
+    NVF_CHECK(
+        !init_var->domain()->hasRaggedIterDomain(),
+        "WelfordRaw operation is not supported for tensors with "
+        "RaggedIterDomain. "
+        "Initial variance tensor (init_var): ",
+        init_var->toString());
+  }
+
+  NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted "
       "at this time. \n",
@@ -1645,6 +1686,28 @@ WelfordResult Welford(
     TensorView* init_avg,
     TensorView* init_var,
     Val* init_N) {
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "Welford operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor (tv): ",
+      tv->toString());
+
+  if (init_avg != nullptr) {
+    NVF_CHECK(
+        !init_avg->domain()->hasRaggedIterDomain(),
+        "Welford operation is not supported for tensors with RaggedIterDomain. "
+        "Initial average tensor (init_avg): ",
+        init_avg->toString());
+  }
+
+  if (init_var != nullptr) {
+    NVF_CHECK(
+        !init_var->domain()->hasRaggedIterDomain(),
+        "Welford operation is not supported for tensors with RaggedIterDomain. "
+        "Initial variance tensor (init_var): ",
+        init_var->toString());
+  }
+
   NVF_CHECK(
       TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
       "Reducing a tensor once it's gone under transformations is not permitted "
@@ -1991,6 +2054,12 @@ TensorView* clamp(TensorView* in, Val* min_val, Val* max_val) {
 // sum_to operator
 
 TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
+  NVF_CHECK(
+      !in->domain()->hasRaggedIterDomain(),
+      "sum_to operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      in->toString());
+
   const auto& logical = TensorDomain::noReductions(in->getLogicalDomain());
 
   NVF_CHECK(
@@ -2038,6 +2107,12 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
 }
 
 TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
+  NVF_CHECK(
+      !in->domain()->hasRaggedIterDomain(),
+      "sum_to operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      in->toString());
+
   const auto& logical = TensorDomain::noReductions(in->getLogicalDomain());
 
   NVF_CHECK(
