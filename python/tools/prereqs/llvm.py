@@ -179,13 +179,15 @@ def check_llvm_installed() -> str:
             f"  tar -xf {tarball_name}\n"
             f"  mv {dir_name} {LLVM.recommended_str}\n"
             f"  # Then set environment variable:\n"
-            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n\n"
+            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n"
+            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n\n"
             f"Option 2: Install from LLVM APT repository (requires sudo):\n"
             f"  wget https://apt.llvm.org/llvm.sh\n"
             f"  chmod +x llvm.sh\n"
             f"  sudo ./llvm.sh {llvm_major}\n"
             f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
             f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
+            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
         )
 
     # Get version

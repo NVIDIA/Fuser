@@ -15,6 +15,7 @@ Example:
         raise PrerequisiteMissingError(f"{LLVM.name} {LLVM.min_display} required")
 """
 
+import platform
 import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -229,10 +230,25 @@ def llvm_download_url(version: Tuple[int, ...] = None) -> str:
         'https://github.com/llvm/llvm-project/releases/download/llvmorg-18.1.8/clang+llvm-18.1.8-x86_64-linux-gnu-ubuntu-18.04.tar.xz'
     """
     v = format_version(version) if version else LLVM.recommended_str
-    return (
-        f"https://github.com/llvm/llvm-project/releases/download/"
-        f"llvmorg-{v}/clang+llvm-{v}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
-    )
+    machine = platform.machine()
+    if machine == "x86_64":
+        return (
+            f"https://github.com/llvm/llvm-project/releases/download/"
+            f"llvmorg-{v}/clang+llvm-{v}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
+        )
+    elif machine == "aarch64":
+        return (
+            f"https://github.com/llvm/llvm-project/releases/download/"
+            f"llvmorg-{v}/clang+llvm-{v}-aarch64-linux-gnu.tar.xz"
+        )
+    elif machine.startswith("arm64"):
+        # 64-bit ARM (macos)
+        return (
+            f"https://github.com/llvm/llvm-project/releases/download/"
+            f"llvmorg-{v}/clang+llvm-{v}-arm64-apple-macos11.tar.xz"
+        )
+    else:
+        assert "LLVM does not support this machine"
 
 
 def pytorch_install_instructions(upgrade: bool = False) -> str:
