@@ -195,7 +195,7 @@ namespace {
 bool mayUseTma(
     const reduction_scheduler_utils::FusionRuntimeProperties& props) {
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
-    // return false;
+    return false;
   }
 
   if (!props.fastest_dim_reduction) {

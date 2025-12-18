@@ -2688,8 +2688,7 @@ TEST_P(TmaInnerReductionTest, Basic) {
   auto fusion_copy = fusion;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // at::Tensor t0 = at::randn(element_at_each_dim, options);
-  at::Tensor t0 = at::ones(element_at_each_dim, options);
+  at::Tensor t0 = at::randn(element_at_each_dim, options);
 
   bool is_auto_schedule = true;
   if (is_auto_schedule) {
