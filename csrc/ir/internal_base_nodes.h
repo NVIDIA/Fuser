@@ -61,6 +61,7 @@ class IterDomainBuilder {
   IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
   IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
   IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
+  IterDomainBuilder& ragged_extents(TensorView* _ragged_extents);
 
   IterDomain* build() const;
 
@@ -79,6 +80,9 @@ class IterDomainBuilder {
   bool is_padded_dimension_ = false;
   bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
+
+  // For RaggedIterDomain: stores the extents tensor
+  TensorView* ragged_extents_ = nullptr;
 };
 
 //! Simply a representation of an annotated 1D iterable from start to extent.
@@ -448,6 +452,8 @@ class NVF_API IterDomain : public Val {
 //! components
 class NVF_API RaggedIterDomain : public IterDomain {
  public:
+  RaggedIterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args);
+
   //! \param extents TensorView containing component extents (must be integer
   //! type)
   //! \param iter_type Iteration type (Iteration, Reduction, etc.)

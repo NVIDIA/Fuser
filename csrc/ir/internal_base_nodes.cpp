@@ -48,7 +48,11 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
       is_clustered_dimension_(id->isClusteredBlockDim()),
-      padded_to_size_(id->getMaybeSizeAfterPadding()) {}
+      padded_to_size_(id->getMaybeSizeAfterPadding()) {
+  if (id->isA<RaggedIterDomain>()) {
+    ragged_extents_ = id->as<RaggedIterDomain>()->extents();
+  }
+}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
@@ -116,7 +120,13 @@ IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
-  return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
+
+  if (ragged_extents_ != nullptr) {
+    return IrBuilder::createInContainer<RaggedIterDomain>(
+        start_->container(), *this);
+  } else {
+    return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
+  }
 }
 
 IterDomain::IterDomain(
@@ -604,6 +614,11 @@ IterDomain* IterDomain::resize(
       "Non-zero stop offset not considered: ",
       in->toString());
 
+  NVF_CHECK(
+      !in->isA<RaggedIterDomain>(),
+      "Resizing RaggedIterDomain is not supported: ",
+      in->toString());
+
   // The overall extent is (in_extent + left_expansion +
   // right_expansion). This can be simplified for a slice op as
   // the right expansion should look like (slice_end_offset -
@@ -814,6 +829,77 @@ void validateLoopDomain(
 }
 
 } // namespace
+
+RaggedIterDomain::RaggedIterDomain(
+    IrBuilderPasskey passkey,
+    const IterDomainBuilder& args)
+    : IterDomain(
+          passkey,
+          ValType::RaggedIterDomain,
+          args.start_,
+          args.extent_,
+          args.expanded_extent_,
+          args.stop_offset_,
+          args.parallel_type_,
+          args.iter_type_,
+          args.is_rfactor_domain_,
+          args.is_padded_dimension_,
+          args.is_clustered_dimension_,
+          args.padded_to_size_),
+      extents_(args.ragged_extents_) {
+  // Extents must be non-null
+  NVF_ERROR(
+      extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
+
+  // Extents must have integer dtype
+  NVF_ERROR_EQ(
+      extents_->dtype(),
+      DataType::Index,
+      "RaggedIterDomain extents must have index type, got ",
+      extents_->dtype());
+
+  // Only IterType::Iteration is supported at this moment
+  NVF_ERROR_EQ(
+      iter_type_,
+      IterType::Iteration,
+      "Only IterType::Iteration is supported: ",
+      iter_type_);
+
+  // RaggedIterDomain has specific requirements on member values
+  NVF_ERROR(
+      start_->isZeroInt(),
+      "RaggedIterDomain start must be zero, got: ",
+      start_->toInlineString());
+
+  NVF_ERROR(
+      extent_->isOneInt(),
+      "RaggedIterDomain extent must be one (placeholder), got: ",
+      extent_->toInlineString());
+
+  NVF_ERROR(
+      expanded_extent_ == nullptr,
+      "RaggedIterDomain does not support expanded_extent");
+
+  NVF_ERROR(
+      stop_offset_ == nullptr || stop_offset_->isZeroInt(),
+      "RaggedIterDomain stop_offset must be nullptr or zero, got: ",
+      stop_offset_ ? stop_offset_->toInlineString() : "nullptr");
+
+  NVF_ERROR(
+      !is_rfactor_domain_, "RaggedIterDomain does not support rfactor domains");
+
+  NVF_ERROR(
+      !is_padded_dimension_,
+      "RaggedIterDomain does not support padded dimensions");
+
+  NVF_ERROR(
+      !is_clustered_dimension_,
+      "RaggedIterDomain does not support clustered dimensions");
+
+  NVF_ERROR(
+      !padded_to_size_.has_value(),
+      "RaggedIterDomain does not support padded_to_size");
+}
 
 RaggedIterDomain::RaggedIterDomain(
     IrBuilderPasskey passkey,

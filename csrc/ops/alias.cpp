@@ -42,6 +42,13 @@ TensorView* segment_set(TensorView* tv) {
 
 TensorView* view(TensorView* x, DataType dtype) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
+
+  NVF_CHECK(
+      !x->domain()->hasRaggedIterDomain(),
+      "View operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      x->toString());
+
   if (x->getDataType() == dtype) {
     return x;
   }
@@ -142,6 +149,12 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       "Unsupported input tensor to reshape as its axes may be partial: ",
       inp_tv->toString());
 
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Reshape operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
   if (static_reshape_output) {
     return static_reshape_output;
@@ -238,6 +251,12 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       "Invalid end_dim ",
       end_dim);
   NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
+
+  NVF_CHECK(
+      !x->domain()->hasRaggedIterDomain(),
+      "Flatten operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      x->toString());
 
   if (start_dim == end_dim) {
     return x;
@@ -518,6 +537,11 @@ TensorView* pad(
     const std::vector<Val*>& pad_widths,
     Val* value,
     std::optional<IterType> iter_type_opt) {
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Padding a tensor with a RaggedIterDomain not supported: ",
+      inp->toString());
+
   DataType dt = inp->getDataType().value();
   if (!value) {
     // Create a zero of the appropriate type
@@ -623,6 +647,13 @@ TensorView* cat(
     std::optional<IterType> iter_type_opt,
     bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
+  NVF_CHECK(
+      std::ranges ::none_of(
+          inputs,
+          [](TensorView* inp_tv) {
+            return inp_tv->domain()->hasRaggedIterDomain();
+          }),
+      "Concatenating a tensor with a RaggedIterDomain not supported");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
@@ -783,7 +814,12 @@ TensorView* slice(
   NVF_CHECK_EQ(
       ndims,
       std::ssize(ranges),
-      "The range vector must have the same number of Slice descriptors.")
+      "The range vector must have the same number of Slice descriptors.");
+
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Slicing a tensor with a RaggedIterDomain not supported: ",
+      inp->toString());
 
   ExpressionEvaluator expr_eval;
 
@@ -1058,6 +1094,12 @@ TensorView* broadcast(
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
 
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Expand operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp->toString());
+
   NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
   inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
@@ -1180,6 +1222,12 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 TensorView* repeat(
     TensorView* inp_tv,
     const std::vector<int64_t>& repeat_times) {
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Repeat operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   const auto ndims =
       TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
 
