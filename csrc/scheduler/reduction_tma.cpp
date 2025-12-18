@@ -21,71 +21,70 @@ namespace tma {
 std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
+    HeuristicDataCache* data_cache,
+    const reduction_scheduler_utils::FusionRuntimeProperties& props) {
   FusionGuard fg(fusion);
-
-  [[maybe_unused]] auto k_params =
-      reduction_scheduler_utils::getReductionKernelParams(
-          fusion, runtime_info, data_cache);
-
-  NVF_ERROR(k_params.fastest_dim_reduction);
-  NVF_ERROR(
-      k_params.total_reduction_numel == k_params.inner_most_dimension_numel);
 
   // Get device properties
   [[maybe_unused]] auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  [[maybe_unused]] const int64_t threads_per_warp = dev_prop->warpSize;
-  [[maybe_unused]] const int64_t max_threads_per_block =
-      dev_prop->maxThreadsPerBlock;
   [[maybe_unused]] const int64_t max_threads_per_sm =
       dev_prop->maxThreadsPerMultiProcessor;
-  [[maybe_unused]] const int64_t sm_count = dev_prop->multiProcessorCount;
   [[maybe_unused]] const int64_t target_threads_per_sm = max_threads_per_sm / 2;
 
-  [[maybe_unused]] const int64_t min_warp_size =
-      reduction_scheduler_utils::getL1L2WarpSize(
-          k_params.total_reduction_numel,
-          k_params.total_iteration_numel,
-          k_params.n_tensor_inputs,
-          k_params.max_dtype_size_bit_for_vectorization);
+  const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
+      props.max_dtype_size_bit_for_vectorization;
+
+  if (props.inner_most_dimension_numel > smem_elems) {
+    return nullptr;
+  }
 
   // Set target_vect_unroll
-  [[maybe_unused]] auto target_vect_unroll =
+  [[maybe_unused]] auto target_inner_unroll =
       reduction_scheduler_utils::getVectUnroll(
-          k_params.max_dtype_size_bit_for_vectorization,
-          k_params.vectorize_factor,
-          k_params.n_tensor_inputs,
+          props.max_dtype_size_bit_for_vectorization,
+          props.vectorize_factor,
+          props.n_tensor_inputs,
           target_threads_per_sm,
-          k_params.has_mufu_computation);
+          props.has_mufu_computation);
 
-  [[maybe_unused]] int64_t vect_factor = 1;
-
-  // Max vectorization factor
-  vect_factor = std::min(
-      scheduler_utils::lastPow2(target_vect_unroll),
-      (int64_t)k_params.vectorize_factor);
-  [[maybe_unused]] const int64_t four_warps = 4 * threads_per_warp;
-  [[maybe_unused]] int64_t target_inner_unroll =
-      target_vect_unroll / vect_factor;
-  [[maybe_unused]] int64_t after_vect =
-      k_params.total_reduction_numel / vect_factor;
+  int64_t inner_unroll = std::min(
+      scheduler_utils::lastPow2(target_inner_unroll),
+      (int64_t)props.vectorize_factor);
 
   auto params = std::make_unique<TmaInnerReductionParams>();
 
-  params->unroll_factor = vect_factor;
+  params->inner_unroll = inner_unroll;
 
-  params->target_threads_per_block = k_params.has_mufu_computation ? 128 : 256;
+  int64_t threads_per_block = props.has_mufu_computation ? 128 : 256;
+
+  params->threads_per_block = threads_per_block;
+
+  int64_t after_unroll = props.total_reduction_numel / inner_unroll;
+
+  if (after_unroll < threads_per_block) {
+    return nullptr;
+  }
+
+  // TODO: Support merging for contiguous inner dimensions
+  if (props.total_reduction_numel != props.inner_most_dimension_numel) {
+    return nullptr;
+  }
 
   params->tag = "Reduction TMA heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
+
   return params;
 }
 
-void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
+void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   FusionGuard fg(fusion);
+
+  //   return;
 
   // bool isUnrolled = rparams->isUnrolled();
   bool isUnrolled = true;
+
+  // ndim_3_inner_size_256 = [64, 8, 128] ->
 
   // Cache inputs if unrolled
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, isUnrolled);
@@ -127,20 +126,26 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
   NVF_ERROR(!reduction_tvs.empty());
   TensorView* reduction_tv = reduction_tvs.at(0);
 
-  // TODO: Compute as heuristic on TmaInnerReductionParams
-  const int64_t unroll = 4;
+  // Merge contiguous reduction dimensions
+  // [I, R1, R2] -> [I, R1*R2]
+  for (int64_t i = reduction_tv->nDims() - 2; i >= 0; --i) {
+    if (reduction_tv->axis(i)->isReduction() &&
+        reduction_tv->axis(i + 1)->isReduction()) {
+      reduction_tv->merge(i, i + 1);
+    }
+  }
 
-  if (pparams->unroll_factor > 1) {
-    reduction_tv->split(inner_reduce_axis, pparams->unroll_factor);
+  //   auto dim_analysis = scheduler_utils::canonicalDimReduction(
+  //       fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
+
+  if (rparams->inner_unroll > 1) {
+    reduction_tv->split(inner_reduce_axis, rparams->inner_unroll);
     reduction_tv->axis(inner_reduce_axis + 1)
         ->parallelize(ParallelType::Serial);
   }
 
-  reduction_tv->split(inner_reduce_axis, pparams->target_threads_per_block);
+  reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
-
-  reduction_tv->split(inner_reduce_axis, unroll);
-  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Unroll);
 
   reduction_tv->split(inner_reduce_axis, 1);
   reduction_tv->axis(inner_reduce_axis + 1)
@@ -149,8 +154,11 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* pparams) {
   reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
   reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
 
-  int64_t vectorize_pos = inner_reduce_axis + 3;
+  int64_t vectorize_pos = inner_reduce_axis + 2;
   auto reference_tv = reduction_tv->rFactor({inner_reduce_axis, vectorize_pos});
+
+  reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
+  reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
 
   // Schedule non-TMA tvs based on reduction tv
   std::vector<TensorView*> non_tma_tvs =
