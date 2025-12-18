@@ -315,6 +315,28 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   return mapping;
 }
 
+RaggedIterDomain* newOutputRaggedIterDomain(
+    const std::vector<IterDomain*>& input_ids) {
+  NVF_ERROR(
+      std::ranges::all_of(
+          input_ids,
+          [](IterDomain* input_id) {
+            return input_id->isA<RaggedIterDomain>();
+          }),
+      "All input iter domains must be RaggedIterDomain");
+
+  NVF_ERROR(!input_ids.empty());
+
+  // Just using the first ragged ID as all input IDs are assumed to be
+  // equivalent
+  RaggedIterDomain* ref_input_id = input_ids.front()->as<RaggedIterDomain>();
+
+  return IrBuilder::create<RaggedIterDomain>(
+      ref_input_id->extents(),
+      ref_input_id->getIterType(),
+      ref_input_id->getParallelType());
+}
+
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
 #if defined(__GNUC__) && !defined(__clang__)
@@ -324,6 +346,21 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 IterDomain* newOutputIterDomain(
     const std::vector<IterDomain*>& input_ids,
     const std::optional<IterType> force_iter_type) {
+  NVF_ERROR(!input_ids.empty());
+
+  // If any input ID is a RaggedIterDomain, the output should also be ragged
+  bool has_ragged =
+      std::any_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
+        return id->isA<RaggedIterDomain>();
+      });
+
+  if (has_ragged) {
+    NVF_ERROR(
+        !force_iter_type.has_value(),
+        "force_iter_type not supported for RaggedIterDomain");
+    return newOutputRaggedIterDomain(input_ids);
+  }
+
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
   // constant, so we can statically compute them. It is unclear
