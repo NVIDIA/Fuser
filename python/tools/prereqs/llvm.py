@@ -134,6 +134,36 @@ def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, ...]]:
         return None
 
 
+def raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name):
+    raise PrerequisiteMissingError(
+        f"ERROR: {LLVM.name} not found.\n\n"
+        f"nvFuser requires {LLVM.name} {LLVM.min_display} to build (for runtime Host IR JIT).\n"
+        f"llvm-config must be in PATH or at a known location.\n\n"
+        f"Installation options:\n\n"
+        f"Option 1: Download prebuilt binaries (recommended, no sudo needed, project-local):\n"
+        f"  cd {repo_root}  # your nvfuser repo root\n"
+        f"  mkdir -p .llvm\n"
+        f"  cd .llvm\n"
+        f"  wget {download_url}\n"
+        f"  tar -xf {tarball_name}\n"
+        f"  mv {dir_name} {LLVM.recommended_str}\n"
+        f"  # Then set environment variable:\n"
+        f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n"
+        f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
+        f"  # Install legacy library libtinfo5 if missing\n"
+        f"  wget http://mirrors.kernel.org/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb\n"
+        f"  sudo apt install ./libtinfo5_6.3-2ubuntu0.1_amd64.deb\n\n"
+        f"Option 2: Install from LLVM APT repository (requires sudo):\n"
+        f"  # Install prerequisites\n"
+        f"  sudo apt install libzstd1 libzstd-dev lsb-release wget software-properties-common gnupg\n"
+        f"  wget https://apt.llvm.org/llvm.sh\n"
+        f"  chmod +x llvm.sh\n"
+        f"  sudo ./llvm.sh {llvm_major}\n"
+        f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
+        f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
+    )
+
+
 def check_llvm_installed() -> str:
     """
     Validate that LLVM meets minimum version requirement for building nvFuser.
@@ -166,32 +196,7 @@ def check_llvm_installed() -> str:
     llvm_config = _find_llvm_config()
 
     if not llvm_config:
-        raise PrerequisiteMissingError(
-            f"ERROR: {LLVM.name} not found.\n\n"
-            f"nvFuser requires {LLVM.name} {LLVM.min_display} to build (for runtime Host IR JIT).\n"
-            f"llvm-config must be in PATH or at a known location.\n\n"
-            f"Installation options:\n\n"
-            f"Option 1: Download prebuilt binaries (recommended, no sudo needed, project-local):\n"
-            f"  cd {repo_root}  # your nvfuser repo root\n"
-            f"  mkdir -p .llvm\n"
-            f"  cd .llvm\n"
-            f"  wget {download_url}\n"
-            f"  tar -xf {tarball_name}\n"
-            f"  mv {dir_name} {LLVM.recommended_str}\n"
-            f"  # Then set environment variable:\n"
-            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n"
-            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
-            f"  # Install legacy library libtinfo5 if missing\n"
-            f"  wget http://mirrors.kernel.org/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb\n"
-            f"  sudo apt install ./libtinfo5_6.3-2ubuntu0.1_amd64.deb\n\n"
-            f"Option 2: Install from LLVM APT repository (requires sudo):\n"
-            f"  wget https://apt.llvm.org/llvm.sh\n"
-            f"  chmod +x llvm.sh\n"
-            f"  sudo apt install libzstd1 libzstd-dev lsb-release wget software-properties-common gnupg\n"
-            f"  sudo ./llvm.sh {llvm_major}\n"
-            f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
-            f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
-        )
+        raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name)
 
     # Get version
     try:
@@ -223,24 +228,6 @@ def check_llvm_installed() -> str:
 
     # Check version requirement
     if not LLVM.check(version_tuple):
-        raise PrerequisiteMissingError(
-            f"ERROR: nvFuser requires {LLVM.name} {LLVM.min_display}.\n"
-            f"Found: {LLVM.name} {format_version(version_tuple)} at {llvm_config}\n\n"
-            f"Ubuntu 22.04 ships with {LLVM.name} 14, which is too old.\n\n"
-            f"Install {LLVM.name} {LLVM.min_display} using one of these options:\n\n"
-            f"Option 1: Download prebuilt binaries (recommended, no sudo needed):\n"
-            f"  cd {repo_root}  # your nvfuser repo root\n"
-            f"  mkdir -p .llvm\n"
-            f"  cd .llvm\n"
-            f"  wget {download_url}\n"
-            f"  tar -xf {tarball_name}\n"
-            f"  mv {dir_name} {LLVM.recommended_str}\n"
-            f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n\n"
-            f"Option 2: Install from LLVM APT repository (requires sudo):\n"
-            f"  wget https://apt.llvm.org/llvm.sh\n"
-            f"  chmod +x llvm.sh\n"
-            f"  sudo ./llvm.sh {llvm_major}\n"
-            f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
-        )
+        raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name)
 
     return version_str
