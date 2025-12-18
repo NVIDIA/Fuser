@@ -531,7 +531,7 @@ TensorView* pad(
     Val* value,
     std::optional<IterType> iter_type_opt) {
   NVF_CHECK(
-      inp->domain()->hasRaggedIterDomain(),
+      !inp->domain()->hasRaggedIterDomain(),
       "Padding a tensor with RaggedIterDomain not supported: ",
       inp->toString());
 

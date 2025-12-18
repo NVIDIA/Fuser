@@ -40,7 +40,7 @@ struct AnalyzeViewResult;
 class IterDomainBuilder {
  public:
   // Match legacy constructor
-  IterDomainBuilder(Val* _start, Val* _extent);
+  IterDomainBuilder(Val* start, Val* extent);
 
   // Grab all the parameters from id to set the IterDomainBuilder
   IterDomainBuilder(const IterDomain* id);
@@ -52,16 +52,16 @@ class IterDomainBuilder {
   // Resets is_rfactor_domain
   IterDomainBuilder& resetRfactor();
 
-  IterDomainBuilder& start(Val* _start);
-  IterDomainBuilder& extent(Val* _extent);
-  IterDomainBuilder& expanded_extent(Val* _expanded_extent);
-  IterDomainBuilder& stop_offset(Val* _stop_offset);
-  IterDomainBuilder& parallel_type(ParallelType _parallel_type);
-  IterDomainBuilder& iter_type(IterType _iter_type);
-  IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
-  IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
-  IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
-  IterDomainBuilder& ragged_extents(TensorView* _ragged_extents);
+  IterDomainBuilder& start(Val* start);
+  IterDomainBuilder& extent(Val* extent);
+  IterDomainBuilder& expanded_extent(Val* expanded_extent);
+  IterDomainBuilder& stop_offset(Val* stop_offset);
+  IterDomainBuilder& parallel_type(ParallelType parallel_type);
+  IterDomainBuilder& iter_type(IterType iter_type);
+  IterDomainBuilder& is_rfactor_domain(bool is_rfactor_domain);
+  IterDomainBuilder& is_padded_dimension(bool is_padded_dimension);
+  IterDomainBuilder& padded_to_size(std::optional<int64_t> padded_to_size);
+  IterDomainBuilder& ragged_extents(TensorView* ragged_extents);
 
   IterDomain* build() const;
 

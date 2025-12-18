@@ -54,13 +54,15 @@ TensorView* indexSelect(
     TensorView* index_tv) {
   NVF_CHECK(
       !lookup_tv->domain()->hasRaggedIterDomain(),
-      "IndexSelect operation is not supported for tensors with RaggedIterDomain. "
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
       "Input tensor (lookup_tv): ",
       lookup_tv->toString());
 
   NVF_CHECK(
       !index_tv->domain()->hasRaggedIterDomain(),
-      "IndexSelect operation is not supported for tensors with RaggedIterDomain. "
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
       "Index tensor (index_tv): ",
       index_tv->toString());
 

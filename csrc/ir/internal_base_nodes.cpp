@@ -30,8 +30,8 @@
 
 namespace nvfuser {
 
-IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
-    : start_(_start), extent_(_extent) {
+IterDomainBuilder::IterDomainBuilder(Val* start, Val* extent)
+    : start_(start), extent_(extent) {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
@@ -67,52 +67,58 @@ IterDomainBuilder& IterDomainBuilder::resetRfactor() {
   return is_rfactor_domain(false);
 }
 
-IterDomainBuilder& IterDomainBuilder::start(Val* _start) {
-  start_ = _start;
+IterDomainBuilder& IterDomainBuilder::start(Val* start) {
+  start_ = start;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::extent(Val* _extent) {
-  extent_ = _extent;
+IterDomainBuilder& IterDomainBuilder::extent(Val* extent) {
+  extent_ = extent;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::expanded_extent(Val* _expanded_extent) {
-  expanded_extent_ = _expanded_extent;
+IterDomainBuilder& IterDomainBuilder::expanded_extent(Val* expanded_extent) {
+  expanded_extent_ = expanded_extent;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::stop_offset(Val* _stop_offset) {
-  stop_offset_ = _stop_offset;
+IterDomainBuilder& IterDomainBuilder::stop_offset(Val* stop_offset) {
+  stop_offset_ = stop_offset;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::parallel_type(
-    ParallelType _parallel_type) {
-  parallel_type_ = _parallel_type;
+    ParallelType parallel_type) {
+  parallel_type_ = parallel_type;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::iter_type(IterType _iter_type) {
-  iter_type_ = _iter_type;
+IterDomainBuilder& IterDomainBuilder::iter_type(IterType iter_type) {
+  iter_type_ = iter_type;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::is_rfactor_domain(
-    bool _is_rfactor_domain) {
-  is_rfactor_domain_ = _is_rfactor_domain;
+    bool is_rfactor_domain) {
+  is_rfactor_domain_ = is_rfactor_domain;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::is_padded_dimension(
-    bool _is_padded_dimension) {
-  is_padded_dimension_ = _is_padded_dimension;
+    bool is_padded_dimension) {
+  is_padded_dimension_ = is_padded_dimension;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::padded_to_size(
-    std::optional<int64_t> _padded_to_size) {
-  padded_to_size_ = _padded_to_size;
+    std::optional<int64_t> padded_to_size) {
+  padded_to_size_ = padded_to_size;
+  return *this;
+}
+
+IterDomainBuilder& IterDomainBuilder::ragged_extents(
+    TensorView* ragged_extents) {
+  ragged_extents_ = ragged_extents;
   return *this;
 }
 
