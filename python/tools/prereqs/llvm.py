@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .exceptions import PrerequisiteMissingError
-from .requirements import LLVM, parse_version, format_version, llvm_download_url
+from .requirements import LLVM, parse_version, llvm_download_url
 
 
 def _find_llvm_config() -> Optional[str]:
@@ -134,7 +134,9 @@ def _parse_llvm_version(version_str: str) -> Optional[Tuple[int, ...]]:
         return None
 
 
-def raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name):
+def raise_installation_error(
+    repo_root, llvm_major, download_url, tarball_name, dir_name
+):
     raise PrerequisiteMissingError(
         f"ERROR: {LLVM.name} not found.\n\n"
         f"nvFuser requires {LLVM.name} {LLVM.min_display} to build (for runtime Host IR JIT).\n"
@@ -195,7 +197,9 @@ def check_llvm_installed() -> str:
     llvm_config = _find_llvm_config()
 
     if not llvm_config:
-        raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name)
+        raise_installation_error(
+            repo_root, llvm_major, download_url, tarball_name, dir_name
+        )
 
     # Get version
     try:
@@ -227,6 +231,8 @@ def check_llvm_installed() -> str:
 
     # Check version requirement
     if not LLVM.check(version_tuple):
-        raise_installation_error(repo_root, llvm_major, download_url, tarball_name, dir_name)
+        raise_installation_error(
+            repo_root, llvm_major, download_url, tarball_name, dir_name
+        )
 
     return version_str
