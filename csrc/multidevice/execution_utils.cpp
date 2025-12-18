@@ -88,9 +88,9 @@ std::vector<int64_t> unshardedSizes(
           return 1;
         }
         if (std::find(
-          tv->getMayAllocationDomain().begin(),
-          tv->getMayAllocationDomain().end(),
-          sharded_id) != tv->getMayAllocationDomain().end()) {
+          tv->getMaybeAllocationDomain().begin(),
+          tv->getMaybeAllocationDomain().end(),
+          sharded_id) != tv->getMaybeAllocationDomain().end()) {
           return 1;
         }
 
