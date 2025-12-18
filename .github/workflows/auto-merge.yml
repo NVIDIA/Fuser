@@ -40,7 +40,7 @@ jobs:
     steps:
       - name: Get PR details
         id: pr
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             let pr;
@@ -114,7 +114,7 @@ jobs:
       - name: Check all conditions for auto-merge
         id: check
         if: fromJSON(steps.pr.outputs.result).should_skip == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prData = ${{ steps.pr.outputs.result }};
@@ -338,7 +338,7 @@ jobs:
 
       - name: Update auto-merge status comment
         if: always() && fromJSON(steps.pr.outputs.result).should_skip == false
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prData = ${{ steps.pr.outputs.result }};
@@ -433,7 +433,7 @@ jobs:
 
       - name: Merge PR
         if: steps.check.outputs.result != '' && fromJSON(steps.check.outputs.result).ready == true
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const checkResult = ${{ steps.check.outputs.result }};

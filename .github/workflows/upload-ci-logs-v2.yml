@@ -52,7 +52,7 @@ jobs:
 
       - name: Trigger auto-merge check
         if: inputs.context == 'nvfuser-ci' && inputs.state == 'success'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Check if PR has enable-auto-merge label
