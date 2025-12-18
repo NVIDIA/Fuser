@@ -110,27 +110,6 @@ void IndexLowering::insertAtTopLevel(Expr* expr) {
 void IndexLowering::handle(const kir::IfThenElse* ite) {
   const auto prev_scope = active_scope_;
 
-  // Loop rotation transform loops like
-  //  for i ...
-  //    statement1(i)
-  //    statement2(i)
-  //    statement3(i)
-  //    statement4(i)
-  // into
-  //  statement1(0)
-  //  statement2(0)
-  //  for i ...
-  //    statement3(i)
-  //    statement4(i)
-  //    if LoopRotation:
-  //      statement1(i+1)
-  //      statement2(i+1)
-  // So when we see an `if LoopRotation` during visiting, the last loop is
-  // rotated, and we need to use `i+1` instead of `i` as loop index.
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.insert(for_loops_.back());
-  }
-
   auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
   pushBack(new_ite);
 
@@ -147,10 +126,6 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   }
 
   active_scope_ = prev_scope;
-
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.erase(for_loops_.back());
-  }
 }
 
 void IndexLowering::handle(const kir::ForLoop* for_loop) {

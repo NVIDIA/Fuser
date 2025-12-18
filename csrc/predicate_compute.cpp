@@ -1153,27 +1153,6 @@ void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
 void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openIte");
 
-  // Loop rotation transform loops like
-  //  for i ...
-  //    statement1(i)
-  //    statement2(i)
-  //    statement3(i)
-  //    statement4(i)
-  // into
-  //  statement1(0)
-  //  statement2(0)
-  //  for i ...
-  //    statement3(i)
-  //    statement4(i)
-  //    if LoopRotation:
-  //      statement1(i+1)
-  //      statement2(i+1)
-  // So when we see an `if LoopRotation` during visiting, the last loop is
-  // rotated, and we need to use `i+1` instead of `i` as loop index.
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.insert(for_loops_.back());
-  }
-
   // only expand the ite thenBody
   for (auto expr : ite->thenBody().exprs()) {
     if (ir_utils::isTvOp(expr) || isTensorIndexOp(expr)) {
@@ -1183,10 +1162,6 @@ void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
     } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
-  }
-
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.erase(for_loops_.back());
   }
 }
 

@@ -120,27 +120,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   void handle(kir::IfThenElse* ite) final {
     NVF_ERROR(ite->predicate() != nullptr);
 
-    // Loop rotation transform loops like
-    //  for i ...
-    //    statement1(i)
-    //    statement2(i)
-    //    statement3(i)
-    //    statement4(i)
-    // into
-    //  statement1(0)
-    //  statement2(0)
-    //  for i ...
-    //    statement3(i)
-    //    statement4(i)
-    //    if LoopRotation:
-    //      statement1(i+1)
-    //      statement2(i+1)
-    // So when we see an `if LoopRotation` during visiting, the last loop is
-    // rotated, and we need to use `i+1` instead of `i` as loop index.
-    if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-      rotated_loop_.insert(for_loops_.back());
-    }
-
     // If ite already has Bool conditional, handle internal expressions
     // Otherwise, generate conditional and update predicate
     if (!ite->predicate()->hasValue()) {
@@ -154,10 +133,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       NVF_ERROR(ite->predicate()->value() != nullptr);
     }
     kir::ExprMutator::handle(ite);
-
-    if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-      rotated_loop_.erase(for_loops_.back());
-    }
   }
 
   // Generate conditional according to PredicateType
@@ -193,13 +168,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       }
       case PredicateType::Manual: {
         return pred->value();
-      }
-      case PredicateType::LoopRotation: {
-        // Currently, all existing predicates should be able to cover the
-        // condition of loop_index + step < end, so nothing to do here. In the
-        // future, if we decide that we need to predicate this then we can do it
-        // here.
-        return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
         return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
