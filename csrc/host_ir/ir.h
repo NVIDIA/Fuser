@@ -127,6 +127,7 @@ class LaunchKernel : public Expr {
       CompiledKernel* compile_kernel,
       const std::vector<Val*>& inputs,
       const std::vector<Val*>& outputs,
+      const std::vector<Val*>& intermediates,
       Val* cache_id);
   LaunchKernel(const LaunchKernel* src, IrCloner* ir_cloner);
 
@@ -161,6 +162,16 @@ class LaunchKernel : public Expr {
   // ID and initializeExecutorEntry every time, slow yet functional.
   Val* cacheId() const {
     return attributeVal(3);
+  }
+
+  // Returns intermediate buffers that are allocated for this kernel
+  // Intermediates are stored as attributes starting at index 4
+  std::vector<Val*> intermediateBuffers() const {
+    std::vector<Val*> result;
+    for (size_t i = 4; i < attributes().size(); ++i) {
+      result.push_back(attributeVal(i));
+    }
+    return result;
   }
 
   CompiledKernel* compiledKernel() const {

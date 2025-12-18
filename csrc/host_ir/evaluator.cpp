@@ -193,6 +193,8 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   if (!cache_id.is<std::monostate>()) {
     args.setCacheId(static_cast<size_t>(cache_id.as<int64_t>()));
   }
+
+  // Collect user inputs only
   for (Val* input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
@@ -210,6 +212,13 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
       std::ssize(launch_kernel->outputs()),
       "Not all outputs to the kernel were preallocated");
 
+  // Collect intermediate buffers (allocated in Host IR)
+  // Pass them separately to avoid confusion with inputs/outputs
+  KernelArgumentHolder intermediates;
+  for (Val* intermediate : launch_kernel->intermediateBuffers()) {
+    intermediates.push(getKnownConcreteValue(intermediate));
+  }
+
   args.setDeviceIndex();
 
   // run the compiled kernel
@@ -218,7 +227,8 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
           args,
           outputs,
           launch_kernel->launchParams(),
-          launch_kernel->compileParams());
+          launch_kernel->compileParams(),
+          intermediates);
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
