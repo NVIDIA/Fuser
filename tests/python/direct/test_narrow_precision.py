@@ -359,7 +359,7 @@ def test_scaled_mm_nv_quantized(
     # Fusion 1: Quantize mat1 on-the-fly using nv_block_quantize
     def fusion_with_nv_block_quantize(fd: FusionDefinition) -> None:
         """Defines fusion that quantizes mat1 on-the-fly before scaled_mm."""
-        mat1_bf16 = fd.define_tensor(
+        mat1 = fd.define_tensor(
             shape=[-1, -1], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
         mat2_fp4 = fd.define_tensor(
@@ -380,7 +380,7 @@ def test_scaled_mm_nv_quantized(
         )
 
         # Quantize mat1 on-the-fly
-        mat1_fp4, scale1 = fd.ops.nv_block_quantize(mat1_bf16, global_scale, True, 16)
+        mat1_fp4, scale1 = fd.ops.nv_block_quantize(mat1, global_scale, True, 16)
 
         # Perform scaled matrix multiplication
         out, _, _ = fd.ops.scaled_mm(
