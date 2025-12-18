@@ -119,12 +119,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     return nullptr;
   }
 
-  bool isUnrolled = unroll_factor > 1 || vectorization_factor > 1;
-
-  if (!isUnrolled) {
-    return nullptr;
-  }
-
   auto params = std::make_unique<TmaInnerReductionParams>();
   params->vectorization_factor = vectorization_factor;
   params->threads_per_block = threads_per_block;
@@ -139,15 +133,12 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
 void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   FusionGuard fg(fusion);
 
-  bool isUnrolled =
-      rparams->unroll_factor > 1 || rparams->vectorization_factor > 1;
-
-  // Cache inputs if unrolled
-  auto cached_inputs = scheduler_utils::cacheInputs(fusion, isUnrolled);
+  // Always cache inputs for TMA
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
   // Cache and fork outputs
   [[maybe_unused]] auto cached_outputs =
-      scheduler_utils::cacheAndForkOutputs(fusion, isUnrolled);
+      scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
