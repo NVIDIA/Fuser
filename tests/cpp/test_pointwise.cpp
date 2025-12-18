@@ -2086,4 +2086,32 @@ TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
+
+TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
+  int64_t dim0 = 16384 + 8;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  // tv1 is suitable for TMA, tv0 is not. Then non-TMA version is used.
+  auto tv0 = makeContigTensor(1, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_float =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto t1 = at::randn({dim0}, options_float);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
