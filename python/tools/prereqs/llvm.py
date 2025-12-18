@@ -180,14 +180,17 @@ def check_llvm_installed() -> str:
             f"  mv {dir_name} {LLVM.recommended_str}\n"
             f"  # Then set environment variable:\n"
             f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n"
-            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n\n"
+            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
+            f"  # Install legacy library libtinfo5 if missing\n"
+            f"  wget http://mirrors.kernel.org/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb\n"
+            f"  sudo apt install ./libtinfo5_6.3-2ubuntu0.1_amd64.deb\n\n"
             f"Option 2: Install from LLVM APT repository (requires sudo):\n"
             f"  wget https://apt.llvm.org/llvm.sh\n"
             f"  chmod +x llvm.sh\n"
+            f"  sudo apt install libzstd1 libzstd-dev lsb-release wget software-properties-common gnupg\n"
             f"  sudo ./llvm.sh {llvm_major}\n"
             f"  # llvm-config-{llvm_major} will be installed at /usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
             f"  export LLVM_CONFIG=/usr/lib/llvm-{llvm_major}/bin/llvm-config\n"
-            f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
         )
 
     # Get version
