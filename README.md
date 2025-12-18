@@ -81,7 +81,7 @@ Note: GCC 12 is not supported due to missing `<format>` header in libstdc++.
 
 **Clang:**
 
-- clang 16+
+- clang 19+
 
 Supported C++ standard:
 
