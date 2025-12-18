@@ -149,7 +149,6 @@ def raise_installation_error(repo_root, llvm_major, download_url, tarball_name, 
         f"  mv {dir_name} {LLVM.recommended_str}\n"
         f"  # Then set environment variable:\n"
         f"  export LLVM_CONFIG=$(pwd)/{LLVM.recommended_str}/bin/llvm-config\n"
-        f"  export LLVM_DIR=$(pwd)/{LLVM.recommended_str}\n"
         f"  # Install legacy library libtinfo5 if missing\n"
         f"  wget http://mirrors.kernel.org/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb\n"
         f"  sudo apt install ./libtinfo5_6.3-2ubuntu0.1_amd64.deb\n\n"
