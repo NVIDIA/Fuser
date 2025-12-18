@@ -125,16 +125,13 @@ def validate_compiler() -> Tuple[str, Tuple[int, int, int]]:
         raise PrerequisiteMissingError(
             f"ERROR: nvFuser requires {req.name} {req.min_display} to build.\n"
             f"Found: {req.name} {format_version(version)}\n\n"
-            f"The C++20 <format> header is required by nvFuser's source code.\n"
         )
 
     # Verify <format> header is actually available
     if not check_format_support(compiler_type):
-        print(
-            f"[nvFuser] WARNING: {req.name} {format_version(version)} detected but <format> header not available"
-        )
-        print(
-            "[nvFuser] Build may fail. Please verify compiler installation is complete."
+        raise PrerequisiteMissingError(
+            f"ERROR: {req.name} {format_version(version)} detected but <format> header not available.\n\n"
+            f"The C++20 <format> header is required by nvFuser's source code.\n"
         )
 
     return (compiler_type, version)
