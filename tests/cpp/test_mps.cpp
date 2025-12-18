@@ -88,6 +88,9 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+// This test requires CUDA 13.0+ for CUctxCreateParams
+#if CUDA_VERSION >= 13000
+
 namespace {
 
 // Utility class for managing MPS SM affinity in tests and benchmarks
@@ -442,3 +445,16 @@ TEST_F(MPSSmLimitTest, PointwiseWithUtility) {
 // }
 //
 // } // namespace nvfuser
+
+#else // CUDA_VERSION < 13000
+
+// Dummy test for older CUDA versions
+class MPSSmLimitTest : public ::testing::Test {};
+
+TEST_F(MPSSmLimitTest, SkipOnOldCUDA) {
+  GTEST_SKIP() << "MPS SM limiting tests require CUDA 13.0 or higher. "
+               << "Current CUDA version: " << CUDA_VERSION / 1000 << "."
+               << (CUDA_VERSION % 1000) / 10;
+}
+
+#endif // CUDA_VERSION >= 13000
