@@ -321,14 +321,14 @@ def check_torch_installed() -> Tuple[str, str]:
             f"ERROR: System {CUDA.name} toolkit not found.\n\n"
             f"{PYTORCH.name} has {CUDA.name} {cuda_version_str} support, but nvcc is not in PATH.\n"
             f"nvFuser needs the {CUDA.name} toolkit (nvcc compiler) to build.\n\n"
-            f"Install {CUDA.name} toolkit {cuda_major}.x (major version must match {PYTORCH.name}):\n"
+            f"Install {CUDA.name} toolkit {cuda_major}.{cuda_minor} (major version must match {PYTORCH.name}):\n"
             f"  # Check available versions:\n"
             f"  # https://developer.nvidia.com/cuda-downloads\n"
-            f"  # For Ubuntu 22.04 with {CUDA.name} {cuda_major}.x:\n"
+            f"  # For Ubuntu 22.04 with {CUDA.name} {cuda_major}.{cuda_minor}:\n"
             f"  wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb\n"
             f"  sudo dpkg -i cuda-keyring_1.0-1_all.deb\n"
             f"  sudo apt update\n"
-            f"  sudo apt install cuda-toolkit-{cuda_major}-8  # Match {PYTORCH.name} {CUDA.name} major version\n"
+            f"  sudo apt install cuda-toolkit-{cuda_major}-{cuda_minor}  # Match {PYTORCH.name} {CUDA.name} major version\n"
         )
 
     # Parse system CUDA version
