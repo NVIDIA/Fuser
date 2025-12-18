@@ -45,6 +45,12 @@ bool mayUseTma(Fusion* fusion, const PersistentKernelProperties& prop) {
     return false;
   }
 
+  // If not projecting persistent buffers to inputs, we don't need to cache
+  // inputs in shared memory.
+  if (!prop.project_persistent_buffers) {
+    return false;
+  }
+
   // TMA scheduler requires at least 128 threads (4 warps) after vectorization
   // to ensure sufficient parallelism
   // TODO: Refine this heuristic based on actual performance measurements, as
