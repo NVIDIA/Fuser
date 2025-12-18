@@ -43,7 +43,6 @@ def _get_multiarch_lib_path() -> Path:
     Returns the correct path based on the current CPU architecture:
     - x86_64 → /usr/lib/x86_64-linux-gnu
     - aarch64 → /usr/lib/aarch64-linux-gnu
-    - armv7l → /usr/lib/arm-linux-gnueabihf
 
     Returns:
         Path: Architecture-specific library directory
@@ -59,9 +58,6 @@ def _get_multiarch_lib_path() -> Path:
         return Path("/usr/lib/x86_64-linux-gnu")
     elif machine == "aarch64":
         return Path("/usr/lib/aarch64-linux-gnu")
-    elif machine.startswith("arm"):
-        # 32-bit ARM (armv7l, armv6l, etc.)
-        return Path("/usr/lib/arm-linux-gnueabihf")
     else:
         # Fallback for unknown architectures
         return Path("/usr/lib")
