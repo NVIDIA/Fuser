@@ -7,12 +7,14 @@
 // clang-format on
 #include <runtime/fusion_cache_utils.h>
 
+#include <tensor_metadata.h>
 #include <unordered_set>
 
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -66,10 +68,74 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   return holder;
 }
 
+// When a fusion segment is executed by ExprEvalExecutor, the output
+// sizes and strides are determined by PyTorch, which might be different from
+// how we infer them. In this case, PyTorch is the ground truth, so we should
+// use PyTorch's result to reset the allocation domain and contiguity.
+void resetAllocationDomainAndContiguity(
+    TensorView* tv,
+    const at::Tensor& tensor) {
+  if (!tensor.defined()) {
+    return;
+  }
+  const auto [sizes, strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
+  
+  const auto& alloc = tv->getMaybeAllocationDomain();
+  
+  // Custom contiguity inference that considers IterDomain information
+  std::vector<std::optional<bool>> contiguity(alloc.size(), std::nullopt);
+  
+  // Single pass from right to left with two dynamic indices:
+  // - alloc_idx: iterates through allocation domain
+  // - sizes_idx: tracks position in sizes/strides (excludes reductions)
+  int64_t sizes_idx = (int64_t)sizes.size() - 1;
+  int64_t prev_non_skipped_sizes_idx = -1;
+  
+  for (int64_t alloc_idx = (int64_t)alloc.size() - 1; alloc_idx >= 0; --alloc_idx) {
+    auto id = alloc[alloc_idx];
+    
+    // Reduction dimensions: nullopt contiguity (already set), no entry in sizes/strides
+    if (id->isReduction()) {
+      // Don't decrement sizes_idx since reductions have no entry
+      continue;
+    }
+    
+    // This dimension has an entry in sizes/strides
+    NVF_CHECK(sizes_idx >= 0, "Sizes index out of bounds");
+    
+    // Broadcast dimensions: nullopt contiguity (already set), but has entry in sizes/strides
+    if (id->isBroadcast()) {
+      sizes_idx--;  // Move to next dimension in sizes/strides
+      continue;
+    }
+    
+    // Non-broadcast, non-reduction dimension
+    if (prev_non_skipped_sizes_idx == -1) {
+      // This is the rightmost (innermost) non-skipped dimension
+      // It's contiguous if stride == 1
+      contiguity[alloc_idx] = (strides[sizes_idx] == 1);
+    } else {
+      // A dimension is contiguous if its stride equals the stride of the
+      // next dimension multiplied by that dimension's size
+      contiguity[alloc_idx] = (strides[sizes_idx] == 
+                               strides[prev_non_skipped_sizes_idx] * sizes[prev_non_skipped_sizes_idx]);
+    }
+    
+    prev_non_skipped_sizes_idx = sizes_idx;
+    sizes_idx--;  // Move to next dimension in sizes/strides
+  }
+  
+  NVF_CHECK(sizes_idx == -1, "Not all sizes/strides were consumed");
+  
+  tv->setContiguity(contiguity);
+}
+
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
-    const int64_t group_id) {
+    const int64_t group_id,
+    const bool update_contiguity) {
   // Insert graph segment output to tensor map
   NVF_ERROR_EQ(
       std::ssize(group_outputs),
@@ -78,6 +144,12 @@ void ArgumentManager::updateWithSegmentOutputs(
   for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
+    auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
+    if (update_contiguity && tv) {
+      const at::Tensor& tensor =
+          group_runtime_outputs[group_out_i].as<at::Tensor>();
+      resetAllocationDomainAndContiguity(tv, tensor);
+    }
   }
 
   // Delete args corresponding to vals lastly used in this segment

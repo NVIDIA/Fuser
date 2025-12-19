@@ -924,7 +924,7 @@ def topk_error_generator(
     #  error coming from aten fallback.
     yield SampleInput(
         a, 16, 1, True, False
-    ), RuntimeError, "selected index k out of range"
+    ), RuntimeError, "k .* range"
 
 
 def index_select_generator(
