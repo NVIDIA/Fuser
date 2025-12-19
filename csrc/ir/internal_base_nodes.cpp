@@ -906,7 +906,8 @@ RaggedIterDomain::RaggedIterDomain(
     IrBuilderPasskey passkey,
     TensorView* extents,
     IterType iter_type,
-    ParallelType parallel_type)
+    ParallelType parallel_type,
+    IterDomain* component)
     : IterDomain(
           passkey,
           ValType::RaggedIterDomain,
@@ -920,7 +921,8 @@ RaggedIterDomain::RaggedIterDomain(
           /*is_padded_dimension=*/false,
           /*is_clustered_blocks=*/false,
           /*padded_to_size=*/std::nullopt),
-      extents_(extents) {
+      extents_(extents),
+      component_(component) {
   // Extents must be non-null
   NVF_ERROR(
       extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
@@ -943,7 +945,9 @@ RaggedIterDomain::RaggedIterDomain(
 RaggedIterDomain::RaggedIterDomain(
     const RaggedIterDomain* src,
     IrCloner* ir_cloner)
-    : IterDomain(src, ir_cloner), extents_(ir_cloner->clone(src->extents_)) {}
+    : IterDomain(src, ir_cloner),
+      extents_(ir_cloner->clone(src->extents_)),
+      component_(ir_cloner->clone(src->component_)) {}
 
 NVFUSER_DEFINE_CLONE(RaggedIterDomain)
 
@@ -964,7 +968,18 @@ bool RaggedIterDomain::sameAs(const Statement* other) const {
   }
 
   // Compare extents tensor
-  return extents_->sameAs(other_ragged->extents_);
+  if (!extents_->sameAs(other_ragged->extents_)) {
+    return false;
+  }
+
+  // Compare component pointers
+  if (component_ == other_ragged->component_) {
+    return true; // Same pointer (including both null)
+  }
+  if (component_ && other_ragged->component_) {
+    return component_->sameAs(other_ragged->component_);
+  }
+  return false; // One is null, other is not
 }
 
 std::string RaggedIterDomain::toInlineString(int indent_size) const {
@@ -1046,8 +1061,8 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
                           .iter_type(IterType::Iteration)
                           .build();
 
-  auto ragged_id =
-      IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
+  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
+      extents, in->getIterType(), ParallelType::Serial, component_id);
 
   IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
 
@@ -1093,6 +1108,23 @@ IterDomain* RaggedIterDomain::combine(
       ragged->getIterType(),
       " for RaggedIterDomain: ",
       ragged->toString());
+
+  // Validate that component matches the ragged's stored component
+  IterDomain* expected_component = ragged->component();
+
+  NVF_ERROR(
+      expected_component != nullptr,
+      "combine: ragged IterDomain does not have an associated component. ",
+      "RaggedIterDomain: ",
+      ragged->toString());
+
+  NVF_ERROR(
+      component == expected_component,
+      "combine: component does not match the ragged's paired component. ",
+      "Provided component: ",
+      component->toString(),
+      ", Expected component: ",
+      expected_component->toString());
 
   // The combined extent is the sum of all extents in the ragged dimension
   // For a 1D extents tensor [e0, e1, ..., en-1], the total is sum(extents)

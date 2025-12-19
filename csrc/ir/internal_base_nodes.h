@@ -460,11 +460,13 @@ class NVF_API RaggedIterDomain : public IterDomain {
   //! Only Iteration is allowed ATM.
   //! \param parallel_type Parallelization strategy (applies
   //! uniformly)
+  //! \param component Optional paired component IterDomain from Partition
   RaggedIterDomain(
       IrBuilderPasskey passkey,
       TensorView* extents,
       IterType iter_type = IterType::Iteration,
-      ParallelType parallel_type = ParallelType::Serial);
+      ParallelType parallel_type = ParallelType::Serial,
+      IterDomain* component = nullptr);
 
   //! Cloning constructor for IR cloning
   RaggedIterDomain(const RaggedIterDomain* src, IrCloner* ir_cloner);
@@ -480,6 +482,11 @@ class NVF_API RaggedIterDomain : public IterDomain {
   //! Accessor for the extents tensor
   TensorView* extents() const {
     return extents_;
+  }
+
+  //! Accessor for the paired component IterDomain
+  IterDomain* component() const {
+    return component_;
   }
 
   //! Partition an IterDomain into component and ragged dimensions
@@ -522,6 +529,9 @@ class NVF_API RaggedIterDomain : public IterDomain {
   //! Extent tensor containing all component extents
   //! Can be 1D, 2D, or N-D depending on nesting structure
   TensorView* extents_ = nullptr;
+
+  //! Paired component IterDomain from Partition
+  IterDomain* component_ = nullptr;
 };
 
 //! TensorDomain holds a vector of IterDomains. It holds an IterDomain for every
