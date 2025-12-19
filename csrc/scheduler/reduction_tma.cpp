@@ -136,25 +136,18 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Always cache inputs for TMA
   auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
-  // Cache and fork outputs
-  [[maybe_unused]] auto cached_outputs =
-      scheduler_utils::cacheAndForkOutputs(fusion, true);
-
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
-  [[maybe_unused]] std::vector<TensorView*> ldg_tvs, tma_tvs;
+  std::vector<TensorView*> tma_tvs;
   for (auto [tv, input_idx] : cached_inputs) {
     if (auto load_op = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       load_op->setOpType(LoadStoreOpType::CpAsyncBulk);
       tv->setMemoryType(MemoryType::Shared);
       tma_tvs.push_back(tv);
-      // TODO cache to registers
-    } else {
-      ldg_tvs.push_back(tv);
     }
   }
 
@@ -258,20 +251,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
     reference_tv = reduction_tv->rFactor(rfactor_axes);
   }
 
-  // Re-parallelize reduction_tv after rFactor
-  reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-  for (int64_t i = 1; i < reduction_tv->nDims(); i++) {
-    if (reduction_tv->axis(i)->isReduction()) {
-      if (reduction_tv->axis(i)->extent()->isConstInt() &&
-          reduction_tv->axis(i)->extent()->evaluate().as<int64_t>() ==
-              rparams->threads_per_block) {
-        reduction_tv->axis(i)->parallelize(ParallelType::TIDx);
-      } else {
-        reduction_tv->axis(i)->parallelize(ParallelType::Serial);
-      }
-    }
-  }
-
   // Schedule non-TMA tvs based on reference tv
   TransformPropagator non_tma_propagator(reference_tv);
   SetSelector non_tma_selector({non_tma_tvs.begin(), non_tma_tvs.end()});
@@ -286,9 +265,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   }
 
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
-
-  // TODO: Vectorize load from smem
-  // TODO: TMA or vectorize store
 
   inlineMost();
 
