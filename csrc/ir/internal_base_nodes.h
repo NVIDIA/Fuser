@@ -476,6 +476,23 @@ class NVF_API RaggedIterDomain : public IterDomain {
     return extents_;
   }
 
+  //! Partition an IterDomain into component and ragged dimensions
+  //! Creates a component IterDomain and a RaggedIterDomain based on extents
+  //!
+  //! \param in Input IterDomain to partition (must be regular IterDomain)
+  //! \param extents Extents tensor defining the size of each component (must be
+  //! 1D)
+  //!        Shape: [num_components], values: [extent0, extent1, ...,
+  //!        extent(n-1)]
+  //! \return Pair of (component_id, ragged_id)
+  //!         component_id: IterDomain with extent = num_components
+  //!         ragged_id: RaggedIterDomain with the provided extents
+  //!
+  //! TODO: Support multi-dimensional extents for nested ragged structures
+  static std::pair<IterDomain*, RaggedIterDomain*> partition(
+      IterDomain* in,
+      TensorView* extents);
+
  private:
   //! Extent tensor containing all component extents
   //! Can be 1D, 2D, or N-D depending on nesting structure
@@ -775,6 +792,9 @@ class NVF_API TensorDomain : public Val {
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
+
+  // Partition axis into component and ragged dimensions based on extents
+  void partition(int64_t axis, TensorView* extents);
 
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
