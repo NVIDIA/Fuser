@@ -17,7 +17,13 @@
 
 namespace nvfuser {
 
-class PredicateEliminationTest : public NVFuserTest {};
+class PredicateEliminationTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(PredicateEliminationTest, 1) {
   Fusion fusion;
