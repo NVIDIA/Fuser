@@ -499,6 +499,22 @@ class NVF_API RaggedIterDomain : public IterDomain {
       IterDomain* in,
       TensorView* extents);
 
+  //! Combine a component IterDomain with a RaggedIterDomain to flatten
+  //! This is the inverse of partition, creating a regular IterDomain
+  //!
+  //! \param component Component IterDomain (extent = num_components)
+  //! \param ragged RaggedIterDomain with variable extents per component
+  //! \return Regular IterDomain with extent = sum of all component extents
+  //!
+  //! This operation flattens the ragged structure back into a single dimension.
+  //! Example: component extent=3, ragged extents=[127, 0, 198]
+  //!          -> output extent = 325 (= 127 + 0 + 198)
+  //!
+  //! Note: We use "combine" instead of "merge" to differentiate from the
+  //! regular IterDomain::merge operation which only works with regular
+  //! IterDomains.
+  static IterDomain* combine(IterDomain* component, RaggedIterDomain* ragged);
+
   //! Override cloneWithoutRFactor to preserve RaggedIterDomain type
   IterDomain* cloneWithoutRFactor(bool map_with_original = false) override;
 
