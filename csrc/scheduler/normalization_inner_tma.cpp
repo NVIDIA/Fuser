@@ -227,50 +227,50 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   // Parallelization strategy:
   //   - axis(0): BIDx - each block handles one or more batch elements
   //   - axis(1): Bulk - TMA asynchronously copies entire reduction dimension
-  int64_t ipos = 0, rpos = 1, tidy_pos = -1, group_pos = -1;
+  int64_t iteration_pos = 0, reduction_pos = 1, tidy_pos = -1, group_pos = -1;
   if (params->circular_buffer_options.isEnable()) {
     if (params->n_grouped_rows > 1) {
       // [I, R] -> [I/Group, Group, R]
-      reduction_tv->split(ipos, params->n_grouped_rows);
-      group_pos = ipos + 1;
-      rpos++;
+      reduction_tv->split(iteration_pos, params->n_grouped_rows);
+      group_pos = iteration_pos + 1;
+      reduction_pos++;
     }
     if (params->lparams.bdimy() > 2) {
       NVF_ERROR_EQ(
           std::get<WarpSpecialized>(params->circular_buffer_options.type).on,
           ParallelType::TIDy);
       // [I/Group, Group, R] -> [I/Group/TIDy, TIDy, Group, R]
-      reduction_tv->split(ipos, params->lparams.bdimy() - 1);
-      tidy_pos = ipos + 1;
-      rpos++;
+      reduction_tv->split(iteration_pos, params->lparams.bdimy() - 1);
+      tidy_pos = iteration_pos + 1;
+      reduction_pos++;
       group_pos++;
     }
     if (params->lparams.gdimx() > 1) {
       // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
       // Group, R]
-      reduction_tv->split(ipos, params->lparams.gdimx());
-      reduction_tv->axis(ipos + 1)->parallelize(ParallelType::BIDx);
-      rpos++;
+      reduction_tv->split(iteration_pos, params->lparams.gdimx());
+      reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::BIDx);
+      reduction_pos++;
       tidy_pos++;
       group_pos++;
     }
 
   } else if (params->n_grouped_rows > 1) {
     // [I, R] -> [I/TIDy, TIDy, R]
-    reduction_tv->split(ipos, params->n_grouped_rows);
-    reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
-    reduction_tv->axis(ipos + 1)->parallelize(ParallelType::TIDy);
-    rpos = ipos + 2;
+    reduction_tv->split(iteration_pos, params->n_grouped_rows);
+    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
+    reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::TIDy);
+    reduction_pos = iteration_pos + 2;
   } else {
-    reduction_tv->axis(ipos)->parallelize(ParallelType::BIDx);
+    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
   }
   TransformPropagator propagator(reduction_tv);
   MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
-  reduction_tv->axis(rpos)->parallelize(ParallelType::Bulk);
+  reduction_tv->axis(reduction_pos)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
   // Reset reduction_tv's reduction axis back to Serial (only TMA loads use
   // Bulk)
-  reduction_tv->axis(rpos)->parallelize(ParallelType::Serial);
+  reduction_tv->axis(reduction_pos)->parallelize(ParallelType::Serial);
   // For TMA tvs, we use serial to use 1 producer to serve all consumers
   // parallelized by TIDy
   if (tidy_pos > 0) {
@@ -284,20 +284,21 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   //   - b: persistent batch size (register persistent buffer size)
   //   - us: unswitch dimension (loop optimization, reduces control flow
   //   overhead)
-  reduction_tv->split(rpos, params->vectorization_factor);
-  reduction_tv->split(rpos, params->persistent_batch_size, false);
-  reduction_tv->split(rpos, 1);
-  reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
-  reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
-  reduction_tv->axis(rpos + 2)->padToMultipleOfWarp();
+  reduction_tv->split(reduction_pos, params->vectorization_factor);
+  reduction_tv->split(reduction_pos, params->persistent_batch_size, false);
+  reduction_tv->split(reduction_pos, 1);
+  reduction_tv->axis(reduction_pos + 1)->parallelize(ParallelType::Unswitch);
+  reduction_tv->axis(reduction_pos + 2)->parallelize(ParallelType::TIDx);
+  reduction_tv->axis(reduction_pos + 2)->padToMultipleOfWarp();
 
   // Create rfactor tensor to separate thread-local reduction from block
   // reduction This enables a two-stage reduction:
   //   1. Thread-local vectorized reduction (across b and v dimensions)
   //   2. Block-level reduction (across x dimension using warp/block primitives)
-  // rfactor axes: {rpos, vectorize_pos} corresponding to b and v dimensions
-  int64_t vectorize_pos = rpos + 3;
-  auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
+  // rfactor axes: {reduction_pos, vectorize_pos} corresponding to b and v
+  // dimensions
+  int64_t vectorize_pos = reduction_pos + 3;
+  auto reference_tv = reduction_tv->rFactor({reduction_pos, vectorize_pos});
 
   // Propagate transformations from reference_tv to all non-TMA tensors
   // TMA tensors keep their simple [BIDx, Bulk] schedule
@@ -408,10 +409,11 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
           auto all_vals = DependencyCheck::getAllValsBetween({tv1}, {tv2});
           auto gp_tvs = ir_utils::filterByType<TensorView>(all_vals);
           for (auto gp_tv : gp_tvs) {
-            if (gp_tv->hasBroadcast() && !exclude_tvs.contains(gp_tv)) {
-              inlineSelectedAt({gp_tv}, gp_tv, group_pos);
-              exclude_tvs.insert(gp_tv);
+            if (!gp_tv->hasBroadcast() || exclude_tvs.contains(gp_tv)) {
+              continue;
             }
+            inlineSelectedAt({gp_tv}, gp_tv, group_pos);
+            exclude_tvs.insert(gp_tv);
           }
         }
       }
@@ -427,10 +429,11 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
     CircularBufferType circular_buffer_type =
         params->circular_buffer_options.type;
     for (auto tv : tma_tvs) {
-      if (tv->getComputeAtPosition() > 0) {
-        tv->circularBuffer(
-            number_of_stages, prefetch_distance, circular_buffer_type);
+      if (tv->getComputeAtPosition() == 0) {
+        continue;
       }
+      tv->circularBuffer(
+          number_of_stages, prefetch_distance, circular_buffer_type);
     }
   }
 
