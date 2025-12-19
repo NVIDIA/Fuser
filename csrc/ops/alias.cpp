@@ -1038,8 +1038,7 @@ TensorView* broadcast(
                                .iter_type(IterType::Broadcast)
                                .build());
     } else {
-      out_domain.push_back(
-          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
+      out_domain.push_back(inp_domain[iinp]->cloneWithoutRFactor());
       iinp++;
     }
     ibdim++;
