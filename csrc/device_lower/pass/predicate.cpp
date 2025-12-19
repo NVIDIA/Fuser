@@ -144,7 +144,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return PredicateCompute::getInlinePredicate(
             pred->expr(),
             for_loops_,
-            rotated_loop_,
             pred->thread_pred(),
             pred->predicate_type());
       }
@@ -199,8 +198,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     return nullptr;
   }
 
-  // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
   // Stores combined predicate value, inline predicate value and circular buffer
   // loop index for one dim tma load.
   OneDimTmaPredicateInfo one_dim_tma_predicate_info_;
