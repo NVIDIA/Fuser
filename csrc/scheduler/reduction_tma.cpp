@@ -29,7 +29,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
-  const int64_t threads_per_warp = dev_prop->warpSize;
 
   const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
       props.max_dtype_size_bit_for_vectorization;
@@ -37,13 +36,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   if (props.inner_most_dimension_numel > smem_elems) {
     return nullptr;
   }
-
-  // Only support 2D case for now (single reduction dimension)
-  if (props.total_reduction_numel != props.inner_most_dimension_numel) {
-    return nullptr;
-  }
-
-  const int64_t total_reduction_numel = props.total_reduction_numel;
 
   // Get target vectorization/unroll factor
   auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(
@@ -54,70 +46,9 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       props.has_mufu_computation);
 
   // Initialize split factors
-  int64_t vectorization_factor = 1;
-  int64_t threads_per_block = 1;
-  int64_t unroll_factor = 1;
-
-  // Helper to compute remaining elements after all splits
-  auto getSerialRemainder = [&]() {
-    return ceilDiv(
-        ceilDiv(
-            total_reduction_numel / vectorization_factor, threads_per_block),
-        unroll_factor);
-  };
-
-  // Step 1: Set vectorization factor (inner serial split for TMA)
-  // Start with max possible, but don't exceed total reduction numel
-  vectorization_factor = std::min(
-      scheduler_utils::lastPow2(target_vect_unroll),
-      (int64_t)props.vectorize_factor);
-  vectorization_factor = std::min(vectorization_factor, total_reduction_numel);
-
-  // Step 2: Set threads per block
-  // Empirical CTA size based on computation intensity
-  int64_t target_threads_per_block = props.has_mufu_computation ? 128 : 256;
-
-  int64_t after_vect = total_reduction_numel / vectorization_factor;
-
-  // Ensure we have enough elements for at least target threads
-  if (after_vect < target_threads_per_block) {
-    // Reduce vectorization to allow more threads
-    while (vectorization_factor > 1 && after_vect < target_threads_per_block) {
-      vectorization_factor /= 2;
-      after_vect = total_reduction_numel / vectorization_factor;
-    }
-  }
-
-  // If still not enough elements, reduce target threads
-  if (after_vect < target_threads_per_block) {
-    target_threads_per_block = scheduler_utils::lastPow2(after_vect);
-    // Ensure at least one warp
-    target_threads_per_block =
-        std::max(target_threads_per_block, threads_per_warp);
-  }
-
-  threads_per_block = target_threads_per_block;
-
-  // Step 3: Set inner unroll factor (outside TIDx)
-  int64_t target_inner_unroll = target_vect_unroll / vectorization_factor;
-  int64_t after_vect_tidx = after_vect / threads_per_block;
-
-  if (after_vect_tidx > 1 && target_inner_unroll > 1) {
-    unroll_factor = std::min(
-        scheduler_utils::lastPow2(target_inner_unroll),
-        scheduler_utils::lastPow2(after_vect_tidx));
-    unroll_factor = std::max(unroll_factor, (int64_t)1);
-  }
-
-  // Final validation: ensure we have at least 1 serial iteration
-  if (getSerialRemainder() < 1) {
-    return nullptr;
-  }
-
-  // Ensure minimum threads for efficient reduction
-  if (threads_per_block < threads_per_warp) {
-    return nullptr;
-  }
+  int64_t vectorization_factor = props.vectorize_factor;
+  int64_t threads_per_block = 128;
+  int64_t unroll_factor = target_vect_unroll / vectorization_factor;
 
   auto params = std::make_unique<TmaInnerReductionParams>();
   params->vectorization_factor = vectorization_factor;
