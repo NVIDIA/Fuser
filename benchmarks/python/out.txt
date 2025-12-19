@@ -1,0 +1,135 @@
+/usr/local/lib/python3.12/dist-packages/torch/library.py:357: UserWarning: Warning only once for all operators,  other operators may also be overridden.
+  Overriding a previously registered kernel for the same operator and the same dispatch key
+  operator: flash_attn::_flash_attn_backward(Tensor dout, Tensor q, Tensor k, Tensor v, Tensor out, Tensor softmax_lse, Tensor(a6!)? dq, Tensor(a7!)? dk, Tensor(a8!)? dv, float dropout_p, float softmax_scale, bool causal, SymInt window_size_left, SymInt window_size_right, float softcap, Tensor? alibi_slopes, bool deterministic, Tensor? rng_state=None) -> Tensor
+    registered at /usr/local/lib/python3.12/dist-packages/torch/_library/custom_ops.py:926
+  dispatch key: ADInplaceOrView
+  previous kernel: no debug info
+       new kernel: registered at /usr/local/lib/python3.12/dist-packages/torch/_library/custom_ops.py:926 (Triggered internally at /opt/pytorch/pytorch/aten/src/ATen/core/dispatch/OperatorEntry.cpp:208.)
+  self.m.impl(
+/usr/local/lib/python3.12/dist-packages/transformer_engine/__init__.py:59: RuntimeWarning: Detected a Jax installation but could not find the shared object file for the Transformer Engine Jax extension library. If this is not intentional, please reinstall Transformer Engine with `pip install transformer_engine[jax]` or build from source with `NVTE_FRAMEWORK=jax`.
+  warnings.warn(
+Model BEFORE _quantize_llama4:
+Llama4ForCausalLM(
+  (model): Llama4TextModel(
+    (embed_tokens): Embedding(202048, 5120, padding_idx=200018)
+    (layers): ModuleList(
+      (0): Llama4TextDecoderLayer(
+        (self_attn): Llama4TextAttention(
+          (q_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (k_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (v_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (o_proj): Linear(in_features=5120, out_features=5120, bias=False)
+        )
+        (feed_forward): Llama4TextMLP(
+          (gate_proj): Linear(in_features=5120, out_features=16384, bias=False)
+          (up_proj): Linear(in_features=5120, out_features=16384, bias=False)
+          (down_proj): Linear(in_features=16384, out_features=5120, bias=False)
+          (activation_fn): SiLU()
+        )
+        (input_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+        (post_attention_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+      )
+      (1): Llama4TextDecoderLayer(
+        (self_attn): Llama4TextAttention(
+          (q_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (k_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (v_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (o_proj): Linear(in_features=5120, out_features=5120, bias=False)
+        )
+        (feed_forward): Llama4MoE(
+          (gate): Linear(in_features=5120, out_features=128, bias=False)
+          (shared_experts): SwiGLU(
+            (gate_proj): Linear(in_features=5120, out_features=8192, bias=False)
+            (up_proj): Linear(in_features=5120, out_features=8192, bias=False)
+            (down_proj): Linear(in_features=8192, out_features=5120, bias=False)
+          )
+          (routed_experts): GroupedSwiGLU(
+            (gate_proj): GroupedLinear()
+            (up_proj): GroupedLinear()
+            (down_proj): GroupedLinear()
+          )
+        )
+        (input_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+        (post_attention_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+      )
+    )
+    (norm): Llama4TextRMSNorm((5120,), eps=1e-05)
+    (rotary_emb): Llama4TextRotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=5120, out_features=202048, bias=False)
+)
+[DEBUG] NVFP4InferenceSwiGLU.from_swiglu called
+
+Model AFTER _quantize_llama4:
+Llama4ForCausalLM(
+  (model): Llama4TextModel(
+    (embed_tokens): Embedding(202048, 5120, padding_idx=200018)
+    (layers): ModuleList(
+      (0): Llama4TextDecoderLayer(
+        (self_attn): Llama4TextAttention(
+          (q_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (k_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (v_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (o_proj): Linear(in_features=5120, out_features=5120, bias=False)
+        )
+        (feed_forward): Llama4TextMLP(
+          (gate_proj): Linear(in_features=5120, out_features=16384, bias=False)
+          (up_proj): Linear(in_features=5120, out_features=16384, bias=False)
+          (down_proj): Linear(in_features=16384, out_features=5120, bias=False)
+          (activation_fn): SiLU()
+        )
+        (input_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+        (post_attention_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+      )
+      (1): Llama4TextDecoderLayer(
+        (self_attn): Llama4TextAttention(
+          (q_proj): Linear(in_features=5120, out_features=5120, bias=False)
+          (k_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (v_proj): Linear(in_features=5120, out_features=1024, bias=False)
+          (o_proj): Linear(in_features=5120, out_features=5120, bias=False)
+        )
+        (feed_forward): Llama4MoE(
+          (gate): Linear(in_features=5120, out_features=128, bias=False)
+          (shared_experts): NVFP4InferenceSwiGLU(
+            (gate_proj): NVFP4InferenceLinear()
+            (up_proj): NVFP4InferenceLinear()
+            (down_proj): NVFP4InferenceLinear()
+          )
+          (routed_experts): NVFP4InferenceGroupedSwiGLU(
+            (gate_proj): NVFP4InferenceGroupedLinear()
+            (up_proj): NVFP4InferenceGroupedLinear()
+            (down_proj): NVFP4InferenceGroupedLinear()
+          )
+        )
+        (input_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+        (post_attention_layernorm): Llama4TextRMSNorm((5120,), eps=1e-05)
+      )
+    )
+    (norm): Llama4TextRMSNorm((5120,), eps=1e-05)
+    (rotary_emb): Llama4TextRotaryEmbedding()
+  )
+  (lm_head): Linear(in_features=5120, out_features=202048, bias=False)
+)
+Running inference benchmark for meta-llama/Llama-4-Maverick-17B-128E
+Batch size: 1
+Input length: 4096
+Output length: 2
+Mode: thunder
+
+Warming up with 10 iterations...
+Traceback (most recent call last):
+  File "/opt/pytorch/nvfuser/benchmarks/python/benchmark_inference.py", line 890, in <module>
+    main()
+  File "/opt/pytorch/nvfuser/benchmarks/python/benchmark_inference.py", line 870, in main
+    benchmark.run_benchmark()
+  File "/opt/pytorch/nvfuser/benchmarks/python/benchmark_inference.py", line 593, in run_benchmark
+    input_ids, past_key_values = self.generate_batch()
+                                 ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/pytorch/nvfuser/benchmarks/python/benchmark_inference.py", line 462, in generate_batch
+    input_ids = torch.randint(0, self.vocab_size, (batch_size, input_length), device=DEVICE)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+torch.AcceleratorError: CUDA error: device-side assert triggered
+Search for `cudaErrorAssert' in https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__TYPES.html for more information.
+CUDA kernel errors might be asynchronously reported at some other API call, so the stacktrace below might be incorrect.
+For debugging consider passing CUDA_LAUNCH_BLOCKING=1
+Compile with `TORCH_USE_CUDA_DSA` to enable device-side assertions.
