@@ -67,33 +67,6 @@ def get_compiler_info() -> Optional[Tuple[str, Tuple[int, int, int]]]:
         return None
 
 
-def check_format_support(compiler_type: str = "gcc") -> bool:
-    """
-    Test if the C++ compiler's standard library has <format> header support.
-
-    Args:
-        compiler_type: "gcc" or "clang" to select appropriate compiler command
-
-    Returns:
-        bool: True if <format> header compiles successfully, False otherwise
-    """
-    test_code = "#include <format>\nint main() { return 0; }"
-    cxx = "clang++" if compiler_type == "clang" else "g++"
-
-    try:
-        result = subprocess.run(
-            [cxx, "-std=c++20", "-x", "c++", "-", "-o", "/dev/null"],
-            input=test_code,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        return result.returncode == 0
-
-    except FileNotFoundError:
-        return False
-
-
 def validate_compiler() -> Tuple[str, Tuple[int, int, int]]:
     """
     Validate that C++ compiler meets requirements (GCC 13+ or Clang 19+).
@@ -126,12 +99,4 @@ def validate_compiler() -> Tuple[str, Tuple[int, int, int]]:
             f"ERROR: nvFuser requires {req.name} {req.min_display} to build.\n"
             f"Found: {req.name} {format_version(version)}\n\n"
         )
-
-    # Verify <format> header is actually available
-    if not check_format_support(compiler_type):
-        raise PrerequisiteMissingError(
-            f"ERROR: {req.name} {format_version(version)} detected but <format> header not available.\n\n"
-            f"The C++20 <format> header is required by nvFuser's source code.\n"
-        )
-
     return (compiler_type, version)
