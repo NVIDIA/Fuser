@@ -351,11 +351,13 @@ TEST_F(RaggedIterDomainTest, CombineBasic) {
 
   // Create a regular IterDomain to partition
   auto orig_id = IterDomainBuilder(
-                     fusion.zeroVal(DataType::Index), IrBuilder::create<Val>(325L, DataType::Index))
+                     fusion.zeroVal(DataType::Index),
+                     IrBuilder::create<Val>(325L, DataType::Index))
                      .build();
 
   // Partition into component and ragged
-  auto [component_id, ragged_id] = RaggedIterDomain::partition(orig_id, extents);
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(orig_id, extents);
 
   // Verify partition worked
   EXPECT_NE(component_id, nullptr);
@@ -395,8 +397,7 @@ TEST_F(RaggedIterDomainTest, CombineValidationNullComponent) {
 
   // Should fail with null component
   EXPECT_THROW(
-      RaggedIterDomain::combine(nullptr, ragged_id),
-      nvfuser::nvfError);
+      RaggedIterDomain::combine(nullptr, ragged_id), nvfuser::nvfError);
 }
 
 // Test combine validation: null ragged
@@ -405,13 +406,13 @@ TEST_F(RaggedIterDomainTest, CombineValidationNullRagged) {
   FusionGuard fg(&fusion);
 
   auto component_id = IterDomainBuilder(
-                          fusion.zeroVal(DataType::Index), IrBuilder::create<Val>(3L, DataType::Index))
+                          fusion.zeroVal(DataType::Index),
+                          IrBuilder::create<Val>(3L, DataType::Index))
                           .build();
 
   // Should fail with null ragged
   EXPECT_THROW(
-      RaggedIterDomain::combine(component_id, nullptr),
-      nvfuser::nvfError);
+      RaggedIterDomain::combine(component_id, nullptr), nvfuser::nvfError);
 }
 
 // Test combine validation: component is RaggedIterDomain
@@ -431,8 +432,7 @@ TEST_F(RaggedIterDomainTest, CombineValidationComponentIsRagged) {
 
   // Should fail when component is also RaggedIterDomain
   EXPECT_THROW(
-      RaggedIterDomain::combine(ragged_id1, ragged_id2),
-      nvfuser::nvfError);
+      RaggedIterDomain::combine(ragged_id1, ragged_id2), nvfuser::nvfError);
 }
 
 // asNested basic functionality
@@ -479,6 +479,145 @@ TEST_F(RaggedIterDomainTest, AsNestedBasic) {
   EXPECT_TRUE(nested->axis(0)->definition() != nullptr);
   EXPECT_TRUE(nested->axis(0)->definition()->isA<Partition>());
   EXPECT_EQ(nested->axis(0)->definition(), nested->axis(1)->definition());
+}
+
+// Test combining nested tensor back to normal tensor
+TEST_F(RaggedIterDomainTest, AsNestedThenCombine) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  // Create nested tensor from dimension 0
+  auto nested = asNested(data, extents, 0);
+
+  // Verify nested tensor has 3 dimensions: [component, ragged, original_dim1]
+  EXPECT_EQ(nested->nDims(), 3);
+  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(nested->axis(1)->isA<RaggedIterDomain>());
+
+  // Get the component and ragged IterDomains
+  auto component_id = nested->axis(0);
+  auto ragged_id = nested->axis(1)->as<RaggedIterDomain>();
+
+  // Combine them back into a normal IterDomain
+  auto combined_id = RaggedIterDomain::combine(component_id, ragged_id);
+
+  // Verify the combined IterDomain is a regular IterDomain, not ragged
+  EXPECT_NE(combined_id, nullptr);
+  EXPECT_TRUE(combined_id->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(combined_id->isA<RaggedIterDomain>());
+
+  // Verify the combined IterDomain has a Combine definition
+  EXPECT_NE(combined_id->definition(), nullptr);
+  EXPECT_TRUE(combined_id->definition()->isA<Combine>());
+
+  // Verify the Combine expression has correct inputs
+  auto combine_expr = combined_id->definition()->as<Combine>();
+  EXPECT_EQ(combine_expr->component(), component_id);
+  EXPECT_EQ(combine_expr->ragged(), ragged_id);
+  EXPECT_EQ(combine_expr->out(), combined_id);
+
+  // Verify that the component came from the same Partition as the ragged
+  EXPECT_NE(component_id->definition(), nullptr);
+  EXPECT_TRUE(component_id->definition()->isA<Partition>());
+  EXPECT_EQ(component_id->definition(), ragged_id->definition());
+
+  auto partition_expr = component_id->definition()->as<Partition>();
+  EXPECT_EQ(partition_expr->component(), component_id);
+  EXPECT_EQ(partition_expr->ragged(), ragged_id);
+}
+
+// Test combining nested tensor back to normal tensor after set operation
+TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombine) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  // Create nested tensor from dimension 0
+  auto nested = asNested(data, extents, 0);
+
+  // Insert a set operation after asNested
+  auto nested_copy = set(nested);
+
+  // Verify nested_copy tensor has 3 dimensions: [component, ragged,
+  // original_dim1]
+  EXPECT_EQ(nested_copy->nDims(), 3);
+  EXPECT_TRUE(nested_copy->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(nested_copy->axis(1)->isA<RaggedIterDomain>());
+
+  // Get the component and ragged IterDomains from the copy
+  auto component_id = nested_copy->axis(0);
+  auto ragged_id = nested_copy->axis(1)->as<RaggedIterDomain>();
+
+  // Combine them back into a normal IterDomain. Even though
+  // component_id and ragged_id are not directly produced by a
+  // partition, this should succeed. See the next test
+  // (AsNestedThenSetThenCombineInvalidComponent) for a failing example.
+  auto combined_id = RaggedIterDomain::combine(component_id, ragged_id);
+
+  // Verify the combined IterDomain is a regular IterDomain, not ragged
+  EXPECT_NE(combined_id, nullptr);
+  EXPECT_TRUE(combined_id->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(combined_id->isA<RaggedIterDomain>());
+
+  // Verify the combined IterDomain has a Combine definition
+  EXPECT_NE(combined_id->definition(), nullptr);
+  EXPECT_TRUE(combined_id->definition()->isA<Combine>());
+
+  // Verify the Combine expression has correct inputs
+  auto combine_expr = combined_id->definition()->as<Combine>();
+  EXPECT_EQ(combine_expr->component(), component_id);
+  EXPECT_EQ(combine_expr->ragged(), ragged_id);
+  EXPECT_EQ(combine_expr->out(), combined_id);
+}
+
+// Test combining with invalid component (not from same partition) - should
+// error
+TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombineInvalidComponent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  // Create nested tensor from dimension 0
+  auto nested = asNested(data, extents, 0);
+
+  // Insert a set operation after asNested
+  auto nested_copy = set(nested);
+
+  // Verify nested_copy tensor has 3 dimensions: [component, ragged,
+  // original_dim1]
+  EXPECT_EQ(nested_copy->nDims(), 3);
+  EXPECT_TRUE(nested_copy->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(nested_copy->axis(1)->isA<RaggedIterDomain>());
+
+  // Get the ragged IterDomain from the copy
+  auto ragged_id = nested_copy->axis(1)->as<RaggedIterDomain>();
+
+  // Use an INVALID component: the third axis instead of the first
+  // This is NOT the component from the partition, it's the original second
+  // dimension
+  auto invalid_component_id = nested_copy->axis(2);
+
+  // Try to combine with the wrong component - this should fail
+  // The component must be from the same Partition as the ragged IterDomain
+  EXPECT_THROW(
+      RaggedIterDomain::combine(invalid_component_id, ragged_id),
+      nvfuser::nvfError);
 }
 
 // asNested on different dimensions
