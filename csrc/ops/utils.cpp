@@ -316,8 +316,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 }
 
 RaggedIterDomain* newOutputRaggedIterDomain(
-    const std::vector<IterDomain*>& input_ids,
-    const std::unordered_map<IterDomain*, IterDomain*>& p2c_map) {
+    const std::vector<IterDomain*>& input_ids) {
   NVF_ERROR(
       std::ranges::all_of(
           input_ids,
@@ -330,19 +329,12 @@ RaggedIterDomain* newOutputRaggedIterDomain(
 
   // Just using the first ragged ID as all input IDs are assumed to be
   // equivalent
-  auto ref_input_id = input_ids.front()->as<RaggedIterDomain>();
-
-  auto component_id_it = p2c_map.find(ref_input_id->component());
-  NVF_ERROR(
-      component_id_it != p2c_map.end(),
-      "No p2c mapping found for component ID of ",
-      ref_input_id->component()->toString());
+  RaggedIterDomain* ref_input_id = input_ids.front()->as<RaggedIterDomain>();
 
   return IrBuilder::create<RaggedIterDomain>(
       ref_input_id->extents(),
       ref_input_id->getIterType(),
-      ref_input_id->getParallelType(),
-      component_id_it->second);
+      ref_input_id->getParallelType());
 }
 
 // Adding these pragmas since gcc-12.2.1
@@ -356,12 +348,18 @@ IterDomain* newOutputIterDomain(
     const std::optional<IterType> force_iter_type) {
   NVF_ERROR(!input_ids.empty());
 
-  NVF_ERROR(
-      std::none_of(
-          input_ids.begin(),
-          input_ids.end(),
-          [](IterDomain* id) { return id->isA<RaggedIterDomain>(); }),
-      "RaggedIterDomain should use newOutputRaggedIterDomain");
+  // If any input ID is a RaggedIterDomain, the output should also be ragged
+  bool has_ragged =
+      std::any_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
+        return id->isA<RaggedIterDomain>();
+      });
+
+  if (has_ragged) {
+    NVF_ERROR(
+        !force_iter_type.has_value(),
+        "force_iter_type not supported for RaggedIterDomain");
+    return newOutputRaggedIterDomain(input_ids);
+  }
 
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
@@ -473,47 +471,15 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   std::vector<IterDomain*> out_domain(
       TensorDomain::noReductions(tvs[0]->getLogicalDomain()).size(), nullptr);
 
-  const auto is_nested = tvs.front()->domain()->hasRaggedIterDomain();
-  std::unordered_map<IterDomain*, IterDomain*> p2c_map;
-
-  auto get_ith_id = [](const std::vector<IterDomain*>& domain,
-                       int64_t i) -> IterDomain* {
-    auto no_reduction_domain = domain | TensorDomain::kNoReductions;
-    auto id_it = std::ranges::next(no_reduction_domain.begin(), i);
-    NVF_ERROR(id_it != no_reduction_domain.end());
-    return *id_it;
-  };
-
-  std::vector<int64_t> ragged_id_offsets;
-
-  for (const auto dim_i : arange(std::ssize(out_domain))) {
-    if (get_ith_id(tvs.front()->getLogicalDomain(), dim_i)
-            ->isA<RaggedIterDomain>()) {
-      ragged_id_offsets.push_back(dim_i);
-      continue;
-    }
+  for (const auto dim_i : arange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
-      input_ids.emplace_back(get_ith_id(tv->getLogicalDomain(), dim_i));
+      auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
+      input_ids.emplace_back(dom[dim_i]);
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
-    if (is_nested) {
-      for (auto input_id : input_ids) {
-        p2c_map.emplace(input_id, out_domain[dim_i]);
-      }
-    }
   }
-
-  for (const auto dim_i : ragged_id_offsets) {
-    std::vector<IterDomain*> input_ids;
-    input_ids.reserve(tvs.size());
-    for (auto* tv : tvs) {
-      input_ids.emplace_back(get_ith_id(tv->getLogicalDomain(), dim_i));
-    }
-    out_domain[dim_i] = newOutputRaggedIterDomain(input_ids, p2c_map);
-  }
-
   return out_domain;
 }
 

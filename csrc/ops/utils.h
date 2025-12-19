@@ -96,8 +96,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 // dimension position. All inputs must be RaggedIterDomain. Uses the extents,
 // IterType, and ParallelType from the first input.
 RaggedIterDomain* newOutputRaggedIterDomain(
-    const std::vector<IterDomain*>& input_ids,
-    const std::unordered_map<IterDomain*, IterDomain*>& p2c_map);
+    const std::vector<IterDomain*>& input_ids);
 
 // Takes a vector of aligned input iterdomains to create the output iterdomain.
 // This is used if the input iterdomains are not trivially mapped to the output

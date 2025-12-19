@@ -116,6 +116,7 @@ class Val;
   f(ScanOp);                         \
   f(Merge);                          \
   f(Partition);                      \
+  f(Combine);                        \
   f(Swizzle);                        \
   f(Swizzle2D);                      \
   f(Resize);                         \

@@ -906,8 +906,7 @@ RaggedIterDomain::RaggedIterDomain(
     IrBuilderPasskey passkey,
     TensorView* extents,
     IterType iter_type,
-    ParallelType parallel_type,
-    IterDomain* component)
+    ParallelType parallel_type)
     : IterDomain(
           passkey,
           ValType::RaggedIterDomain,
@@ -921,8 +920,7 @@ RaggedIterDomain::RaggedIterDomain(
           /*is_padded_dimension=*/false,
           /*is_clustered_blocks=*/false,
           /*padded_to_size=*/std::nullopt),
-      extents_(extents),
-      component_(component) {
+      extents_(extents) {
   // Extents must be non-null
   NVF_ERROR(
       extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
@@ -945,9 +943,7 @@ RaggedIterDomain::RaggedIterDomain(
 RaggedIterDomain::RaggedIterDomain(
     const RaggedIterDomain* src,
     IrCloner* ir_cloner)
-    : IterDomain(src, ir_cloner),
-      extents_(ir_cloner->clone(src->extents_)),
-      component_(ir_cloner->clone(src->component_)) {}
+    : IterDomain(src, ir_cloner), extents_(ir_cloner->clone(src->extents_)) {}
 
 NVFUSER_DEFINE_CLONE(RaggedIterDomain)
 
@@ -968,18 +964,7 @@ bool RaggedIterDomain::sameAs(const Statement* other) const {
   }
 
   // Compare extents tensor
-  if (!extents_->sameAs(other_ragged->extents_)) {
-    return false;
-  }
-
-  // Compare component pointers
-  if (component_ == other_ragged->component_) {
-    return true; // Same pointer (including both null)
-  }
-  if (component_ && other_ragged->component_) {
-    return component_->sameAs(other_ragged->component_);
-  }
-  return false; // One is null, other is not
+  return extents_->sameAs(other_ragged->extents_);
 }
 
 std::string RaggedIterDomain::toInlineString(int indent_size) const {
@@ -1061,8 +1046,8 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
                           .iter_type(IterType::Iteration)
                           .build();
 
-  auto ragged_id = IrBuilder::create<RaggedIterDomain>(
-      extents, in->getIterType(), ParallelType::Serial, component_id);
+  auto ragged_id =
+      IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
 
   IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
 
@@ -1109,22 +1094,29 @@ IterDomain* RaggedIterDomain::combine(
       " for RaggedIterDomain: ",
       ragged->toString());
 
-  // Validate that component matches the ragged's stored component
-  IterDomain* expected_component = ragged->component();
+  // Validate component-ragged pairing when Partition definition is available
+  // (Option 3: Best-effort validation)
+  // Only validate when the RaggedIterDomain has a direct Partition definition.
+  // After propagation (e.g., set() operations), the definition may be nullptr,
+  // in which case we trust the user to provide the correct component.
+  if (ragged->definition() != nullptr &&
+      ragged->definition()->isA<Partition>()) {
+    auto* partition = ragged->definition()->as<Partition>();
+    IterDomain* expected_component = partition->component();
 
-  NVF_ERROR(
-      expected_component != nullptr,
-      "combine: ragged IterDomain does not have an associated component. ",
-      "RaggedIterDomain: ",
-      ragged->toString());
-
-  NVF_ERROR(
-      component == expected_component,
-      "combine: component does not match the ragged's paired component. ",
-      "Provided component: ",
-      component->toString(),
-      ", Expected component: ",
-      expected_component->toString());
+    NVF_ERROR(
+        component == expected_component,
+        "combine: component mismatch. The provided component does not match ",
+        "the component from the Partition that created this "
+        "RaggedIterDomain.\n",
+        "  Provided component: ",
+        component->toString(),
+        "\n",
+        "  Expected component: ",
+        expected_component->toString());
+  }
+  // If no Partition definition (after set, in segmented fusion, or external
+  // input), trust the user and proceed without validation
 
   // The combined extent is the sum of all extents in the ragged dimension
   // For a 1D extents tensor [e0, e1, ..., en-1], the total is sum(extents)

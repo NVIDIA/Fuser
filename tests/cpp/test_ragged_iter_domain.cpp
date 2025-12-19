@@ -582,7 +582,10 @@ TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombine) {
 }
 
 // Test combining with invalid component (not from same partition) - should
-// error
+// Test combining after set operation with invalid component
+// With Option 3 validation strategy, this does NOT throw an error
+// because after set(), the RaggedIterDomain loses its Partition definition
+// and validation is skipped (trusts the user)
 TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombineInvalidComponent) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -613,11 +616,10 @@ TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombineInvalidComponent) {
   // dimension
   auto invalid_component_id = nested_copy->axis(2);
 
-  // Try to combine with the wrong component - this should fail
-  // The component must be from the same Partition as the ragged IterDomain
-  EXPECT_THROW(
-      RaggedIterDomain::combine(invalid_component_id, ragged_id),
-      nvfuser::nvfError);
+  // With Option 3: After set(), the RaggedIterDomain no longer has a
+  // Partition definition, so validation is skipped and the operation succeeds.
+  // The user is responsible for providing the correct component.
+  EXPECT_NO_THROW(RaggedIterDomain::combine(invalid_component_id, ragged_id));
 }
 
 // asNested on different dimensions
