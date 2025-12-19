@@ -114,54 +114,35 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Non-TMA scheduling
   //
   // Apply splits following the pattern:
-  // [I, R] -> [I, R/vect, vect] -> [I, R/vect/tidx, tidx, vect]
+  // [I, R] -> [I, R/vect, vect]
+  //        -> [I, R/vect/tidx, tidx, vect]
   //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
-  //        -> [I, serial, unswitch, unroll, tidx, vect]
 
   // Split 1: Vectorization factor (innermost serial split for TMA)
   if (rparams->vectorization_factor > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(ParallelType::Serial);
   }
 
   // Split 2: TIDx (always applied)
   reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
+  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
 
   // Split 3: Inner unroll (outside of TIDx)
   if (rparams->unroll_factor > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->unroll_factor);
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(ParallelType::Unroll);
   }
 
   // Split 4: Unswitch (always applied)
   reduction_tv->split(inner_reduce_axis, 1);
-
-  // Calculate axis positions after all splits
-  // Starting from inner_reduce_axis = 1, after N splits we have:
-  // [I, serial, unswitch?, unroll?, tidx, vect?]
-  int64_t current_axis = inner_reduce_axis;
+  reduction_tv->axis(inner_reduce_axis + 1)
+      ->parallelize(ParallelType::Unswitch);
 
   // Serial outer loop (remainder after all splits)
-  reduction_tv->axis(current_axis)->parallelize(ParallelType::Serial);
-  current_axis++;
-
-  // Unswitch axis (always present)
-  reduction_tv->axis(current_axis)->parallelize(ParallelType::Unswitch);
-  current_axis++;
-
-  // Unroll axis (if unroll_factor > 1)
-  if (rparams->unroll_factor > 1) {
-    reduction_tv->axis(current_axis)->parallelize(ParallelType::Unroll);
-    current_axis++;
-  }
-
-  // TIDx axis (always present)
-  reduction_tv->axis(current_axis)->parallelize(ParallelType::TIDx);
-  current_axis++;
-
-  // Vectorization axis (inner serial for TMA, if > 1)
-  if (rparams->vectorization_factor > 1) {
-    reduction_tv->axis(current_axis)->parallelize(ParallelType::Serial);
-    current_axis++;
-  }
+  reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
 
   // Parallelize iteration axis
   reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
