@@ -2690,16 +2690,6 @@ TEST_P(TmaInnerReductionTest, Basic) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(element_at_each_dim, options);
 
-  bool is_auto_schedule = true;
-  if (is_auto_schedule) {
-    // Auto-schedule path: Let the scheduler automatically determine optimal
-    // transformations and parallelization.
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-    testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
-    return;
-  }
-
   // Phase-1, Set input and output cache and TMA load
   auto tv0smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0smem->setMemoryType(MemoryType::Shared);
