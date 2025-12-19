@@ -524,6 +524,107 @@ class NVFP4InferenceGroupedSwiGLU(nn.Module):
         return NVFP4InferenceGroupedSwiGLU(gate_proj, up_proj, down_proj)
 
 
+class NVFP4InferenceLinear(nn.Module):
+    """NVFP4 Linear layer for inference using nvf_cutlass.nvfp4_scaled_mm."""
+
+    def __init__(self, in_features: int, out_features: int):
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        # Weight will be in FP4 format
+        self.register_buffer("weight", torch.empty((out_features, in_features // 2), dtype=torch.uint8, device="cuda"))
+        # Block scale for weight quantization
+        self.register_buffer("weight_scale", torch.empty((out_features, in_features // 16), dtype=torch.float8_e4m3fn, device="cuda"))
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Forward pass using nvfp4_scaled_mm.
+
+        Args:
+            hidden_states: Input tensor of shape [batch, seq_len, in_features]
+
+        Returns:
+            Output tensor of shape [batch, seq_len, out_features]
+        """
+        original_shape = hidden_states.shape
+        # Flatten to 2D for matmul
+        hidden_states_2d = hidden_states.view(-1, self.in_features)
+
+        # Compute block scale for input
+        input_scale = compute_nvfp4_blockscale(hidden_states_2d)
+
+        # Use nvfp4_scaled_mm which handles the full computation
+        output = nvf_cutlass.nvfp4_scaled_mm(
+            hidden_states_2d,
+            input_scale,
+            self.weight,
+            self.weight_scale
+        )
+
+        # Reshape back to original shape
+        return output.view(*original_shape[:-1], self.out_features)
+
+    @staticmethod
+    def from_linear(linear: nn.Linear, fqn: str | None = None) -> NVFP4InferenceLinear:
+        """Create an NVFP4InferenceLinear from a standard Linear layer.
+
+        Args:
+            linear (nn.Linear): The source Linear layer.
+            fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
+        """
+        nvfp4_linear = NVFP4InferenceLinear(linear.in_features, linear.out_features)
+
+        # Quantize the weight to FP4
+        weight_fp4, weight_scale, _ = quantize_linear_weight_to_nvfp4(linear.weight)
+        nvfp4_linear.weight.copy_(weight_fp4)
+        nvfp4_linear.weight_scale.copy_(weight_scale)
+
+        return nvfp4_linear
+
+
+class NVFP4InferenceSwiGLU(nn.Module):
+    """NVFP4 SwiGLU for inference using NVFP4InferenceLinear."""
+
+    def __init__(
+        self,
+        gate_proj: NVFP4InferenceLinear,
+        up_proj: NVFP4InferenceLinear,
+        down_proj: NVFP4InferenceLinear,
+    ):
+        super().__init__()
+        self.gate_proj = gate_proj
+        self.up_proj = up_proj
+        self.down_proj = down_proj
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Forward pass through SwiGLU.
+
+        Args:
+            hidden_states: Input tensor
+
+        Returns:
+            Output tensor after SwiGLU transformation
+        """
+        gate_out = self.gate_proj(hidden_states)
+        up_out = self.up_proj(hidden_states)
+
+        intermediate = torch.nn.functional.silu(gate_out) * up_out
+
+        return self.down_proj(intermediate)
+
+    @staticmethod
+    def from_swiglu(swiglu, fqn: str | None = None) -> NVFP4InferenceSwiGLU:
+        """Create an NVFP4InferenceSwiGLU from a SwiGLU module.
+
+        Args:
+            swiglu: The source SwiGLU module (should have gate_proj, up_proj, down_proj).
+            fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
+        """
+        gate_proj = NVFP4InferenceLinear.from_linear(swiglu.gate_proj)
+        up_proj = NVFP4InferenceLinear.from_linear(swiglu.up_proj)
+        down_proj = NVFP4InferenceLinear.from_linear(swiglu.down_proj)
+        return NVFP4InferenceSwiGLU(gate_proj, up_proj, down_proj)
+
+
 # Slightly modified version of `thunder.tests.test_networks.Llama4MoE`
 # to have the same singature as transformers' Llama4TextMoe -- in this file
 # return values include `router_logits`.

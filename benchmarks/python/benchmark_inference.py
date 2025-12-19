@@ -48,6 +48,8 @@ import thunder
 from thunder.dynamo.compiler import thunderfx
 from layers_for_inference_benchmark import (
     GroupedSwiGLU,
+    NVFP4InferenceSwiGLU,
+    SwiGLU,
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
@@ -201,6 +203,11 @@ def _quantize_llama4(model: nn.Module) -> None:
         lambda model, cur_fqn: isinstance(model, GroupedSwiGLU),
     )
 
+    _replace_with_custom_fn_if_matches_filter_with_name(
+        model,
+        NVFP4InferenceSwiGLU.from_swiglu,
+        lambda model, cur_fqn: isinstance(model, SwiGLU),
+    )
 
 @contextmanager
 def timer():
@@ -352,7 +359,11 @@ class InferenceBenchmark:
         self.vocab_size = model.vocab_size
 
         if self.config.enable_nvfp4:
+            print("Model BEFORE _quantize_llama4:")
+            print(model)
             _quantize_llama4(model)
+            print("\nModel AFTER _quantize_llama4:")
+            print(model)
 
         # If debug_moe is on, we'll only compile the moe section, which is much easier to digest.
         if self.config.debug_moe:
