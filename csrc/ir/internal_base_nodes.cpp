@@ -1095,7 +1095,7 @@ IterDomain* RaggedIterDomain::combine(
       ragged->toString());
 
   // Validate component-ragged pairing when Partition definition is available
-  // (Option 3: Best-effort validation)
+  // (Option 3 of doc/dev/ragged_iter_domain_combine_design_doc.md).
   // Only validate when the RaggedIterDomain has a direct Partition definition.
   // After propagation (e.g., set() operations), the definition may be nullptr,
   // in which case we trust the user to provide the correct component.
