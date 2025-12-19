@@ -241,17 +241,15 @@ TensorView* scheduleReductionTV(
     if (rparams->pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
     }
-  } else { // Here
+  } else {
     // Non-persistent format:
     // [Grid Split, Remainder, unswitch, unroll, thread dim, vectorize]
     if (rparams->vectorize_inner_reduction) {
-      vectorize(
-          inner_reduce_axis, rparams->unroll_factor_inner_reduction); // Here
+      vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
 
     if (rparams->cross_block_inner_reduction) {
-      inner_parallel(
-          inner_reduce_axis, rparams->block_dim_inner_reduction); // Here
+      inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
       if (rparams->pad_inner_reduction_to_warp) {
         reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
       }
@@ -265,11 +263,10 @@ TensorView* scheduleReductionTV(
           inner_reduce_axis, rparams->unroll_factor_top_of_vectorization);
     }
 
-    inner_unswitch(inner_reduce_axis); // Here
+    inner_unswitch(inner_reduce_axis);
     if (rparams->cross_grid_inner_reduction) {
       if (rparams->split_grid_dim_inner_reduction) {
-        outer_parallel(
-            inner_reduce_axis, rparams->grid_dim_inner_reduction); // Here
+        outer_parallel(inner_reduce_axis, rparams->grid_dim_inner_reduction);
       } else {
         reduction_tv->axis(inner_reduce_axis)
             ->parallelize(rparams->grid_dim_inner_reduction);
