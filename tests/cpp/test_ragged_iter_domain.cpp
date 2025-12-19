@@ -340,6 +340,101 @@ TEST_F(RaggedIterDomainTest, TensorViewPartition) {
   EXPECT_EQ(tv0->axis(0)->definition(), tv0->axis(1)->definition());
 }
 
+// Test combining component and ragged IterDomains (inverse of partition)
+TEST_F(RaggedIterDomainTest, CombineBasic) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create extents tensor
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  // Create a regular IterDomain to partition
+  auto orig_id = IterDomainBuilder(
+                     fusion.zeroVal(DataType::Index), IrBuilder::create<Val>(325L, DataType::Index))
+                     .build();
+
+  // Partition into component and ragged
+  auto [component_id, ragged_id] = RaggedIterDomain::partition(orig_id, extents);
+
+  // Verify partition worked
+  EXPECT_NE(component_id, nullptr);
+  EXPECT_NE(ragged_id, nullptr);
+  EXPECT_TRUE(component_id->isA<IterDomain>());
+  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
+
+  // Now combine them back
+  auto combined_id = RaggedIterDomain::combine(component_id, ragged_id);
+
+  // Verify combine worked
+  EXPECT_NE(combined_id, nullptr);
+  EXPECT_TRUE(combined_id->isA<IterDomain>());
+  EXPECT_FALSE(combined_id->isA<RaggedIterDomain>());
+
+  // Verify the combine has a definition (Combine expr)
+  EXPECT_NE(combined_id->definition(), nullptr);
+  EXPECT_TRUE(combined_id->definition()->isA<Combine>());
+
+  // Verify the Combine expression has correct inputs
+  auto combine_expr = combined_id->definition()->as<Combine>();
+  EXPECT_EQ(combine_expr->component(), component_id);
+  EXPECT_EQ(combine_expr->ragged(), ragged_id);
+  EXPECT_EQ(combine_expr->out(), combined_id);
+}
+
+// Test combine validation: null component
+TEST_F(RaggedIterDomainTest, CombineValidationNullComponent) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto extents = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents);
+
+  auto ragged_id =
+      IrBuilder::create<RaggedIterDomain>(extents, IterType::Iteration);
+
+  // Should fail with null component
+  EXPECT_THROW(
+      RaggedIterDomain::combine(nullptr, ragged_id),
+      nvfuser::nvfError);
+}
+
+// Test combine validation: null ragged
+TEST_F(RaggedIterDomainTest, CombineValidationNullRagged) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto component_id = IterDomainBuilder(
+                          fusion.zeroVal(DataType::Index), IrBuilder::create<Val>(3L, DataType::Index))
+                          .build();
+
+  // Should fail with null ragged
+  EXPECT_THROW(
+      RaggedIterDomain::combine(component_id, nullptr),
+      nvfuser::nvfError);
+}
+
+// Test combine validation: component is RaggedIterDomain
+TEST_F(RaggedIterDomainTest, CombineValidationComponentIsRagged) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto extents1 = makeSymbolicTensor(1, DataType::Index);
+  auto extents2 = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(extents1);
+  fusion.addInput(extents2);
+
+  auto ragged_id1 =
+      IrBuilder::create<RaggedIterDomain>(extents1, IterType::Iteration);
+  auto ragged_id2 =
+      IrBuilder::create<RaggedIterDomain>(extents2, IterType::Iteration);
+
+  // Should fail when component is also RaggedIterDomain
+  EXPECT_THROW(
+      RaggedIterDomain::combine(ragged_id1, ragged_id2),
+      nvfuser::nvfError);
+}
+
 // asNested basic functionality
 TEST_F(RaggedIterDomainTest, AsNestedBasic) {
   Fusion fusion;

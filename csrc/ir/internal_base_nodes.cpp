@@ -1054,6 +1054,82 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
   return {component_id, ragged_id};
 }
 
+IterDomain* RaggedIterDomain::combine(
+    IterDomain* component,
+    RaggedIterDomain* ragged) {
+  NVF_ERROR(component != nullptr, "combine: component IterDomain is null");
+  NVF_ERROR(ragged != nullptr, "combine: ragged IterDomain is null");
+
+  NVF_ERROR(
+      !component->isA<RaggedIterDomain>(),
+      "combine: component must be a regular IterDomain, got RaggedIterDomain: ",
+      component->toString());
+
+  // Validate that component and ragged have compatible properties
+  NVF_ERROR_EQ(
+      component->getParallelType(),
+      ParallelType::Serial,
+      "Combining parallelized IterDomain not supported: ",
+      component->toString());
+
+  NVF_ERROR_EQ(
+      ragged->getParallelType(),
+      ParallelType::Serial,
+      "Combining parallelized RaggedIterDomain not supported: ",
+      ragged->toString());
+
+  NVF_ERROR_EQ(
+      component->getIterType(),
+      IterType::Iteration,
+      "combine: only IterType::Iteration is supported for component, got ",
+      component->getIterType(),
+      " for IterDomain: ",
+      component->toString());
+
+  NVF_ERROR_EQ(
+      ragged->getIterType(),
+      IterType::Iteration,
+      "combine: only IterType::Iteration is supported for ragged, got ",
+      ragged->getIterType(),
+      " for RaggedIterDomain: ",
+      ragged->toString());
+
+  // The combined extent is the sum of all extents in the ragged dimension
+  // For a 1D extents tensor [e0, e1, ..., en-1], the total is sum(extents)
+  TensorView* extents_tv = ragged->extents();
+  NVF_ERROR(extents_tv != nullptr, "combine: ragged extents tensor is null");
+
+  // It is still assumed the extents tensor is just 1D
+  NVF_ERROR_EQ(
+      std::ssize(extents_tv->getLogicalDomain()),
+      1,
+      "Unexpected rank of extent tensor: ",
+      extents_tv->toString());
+
+  auto container = component->container();
+  auto zero = container->zeroVal(DataType::Index);
+
+  // Create a symbolic extent for the combined IterDomain
+  // This represents the sum of all ragged extents, i.e.,
+  // sum(extents_tv, {0}). We could use the sum output as the extent
+  // but we would need to extract the scalar value out of the 0-dim
+  // tensor. For now, we leave it as a symbolic Val.
+  Val* combined_extent =
+      IrBuilder::createInContainer<Val>(container, DataType::Index);
+
+  // Create the combined IterDomain with the symbolic extent
+  IterDomain* combined_id = IterDomainBuilder(zero, combined_extent)
+                                .parallel_type(ParallelType::Serial)
+                                .iter_type(IterType::Iteration)
+                                .build();
+
+  // Create the Combine expression linking component + ragged -> combined
+  IrBuilder::createInContainer<Combine>(
+      container, combined_id, component, ragged);
+
+  return combined_id;
+}
+
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
