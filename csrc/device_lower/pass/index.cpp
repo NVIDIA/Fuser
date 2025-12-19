@@ -470,7 +470,6 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             loop->iter_domain(),
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {
-      // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
       pushBack(IrBuilder::create<LoadStoreOp>(
           LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
@@ -642,7 +641,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
       // already accounted for.
       continue;
     }
-    // TODO: Does this work for shift/gather/loop rotation?
+    // TODO: Does this work for shift/gather?
     linear_index = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(
             linear_index, loop->iter_domain()->extent()),

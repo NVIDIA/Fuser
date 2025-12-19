@@ -713,7 +713,6 @@ void propagateReshapeTransforms(Fusion* fusion);
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
 
-
 //! Certain tensors may need to be placed on shared or global memory
 //! due to data dependencies caused by resize operations. Create
 //! caches of those tensors so that original operations producing

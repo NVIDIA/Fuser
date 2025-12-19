@@ -1300,7 +1300,6 @@ void AmpereMinus::setUpCircularBuffering() {
       safely_apply_circular_buffering(bcr);
     }
   }
-
 }
 
 void AmpereMinus::setOperandSmemLoadAndCacheOps(
