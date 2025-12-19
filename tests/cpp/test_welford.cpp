@@ -714,9 +714,10 @@ TEST_F(NVFuserTest, Translate1Welford) {
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 2);
 
   // Run an un-translated welford, use a large inner size to ensure it is not
-  // translated. Cluster reduction uses 16 SMs, can hold up to 32K * 16 = 512K
-  // elements.
-  auto runtime2 = run_test(512 * 1024 + 1024);
+  // translated. Cluster reduction uses multiple SMs.
+  const int64_t sms_per_cluster = scheduler_utils::getMaxClusterSize();
+  const int64_t elements_per_sm = 32 * 1024;
+  auto runtime2 = run_test(elements_per_sm * sms_per_cluster + 1024);
 
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {
