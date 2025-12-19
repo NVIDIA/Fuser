@@ -146,27 +146,35 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   return params;
 }
 
-void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
-  FusionGuard fg(fusion);
+// Helper struct to hold common scheduling state
+struct SchedulingState {
+  std::vector<TensorView*> ldg_tvs;
+  std::vector<TensorView*> tma_tvs;
+  std::vector<TensorView*> smem2reg_tvs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
+  std::vector<TensorView*> dummy_outputs;
+};
 
-  // Use the reduction tensor as the starting point for scheduling
-  // Its transformations will be propagated to all non-TMA tensors
-  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
-  TensorView* reduction_tv = reduction_tvs.at(0);
+// Common setup for both regular and warp-specialized scheduling
+static SchedulingState setupCommonSchedulingState(
+    Fusion* fusion,
+    const InnerNormTmaParams* params) {
+  SchedulingState state;
 
   const scheduler_utils::PersistentBufferInfo persistent_info =
       scheduler_utils::persistentBuffers(fusion);
-  std::vector<TensorView*> dummy_outputs;
+
   if (params->project_persistent_buffers) {
-    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+    state.dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
         fusion, persistent_info, params->project_persistent_buffers);
-    for (auto output : dummy_outputs) {
+    for (auto output : state.dummy_outputs) {
       fusion->addOutput(output);
     }
   } else {
     NVF_ERROR(
         false, "Non-projectable buffers are not supported in TMA version yet");
   }
+
   // Identify persistent inputs that will be cached in shared memory using
   // TMA load (CpAsyncBulk) for efficient async memory transfers
   std::unordered_set<TensorView*> persistent_inputs{
@@ -177,31 +185,31 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
       persistent_inputs.insert(buffer);
     }
   }
+
   // Categorize cached inputs into TMA loads and regular LDG loads
   // - tma_tvs: Persistent inputs loaded via TMA (CpAsyncBulk) to shared memory
   // - ldg_tvs: Non-persistent inputs loaded via regular LDG instructions
   // - smem2reg_tvs: Intermediate register caches for vectorized smem->reg loads
-  std::vector<TensorView*> ldg_tvs, tma_tvs, smem2reg_tvs;
   const auto& cached_inputs = scheduler_utils::cacheInputs(fusion, true);
   for (auto [tv, input_idx] : cached_inputs) {
     auto input = fusion->inputs().at(input_idx)->as<TensorView>();
     if (!params->tma_load_non_persistent_buffers &&
         !persistent_inputs.contains(input)) {
       // Non-persistent input: use regular global load
-      ldg_tvs.push_back(tv);
+      state.ldg_tvs.push_back(tv);
       continue;
     }
     if (auto load_op = dynamic_cast<LoadStoreOp*>(tv->definition())) {
       // Persistent input: use TMA load to shared memory
       load_op->setOpType(LoadStoreOpType::CpAsyncBulk);
       tv->setMemoryType(MemoryType::Shared);
-      tma_tvs.push_back(tv);
+      state.tma_tvs.push_back(tv);
       if (!params->vectorize_load_smem_to_regs) {
         continue;
       }
       // Create register cache for vectorized smem->reg loads
       auto regs_cache = tv->cacheAfter();
-      smem2reg_tvs.push_back(regs_cache);
+      state.smem2reg_tvs.push_back(regs_cache);
       // recompute cached_tv for each consumer, so it is no longer
       // persistent similar to project to inputs, here we are projecting to
       // the shared memory buffer.
@@ -210,64 +218,78 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
         auto cached_tv_replicate = RecomputeTv::recompute(regs_cache, {tv});
         ir_utils::replaceValInExprInputs(
             consumer->definition(), regs_cache, cached_tv_replicate);
-        smem2reg_tvs.push_back(cached_tv_replicate);
+        state.smem2reg_tvs.push_back(cached_tv_replicate);
       }
     } else {
-      ldg_tvs.push_back(tv);
+      state.ldg_tvs.push_back(tv);
     }
   }
 
   // Cache outputs in registers to enable vectorized writes to global memory
-  const auto& cached_outputs =
+  state.cached_outputs =
       scheduler_utils::cacheAndForkOutputs(fusion, /*unroll=*/true);
 
-  // Schedule TMA loads with shape [I, R] where:
-  //   I = iteration dimension (batch dimension)
-  //   R = reduction dimension
-  // Parallelization strategy:
-  //   - axis(0): BIDx - each block handles one or more batch elements
-  //   - axis(1): Bulk - TMA asynchronously copies entire reduction dimension
-  int64_t iteration_pos = 0, reduction_pos = 1, tidy_pos = -1, group_pos = -1;
-  if (params->circular_buffer_options.isEnable()) {
-    if (params->n_grouped_rows > 1) {
-      // [I, R] -> [I/Group, Group, R]
-      reduction_tv->split(iteration_pos, params->n_grouped_rows);
-      group_pos = iteration_pos + 1;
-      reduction_pos++;
-    }
-    if (params->lparams.bdimy() > 2) {
-      NVF_ERROR_EQ(
-          std::get<WarpSpecialized>(params->circular_buffer_options.type).on,
-          ParallelType::TIDy);
-      // [I/Group, Group, R] -> [I/Group/TIDy, TIDy, Group, R]
-      reduction_tv->split(iteration_pos, params->lparams.bdimy() - 1);
-      tidy_pos = iteration_pos + 1;
-      reduction_pos++;
-      group_pos++;
-    }
-    if (params->lparams.gdimx() > 1) {
-      // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
-      // Group, R]
-      reduction_tv->split(iteration_pos, params->lparams.gdimx());
-      reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::BIDx);
-      reduction_pos++;
-      tidy_pos++;
-      group_pos++;
-    }
+  return state;
+}
 
-  } else if (params->n_grouped_rows > 1) {
-    // [I, R] -> [I/TIDy, TIDy, R]
-    reduction_tv->split(iteration_pos, params->n_grouped_rows);
-    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
-    reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::TIDy);
-    reduction_pos = iteration_pos + 2;
-  } else {
-    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
+// Helper lambda to find the vectorization position (one past TIDx axis)
+static std::optional<int64_t> getVectorizationPosition(TensorView* tv) {
+  auto it = std::find_if(
+      tv->domain()->loop().begin(),
+      tv->domain()->loop().end(),
+      [](const IterDomain* id) {
+        return id->getParallelType() == ParallelType::TIDx;
+      });
+
+  if (it == tv->domain()->loop().end()) {
+    return std::nullopt;
   }
+  return (int64_t)std::distance(tv->domain()->loop().begin(), it) + 1;
+}
+
+// Apply vectorization to all relevant tensors
+static void applyVectorization(
+    Fusion* fusion,
+    const InnerNormTmaParams* params,
+    const SchedulingState& state) {
+  // Apply vectorization to non-TMA global loads
+  for (auto tv : state.ldg_tvs) {
+    auto vect_pos = getVectorizationPosition(tv);
+    if (vect_pos.has_value()) {
+      tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  // Apply vectorization to global output writes for better memory bandwidth
+  for (auto [_, output_idx] : state.cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
+    auto vect_pos = getVectorizationPosition(output);
+    if (vect_pos.has_value()) {
+      output->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
+    }
+  }
+
+  // Apply vectorization to shared memory to register loads
+  if (params->vectorize_load_smem_to_regs) {
+    for (auto tv : state.smem2reg_tvs) {
+      auto vect_pos = getVectorizationPosition(tv);
+      if (vect_pos.has_value()) {
+        tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
+      }
+    }
+  }
+}
+
+// Propagate initial transformations and set up TMA tensors
+static void propagateAndSetupTMA(
+    TensorView* reduction_tv,
+    int64_t reduction_pos,
+    int64_t tidy_pos,
+    const SchedulingState& state) {
   TransformPropagator propagator(reduction_tv);
   MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
   reduction_tv->axis(reduction_pos)->parallelize(ParallelType::Bulk);
-  scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
+  scheduler_utils::parallelizeAllLike(reduction_tv, state.tma_tvs);
   // Reset reduction_tv's reduction axis back to Serial (only TMA loads use
   // Bulk)
   reduction_tv->axis(reduction_pos)->parallelize(ParallelType::Serial);
@@ -276,8 +298,13 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   if (tidy_pos > 0) {
     reduction_tv->axis(tidy_pos)->parallelize(ParallelType::TIDy);
   }
-  // Transform reduction domain for efficient computation:
-  //   [I, R] -> [I, b, us, x, v]
+}
+
+// Transform reduction domain: [I, R] -> [I, b, us, x, v]
+static void transformReductionDomain(
+    TensorView* reduction_tv,
+    int64_t reduction_pos,
+    const InnerNormTmaParams* params) {
   // Where:
   //   - v: vectorization factor (elements per vector instruction)
   //   - x: thread dimension (TIDx, threads cooperating on reduction)
@@ -290,151 +317,214 @@ void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
   reduction_tv->axis(reduction_pos + 1)->parallelize(ParallelType::Unswitch);
   reduction_tv->axis(reduction_pos + 2)->parallelize(ParallelType::TIDx);
   reduction_tv->axis(reduction_pos + 2)->padToMultipleOfWarp();
+}
 
+// Apply rFactor and propagate to all non-TMA tensors
+static TensorView* applyRFactorAndPropagate(
+    Fusion* fusion,
+    TensorView* reduction_tv,
+    int64_t reduction_pos,
+    const SchedulingState& state) {
   // Create rfactor tensor to separate thread-local reduction from block
-  // reduction This enables a two-stage reduction:
-  //   1. Thread-local vectorized reduction (across b and v dimensions)
-  //   2. Block-level reduction (across x dimension using warp/block primitives)
-  // rfactor axes: {reduction_pos, vectorize_pos} corresponding to b and v
-  // dimensions
+  // reduction
   int64_t vectorize_pos = reduction_pos + 3;
   auto reference_tv = reduction_tv->rFactor({reduction_pos, vectorize_pos});
 
   // Propagate transformations from reference_tv to all non-TMA tensors
-  // TMA tensors keep their simple [BIDx, Bulk] schedule
-  std::vector<TensorView*> non_tma_tvs =
-      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+  std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
+      fusion, {state.tma_tvs.begin(), state.tma_tvs.end()});
   TransformPropagator non_tma_propagator(reference_tv);
   SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
   MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
       .traverse(&non_tma_propagator);
 
-  // If reduction_tv is rfactored, rfactor all reductions.
-  // Also needs to update non_tma_tvs to include newly rfactored tvs.
+  // If reduction_tv is rfactored, rfactor all reductions
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   if (reference_tv != reduction_tv) {
     reduction_scheduler_utils::propagateRFactor(
         reference_tv, reduction_tv, reduction_tvs);
-    non_tma_tvs =
-        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+    non_tma_tvs = ir_utils::allTvsExcept(
+        fusion, {state.tma_tvs.begin(), state.tma_tvs.end()});
   }
   scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
-  if (params->circular_buffer_options.isEnable()) {
-    if (group_pos > 0) {
-      for (auto reduction_tv : reduction_tvs) {
-        reduction_tv->axis(group_pos)->parallelize(ParallelType::Group);
-      }
-    }
-  } else {
-    NVF_CHECK_EQ(
-        group_pos,
-        -1,
-        "Grouped reduction is only supported in warp specialized mode");
-  }
 
-  // Helper lambda to find the vectorization position (one past TIDx axis)
-  auto get_vect_pos = [](TensorView* tv) -> std::optional<int64_t> {
-    auto it = std::find_if(
-        tv->domain()->loop().begin(),
-        tv->domain()->loop().end(),
-        [](const IterDomain* id) {
-          return id->getParallelType() == ParallelType::TIDx;
-        });
+  return reference_tv;
+}
 
-    if (it == tv->domain()->loop().end()) {
-      return std::nullopt;
-    }
-    return (int64_t)std::distance(tv->domain()->loop().begin(), it) + 1;
-  };
-
-  // Apply vectorization to non-TMA global loads
-  for (auto tv : ldg_tvs) {
-    auto vect_pos = get_vect_pos(tv);
-    if (vect_pos.has_value()) {
-      tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
-    }
-  }
-
-  // Apply vectorization to global output writes for better memory bandwidth
-  for (auto [_, output_idx] : cached_outputs) {
-    auto output = fusion->outputs()[output_idx]->as<TensorView>();
-    auto vect_pos = get_vect_pos(output);
-    if (vect_pos.has_value()) {
-      output->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
-    }
-  }
-
-  // Apply vectorization to shared memory to register loads
-  if (params->vectorize_load_smem_to_regs) {
-    for (auto tv : smem2reg_tvs) {
-      auto vect_pos = get_vect_pos(tv);
-      if (vect_pos.has_value()) {
-        tv->axis(vect_pos.value())->parallelize(ParallelType::Vectorize);
-      }
-    }
-  }
+// Apply vectorization and remove dummy outputs
+static void finalizeVectorizationAndCleanup(
+    Fusion* fusion,
+    const InnerNormTmaParams* params,
+    const SchedulingState& state) {
+  // Apply vectorization to all relevant tensors
+  applyVectorization(fusion, params, state);
 
   // Remove dummy outputs that were used for persistent buffer projection
-  for (auto output : dummy_outputs) {
+  for (auto output : state.dummy_outputs) {
     fusion->removeOutput(output);
   }
+}
+
+// Regular (non-warp-specialized) scheduling
+static void scheduleInnerPersistentMultiWave(
+    Fusion* fusion,
+    const InnerNormTmaParams* params,
+    const SchedulingState& state) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  TensorView* reduction_tv = reduction_tvs.at(0);
+
+  // Schedule TMA loads with shape [I, R] where:
+  //   I = iteration dimension (batch dimension)
+  //   R = reduction dimension
+  int64_t iteration_pos = 0, reduction_pos = 1;
+
+  if (params->n_grouped_rows > 1) {
+    // [I, R] -> [I/TIDy, TIDy, R]
+    reduction_tv->split(iteration_pos, params->n_grouped_rows);
+    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
+    reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::TIDy);
+    reduction_pos = iteration_pos + 2;
+  } else {
+    reduction_tv->axis(iteration_pos)->parallelize(ParallelType::BIDx);
+  }
+
+  propagateAndSetupTMA(reduction_tv, reduction_pos, -1, state);
+  transformReductionDomain(reduction_tv, reduction_pos, params);
+  applyRFactorAndPropagate(fusion, reduction_tv, reduction_pos, state);
+  finalizeVectorizationAndCleanup(fusion, params, state);
 
   // Apply aggressive inlining to reduce register pressure and improve locality
-  // Exclude ldg_tvs if pre-loading is enabled to control issue order
   std::unordered_set<TensorView*> exclude_tvs;
   if (params->pre_load_ldg_tvs) {
-    exclude_tvs.insert(ldg_tvs.begin(), ldg_tvs.end());
-  }
-  if (params->circular_buffer_options.isEnable()) {
-    // when warp specialized, the iteration domain of tma tv is scheduled as:
-    // 1. GridStrideLoop
-    // 2. BIDx
-    // 3. Serial (Compute Warp Groups, TIDy in compute warp groups)
-    // 4. Serial (Multiple TMAs share one mbarrier, serial or grouped reduction
-    //            in compuate warp groups)
-    constexpr int64_t pos_after_bidx = 2;
-    for (auto tv : tma_tvs) {
-      inlineSelectedAt({tv}, tv, pos_after_bidx);
-      exclude_tvs.insert(tv);
-    }
-
-    // Happens in layer norm where the result of the 1st reduction is used by
-    // the 2nd reduction. Since each reduction is grouped in its iteration
-    // dimension we can't inline deeper than the group position.
-    if (group_pos > 0 && reduction_tvs.size() > 1) {
-      for (auto tv1 : reduction_tvs) {
-        for (auto tv2 : reduction_tvs) {
-          if (tv1 == tv2) {
-            continue;
-          }
-          auto all_vals = DependencyCheck::getAllValsBetween({tv1}, {tv2});
-          auto gp_tvs = ir_utils::filterByType<TensorView>(all_vals);
-          for (auto gp_tv : gp_tvs) {
-            if (!gp_tv->hasBroadcast() || exclude_tvs.contains(gp_tv)) {
-              continue;
-            }
-            inlineSelectedAt({gp_tv}, gp_tv, group_pos);
-            exclude_tvs.insert(gp_tv);
-          }
-        }
-      }
-    }
+    exclude_tvs.insert(state.ldg_tvs.begin(), state.ldg_tvs.end());
   }
   std::vector<TensorView*> inline_most_tvs =
       ir_utils::allTvsExcept(fusion, exclude_tvs);
   inlineMost(inline_most_tvs);
+}
 
-  if (params->circular_buffer_options.isEnable()) {
-    int64_t number_of_stages = params->circular_buffer_options.stage;
-    int64_t prefetch_distance = params->circular_buffer_options.prefetch;
-    CircularBufferType circular_buffer_type =
-        params->circular_buffer_options.type;
-    for (auto tv : tma_tvs) {
-      if (tv->getComputeAtPosition() == 0) {
-        continue;
-      }
-      tv->circularBuffer(
-          number_of_stages, prefetch_distance, circular_buffer_type);
+// Warp-specialized scheduling with circular buffering
+static void scheduleInnerPersistentWarpSpecialized(
+    Fusion* fusion,
+    const InnerNormTmaParams* params,
+    const SchedulingState& state) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  TensorView* reduction_tv = reduction_tvs.at(0);
+
+  // Schedule TMA loads with warp specialization:
+  // Parallelization strategy with circular buffering and warp groups
+  int64_t iteration_pos = 0, reduction_pos = 1, tidy_pos = -1, group_pos = -1;
+
+  if (params->n_grouped_rows > 1) {
+    // [I, R] -> [I/Group, Group, R]
+    reduction_tv->split(iteration_pos, params->n_grouped_rows);
+    group_pos = iteration_pos + 1;
+    reduction_pos++;
+  }
+
+  if (params->lparams.bdimy() > 2) {
+    NVF_ERROR_EQ(
+        std::get<WarpSpecialized>(params->circular_buffer_options.type).on,
+        ParallelType::TIDy);
+    // [I/Group, Group, R] -> [I/Group/TIDy, TIDy, Group, R]
+    reduction_tv->split(iteration_pos, params->lparams.bdimy() - 1);
+    tidy_pos = iteration_pos + 1;
+    reduction_pos++;
+    group_pos++;
+  }
+
+  if (params->lparams.gdimx() > 1) {
+    // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
+    // Group, R]
+    reduction_tv->split(iteration_pos, params->lparams.gdimx());
+    reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::BIDx);
+    reduction_pos++;
+    tidy_pos++;
+    group_pos++;
+  }
+
+  propagateAndSetupTMA(reduction_tv, reduction_pos, tidy_pos, state);
+  transformReductionDomain(reduction_tv, reduction_pos, params);
+  applyRFactorAndPropagate(fusion, reduction_tv, reduction_pos, state);
+
+  // Apply group parallelization for warp-specialized reductions
+  if (group_pos > 0) {
+    for (auto reduction_tv : reduction_tvs) {
+      reduction_tv->axis(group_pos)->parallelize(ParallelType::Group);
     }
+  }
+
+  finalizeVectorizationAndCleanup(fusion, params, state);
+
+  // Apply aggressive inlining with warp-specialized constraints
+  std::unordered_set<TensorView*> exclude_tvs;
+  if (params->pre_load_ldg_tvs) {
+    exclude_tvs.insert(state.ldg_tvs.begin(), state.ldg_tvs.end());
+  }
+
+  // When warp specialized, the iteration domain of tma tv is scheduled as:
+  // 1. GridStrideLoop
+  // 2. BIDx
+  // 3. Serial (Compute Warp Groups, TIDy in compute warp groups)
+  // 4. Serial (Multiple TMAs share one mbarrier, serial or grouped reduction
+  //            in compute warp groups)
+  constexpr int64_t pos_after_bidx = 2;
+  for (auto tv : state.tma_tvs) {
+    inlineSelectedAt({tv}, tv, pos_after_bidx);
+    exclude_tvs.insert(tv);
+  }
+
+  // Happens in layer norm where the result of the 1st reduction is used by
+  // the 2nd reduction. Since each reduction is grouped in its iteration
+  // dimension we can't inline deeper than the group position.
+  if (group_pos > 0 && reduction_tvs.size() > 1) {
+    for (auto tv1 : reduction_tvs) {
+      for (auto tv2 : reduction_tvs) {
+        if (tv1 == tv2) {
+          continue;
+        }
+        auto all_vals = DependencyCheck::getAllValsBetween({tv1}, {tv2});
+        auto gp_tvs = ir_utils::filterByType<TensorView>(all_vals);
+        for (auto gp_tv : gp_tvs) {
+          if (!gp_tv->hasBroadcast() || exclude_tvs.contains(gp_tv)) {
+            continue;
+          }
+          inlineSelectedAt({gp_tv}, gp_tv, group_pos);
+          exclude_tvs.insert(gp_tv);
+        }
+      }
+    }
+  }
+
+  std::vector<TensorView*> inline_most_tvs =
+      ir_utils::allTvsExcept(fusion, exclude_tvs);
+  inlineMost(inline_most_tvs);
+
+  // Apply circular buffering for warp-specialized scheduling
+  int64_t number_of_stages = params->circular_buffer_options.stage;
+  int64_t prefetch_distance = params->circular_buffer_options.prefetch;
+  CircularBufferType circular_buffer_type =
+      params->circular_buffer_options.type;
+  for (auto tv : state.tma_tvs) {
+    if (tv->getComputeAtPosition() == 0) {
+      continue;
+    }
+    tv->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+}
+
+void scheduleInnerPersistent(Fusion* fusion, const InnerNormTmaParams* params) {
+  FusionGuard fg(fusion);
+
+  // Common setup for both scheduling strategies
+  SchedulingState state = setupCommonSchedulingState(fusion, params);
+
+  // Dispatch to appropriate scheduling strategy
+  if (params->circular_buffer_options.isEnable()) {
+    scheduleInnerPersistentWarpSpecialized(fusion, params, state);
+  } else {
+    scheduleInnerPersistentMultiWave(fusion, params, state);
   }
 
   // Refine cache policies for optimal memory hierarchy usage
