@@ -68,6 +68,9 @@ std::vector<int64_t> unshardedSizes(
         "Producing logical axis not found for ",
         sharded_id);
 
+    // Global map to track extent -> multiplier relationships
+    static std::unordered_map<Val*, int64_t> extent_to_multiplier_map;
+    
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
         // TODO(#5525): hack for MultiDeviceExecutor.  MultiDeviceExecutor looks
@@ -101,6 +104,22 @@ std::vector<int64_t> unshardedSizes(
 
       NVF_THROW("Unexpected parallel type: ", parallel_type);
     }();
+    
+    // Check consistency: for the same extent, we should always get the same multiplier
+    Val* extent = sharded_id->extent();
+    auto it = extent_to_multiplier_map.find(extent);
+    if (it != extent_to_multiplier_map.end()) {
+      NVF_ERROR(
+          it->second == multiplier,
+          "Inconsistent multiplier for extent ",
+          extent->toString(),
+          ": expected ",
+          it->second,
+          " but got ",
+          multiplier);
+    } else {
+      extent_to_multiplier_map[extent] = multiplier;
+    }
     unsharded_sizes.at(sharded_axis) *= multiplier;
   }
 
