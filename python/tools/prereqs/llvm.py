@@ -74,12 +74,13 @@ def _find_llvm_config() -> Optional[str]:
         candidates.append(llvm_in_path)
 
     # 5. System known locations (use minimum major version)
-    system_paths = [
-        f"/usr/lib/llvm-{llvm_major}/bin/llvm-config",
-        f"/usr/local/llvm-{llvm_major}/bin/llvm-config",
-        "/opt/llvm/bin/llvm-config",
-    ]
-    candidates.extend(system_paths)
+    for major in range(llvm_major, llvm_major + 3):  # e.g., 18, 19, 20
+        system_paths = [
+            f"/usr/lib/llvm-{major}/bin/llvm-config",
+            f"/usr/local/llvm-{major}/bin/llvm-config",
+            "/opt/llvm/bin/llvm-config",
+        ]
+        candidates.extend(system_paths)
 
     # 6. Project-local locations (wildcards for minor version variations)
     # Navigate from python/tools/prereqs to repo root (3 levels up)
