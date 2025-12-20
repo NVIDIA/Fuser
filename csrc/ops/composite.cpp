@@ -605,6 +605,20 @@ SdpfaFwdResult sdpfa_fwd(
       "expected to be device parallel during expression evaluation: ",
       query_domain);
 
+  if (bias != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(bias->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(bias->dtype(), query->dtype());
+  }
+
+  if (mask != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(mask->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(mask->dtype(), DataType::Bool);
+  }
+
   NVF_CHECK(
       !dropout_p || dropout_p->isFloatingPointScalar() ||
           dropout_p->isIntegralScalar(),
@@ -616,48 +630,8 @@ SdpfaFwdResult sdpfa_fwd(
       !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
       "Expected scale to be a real-valued scalar.");
 
-  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
-  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
-  // inputs to outputs. L is mapped from query to output. Ev is mapped from
-  // value to output. Note: There is no mapping for S, E. This may change in the
-  // future if we add additional reduction ids to the output.
-  auto ndims_out = query_domain.size();
-  auto validate_bias_like = [&](TensorView* tv, const char* name) {
-    if (tv == nullptr) {
-      return;
-    }
-    auto tv_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-    NVF_CHECK(
-        tv_domain.size() == ndims_out,
-        name,
-        " must have the same rank as query. Got ",
-        tv_domain.size(),
-        " but expected ",
-        ndims_out);
-    NVF_CHECK(
-        tv->dtype() == query->dtype(),
-        name,
-        " must match query dtype. Got ",
-        tv->dtype(),
-        " but expected ",
-        query->dtype());
-  };
-  validate_bias_like(bias, "bias");
-  if (mask != nullptr) {
-    auto mask_domain = TensorDomain::noReductions(mask->getLogicalDomain());
-    NVF_CHECK(
-        mask_domain.size() == ndims_out,
-        "mask must have the same rank as query. Got ",
-        mask_domain.size(),
-        " but expected ",
-        ndims_out);
-    NVF_CHECK(
-        mask->dtype() == DataType::Bool,
-        "mask must be boolean, got ",
-        mask->dtype());
-  }
-
   // TensorView for attention output
+  const auto ndims_out = query_domain.size();
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
   for (auto idx : arange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(

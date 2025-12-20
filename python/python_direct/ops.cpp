@@ -3400,15 +3400,15 @@ Scaled Dot Product Flash Attention Forward.
 Parameters
 ----------
 query : TensorView
-    The query tensor.
+    The query tensor with shape [N*, H, Q, E].
 key : TensorView
-    The key tensor.
+    The key tensor with shape [N*, H, K, E].
 value : TensorView
-    The value tensor.
+    The value tensor with shape [N*, H, K, Ev].
 bias : TensorView, optional
-    Additive attention bias with shape [N*, H, Q, K]. Default is None.
+    Additive attention bias with shape broadcastable to [N*, H, Q, K]. Default is None.
 mask : TensorView, optional
-    Additional additive mask with shape [N*, H, Q, K]. Default is None.
+    Additional additive mask with shape broadcastable to [N*, H, Q, K]. Default is None.
 dropout_p : Val, optional
     The dropout probability. Default is None.
 is_causal : Val, optional

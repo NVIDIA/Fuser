@@ -3299,11 +3299,14 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
 namespace sdpa_meta {
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_scaled_dot_product_attention_meta(const at::Tensor& query) {
-  const auto sizes = query.sizes();
-  const int batch_size = sizes[0];
-  int num_heads = sizes[1];
-  int seqlen_q = sizes[2];
+_scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
+  const int batch_size = query.size(0);
+  const int num_heads = query.size(1);
+  const int seqlen_q = query.size(2);
+  const int out_head_dim = value.size(-1);
+
+  auto out = at::empty(
+      {batch_size, num_heads, seqlen_q, out_head_dim}, query.options());
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
   // Produce defined meta tensors for philox outputs so downstream segments
@@ -3314,9 +3317,8 @@ _scaled_dot_product_attention_meta(const at::Tensor& query) {
   // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
   auto rng_state = at::empty({2}, meta_u64);
   auto rng_offset = at::empty({}, meta_u64);
-  // FIXME: the output doesn't always have the same shape as `query` -- the
-  // hidden dimension might be different.
-  return std::make_tuple(query, logsumexp, rng_state, rng_offset);
+
+  return std::make_tuple(out, logsumexp, rng_state, rng_offset);
 }
 
 } // namespace sdpa_meta
@@ -3387,7 +3389,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // 4D SDPA
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
-      return sdpa_meta::_scaled_dot_product_attention_meta(query);
+      return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
     }
 
     if (attn_bias.defined()) {
