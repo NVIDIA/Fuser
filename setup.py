@@ -66,7 +66,6 @@
 # TODO Remove tools/gen_nvfuser_version.py symbolic link to python/tools/gen_nvfuser_version.py
 # TODO Remove tools/memory.py symbolic link to python/tools/memory.py
 
-import os
 import sys
 
 
@@ -89,41 +88,12 @@ def version_tag(config):
 
 
 def main():
-    # Deprecation warning - recommend pip install method
-    print(
-        "\n" + "=" * 70 + "\n"
-        "DEPRECATED: 'python setup.py develop' is deprecated.\n"
-        "Recommended: pip install --no-build-isolation -e python -v\n"
-        + "=" * 70
-        + "\n",
-        file=sys.stderr,
-    )
-    sys.stdout.flush()
-
     # Parse arguments using argparse
     config, forward_args = create_build_config()
 
     if "clean" in sys.argv:
         # only disables BUILD_SETUP, but keep the argument for setuptools
         config.build_setup = False
-
-    # Prerequisite validation (can be skipped with NVFUSER_BUILD_SKIP_VALIDATION)
-    if config.build_setup and not os.environ.get("NVFUSER_BUILD_SKIP_VALIDATION"):
-        try:
-            from python.tools.prereqs import validate_prerequisites
-
-            validate_prerequisites()
-        except ImportError as e:
-            # Prerequisite validation not available (shouldn't happen in dev)
-            print(f"WARNING: Could not import prerequisite validation: {e}")
-        except Exception as e:
-            # Prerequisite check failed
-            print(f"\n{e}\n", file=sys.stderr)
-            sys.exit(1)
-    elif os.environ.get("NVFUSER_BUILD_SKIP_VALIDATION"):
-        print(
-            "[nvFuser] Skipping prerequisite validation (NVFUSER_BUILD_SKIP_VALIDATION set)"
-        )
 
     if config.cpp_standard < 20:
         raise ValueError("nvfuser requires C++20 standard or higher")
