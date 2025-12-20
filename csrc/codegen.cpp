@@ -1814,7 +1814,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4, or 8 for Half. We achieve this by having the quantized output tv
     // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
-    auto output_dtype = output->getDataType();
+    bool is_mxfp8_output = output->getDataType() == DataType::Float8_e4m3fn;
 
     // Extract group size from the loop domain
     int64_t group_size = 1;
@@ -1837,7 +1837,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         : (group_size == 2 || group_size == 4);
 
     NVF_ERROR(
-        is_valid_group_size,
+        is_mxfp8_output || is_valid_group_size,
         "Group size should be ",
         is_half_precision ? "2, 4 or 8" : "2 or 4",
         " for BlockQuantizationOp with input type ",
@@ -1850,7 +1850,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Build template arguments
     ArgumentBuilder template_args;
     // No global scale is required when quantizing to mxfp8
-    if (output_dtype == DataType::Float4_e2m1fn) {
+    if (!is_mxfp8_output) {
       template_args.arg(bqop->hasGlobalScale());
     }
     template_args.arg(group_size); // ITEMS_PER_THREAD
@@ -1864,7 +1864,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
     func_args.arg(genInline(
         bqop->attributeVal(0))); // linearized index for runtime function
-    if (output_dtype == DataType::Float4_e2m1fn) {
+    if (!is_mxfp8_output) {
       func_args.arg(
           bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
     }
@@ -1890,9 +1890,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    auto fn_call = output_dtype == DataType::Float4_e2m1fn
-        ? "bq::block_quantize_to_nvfp4"
-        : "bq::block_quantize_to_mxfp8";
+    auto fn_call = is_mxfp8_output ? "bq::block_quantize_to_mxfp8"
+                                   : "bq::block_quantize_to_nvfp4";
 
     // Generate the function call
     indent() << genCall(fn_call, template_args, func_args) << ";\n";

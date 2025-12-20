@@ -616,6 +616,7 @@ class ExprValidator : public OptOutDispatch {
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
     auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
     auto output_dtype = quantized_output->dtype();
+    bool is_mxfp8_output = output_dtype == DataType::Float8_e4m3fn;
 
     NVF_ERROR_EQ(
         inp_tv->getMemoryType(),
@@ -635,7 +636,7 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    if (output_dtype == DataType::Float8_e4m3fn) {
+    if (is_mxfp8_output) {
       NVF_ERROR(
           !bqop->hasGlobalScale(),
           "Global scale is not supported when quantizing to Float8_e4m3fn.");
@@ -725,7 +726,7 @@ class ExprValidator : public OptOutDispatch {
     }
 
     NVF_ERROR(
-        grouped_id != nullptr,
+        grouped_id != nullptr || is_mxfp8_output,
         "One of the output IDs must be grouped for "
         "BlockQuantizationOp: ",
         bqop->toString());
@@ -741,15 +742,19 @@ class ExprValidator : public OptOutDispatch {
         "BlockQuantizationOp: ",
         bqop->toString());
 
-    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto inner_extent =
+        grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
     auto input_dtype = inp_tv->dtype();
 
+    // Check the extents of group id based on inputdata type
+    // if group id is present
     NVF_ERROR(
-        ((inner_extent == 4 || inner_extent == 2) &&
-         input_dtype == DataType::Float) ||
-            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
-             (input_dtype == DataType::BFloat16 ||
-              input_dtype == DataType::Half)),
+        (!grouped_id ||
+         ((inner_extent == 4 || inner_extent == 2) &&
+          input_dtype == DataType::Float) ||
+         ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+          (input_dtype == DataType::BFloat16 ||
+           input_dtype == DataType::Half))),
         "The group dimension must be  2/4 (FP32) or 2/4/8 "
         "(BF16). Found: ",
         inner_extent,
@@ -813,6 +818,34 @@ class ExprValidator : public OptOutDispatch {
         ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
           traverseFrontierWithContiguityCheck(frontier, expr);
         });
+
+    // Check that TIDx is multiple of block size.
+    // We hardcode block size of 32 here for now.
+    // As there are no group ids, tidx must now be the innermost
+    // as we reduce across it. We also check that all merges leading
+    // to tidx are contiguous.
+    if (is_mxfp8_output && !grouped_id) {
+      Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+          SimplifyingIrBuilder::modExpr(
+              thread_x->extent(), IrBuilder::create<Val>(32, DataType::Index)),
+          bqop->fusion()->zeroVal());
+
+      NVFUSER_LOWER_VALIDATE(
+          is_divisible,
+          "Block dim X of BlockQuantizationOp input must be divisible by "
+          "block size 32 but got extent ",
+          thread_x->extent()->toInlineString(),
+          " in ",
+          bqop->toString());
+
+      NVF_ERROR(
+          ids_to_transform.back() == thread_x,
+          "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+          "innermost ID. Expr: ",
+          bqop->toString());
+
+      return;
+    }
 
     // The grouped ID must correspond to the innermost loop-like domain
     NVF_ERROR(
