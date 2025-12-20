@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/pass/allocate_and_deallocate.h>
+#include "host_ir/allocate_and_deallocate.h"
 
 #include <algorithm>
 #include <functional>
@@ -17,9 +17,9 @@
 #include <unordered_set>
 #include <vector>
 
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
+#include "ir/builder.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
 
 namespace nvfuser::hir {
 

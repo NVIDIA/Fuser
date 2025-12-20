@@ -5,11 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda_utils.h>
-#include <multidevice/communicator.h>
-#include <multidevice/ipc_handle.h>
-#include <multidevice/ipc_utils.h>
-#include <multidevice/utils.h>
+#include "multidevice/ipc_handle.h"
+
+#include "cuda_utils.h"
+#include "multidevice/communicator.h"
+#include "multidevice/ipc_utils.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -157,7 +158,15 @@ SymMemForBroadcast::SymMemForBroadcast(
   buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
 
   // Setup multicast for the buffer
-  buffer_sym_tensor_->setupMulticast(root, store_key_prefix + "_buffer_mcast");
+  buffer_sym_tensor_->setupRemoteHandles(store_key_prefix + "_buffer_unicast");
+
+  // Setup multicast for the buffer
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    buffer_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_buffer_mcast");
+  }
 
   // Create semaphore tensor
   at::Tensor semaphore = SymmetricTensor::allocate(
@@ -180,12 +189,19 @@ SymMemForBroadcast::SymMemForBroadcast(
   semaphore_sym_tensor_->setupRemoteHandles(store_key_prefix + "_semaphore");
 
   // Setup multicast for the semaphore
-  semaphore_sym_tensor_->setupMulticast(
-      root, store_key_prefix + "_semaphore_mcast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphore_sym_tensor_->setupMulticast(
+        root, store_key_prefix + "_semaphore_mcast");
+  }
 }
 
 void* SymMemForBroadcast::bufferMulticastPtr() const {
   return buffer_sym_tensor_->multicastPtr();
+}
+
+void* SymMemForBroadcast::bufferUnicastPtr(int64_t rank) const {
+  return buffer_sym_tensor_->remoteTensor(rank).data_ptr();
 }
 
 void* SymMemForBroadcast::semaphoreMulticastPtr() const {
@@ -203,39 +219,74 @@ SymMemForAllgather::SymMemForAllgather(
   Communicator& communicator = Communicator::getInstance();
   const int64_t world_size = communicator.size();
 
-  // Allgather is world_size broadcasts, each broadcasting a different slice
-  // of the output buffer. Create one SymMemForBroadcast per rank.
-  broadcast_handles_.reserve(world_size);
+  // Initialize full buffer symmetric tensor for unicast access
+  // We need to setup unicast handles on the full buffer because
+  // setupRemoteHandles requires a VMM-aligned allocation, which slices are not.
+  full_buffer_sym_tensor_ = std::make_unique<SymmetricTensor>(buffer);
+  std::string full_buffer_suffix =
+      std::to_string(communication->name()) + "_allgather_full";
 
-  for (int64_t root_rank = 0; root_rank < world_size; ++root_rank) {
-    // Each rank gets a slice of the output buffer
-    int64_t slice_size = buffer.numel() / world_size;
-    // Flatten the tensor before slicing to ensure it is 1D
-    at::Tensor sliced_buffer = buffer.view({-1}).slice(
-        /*dim=*/0,
-        /*start=*/root_rank * slice_size,
-        /*end=*/(root_rank + 1) * slice_size);
-    // Create unique name suffix for this broadcast
-    std::string name_suffix = std::to_string(communication->name()) +
-        "_allgather_root" + std::to_string(root_rank);
+  // Setup Unicast
+  full_buffer_sym_tensor_->setupRemoteHandles(
+      "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_unicast");
 
-    // Create SymMemForBroadcast for this slice
-    broadcast_handles_.push_back(std::make_unique<SymMemForBroadcast>(
-        sliced_buffer, root_rank, name_suffix));
+  int64_t slice_numel = buffer.numel() / world_size;
+  slice_size_bytes_ = slice_numel * buffer.element_size();
+
+  // Setup Multicast on full buffer
+  MulticastProtocol protocol = getMulticastProtocol();
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    full_buffer_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_buffer_mcast");
+  }
+
+  // Allocate semaphores (one per rank) in a single symmetric tensor
+  at::Tensor semaphores = SymmetricTensor::allocate(
+      at::IntArrayRef({world_size}), at::ScalarType::Int, buffer.device());
+
+  // Init semaphores to kIdle
+  std::vector<IpcSemaphore> init_values(world_size, IpcSemaphore::kIdle);
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      semaphores.data_ptr(),
+      init_values.data(),
+      world_size * sizeof(IpcSemaphore),
+      cudaMemcpyHostToDevice));
+
+  semaphores_sym_tensor_ = std::make_unique<SymmetricTensor>(semaphores);
+  semaphores_sym_tensor_->setupRemoteHandles(
+      "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_unicast");
+  if (protocol == MulticastProtocol::Memcpy ||
+      protocol == MulticastProtocol::Multimem) {
+    semaphores_sym_tensor_->setupMulticast(
+        /*exporter_rank=*/0,
+        "nvls_export_mcast_handle_" + full_buffer_suffix + "_semaphores_mcast");
   }
 }
 
 void* SymMemForAllgather::bufferMulticastPtr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->bufferMulticastPtr();
+  uint8_t* base_ptr = (uint8_t*)full_buffer_sym_tensor_->multicastPtr();
+  return base_ptr + (root_rank * slice_size_bytes_);
+}
+
+void* SymMemForAllgather::bufferUnicastPtr(int64_t root_rank, int64_t rank)
+    const {
+  uint8_t* base_ptr =
+      (uint8_t*)full_buffer_sym_tensor_->remoteTensor(rank).data_ptr();
+  return base_ptr + (root_rank * slice_size_bytes_);
 }
 
 void* SymMemForAllgather::semaphoreMulticastPtr(int64_t root_rank) const {
-  return broadcast_handles_[root_rank]->semaphoreMulticastPtr();
+  uint8_t* base_ptr = (uint8_t*)semaphores_sym_tensor_->multicastPtr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 void* SymMemForAllgather::semaphoreUnicastPtr(int64_t root_rank, int64_t rank)
     const {
-  return broadcast_handles_[root_rank]->semaphoreUnicastPtr(rank);
+  uint8_t* base_ptr =
+      (uint8_t*)semaphores_sym_tensor_->remoteTensor(rank).data_ptr();
+  return base_ptr + (root_rank * sizeof(IpcSemaphore));
 }
 
 SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {

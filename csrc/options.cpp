@@ -130,7 +130,6 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
-      {"loop_rotation", DebugDumpOption::LoopRotation},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
@@ -163,7 +162,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-          {"greedy_scheduler", EnableOption::GreedyScheduler},
           {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
@@ -185,6 +183,8 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"insert_resharding_after", EnableOption::InsertReshardingAfter},
           {"fast_math", EnableOption::FastMath},
           {"p2p_protocol", EnableOption::P2pProtocol},
+          {"multicast_protocol", EnableOption::MulticastProtocol},
+          {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
 }
@@ -214,6 +214,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"expr_simplify", DisableOption::ExprSimplify},
           {"fallback", DisableOption::Fallback},
           {"fma", DisableOption::Fma},
+          {"greedy_scheduler", DisableOption::GreedyScheduler},
           {"grouped_grid_welford_outer_opt",
            DisableOption::GroupedGridWelfordOuterOpt},
           {"id_model", DisableOption::IdModel},
@@ -223,7 +224,6 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
-          {"parallel_serde", DisableOption::ParallelSerde},
           {"predicate_elimination", DisableOption::PredicateElimination},
           {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
           {"kernel_reuse", DisableOption::KernelReuse},

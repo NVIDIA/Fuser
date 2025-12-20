@@ -41,6 +41,13 @@ endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
+# NCCL include directory for distributed builds
+# This can be set by the Python build system when using pip-bundled NCCL
+set(NCCL_INCLUDE_DIR "" CACHE PATH "Directory containing nccl.h header")
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  message(STATUS "Using NCCL include dir: ${NCCL_INCLUDE_DIR}")
+endif()
+
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -239,7 +246,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
@@ -268,6 +274,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/ops.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/passes.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
@@ -349,7 +356,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/allocate_and_deallocate.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/allocate_and_deallocate.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp
@@ -436,6 +443,29 @@ list(APPEND NVFUSER_SRCS
 
 # Add LLVM JIT related dependencies
 set(LLVM_MINIMUM_VERSION "18.1")
+
+# Check for project-local LLVM installations first (no sudo required)
+# This searches .llvm/ directory for version-specific installations
+if(NOT LLVM_DIR)
+  file(GLOB LLVM_CANDIDATES
+    "${CMAKE_SOURCE_DIR}/.llvm/*/lib/cmake/llvm"
+    "${CMAKE_SOURCE_DIR}/third_party/llvm/*/lib/cmake/llvm"
+  )
+  # Sort to get highest version first (assumes version numbers in paths)
+  list(SORT LLVM_CANDIDATES COMPARE NATURAL ORDER DESCENDING)
+  foreach(CANDIDATE ${LLVM_CANDIDATES})
+    if(EXISTS "${CANDIDATE}/LLVMConfig.cmake")
+      # Extract version from path to check if it meets minimum
+      string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" CANDIDATE_VERSION "${CANDIDATE}")
+      if(CANDIDATE_VERSION VERSION_GREATER_EQUAL LLVM_MINIMUM_VERSION)
+        set(LLVM_DIR "${CANDIDATE}" CACHE PATH "Path to LLVM CMake config")
+        message(STATUS "Found project-local LLVM ${CANDIDATE_VERSION} at ${LLVM_DIR}")
+        break()
+      endif()
+    endif()
+  endforeach()
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
@@ -461,6 +491,8 @@ target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 # Add LLVM JIT related sources
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_external.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_tensor_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -526,6 +558,10 @@ target_include_directories(codegen_internal SYSTEM PUBLIC
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
+# Add NCCL include path for distributed builds (from pip-bundled nvidia-nccl-cu*)
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  target_include_directories(codegen_internal SYSTEM PRIVATE ${NCCL_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
@@ -811,6 +847,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/heuristic_params.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/internal_ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/lru_cache.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
@@ -974,7 +1011,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
@@ -993,6 +1029,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_ragged_iter_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
@@ -1136,6 +1173,31 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
+# Special function for tests that MUST be isolated (single source file only)
+# Used for tests with strict initialization ordering requirements (e.g., MPS tests)
+function(add_isolated_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  # ENFORCE: Exactly one source file
+  list(LENGTH TEST_SRC SRC_COUNT)
+  if(NOT SRC_COUNT EQUAL 1)
+    message(FATAL_ERROR
+      "${TEST_NAME} is marked as an isolated test and MUST contain exactly ONE source file. "
+      "Found ${SRC_COUNT} files: ${TEST_SRC}. "
+      "Isolated tests cannot have multiple source files to prevent initialization ordering issues.")
+  endif()
+
+  # Verify source file matches test name convention
+  get_filename_component(SRC_BASENAME "${TEST_SRC}" NAME_WE)
+  if(NOT SRC_BASENAME STREQUAL TEST_NAME)
+    message(WARNING
+      "Isolated test ${TEST_NAME} source file basename '${SRC_BASENAME}' doesn't match test name. "
+      "Expected: ${TEST_NAME}.cpp")
+  endif()
+
+  # Call the standard add_test function
+  message(STATUS "Creating isolated test: ${TEST_NAME} with single source: ${TEST_SRC}")
+  add_test("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+endfunction()
+
 if(BUILD_TEST)
   set(TEST_BINARIES)
   add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
@@ -1193,6 +1255,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
@@ -1216,6 +1279,22 @@ if(BUILD_TEST)
 
   add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
   list(APPEND TEST_BINARIES test_layout_op)
+
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # CRITICAL: test_mps MUST remain as an ISOLATED test binary
+  #
+  # DO NOT add other test source files to this binary. The MPS (Multi-Process
+  # Service) SM affinity tests require creating a CUDA context with special
+  # parameters BEFORE any other CUDA initialization occurs. If other test files
+  # are linked into this binary, their global initializers or test fixtures may
+  # initialize CUDA first, causing MPS tests to fail.
+  #
+  # ENFORCEMENT: Using add_isolated_test() which validates single-source requirement
+  #
+  # See test_mps.cpp header for detailed explanation of these constraints.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  add_isolated_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "CUDA::cuda_driver")
+  list(APPEND TEST_BINARIES test_mps)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -1450,6 +1529,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/index_utils.cu
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
+  ${NVFUSER_ROOT}/runtime/multicast.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

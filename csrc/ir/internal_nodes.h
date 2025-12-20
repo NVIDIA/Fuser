@@ -1802,6 +1802,50 @@ class NVF_API Merge : public Expr {
   }
 };
 
+//! Partition an IterDomain into component and ragged dimensions
+//! Creates a component IterDomain and a RaggedIterDomain based on extents
+//! tensor The extents tensor contains the extent for each component
+class NVF_API Partition : public Expr {
+ public:
+  using Expr::Expr;
+
+  Partition(
+      IrBuilderPasskey,
+      IterDomain* component,
+      RaggedIterDomain* ragged,
+      IterDomain* in,
+      TensorView* extents);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Partition";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Component dimension output (extent = num_components)
+  IterDomain* component() const {
+    return output(0)->as<IterDomain>();
+  }
+
+  //! Ragged dimension output (variable extents per component)
+  RaggedIterDomain* ragged() const {
+    return output(1)->as<RaggedIterDomain>();
+  }
+
+  //! Input IterDomain being partitioned
+  IterDomain* in() const {
+    return input(0)->as<IterDomain>();
+  }
+
+  //! Extents tensor containing extent for each component
+  TensorView* extents() const {
+    return attributeVal(0)->as<TensorView>();
+  }
+};
+
 class Swizzle : public Expr {
  public:
   using Expr::Expr;

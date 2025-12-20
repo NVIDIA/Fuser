@@ -11,16 +11,17 @@
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
 
-#include <exceptions.h>
-#include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Backend.hpp>
 #include <torch/csrc/distributed/c10d/TCPStore.hpp>
 #include <torch/csrc/distributed/c10d/Work.hpp>
 #else
-#include <multidevice/c10d_mock.h>
+#include "multidevice/c10d_mock.h"
 #endif
-#include <visibility.h>
+
+#include "exceptions.h"
+#include "multidevice/multidevice.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -137,10 +138,6 @@ class NVF_API Communicator {
   // returns the device index corresponding to a rank
   DeviceIdxType rankToDiD(RankType rank) const {
     return static_cast<DeviceIdxType>(rank);
-  }
-
-  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
-    return backend.value_or(default_backend_);
   }
 
   bool is_available_;

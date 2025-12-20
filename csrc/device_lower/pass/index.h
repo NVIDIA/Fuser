@@ -100,11 +100,6 @@ class IndexLowering : private OptOutConstDispatch {
 
   void generate(const std::vector<Expr*>& exprs);
 
-  // Get the loop in which the currently visiting expr is a rotated expr.
-  const std::unordered_set<kir::ForLoop*>& getRotatedLoop() const {
-    return rotated_loop_;
-  }
-
   // lower index for producer. The `override_index` is a mapping `id->index`,
   // where `id` must be an IterDomain in the rFactor domain of the producer.
   // This is can used to manually set the index for the given rFactor ID.
@@ -122,13 +117,15 @@ class IndexLowering : private OptOutConstDispatch {
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   Val* lowerDstIndex(
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
   void handleCpAsyncBulkStore(const LoadStoreOp* ldst);
@@ -198,9 +195,6 @@ class IndexLowering : private OptOutConstDispatch {
   // Track for loops to send to indexing. Similar to what's done in
   // kir::IrVisitor
   std::vector<kir::ForLoop*> for_loops_;
-
-  // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
 
   // Maps to keep track of allocated buffers and objects that must be
   // allocated only once

@@ -548,6 +548,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::Abs:
       return {abs(in)};
       break;
+    case UnaryOpType::Ceil:
+      return {ceil(in)};
+      break;
     case UnaryOpType::LogicalNot:
       return {!in};
       break;
@@ -2610,6 +2613,47 @@ std::string Merge::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
+
+Partition::Partition(
+    IrBuilderPasskey passkey,
+    IterDomain* component,
+    RaggedIterDomain* ragged,
+    IterDomain* in,
+    TensorView* extents)
+    : Expr(passkey) {
+  addOutput(component);
+  addOutput(ragged);
+  addInput(in);
+  // Note: extents is held as an attribute rather than an input,
+  // despite it's a TensorView. Inputs and outputs in the existing
+  // IterDomain exprs are always IterDomains. Intuitively, they
+  // transform input iteration spaces into output iteration spaces in
+  // some way. Since the extents tensor itself is not transformed in the
+  // Partition expr, it doesn't seem to be considered as an input. Note that in
+  // Split, the split factor is an attribute. However, that said, none
+  // of the existing exprs has tensors as attributes, which makes this
+  // choice less certain with possible implications.
+  addAttribute(extents);
+}
+
+std::string Partition::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Partition: ";
+  ss << in()->toString();
+  ss << " by extents " << extents()->toString();
+  ss << " -> component: ";
+  ss << component()->toString();
+  ss << ", ragged: ";
+  ss << ragged()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Partition::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Partition can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Partition)
 
 Swizzle::Swizzle(
     IrBuilderPasskey passkey,

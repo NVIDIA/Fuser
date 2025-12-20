@@ -6,13 +6,15 @@
  */
 // clang-format on
 #pragma once
+
 #include <ATen/core/TensorBody.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <expr_evaluator.h>
-#include <host_ir/ir.h>
-#include <multidevice/symmetric_tensor.h>
-#include <multidevice/utils.h>
+
+#include "expr_evaluator.h"
+#include "host_ir/ir.h"
+#include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -189,6 +191,8 @@ class SymMemForBroadcast : public SymmetricMemoryHandle {
 
   void* bufferMulticastPtr() const;
 
+  void* bufferUnicastPtr(int64_t rank) const;
+
   void* semaphoreMulticastPtr() const;
 
   void* semaphoreUnicastPtr(int64_t rank) const;
@@ -212,13 +216,16 @@ class SymMemForAllgather : public SymmetricMemoryHandle {
   // Accessors for a specific root rank's handles
   void* bufferMulticastPtr(int64_t root_rank) const;
 
+  void* bufferUnicastPtr(int64_t root_rank, int64_t rank) const;
+
   void* semaphoreMulticastPtr(int64_t root_rank) const;
 
   void* semaphoreUnicastPtr(int64_t root_rank, int64_t rank) const;
 
  private:
-  // One SymMemForBroadcast per rank (each rank acts as root once)
-  std::vector<std::unique_ptr<SymMemForBroadcast>> broadcast_handles_;
+  int64_t slice_size_bytes_ = 0;
+  std::unique_ptr<SymmetricTensor> full_buffer_sym_tensor_;
+  std::unique_ptr<SymmetricTensor> semaphores_sym_tensor_;
 };
 
 // SymmetricMemoryHandle for SymmetricContiguousView

@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda_utils.h>
-#include <multidevice/communicator.h>
-#include <options.h>
-#include <utils.h>
+#include "multidevice/communicator.h"
 
 #include <netdb.h>
+
+#include <cstdlib>
 #include <map>
+#include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
@@ -23,6 +23,10 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
 #endif
+
+#include "cuda_utils.h"
+#include "options.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -374,7 +378,7 @@ c10d::Backend* Communicator::getBackendForTeam(
       "torchrun). Sometimes, this is because Communicator::cleanup has been "
       "accidentally called before this function.");
 
-  CommunicatorBackend b = getBackend(backend);
+  CommunicatorBackend b = backend.value_or(default_backend_);
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);

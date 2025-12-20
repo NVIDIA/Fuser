@@ -6,22 +6,23 @@
  */
 // clang-format on
 
-#include <host_ir/pass/stream_parallel_type.h>
+#include "host_ir/pass/stream_parallel_type.h"
 
 #include <list>
 
-#include <host_ir/container.h>
-#include <host_ir/lower.h>
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
-#include <multidevice/cuda_p2p.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
+#include "host_ir/container.h"
+#include "host_ir/lower.h"
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
+#include "multidevice/cuda_p2p.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
 
 namespace nvfuser::hir_pass {
 
@@ -75,17 +76,23 @@ bool areIdsMapped(const IdModel& id_model, IterDomain* id1, IterDomain* id2) {
       .strictAreMapped(id1, id2);
 }
 
-// Determines if a stream-parallel for-loop can be merged with the previous one
+// Determines if a stream-parallel for-loop can be merged with the previous one.
+// If the stream axis of the expr doesn't map to the for loop, normally we would
+// not merge it because we need to synchronize streams before continuing,
+// but if the expr is resharding, we can merge it anyways because the resulting
+// communication will have an implicit synchronization.
 bool canMergeWithPreviousForLoop(
     const std::list<Expr*>& new_top_level_exprs,
     IterDomain* stream_axis,
-    const IdModel& id_model) {
+    const IdModel& id_model,
+    bool is_resharding) {
   return !new_top_level_exprs.empty() &&
       new_top_level_exprs.back()->isA<kir::ForLoop>() &&
-      areIdsMapped(
-          id_model,
-          stream_axis,
-          new_top_level_exprs.back()->as<kir::ForLoop>()->iterDomain());
+      (is_resharding ||
+       areIdsMapped(
+           id_model,
+           stream_axis,
+           new_top_level_exprs.back()->as<kir::ForLoop>()->iterDomain()));
 }
 
 // Finds where a stream axis appears in a tensor's logical domain
@@ -226,7 +233,7 @@ std::list<Expr*> groupStreamParallelRegions(
 
     // Check if we can merge this expression with the previous for-loop
     if (canMergeWithPreviousForLoop(
-            new_top_level_exprs, stream_axis, id_model)) {
+            new_top_level_exprs, stream_axis, id_model, isResharding(expr))) {
       // Merge with existing for-loop by adding the expression to its body
       new_top_level_exprs.back()->as<kir::ForLoop>()->body().push_back(expr);
     } else {
@@ -332,40 +339,126 @@ std::list<Expr*> processForLoopBodies(
     auto tensor_index = communicator_backend == CommunicatorBackend::kCuda
         ? mod(add(my_device_id, for_loop->index()), for_loop->stop())
         : for_loop->index();
+    auto recv_peer = communicator_backend == CommunicatorBackend::kCuda
+        ? mod(add(for_loop->stop(), sub(my_device_id, for_loop->index())),
+              for_loop->stop())
+        : for_loop->index();
 
     for (auto* body_expr : for_loop->body().exprs()) {
-      // We have a special handling for when an axis pass from DIDx to Stream
-      // parallel type in one expression. This case should be lowered to a P2P
-      // Communication. For now, we only allow the "Linear Allgather" case,
-      // where tv0 [DIDx(i0), ...] and tv1=set(tv0) [Stream(i0), ...]. In this
-      // case, the set should be lowered to something like
-      //
-      // FOR StreamIdx in range(i0):
-      //   [...]
-      //   SetCurrentStream to Stream ( StreamIdx % numberOfStreams )
-      //   IF StreamIdx == rank: // This is the local copy
-      //     Tv1[StreamIdx, ...].copy_(Tv0[0, ...]) // the index 0 because Tv0
-      //     is sharded
-      //   ELSE:
-      //     Recv (buffer=Tv1[StreamIdx, ...], peer=StreamIdx)
-      //     Send (buffer=Tv0[0, ...], peer=StreamIdx)
-      //   [...]
-      bool needs_p2p_handling = false;
+      bool did_to_stream = false;
+      bool stream_to_did = false;
+      auto inputs = ir_utils::filterByType<TensorView>(body_expr->inputs());
 
-      // Check if any input needs P2P handling
-      for (auto* input :
-           ir_utils::filterByType<TensorView>(body_expr->inputs())) {
-        if (auto stream_idx =
-                findStreamAxisIndex(input, for_loop->iterDomain(), id_model);
-            stream_idx != -1) {
-          if (input->getLogicalDomain()[stream_idx]->isDeviceDim()) {
-            needs_p2p_handling = true;
-            break;
+      if (!inputs.empty()) {
+        auto input = *inputs.begin();
+        if (!input->getLogicalDomain().empty() &&
+            input->getLogicalDomain()[0]->isDeviceDim()) {
+          auto outputs =
+              ir_utils::filterByType<TensorView>(body_expr->outputs());
+          if (!outputs.empty() &&
+              (*outputs.begin())->axis(0)->getParallelType() ==
+                  ParallelType::Stream) {
+            // First axis went from DID to Stream
+            did_to_stream = true;
           }
         }
       }
+      for (auto* output :
+           ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+        auto stream_idx =
+            findStreamAxisIndex(output, for_loop->iterDomain(), id_model);
+        if (stream_idx != -1 &&
+            output->getLogicalDomain()[stream_idx]->isDeviceDim()) {
+          // Any axis went from Stream to DID
+          stream_to_did = true;
+          break;
+        }
+      }
 
-      if (needs_p2p_handling) {
+      // Lower to MM + RS algorithm
+      if (did_to_stream && stream_to_did) {
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>() &&
+                body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
+            "expected a set operation but got ",
+            body_expr);
+        NVF_ERROR(
+            body_expr->isA<LoadStoreOp>(),
+            "expected a Tv operation but got ",
+            body_expr);
+        auto* set_op = body_expr->as<LoadStoreOp>();
+        auto* input_tv = set_op->in()->as<TensorView>();
+        auto* output_tv = set_op->out()->as<TensorView>();
+        NVF_ERROR(
+            input_tv->axis(0)->isDeviceDim(),
+            "expected a sharded first axis on the input but got ",
+            input_tv);
+        NVF_ERROR(
+            output_tv->axis(0)->getParallelType() == ParallelType::Stream,
+            "expected a stream parallelized first axis on the output but got ",
+            output_tv);
+        NVF_ERROR(
+            input_tv->axis(1)->getParallelType() == ParallelType::Stream,
+            "expected a stream parallelized second axis on the input but got ",
+            input_tv);
+        NVF_ERROR(
+            output_tv->axis(1)->isDeviceDim(),
+            "expected a sharded second axis on the output but got ",
+            output_tv);
+        auto* is_sending_to_self =
+            IrBuilder::create<kir::Predicate>(eq(tensor_index, my_device_id));
+        auto if_sending_to_self =
+            IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+        auto [slicing_input, is_new] = tensor_slicing_cache.get(
+            input_tv,
+            /*dim*/
+            findStreamAxisIndex(input_tv, for_loop->iterDomain(), id_model),
+            /*index=*/tensor_index);
+        auto [slicing_output, is_new_] =
+            tensor_slicing_cache.get(output_tv, /*dim*/ 0, /*index=*/recv_peer);
+        auto* local_copy = IrBuilder::create<LoadStoreOp>(
+            LoadStoreOpType::Set, slicing_output->out(), slicing_input->out());
+        if_sending_to_self->thenBody().push_back(local_copy);
+        auto recv = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::RECV,
+            slicing_output->out(),
+            recv_peer,
+            CommunicatorBackend::kNccl);
+        auto send = IrBuilder::create<P2PCommunication>(
+            P2PCommunicationType::SEND,
+            slicing_input->out(),
+            tensor_index,
+            CommunicatorBackend::kNccl);
+        auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+        auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+        auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
+        if_sending_to_self->elseBody().push_back(start_coalescing);
+        if_sending_to_self->elseBody().push_back(recv);
+        if_sending_to_self->elseBody().push_back(send);
+        if_sending_to_self->elseBody().push_back(end_coalescing);
+        if_sending_to_self->elseBody().push_back(wait);
+        new_loop_body.push_back(slicing_input);
+        new_loop_body.push_back(slicing_output);
+        new_loop_body.push_back(if_sending_to_self);
+      } else if (did_to_stream) {
+        // Lower to AG+MM algorithm if did_to_stream=true && stream_to_did=false
+        //
+        // We have a special handling for when an axis pass from DIDx to Stream
+        // parallel type in one expression. This case should be lowered to a P2P
+        // Communication. Here, we lower the "Linear Allgather" case,
+        // where tv0 [DIDx(i0), ...] and tv1=set(tv0) [Stream(i0), ...]. In this
+        // case, the set should be lowered to something like
+        //
+        // FOR StreamIdx in range(i0):
+        //   [...]
+        //   SetCurrentStream to Stream ( StreamIdx % numberOfStreams )
+        //   IF StreamIdx == rank: // This is the local copy
+        //     Tv1[StreamIdx, ...].copy_(Tv0[0, ...]) // the index 0 because Tv0
+        //     is sharded
+        //   ELSE:
+        //     Recv (buffer=Tv1[StreamIdx, ...], peer=StreamIdx)
+        //     Send (buffer=Tv0[0, ...], peer=StreamIdx)
+        //   [...]
         NVF_ERROR(
             body_expr->isA<LoadStoreOp>() &&
                 body_expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set,
@@ -588,18 +681,6 @@ std::list<Expr*> addStreamManagement(std::list<Expr*> top_level_exprs) {
 // adjacent compatible stream for-loop bodies. Ideally we should look at the dag
 // and use the segmenter.
 void StreamParallelType::passImplementation(Fusion* fusion) {
-  // Verify that input tensors don't have stream axes
-  NVF_CHECK(
-      std::all_of(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          [](Val* input) {
-            auto input_tv = dynamic_cast<TensorView*>(input);
-            return input_tv == nullptr ||
-                getStreamAxis(input_tv->getLoopDomain()) == nullptr;
-          }),
-      "Expected no stream axis in the TensorView inputs.");
-
   // Set up the fusion environment and build the ID model
   FusionGuard fg(fusion);
   auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);

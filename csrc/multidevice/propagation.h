@@ -9,8 +9,8 @@
 
 #include <unordered_set>
 
-#include <ir/interface_nodes.h>
-#include <scheduler/utils.h>
+#include "ir/interface_nodes.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 
