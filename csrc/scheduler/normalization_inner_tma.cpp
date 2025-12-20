@@ -30,6 +30,122 @@ namespace tma {
 using PersistentKernelProperties =
     normalization_scheduler_utils::PersistentKernelProperties;
 
+// Basic heuristics for TMA inner persistent scheduler, not tuned yet
+std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
+    Fusion* fusion,
+    const PersistentKernelProperties& prop,
+    HeuristicDataCache* data_cache) {
+  FusionGuard fg(fusion);
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t warp_size = dev_prop->warpSize;
+  const int64_t sm_count = dev_prop->multiProcessorCount;
+  const int64_t max_threads_per_cta = dev_prop->maxThreadsPerBlock;
+  auto params = std::make_unique<InnerNormTmaParams>(
+      InnerPersistentKernelScheduler::schedulerType());
+  params->tag = "Inner Persistent TMA heuristics";
+
+  const int64_t total_redu_count = prop.inner_most_dimension_numel;
+  const int64_t total_iter_count = prop.total_iteration_numel;
+
+  // Always project persistent buffers to inputs since inputs are cached in
+  // shared memory, reducing the size of persistent buffers
+  params->project_persistent_buffers = true;
+
+  // Heuristics not fully tuned yet:
+  // For non-persistent inputs, use non-TMA load to save shared memory usage
+  // when project_persistent_buffers is enabled
+  params->tma_load_non_persistent_buffers = false;
+  // Vectorize loads from shared memory to registers for better memory bandwidth
+  params->vectorize_load_smem_to_regs = true;
+  // Issue ldg (load global) instructions early to hide memory latency
+  params->pre_load_ldg_tvs = true;
+
+  // Configure reduction domain structure: [persistent_batch_size, bdimx, vect]
+  // Prioritize vectorization for memory access efficiency
+  params->vectorization_factor = prop.vectorize_factor;
+
+  // Prioritize SM occupancy: ensure at least 4 warps per CTA (128 threads)
+  const int64_t after_vect = total_redu_count / params->vectorization_factor;
+  int64_t bdimx = std::min(4 * warp_size, after_vect);
+  int64_t pbs = ceilDiv(after_vect, bdimx);
+
+  // Derive persistent batch size; if too large, increase bdimx to reduce pbs
+  int64_t max_pbs =
+      normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
+  while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
+    bdimx *= 2;
+    pbs = ceilDiv(after_vect, bdimx);
+  }
+  params->persistent_batch_size = pbs;
+
+  // set warp specialized circular buffer options
+  // don't use warp specialized if the total iteration count is too small
+  // TODO: heuristic tuning determine when to use warp specialized version
+  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
+  int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
+  const int64_t n_compute_warp_groups = 2;
+  const int64_t n_rows_per_compute_warp_group = 2;
+  const int64_t iter_limited_stages = total_iter_count /
+      (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
+  const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
+      n_compute_warp_groups * n_rows_per_compute_warp_group;
+  const int64_t smem_limited_stages =
+      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
+  const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
+  if (n_stages >= 2 && bdimx == 128) {
+    gdimx = sm_count;
+    bdimx = 128; // 4 warps per warp group
+    bdimy = n_compute_warp_groups;
+    bdimz = 1; // warp specialized kernel requires static CTA shape
+    params->n_grouped_rows = n_rows_per_compute_warp_group;
+    ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
+    WarpSpecialized ws(ws_pt);
+    if (ws_pt == ParallelType::TIDy) {
+      bdimy += 1;
+      ws.stage_slice_position = 3;
+      // Limitation in grouped reduction runtime function
+      NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
+      NVF_ERROR(
+          params->n_grouped_rows > 1,
+          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
+    } else {
+      bdimx += kWarpSpecializationPaddedThreads;
+    }
+    int64_t total_threads = bdimx * bdimy * bdimz;
+    if (total_threads > 256) {
+      int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
+      int64_t computation_threads =
+          total_threads - kWarpSpecializationPaddedThreads;
+      ws.num_registers = scheduler_utils::getRegisterSharing(
+          reg_per_thread,
+          computation_threads,
+          kWarpSpecializationPaddedThreads);
+    }
+    CircularBufferOptions circular_buffer_options{
+        .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
+    params->circular_buffer_options = circular_buffer_options;
+    // Set launch parameters
+    params->lparams = LaunchParams(
+        gdimx,
+        LaunchParams::UNINITIALIZED_VAL,
+        LaunchParams::UNINITIALIZED_VAL,
+        bdimx,
+        bdimy,
+        bdimz);
+  }
+
+  // Set index type
+  params->cparams.index_type = prop.index_type;
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << prop.toString() << std::endl;
+    debug() << params->toString() << std::endl;
+  }
+
+  return params;
+}
+
 // Helper struct to hold results from common schedule setup
 struct ScheduleSetupResult {
   TensorView* reduction_tv;
@@ -169,122 +285,6 @@ void applyVectorization(
       }
     }
   }
-}
-
-// Basic heuristics for TMA inner persistent scheduler, not tuned yet
-std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
-    Fusion* fusion,
-    const PersistentKernelProperties& prop,
-    HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
-  auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t warp_size = dev_prop->warpSize;
-  const int64_t sm_count = dev_prop->multiProcessorCount;
-  const int64_t max_threads_per_cta = dev_prop->maxThreadsPerBlock;
-  auto params = std::make_unique<InnerNormTmaParams>(
-      InnerPersistentKernelScheduler::schedulerType());
-  params->tag = "Inner Persistent TMA heuristics";
-
-  const int64_t total_redu_count = prop.inner_most_dimension_numel;
-  const int64_t total_iter_count = prop.total_iteration_numel;
-
-  // Always project persistent buffers to inputs since inputs are cached in
-  // shared memory, reducing the size of persistent buffers
-  params->project_persistent_buffers = true;
-
-  // Heuristics not fully tuned yet:
-  // For non-persistent inputs, use non-TMA load to save shared memory usage
-  // when project_persistent_buffers is enabled
-  params->tma_load_non_persistent_buffers = false;
-  // Vectorize loads from shared memory to registers for better memory bandwidth
-  params->vectorize_load_smem_to_regs = true;
-  // Issue ldg (load global) instructions early to hide memory latency
-  params->pre_load_ldg_tvs = true;
-
-  // Configure reduction domain structure: [persistent_batch_size, bdimx, vect]
-  // Prioritize vectorization for memory access efficiency
-  params->vectorization_factor = prop.vectorize_factor;
-
-  // Prioritize SM occupancy: ensure at least 4 warps per CTA (128 threads)
-  const int64_t after_vect = total_redu_count / params->vectorization_factor;
-  int64_t bdimx = std::min(4 * warp_size, after_vect);
-  int64_t pbs = ceilDiv(after_vect, bdimx);
-
-  // Derive persistent batch size; if too large, increase bdimx to reduce pbs
-  int64_t max_pbs =
-      normalization_scheduler_utils::getInnerPersistentMaxBatchSize(true);
-  while (pbs > max_pbs && bdimx * 2 <= max_threads_per_cta) {
-    bdimx *= 2;
-    pbs = ceilDiv(after_vect, bdimx);
-  }
-  params->persistent_batch_size = pbs;
-
-  // set warp specialized circular buffer options
-  // don't use warp specialized if the total iteration count is too small
-  // TODO: heuristic tuning determine when to use warp specialized version
-  int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
-  int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
-  int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
-  const int64_t n_compute_warp_groups = 2;
-  const int64_t n_rows_per_compute_warp_group = 2;
-  const int64_t iter_limited_stages = total_iter_count /
-      (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
-  const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
-      n_compute_warp_groups * n_rows_per_compute_warp_group;
-  const int64_t smem_limited_stages =
-      (int64_t)dev_prop->sharedMemPerBlockOptin * 8 / smem_size_bit;
-  const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
-  if (n_stages >= 2 && bdimx == 128) {
-    gdimx = sm_count;
-    bdimx = 128; // 4 warps per warp group
-    bdimy = n_compute_warp_groups;
-    bdimz = 1; // warp specialized kernel requires static CTA shape
-    params->n_grouped_rows = n_rows_per_compute_warp_group;
-    ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
-    WarpSpecialized ws(ws_pt);
-    if (ws_pt == ParallelType::TIDy) {
-      bdimy += 1;
-      ws.stage_slice_position = 3;
-      // Limitation in grouped reduction runtime function
-      NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
-      NVF_ERROR(
-          params->n_grouped_rows > 1,
-          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
-    } else {
-      bdimx += kWarpSpecializationPaddedThreads;
-    }
-    int64_t total_threads = bdimx * bdimy * bdimz;
-    if (total_threads > 256) {
-      int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
-      int64_t computation_threads =
-          total_threads - kWarpSpecializationPaddedThreads;
-      ws.num_registers = scheduler_utils::getRegisterSharing(
-          reg_per_thread,
-          computation_threads,
-          kWarpSpecializationPaddedThreads);
-    }
-    CircularBufferOptions circular_buffer_options{
-        .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
-    params->circular_buffer_options = circular_buffer_options;
-    // Set launch parameters
-    params->lparams = LaunchParams(
-        gdimx,
-        LaunchParams::UNINITIALIZED_VAL,
-        LaunchParams::UNINITIALIZED_VAL,
-        bdimx,
-        bdimy,
-        bdimz);
-  }
-
-  // Set index type
-  params->cparams.index_type = prop.index_type;
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << prop.toString() << std::endl;
-    debug() << params->toString() << std::endl;
-  }
-
-  return params;
 }
 
 // Schedule inner persistent kernel for multi-wave execution (no warp
