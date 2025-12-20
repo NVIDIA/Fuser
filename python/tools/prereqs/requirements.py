@@ -171,7 +171,9 @@ NINJA = Requirement("Ninja", None)  # Any version accepted
 PYTORCH = Requirement("PyTorch", (2, 0))
 CUDA = Requirement("CUDA", (12, 6))  # Minimum PyTorch CUDA version
 PYBIND11 = Requirement("pybind11", (2, 0))
-GCC = Requirement("GCC", (13,))  # Major version only; requires <format> header
+GCC = Requirement(
+    "GCC", (11,)
+)  # Major version only; NvFuser requires <format> header to build cutlass executor
 CLANG = Requirement("Clang", (19,))  # Major version only; Clang 19 has <format> support
 LLVM = Requirement("LLVM", (18, 1), recommended=(18, 1, 8))
 
