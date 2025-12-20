@@ -103,9 +103,9 @@ def test_sdpa_fwd(nvfuser_direct_test):
 
     N, H, L, S, E = 4, 8, 16, 16, 8
     qkv = [
-        torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
-        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda"),
+        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda"),
+        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda"),
     ]
 
     dropout_vals = [None, 0.0, 0.2]
@@ -189,12 +189,12 @@ def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
         attn, *_ = fd.ops.sdpfa_fwd(q, k, v, bias=bias, mask=mask)
         fd.add_output(attn)
 
-    N, H, L, S, E = 2, 4, 8, 8, 16
-    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-    bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda:0")
-    mask = torch.rand((N, H, L, S), device="cuda:0") > 0.3
+    N, H, L, S, E = 11, 7, 5, 3, 2
+    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+    bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda")
+    mask = torch.rand((N, H, L, S), device="cuda") > 0.3
 
     nvf_out = fd.execute([q, k, v, bias, mask])
 
@@ -208,10 +208,10 @@ def test_sdpa_fwd_bias_mask(nvfuser_direct_test):
 def test_sdpa_bwd(nvfuser_direct_test):
     N, H, L, S, E = 4, 8, 16, 16, 8
 
-    grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
 
     dropout_vals = [None, 0.0, 0.2]
     is_causal_vals = [None, True, False]
@@ -439,24 +439,22 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             q = torch.randn(
                 (N, H, L, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
             k = torch.randn(
                 (N, H, S, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
             v = torch.randn(
                 (N, H, S, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
-            grad_output = torch.randn(
-                (N, H, L, E), dtype=torch.bfloat16, device="cuda:0"
-            )
+            grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
 
             has_dropout = True if dropout_p is not None else False
             has_causal = True if is_causal is not None else False
