@@ -20,6 +20,23 @@
 
 namespace nvfuser {
 
+IrContainer* IrBuilder::getActiveContainer() {
+  Fusion* fusion = FusionGuard::getCurFusion();
+  NVF_ERROR(fusion != nullptr, "Need an active fusion to build IR.");
+  return fusion->container();
+}
+
+void IrBuilder::registerWithContainer(IrContainer* container, Statement* stmt) {
+  // If the container belongs to a Fusion, register through the Fusion
+  // to ensure proper definition tracking and other Fusion-level bookkeeping
+  if (container->fusion() != nullptr) {
+    container->fusion()->registerStmt(stmt);
+  } else {
+    // For standalone containers, register directly
+    container->registerStmt(IrBuilderPasskey(container), stmt);
+  }
+}
+
 Val* IrBuilder::newArithmeticExpr(BinaryOpType op_type, Val* lhs, Val* rhs) {
   NVF_CHECK(
       lhs != nullptr && rhs != nullptr,

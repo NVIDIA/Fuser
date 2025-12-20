@@ -1235,6 +1235,7 @@ std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
   std::vector<TensorView*> reduction_tvs;
   for (auto tv : all_tvs) {
     if (!tv->isFusionInput() &&
+        tv->definition() != nullptr &&
         std::any_of(
             tv->getLoopDomain().begin(),
             tv->getLoopDomain().end(),

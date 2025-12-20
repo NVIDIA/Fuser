@@ -1885,7 +1885,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
 
       fusion->removeExpr(rop);
       IrBuilder::createInContainer<GroupedReductionOp>(
-          fusion, op_types, init_vals, outputs, inputs, is_allreduce);
+          fusion->container(), op_types, init_vals, outputs, inputs, is_allreduce);
     } else if (tv->definition()->isA<WelfordOp>()) {
       // Convert WelfordOp to GroupedWelfordOp
       auto wop = def->as<WelfordOp>();
@@ -1911,7 +1911,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
           {{wop->initAvg(), wop->initVar(), wop->initN()}});
       fusion->removeExpr(wop);
       IrBuilder::createInContainer<GroupedWelfordOp>(
-          fusion, output_vals, input_vals, init_vals, is_allreduce);
+          fusion->container(), output_vals, input_vals, init_vals, is_allreduce);
     }
   }
 }
