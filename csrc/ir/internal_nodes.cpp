@@ -3427,7 +3427,10 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
   }
   if (attn_bias.defined()) {
-    attn_bias = flattenBatchDims(attn_bias);
+    // For triangle attention (ending nodes), `mask` is not in major-to-minor
+    // layout. `attn_bias`, derived from `mask`, isn't either. Therefore,
+    // `contiguous()` is required.
+    attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
   // 4D SDPA
