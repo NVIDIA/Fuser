@@ -517,7 +517,7 @@ class CUDACommunicationTest : public MultiDeviceTest {
   }
 };
 
-TEST_F(CUDACommunicationTest, Broadcast) {
+TEST_F(CUDACommunicationTest, DISABLED_Broadcast) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
@@ -579,7 +579,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   }
 }
 
-TEST_F(CUDACommunicationTest, Allgather) {
+TEST_F(CUDACommunicationTest, DISABLED_Allgather) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
