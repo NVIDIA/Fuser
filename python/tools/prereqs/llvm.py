@@ -78,9 +78,9 @@ def _find_llvm_config() -> Optional[str]:
         system_paths = [
             f"/usr/lib/llvm-{major}/bin/llvm-config",
             f"/usr/local/llvm-{major}/bin/llvm-config",
-            "/opt/llvm/bin/llvm-config",
         ]
         candidates.extend(system_paths)
+    candidates.append("/opt/llvm/bin/llvm-config")
 
     # 6. Project-local locations (wildcards for minor version variations)
     # Navigate from python/tools/prereqs to repo root (3 levels up)
