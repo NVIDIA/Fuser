@@ -810,6 +810,7 @@ if(BUILD_PYTHON)
       target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
   endif()
 
+
   target_link_libraries(nvf_py_internal PRIVATE
     nvfuser_codegen
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
@@ -954,6 +955,7 @@ if(BUILD_PYTHON)
     nvf_py_direct_internal
     Python::Module
   )
+
 
   # Add dead code elimination flags to reduce file size
   if(NOT MSVC)
@@ -1569,6 +1571,19 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
 endforeach()
 
 target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include")
+
+# ============================================================================
+# Precompiled Headers for External Dependencies
+# ============================================================================
+# External headers (stdlib, PyTorch, CUDA) are parsed by 500+ compilation units
+# but never change during nvFuser development. PCH eliminates this redundancy.
+option(NVFUSER_USE_PCH "Use precompiled headers for external dependencies" ON)
+if(NVFUSER_USE_PCH)
+  target_precompile_headers(codegen_internal PRIVATE
+    "${NVFUSER_SRCS_DIR}/pch_external.h"
+  )
+  message(STATUS "PCH enabled for codegen_internal")
+endif()
 
 # -- install nvfuser cmake config files and symlink to build binaries
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
