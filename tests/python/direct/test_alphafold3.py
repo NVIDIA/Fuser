@@ -28,11 +28,58 @@ class Direction(Enum):
     OUTGOING = auto()  # aka starting node
 
 
+# https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-updates
 @pytest.mark.parametrize(
     "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
 )
 def test_triangle_updates(direction):
-    pass
+    c_z = _DEFAULT_CONFIG.c_z
+
+    with FusionDefinition() as fd:
+        z_in = fd.define_tensor(
+            shape=[-1, -1, -1, c_z],
+            dtype=DataType.BFloat16,
+            contiguity=True,
+        )  # [b, i, j, c_z]
+        w_p = fd.define_tensor(
+            shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        w_g = fd.define_tensor(
+            shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+
+        p = fd.ops.linear(z_in, w_p)
+        g = fd.ops.linear(z_in, w_g)
+        g = fd.ops.sigmoid(g)
+        ab = fd.ops.mul(p, g)
+
+        batch_size = fd.ops.size(z_in, 0)
+        n_tokens = fd.ops.size(z_in, 1)
+        a = fd.ops.slice(ab, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
+        b = fd.ops.slice(ab, [0, 0, 0, c_z], [batch_size, n_tokens, n_tokens, c_z * 2])
+
+        match direction:
+            case Direction.OUTGOING:
+                # z_out = einsum("bikc,bjkd->bijc", a, b)
+                a = fd.ops.permute(a, [0, 3, 1, 2])  # [b, c, i, k]
+                b = fd.ops.permute(b, [0, 3, 2, 1])  # [b, c, k, j]
+            case Direction.INCOMING:
+                # z_out = einsum("bkic,bkjc->bijc", a, b)
+                a = fd.ops.permute(a, [0, 3, 2, 1])
+                b = fd.ops.permute(b, [0, 3, 1, 2])
+        z_out = fd.ops.matmul(a, b)  # [b, c, i, j]
+        z_out = fd.ops.permute(z_out, [0, 2, 3, 1])  # [b, i, j, c]
+        fd.add_output(z_out)
+
+    batch_size = 3
+    n_tokens = 5
+    z_in = torch.testing.make_tensor(
+        batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
+    )
+    w_p = torch.testing.make_tensor(c_z * 2, c_z, dtype=torch.bfloat16, device="cuda")
+    w_g = torch.testing.make_tensor(c_z * 2, c_z, dtype=torch.bfloat16, device="cuda")
+    (z_out,) = fd.execute([z_in, w_p, w_g])
+    assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
 # https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention
