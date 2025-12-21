@@ -55,7 +55,7 @@ class MultideviceTest:
 
 
 @pytest.fixture
-def multidevice_direct_test():
+def multidevice_test():
     fixture = MultideviceTest()
     yield fixture
     fixture.communicator.barrier()

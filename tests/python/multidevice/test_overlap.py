@@ -11,10 +11,10 @@ from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, Tens
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear_forward(multidevice_direct_test):
+def test_row_parallel_linear_forward(multidevice_test):
     # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
     h, s, t = 2, 3, 6
-    d = multidevice_direct_test.size
+    d = multidevice_test.size
     if (h * 4) % d != 0:
         pytest.skip(
             f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
@@ -81,8 +81,8 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
     weight_ref = torch.randint(-2, 3, (h, h * 4), dtype=torch.int32).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = multidevice_direct_test.shard_tensor(inp_ref, -1, mesh)
-    weight = multidevice_direct_test.shard_tensor(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, -1, mesh)
+    weight = multidevice_test.shard_tensor(weight_ref, -1, mesh)
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
@@ -105,7 +105,7 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
-    multidevice_direct_test, benchmark, backend_type, s
+    multidevice_test, benchmark, backend_type, s
 ):
     def fusion_definition(fd, m, k, n, s, d) -> list[TensorView]:
         x = fd.define_tensor(
@@ -132,19 +132,19 @@ def test_overlap_allgather_matmul_stream_outermost(
         out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     N_WARMUPS, N_ITERATIONS = 5, 25
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         s, d, m // (s * d), k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_direct_test.shard_tensor(
+    x = multidevice_test.shard_tensor(
         x_unsharded,
         1,
-        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
+        nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
     )
     weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
@@ -176,7 +176,7 @@ def test_overlap_allgather_matmul_stream_outermost(
     "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.cuda]
 )
 def test_overlap_allgather_matmul_shard_outermost(
-    multidevice_direct_test, benchmark, backend_type
+    multidevice_test, benchmark, backend_type
 ):
     def fusion_definition(fd, m, k, n, d) -> list[TensorView]:
         x = fd.define_tensor(
@@ -203,19 +203,19 @@ def test_overlap_allgather_matmul_shard_outermost(
         out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     N_WARMUPS, N_ITERATIONS = 5, 25
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
     assert m % d == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         d, m // d, k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_direct_test.shard_tensor(
+    x = multidevice_test.shard_tensor(
         x_unsharded,
         0,
-        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
+        nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
     )
     weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
