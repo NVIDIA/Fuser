@@ -60,7 +60,7 @@ def test_triangle_updates(direction):
 
         match direction:
             case Direction.OUTGOING:
-                # z_out = einsum("bikc,bjkd->bijc", a, b)
+                # z_out = einsum("bikc,bjkc->bijc", a, b)
                 a = fd.ops.permute(a, [0, 3, 1, 2])  # [b, c, i, k]
                 b = fd.ops.permute(b, [0, 3, 2, 1])  # [b, c, k, j]
             case Direction.INCOMING:
