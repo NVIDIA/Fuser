@@ -42,6 +42,10 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   int64_t threads_per_block = 128;
   int64_t unroll_factor = target_vect_unroll / vectorization_factor;
 
+  NVF_ERROR(
+      vectorization_factor > 1,
+      "TMA reduction requires vectorization_factor > 1");
+
   auto params = std::make_unique<TmaInnerReductionParams>();
   params->vectorization_factor = vectorization_factor;
   params->threads_per_block = threads_per_block;
@@ -109,11 +113,8 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
 
   // Split 1: Vectorization factor (innermost serial split for TMA)
-  if (rparams->vectorization_factor > 1) {
-    reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
-    reduction_tv->axis(inner_reduce_axis + 1)
-        ->parallelize(ParallelType::Serial);
-  }
+  reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
+  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Serial);
 
   // Split 2: TIDx (always applied)
   reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);

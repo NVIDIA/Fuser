@@ -228,6 +228,11 @@ bool mayUseTma(
     return false;
   }
 
+  // Like vectorization, TMA requires 16-bytes alignment
+  if (props.vectorize_factor <= 1) {
+    return false;
+  }
+
   return true;
 }
 } // namespace
