@@ -76,14 +76,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
 
   NVF_ERROR(!tma_tvs.empty());
 
-  int64_t iter_axis = 0;
-  int64_t inner_reduce_axis = 1;
-
-  // Schedule TMA tvs as [BIDx, Bulk]
-  tma_tvs[0]->axis(iter_axis)->parallelize(ParallelType::BIDx);
-  tma_tvs[0]->axis(inner_reduce_axis)->parallelize(ParallelType::Bulk);
-  scheduler_utils::parallelizeAllLike(tma_tvs[0], tma_tvs);
-
   auto reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   NVF_ERROR(!reduction_tvs.empty());
   TensorView* reduction_tv = reduction_tvs.at(0);
@@ -96,12 +88,18 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   NVF_ERROR(has_iter_axis && has_red_axis);
 
   // Propagate the merges to all TMA TVs
-  std::vector<TensorView*> non_tma_tvs =
-      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   TransformPropagator tma_propagator(reduction_tv);
   SetSelector tma_selector({tma_tvs.begin(), tma_tvs.end()});
   MaxLogicalDomainInfoSpanningTree(reduction_tv, &tma_selector)
       .traverse(&tma_propagator);
+
+  int64_t iter_axis = 0;
+  int64_t inner_reduce_axis = 1;
+
+  // Schedule TMA tvs as [BIDx, Bulk]
+  tma_tvs[0]->axis(iter_axis)->parallelize(ParallelType::BIDx);
+  tma_tvs[0]->axis(inner_reduce_axis)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(tma_tvs[0], tma_tvs);
 
   // Non-TMA scheduling
   //
@@ -156,6 +154,8 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   }
 
   // Schedule non-TMA tvs based on reference tv
+  std::vector<TensorView*> non_tma_tvs =
+      ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
   TransformPropagator non_tma_propagator(reference_tv);
   SetSelector non_tma_selector({non_tma_tvs.begin(), non_tma_tvs.end()});
   MaxLogicalDomainInfoSpanningTree(reference_tv, &non_tma_selector)
