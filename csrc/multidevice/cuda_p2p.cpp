@@ -267,6 +267,7 @@ void postBroadcastWithCudaBackend(
     if (protocol == MulticastProtocol::Multimem) {
       launchMulticastKernel(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
+#if CUDA_VERSION >= 12080
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
       std::vector<void*> dsts(world_size);
       std::vector<const void*> srcs(world_size, src_ptr);
@@ -289,7 +290,6 @@ void postBroadcastWithCudaBackend(
       }
       NVF_CHECK(
           stream != 0, "cudaMemcpyBatchAsync does not support default stream");
-#if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
           srcs.data(),
@@ -298,18 +298,6 @@ void postBroadcastWithCudaBackend(
           attributes.data(),
           attrsIdxs.data(),
           numAttrs,
-          (cudaStream_t)stream));
-#else
-      size_t failIdx = 0;
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
-          dsts.data(),
-          srcs.data(),
-          counts.data(),
-          world_size,
-          attributes.data(),
-          attrsIdxs.data(),
-          numAttrs,
-          &failIdx,
           (cudaStream_t)stream));
 #endif
     } else {
@@ -418,6 +406,7 @@ void postAllgatherWithCudaBackend(
         src_ptr,
         count,
         stream);
+#if CUDA_VERSION >= 12080
   } else if (protocol == MulticastProtocol::BatchMemcpy) {
     std::vector<void*> dsts(world_size);
     std::vector<const void*> srcs(world_size, src_ptr);
@@ -440,7 +429,6 @@ void postAllgatherWithCudaBackend(
     }
     NVF_CHECK(
         stream != 0, "cudaMemcpyBatchAsync does not support default stream");
-#if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
         srcs.data(),
@@ -449,18 +437,6 @@ void postAllgatherWithCudaBackend(
         attributes.data(),
         attrsIdxs.data(),
         numAttrs,
-        (cudaStream_t)stream));
-#else
-    size_t failIdx = 0;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
-        dsts.data(),
-        srcs.data(),
-        counts.data(),
-        world_size,
-        attributes.data(),
-        attrsIdxs.data(),
-        numAttrs,
-        &failIdx,
         (cudaStream_t)stream));
 #endif
   } else {
