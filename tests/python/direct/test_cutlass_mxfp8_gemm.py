@@ -15,34 +15,45 @@ if compute_cap < (10, 0) or compute_cap >= (12, 0):
     )
 
 from python.direct_utils import (
-    FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     dequantize_to_dtype,
 )
 
 
-def activation_scale_to_nvfp8(x, g_sf, offsets, blockscale_offsets, block_size):
-    m = x.size(0)
-    k = x.size(1)
-    g = g_sf.size(0)
-    padded_m_size = blockscale_offsets[g - 1] + round_up(m - offsets[g - 1], 128)
-    block_scale = torch.empty(
-        (padded_m_size, k // block_size), dtype=torch.float8_e4m3fn, device="cuda:0"
+def to_fp8(tensor: torch.Tensor) -> torch.Tensor:
+    finfo = torch.finfo(torch.float8_e4m3fn)
+    return torch.round(tensor.clamp(min=finfo.min, max=finfo.max)).to(
+        dtype=torch.float8_e4m3fn
     )
-    v_scaled = torch.empty((m, k // 2), dtype=torch.float4_e2m1fn_x2, device="cuda:0")
-    for i in range(len(g_sf)):
-        l = offsets[i]
-        if i == g - 1:
-            r = m
-        else:
-            r = offsets[i + 1]
-        l_sf = blockscale_offsets[i]
-        r_sf = l_sf + (r - l + 127) // 128 * 128
-        v, b_sf = pytorch_nvfp4_quantize(x[l:r], g_sf[i])
-        v_scaled[l:r] = v
-        block_scale[l_sf:r_sf] = linear_to_swizzled_128_4(b_sf)
 
-    return v_scaled, block_scale
+
+def pytorch_mxfp8_quantize(a):
+    BLOCK_SIZE = 32
+    assert (
+        a.size(-1) % BLOCK_SIZE == 0
+    ), "The inner-most dim must be divisible by block_size; Padding is not implemented."
+    assert a.is_contiguous(), "Only contiguous tensors are supported."
+
+    # Find absolute maximum along blockwise dimension
+    original_shape = a.shape
+    a_fp32 = a.float().reshape(original_shape[0], -1, BLOCK_SIZE)
+    max_abs = torch.amax(torch.abs(a_fp32), dim=-1)
+
+    # Get fp32 block scale factor for fp8
+    block_scale_fp32 = (max_abs / FLOAT8_E4M3_MAX).float()
+
+    # Clamp scale factor within UE8M0
+    FLOAT8_UE8M0_EPS = torch.finfo(torch.float8_e8m0fnu).tiny
+    FLOAT8_UE8M0_MAX = torch.finfo(torch.float8_e8m0fnu).max
+    block_scale_fp32 = torch.clamp(
+        block_scale_fp32, min=FLOAT8_UE8M0_EPS, max=FLOAT8_UE8M0_MAX
+    )
+
+    # Apply block conversion factor
+    a_scaled = a_fp32 / block_scale_fp32.unsqueeze(-1)
+    a_scaled = a_scaled.view(original_shape)
+
+    return to_fp8(a_scaled), block_scale_fp32.to(torch.float8_e8m0fnu)
 
 
 def get_ref_results(
@@ -84,16 +95,9 @@ def test_nvfp4_gemm(
     a_dtype = torch.randn((m, k), dtype=dtype, device="cuda")
     b_dtype = torch.randn((n, k), dtype=dtype, device="cuda")
 
-    a_global_scale = (
-        (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / torch.amax(a_dtype.flatten(), dim=-1)
-    ).to(torch.float32)
-    b_global_scale = (
-        (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / torch.amax(b_dtype.flatten(), dim=-1)
-    ).to(torch.float32)
-    alpha = 1.0 / (a_global_scale * b_global_scale)
-
-    a_fp8, a_scale_linear = pytorch_mxfp8_quantize(a_dtype, a_global_scale)
-    b_fp8, b_scale_linear = pytorch_mxfp8_quantize(b_dtype, b_global_scale)
+    alpha = 1.0
+    a_fp8, a_scale_linear = pytorch_mxfp8_quantize(a_dtype)
+    b_fp8, b_scale_linear = pytorch_mxfp8_quantize(b_dtype)
     a_scale_interleaved = linear_to_swizzled_128_4(a_scale_linear)
     b_scale_interleaved = linear_to_swizzled_128_4(b_scale_linear)
 
