@@ -139,29 +139,21 @@ def compute_nvfp4_global_scale(tensor):
 
     Args:
         tensor: Input tensor to compute scale for
-        device: Device to create constant tensors on
 
     Returns:
-        Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor))
+        Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor)),
+        clamped to float32 max. Returns 1.0 if input is all zeros.
     """
-    amax = torch.max(torch.abs(tensor)).to(torch.float32)
-    x_global_scale = torch.div(FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX, amax)
-    x_global_scale = torch.min(
-        x_global_scale,
-        torch.tensor(
-            torch.finfo(torch.float32).max,
-            device=x_global_scale.device,
-            dtype=torch.float32,
-        ),
-    )
+    amax_scalar = torch.max(torch.abs(tensor)).cpu().to(torch.float32).item()
 
-    # Handle edge cases: zero input or invalid scale
-    if x_global_scale == 0.0:
-        x_global_scale = torch.tensor(
-            1.0, device=x_global_scale.device, dtype=torch.float32
-        )
+    # Handle edge case: zero or near-zero input
+    if amax_scalar == 0.0:
+        return torch.tensor(1.0, device=tensor.device, dtype=torch.float32)
 
-    return x_global_scale
+    float32_max = torch.finfo(torch.float32).max
+    scale = min((FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / amax_scalar, float32_max)
+
+    return torch.tensor(scale, device=tensor.device, dtype=torch.float32)
 
 
 def extract_te_nvfp4_metadata(input_tensor):
