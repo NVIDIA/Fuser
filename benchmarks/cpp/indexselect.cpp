@@ -24,7 +24,7 @@
 
 using namespace nvfuser;
 
-static void setupFusion(Fusion* fusion) {
+static void setupIndexSelectFusion(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   // set up input tensor views
@@ -44,7 +44,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(t4);
 }
 
-static KernelArgumentHolder setupInputs() {
+static KernelArgumentHolder setupIndexSelectInputs() {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -66,7 +66,7 @@ static void NvFuserScheduler_IndexSelect_SetupFusion(
     benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
-    setupFusion(&fusion);
+    setupIndexSelectFusion(&fusion);
   }
 }
 
@@ -81,8 +81,8 @@ static void NvFuserScheduler_IndexSelect_AutoSchedule(
     // Setup (not included in the measurement)
     benchmark_state.PauseTiming();
     Fusion fusion;
-    setupFusion(&fusion);
-    KernelArgumentHolder args = setupInputs();
+    setupIndexSelectFusion(&fusion);
+    KernelArgumentHolder args = setupIndexSelectInputs();
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
@@ -100,10 +100,10 @@ static void NvFuserScheduler_IndexSelect_Lower(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupIndexSelectFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupIndexSelectInputs();
 
   SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
@@ -121,10 +121,10 @@ static void NvFuserScheduler_IndexSelect_Compile(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupIndexSelectFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupIndexSelectInputs();
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
@@ -144,10 +144,10 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupIndexSelectFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs();
+  KernelArgumentHolder args = setupIndexSelectInputs();
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);

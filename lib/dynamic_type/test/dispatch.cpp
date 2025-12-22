@@ -15,9 +15,9 @@
 
 using namespace dynamic_type;
 
-class DynamicTypeTest : public ::testing::Test {};
+class DispatchTest : public ::testing::Test {};
 
-TEST_F(DynamicTypeTest, DispatchBasic) {
+TEST_F(DispatchTest, DispatchBasic) {
   using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
   auto concat = [](std::string a, auto x, auto y, std::string b) {
     std::string result = a;
@@ -56,7 +56,7 @@ TEST_F(DynamicTypeTest, DispatchBasic) {
   EXPECT_EQ(concated_result22, "0223");
 }
 
-TEST_F(DynamicTypeTest, DispatchArgumentPerfectForwarding) {
+TEST_F(DispatchTest, DispatchArgumentPerfectForwarding) {
   using IntOrStr = DynamicType<NoContainers, int64_t, std::string>;
   struct NonCopyable {
     NonCopyable() = default;
@@ -103,7 +103,7 @@ TEST_F(DynamicTypeTest, DispatchArgumentPerfectForwarding) {
   EXPECT_EQ(concated_result22, "223");
 }
 
-TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
+TEST_F(DispatchTest, DispatchReturnsDynamicType) {
   using IntOrFloat = DynamicType<NoContainers, int64_t, float>;
   auto add = [](auto x, auto y) {
     if constexpr (opcheck<decltype(x)> + opcheck<decltype(y)>) {
@@ -138,7 +138,7 @@ TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
   static_assert(ce_r12 == 3.0f);
 }
 
-TEST_F(DynamicTypeTest, DispatchReturnsReference) {
+TEST_F(DispatchTest, DispatchReturnsReference) {
   using IntOrFloat = DynamicType<NoContainers, int64_t, float>;
   auto add = [](std::vector<int>& a, auto x, int64_t y) -> decltype(auto) {
     if constexpr (std::is_integral_v<decltype(x)>) {

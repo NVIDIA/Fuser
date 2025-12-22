@@ -14,21 +14,25 @@
 
 namespace nvfuser {
 
+namespace {
+
 template <typename... Args>
-void vlog(const Args&... args) {
+void markAliasesVlog(const Args&... args) {
   scheduler_debug_utils::log("[mark_aliases] ", args...);
 }
 
+} // namespace
+
 void markAliases(Fusion* fusion) {
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    vlog("Input fusion:");
+    markAliasesVlog("Input fusion:");
     fusion->printMath();
   }
 
   const AliasAnalysisResult analysis =
       findAliases(fusion, EmptyAllocationAs::kLogical);
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerVerbose)) {
-    vlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
+    markAliasesVlog("Alias analysis result:\n", analysis.toString(/*indent_size=*/1));
   }
 
   for (auto* out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
@@ -41,7 +45,7 @@ void markAliases(Fusion* fusion) {
     if (TensorView* aliased_io = analysis.getRoot(out)) {
       if (aliased_io->isFusionInput() || aliased_io->isFusionOutput()) {
         fusion->aliasOutputToInput(out, aliased_io, AllocationType::Evaluate);
-        vlog(
+        markAliasesVlog(
             "Marked ",
             ir_utils::varName(out),
             " as an alias of ",
