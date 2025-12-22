@@ -714,10 +714,15 @@ TEST_F(NVFuserTest, Translate1Welford) {
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 2);
 
   // Run an un-translated welford, use a large inner size to ensure it is not
-  // translated. Cluster reduction uses multiple SMs.
-  const int64_t sms_per_cluster = scheduler_utils::getMaxClusterSize();
-  const int64_t elements_per_sm = 32 * 1024;
-  auto runtime2 = run_test(elements_per_sm * sms_per_cluster + 1024);
+  // translated. Cluster reduction uses multiple SMs each uses 32K registers.
+  // If the cluster size is 1, use 65536 elements which ensures the required
+  // size is larger than both register and shared memory size of a single SM.
+  // Context: cluster reduction only uses register persistence while block
+  // reduction may also use shared memory persistence.
+  const int64_t sm_per_cluster = scheduler_utils::getMaxClusterSize();
+  const int64_t total_elements =
+      sm_per_cluster == 1 ? 65536 : 32768 * sm_per_cluster + 1024;
+  auto runtime2 = run_test(total_elements);
 
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {
