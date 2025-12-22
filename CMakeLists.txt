@@ -239,7 +239,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
@@ -978,7 +977,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
