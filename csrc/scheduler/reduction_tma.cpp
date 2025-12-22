@@ -25,17 +25,9 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     const reduction_scheduler_utils::FusionRuntimeProperties& props) {
   FusionGuard fg(fusion);
 
-  // Get device properties
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
-
-  const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
-      props.max_dtype_size_bit_for_vectorization;
-
-  if (props.inner_most_dimension_numel > smem_elems) {
-    return nullptr;
-  }
 
   // Get target vectorization/unroll factor
   auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(

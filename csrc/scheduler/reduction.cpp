@@ -194,15 +194,32 @@ namespace {
 
 bool mayUseTma(
     const reduction_scheduler_utils::FusionRuntimeProperties& props) {
-  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+
+  if (dev_prop->major < 9) {
     return false;
   }
 
+  // Require the reduction shape is 2D inner reduction: [I, R]
   if (!props.fastest_dim_reduction) {
     return false;
   }
 
   if (props.total_reduction_numel != props.inner_most_dimension_numel) {
+    return false;
+  }
+
+  // Require reduction dim fits into smem, until we add iteration over large
+  // reduction dim.
+  const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
+      props.max_dtype_size_bit_for_vectorization;
+
+  if (props.inner_most_dimension_numel > smem_elems) {
+    return false;
+  }
+
+  // Smem check assumes only one input tensor.
+  if (props.n_tensor_inputs != 1) {
     return false;
   }
 
