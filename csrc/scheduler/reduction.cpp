@@ -209,6 +209,11 @@ bool mayUseTma(
     return false;
   }
 
+  // Skip TMA for small reductions
+  if (props.total_reduction_numel < 128) {
+    return false;
+  }
+
   // Require reduction dim fits into smem, until we add iteration over large
   // reduction dim.
   const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
