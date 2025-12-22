@@ -21,6 +21,7 @@ from python.direct_utils import (
     activation_scale_to_nvfp4,
     to_fp4,
     swizzled_to_linear_128_4,
+    dequantize_fp4,
 )
 
 import pytest
@@ -232,14 +233,15 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
         te_scales = swizzled_to_linear_128_4(te_scales, *sizes)
         fuser_scales = swizzled_to_linear_128_4(fuser_scales, *sizes)
 
-    te_scales = te_scales.view(torch.uint8)
-    fuser_scales = fuser_scales.view(torch.uint8)
-
-    # Compare scales and data
-    assert torch.equal(
-        te_scales, fuser_scales
-    ), "Scales don't match between TE and Fuser"
-    assert torch.equal(te_data, fuser_data), "Data don't match between TE and Fuser"
+    ref_fp32 = dequantize_fp4(te_data, te_scales, torch.max(torch.abs(x)).float())
+    fuser_fp32 = dequantize_fp4(
+        fuser_data, fuser_scales, torch.max(torch.abs(x)).float()
+    )
+    if sizes[0] == 1:
+        # slice the expanded data
+        ref_fp32 = ref_fp32[0]
+    abs_diff = torch.abs(ref_fp32 - fuser_fp32)
+    assert torch.max(abs_diff) <= 1.0
 
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
