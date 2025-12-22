@@ -655,6 +655,7 @@ def test_fp4_vectorization(
         atol=1e-2,
     )
 
+
 # This is adopted from the decomposed version.
 # A few things I have to change in order to pass the test:
 #     1. inputs data needs to be changed from `torch.testing.make_tensor` to `torch.randn`;
@@ -820,7 +821,7 @@ def test_block_quantize_op_and_layout_op(
     abs_diff = torch.abs(o[0] - o_decomposed_ref)
     max_diff = torch.max(abs_diff)
     assert max_diff <= 10.0, f"Max difference {max_diff:.4f} exceeds threshold of 10.0"
-    
+
     # Check that large differences (> 5.0) are rare (< 10% of elements)
     large_diff_count = torch.count_nonzero(torch.gt(abs_diff, 5.0))
     large_diff_ratio = large_diff_count / abs_diff.numel()

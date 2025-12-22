@@ -51,9 +51,6 @@ from layers_for_inference_benchmark import (
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
-    FLOAT4_E2M1_MAX,
-    FLOAT8_E4M3_EPS,
-    FLOAT8_E4M3_MAX,
 )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
