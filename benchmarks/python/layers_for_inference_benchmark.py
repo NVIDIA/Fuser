@@ -39,6 +39,9 @@ __all__ = [
     "NVFP4InferenceGroupedLinear",
     "NVFP4InferenceGroupedSwiGLU",
     "nvfuser_f16a_nvfp4weight_scaled_grouped_mm",
+    "nvfuser_f16a_nvfp4weight_scaled_mm",
+    "NVFP4InferenceLinear",
+    "NVFP4InferenceSwiGLU",
 ]
 
 
@@ -235,6 +238,64 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
             fp4_weight[i].transpose(1, 0), weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
     return grouped_mm(activation, hp_weight.transpose(2, 1), offsets)
+
+@torch.library.custom_op("nvf_cutlass::f16a_nvfp4weight_scaled_mm", mutates_args=())
+def nvfuser_f16a_nvfp4weight_scaled_mm(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    weight_global_scale: torch.Tensor,
+) -> torch.Tensor:
+    # fp4_weight shape: (in_features // 2, out_features)
+    # Dequantize and transpose to get (out_features, in_features)
+    hp_weight = dequantize_to_dtype(
+        fp4_weight.transpose(1, 0),
+        weight_scaling_factor,
+        weight_global_scale,
+        activation.dtype,
+        fp4_weight.device,
+        16
+    )
+    print(f"[DEBUG] nvf_cutlass::f16a_nvfp4weight_scaled_mm hp_weight shape: {hp_weight.shape}")
+    print(f"[DEBUG] nvf_cutlass::f16a_nvfp4weight_scaled_mm activation shape: {activation.shape}")
+    # hp_weight is now (out_features, in_features) - ready for F.linear
+    return torch.nn.functional.linear(activation, hp_weight)
+
+
+@torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_mm")
+def _(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    weight_global_scale: torch.Tensor,
+) -> torch.Tensor:
+    # fp4_weight shape: (in_features // 2, out_features)
+    # Validate that activation has at least 1 dimension
+    if activation.ndim == 0:
+        raise ValueError(f"Expected activation to have at least 1 dimension, got {activation.ndim}")
+
+    if (
+        len(
+            {
+                t.device
+                for t in [
+                    activation,
+                    fp4_weight,
+                    weight_scaling_factor,
+                    weight_global_scale,
+                ]
+            }
+        )
+        != 1
+    ):
+        raise ValueError("Expected all inputs to be on the same device.")
+
+    # After unpacking: (out_features, in_features)
+    # Output shape should match activation.shape[:-1] + (out_features,)
+    # This handles both 2D (tokens, hidden) and 3D (batch, seq_len, hidden) inputs
+    out_features = fp4_weight.size(0)
+    output_shape = activation.shape[-1] + (out_features,)
+    return torch.empty(output_shape, device=activation.device, dtype=activation.dtype)
 
 
 @torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm")
@@ -527,14 +588,25 @@ class NVFP4InferenceGroupedSwiGLU(nn.Module):
 class NVFP4InferenceLinear(nn.Module):
     """NVFP4 Linear layer for inference using nvf_cutlass.nvfp4_scaled_mm."""
 
-    def __init__(self, in_features: int, out_features: int):
+    def __init__(
+        self,
+        fp4_weight: torch.Tensor,
+        weight_scaling_factor: torch.Tensor,
+        weight_global_scale: torch.Tensor,
+    ) -> None:
         super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        # Weight will be in FP4 format
-        self.register_buffer("weight", torch.empty((out_features, in_features // 2), dtype=torch.uint8, device="cuda"))
-        # Block scale for weight quantization
-        self.register_buffer("weight_scale", torch.empty((out_features, in_features // 16), dtype=torch.float8_e4m3fn, device="cuda"))
+        self.register_buffer("fp4_weight", fp4_weight)
+        self.register_buffer("weight_scaling_factor", weight_scaling_factor)
+        self.register_buffer("weight_global_scale", weight_global_scale)
+
+
+    @property
+    def out_features(self) -> int:
+        return self.fp4_weight.size(1)
+
+    @property
+    def in_features(self) -> int:
+        return self.fp4_weight.size(0) * 2
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """Forward pass using nvfp4_scaled_mm.
@@ -545,23 +617,17 @@ class NVFP4InferenceLinear(nn.Module):
         Returns:
             Output tensor of shape [batch, seq_len, out_features]
         """
-        original_shape = hidden_states.shape
-        # Flatten to 2D for matmul
-        hidden_states_2d = hidden_states.view(-1, self.in_features)
-
-        # Compute block scale for input
-        input_scale = compute_nvfp4_blockscale(hidden_states_2d)
 
         # Use nvfp4_scaled_mm which handles the full computation
-        output = nvf_cutlass.nvfp4_scaled_mm(
-            hidden_states_2d,
-            input_scale,
-            self.weight,
-            self.weight_scale
+        output = torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_mm(
+            hidden_states,
+            self.fp4_weight,
+            self.weight_scaling_factor,
+            self.weight_global_scale,
         )
 
         # Reshape back to original shape
-        return output.view(*original_shape[:-1], self.out_features)
+        return output
 
     @staticmethod
     def from_linear(linear: nn.Linear, fqn: str | None = None) -> NVFP4InferenceLinear:
@@ -571,14 +637,8 @@ class NVFP4InferenceLinear(nn.Module):
             linear (nn.Linear): The source Linear layer.
             fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
         """
-        nvfp4_linear = NVFP4InferenceLinear(linear.in_features, linear.out_features)
-
-        # Quantize the weight to FP4
-        weight_fp4, weight_scale, _ = quantize_linear_weight_to_nvfp4(linear.weight)
-        nvfp4_linear.weight.copy_(weight_fp4)
-        nvfp4_linear.weight_scale.copy_(weight_scale)
-
-        return nvfp4_linear
+        weight_fp4, weight_scale, global_scale = quantize_linear_weight_to_nvfp4(linear.weight)
+        return NVFP4InferenceLinear(weight_fp4, weight_scale, global_scale)
 
 
 class NVFP4InferenceSwiGLU(nn.Module):
