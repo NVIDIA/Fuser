@@ -239,7 +239,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
@@ -978,7 +977,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
@@ -1141,6 +1139,31 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
+# Special function for tests that MUST be isolated (single source file only)
+# Used for tests with strict initialization ordering requirements (e.g., MPS tests)
+function(add_isolated_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  # ENFORCE: Exactly one source file
+  list(LENGTH TEST_SRC SRC_COUNT)
+  if(NOT SRC_COUNT EQUAL 1)
+    message(FATAL_ERROR
+      "${TEST_NAME} is marked as an isolated test and MUST contain exactly ONE source file. "
+      "Found ${SRC_COUNT} files: ${TEST_SRC}. "
+      "Isolated tests cannot have multiple source files to prevent initialization ordering issues.")
+  endif()
+
+  # Verify source file matches test name convention
+  get_filename_component(SRC_BASENAME "${TEST_SRC}" NAME_WE)
+  if(NOT SRC_BASENAME STREQUAL TEST_NAME)
+    message(WARNING
+      "Isolated test ${TEST_NAME} source file basename '${SRC_BASENAME}' doesn't match test name. "
+      "Expected: ${TEST_NAME}.cpp")
+  endif()
+
+  # Call the standard add_test function
+  message(STATUS "Creating isolated test: ${TEST_NAME} with single source: ${TEST_SRC}")
+  add_test("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+endfunction()
+
 if(BUILD_TEST)
   set(TEST_BINARIES)
   add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
@@ -1222,6 +1245,22 @@ if(BUILD_TEST)
 
   add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
   list(APPEND TEST_BINARIES test_layout_op)
+
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # CRITICAL: test_mps MUST remain as an ISOLATED test binary
+  #
+  # DO NOT add other test source files to this binary. The MPS (Multi-Process
+  # Service) SM affinity tests require creating a CUDA context with special
+  # parameters BEFORE any other CUDA initialization occurs. If other test files
+  # are linked into this binary, their global initializers or test fixtures may
+  # initialize CUDA first, causing MPS tests to fail.
+  #
+  # ENFORCEMENT: Using add_isolated_test() which validates single-source requirement
+  #
+  # See test_mps.cpp header for detailed explanation of these constraints.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  add_isolated_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "CUDA::cuda_driver")
+  list(APPEND TEST_BINARIES test_mps)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS

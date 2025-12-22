@@ -184,21 +184,23 @@ def extract_te_nvfp4_metadata(input_tensor):
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
 @pytest.mark.parametrize("swizzle_scales", [True, False])
-@pytest.mark.parametrize("dtype", [torch.float, torch.bfloat16])
-def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype):
+@pytest.mark.parametrize("sizes", [[1024, 1024], [1, 1024]])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
+def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes, dtype):
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
-    x = torch.testing.make_tensor((1024, 1024), dtype=dtype, device="cuda")
+    x = torch.randn(sizes, dtype=dtype, device="cuda")
+
+    if swizzle_scales and (sizes[0] % 128 != 0 or sizes[1] % 4 != 0):
+        # otherwise, nvfuser_direct_test.exec_nvfuser would assert on identical result from captured fusion.
+        pytest.skip(
+            "Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs"
+        )
 
     # Compute global scale for nvfuser block quantization
     x_global_scale = compute_nvfp4_global_scale(x)
 
     def nvfuser_fusion_id0(fd: FusionDefinition):
-        x_tv = fd.define_tensor(
-            shape=[-1, -1],
-            contiguity=True,
-            dtype=torch_dtype_to_nvfuser_dtype(dtype),
-            is_cpu=False,
-        )
+        x_tv = fd.from_pytorch(x)
         global_scale_tv = fd.define_tensor(
             shape=[], contiguity=True, dtype=DataType.Float, is_cpu=False
         )
@@ -213,6 +215,9 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype)
     )
 
     # Get TE NVFP4 reference
+    if sizes[0] == 1:
+        # nvfp4_quantize_with_te requires batch dimension to be multiple of 16.
+        x = x.expand(16, sizes[1])
     nvfp4_result = nvfp4_quantize_with_te(x)
     assert nvfp4_result is not None
     nvfp4_metadata = nvfp4_result.get_metadata()
@@ -224,8 +229,8 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, dtype)
 
     if swizzle_scales:
         te_scales = linear_to_swizzled_128_4(te_scales)
-        te_scales = swizzled_to_linear_128_4(te_scales, 1024, 1024)
-        fuser_scales = swizzled_to_linear_128_4(fuser_scales, 1024, 1024)
+        te_scales = swizzled_to_linear_128_4(te_scales, *sizes)
+        fuser_scales = swizzled_to_linear_128_4(fuser_scales, *sizes)
 
     te_scales = te_scales.view(torch.uint8)
     fuser_scales = fuser_scales.view(torch.uint8)
