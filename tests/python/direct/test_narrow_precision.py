@@ -235,6 +235,10 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
     abs_diff = torch.abs(ref_fp32 - fuser_fp32)
     assert torch.max(abs_diff) <= 1.0
 
+    # The percentage of mismatched values is LT 10%.
+    nonzero = torch.count_nonzero(torch.ne(abs_diff, 0.0))
+    assert (nonzero / abs_diff.numel()) < 0.1
+
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(
