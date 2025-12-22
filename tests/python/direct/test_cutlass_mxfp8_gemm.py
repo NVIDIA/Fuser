@@ -23,9 +23,12 @@ from python.direct_utils import (
 def dequantize_mxfp8(tensor_fp8, tensor_sf):
     """Dequantize the fp8 tensor back to high precision."""
     m, k = tensor_fp8.shape
+    BLOCK_SIZE = 32
     tensor_sf_linear = swizzled_to_linear_128_4(tensor_sf, m, k)
-    sf = tensor_sf_linear.repeat_interleave(32, dim=1).to(torch.float32)
+    # Apply scale factor to all elements in the same block
+    sf = tensor_sf_linear.repeat_interleave(BLOCK_SIZE, dim=1).to(torch.float32)
     dqx = tensor_fp8.to(torch.float32)
+    # Account for padding of scale factor
     sf = sf[: dqx.shape[0], : dqx.shape[1]]
     dequant = dqx * sf
     return dequant.reshape(m, k)
