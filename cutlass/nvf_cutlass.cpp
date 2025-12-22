@@ -145,7 +145,7 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsMxFp8ScaledMm(
 
   const int64_t m = a.sizes()[0];
   const int64_t n = b.sizes()[0];
-  const int64_t k = a.sizes()[1] * 2;
+  const int64_t k = a.sizes()[1];
 
   std::tuple<int64_t, int64_t, int64_t> ret = {m, n, k};
 
@@ -197,7 +197,8 @@ std::tuple<int64_t, int64_t, int64_t> validateInputsMxFp8ScaledMm(
   // Calculate rounded dimensions for scale matrix validation
   int64_t rounded_m = roundUp(m, 128);
   int64_t rounded_n = roundUp(n, 128);
-  int64_t rounded_k = roundUp(k / 16, 4);
+  constexpr int64_t BLOCK_SCALE = 32;
+  int64_t rounded_k = roundUp(k / BLOCK_SCALE, 4);
 
   // Validate scale matrix properties
   NVF_CHECK(scales_a.dim() == 2, "Blockscale scale_a must be a matrix.");
