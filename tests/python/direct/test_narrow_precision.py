@@ -142,11 +142,10 @@ def compute_nvfp4_global_scale(tensor):
 
     Returns:
         Global scale as (FLOAT8_E4M3_MAX * FLOAT4_E2M1_MAX) / max(abs(tensor)),
-        clamped to float32 max. Returns 1.0 if input is all zeros.
+        clamped to float32 max. Returns 1.0 if max(abs(tensor)) is 0.
     """
     amax_scalar = torch.max(torch.abs(tensor)).cpu().to(torch.float32).item()
 
-    # Handle edge case: zero or near-zero input
     if amax_scalar == 0.0:
         return torch.tensor(1.0, device=tensor.device, dtype=torch.float32)
 
