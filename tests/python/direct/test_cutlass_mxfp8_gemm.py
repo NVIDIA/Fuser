@@ -15,9 +15,20 @@ if compute_cap < (10, 0) or compute_cap >= (12, 0):
     )
 
 from python.direct_utils import (
-    FLOAT8_E4M3_MAX,
-    dequantize_to_dtype,
+    linear_to_swizzled_128_4,
+    swizzled_to_linear_128_4,
 )
+
+
+def dequantize_mxfp8(tensor_fp8, tensor_sf):
+    """Dequantize the fp8 tensor back to high precision."""
+    m, k = tensor_fp8.shape
+    tensor_sf_linear = swizzled_to_linear_128_4(tensor_sf, m, k)
+    sf = tensor_sf_linear.repeat_interleave(32, dim=1).to(torch.float32)
+    dqx = tensor_fp8.to(torch.float32)
+    sf = sf[: dqx.shape[0], : dqx.shape[1]]
+    dequant = dqx * sf
+    return dequant.reshape(m, k)
 
 
 def to_fp8(tensor: torch.Tensor) -> torch.Tensor:
@@ -40,6 +51,7 @@ def pytorch_mxfp8_quantize(a):
     max_abs = torch.amax(torch.abs(a_fp32), dim=-1)
 
     # Get fp32 block scale factor for fp8
+    FLOAT8_E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max
     block_scale_fp32 = (max_abs / FLOAT8_E4M3_MAX).float()
 
     # Clamp scale factor within UE8M0
@@ -61,23 +73,14 @@ def get_ref_results(
     b_fp8,
     a_sf,
     b_sf,
-    a_global_scale,
-    b_global_scale,
     m,
     n,
-    dtype,
-    block_size,
-    device,
 ):
     _, m_k = a_fp8.shape
     _, n_k = b_fp8.shape
     assert m_k == n_k
-    a_in_dtype = dequantize_to_dtype(
-        a_fp8, a_sf, a_global_scale, dtype=dtype, device=device, block_size=block_size
-    )
-    b_in_dtype = dequantize_to_dtype(
-        b_fp8, b_sf, b_global_scale, dtype=dtype, device=device, block_size=block_size
-    )
+    a_in_dtype = dequantize_mxfp8(a_fp8, a_sf)
+    b_in_dtype = dequantize_to_dtype(b_fp8, b_sf)
     return torch.matmul(a_in_dtype, b_in_dtype.t())
 
 
@@ -106,13 +109,8 @@ def test_nvfp4_gemm(
         b_fp8,
         a_scale_interleaved,
         b_scale_interleaved,
-        a_global_scale,
-        b_global_scale,
         m,
         n,
-        dtype,
-        block_size,
-        "cuda",
     )
     out = nvf_cutlass.mxfp8_scaled_mm(
         a_fp8, b_fp8, a_scale_interleaved, b_scale_interleaved, alpha, dtype
