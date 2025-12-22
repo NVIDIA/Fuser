@@ -61,9 +61,9 @@ bool isTvSuitableForTma(const TensorView* tv, int64_t n_valid_dims) {
   // This is not supported by TMA and will trigger tma lowering validation
   // error. The TMA domain must be equivalent to the allocation domain of the
   // gmem tensor.
-  // 2. Righ side or left side containes a single broadcast domain, which is
-  // againt our 2D tile assumption. This restriction can be lifted if further
-  // revise the scheduler.
+  // 2. Right side or left side contains a single broadcast domain, which is
+  // against our 2D tile assumption. This restriction can be lifted if we
+  // further revise the scheduler.
   if (std::any_of(
           tv->getLogicalDomain().begin(),
           tv->getLogicalDomain().end(),
