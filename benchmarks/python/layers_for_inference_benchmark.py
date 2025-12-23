@@ -249,7 +249,7 @@ def nvfuser_f16a_nvfp4weight_scaled_mm(
     # fp4_weight shape: (in_features // 2, out_features)
     # Dequantize and transpose to get (out_features, in_features)
     hp_weight = dequantize_to_dtype(
-        fp4_weight,
+        fp4_weight.t(),
         weight_scaling_factor,
         weight_global_scale,
         activation.dtype,
@@ -299,7 +299,7 @@ def _(
     # This handles both 2D (tokens, hidden) and 3D (batch, seq_len, hidden) inputs
     # out_features = fp4_weight.size(0)
     # output_shape = activation.shape[-1] + (out_features,)
-    a = torch.empty((activation.shape[0], fp4_weight.shape[0]), device=activation.device, dtype=activation.dtype)
+    a = torch.empty((activation.shape[0], fp4_weight.t().shape[0]), device=activation.device, dtype=activation.dtype)
     print(f"a dtype: {a.dtype}, device: {a.device}, shape: {a.shape}")
     return a
 
@@ -651,7 +651,7 @@ class NVFP4InferenceLinear(nn.Module):
         weight_fp4, weight_scale, global_scale = quantize_linear_weight_to_nvfp4(linear.weight)
         print(f"weight_fp4 shape: {weight_fp4.shape}")
         print(f"weight_scale shape: {weight_scale.shape}")
-        return NVFP4InferenceLinear(weight_fp4, weight_scale, global_scale)
+        return NVFP4InferenceLinear(weight_fp4.t(), weight_scale, global_scale)
 
 
 class NVFP4InferenceSwiGLU(nn.Module):
