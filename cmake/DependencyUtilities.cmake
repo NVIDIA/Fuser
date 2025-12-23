@@ -1,3 +1,9 @@
+set(NVFUSER_Python_VERSION_REQUIRED       "3.8")
+set(NVFUSER_Torch_VERSION_REQUIRED        "2.0")
+set(NVFUSER_pybind11_VERSION_REQUIRED     "2.0")
+set(NVFUSER_CUDAToolkit_VERSION_REQUIRED  "12.6")
+set(NVFUSER_LLVM_VERSION_REQUIRED         "18.1")
+
 # --------------------------
 # Find all dependencies
 # --------------------------
@@ -56,7 +62,29 @@ macro(find_nvfuser_dependencies)
   # --------------------------
   message("")
   message("Finding CUDAToolkit...")
-  find_package(CUDAToolkit REQUIRED)
+  find_package(CUDAToolkit REQUIRED COMPONENTS Cupti cuda_driver)
+
+  # --------------------------
+  # LLVM
+  # --------------------------
+  message("")
+  message("Finding LLVM...")
+  find_package(LLVM ${NVFUSER_LLVM_VERSION_REQUIRED} REQUIRED)
+
+  if (LLVM_FOUND)
+    llvm_map_components_to_libnames(LLVM_LIBS
+      support
+      core
+      orcjit
+      executionengine
+      irreader
+      nativecodegen
+      Target
+      Analysis
+      JITLink
+      Demangle
+    )
+  endif()
 
 endmacro()
 
@@ -88,9 +116,40 @@ endfunction()
 
 macro(report name location)
   if (${name}_FOUND)
-    message_colored("${ColorGreen}" "[ OK ] ${name} v${${name}_VERSION} @ ${location}")
+    # Pad the name to 12 characters for alignment
+    string(LENGTH "${name}" name_len)
+    math(EXPR pad_len "12 - ${name_len}")
+    string(REPEAT " " ${pad_len} name_padding)
+
+    # Get minimum required version
+    set(min_version "${NVFUSER_${name}_VERSION_REQUIRED}")
+
+    # Pad version number to 10 characters for alignment
+    string(LENGTH "${${name}_VERSION}" ver_len)
+    math(EXPR ver_pad_len "10 - ${ver_len}")
+    if(ver_pad_len LESS 0)
+      set(ver_pad_len 0)
+    endif()
+    string(REPEAT " " ${ver_pad_len} ver_padding)
+
+    # Compare versions to determine symbol and color
+    if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+      if("${${name}_VERSION}" VERSION_GREATER_EQUAL "${min_version}")
+        set(version_color "${ColorGreen}")
+        set(comparison_symbol "≥")
+      else()
+        set(version_color "${BoldRed}")
+        set(comparison_symbol "<")
+      endif()
+      set(version_display "${version_color}v${${name}_VERSION}${ver_padding}${ColorReset}  (${comparison_symbol} ${min_version})")
+    else()
+      # No minimum version specified
+      set(version_display "${ColorGreen}v${${name}_VERSION}${ver_padding}${ColorReset}")
+    endif()
+
+    message(STATUS "${ColorGreen}[ OK ]${ColorReset} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${ColorCyan}${location}${ColorReset}")
   else()
-    message_colored("${BoldRed}" "[FAIL] ${name} NOT found!!!")
+    message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found!!!")
   endif()
 endmacro()
 
@@ -104,9 +163,10 @@ macro(report_dependencies)
   report(Torch       ${Torch_DIR})
   report(pybind11    ${pybind11_DIR})
   report(CUDAToolkit ${CUDAToolkit_LIBRARY_ROOT})
+  report(LLVM        ${LLVM_DIR})
 
 
-  message(STATUS "=========================================")
+  message_colored("${BoldYellow}" "=========================================")
 endmacro()
 
 

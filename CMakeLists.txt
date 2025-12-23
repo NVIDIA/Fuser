@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
@@ -54,12 +55,8 @@ set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
-  # I believe we should bump up the version below to 12.x.
-  # However, because gcc 11.4 is well tested and stable, let's defer this
-  # rejection until the day that we find a bug in gcc 11.4.
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
-    message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.1)
+    message(FATAL_ERROR "GCC < 13.1 : nvFuser requires a C++20 compliant compiler.")
   endif()
 endif()
 
@@ -68,22 +65,19 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 # -----------------------------------------------------------------------------
 # nvFuser Dependencies
 # -----------------------------------------------------------------------------
-include(cmake/LogCapture.cmake)
 include(cmake/DependencyUtilities.cmake)
-
-set(NVFUSER_Python_VERSION_REQUIRED "3.8")
-set(NVFUSER_Torch_VERSION_REQUIRED "2.0")
-
+include(cmake/LogCapture.cmake)
 start_capture()
+
 find_nvfuser_dependencies()
 stop_capture(DEP_LOGS)
 
 report_dependencies()
 
 message("")
-message(STATUS "******** Dumping Dependency Output ********")
+message(STATUS "******** Begin Dependency Output ********")
 dump_captured_logs("${DEP_LOGS}")
-message(STATUS "******** End of Dependency Output ********")
+message(STATUS "******** End Dependency Output ********")
 message("")
 
 # -----------------------------------------------------------------------------
@@ -437,25 +431,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/val_graph.cpp
   ${NVFUSER_SRCS_DIR}/val_graph_visitor.cpp
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
-)
-
-# Add LLVM JIT related dependencies
-set(LLVM_MINIMUM_VERSION "18.1")
-find_package(LLVM REQUIRED CONFIG)
-if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
-  message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
-endif()
-llvm_map_components_to_libnames(LLVM_LIBS
-  support
-  core
-  orcjit
-  executionengine
-  irreader
-  nativecodegen
-  Target
-  Analysis
-  JITLink
-  Demangle
 )
 
 add_library(LLVM_JIT INTERFACE)
@@ -1564,7 +1539,6 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 if (NVMMH_FOUND)
   message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 endif()
