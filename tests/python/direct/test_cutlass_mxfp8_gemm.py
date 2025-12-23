@@ -83,7 +83,7 @@ def get_ref_results(
     _, n_k = b_fp8.shape
     assert m_k == n_k
     a_in_dtype = dequantize_mxfp8(a_fp8, a_sf)
-    b_in_dtype = dequantize_to_dtype(b_fp8, b_sf)
+    b_in_dtype = dequantize_mxfp8(b_fp8, b_sf)
     return torch.matmul(a_in_dtype, b_in_dtype.t())
 
 
@@ -101,7 +101,7 @@ def test_nvfp4_gemm(
     a_dtype = torch.randn((m, k), dtype=dtype, device="cuda")
     b_dtype = torch.randn((n, k), dtype=dtype, device="cuda")
 
-    alpha = 1.0
+    alpha = torch.tensor(1.0, device="cuda")
     a_fp8, a_scale_linear = pytorch_mxfp8_quantize(a_dtype)
     b_fp8, b_scale_linear = pytorch_mxfp8_quantize(b_dtype)
     a_scale_interleaved = linear_to_swizzled_128_4(a_scale_linear)
