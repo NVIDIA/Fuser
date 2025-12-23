@@ -3324,13 +3324,21 @@ std::string SdpaFwdOp::toString(int indent_size) const {
   indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
   indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  if (bias() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          bias=" << bias()->toString() << ",\n";
+  }
+  if (mask() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          mask=" << mask()->toString() << ",\n";
+  }
   indent(ss, indent_size + 1)
       << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
   indent(ss, indent_size + 1)
-      << "          is_causal = " << is_causal()->toInlineString();
+      << "          is_causal=" << is_causal()->toInlineString() << ",\n";
   if (scale() != nullptr) {
     indent(ss, indent_size + 1)
-        << ",\n          scale = " << scale()->toInlineString();
+        << "          scale=" << scale()->toInlineString() << ",\n";
   }
   indent(ss, indent_size + 1) << ")\n";
   return ss.str();
