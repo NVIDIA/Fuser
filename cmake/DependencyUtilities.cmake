@@ -1,104 +1,29 @@
-set(NVFUSER_CMake_VERSION_REQUIRED       "3.8")
-set(NVFUSER_Ninja_VERSION_REQUIRED       "ANY")
+# SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
 
-set(NVFUSER_GCC_VERSION_REQUIRED       "0.0")
-set(NVFUSER_Clang_VERSION_REQUIRED       "0.0")
+# ==============================================================================
+# nvFuser Dependency Utilities
+# ==============================================================================
+#
+# This file provides utilities for finding and reporting on nvFuser dependencies.
+# Dependency metadata is defined in DependencyRequirements.cmake
+# Validation logic is defined in DependencyValidators.cmake
+#
+# ==============================================================================
 
-set(NVFUSER_CUDAToolkit_VERSION_REQUIRED  "12.6")
-
-set(NVFUSER_Python_VERSION_REQUIRED       "3.8")
-set(NVFUSER_Torch_VERSION_REQUIRED        "2.0")
-set(NVFUSER_pybind11_VERSION_REQUIRED     "2.0")
-
-set(NVFUSER_LLVM_VERSION_REQUIRED         "18.1")
+# Include requirement definitions and validators
+include(cmake/DependencyRequirements.cmake)
+include(cmake/DependencyValidators.cmake)
 
 # --------------------------
 # Find all dependencies
 # --------------------------
 macro(find_nvfuser_dependencies)
-
-  # --------------------------
-  # Python
-  # --------------------------
-  message("")
-  message("Finding Python...")
-  # Find without version requirement to see what's available
-  find_package(Python COMPONENTS Interpreter Development)
-
-  # --------------------------
-  # Torch
-  # --------------------------
-  message("")
-  message("Finding Torch...")
-  if(Python_FOUND)
-    execute_process(
-      COMMAND "${Python_EXECUTABLE}" -c "import torch; print(torch.utils.cmake_prefix_path)"
-      OUTPUT_VARIABLE TORCH_CMAKE_PATH
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      RESULT_VARIABLE TORCH_FIND_RESULT
-    )
-
-    if(TORCH_FIND_RESULT EQUAL 0)
-      # need this since the pytorch execution uses a different name
-      set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-      list(APPEND CMAKE_PREFIX_PATH "${TORCH_CMAKE_PATH}")
-
-      # set CUDA_ARCH for cu tests.
-      if(TORCH_CUDA_ARCH_LIST)
-        set(ARCH_FLAGS)
-        cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
-        list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
-      endif()
-
-      # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
-      string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
-
-      # Find without version requirement to see what's available
-      find_package(Torch)
-    else()
-      set(Torch_FOUND FALSE)
-    endif()
-  else()
-    set(Torch_FOUND FALSE)
-  endif()
-
-  # --------------------------
-  # pybind11
-  # --------------------------
-  message("")
-  message("Finding pybind11...")
-  find_package(pybind11)
-
-  # --------------------------
-  # CUDAToolkit
-  # --------------------------
-  message("")
-  message("Finding CUDAToolkit...")
-  find_package(CUDAToolkit COMPONENTS Cupti cuda_driver)
-
-  # --------------------------
-  # LLVM
-  # --------------------------
-  message("")
-  message("Finding LLVM...")
-  # Find without version requirement to see what's available
-  find_package(LLVM)
-
-  if (LLVM_FOUND)
-    llvm_map_components_to_libnames(LLVM_LIBS
-      support
-      core
-      orcjit
-      executionengine
-      irreader
-      nativecodegen
-      Target
-      Analysis
-      JITLink
-      Demangle
-    )
-  endif()
-
+  # Iterate through all requirements and validate each
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    validate_dependency(NAME ${dep_name})
+  endforeach()
 endmacro()
 
 # --------------------------
@@ -127,7 +52,10 @@ function(message_colored color text)
   message(STATUS "${color}${text}${ColorReset}")
 endfunction()
 
-macro(report name location)
+macro(report name location is_optional)
+  # Check if this is a constraint (special reporting logic)
+  set(is_constraint "${NVFUSER_REQUIREMENT_${name}_IS_CONSTRAINT}")
+
   if (${name}_FOUND)
     # Pad the name to 12 characters for alignment
     string(LENGTH "${name}" name_len)
@@ -135,7 +63,7 @@ macro(report name location)
     string(REPEAT " " ${pad_len} name_padding)
 
     # Get minimum required version
-    set(min_version "${NVFUSER_${name}_VERSION_REQUIRED}")
+    set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
 
     # Pad version number to 10 characters for alignment
     string(LENGTH "${${name}_VERSION}" ver_len)
@@ -145,8 +73,16 @@ macro(report name location)
     endif()
     string(REPEAT " " ${ver_pad_len} ver_padding)
 
-    # Compare versions to determine symbol and color
-    if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+    # Determine comparison symbol and color based on constraint type
+    if(is_constraint)
+      # Constraint check uses = symbol (exact match required)
+      set(version_color "${ColorGreen}")
+      set(comparison_symbol "=")
+      set(version_ok TRUE)
+      # For constraints, show special message
+      set(version_display "${version_color}v${${name}_VERSION}${ver_padding}${ColorReset}  (${comparison_symbol} ${min_version})")
+    elseif(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+      # Regular version check uses ≥ symbol
       if("${${name}_VERSION}" VERSION_GREATER_EQUAL "${min_version}")
         set(version_color "${ColorGreen}")
         set(comparison_symbol "≥")
@@ -165,20 +101,48 @@ macro(report name location)
       set(version_ok TRUE)
     endif()
 
-    if(version_ok)
+    # Display message with location or constraint note
+    if(is_constraint)
+      # For constraints like Torch_CUDA, show validation note instead of path
+      message(STATUS "${ColorGreen}[ OK ]${ColorReset} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${ColorCyan}Torch.CUDA == CUDAToolkit${ColorReset}")
+    elseif(version_ok)
       message(STATUS "${ColorGreen}[ OK ]${ColorReset} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${ColorCyan}${location}${ColorReset}")
     else()
       message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${ColorCyan}${location}${ColorReset}")
     endif()
   else()
     # Dependency not found at all
-    set(min_version "${NVFUSER_${name}_VERSION_REQUIRED}")
-    if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
-      message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found (requires v${min_version} or higher)")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: not found (requires v${min_version} or higher)")
+    set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
+
+    if(is_optional)
+      # Yellow warning for optional deps
+      if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+        message(STATUS "${ColorYellow}[ -- ]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found (optional, v${min_version}+ recommended)")
+      else()
+        message(STATUS "${ColorYellow}[ -- ]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found (optional)")
+      endif()
+      # Don't add to failure list for optional deps
     else()
-      message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: not found")
+      # Handle constraint failures specially
+      if(is_constraint)
+        # For constraints, show comparison failure
+        if(DEFINED ${name}_VERSION AND DEFINED min_version)
+          message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} v${${name}_VERSION} != ${min_version} (Torch.CUDA != CUDAToolkit)")
+          list(APPEND _DEPENDENCY_FAILURES "${name}: Torch built with CUDA v${${name}_VERSION}, but CUDAToolkit is v${min_version}")
+        else()
+          message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} constraint check failed")
+          list(APPEND _DEPENDENCY_FAILURES "${name}: constraint validation failed")
+        endif()
+      else()
+        # Red fail for required deps
+        if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+          message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found (requires v${min_version} or higher)")
+          list(APPEND _DEPENDENCY_FAILURES "${name}: not found (requires v${min_version} or higher)")
+        else()
+          message(STATUS "${BoldRed}[FAIL]${ColorReset} ${ColorWhite}${name}${ColorReset} NOT found")
+          list(APPEND _DEPENDENCY_FAILURES "${name}: not found")
+        endif()
+      endif()
     endif()
   endif()
 endmacro()
@@ -193,11 +157,21 @@ macro(report_dependencies)
   message_colored("${BoldGreen}"  "[nvFuser] Validating build prerequisites...")
   message_colored("${BoldWhite}"  "===========================================")
 
-  report(Python      ${Python_EXECUTABLE})
-  report(Torch       ${Torch_DIR})
-  report(pybind11    ${pybind11_DIR})
-  report(CUDAToolkit ${CUDAToolkit_LIBRARY_ROOT})
-  report(LLVM        ${LLVM_DIR})
+  # Iterate through requirements in order
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
+    set(location_var "${NVFUSER_REQUIREMENT_${dep_name}_LOCATION_VAR}")
+
+    # Get location using the metadata-specified variable
+    if(location_var)
+      set(location "${${location_var}}")
+    else()
+      set(location "")
+    endif()
+
+    # Call report with optional flag
+    report(${dep_name} "${location}" ${optional})
+  endforeach()
 
   message_colored("${BoldWhite}"  "===========================================")
   message_colored("${BoldBlue}"   "///////////////////////////////////////////")
@@ -209,6 +183,16 @@ macro(report_dependencies)
     message_colored("${BoldRed}" "Configuration failed due to missing or incompatible dependencies:")
     foreach(failure ${_DEPENDENCY_FAILURES})
       message_colored("${BoldRed}" "  - ${failure}")
+
+      # Print install help if available
+      string(REGEX MATCH "^([^:]+):" match "${failure}")
+      if(CMAKE_MATCH_1)
+        set(failed_dep "${CMAKE_MATCH_1}")
+        set(help_text "${NVFUSER_REQUIREMENT_${failed_dep}_INSTALL_HELP}")
+        if(help_text AND NOT "${help_text}" STREQUAL "")
+          message_colored("${ColorYellow}" "    ${help_text}")
+        endif()
+      endif()
     endforeach()
     message("")
     message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")

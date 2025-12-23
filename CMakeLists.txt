@@ -65,15 +65,6 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 # -----------------------------------------------------------------------------
 # nvFuser Dependencies
 # -----------------------------------------------------------------------------
-#
-set(NVFUSER_CUDAToolkit_VERSION_REQUIRED  "12.6")
-
-set(NVFUSER_Python_VERSION_REQUIRED       "3.8")
-set(NVFUSER_Torch_VERSION_REQUIRED        "2.0")
-set(NVFUSER_pybind11_VERSION_REQUIRED     "2.0")
-
-set(NVFUSER_LLVM_VERSION_REQUIRED         "18.1")
-
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
 
