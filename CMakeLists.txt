@@ -84,8 +84,30 @@ else()
 endif()
 # --------------------------
 
-find_package(Torch REQUIRED)
-find_package(Python REQUIRED Development.Module Interpreter)
+# -----------------------------------------------------------------------------
+# nvFuser Dependencies
+# -----------------------------------------------------------------------------
+include(cmake/LogCapture.cmake)
+include(cmake/DependencyUtilities.cmake)
+
+set(NVFUSER_Python_VERSION_REQUIRED "3.8")
+set(NVFUSER_Torch_VERSION_REQUIRED "2.0")
+
+start_capture()
+find_nvfuser_dependencies()
+stop_capture(DEP_LOGS)
+
+report_dependencies()
+
+message(STATUS "")
+message(STATUS "******** Dumping Dependency Output ********")
+dump_captured_logs("${DEP_LOGS}")
+message(STATUS "******** End of Dependency Output ********")
+message(STATUS "")
+
+# -----------------------------------------------------------------------------
+message("check")
+
 find_package(pybind11 REQUIRED)
 find_package(CUDAToolkit REQUIRED)
 
@@ -773,7 +795,7 @@ if(BUILD_PYTHON)
   endif()
 
   if (NOT MSVC)
-      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+    target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
   endif()
 
   target_link_libraries(nvf_py_internal PRIVATE
@@ -1559,5 +1581,8 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+if (NVMMH_FOUND)
+  message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+endif()
 message(STATUS "******** End of Nvfuser configuration summary ********")
+message(STATUS "")
