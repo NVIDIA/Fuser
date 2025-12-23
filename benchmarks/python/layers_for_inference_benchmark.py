@@ -249,7 +249,7 @@ def nvfuser_f16a_nvfp4weight_scaled_mm(
     # fp4_weight shape: (in_features // 2, out_features)
     # Dequantize and transpose to get (out_features, in_features)
     hp_weight = dequantize_to_dtype(
-        fp4_weight.transpose(1, 0),
+        fp4_weight,
         weight_scaling_factor,
         weight_global_scale,
         activation.dtype,
@@ -259,7 +259,7 @@ def nvfuser_f16a_nvfp4weight_scaled_mm(
     print(f"[DEBUG] nvf_cutlass::f16a_nvfp4weight_scaled_mm hp_weight shape: {hp_weight.shape}")
     print(f"[DEBUG] nvf_cutlass::f16a_nvfp4weight_scaled_mm activation shape: {activation.shape}")
     # hp_weight is now (out_features, in_features) - ready for F.linear
-    return torch.nn.functional.linear(activation, hp_weight)
+    return torch.nn.functional.linear(activation, hp_weight.to(torch.bfloat16))
 
 
 @torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_mm")
@@ -273,6 +273,9 @@ def _(
     # Validate that activation has at least 1 dimension
     if activation.ndim == 0:
         raise ValueError(f"Expected activation to have at least 1 dimension, got {activation.ndim}")
+
+    print(f"[register_fake] activation shape: {activation.shape}")
+    print(f"[register_fake] fp4_weight shape: {fp4_weight.shape}")
 
     if (
         len(
@@ -290,12 +293,15 @@ def _(
     ):
         raise ValueError("Expected all inputs to be on the same device.")
 
+
     # After unpacking: (out_features, in_features)
     # Output shape should match activation.shape[:-1] + (out_features,)
     # This handles both 2D (tokens, hidden) and 3D (batch, seq_len, hidden) inputs
-    out_features = fp4_weight.size(0)
-    output_shape = activation.shape[-1] + (out_features,)
-    return torch.empty(output_shape, device=activation.device, dtype=activation.dtype)
+    # out_features = fp4_weight.size(0)
+    # output_shape = activation.shape[-1] + (out_features,)
+    a = torch.empty((activation.shape[0], fp4_weight.shape[0]), device=activation.device, dtype=activation.dtype)
+    print(f"a dtype: {a.dtype}, device: {a.device}, shape: {a.shape}")
+    return a
 
 
 @torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm")
@@ -617,6 +623,11 @@ class NVFP4InferenceLinear(nn.Module):
         Returns:
             Output tensor of shape [batch, seq_len, out_features]
         """
+        hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
+        print(f"\nhidden_states shape: {hidden_states.shape}")
+        print(f"fp4_weight shape: {self.fp4_weight.shape}")
+        print(f"weight_scaling_factor shape: {self.weight_scaling_factor.shape}")
+        print(f"weight_global_scale shape: {self.weight_global_scale.shape}")
 
         # Use nvfp4_scaled_mm which handles the full computation
         output = torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_mm(
@@ -638,6 +649,8 @@ class NVFP4InferenceLinear(nn.Module):
             fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
         """
         weight_fp4, weight_scale, global_scale = quantize_linear_weight_to_nvfp4(linear.weight)
+        print(f"weight_fp4 shape: {weight_fp4.shape}")
+        print(f"weight_scale shape: {weight_scale.shape}")
         return NVFP4InferenceLinear(weight_fp4, weight_scale, global_scale)
 
 
