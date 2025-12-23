@@ -155,7 +155,7 @@ def _register_nvfp4_ops():
     ):
         from nvfuser_direct import DataType
         from thunder.executors.nvfuserex_impl import getnv
-        print(f"[DEBUG] nvfp4_scaled_mm_translator activation shape: {activation.shape}, fp4_weight shape: {fp4_weight.shape}")
+        print(f"[TRANSLATOR DEBUG] (nvfp4_scaled_mm_translator) activation shape: {activation.shape}, fp4_weight shape: {fp4_weight.shape}, weight_scaling_factor shape: {weight_scaling_factor.shape}")
 
         nv_act = getnv(activation, fd, lc_to_nv_map)
         nv_fp4_w = getnv(fp4_weight, fd, lc_to_nv_map)
@@ -177,7 +177,7 @@ def _register_nvfp4_ops():
 
 
     _register_nvfuser_translator(_nvfp4_grouped_mm_symbol, nvfp4_grouped_mm_translator)
-    _register_nvfuser_translator(_nvfp4_scaled_mm_symbol, nvfp4_scaled_mm_translator)
+    # _register_nvfuser_translator(_nvfp4_scaled_mm_symbol, nvfp4_scaled_mm_translator)
 
 
 # The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
