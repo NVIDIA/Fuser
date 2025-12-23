@@ -39,7 +39,6 @@ if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
 
-message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
@@ -66,6 +65,29 @@ endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
+# -----------------------------------------------------------------------------
+# nvFuser Dependencies
+# -----------------------------------------------------------------------------
+include(cmake/LogCapture.cmake)
+include(cmake/DependencyUtilities.cmake)
+
+set(NVFUSER_Python_VERSION_REQUIRED "3.8")
+set(NVFUSER_Torch_VERSION_REQUIRED "2.0")
+
+start_capture()
+find_nvfuser_dependencies()
+stop_capture(DEP_LOGS)
+
+report_dependencies()
+
+message("")
+message(STATUS "******** Dumping Dependency Output ********")
+dump_captured_logs("${DEP_LOGS}")
+message(STATUS "******** End of Dependency Output ********")
+message("")
+
+# -----------------------------------------------------------------------------
+
 # --------------------------
 # nvMatmulHeuristics support
 # --------------------------
@@ -84,47 +106,9 @@ else()
 endif()
 # --------------------------
 
-# -----------------------------------------------------------------------------
-# nvFuser Dependencies
-# -----------------------------------------------------------------------------
-include(cmake/LogCapture.cmake)
-include(cmake/DependencyUtilities.cmake)
 
-set(NVFUSER_Python_VERSION_REQUIRED "3.8")
-set(NVFUSER_Torch_VERSION_REQUIRED "2.0")
-
-start_capture()
-find_nvfuser_dependencies()
-stop_capture(DEP_LOGS)
-
-report_dependencies()
-
-message(STATUS "")
-message(STATUS "******** Dumping Dependency Output ********")
-dump_captured_logs("${DEP_LOGS}")
-message(STATUS "******** End of Dependency Output ********")
-message(STATUS "")
-
-# -----------------------------------------------------------------------------
-message("check")
-
-find_package(pybind11 REQUIRED)
-find_package(CUDAToolkit REQUIRED)
-
-# need this since the pytorch execution uses a different name
-set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-
-# CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
-string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
-
-# set CUDA_ARCH for cu tests.
-if(TORCH_CUDA_ARCH_LIST)
-  set(ARCH_FLAGS)
-  cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
-  list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
-endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
@@ -1581,6 +1565,7 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
+message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 if (NVMMH_FOUND)
   message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
 endif()
