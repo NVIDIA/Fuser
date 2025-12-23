@@ -65,12 +65,21 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 # -----------------------------------------------------------------------------
 # nvFuser Dependencies
 # -----------------------------------------------------------------------------
+#
+set(NVFUSER_CUDAToolkit_VERSION_REQUIRED  "12.6")
+
+set(NVFUSER_Python_VERSION_REQUIRED       "3.8")
+set(NVFUSER_Torch_VERSION_REQUIRED        "2.0")
+set(NVFUSER_pybind11_VERSION_REQUIRED     "2.0")
+
+set(NVFUSER_LLVM_VERSION_REQUIRED         "18.1")
+
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
 
 # First pass: Sandboxed check (non-fatal) to gather all dependency info
 start_capture()
-find_nvfuser_dependencies_sandboxed()
+find_nvfuser_dependencies()
 stop_capture(DEP_LOGS)
 
 # Show the dependency report (will FATAL_ERROR if any dependencies fail)
@@ -91,7 +100,10 @@ message("")
 set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
 if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
   find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
-    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+    PATHS 
+    /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
+    $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
+  )
 endif()
 
 if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
