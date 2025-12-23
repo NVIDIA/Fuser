@@ -119,4 +119,4 @@ def test_nvfp4_gemm(
         a_fp8, b_fp8, a_scale_interleaved, b_scale_interleaved, alpha, dtype
     )
 
-    torch.testing.assert_close(out, expected_out.to(dtype=dtype), atol=1e-1, rtol=1e-1)
+    torch.testing.assert_close(out, expected_out.to(dtype=dtype))
