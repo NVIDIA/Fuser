@@ -67,15 +67,18 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 # -----------------------------------------------------------------------------
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
-start_capture()
 
-find_nvfuser_dependencies()
+# First pass: Sandboxed check (non-fatal) to gather all dependency info
+start_capture()
+find_nvfuser_dependencies_sandboxed()
 stop_capture(DEP_LOGS)
 
+# Show the dependency report (will FATAL_ERROR if any dependencies fail)
 report_dependencies()
 
+# Dump detailed logs
 message("")
-message(STATUS "******** Begin Dependency Output ********")
+message(STATUS "******** Detailed Dependency Output ********")
 dump_captured_logs("${DEP_LOGS}")
 message(STATUS "******** End Dependency Output ********")
 message("")
