@@ -2368,31 +2368,33 @@ class LinearOp : public Expr {
 // evaluated.
 //
 // Notation:
-//   N* = a non-empty list of dimensions that are treated as batch, e.g., the
+// - N* = a non-empty list of dimensions that are treated as batch, e.g., the
 //   actual batch dimension, the DIDx dimension for DID logical split and/or the
 //   extra sequence dimension in [Triangle
 //   Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
-//   H = num of heads
-//   L = query sequence length / target sequence length
-//   S = key/value sequence length / source sequence length
-//   E = query/key embedding dimension
-//   Ev = value embedding dimension
+// - H = num of heads
+// - L = query sequence length / target sequence length
+// - S = key/value sequence length / source sequence length
+// - E = query/key embedding dimension
+// - Ev = value embedding dimension
 //
 // Inputs:
-//   query: [N*, H, L, E]
-//   key: [N*, H, S, E]
-//   value: [N*, H, S, Ev]
-//   bias: broadcastable to [N*, H, L, S] (optional)
-//   mask: broadcastable to [N*, H, L, S] (optional)
-//   dropout_p: double
-//   is_causal: bool
-//   scale: double
+// - query: [N*, H, L, E]
+// - key: [N*, H, S, E]
+// - value: [N*, H, S, Ev]
+// - bias: same rank as query/key/value and broadcastable to [N*, H, L, S]
+//   (optional)
+// - mask: same rank as query/key/value and broadcastable to [N*, H, L, S]
+//   (optional)
+// - dropout_p: double
+// - is_causal: bool
+// - scale: double
 //
 // Outputs:
-//   output: [N*, H, L, Ev]
-//   logsumexp: [N*, H, L]
-//   philox_seed: CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-//   philox_offset: CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+// - output: [N*, H, L, Ev]
+// - logsumexp: [N*, H, L]
+// - philox_seed: CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// - philox_offset: CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
 //
 // Bias/mask broadcasting follows
 // https://docs.pytorch.org/docs/stable/notes/broadcasting.html
