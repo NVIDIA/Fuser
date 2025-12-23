@@ -114,7 +114,6 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 set(CUTLASS_STATUS "N/A")
 if(BUILD_CUTLASS)
-  enable_language(CUDA)
 
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
     message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
