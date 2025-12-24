@@ -232,6 +232,24 @@ Returns
 list of Val
     The shape of this tensor.
 )")
+      .def(
+          "dtype",
+          [](TensorView* self) -> PrimDataType {
+            DataType dt = self->dtype();
+            NVF_CHECK(
+                std::holds_alternative<PrimDataType>(dt.type),
+                "Expected PrimDataType but got type: ",
+                dt);
+            return std::get<PrimDataType>(dt.type);
+          },
+          R"(
+Get the data type of this tensor.
+
+Returns
+-------
+DataType
+    The data type of this tensor.
+)")
       .def("has_root", &TensorView::hasRoot, R"(
 Check if this tensor has a root domain.
 
