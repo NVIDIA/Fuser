@@ -44,7 +44,7 @@ class InnerNormTmaParams : public HeuristicParams {
   bool tma_load_non_persistent_buffers = false;
 
   // Number of rows per block
-  int64_t rows_per_block = 1;
+  int64_t n_grouped_rows = 1;
 
   // Circular buffer options
   CircularBufferOptions circular_buffer_options;
@@ -62,7 +62,7 @@ class InnerNormTmaParams : public HeuristicParams {
         other->pre_load_ldg_tvs == pre_load_ldg_tvs &&
         other->tma_load_non_persistent_buffers ==
         tma_load_non_persistent_buffers &&
-        other->rows_per_block == rows_per_block &&
+        other->n_grouped_rows == n_grouped_rows &&
         other->circular_buffer_options == circular_buffer_options;
   }
 
@@ -77,7 +77,7 @@ class InnerNormTmaParams : public HeuristicParams {
        << (pre_load_ldg_tvs ? "Pre-load ldg tvs\n" : "")
        << (tma_load_non_persistent_buffers ? "TMA load non-persistent buffers\n"
                                            : "")
-       << "Rows per block: " << rows_per_block << "\n";
+       << "Rows per block: " << n_grouped_rows << "\n";
     if (circular_buffer_options.isEnable()) {
       ss << circular_buffer_options << "\n";
     } else {
@@ -96,7 +96,7 @@ class InnerNormTmaParams : public HeuristicParams {
         static_cast<size_t>(persistent_batch_size) << (bits - 4) ^
         static_cast<size_t>(pre_load_ldg_tvs) << (bits - 5) ^
         static_cast<size_t>(tma_load_non_persistent_buffers) << (bits - 6) ^
-        static_cast<size_t>(rows_per_block) << (bits - 7) ^
+        static_cast<size_t>(n_grouped_rows) << (bits - 7) ^
         static_cast<size_t>(circular_buffer_options.stage) << (bits - 8) ^
         static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9);
     return attr_hash;

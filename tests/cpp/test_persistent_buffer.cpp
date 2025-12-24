@@ -2271,7 +2271,7 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentSoftmax) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeContigTensor(2, dtype);
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
   fusion.addInput(tv0);
   tv0 = maybeCastOp(DataType::Float, tv0);
   auto res = softmax(tv0, 1);
@@ -2297,8 +2297,8 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         testing::Values(DataType::BFloat16),
         testing::Values(
-            deviceSMCount() / 2,
-            1024), // batch size, less or larger than sm count
+            deviceSMCount() / 2, // small batch, can't do grid stride loop
+            2048), // batch size, less or larger than sm count
         testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
     [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
       auto dtype = std::get<0>(info.param);
