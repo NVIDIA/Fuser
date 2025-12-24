@@ -10,7 +10,7 @@ import torch
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct import FusionDefinition, DataType, TensorView
 
 
 @dataclass
@@ -28,6 +28,39 @@ class Direction(Enum):
     OUTGOING = auto()  # aka starting node
 
 
+def layer_norm(
+    fd: FusionDefinition, x: TensorView, w: TensorView, b: TensorView
+) -> TensorView:
+    io_dtype = x.dtype()
+    x = fd.ops.cast(x, dtype=DataType.Float)
+    var, mean = fd.ops.var_mean(x, dims=[-1], correction=0, keepdim=True)
+    y = fd.ops.sub(x, mean)
+    var = fd.ops.add(var, fd.define_scalar(1e-5))
+    y = fd.ops.mul(y, fd.ops.rsqrt(var))
+    shape = fd.ops.shape(x)
+    w = fd.ops.broadcast_in_dim(w, shape=shape, broadcast_dims=[-1])
+    y = fd.ops.mul(y, w)
+    b = fd.ops.broadcast_in_dim(b, shape=shape, broadcast_dims=[-1])
+    y = fd.ops.add(y, b)
+    y = fd.ops.cast(y, dtype=io_dtype)
+    return y
+
+
+def gating(
+    fd: FusionDefinition,
+    z: TensorView,
+    w_p: TensorView,
+    z_in: TensorView,
+    w_g: TensorView,
+) -> TensorView:
+    io_dtype = z.dtype()
+    p = fd.ops.linear(z, w_p)
+    g = fd.ops.linear(z_in, w_g)
+    g = fd.ops.sigmoid(g)
+    z = fd.ops.mul(p, g)
+    return fd.ops.cast(z, dtype=io_dtype)
+
+
 # https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-updates
 @pytest.mark.parametrize(
     "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
@@ -41,22 +74,38 @@ def test_triangle_updates(direction):
             dtype=DataType.BFloat16,
             contiguity=True,
         )  # [b, i, j, c_z]
-        w_p = fd.define_tensor(
+        w_norm_in = fd.define_tensor(
+            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        b_norm_in = fd.define_tensor(
+            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        w_p_in = fd.define_tensor(
             shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
         )
-        w_g = fd.define_tensor(
+        w_g_in = fd.define_tensor(
             shape=[c_z * 2, c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        w_norm_out = fd.define_tensor(
+            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        b_norm_out = fd.define_tensor(
+            shape=[c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        w_p_out = fd.define_tensor(
+            shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
+        )
+        w_g_out = fd.define_tensor(
+            shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
         )
 
-        p = fd.ops.linear(z_in, w_p)
-        g = fd.ops.linear(z_in, w_g)
-        g = fd.ops.sigmoid(g)
-        ab = fd.ops.mul(p, g)
+        z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
+        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
 
         batch_size = fd.ops.size(z_in, 0)
         n_tokens = fd.ops.size(z_in, 1)
-        a = fd.ops.slice(ab, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
-        b = fd.ops.slice(ab, [0, 0, 0, c_z], [batch_size, n_tokens, n_tokens, c_z * 2])
+        a = fd.ops.slice(z, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
+        b = fd.ops.slice(z, [0, 0, 0, c_z], [batch_size, n_tokens, n_tokens, c_z * 2])
 
         match direction:
             case Direction.OUTGOING:
@@ -67,18 +116,43 @@ def test_triangle_updates(direction):
                 # z_out = einsum("bkic,bkjc->bijc", a, b)
                 a = fd.ops.permute(a, [0, 3, 2, 1])
                 b = fd.ops.permute(b, [0, 3, 1, 2])
-        z_out = fd.ops.matmul(a, b)  # [b, c, i, j]
-        z_out = fd.ops.permute(z_out, [0, 2, 3, 1])  # [b, i, j, c]
-        fd.add_output(z_out)
+        z = fd.ops.matmul(a, b)  # [b, c, i, j]
+        z = fd.ops.permute(z, [0, 2, 3, 1])  # [b, i, j, c]
+
+        z = layer_norm(fd, z, w_norm_out, b_norm_out)
+        z = gating(fd, z, w_p_out, z_in, w_g_out)
+        fd.add_output(z)
 
     batch_size = 3
     n_tokens = 5
     z_in = torch.testing.make_tensor(
         batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
     )
-    w_p = torch.testing.make_tensor(c_z * 2, c_z, dtype=torch.bfloat16, device="cuda")
-    w_g = torch.testing.make_tensor(c_z * 2, c_z, dtype=torch.bfloat16, device="cuda")
-    (z_out,) = fd.execute([z_in, w_p, w_g])
+    w_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
+    b_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
+    w_p_in = torch.testing.make_tensor(
+        c_z * 2, c_z, dtype=torch.bfloat16, device="cuda"
+    )
+    w_g_in = torch.testing.make_tensor(
+        c_z * 2, c_z, dtype=torch.bfloat16, device="cuda"
+    )
+    w_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
+    b_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
+    w_p_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
+    w_g_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
+    (z_out,) = fd.execute(
+        [
+            z_in,
+            w_norm_in,
+            b_norm_in,
+            w_p_in,
+            w_g_in,
+            w_norm_out,
+            b_norm_out,
+            w_p_out,
+            w_g_out,
+        ]
+    )
     assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
