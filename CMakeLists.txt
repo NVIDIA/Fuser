@@ -1391,7 +1391,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
   endif()
 
-  # multidevice transformer and cuda ipc benchmarks
   if(NVFUSER_DISTRIBUTED)
     # cuda ipc benchmark
     set(P2P_COMMUNICATION_BENCHMARK_SRCS)
