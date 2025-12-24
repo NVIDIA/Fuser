@@ -75,6 +75,63 @@ __device__ __inline__ void convertToFloatAndComputeLocalMax(
   }
 }
 
+// Fast reciprocal of 2^biased_exp using bit manipulation
+// Returns 1.0 for biased_exp==0, otherwise returns 2^(-biased_exp)
+constexpr uint32_t FP32_MANTISSA_BITS = 23;
+__device__ __forceinline__ float exp2f_rcp(uint8_t biased_exp) {
+  return (biased_exp == 0)
+      ? 1
+      : __int_as_float(
+            (254 - biased_exp)
+            << FP32_MANTISSA_BITS); // 127 - (biased_exp - 127)
+}
+
+template <
+    int ITEMS_PER_THREAD,
+    typename T,
+    int ALIGNMENT_1,
+    int ALIGNMENT_2,
+    int BLOCK_SCALE_DIM,
+    int BLOCK_SCALE_ALLOC>
+__device__ void block_quantize_to_mxfp8(
+    const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
+    Array<__e4m3, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
+    Tensor<__e8m0, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
+    nvfuser_index_t logical_index) {
+  // Number of threads involved in computing one block scaling factor
+  constexpr int THREADS_PER_SCALING_FACTOR = 32 / ITEMS_PER_THREAD;
+
+  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
+  float local_max;
+  convertToFloatAndComputeLocalMax<ITEMS_PER_THREAD, T, ALIGNMENT_1>(
+      input, vec_in, local_max);
+
+  // Compute the max accross  32/ITEMS_PER_THREAD threads
+  // This assumes each thread has already computed is local max of 2, 4 (fp32)
+  // or 2,4, 8 (bf16/fp16) elements.
+  reduceAcrossThreads<THREADS_PER_SCALING_FACTOR>(local_max);
+  float block_max = local_max;
+
+  static constexpr float max_norm_rcp = 1.0f / 448;
+  __e8m0 exponent = __float2e8m0(block_max * max_norm_rcp);
+
+  // Write out the block scaling factor to global memory.
+  // This assumes block_size (32) elements in the input were contiguous.
+  // Only one block scaling factor is written out per 32(assumed block size)
+  // elements.
+  int offset = logical_index / 32;
+  if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
+    block_scales[offset] = exponent;
+  }
+
+  const float block_scale_inverse = exp2f_rcp(exponent.raw());
+
+#pragma unroll
+  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
+    output[i] = __float2e4m3(vec_in[i] * block_scale_inverse);
+  }
+}
+
 // A runtime function to compute quantized nvfp4 output (output) and fp8 block
 // scaling (block_scales) factors from fp32, fp16, bf16 inputs (input).
 // The function is templatized over input type T (float, __half, __bfloat).
@@ -188,63 +245,6 @@ __device__ void block_quantize_to_nvfp4(
 #pragma unroll
   for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
     output[i] = fp4_vals[i];
-  }
-}
-
-// Fast reciprocal of 2^biased_exp using bit manipulation
-// Returns 1.0 for biased_exp==0, otherwise returns 2^(-biased_exp)
-constexpr uint32_t FP32_MANTISSA_BITS = 23;
-__device__ __forceinline__ float exp2f_rcp(uint8_t biased_exp) {
-  return (biased_exp == 0)
-      ? 1
-      : __int_as_float(
-            (254 - biased_exp)
-            << FP32_MANTISSA_BITS); // 127 - (biased_exp - 127)
-}
-
-template <
-    int ITEMS_PER_THREAD,
-    typename T,
-    int ALIGNMENT_1,
-    int ALIGNMENT_2,
-    int BLOCK_SCALE_DIM,
-    int BLOCK_SCALE_ALLOC>
-__device__ void block_quantize_to_mxfp8(
-    const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
-    Array<__e4m3, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
-    Tensor<__e8m0, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
-    nvfuser_index_t logical_index) {
-  // Number of threads involved in computing one block scaling factor
-  constexpr int THREADS_PER_SCALING_FACTOR = 32 / ITEMS_PER_THREAD;
-
-  Array<float, ITEMS_PER_THREAD, ITEMS_PER_THREAD> vec_in;
-  float local_max;
-  convertToFloatAndComputeLocalMax<ITEMS_PER_THREAD, T, ALIGNMENT_1>(
-      input, vec_in, local_max);
-
-  // Compute the max accross  32/ITEMS_PER_THREAD threads
-  // This assumes each thread has already computed is local max of 2, 4 (fp32)
-  // or 2,4, 8 (bf16/fp16) elements.
-  reduceAcrossThreads<THREADS_PER_SCALING_FACTOR>(local_max);
-  float block_max = local_max;
-
-  static constexpr float max_norm_rcp = 1.0f / 448;
-  __e8m0 exponent = __float2e8m0(block_max * max_norm_rcp);
-
-  // Write out the block scaling factor to global memory.
-  // This assumes block_size (32) elements in the input were contiguous.
-  // Only one block scaling factor is written out per 32(assumed block size)
-  // elements.
-  int offset = logical_index / 32;
-  if (threadIdx.x % THREADS_PER_SCALING_FACTOR == 0) {
-    block_scales[offset] = exponent;
-  }
-
-  const float block_scale_inverse = exp2f_rcp(exponent.raw());
-
-#pragma unroll
-  for (int i = 0; i < ITEMS_PER_THREAD; ++i) {
-    output[i] = __float2e4m3(vec_in[i] * block_scale_inverse);
   }
 }
 
