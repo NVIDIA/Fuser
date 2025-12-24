@@ -1345,6 +1345,22 @@ void IdModel::allocateLoopIndexVariables() {
 
     ParallelType ptype = getParallelType(loop_group);
 
+    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+            loop_group->front()->as<IterDomain>())) {
+      // Allocate index variable for each stage of the circular
+      // buffered loop.
+      auto indices = std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        indices->emplace(
+            static_cast<CircularBufferLoopStage>(i),
+            IrBuilder::create<Val>(DataType::Index));
+      }
+      circular_buffered_loop_index_variable_map_[loop_group] =
+          std::move(indices);
+      continue;
+    }
+
     Val* loop_index = nullptr;
 
     // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
@@ -1360,22 +1376,6 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (loop_index != nullptr) {
       loop_index_variable_map_[loop_group] = loop_index;
-      continue;
-    }
-
-    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
-            loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular
-      // buffered loop.
-      auto indices = std::make_unique<CircularBufferIndices>();
-      for (auto i :
-           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
-        indices->emplace(
-            static_cast<CircularBufferLoopStage>(i),
-            IrBuilder::create<Val>(DataType::Index));
-      }
-      circular_buffered_loop_index_variable_map_[loop_group] =
-          std::move(indices);
       continue;
     }
 
@@ -1430,6 +1430,12 @@ Val* IdModel::getLoopIndexVariable(
       //  stage defined, and we just default to using the main stage index.
       circular_buffer_loop_stage = CircularBufferLoopStage::Main;
     }
+    NVF_ERROR(
+        circular_buffered_loop_index_variable_map_.contains(loop_group),
+        "Failed to find circular buffer index var for: ",
+        nvfuser::toString(loop_group),
+        ", ",
+        loop_group->front()->toString());
     return circular_buffered_loop_index_variable_map_.at(loop_group)
         ->at(circular_buffer_loop_stage);
   } else {
