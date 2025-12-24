@@ -1408,6 +1408,9 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
             ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
         (output->definition()->isA<BlockQuantizationOp>() &&
          output->definition()->as<BlockQuantizationOp>()->blockScales() ==
+             output) ||
+        (output->definition()->isA<GroupedBlockQuantizationOp>() &&
+         output->definition()->as<GroupedBlockQuantizationOp>()->blockScales() ==
              output)) {
       continue;
     }

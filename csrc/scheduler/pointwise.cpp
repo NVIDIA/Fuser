@@ -300,7 +300,8 @@ bool PointWiseScheduler::canScheduleRunTime(
           data_cache,
           [fusion]() {
             return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
+                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion).empty());
           })
           .get();
 

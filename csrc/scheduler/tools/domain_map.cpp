@@ -420,6 +420,12 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
          output_tv ==
              output_tv->definition()
                  ->as<BlockQuantizationOp>()
+                 ->blockScales()) ||
+        (output_tv->definition() &&
+         output_tv->definition()->isA<GroupedBlockQuantizationOp>() &&
+         output_tv ==
+             output_tv->definition()
+                 ->as<GroupedBlockQuantizationOp>()
                  ->blockScales())) {
       continue;
     }
