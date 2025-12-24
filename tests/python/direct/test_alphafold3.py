@@ -107,11 +107,11 @@ def test_triangle_updates(direction):
             shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
         )  # [b, i, j]
 
-        z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
-        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
-
         batch_size = fd.ops.size(z_in, 0)
         n_tokens = fd.ops.size(z_in, 1)
+
+        z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
+        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
         mask = fd.ops.broadcast_in_dim(
             mask, shape=[batch_size, n_tokens, n_tokens, c_z], broadcast_dims=[0, 1, 2]
         )
@@ -194,8 +194,8 @@ def test_triangle_attention(direction):
             dtype=DataType.BFloat16,
             contiguity=True,
         )  # [b, i, j, c_z]
-        if direction == Direction.INCOMING:
-            z_in = fd.ops.permute(z_in, [0, 2, 1, 3])
+        w_norm = fd.define_tensor(shape=[c_z], dtype=DataType.BFloat16, contiguity=True)
+        b_norm = fd.define_tensor(shape=[c_z], dtype=DataType.BFloat16, contiguity=True)
         w_q = fd.define_tensor(
             shape=[h * c_hidden, c_z], dtype=DataType.BFloat16, contiguity=True
         )
@@ -206,8 +206,6 @@ def test_triangle_attention(direction):
         mask = fd.define_tensor(
             shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
         )  # [b, i, j]
-        if direction == Direction.INCOMING:
-            mask = fd.ops.permute(mask, [0, 2, 1])
         w_v = fd.define_tensor(
             shape=[h * c_hidden, c_z], dtype=DataType.BFloat16, contiguity=True
         )
@@ -221,6 +219,9 @@ def test_triangle_attention(direction):
         batch_size = fd.ops.size(z_in, 0)
         n_tokens = fd.ops.size(z_in, 1)
 
+        if direction == Direction.INCOMING:
+            z_in = fd.ops.permute(z_in, [0, 2, 1, 3])
+        z_in = layer_norm(fd, z_in, w_norm, b_norm)
         q = fd.ops.linear(z_in, w_q)
         q_h = fd.ops.reshape(
             q, [batch_size, n_tokens, n_tokens, h, -1]
@@ -241,6 +242,8 @@ def test_triangle_attention(direction):
             broadcast_dims=[0, 2, 3, 4],
         )  # [b, 1, h, j, k]
 
+        if direction == Direction.INCOMING:
+            mask = fd.ops.permute(mask, [0, 2, 1])
         mask = fd.ops.broadcast_in_dim(
             mask,
             shape=[batch_size, n_tokens, 1, 1, n_tokens],
@@ -284,6 +287,8 @@ def test_triangle_attention(direction):
     z_in = torch.testing.make_tensor(
         batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
     )
+    w_norm = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
+    b_norm = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
     w_q = torch.testing.make_tensor(
         h * c_hidden, c_z, dtype=torch.bfloat16, device="cuda"
     )
@@ -303,5 +308,5 @@ def test_triangle_attention(direction):
     w_o = torch.testing.make_tensor(
         c_z, h * c_hidden, dtype=torch.bfloat16, device="cuda"
     )
-    (z_out,) = fd.execute([z_in, w_q, w_k, w_b, mask, w_v, w_g, w_o])
+    (z_out,) = fd.execute([z_in, w_norm, b_norm, w_q, w_k, w_b, mask, w_v, w_g, w_o])
     assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
