@@ -346,6 +346,8 @@ TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
       chunks[0],
       chunks[1],
       chunks[2],
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/nullptr);

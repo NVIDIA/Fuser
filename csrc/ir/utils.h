@@ -678,6 +678,9 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation);
+
 template <typename T>
 std::vector<T> applyPermutation(
     const std::vector<T>& in,

@@ -222,6 +222,8 @@ MhaResult DistributedTransformer::mha(
       qkv[0],
       qkv[1],
       qkv[2],
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kSdpaScale));

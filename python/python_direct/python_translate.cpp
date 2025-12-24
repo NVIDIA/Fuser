@@ -1118,6 +1118,8 @@ class PythonTranslator : public OptInConstDispatch {
     NVF_ERROR(sdpa_fwd_op != nullptr);
 
     static const auto default_args = std::make_tuple(
+        KeywordArgument<TensorView*>{"bias", nullptr},
+        KeywordArgument<TensorView*>{"mask", nullptr},
         KeywordArgument<Val*>{"dropout_p", nullptr},
         KeywordArgument<Val*>{"is_causal", nullptr},
         KeywordArgument<Val*>{"scale", nullptr});
@@ -1131,6 +1133,8 @@ class PythonTranslator : public OptInConstDispatch {
             sdpa_fwd_op->query(), sdpa_fwd_op->key(), sdpa_fwd_op->value()),
         default_args,
         std::make_tuple(
+            sdpa_fwd_op->bias(),
+            sdpa_fwd_op->mask(),
             sdpa_fwd_op->dropout_p(),
             sdpa_fwd_op->is_causal(),
             sdpa_fwd_op->scale()),

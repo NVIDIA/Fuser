@@ -588,6 +588,8 @@ SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
@@ -597,11 +599,21 @@ SdpfaFwdResult sdpfa_fwd(
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
   checkAllEqual({query_domain.size(), key_domain.size(), value_domain.size()});
-  NVF_CHECK(
-      query_domain.size() == 4 || query_domain.size() == 5,
-      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
-      "expected to be device parallel during expression evaluation: ",
-      query_domain);
+  NVF_CHECK_GE(query_domain.size(), 4, "query_domain = ", query_domain);
+
+  if (bias != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(bias->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(bias->dtype(), query->dtype());
+  }
+
+  if (mask != nullptr) {
+    NVF_CHECK_EQ(
+        TensorDomain::noReductions(mask->getLogicalDomain()).size(),
+        query_domain.size());
+    NVF_CHECK_EQ(mask->dtype(), DataType::Bool);
+  }
 
   NVF_CHECK(
       !dropout_p || dropout_p->isFloatingPointScalar() ||
@@ -614,14 +626,8 @@ SdpfaFwdResult sdpfa_fwd(
       !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
       "Expected scale to be a real-valued scalar.");
 
-  // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
-  // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
-  // inputs to outputs. L is mapped from query to output. Ev is mapped from
-  // value to output. Note: There is no mapping for S, E. This may change in the
-  // future if we add additional reduction ids to the output.
-  auto ndims_out = query_domain.size();
-
   // TensorView for attention output
+  const auto ndims_out = query_domain.size();
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
   for (auto idx : arange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
@@ -632,11 +638,10 @@ SdpfaFwdResult sdpfa_fwd(
   out_domain[ndims_out - 1] =
       ops::newOutputIterDomain({value_domain.at(ndims_out - 1)});
 
-  TensorDomain* attn_td = IrBuilder::create<TensorDomain>(
+  auto* attn_td = IrBuilder::create<TensorDomain>(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
-  TensorView* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
+  auto* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  // TensorView for log_sumexp [DIDx(D)?,N, H, L]
   std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
   for (auto idx : arange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
@@ -644,10 +649,10 @@ SdpfaFwdResult sdpfa_fwd(
   }
   log_sumexp_dom[ndims_out - 2] =
       ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
-  TensorDomain* log_sumexp_td = IrBuilder::create<TensorDomain>(
+  auto* log_sumexp_td = IrBuilder::create<TensorDomain>(
       log_sumexp_dom,
       TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
-  TensorView* log_sumexp =
+  auto* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
@@ -685,6 +690,8 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
+      bias,
+      mask,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       scale == nullptr

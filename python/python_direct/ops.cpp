@@ -3370,6 +3370,8 @@ void bindSdpaOps(py::module_& ops) {
       [](TensorView* query,
          TensorView* key,
          TensorView* value,
+         TensorView* bias,
+         TensorView* mask,
          ScalarVariant dropout_p,
          ScalarVariant is_causal,
          ScalarVariant scale) -> decltype(auto) {
@@ -3377,6 +3379,8 @@ void bindSdpaOps(py::module_& ops) {
             query,
             key,
             value,
+            bias,
+            mask,
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
             convertToVal(scale));
@@ -3385,6 +3389,8 @@ void bindSdpaOps(py::module_& ops) {
       py::arg("query"),
       py::arg("key"),
       py::arg("value"),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("mask").none(true) = py::none(),
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("scale").none(true) = py::none(),
@@ -3394,11 +3400,15 @@ Scaled Dot Product Flash Attention Forward.
 Parameters
 ----------
 query : TensorView
-    The query tensor.
+    The query tensor with shape [N*, H, Q, E].
 key : TensorView
-    The key tensor.
+    The key tensor with shape [N*, H, K, E].
 value : TensorView
-    The value tensor.
+    The value tensor with shape [N*, H, K, Ev].
+bias : TensorView, optional
+    Additive attention bias with shape broadcastable to [N*, H, Q, K]. Default is None.
+mask : TensorView, optional
+    Additional additive mask with shape broadcastable to [N*, H, Q, K]. Default is None.
 dropout_p : Val, optional
     The dropout probability. Default is None.
 is_causal : Val, optional
