@@ -62,6 +62,11 @@ def gating(
 
 
 # https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-updates
+#
+# Jumper, J., Evans, R., Pritzel, A. et al. Highly accurate protein structure
+# prediction with AlphaFold. Nature 596, 583–589 (2021).
+# https://doi.org/10.1038/s41586-021-03819-2
+# (see Supplementary Methods 1.6.5 for details)
 @pytest.mark.parametrize(
     "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
 )
@@ -98,12 +103,19 @@ def test_triangle_updates(direction):
         w_g_out = fd.define_tensor(
             shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
         )
+        mask = fd.define_tensor(
+            shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
+        )  # [b, i, j]
 
         z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
         z = gating(fd, z_in, w_p_in, z_in, w_g_in)
 
         batch_size = fd.ops.size(z_in, 0)
         n_tokens = fd.ops.size(z_in, 1)
+        mask = fd.ops.broadcast_in_dim(
+            mask, shape=[batch_size, n_tokens, n_tokens, c_z], broadcast_dims=[0, 1, 2]
+        )
+        z = fd.ops.where(mask, z, 0.0)
         a = fd.ops.slice(z, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
         b = fd.ops.slice(z, [0, 0, 0, c_z], [batch_size, n_tokens, n_tokens, c_z * 2])
 
@@ -140,6 +152,9 @@ def test_triangle_updates(direction):
     b_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
     w_p_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
     w_g_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
+    mask = torch.testing.make_tensor(
+        batch_size, n_tokens, n_tokens, dtype=torch.bool, device="cuda"
+    )
     (z_out,) = fd.execute(
         [
             z_in,
@@ -151,12 +166,18 @@ def test_triangle_updates(direction):
             b_norm_out,
             w_p_out,
             w_g_out,
+            mask,
         ]
     )
     assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
 
 
 # https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention
+#
+# Jumper, J., Evans, R., Pritzel, A. et al. Highly accurate protein structure
+# prediction with AlphaFold. Nature 596, 583–589 (2021).
+# https://doi.org/10.1038/s41586-021-03819-2
+# (see Supplementary Methods 1.6.6 for details)
 @pytest.mark.parametrize(
     "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
 )
