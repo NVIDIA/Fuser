@@ -136,19 +136,26 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       }
       has_consumer_id = true;
     }
-  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
+  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition()) ||
+             dynamic_cast<GroupedBlockQuantizationOp*>(consumer_tv->definition())) {
     // We don't map the inner-most dimension of the block scaling factors
     // as it's extent is reduced by a factor of the block size
     // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
     // Make sure the producer isn't the global scale.
-    if (consumer_tv ==
-            consumer_tv->definition()
-                ->as<BlockQuantizationOp>()
-                ->blockScales() &&
-        producer_tv !=
-            consumer_tv->definition()
-                ->as<BlockQuantizationOp>()
-                ->globalScale()) {
+    bool is_block_quant = consumer_tv->definition()->isA<BlockQuantizationOp>();
+    bool is_grouped_block_quant = consumer_tv->definition()->isA<GroupedBlockQuantizationOp>();
+    
+    Val* block_scales = nullptr;
+    Val* global_scale = nullptr;
+    if (is_block_quant) {
+      block_scales = consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales();
+      global_scale = consumer_tv->definition()->as<BlockQuantizationOp>()->globalScale();
+    } else if (is_grouped_block_quant) {
+      block_scales = consumer_tv->definition()->as<GroupedBlockQuantizationOp>()->blockScales();
+      global_scale = consumer_tv->definition()->as<GroupedBlockQuantizationOp>()->globalScale();
+    }
+    
+    if (consumer_tv == block_scales && producer_tv != global_scale) {
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       auto last_logical_dim = producer_logical.size() - 1;
@@ -1387,7 +1394,7 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
             expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>() ||
-            expr->isA<BlockQuantizationOp>(),
+            expr->isA<BlockQuantizationOp>() || expr->isA<GroupedBlockQuantizationOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");

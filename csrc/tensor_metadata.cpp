@@ -356,6 +356,11 @@ inferAndValidateAllocationSizesAndStrides(
     if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
       skip_validation = true;
     }
+  } else if (tv->definition() && tv->definition()->isA<GroupedBlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<GroupedBlockQuantizationOp>();
+    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
   }
 
   // Skip validation for scale input to ScaledMmaOp as it will be swizzled.

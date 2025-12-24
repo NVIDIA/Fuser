@@ -4850,6 +4850,48 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
+GroupedBlockQuantizationOp::GroupedBlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input,
+    Val* logical_index,
+    Val* global_scale,
+    int64_t block_size,
+    bool swizzled_scales)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(output_scales);
+  addInput(input);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addAttribute(logical_index);
+  addDataAttribute(block_size);
+  addDataAttribute(swizzled_scales);
+}
+
+std::string GroupedBlockQuantizationOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
+                          << quantizedOutput()->toString() << ")\n"
+                          << " = grouped_block_quantize(" << in()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GroupedBlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "GroupedBlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedBlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("GroupedBlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedBlockQuantizationOp)
+
 LaunchDependentGridOp::LaunchDependentGridOp(
     IrBuilderPasskey passkey,
     Val* output,

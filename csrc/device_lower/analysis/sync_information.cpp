@@ -299,11 +299,16 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
           // sync/predication is handled there.
           if ((parallel_type == ParallelType::BIDx ||
                parallel_type == ParallelType::TIDx) &&
-              (consumer->definition()->isA<BlockQuantizationOp>() &&
-               consumer ==
-                   consumer->definition()
-                       ->as<BlockQuantizationOp>()
-                       ->blockScales())) {
+              ((consumer->definition()->isA<BlockQuantizationOp>() &&
+                consumer ==
+                    consumer->definition()
+                        ->as<BlockQuantizationOp>()
+                        ->blockScales()) ||
+               (consumer->definition()->isA<GroupedBlockQuantizationOp>() &&
+                consumer ==
+                    consumer->definition()
+                        ->as<GroupedBlockQuantizationOp>()
+                        ->blockScales()))) {
             continue;
           }
 

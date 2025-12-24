@@ -851,6 +851,12 @@ bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
       if (!block_scales->isFusionOutput()) {
         return true;
       }
+    } else if (expr->isA<GroupedBlockQuantizationOp>()) {
+      auto block_scales =
+          expr->as<GroupedBlockQuantizationOp>()->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
     }
   }
   return false;
