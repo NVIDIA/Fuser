@@ -162,7 +162,14 @@ def _register_nvfp4_ops():
         nv_sf_w = getnv(weight_scaling_factor, fd, lc_to_nv_map)
         nv_alpha = getnv(weight_global_scale, fd, lc_to_nv_map)
 
+        # This is correct, but fails when batch size is 1.
+        # (m,k) x (k,n); where m is 1.
+        # After swizzling (1, 320) the scaling factor has shape (128, 320) but stride of (320, 1).
+        # Ideally we'd want the stride to be (320, 1).
         quantized_activation, activation_scale = fd.ops.nv_block_quantize(nv_act, nv_alpha, True, 16)
+        # This is wrong - we don't swizzle the scaling factors, but it still won't work as the outer dim of
+        # the scaling factor stays as 1 instead of being padded to 128.
+        # quantized_activation, activation_scale = fd.ops.nv_block_quantize(nv_act, nv_alpha, False, 16)
         out, _, _ = fd.ops.scaled_mm(
             quantized_activation,
             nv_fp4_w,
@@ -177,7 +184,7 @@ def _register_nvfp4_ops():
 
 
     _register_nvfuser_translator(_nvfp4_grouped_mm_symbol, nvfp4_grouped_mm_translator)
-    # _register_nvfuser_translator(_nvfp4_scaled_mm_symbol, nvfp4_scaled_mm_translator)
+    _register_nvfuser_translator(_nvfp4_scaled_mm_symbol, nvfp4_scaled_mm_translator)
 
 
 # The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
