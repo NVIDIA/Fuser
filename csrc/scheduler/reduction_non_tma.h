@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <scheduler/reduction.h>
+#include <scheduler/reduction_utils.h>
 
 namespace nvfuser {
 namespace reduction {
@@ -16,7 +17,8 @@ namespace non_tma {
 std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache);
+    HeuristicDataCache* data_cache,
+    const reduction_scheduler_utils::FusionRuntimeProperties& props);
 
 void scheduleReduction(Fusion* fusion, const ReductionParams* pparams);
 } // namespace non_tma

@@ -1337,11 +1337,9 @@ std::unique_ptr<ReductionParams> reductionHeuristic(
 std::unique_ptr<ReductionParams> getReductionHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  auto prop = reduction_scheduler_utils::getFusionRuntimeProperties(
-      fusion, runtime_info, data_cache);
-
-  auto heuristic = reductionHeuristic(prop);
+    HeuristicDataCache* data_cache,
+    const reduction_scheduler_utils::FusionRuntimeProperties& props) {
+  auto heuristic = reductionHeuristic(props);
   heuristic->cparams.index_type = runtime_info.getIndexType();
   return heuristic;
 }
