@@ -28,6 +28,7 @@ class StreamTest : public NVFuserTest {
  public:
   StreamTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
