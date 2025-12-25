@@ -55,6 +55,10 @@ QuantizedTensorView quantizeTv(
     double block_scale_min,
     double block_scale_max,
     bool clamp_before_casts) {
+  // Upcast to Float first if necessary
+  unquantized = maybeCastOp(
+      promoteType(DataType::Float, unquantized->dtype()), unquantized);
+
   TensorView* reshaped =
       reshape(unquantized, [block_size](auto& x) { x.split(-1, block_size); });
 
