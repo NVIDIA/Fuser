@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 # Import prereqs utilities
 try:
-    from prereqs import detect_platform
+    from prereqs import detect_platform, create_requirement
     from prereqs.help import (
         PythonHelp,
         TorchHelp,
@@ -36,6 +36,7 @@ except ImportError:
     # Fallback if prereqs not available
     print("Warning: prereqs package not found. Platform-specific help unavailable.", file=sys.stderr)
     detect_platform = lambda: {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
+    create_requirement = None
     HELP_AVAILABLE = False
 
 
@@ -67,8 +68,17 @@ class DependencyReporter:
     def __init__(self, json_path: Path):
         self.data = self._load_json(json_path)
         self.colors = Colors()
-        self.failures: List[Dict] = []  # Store failure dicts for help generation
         self.platform_info = detect_platform()
+
+        # Create requirement objects from JSON data
+        self.requirements = []
+        if create_requirement:
+            for dep_data in self.data["dependencies"]:
+                req = create_requirement(dep_data)
+                self.requirements.append(req)
+        else:
+            # Fallback: store raw dicts if OOP not available
+            self.requirements = self.data["dependencies"]
 
         # Initialize help providers if available
         if HELP_AVAILABLE:
@@ -104,14 +114,16 @@ class DependencyReporter:
             print(f"Error: Invalid JSON in {json_path}: {e}", file=sys.stderr)
             sys.exit(1)
 
+
     def generate_report(self):
         """Main entry point - prints formatted report"""
         self._print_header()
         self._print_dependencies()
 
-        # Print help text if there were failures
-        if self.failures:
-            self._print_help_section()
+        # Collect failures and print help if needed
+        failures = [req for req in self.requirements if hasattr(req, 'is_failure') and req.is_failure()]
+        if failures:
+            self._print_help_section(failures)
             self._print_failure_summary()
 
         print()  # Blank line at end
@@ -129,133 +141,41 @@ class DependencyReporter:
         print(f"{self.colors.WHITE}See installation instructions above{self.colors.RESET}")
 
     def _print_dependencies(self):
-        """Print status for each dependency"""
-        for dep in self.data["dependencies"]:
-            status = dep["status"]
-
-            if status == "SUCCESS":
-                self._print_success(dep)
-            elif status == "NOT_FOUND":
-                self._print_not_found(dep)
-            elif status == "INCOMPATIBLE":
-                self._print_incompatible(dep)
-
-            # Check if this dependency has constraint checks to display
-            if "extra" in dep:
-                self._print_constraints(dep)
-
-    def _print_success(self, dep: Dict):
-        """Print success line for found dependency"""
-        name = dep["name"]
-        version = dep.get("version_found")
-        version_min = dep.get("version_required")
-
-        # Format: [nvFuser] ✓ Python 3.12.3 >= 3.8
-        if version and version_min:
-            print(f"{self.colors.GREEN}[nvFuser] ✓ {name} {version} >= {version_min}{self.colors.RESET}")
-        elif version:
-            print(f"{self.colors.GREEN}[nvFuser] ✓ {name} {version}{self.colors.RESET}")
-        else:
-            print(f"{self.colors.GREEN}[nvFuser] ✓ {name}{self.colors.RESET}")
-
-    def _print_not_found(self, dep: Dict):
-        """Print line for missing dependency"""
-        name = dep["name"]
-        version_min = dep.get("version_required")
-        optional = dep.get("optional", False)
-
-        if optional:
-            # Yellow ○ for optional
-            if version_min:
-                print(f"{self.colors.YELLOW}[nvFuser] ○ {name} NOT found (optional, v{version_min}+ recommended){self.colors.RESET}")
+        """Print status for each dependency using OOP requirement classes"""
+        for req in self.requirements:
+            if hasattr(req, 'format_status_line'):
+                # OOP: use requirement's format method
+                print(req.format_status_line(self.colors))
             else:
-                print(f"{self.colors.YELLOW}[nvFuser] ○ {name} NOT found (optional){self.colors.RESET}")
-        else:
-            # Red ✗ for required
-            if version_min:
-                print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {name} NOT found (requires {version_min}+){self.colors.RESET}")
-            else:
-                print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {name} NOT found{self.colors.RESET}")
+                # Fallback: use legacy dict-based formatting (shouldn't happen)
+                print(f"[nvFuser] ? {req.get('name', 'Unknown')}")
 
-            # Store failure for help generation
-            self.failures.append(dep)
-
-    def _print_incompatible(self, dep: Dict):
-        """Print line for incompatible dependency (wrong version)"""
-        name = dep["name"]
-        version = dep.get("version_found")
-        version_min = dep.get("version_required")
-
-        # Format: [nvFuser] ✗ Python 3.7.0 < 3.8
-        if version and version_min:
-            print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {name} {version} < {version_min}{self.colors.RESET}")
-        else:
-            print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {name} incompatible{self.colors.RESET}")
-
-        # Store failure for help generation
-        self.failures.append(dep)
-
-    def _print_constraints(self, dep: Dict):
-        """Print constraint validation results (e.g., Torch_CUDA)"""
-        extra = dep.get("extra", {})
-        parent_name = dep["name"]
-
-        # Handle CUDA constraint for Torch
-        if "constraint_cuda_status" in extra:
-            cuda_status = extra["constraint_cuda_status"]
-            constraint_name = f"{parent_name}_CUDA"
-
-            if cuda_status == "match":
-                # Constraint satisfied
-                version = extra.get("constraint_cuda_version", "")
-                print(f"{self.colors.GREEN}[nvFuser] ✓ {constraint_name} {version} (Torch.CUDA == CUDAToolkit){self.colors.RESET}")
-
-            elif cuda_status == "mismatch":
-                # Constraint violated
-                found_version = extra.get("constraint_cuda_found", "")
-                required_version = extra.get("constraint_cuda_required", "")
-                print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {constraint_name} mismatch: Torch {found_version} != CUDAToolkit {required_version}{self.colors.RESET}")
-
-                # Add constraint failure to help list
-                constraint_dep = dep.copy()
-                constraint_dep["name"] = constraint_name
-                constraint_dep["constraint_type"] = "cuda_mismatch"
-                constraint_dep["constraint_found"] = found_version
-                constraint_dep["constraint_required"] = required_version
-                self.failures.append(constraint_dep)
-
-            elif cuda_status == "not_available":
-                # CUDA not available in Torch
-                print(f"{self.colors.BOLD_RED}[nvFuser] ✗ {constraint_name} N/A (Torch not built with CUDA){self.colors.RESET}")
-
-                constraint_dep = dep.copy()
-                constraint_dep["name"] = constraint_name
-                constraint_dep["constraint_type"] = "cuda_unavailable"
-                self.failures.append(constraint_dep)
-
-    def _print_help_section(self):
-        """Print installation instructions for all failures"""
+    def _print_help_section(self, failures):
+        """Print help section header and help for each failed dependency"""
         print()
         print("=" * 70)
         print("Installation Instructions")
         print("=" * 70)
         print()
 
-        for failure in self.failures:
-            self._print_help_for_dependency(failure)
+        for req in failures:
+            self._print_help_for_requirement(req)
 
-    def _print_help_for_dependency(self, failure: Dict):
-        """Dispatch to specific help provider based on dependency name"""
+    def _print_help_for_requirement(self, req):
+        """Dispatch to specific help provider based on requirement"""
         if not HELP_AVAILABLE:
             # Fallback if help system not available
-            name = failure["name"]
+            name = req.name if hasattr(req, 'name') else req.get('name', 'Unknown')
             print(f"{name} installation help not available (prereqs package missing)")
             print()
             return
 
-        name = failure["name"]
+        # Get failure data for help provider
+        failure_data = req.get_failure_data() if hasattr(req, 'get_failure_data') else req
+
+        name = failure_data.get("name", "Unknown")
         help_provider = self.help_providers.get(name, self.generic_help)
-        help_provider.generate_help(failure)
+        help_provider.generate_help(failure_data)
 
 
 def main():

@@ -5,12 +5,12 @@
 Dependency-specific installation help modules.
 
 Each dependency has its own module that provides platform-specific
-installation instructions.
+installation instructions and may include specialized requirement classes.
 """
 
 from .base import HelpProvider
 from .python import PythonHelp
-from .torch import TorchHelp
+from .torch import TorchHelp, TorchRequirement
 from .cuda import CUDAToolkitHelp, TorchCUDAConstraintHelp
 from .pybind11 import Pybind11Help
 from .llvm import LLVMHelp
@@ -24,6 +24,7 @@ __all__ = [
     "HelpProvider",
     "PythonHelp",
     "TorchHelp",
+    "TorchRequirement",  # Torch-specific requirement class
     "CUDAToolkitHelp",
     "TorchCUDAConstraintHelp",
     "Pybind11Help",

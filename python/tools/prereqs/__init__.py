@@ -57,11 +57,21 @@ from .requirements import (
 # Exception (included but not used in reporting)
 from .exceptions import PrerequisiteMissingError
 
+# Requirement classes (OOP abstraction)
+from .requirements_classes import (
+    Requirement as BaseRequirement,
+    VersionRequirement,
+    BooleanRequirement,
+    ConstraintRequirement,
+    RequirementStatus,
+    create_requirement,
+)
+
 __all__ = [
     # Platform
     "detect_platform",
     "format_platform_info",
-    # Requirements
+    # Requirements (legacy utility class)
     "Requirement",
     "parse_version",
     "format_version",
@@ -73,4 +83,12 @@ __all__ = [
     "cuda_toolkit_download_url",
     # Exception
     "PrerequisiteMissingError",
+    # Requirement classes (OOP)
+    "BaseRequirement",
+    "VersionRequirement",
+    "BooleanRequirement",
+    "ConstraintRequirement",
+    "RequirementStatus",
+    "create_requirement",
+    # Note: TorchRequirement is in prereqs.help.torch to keep torch-specific code modular
 ]
