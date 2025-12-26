@@ -65,17 +65,41 @@ set(NVFUSER_REQUIREMENT_LLVM_INSTALL_HELP "")  # TODO: Add from #5609
 set(NVFUSER_REQUIREMENT_LLVM_LOCATION_VAR "LLVM_DIR")
 set(NVFUSER_REQUIREMENT_LLVM_POST_FIND_HOOK "llvm_post_find_hook")  # Map components
 
+# Compiler (GCC or Clang)
+set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN "13")  # GCC 13+ or Clang 19+
+set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE)
+set(NVFUSER_REQUIREMENT_Compiler_TYPE "compiler")
+set(NVFUSER_REQUIREMENT_Compiler_INSTALL_HELP "")
+set(NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR "CMAKE_CXX_COMPILER")
+
+# Ninja
+set(NVFUSER_REQUIREMENT_Ninja_VERSION_MIN "")  # Any version
+set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL FALSE)
+set(NVFUSER_REQUIREMENT_Ninja_TYPE "build_tool")
+set(NVFUSER_REQUIREMENT_Ninja_INSTALL_HELP "")
+set(NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR "CMAKE_MAKE_PROGRAM")
+
+# Git Submodules
+set(NVFUSER_REQUIREMENT_GitSubmodules_VERSION_MIN "")  # No version
+set(NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL FALSE)
+set(NVFUSER_REQUIREMENT_GitSubmodules_TYPE "git")
+set(NVFUSER_REQUIREMENT_GitSubmodules_INSTALL_HELP "")
+set(NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR "")
+
 # ==============================================================================
 # Master list of all requirements (checked in order)
 # ==============================================================================
 # Note: CUDAToolkit must come before Torch for CUDA version constraint validation
 set(NVFUSER_ALL_REQUIREMENTS
   Python
+  Compiler
   CUDAToolkit
   Torch
   Torch_CUDA
   pybind11
   LLVM
+  Ninja
+  GitSubmodules
 )
 
 # Note: Future dependency types (compiler, header_only, submodule, constraint)

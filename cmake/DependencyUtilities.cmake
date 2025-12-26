@@ -110,6 +110,12 @@ function(export_dependency_json output_file)
     endif()
     set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
 
+    # For Compiler, use the specific compiler name (GCC/Clang) instead of "Compiler"
+    set(export_name "${dep_name}")
+    if(dep_name STREQUAL "Compiler" AND DEFINED Compiler_NAME)
+      set(export_name "${Compiler_NAME}")
+    endif()
+
     # Update counts
     math(EXPR total "${total} + 1")
     if(status STREQUAL "SUCCESS")
@@ -126,7 +132,7 @@ function(export_dependency_json output_file)
 
     # Build JSON entry
     string(APPEND json_content "    {\n")
-    string(APPEND json_content "      \"name\": \"${dep_name}\",\n")
+    string(APPEND json_content "      \"name\": \"${export_name}\",\n")
     string(APPEND json_content "      \"type\": \"${dep_type}\",\n")
     if(found)
       string(APPEND json_content "      \"found\": true,\n")

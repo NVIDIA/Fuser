@@ -339,7 +339,24 @@ class DependencyReporter:
     def _help_llvm(self, failure: Dict):
         """Generate LLVM installation help"""
         version_min = failure.get("version_required", "18.1")
-        recommended = "18.1.8"
+
+        # Parse version to get components and build recommended version
+        # For minimum version like "19.1", recommend "19.1.8" (latest patch)
+        # For minimum version like "18", recommend "18.1.8"
+        try:
+            version_parts = parse_version(version_min)
+            if len(version_parts) >= 2:
+                # Has major.minor, use latest patch
+                recommended = f"{version_parts[0]}.{version_parts[1]}.8"
+                recommended_tuple = (version_parts[0], version_parts[1], 8)
+            else:
+                # Only major version, add minor and patch
+                recommended = f"{version_parts[0]}.1.8"
+                recommended_tuple = (version_parts[0], 1, 8)
+        except:
+            # Fallback if parsing fails
+            recommended = "18.1.8"
+            recommended_tuple = (18, 1, 8)
 
         print(f"LLVM {version_min}+ Required")
         print()
@@ -352,7 +369,7 @@ class DependencyReporter:
         print()
 
         try:
-            url = llvm_download_url((18, 1, 8))
+            url = llvm_download_url(recommended_tuple)
             print(f"    wget {url}")
             print(f"    tar -xf clang+llvm-{recommended}-*.tar.xz")
             print(f"    mv clang+llvm-{recommended}-* ~/.llvm/{recommended}")
@@ -369,13 +386,14 @@ class DependencyReporter:
         print()
 
         os_type = self.platform_info["os"]
+        major_version = recommended_tuple[0]
 
         if os_type == "Linux":
             if self.platform_info.get("ubuntu_based"):
                 print("    # Ubuntu/Debian (LLVM APT repository):")
                 print("    wget https://apt.llvm.org/llvm.sh")
                 print("    chmod +x llvm.sh")
-                print("    sudo ./llvm.sh 18")
+                print(f"    sudo ./llvm.sh {major_version}")
                 print()
             else:
                 print("    # Check your distribution's package manager")

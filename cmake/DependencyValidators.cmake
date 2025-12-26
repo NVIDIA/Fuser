@@ -130,6 +130,134 @@ function(llvm_post_find_hook)
 endfunction()
 
 # ------------------------------------------------------------------------------
+# Validator for Compiler (GCC or Clang)
+# ------------------------------------------------------------------------------
+# Validates C++ compiler version (GCC 13+ or Clang 19+)
+function(validate_compiler)
+  # Get compiler info
+  set(compiler_id "${CMAKE_CXX_COMPILER_ID}")
+  set(compiler_version "${CMAKE_CXX_COMPILER_VERSION}")
+  set(compiler_path "${CMAKE_CXX_COMPILER}")
+
+  # Set found and version for reporting
+  set(Compiler_FOUND TRUE PARENT_SCOPE)
+  set(Compiler_VERSION "${compiler_version}" PARENT_SCOPE)
+
+  # Check version based on compiler type
+  if(compiler_id STREQUAL "GNU")
+    # GCC requires 13+
+    if(compiler_version VERSION_LESS "13")
+      set(Compiler_STATUS "INCOMPATIBLE" PARENT_SCOPE)
+    else()
+      set(Compiler_STATUS "SUCCESS" PARENT_SCOPE)
+    endif()
+    set(Compiler_NAME "GCC" PARENT_SCOPE)
+  elseif(compiler_id STREQUAL "Clang")
+    # Clang requires 19+
+    if(compiler_version VERSION_LESS "19")
+      set(Compiler_STATUS "INCOMPATIBLE" PARENT_SCOPE)
+    else()
+      set(Compiler_STATUS "SUCCESS" PARENT_SCOPE)
+    endif()
+    set(Compiler_NAME "Clang" PARENT_SCOPE)
+  else()
+    # Unknown compiler
+    set(Compiler_STATUS "SUCCESS" PARENT_SCOPE)
+    set(Compiler_NAME "${compiler_id}" PARENT_SCOPE)
+  endif()
+endfunction()
+
+# ------------------------------------------------------------------------------
+# Validator for Ninja
+# ------------------------------------------------------------------------------
+# Validates that Ninja build system is available
+function(validate_ninja)
+  # Check if Ninja is the current generator
+  if(CMAKE_GENERATOR STREQUAL "Ninja")
+    set(Ninja_FOUND TRUE PARENT_SCOPE)
+    set(Ninja_VERSION "" PARENT_SCOPE)
+    set(Ninja_STATUS "SUCCESS" PARENT_SCOPE)
+    return()
+  endif()
+
+  # Check if ninja executable exists
+  find_program(NINJA_EXECUTABLE ninja)
+
+  if(NINJA_EXECUTABLE)
+    set(Ninja_FOUND TRUE PARENT_SCOPE)
+    set(Ninja_VERSION "" PARENT_SCOPE)
+    set(Ninja_STATUS "SUCCESS" PARENT_SCOPE)
+  else()
+    set(Ninja_FOUND FALSE PARENT_SCOPE)
+    set(Ninja_VERSION "" PARENT_SCOPE)
+    set(Ninja_STATUS "NOT_FOUND" PARENT_SCOPE)
+  endif()
+endfunction()
+
+# ------------------------------------------------------------------------------
+# Validator for Git Submodules
+# ------------------------------------------------------------------------------
+# Validates that Git submodules are initialized
+function(validate_git_submodules)
+  # Check if we're in a git repository
+  find_package(Git QUIET)
+
+  if(NOT Git_FOUND)
+    # Not in a git repo or git not available - assume OK (pip install from tarball)
+    set(GitSubmodules_FOUND TRUE PARENT_SCOPE)
+    set(GitSubmodules_VERSION "" PARENT_SCOPE)
+    set(GitSubmodules_STATUS "SUCCESS" PARENT_SCOPE)
+    return()
+  endif()
+
+  # Check if .git exists
+  if(NOT EXISTS "${CMAKE_SOURCE_DIR}/.git")
+    # Not a git repo - assume OK (pip install from tarball)
+    set(GitSubmodules_FOUND TRUE PARENT_SCOPE)
+    set(GitSubmodules_VERSION "" PARENT_SCOPE)
+    set(GitSubmodules_STATUS "SUCCESS" PARENT_SCOPE)
+    return()
+  endif()
+
+  # Check if submodules are initialized
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" submodule status
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE submodule_status
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE git_result
+  )
+
+  if(NOT git_result EQUAL 0)
+    # Git command failed - assume OK
+    set(GitSubmodules_FOUND TRUE PARENT_SCOPE)
+    set(GitSubmodules_VERSION "" PARENT_SCOPE)
+    set(GitSubmodules_STATUS "SUCCESS" PARENT_SCOPE)
+    return()
+  endif()
+
+  # Check if any submodules are uninitialized (line starts with '-')
+  # Git submodule status format:
+  #   -<commit> <path> (description) = uninitialized
+  #    <commit> <path> (description) = initialized
+  #   +<commit> <path> (description) = modified
+  # We need to check if any line starts with '-' (not just contains it)
+  string(REGEX MATCH "(^|\n)-" uninit_match "${submodule_status}")
+
+  if(uninit_match)
+    # At least one submodule is uninitialized
+    set(GitSubmodules_FOUND FALSE PARENT_SCOPE)
+    set(GitSubmodules_VERSION "" PARENT_SCOPE)
+    set(GitSubmodules_STATUS "NOT_FOUND" PARENT_SCOPE)
+  else()
+    # All submodules initialized
+    set(GitSubmodules_FOUND TRUE PARENT_SCOPE)
+    set(GitSubmodules_VERSION "" PARENT_SCOPE)
+    set(GitSubmodules_STATUS "SUCCESS" PARENT_SCOPE)
+  endif()
+endfunction()
+
+# ------------------------------------------------------------------------------
 # Main validation macro
 # ------------------------------------------------------------------------------
 # Validates a single dependency by:
@@ -155,6 +283,7 @@ macro(validate_dependency)
 
   # Check if this is a constraint (pseudo-dependency for reporting only)
   set(is_constraint "${NVFUSER_REQUIREMENT_${ARG_NAME}_IS_CONSTRAINT}")
+  set(dep_type "${NVFUSER_REQUIREMENT_${ARG_NAME}_TYPE}")
 
   if(NOT is_constraint)
     # Only validate if NOT a constraint
@@ -162,39 +291,46 @@ macro(validate_dependency)
     message("")
     message("Finding ${ARG_NAME}...")
 
-    # Get metadata from requirements
-    set(version_min "${NVFUSER_REQUIREMENT_${ARG_NAME}_VERSION_MIN}")
-    set(components_list "${NVFUSER_REQUIREMENT_${ARG_NAME}_COMPONENTS}")
-    set(pre_find_hook "${NVFUSER_REQUIREMENT_${ARG_NAME}_PRE_FIND_HOOK}")
-    set(post_find_hook "${NVFUSER_REQUIREMENT_${ARG_NAME}_POST_FIND_HOOK}")
-
-    # Execute pre-find hook if specified
-    if(pre_find_hook)
-      cmake_language(CALL ${pre_find_hook})
-    endif()
-
-    # Only proceed with find_package if hook didn't abort
-    if(NOT DEFINED ${ARG_NAME}_FOUND OR ${ARG_NAME}_FOUND)
-      # Standard find_package call (without REQUIRED to allow reporting all failures)
-      if(components_list)
-        # Use cmake_language(EVAL) to properly expand the components list
-        cmake_language(EVAL CODE "find_package(${ARG_NAME} COMPONENTS ${components_list})")
-      else()
-        find_package(${ARG_NAME})
-      endif()
-
-      # Execute post-find hook if specified and package was found
-      if(post_find_hook AND ${ARG_NAME}_FOUND)
-        cmake_language(CALL ${post_find_hook})
-      endif()
-    endif()
-
-    # Set status based on found state and version check
-    # This will be used for JSON export
-    if(${ARG_NAME}_FOUND)
-      set(${ARG_NAME}_STATUS "SUCCESS")
+    # Check for special dependency types that don't use find_package
+    if(dep_type STREQUAL "compiler")
+      validate_compiler()
+    elseif(dep_type STREQUAL "build_tool")
+      validate_ninja()
+    elseif(dep_type STREQUAL "git")
+      validate_git_submodules()
     else()
-      set(${ARG_NAME}_STATUS "NOT_FOUND")
+      # Standard find_package dependency
+      # Get metadata from requirements
+      set(version_min "${NVFUSER_REQUIREMENT_${ARG_NAME}_VERSION_MIN}")
+      set(components_list "${NVFUSER_REQUIREMENT_${ARG_NAME}_COMPONENTS}")
+      set(pre_find_hook "${NVFUSER_REQUIREMENT_${ARG_NAME}_PRE_FIND_HOOK}")
+      set(post_find_hook "${NVFUSER_REQUIREMENT_${ARG_NAME}_POST_FIND_HOOK}")
+
+      # Execute pre-find hook if specified
+      if(pre_find_hook)
+        cmake_language(CALL ${pre_find_hook})
+      endif()
+
+      # Only proceed with find_package if hook didn't abort
+      if(NOT DEFINED ${ARG_NAME}_FOUND OR ${ARG_NAME}_FOUND)
+        # Standard find_package call (without REQUIRED to allow reporting all failures)
+        if(components_list)
+          # Use cmake_language(EVAL) to properly expand the components list
+          cmake_language(EVAL CODE "find_package(${ARG_NAME} COMPONENTS ${components_list})")
+        else()
+          find_package(${ARG_NAME})
+        endif()
+
+        # Execute post-find hook if specified and package was found
+        if(post_find_hook AND ${ARG_NAME}_FOUND)
+          cmake_language(CALL ${post_find_hook})
+        endif()
+      endif()
+
+      # Set status based on found state and version check
+      # This will be used for JSON export
+      # Note: Must call as function to get proper version checking
+      set_dependency_status(${ARG_NAME})
     endif()
   endif()
 endmacro()
