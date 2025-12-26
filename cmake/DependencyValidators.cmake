@@ -100,6 +100,8 @@ function(torch_post_find_hook)
     set(Torch_CUDA_VERSION "${torch_cuda_major_minor}" PARENT_SCOPE)
     # Export constraint info for JSON
     set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"mismatch\", \"constraint_cuda_found\": \"${torch_cuda_major_minor}\", \"constraint_cuda_required\": \"${cuda_toolkit_version}\"}" PARENT_SCOPE)
+    # Mark dependencies as failed (Torch_CUDA constraint is required)
+    set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
   else()
     # Versions match!
     set(Torch_CUDA_FOUND TRUE PARENT_SCOPE)

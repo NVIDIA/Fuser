@@ -20,6 +20,9 @@ include(cmake/DependencyValidators.cmake)
 # Find all dependencies
 # --------------------------
 macro(find_nvfuser_dependencies)
+  # Initialize success flag - will be set to FALSE if any required dependency fails
+  set(NVFUSER_DEPENDENCIES_OK TRUE)
+
   # Iterate through all requirements and validate each
   foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
     validate_dependency(NAME ${dep_name})
@@ -39,6 +42,8 @@ function(set_dependency_status name)
     return()
   endif()
 
+  set(optional "${NVFUSER_REQUIREMENT_${name}_OPTIONAL}")
+
   if(${name}_FOUND)
     # Check version compatibility
     set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
@@ -49,12 +54,20 @@ function(set_dependency_status name)
         set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
       else()
         set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
+        # Mark dependencies as failed if this is a required dependency
+        if(NOT optional)
+          set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
+        endif()
       endif()
     else()
       set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
     endif()
   else()
     set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
+    # Mark dependencies as failed if this is a required dependency
+    if(NOT optional)
+      set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
+    endif()
   endif()
 endfunction()
 
@@ -220,53 +233,8 @@ macro(report_dependencies)
     endif()
   endif()
 
-  # Check for dependency failures based on JSON data
-  # Iterate through dependencies and collect failures
-  set(_DEPENDENCY_FAILURES "")
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    # Skip constraints - they're handled as part of their parent dependency
-    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
-    if(is_constraint)
-      continue()
-    endif()
-
-    set(status "${${dep_name}_STATUS}")
-    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
-
-    # Track failures for required dependencies
-    if(NOT optional)
-      if(status STREQUAL "NOT_FOUND")
-        set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
-        if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
-          list(APPEND _DEPENDENCY_FAILURES "${dep_name}: not found (requires v${min_version} or higher)")
-        else()
-          list(APPEND _DEPENDENCY_FAILURES "${dep_name}: not found")
-        endif()
-      elseif(status STREQUAL "INCOMPATIBLE")
-        set(version "${${dep_name}_VERSION}")
-        set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
-        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: found v${version}, but requires v${min_version} or higher")
-      endif()
-    endif()
-  endforeach()
-
-  # Also check constraint failures (e.g., Torch_CUDA)
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
-    if(is_constraint AND NOT ${dep_name}_FOUND)
-      set(version "${${dep_name}_VERSION}")
-      set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
-      if(DEFINED version AND DEFINED min_version)
-        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: Torch built with CUDA v${version}, but CUDAToolkit is v${min_version}")
-      else()
-        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: constraint validation failed")
-      endif()
-    endif()
-  endforeach()
-
-  # If there were any failures, error out
-  list(LENGTH _DEPENDENCY_FAILURES failure_count)
-  if(failure_count GREATER 0)
+  # Check if any required dependencies failed
+  if(NOT NVFUSER_DEPENDENCIES_OK)
     message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
   endif()
 endmacro()
