@@ -312,10 +312,21 @@ function(export_dependency_json output_file)
       string(APPEND json_content "      \"location\": null,\n")
     endif()
     if(optional)
-      string(APPEND json_content "      \"optional\": true\n")
+      string(APPEND json_content "      \"optional\": true")
     else()
-      string(APPEND json_content "      \"optional\": false\n")
+      string(APPEND json_content "      \"optional\": false")
     endif()
+
+    # Check if dependency has extra JSON data to include (e.g., constraints)
+    set(extra_json_var "${dep_name}_EXTRA_JSON")
+    if(DEFINED ${extra_json_var} AND NOT "${${extra_json_var}}" STREQUAL "")
+      # Parse and merge the extra JSON
+      string(APPEND json_content ",\n")
+      string(APPEND json_content "      \"extra\": ${${extra_json_var}}\n")
+    else()
+      string(APPEND json_content "\n")
+    endif()
+
     string(APPEND json_content "    }")
   endforeach()
 

@@ -79,6 +79,8 @@ function(torch_post_find_hook)
     # Torch might not have CUDA support or query failed
     set(Torch_CUDA_FOUND FALSE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "N/A" PARENT_SCOPE)
+    # Export constraint info for JSON
+    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"not_available\"}" PARENT_SCOPE)
     return()
   endif()
 
@@ -91,15 +93,19 @@ function(torch_post_find_hook)
   # Set the expected version (what CUDAToolkit has)
   set(NVFUSER_REQUIREMENT_Torch_CUDA_VERSION_MIN "${cuda_toolkit_version}" PARENT_SCOPE)
 
-  # Compare major.minor versions (use = symbol for exact match)
+  # Compare major.minor versions
   if(NOT torch_cuda_major_minor STREQUAL cuda_toolkit_version)
     # Version mismatch
     set(Torch_CUDA_FOUND FALSE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "${torch_cuda_major_minor}" PARENT_SCOPE)
+    # Export constraint info for JSON
+    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"mismatch\", \"constraint_cuda_found\": \"${torch_cuda_major_minor}\", \"constraint_cuda_required\": \"${cuda_toolkit_version}\"}" PARENT_SCOPE)
   else()
     # Versions match!
     set(Torch_CUDA_FOUND TRUE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "${torch_cuda_major_minor}" PARENT_SCOPE)
+    # Export constraint info for JSON
+    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"match\", \"constraint_cuda_version\": \"${torch_cuda_major_minor}\"}" PARENT_SCOPE)
   endif()
 endfunction()
 
