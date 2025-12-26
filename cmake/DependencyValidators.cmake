@@ -182,5 +182,13 @@ macro(validate_dependency)
         cmake_language(CALL ${post_find_hook})
       endif()
     endif()
+
+    # Set status based on found state and version check
+    # This will be used for JSON export
+    if(${ARG_NAME}_FOUND)
+      set(${ARG_NAME}_STATUS "SUCCESS")
+    else()
+      set(${ARG_NAME}_STATUS "NOT_FOUND")
+    endif()
   endif()
 endmacro()

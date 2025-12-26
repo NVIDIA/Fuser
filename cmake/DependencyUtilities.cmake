@@ -137,11 +137,15 @@ function(report_found name location is_constraint)
   # Display message with appropriate status
   if(version_ok)
     format_status_badge("OK" status_badge)
+    # Set status for JSON export
+    set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
   else()
     format_status_badge("FAIL" status_badge)
     # Track failure
     list(APPEND _DEPENDENCY_FAILURES "${name}: found v${version}, but requires v${min_version} or higher")
     set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}" PARENT_SCOPE)
+    # Set status for JSON export
+    set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
   endif()
 
   message(STATUS "${status_badge} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${location_display}")
@@ -157,6 +161,9 @@ function(report_missing_optional name)
   else()
     message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found (optional)")
   endif()
+
+  # Set status for JSON export (optional not found = SUCCESS in terms of build)
+  set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
 endfunction()
 
 # Handle case: dependency not found + required
@@ -170,9 +177,13 @@ function(report_missing_required name is_constraint)
     if(DEFINED version AND DEFINED min_version)
       message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} v${version} != ${min_version} (Torch.CUDA != CUDAToolkit)")
       list(APPEND _DEPENDENCY_FAILURES "${name}: Torch built with CUDA v${version}, but CUDAToolkit is v${min_version}")
+      # Set status for JSON export
+      set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
     else()
       message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} constraint check failed")
       list(APPEND _DEPENDENCY_FAILURES "${name}: constraint validation failed")
+      # Set status for JSON export
+      set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
     endif()
   else()
     # Regular dependency not found
@@ -183,6 +194,8 @@ function(report_missing_required name is_constraint)
       message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found")
       list(APPEND _DEPENDENCY_FAILURES "${name}: not found")
     endif()
+    # Set status for JSON export
+    set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
   endif()
 
   set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}" PARENT_SCOPE)
@@ -198,16 +211,131 @@ macro(report name location is_optional)
 
   if(${name}_FOUND)
     report_found("${name}" "${location}" "${is_constraint}")
-    # Propagate failures list from function back to macro scope
+    # Propagate failures list and status from function back to macro scope
     set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}")
+    set(${name}_STATUS "${${name}_STATUS}")
   elseif(is_optional)
     report_missing_optional("${name}")
+    set(${name}_STATUS "${${name}_STATUS}")
   else()
     report_missing_required("${name}" "${is_constraint}")
-    # Propagate failures list from function back to macro scope
+    # Propagate failures list and status from function back to macro scope
     set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}")
+    set(${name}_STATUS "${${name}_STATUS}")
   endif()
 endmacro()
+
+# --------------------------
+# JSON Export for Python Reporting
+# --------------------------
+
+function(export_dependency_json output_file)
+  # Build JSON structure
+  set(json_content "{\n")
+  string(APPEND json_content "  \"dependencies\": [\n")
+
+  # Count totals for summary
+  set(total 0)
+  set(success_count 0)
+  set(not_found_count 0)
+  set(incompatible_count 0)
+
+  # Iterate through all dependencies
+  set(first TRUE)
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    # Skip constraints - they're reported but not exported separately
+    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
+    if(is_constraint)
+      continue()
+    endif()
+
+    # Add comma separator after first entry
+    if(NOT first)
+      string(APPEND json_content ",\n")
+    endif()
+    set(first FALSE)
+
+    # Get metadata
+    set(dep_type "${NVFUSER_REQUIREMENT_${dep_name}_TYPE}")
+    if(NOT dep_type)
+      set(dep_type "find_package")
+    endif()
+    set(found "${${dep_name}_FOUND}")
+    set(status "${${dep_name}_STATUS}")
+    set(version "${${dep_name}_VERSION}")
+    set(version_min "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
+    set(location_var "${NVFUSER_REQUIREMENT_${dep_name}_LOCATION_VAR}")
+    if(location_var)
+      set(location "${${location_var}}")
+    else()
+      set(location "")
+    endif()
+    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
+
+    # Update counts
+    math(EXPR total "${total} + 1")
+    if(status STREQUAL "SUCCESS")
+      math(EXPR success_count "${success_count} + 1")
+    elseif(status STREQUAL "NOT_FOUND")
+      math(EXPR not_found_count "${not_found_count} + 1")
+    elseif(status STREQUAL "INCOMPATIBLE")
+      math(EXPR incompatible_count "${incompatible_count} + 1")
+    endif()
+
+    # Escape special characters in strings for JSON
+    string(REPLACE "\\" "\\\\" location "${location}")
+    string(REPLACE "\"" "\\\"" location "${location}")
+
+    # Build JSON entry
+    string(APPEND json_content "    {\n")
+    string(APPEND json_content "      \"name\": \"${dep_name}\",\n")
+    string(APPEND json_content "      \"type\": \"${dep_type}\",\n")
+    if(found)
+      string(APPEND json_content "      \"found\": true,\n")
+    else()
+      string(APPEND json_content "      \"found\": false,\n")
+    endif()
+    string(APPEND json_content "      \"status\": \"${status}\",\n")
+    if(version)
+      string(APPEND json_content "      \"version_found\": \"${version}\",\n")
+    else()
+      string(APPEND json_content "      \"version_found\": null,\n")
+    endif()
+    if(version_min)
+      string(APPEND json_content "      \"version_required\": \"${version_min}\",\n")
+    else()
+      string(APPEND json_content "      \"version_required\": null,\n")
+    endif()
+    if(location)
+      string(APPEND json_content "      \"location\": \"${location}\",\n")
+    else()
+      string(APPEND json_content "      \"location\": null,\n")
+    endif()
+    if(optional)
+      string(APPEND json_content "      \"optional\": true\n")
+    else()
+      string(APPEND json_content "      \"optional\": false\n")
+    endif()
+    string(APPEND json_content "    }")
+  endforeach()
+
+  # Close dependencies array and add summary
+  string(APPEND json_content "\n  ],\n")
+  string(APPEND json_content "  \"summary\": {\n")
+  string(APPEND json_content "    \"total\": ${total},\n")
+  string(APPEND json_content "    \"success\": ${success_count},\n")
+  string(APPEND json_content "    \"not_found\": ${not_found_count},\n")
+  string(APPEND json_content "    \"incompatible\": ${incompatible_count}\n")
+  string(APPEND json_content "  }\n")
+  string(APPEND json_content "}\n")
+
+  # Write to file
+  file(WRITE "${output_file}" "${json_content}")
+endfunction()
+
+# --------------------------
+# Report Dependencies (CMake-only version)
+# --------------------------
 
 macro(report_dependencies)
   # Initialize failure tracking
@@ -237,6 +365,9 @@ macro(report_dependencies)
 
   message_colored("${BoldWhite}"  "===========================================")
   message_colored("${BoldBlue}"   "///////////////////////////////////////////")
+
+  # Export dependency data to JSON for potential Python reporting
+  export_dependency_json("${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
 
   # If there were any failures, show them and error out
   list(LENGTH _DEPENDENCY_FAILURES failure_count)
