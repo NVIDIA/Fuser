@@ -10,7 +10,7 @@ installation instructions and may include specialized requirement classes.
 
 from .base import HelpProvider
 from .python import PythonHelp
-from .torch import TorchHelp, TorchRequirement, TorchCUDAConstraintHelp
+from .torch import TorchHelp, TorchCUDAConstraintHelp
 from .cuda import CUDAToolkitHelp
 from .pybind11 import Pybind11Help
 from .llvm import LLVMHelp
@@ -24,7 +24,6 @@ __all__ = [
     "HelpProvider",
     "PythonHelp",
     "TorchHelp",
-    "TorchRequirement",  # Torch-specific requirement class
     "CUDAToolkitHelp",
     "TorchCUDAConstraintHelp",
     "Pybind11Help",

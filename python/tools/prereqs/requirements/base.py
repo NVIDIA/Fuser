@@ -2,99 +2,97 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 """
-Requirement class hierarchy for dependency reporting.
+Base classes for requirement types.
 
-This module provides OOP abstractions for different types of requirements:
-- VersionRequirement: Dependencies with version checks (Python, LLVM, etc.)
-- BooleanRequirement: Dependencies without versions (Git submodules, Ninja)
-- ConstraintRequirement: Pseudo-requirements that check constraints (Torch_CUDA)
-
-Each requirement knows how to:
-1. Format its status line for display
-2. Determine if it represents a failure
-3. Provide data for help text generation
+This module provides the foundational classes for all dependency requirements.
+Each requirement knows how to format its status and determine if it represents a failure.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional
+from typing import Dict
 from dataclasses import dataclass
 
 
 @dataclass
 class RequirementStatus:
-    """Represents the validation status of a requirement."""
+    """Validation status constants."""
     SUCCESS = "SUCCESS"
     NOT_FOUND = "NOT_FOUND"
     INCOMPATIBLE = "INCOMPATIBLE"
 
 
 class Requirement(ABC):
-    """Base class for all requirement types."""
+    """
+    Base class for all requirement types.
+
+    All requirements must implement:
+    - format_status_line(): Format output for terminal
+    - is_failure(): Determine if this represents a build failure
+    - get_failure_data(): Provide data for help text generation
+    """
 
     def __init__(self, data: Dict):
         """
-        Initialize requirement from JSON data.
+        Initialize from CMake JSON data.
 
         Args:
-            data: Dictionary from nvfuser_dependencies.json containing:
+            data: Dictionary from nvfuser_dependencies.json with keys:
                 - name: Dependency name
                 - type: Dependency type (find_package, compiler, etc.)
-                - found: Whether dependency was found
-                - status: Validation status (SUCCESS, NOT_FOUND, INCOMPATIBLE)
-                - optional: Whether dependency is optional
-                - location: Where dependency was found (if applicable)
+                - cmake_vars: Dict of all CMake variables for this dependency
+                - metadata: Dict of requirement metadata (VERSION_MIN, etc.)
         """
         self.name = data["name"]
         self.type = data["type"]
-        self.found = data["found"]
-        self.status = data["status"]
-        self.optional = data.get("optional", False)
-        self.location = data.get("location")
+        cmake_vars = data.get("cmake_vars", {})
+        metadata = data.get("metadata", {})
+
+        # Extract common fields from cmake_vars
+        self.found = cmake_vars.get(f"{self.name}_FOUND", False)
+        self.status = cmake_vars.get(f"{self.name}_STATUS", "UNKNOWN")
+
+        # Extract metadata
+        self.optional = metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_OPTIONAL", False)
+
+        # Get location from location_var metadata
+        location_var = metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_LOCATION_VAR")
+        if location_var:
+            self.location = cmake_vars.get(location_var)
+        else:
+            self.location = None
+
         self._data = data  # Store for subclass access
+        self._cmake_vars = cmake_vars
+        self._metadata = metadata
 
     @abstractmethod
     def format_status_line(self, colors) -> str:
-        """
-        Format the status line for this requirement.
-
-        Args:
-            colors: Colors instance for terminal formatting
-
-        Returns:
-            Formatted status line string
-        """
+        """Format terminal status line for this requirement."""
         pass
 
     def is_failure(self) -> bool:
-        """
-        Check if this requirement represents a failure.
-
-        Returns:
-            True if this is a required dependency that failed
-        """
+        """Check if this requirement represents a failure."""
         return not self.optional and self.status != RequirementStatus.SUCCESS
 
     def get_failure_data(self) -> Dict:
-        """
-        Get data for help text generation.
-
-        Returns:
-            Dictionary with failure information for help providers
-        """
+        """Get data for help text generation."""
         return self._data.copy()
 
 
 class VersionRequirement(Requirement):
     """
-    Requirement with version checking (Python, LLVM, pybind11, etc.).
+    Base class for requirements with version checking.
 
-    Displays version information in status line.
+    Provides standard version display formatting.
+    Subclasses inherit all version comparison logic.
     """
 
     def __init__(self, data: Dict):
         super().__init__(data)
-        self.version_found = data.get("version_found")
-        self.version_required = data.get("version_required")
+
+        # Extract version information
+        self.version_found = self._cmake_vars.get(f"{self.name}_VERSION")
+        self.version_required = self._metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_VERSION_MIN")
 
     def format_status_line(self, colors) -> str:
         """Format status line with version information."""
@@ -108,7 +106,7 @@ class VersionRequirement(Requirement):
             return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} unknown status{colors.RESET}"
 
     def _format_success(self, colors) -> str:
-        """Format success line: [nvFuser] ✓ Python 3.12.3 >= 3.8"""
+        """Format success: [nvFuser] ✓ Python 3.12.3 >= 3.8"""
         if self.version_found and self.version_required:
             return f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found} >= {self.version_required}{colors.RESET}"
         elif self.version_found:
@@ -119,20 +117,18 @@ class VersionRequirement(Requirement):
     def _format_not_found(self, colors) -> str:
         """Format not found line."""
         if self.optional:
-            # Yellow ○ for optional
             if self.version_required:
                 return f"{colors.YELLOW}[nvFuser] ○ {self.name} NOT found (optional, v{self.version_required}+ recommended){colors.RESET}"
             else:
                 return f"{colors.YELLOW}[nvFuser] ○ {self.name} NOT found (optional){colors.RESET}"
         else:
-            # Red ✗ for required
             if self.version_required:
                 return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found (requires {self.version_required}+){colors.RESET}"
             else:
                 return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found{colors.RESET}"
 
     def _format_incompatible(self, colors) -> str:
-        """Format incompatible line: [nvFuser] ✗ Python 3.7.0 < 3.8"""
+        """Format incompatible: [nvFuser] ✗ Python 3.7.0 < 3.8"""
         if self.version_found and self.version_required:
             return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} {self.version_found} < {self.version_required}{colors.RESET}"
         else:
@@ -141,9 +137,9 @@ class VersionRequirement(Requirement):
 
 class BooleanRequirement(Requirement):
     """
-    Requirement without version checking (Git submodules, Ninja).
+    Base class for requirements without version checking.
 
-    Simple pass/fail validation with no version info.
+    Simple pass/fail validation (Git submodules, Ninja).
     """
 
     def format_status_line(self, colors) -> str:
@@ -157,40 +153,3 @@ class BooleanRequirement(Requirement):
                 return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found{colors.RESET}"
         else:
             return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} validation failed{colors.RESET}"
-
-
-def create_requirement(data: Dict) -> Requirement:
-    """
-    Factory function to create appropriate Requirement subclass from JSON data.
-
-    Uses the 'class_type' field from JSON (defined in CMake) to determine
-    which class to instantiate.
-
-    Args:
-        data: Dictionary from nvfuser_dependencies.json
-
-    Returns:
-        Appropriate Requirement subclass instance
-    """
-    class_type = data.get("class_type", "version")
-
-    if class_type == "torch":
-        # Torch with CUDA constraint checking
-        try:
-            from prereqs.help.torch import TorchRequirement
-            return TorchRequirement(data)
-        except ImportError:
-            # Fallback to VersionRequirement if torch module not available
-            return VersionRequirement(data)
-
-    elif class_type == "boolean":
-        # Boolean requirements (no version checking)
-        return BooleanRequirement(data)
-
-    elif class_type == "version":
-        # Standard version requirements (Python, LLVM, pybind11, etc.)
-        return VersionRequirement(data)
-
-    else:
-        # Unknown class type - default to version requirement
-        return VersionRequirement(data)

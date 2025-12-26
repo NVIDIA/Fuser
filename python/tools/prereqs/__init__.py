@@ -39,7 +39,7 @@ Usage:
 from .platform import detect_platform, format_platform_info
 
 # Version utilities
-from .requirements import (
+from .requirement_utils import (
     Requirement,
     parse_version,
     format_version,
@@ -47,7 +47,7 @@ from .requirements import (
 )
 
 # URL generators
-from .requirements import (
+from .requirement_utils import (
     pytorch_index_url,
     pytorch_install_instructions,
     llvm_download_url,
@@ -58,12 +58,21 @@ from .requirements import (
 from .exceptions import PrerequisiteMissingError
 
 # Requirement classes (OOP abstraction)
-from .requirements_classes import (
+from .requirements import (
     Requirement as BaseRequirement,
     VersionRequirement,
     BooleanRequirement,
     RequirementStatus,
     create_requirement,
+    # Explicit requirement classes
+    PythonRequirement,
+    TorchRequirement,
+    LLVMRequirement,
+    CUDAToolkitRequirement,
+    Pybind11Requirement,
+    CompilerRequirement,
+    GitSubmodulesRequirement,
+    NinjaRequirement,
 )
 
 __all__ = [
@@ -82,11 +91,19 @@ __all__ = [
     "cuda_toolkit_download_url",
     # Exception
     "PrerequisiteMissingError",
-    # Requirement classes (OOP)
+    # Base requirement classes
     "BaseRequirement",
     "VersionRequirement",
     "BooleanRequirement",
     "RequirementStatus",
     "create_requirement",
-    # Note: TorchRequirement is in prereqs.help.torch to keep torch-specific code modular
+    # Explicit requirement classes
+    "PythonRequirement",
+    "TorchRequirement",
+    "LLVMRequirement",
+    "CUDAToolkitRequirement",
+    "Pybind11Requirement",
+    "CompilerRequirement",
+    "GitSubmodulesRequirement",
+    "NinjaRequirement",
 ]

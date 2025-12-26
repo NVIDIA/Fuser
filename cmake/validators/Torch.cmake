@@ -46,7 +46,7 @@ endfunction()
 
 # Post-find hook for Torch
 # Validates that Torch's CUDA version matches CUDAToolkit version (major.minor)
-# Sets variables for the Torch_CUDA pseudo-dependency report
+# Sets Torch CUDA constraint variables
 function(torch_post_find_hook)
   # Check if both CUDAToolkit and Torch were found
   if(NOT CUDAToolkit_FOUND)
@@ -67,8 +67,8 @@ function(torch_post_find_hook)
     # Torch might not have CUDA support or query failed
     set(Torch_CUDA_FOUND FALSE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "N/A" PARENT_SCOPE)
-    # Export constraint info for JSON
-    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"not_available\"}" PARENT_SCOPE)
+    # Set constraint status for JSON export
+    set(Torch_CUDA_constraint_status "not_available" PARENT_SCOPE)
     return()
   endif()
 
@@ -86,15 +86,18 @@ function(torch_post_find_hook)
     # Version mismatch
     set(Torch_CUDA_FOUND FALSE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "${torch_cuda_major_minor}" PARENT_SCOPE)
-    # Export constraint info for JSON
-    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"mismatch\", \"constraint_cuda_found\": \"${torch_cuda_major_minor}\", \"constraint_cuda_required\": \"${cuda_toolkit_version}\"}" PARENT_SCOPE)
+    # Set constraint variables for JSON export
+    set(Torch_CUDA_constraint_status "mismatch" PARENT_SCOPE)
+    set(Torch_CUDA_constraint_found "${torch_cuda_major_minor}" PARENT_SCOPE)
+    set(Torch_CUDA_constraint_required "${cuda_toolkit_version}" PARENT_SCOPE)
     # Mark dependencies as failed (Torch_CUDA constraint is required)
     set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
   else()
     # Versions match!
     set(Torch_CUDA_FOUND TRUE PARENT_SCOPE)
     set(Torch_CUDA_VERSION "${torch_cuda_major_minor}" PARENT_SCOPE)
-    # Export constraint info for JSON
-    set(Torch_EXTRA_JSON "{\"constraint_cuda_status\": \"match\", \"constraint_cuda_version\": \"${torch_cuda_major_minor}\"}" PARENT_SCOPE)
+    # Set constraint variables for JSON export
+    set(Torch_CUDA_constraint_status "match" PARENT_SCOPE)
+    set(Torch_CUDA_constraint_version "${torch_cuda_major_minor}" PARENT_SCOPE)
   endif()
 endfunction()

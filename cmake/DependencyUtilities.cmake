@@ -76,6 +76,9 @@ endfunction()
 # --------------------------
 
 function(export_dependency_json output_file)
+  # Get all CMake variables to filter for dependency-related ones
+  get_cmake_property(all_vars VARIABLES)
+
   # Build JSON structure
   set(json_content "{\n")
   string(APPEND json_content "  \"dependencies\": [\n")
@@ -106,28 +109,14 @@ function(export_dependency_json output_file)
       set_dependency_status(${dep_name})
     endif()
 
-    # Get metadata
+    # Get basic metadata
     set(dep_type "${NVFUSER_REQUIREMENT_${dep_name}_TYPE}")
     if(NOT dep_type)
       set(dep_type "find_package")
     endif()
-    set(class_type "${NVFUSER_REQUIREMENT_${dep_name}_CLASS_TYPE}")
-    if(NOT class_type)
-      set(class_type "version")  # Default to version requirement
-    endif()
-    set(found "${${dep_name}_FOUND}")
     set(status "${${dep_name}_STATUS}")
-    set(version "${${dep_name}_VERSION}")
-    set(version_min "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
-    set(location_var "${NVFUSER_REQUIREMENT_${dep_name}_LOCATION_VAR}")
-    if(location_var)
-      set(location "${${location_var}}")
-    else()
-      set(location "")
-    endif()
-    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
 
-    # For Compiler, use the specific compiler name (GCC/Clang) instead of "Compiler"
+    # Determine export name (Compiler -> GCC/Clang)
     set(export_name "${dep_name}")
     if(dep_name STREQUAL "Compiler" AND DEFINED Compiler_NAME)
       set(export_name "${Compiler_NAME}")
@@ -143,52 +132,129 @@ function(export_dependency_json output_file)
       math(EXPR incompatible_count "${incompatible_count} + 1")
     endif()
 
-    # Escape special characters in strings for JSON
-    string(REPLACE "\\" "\\\\" location "${location}")
-    string(REPLACE "\"" "\\\"" location "${location}")
-
-    # Build JSON entry
+    # Build JSON entry header
     string(APPEND json_content "    {\n")
     string(APPEND json_content "      \"name\": \"${export_name}\",\n")
     string(APPEND json_content "      \"type\": \"${dep_type}\",\n")
-    string(APPEND json_content "      \"class_type\": \"${class_type}\",\n")
-    if(found)
-      string(APPEND json_content "      \"found\": true,\n")
-    else()
-      string(APPEND json_content "      \"found\": false,\n")
-    endif()
-    string(APPEND json_content "      \"status\": \"${status}\",\n")
-    if(version)
-      string(APPEND json_content "      \"version_found\": \"${version}\",\n")
-    else()
-      string(APPEND json_content "      \"version_found\": null,\n")
-    endif()
-    if(version_min)
-      string(APPEND json_content "      \"version_required\": \"${version_min}\",\n")
-    else()
-      string(APPEND json_content "      \"version_required\": null,\n")
-    endif()
-    if(location)
-      string(APPEND json_content "      \"location\": \"${location}\",\n")
-    else()
-      string(APPEND json_content "      \"location\": null,\n")
-    endif()
-    if(optional)
-      string(APPEND json_content "      \"optional\": true")
-    else()
-      string(APPEND json_content "      \"optional\": false")
+
+    # --------------------------
+    # Export CMake Variables
+    # --------------------------
+    string(APPEND json_content "      \"cmake_vars\": {\n")
+
+    # Filter all CMake variables that start with this dependency name
+    set(dep_vars)
+    foreach(var ${all_vars})
+      if(var MATCHES "^${dep_name}_")
+        list(APPEND dep_vars ${var})
+      endif()
+    endforeach()
+
+    # Sort for consistent output
+    if(dep_vars)
+      list(SORT dep_vars)
     endif()
 
-    # Check if dependency has extra JSON data to include (e.g., constraints)
-    set(extra_json_var "${dep_name}_EXTRA_JSON")
-    if(DEFINED ${extra_json_var} AND NOT "${${extra_json_var}}" STREQUAL "")
-      # Parse and merge the extra JSON
-      string(APPEND json_content ",\n")
-      string(APPEND json_content "      \"extra\": ${${extra_json_var}}\n")
-    else()
-      string(APPEND json_content "\n")
+    # Export each variable
+    set(var_first TRUE)
+    foreach(var ${dep_vars})
+      if(NOT var_first)
+        string(APPEND json_content ",\n")
+      endif()
+      set(var_first FALSE)
+
+      # Get variable value
+      set(value "${${var}}")
+
+      # Escape special characters for JSON
+      string(REPLACE "\\" "\\\\" value "${value}")
+      string(REPLACE "\"" "\\\"" value "${value}")
+      string(REPLACE "\n" "\\n" value "${value}")
+      string(REPLACE "\r" "\\r" value "${value}")
+      string(REPLACE "\t" "\\t" value "${value}")
+
+      # Determine if value is boolean or string
+      set(is_bool FALSE)
+      if("${value}" STREQUAL "TRUE" OR "${value}" STREQUAL "ON" OR "${value}" STREQUAL "YES" OR "${value}" STREQUAL "1")
+        set(value "true")
+        set(is_bool TRUE)
+      elseif("${value}" STREQUAL "FALSE" OR "${value}" STREQUAL "OFF" OR "${value}" STREQUAL "NO" OR "${value}" STREQUAL "0")
+        set(value "false")
+        set(is_bool TRUE)
+      elseif("${value}" STREQUAL "")
+        set(value "null")
+        set(is_bool TRUE)
+      endif()
+
+      # Write JSON field
+      if(is_bool)
+        string(APPEND json_content "        \"${var}\": ${value}")
+      else()
+        string(APPEND json_content "        \"${var}\": \"${value}\"")
+      endif()
+    endforeach()
+
+    string(APPEND json_content "\n      },\n")
+
+    # --------------------------
+    # Export Metadata (Requirements Config)
+    # --------------------------
+    string(APPEND json_content "      \"metadata\": {\n")
+
+    # Collect all NVFUSER_REQUIREMENT_${dep_name}_* variables
+    set(metadata_vars)
+    set(metadata_prefix "NVFUSER_REQUIREMENT_${dep_name}_")
+    foreach(var ${all_vars})
+      if(var MATCHES "^${metadata_prefix}")
+        list(APPEND metadata_vars ${var})
+      endif()
+    endforeach()
+
+    # Sort for consistent output
+    if(metadata_vars)
+      list(SORT metadata_vars)
     endif()
 
+    # Export each metadata variable
+    set(meta_first TRUE)
+    foreach(var ${metadata_vars})
+      if(NOT meta_first)
+        string(APPEND json_content ",\n")
+      endif()
+      set(meta_first FALSE)
+
+      # Get variable value
+      set(value "${${var}}")
+
+      # Escape special characters for JSON
+      string(REPLACE "\\" "\\\\" value "${value}")
+      string(REPLACE "\"" "\\\"" value "${value}")
+      string(REPLACE "\n" "\\n" value "${value}")
+      string(REPLACE "\r" "\\r" value "${value}")
+      string(REPLACE "\t" "\\t" value "${value}")
+
+      # Determine if value is boolean or string
+      set(is_bool FALSE)
+      if("${value}" STREQUAL "TRUE" OR "${value}" STREQUAL "ON" OR "${value}" STREQUAL "YES" OR "${value}" STREQUAL "1")
+        set(value "true")
+        set(is_bool TRUE)
+      elseif("${value}" STREQUAL "FALSE" OR "${value}" STREQUAL "OFF" OR "${value}" STREQUAL "NO" OR "${value}" STREQUAL "0")
+        set(value "false")
+        set(is_bool TRUE)
+      elseif("${value}" STREQUAL "")
+        set(value "null")
+        set(is_bool TRUE)
+      endif()
+
+      # Write JSON field
+      if(is_bool)
+        string(APPEND json_content "        \"${var}\": ${value}")
+      else()
+        string(APPEND json_content "        \"${var}\": \"${value}\"")
+      endif()
+    endforeach()
+
+    string(APPEND json_content "\n      }\n")
     string(APPEND json_content "    }")
   endforeach()
 
