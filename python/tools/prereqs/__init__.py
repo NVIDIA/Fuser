@@ -62,7 +62,6 @@ from .requirements_classes import (
     Requirement as BaseRequirement,
     VersionRequirement,
     BooleanRequirement,
-    ConstraintRequirement,
     RequirementStatus,
     create_requirement,
 )
@@ -87,7 +86,6 @@ __all__ = [
     "BaseRequirement",
     "VersionRequirement",
     "BooleanRequirement",
-    "ConstraintRequirement",
     "RequirementStatus",
     "create_requirement",
     # Note: TorchRequirement is in prereqs.help.torch to keep torch-specific code modular

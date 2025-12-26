@@ -35,9 +35,9 @@ set(NVFUSER_REQUIREMENT_Torch_CLASS_TYPE "torch")  # Special torch requirement w
 
 # Torch_CUDA (constraint check - not a real find_package)
 # This is a pseudo-dependency that reports the CUDA version constraint
+# Note: This is displayed as part of Torch output, not as separate requirement
 set(NVFUSER_REQUIREMENT_Torch_CUDA_OPTIONAL FALSE)
 set(NVFUSER_REQUIREMENT_Torch_CUDA_IS_CONSTRAINT TRUE)  # Skip validation, just report
-set(NVFUSER_REQUIREMENT_Torch_CUDA_CLASS_TYPE "constraint")
 
 # pybind11
 set(NVFUSER_REQUIREMENT_pybind11_VERSION_MIN "2.0")

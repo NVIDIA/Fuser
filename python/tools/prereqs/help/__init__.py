@@ -10,8 +10,8 @@ installation instructions and may include specialized requirement classes.
 
 from .base import HelpProvider
 from .python import PythonHelp
-from .torch import TorchHelp, TorchRequirement
-from .cuda import CUDAToolkitHelp, TorchCUDAConstraintHelp
+from .torch import TorchHelp, TorchRequirement, TorchCUDAConstraintHelp
+from .cuda import CUDAToolkitHelp
 from .pybind11 import Pybind11Help
 from .llvm import LLVMHelp
 from .compiler import CompilerHelp
