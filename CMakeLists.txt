@@ -73,8 +73,8 @@ start_capture()
 find_nvfuser_dependencies()
 stop_capture(DEP_LOGS)
 
-# Show the dependency report (will FATAL_ERROR if any dependencies fail)
-report_dependencies()
+# Show the dependency report (with Python enhancement if available)
+report_dependencies_enhanced()
 
 # Dump detailed logs
 message("")

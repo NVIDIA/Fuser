@@ -403,4 +403,54 @@ macro(report_dependencies)
   endif()
 endmacro()
 
+# --------------------------
+# Enhanced Report with Python (Optional)
+# --------------------------
+
+macro(report_dependencies_enhanced)
+  # First, export dependency data to JSON
+  export_dependency_json("${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
+
+  # Try to use Python for enhanced reporting
+  set(python_script "${CMAKE_SOURCE_DIR}/python/tools/check_dependencies.py")
+  set(use_python_reporting FALSE)
+
+  # Check if Python script exists and Python is available
+  if(EXISTS "${python_script}" AND DEFINED Python_EXECUTABLE AND Python_FOUND)
+    # Try to run Python reporting script
+    execute_process(
+      COMMAND "${Python_EXECUTABLE}" "${python_script}" "${CMAKE_BINARY_DIR}/nvfuser_dependencies.json"
+      RESULT_VARIABLE python_result
+      OUTPUT_VARIABLE python_output
+      ERROR_VARIABLE python_error
+    )
+
+    if(python_result EQUAL 0)
+      # Python succeeded - use its output
+      set(use_python_reporting TRUE)
+      message("${python_output}")
+    else()
+      # Python failed - will fall back to CMake
+      message(STATUS "Python reporting failed (exit code ${python_result}), using CMake fallback")
+      if(python_error)
+        message(STATUS "Python error: ${python_error}")
+      endif()
+    endif()
+  endif()
+
+  # Fallback to CMake reporting if Python not available or failed
+  if(NOT use_python_reporting)
+    report_dependencies()
+  endif()
+
+  # CMake still determines success/failure (same as before)
+  list(LENGTH _DEPENDENCY_FAILURES failure_count)
+  if(failure_count GREATER 0)
+    # Failures were already reported (by Python or CMake)
+    # Just exit with error
+    message("")
+    message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
+  endif()
+endmacro()
+
 
