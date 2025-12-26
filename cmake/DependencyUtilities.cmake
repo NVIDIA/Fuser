@@ -27,203 +27,36 @@ macro(find_nvfuser_dependencies)
 endmacro()
 
 # --------------------------
-# Reporting
+# Status Tracking for JSON Export
 # --------------------------
 
-if(NOT WIN32 OR MSVC)
-  string(ASCII 27 Esc)
-  set(ColorReset  "${Esc}[m")
-  set(ColorBold   "${Esc}[1m")
-  set(ColorRed    "${Esc}[31m")
-  set(ColorGreen  "${Esc}[32m")
-  set(ColorYellow "${Esc}[33m")
-  set(ColorBlue   "${Esc}[34m")
-  set(ColorMagenta "${Esc}[35m")
-  set(ColorCyan   "${Esc}[36m")
-  set(ColorWhite  "${Esc}[37m")
-  set(BoldRed     "${Esc}[1;31m")
-  set(BoldGreen   "${Esc}[1;32m")
-  set(BoldYellow  "${Esc}[1;33m")
-  set(BoldBlue    "${Esc}[1;34m")
-  set(BoldWhite   "${Esc}[1;37m")
-endif()
-
-function(message_colored color text)
-  message(STATUS "${color}${text}${ColorReset}")
-endfunction()
-
-# --------------------------
-# Helper Functions for Formatting
-# --------------------------
-
-# Calculate padding for name alignment (12 chars)
-function(format_name_padding name out_var)
-  string(LENGTH "${name}" name_len)
-  math(EXPR pad_len "12 - ${name_len}")
-  string(REPEAT " " ${pad_len} padding)
-  set(${out_var} "${padding}" PARENT_SCOPE)
-endfunction()
-
-# Calculate padding for version alignment (10 chars)
-function(format_version_padding version out_var)
-  string(LENGTH "${version}" ver_len)
-  math(EXPR ver_pad_len "10 - ${ver_len}")
-  if(ver_pad_len LESS 0)
-    set(ver_pad_len 0)
-  endif()
-  string(REPEAT " " ${ver_pad_len} padding)
-  set(${out_var} "${padding}" PARENT_SCOPE)
-endfunction()
-
-# Format status badge with color
-function(format_status_badge status out_var)
-  if(status STREQUAL "OK")
-    set(${out_var} "${ColorGreen}[ OK ]${ColorReset}" PARENT_SCOPE)
-  elseif(status STREQUAL "FAIL")
-    set(${out_var} "${BoldRed}[FAIL]${ColorReset}" PARENT_SCOPE)
-  elseif(status STREQUAL "SKIP")
-    set(${out_var} "${ColorYellow}[ -- ]${ColorReset}" PARENT_SCOPE)
-  endif()
-endfunction()
-
-# Compare version and return display string + status
-function(format_version_comparison version min_version is_constraint out_display out_ok)
-  format_version_padding("${version}" ver_padding)
-
-  if(is_constraint)
-    # Constraint: exact match, use = symbol
-    set(display "${ColorGreen}v${version}${ver_padding}${ColorReset}  (= ${min_version})")
-    set(ok TRUE)
-  elseif(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
-    # Regular version check: use ≥ or < symbol
-    if("${version}" VERSION_GREATER_EQUAL "${min_version}")
-      set(display "${ColorGreen}v${version}${ver_padding}${ColorReset}  (≥ ${min_version})")
-      set(ok TRUE)
-    else()
-      set(display "${BoldRed}v${version}${ver_padding}${ColorReset}  (< ${min_version})")
-      set(ok FALSE)
-    endif()
-  else()
-    # No version requirement
-    set(display "${ColorGreen}v${version}${ver_padding}${ColorReset}")
-    set(ok TRUE)
-  endif()
-
-  set(${out_display} "${display}" PARENT_SCOPE)
-  set(${out_ok} "${ok}" PARENT_SCOPE)
-endfunction()
-
-# --------------------------
-# Report Functions for Different Scenarios
-# --------------------------
-
-# Handle case: dependency found
-function(report_found name location is_constraint)
-  # Get metadata
-  set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
-  set(version "${${name}_VERSION}")
-
-  # Format components
-  format_name_padding("${name}" name_padding)
-  format_version_comparison("${version}" "${min_version}" "${is_constraint}" version_display version_ok)
-
-  # Determine status and location display
-  if(is_constraint)
-    set(location_display "${ColorCyan}Torch.CUDA == CUDAToolkit${ColorReset}")
-  else()
-    set(location_display "${ColorCyan}${location}${ColorReset}")
-  endif()
-
-  # Display message with appropriate status
-  if(version_ok)
-    format_status_badge("OK" status_badge)
-    # Set status for JSON export
-    set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
-  else()
-    format_status_badge("FAIL" status_badge)
-    # Track failure
-    list(APPEND _DEPENDENCY_FAILURES "${name}: found v${version}, but requires v${min_version} or higher")
-    set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}" PARENT_SCOPE)
-    # Set status for JSON export
-    set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
-  endif()
-
-  message(STATUS "${status_badge} ${ColorWhite}${name}${name_padding}${ColorReset}  ${version_display}  ${location_display}")
-endfunction()
-
-# Handle case: dependency not found + optional
-function(report_missing_optional name)
-  set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
-  format_status_badge("SKIP" status_badge)
-
-  if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
-    message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found (optional, v${min_version}+ recommended)")
-  else()
-    message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found (optional)")
-  endif()
-
-  # Set status for JSON export (optional not found = SUCCESS in terms of build)
-  set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
-endfunction()
-
-# Handle case: dependency not found + required
-function(report_missing_required name is_constraint)
-  set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
-  set(version "${${name}_VERSION}")
-  format_status_badge("FAIL" status_badge)
-
-  if(is_constraint)
-    # Constraint failure
-    if(DEFINED version AND DEFINED min_version)
-      message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} v${version} != ${min_version} (Torch.CUDA != CUDAToolkit)")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: Torch built with CUDA v${version}, but CUDAToolkit is v${min_version}")
-      # Set status for JSON export
-      set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
-    else()
-      message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} constraint check failed")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: constraint validation failed")
-      # Set status for JSON export
-      set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
-    endif()
-  else()
-    # Regular dependency not found
-    if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
-      message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found (requires v${min_version} or higher)")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: not found (requires v${min_version} or higher)")
-    else()
-      message(STATUS "${status_badge} ${ColorWhite}${name}${ColorReset} NOT found")
-      list(APPEND _DEPENDENCY_FAILURES "${name}: not found")
-    endif()
-    # Set status for JSON export
-    set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
-  endif()
-
-  set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}" PARENT_SCOPE)
-endfunction()
-
-# --------------------------
-# Main Report Dispatcher
-# --------------------------
-
-macro(report name location is_optional)
-  # Check if this is a constraint (special reporting logic)
+# Set dependency status based on found state and version check
+function(set_dependency_status name)
   set(is_constraint "${NVFUSER_REQUIREMENT_${name}_IS_CONSTRAINT}")
 
-  if(${name}_FOUND)
-    report_found("${name}" "${location}" "${is_constraint}")
-    # Propagate failures list and status from function back to macro scope
-    set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}")
-    set(${name}_STATUS "${${name}_STATUS}")
-  elseif(is_optional)
-    report_missing_optional("${name}")
-    set(${name}_STATUS "${${name}_STATUS}")
-  else()
-    report_missing_required("${name}" "${is_constraint}")
-    # Propagate failures list and status from function back to macro scope
-    set(_DEPENDENCY_FAILURES "${_DEPENDENCY_FAILURES}")
-    set(${name}_STATUS "${${name}_STATUS}")
+  if(is_constraint)
+    # Status already set by post-find hook
+    return()
   endif()
-endmacro()
+
+  if(${name}_FOUND)
+    # Check version compatibility
+    set(min_version "${NVFUSER_REQUIREMENT_${name}_VERSION_MIN}")
+    set(version "${${name}_VERSION}")
+
+    if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+      if("${version}" VERSION_GREATER_EQUAL "${min_version}")
+        set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
+      else()
+        set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
+      endif()
+    else()
+      set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
+    endif()
+  else()
+    set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
+  endif()
+endfunction()
 
 # --------------------------
 # JSON Export for Python Reporting
@@ -254,6 +87,11 @@ function(export_dependency_json output_file)
       string(APPEND json_content ",\n")
     endif()
     set(first FALSE)
+
+    # Set status if not already set (e.g., by post-find hook)
+    if(NOT DEFINED ${dep_name}_STATUS)
+      set_dependency_status(${dep_name})
+    endif()
 
     # Get metadata
     set(dep_type "${NVFUSER_REQUIREMENT_${dep_name}_TYPE}")
@@ -345,79 +183,22 @@ function(export_dependency_json output_file)
 endfunction()
 
 # --------------------------
-# Report Dependencies (CMake-only version)
+# Report Dependencies (Python-based with fallback)
 # --------------------------
 
 macro(report_dependencies)
-  # Initialize failure tracking
-  set(_DEPENDENCY_FAILURES "")
-
-  message("")
-  message_colored("${BoldBlue}"   "///////////////////////////////////////////")
-  message_colored("${BoldWhite}"  "===========================================")
-  message_colored("${BoldGreen}"  "[nvFuser] Validating build prerequisites...")
-  message_colored("${BoldWhite}"  "===========================================")
-
-  # Iterate through requirements in order
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
-    set(location_var "${NVFUSER_REQUIREMENT_${dep_name}_LOCATION_VAR}")
-
-    # Get location using the metadata-specified variable
-    if(location_var)
-      set(location "${${location_var}}")
-    else()
-      set(location "")
-    endif()
-
-    # Call report with optional flag
-    report(${dep_name} "${location}" ${optional})
-  endforeach()
-
-  message_colored("${BoldWhite}"  "===========================================")
-  message_colored("${BoldBlue}"   "///////////////////////////////////////////")
-
-  # Export dependency data to JSON for potential Python reporting
+  # Export dependency data to JSON
   export_dependency_json("${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
 
-  # If there were any failures, show them and error out
-  list(LENGTH _DEPENDENCY_FAILURES failure_count)
-  if(failure_count GREATER 0)
-    message("")
-    message_colored("${BoldRed}" "Configuration failed due to missing or incompatible dependencies:")
-    foreach(failure ${_DEPENDENCY_FAILURES})
-      message_colored("${BoldRed}" "  - ${failure}")
-
-      # Print install help if available
-      string(REGEX MATCH "^([^:]+):" match "${failure}")
-      if(CMAKE_MATCH_1)
-        set(failed_dep "${CMAKE_MATCH_1}")
-        set(help_text "${NVFUSER_REQUIREMENT_${failed_dep}_INSTALL_HELP}")
-        if(help_text AND NOT "${help_text}" STREQUAL "")
-          message_colored("${ColorYellow}" "    ${help_text}")
-        endif()
-      endif()
-    endforeach()
-    message("")
-    message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
-  endif()
-endmacro()
-
-# --------------------------
-# Enhanced Report with Python (Optional)
-# --------------------------
-
-macro(report_dependencies_enhanced)
-  # First, export dependency data to JSON
-  export_dependency_json("${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
-
-  # Try to use Python for enhanced reporting
+  # Try to use Python script for enhanced reporting
   set(python_script "${CMAKE_SOURCE_DIR}/python/tools/check_dependencies.py")
-  set(use_python_reporting FALSE)
 
-  # Check if Python script exists and Python is available
-  if(EXISTS "${python_script}" AND DEFINED Python_EXECUTABLE AND Python_FOUND)
-    # Try to run Python reporting script
+  if(NOT EXISTS "${python_script}")
+    message(WARNING "Python reporting script not found: ${python_script}")
+  elseif(NOT DEFINED Python_EXECUTABLE OR NOT Python_FOUND)
+    message(WARNING "Python is not available - skipping enhanced dependency report")
+  else()
+    # Run Python reporting script
     execute_process(
       COMMAND "${Python_EXECUTABLE}" "${python_script}" "${CMAKE_BINARY_DIR}/nvfuser_dependencies.json"
       RESULT_VARIABLE python_result
@@ -425,30 +206,61 @@ macro(report_dependencies_enhanced)
       ERROR_VARIABLE python_error
     )
 
-    if(python_result EQUAL 0)
-      # Python succeeded - use its output
-      set(use_python_reporting TRUE)
-      message("${python_output}")
+    if(NOT python_result EQUAL 0)
+      message(WARNING "Python reporting failed (exit code ${python_result}): ${python_error}")
     else()
-      # Python failed - will fall back to CMake
-      message(STATUS "Python reporting failed (exit code ${python_result}), using CMake fallback")
-      if(python_error)
-        message(STATUS "Python error: ${python_error}")
-      endif()
+      # Display Python output
+      message("${python_output}")
     endif()
   endif()
 
-  # Fallback to CMake reporting if Python not available or failed
-  if(NOT use_python_reporting)
-    report_dependencies()
-  endif()
+  # Check for dependency failures based on JSON data
+  # Iterate through dependencies and collect failures
+  set(_DEPENDENCY_FAILURES "")
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    # Skip constraints - they're handled as part of their parent dependency
+    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
+    if(is_constraint)
+      continue()
+    endif()
 
-  # CMake still determines success/failure (same as before)
+    set(status "${${dep_name}_STATUS}")
+    set(optional "${NVFUSER_REQUIREMENT_${dep_name}_OPTIONAL}")
+
+    # Track failures for required dependencies
+    if(NOT optional)
+      if(status STREQUAL "NOT_FOUND")
+        set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
+        if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
+          list(APPEND _DEPENDENCY_FAILURES "${dep_name}: not found (requires v${min_version} or higher)")
+        else()
+          list(APPEND _DEPENDENCY_FAILURES "${dep_name}: not found")
+        endif()
+      elseif(status STREQUAL "INCOMPATIBLE")
+        set(version "${${dep_name}_VERSION}")
+        set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
+        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: found v${version}, but requires v${min_version} or higher")
+      endif()
+    endif()
+  endforeach()
+
+  # Also check constraint failures (e.g., Torch_CUDA)
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
+    if(is_constraint AND NOT ${dep_name}_FOUND)
+      set(version "${${dep_name}_VERSION}")
+      set(min_version "${NVFUSER_REQUIREMENT_${dep_name}_VERSION_MIN}")
+      if(DEFINED version AND DEFINED min_version)
+        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: Torch built with CUDA v${version}, but CUDAToolkit is v${min_version}")
+      else()
+        list(APPEND _DEPENDENCY_FAILURES "${dep_name}: constraint validation failed")
+      endif()
+    endif()
+  endforeach()
+
+  # If there were any failures, error out
   list(LENGTH _DEPENDENCY_FAILURES failure_count)
   if(failure_count GREATER 0)
-    # Failures were already reported (by Python or CMake)
-    # Just exit with error
-    message("")
     message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
   endif()
 endmacro()
