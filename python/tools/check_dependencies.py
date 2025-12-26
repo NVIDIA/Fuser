@@ -17,23 +17,26 @@ from typing import Dict, List, Optional
 
 # Import prereqs utilities
 try:
-    from prereqs import (
-        detect_platform,
-        pytorch_index_url,
-        pytorch_install_instructions,
-        llvm_download_url,
-        cuda_toolkit_download_url,
-        parse_version,
+    from prereqs import detect_platform
+    from prereqs.help import (
+        PythonHelp,
+        TorchHelp,
+        CUDAToolkitHelp,
+        TorchCUDAConstraintHelp,
+        Pybind11Help,
+        LLVMHelp,
+        CompilerHelp,
+        GitSubmodulesHelp,
+        NinjaHelp,
+        CMakeHelp,
+        GenericHelp,
     )
+    HELP_AVAILABLE = True
 except ImportError:
     # Fallback if prereqs not available
     print("Warning: prereqs package not found. Platform-specific help unavailable.", file=sys.stderr)
     detect_platform = lambda: {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
-    pytorch_index_url = lambda cuda: f"https://download.pytorch.org/whl/cu{cuda[0]}{cuda[1]}"
-    pytorch_install_instructions = lambda _: "pip install torch"
-    llvm_download_url = lambda v=None: "https://github.com/llvm/llvm-project/releases"
-    cuda_toolkit_download_url = lambda: "https://developer.nvidia.com/cuda-downloads"
-    parse_version = lambda v: tuple(map(int, v.split(".")))
+    HELP_AVAILABLE = False
 
 
 class Colors:
@@ -66,6 +69,28 @@ class DependencyReporter:
         self.colors = Colors()
         self.failures: List[Dict] = []  # Store failure dicts for help generation
         self.platform_info = detect_platform()
+
+        # Initialize help providers if available
+        if HELP_AVAILABLE:
+            self.help_providers = {
+                "Python": PythonHelp(self.platform_info),
+                "Torch": TorchHelp(self.platform_info),
+                "CUDAToolkit": CUDAToolkitHelp(self.platform_info),
+                "Torch_CUDA": TorchCUDAConstraintHelp(self.platform_info),
+                "pybind11": Pybind11Help(self.platform_info),
+                "LLVM": LLVMHelp(self.platform_info),
+                "GCC": CompilerHelp(self.platform_info),
+                "Clang": CompilerHelp(self.platform_info),
+                "Compiler": CompilerHelp(self.platform_info),
+                "Git": GitSubmodulesHelp(self.platform_info),
+                "GitSubmodules": GitSubmodulesHelp(self.platform_info),
+                "Ninja": NinjaHelp(self.platform_info),
+                "CMake": CMakeHelp(self.platform_info),
+            }
+            self.generic_help = GenericHelp(self.platform_info)
+        else:
+            self.help_providers = {}
+            self.generic_help = None
 
     def _load_json(self, json_path: Path) -> Dict:
         """Load and parse the dependency JSON file"""
@@ -220,414 +245,17 @@ class DependencyReporter:
             self._print_help_for_dependency(failure)
 
     def _print_help_for_dependency(self, failure: Dict):
-        """Dispatch to specific help method based on dependency name"""
+        """Dispatch to specific help provider based on dependency name"""
+        if not HELP_AVAILABLE:
+            # Fallback if help system not available
+            name = failure["name"]
+            print(f"{name} installation help not available (prereqs package missing)")
+            print()
+            return
+
         name = failure["name"]
-
-        # Dispatch to specific help methods
-        if name == "Python":
-            self._help_python(failure)
-        elif name == "Torch":
-            self._help_torch(failure)
-        elif name == "CUDAToolkit":
-            self._help_cudatoolkit(failure)
-        elif name == "pybind11":
-            self._help_pybind11(failure)
-        elif name == "LLVM":
-            self._help_llvm(failure)
-        elif name == "Torch_CUDA":
-            self._help_torch_cuda_constraint(failure)
-        elif name in ("GCC", "Clang", "Compiler"):
-            self._help_compiler(failure)
-        elif name in ("Git", "GitSubmodules"):
-            self._help_git_submodules(failure)
-        elif name == "Ninja":
-            self._help_ninja(failure)
-        elif name == "CMake":
-            self._help_cmake(failure)
-        else:
-            self._help_generic(failure)
-
-    def _help_python(self, failure: Dict):
-        """Generate Python installation help"""
-        version_min = failure.get("version_required", "3.8")
-
-        print(f"Python {version_min}+ Required")
-        print()
-        print("Why: nvFuser requires modern Python with type hints and language features.")
-        print()
-        print(f"Install Python {version_min} or higher:")
-        print()
-
-        os_type = self.platform_info["os"]
-
-        if os_type == "Linux":
-            if self.platform_info.get("ubuntu_based"):
-                print("  Option 1: Ubuntu/Debian system package:")
-                print()
-                print("    sudo apt update")
-                print(f"    sudo apt install python{version_min}")
-                print()
-            else:
-                print("  Option 1: System package manager:")
-                print()
-                print(f"    # Example for RHEL/CentOS:")
-                print(f"    # sudo yum install python{version_min}")
-                print()
-
-        elif os_type == "Darwin":
-            print("  Option 1: Homebrew:")
-            print()
-            print(f"    brew install python@{version_min}")
-            print()
-
-        print("  Option 2: Conda:")
-        print()
-        print(f"    conda create -n nvfuser python={version_min}")
-        print("    conda activate nvfuser")
-        print()
-
-    def _help_torch(self, failure: Dict):
-        """Generate PyTorch installation help"""
-        version_min = failure.get("version_required", "2.0")
-
-        print(f"PyTorch {version_min}+ Required")
-        print()
-        print("Why: nvFuser is a PyTorch extension and requires PyTorch with CUDA support.")
-        print()
-        print(f"Install PyTorch {version_min} or higher with CUDA:")
-        print()
-
-        # Show install instructions for available CUDA versions
-        print(pytorch_install_instructions())
-        print()
-
-    def _help_cudatoolkit(self, failure: Dict):
-        """Generate CUDA Toolkit installation help"""
-        version_min = failure.get("version_required", "12.6")
-
-        print(f"CUDA Toolkit {version_min}+ Required")
-        print()
-        print("Why: nvFuser needs the CUDA compiler (nvcc) for GPU kernel generation.")
-        print()
-        print(f"Install CUDA Toolkit {version_min} or higher:")
-        print()
-        print("  Download from NVIDIA:")
-        print()
-        print(f"    {cuda_toolkit_download_url()}")
-        print()
-        print("  After installation, ensure CUDA is in your PATH:")
-        print()
-        print("    export PATH=/usr/local/cuda/bin:$PATH")
-        print("    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH")
-        print()
-
-    def _help_pybind11(self, failure: Dict):
-        """Generate pybind11 installation help"""
-        version_min = failure.get("version_required", "2.0")
-
-        print(f"pybind11 {version_min}+ Required")
-        print()
-        print("Why: pybind11 provides Python bindings for nvFuser's C++ code.")
-        print()
-        print(f"Install pybind11 {version_min} or higher:")
-        print()
-        print("  pip install 'pybind11[global]>=2.0'")
-        print()
-        print("  Note: The [global] extra provides CMake integration.")
-        print()
-
-    def _help_llvm(self, failure: Dict):
-        """Generate LLVM installation help"""
-        version_min = failure.get("version_required", "18.1")
-
-        # Parse version to get components and build recommended version
-        # For minimum version like "19.1", recommend "19.1.8" (latest patch)
-        # For minimum version like "18", recommend "18.1.8"
-        try:
-            version_parts = parse_version(version_min)
-            if len(version_parts) >= 2:
-                # Has major.minor, use latest patch
-                recommended = f"{version_parts[0]}.{version_parts[1]}.8"
-                recommended_tuple = (version_parts[0], version_parts[1], 8)
-            else:
-                # Only major version, add minor and patch
-                recommended = f"{version_parts[0]}.1.8"
-                recommended_tuple = (version_parts[0], 1, 8)
-        except:
-            # Fallback if parsing fails
-            recommended = "18.1.8"
-            recommended_tuple = (18, 1, 8)
-
-        print(f"LLVM {version_min}+ Required")
-        print()
-        print("Why: nvFuser uses LLVM for runtime Host IR JIT compilation.")
-        print()
-        print(f"Install LLVM {recommended} (recommended):")
-        print()
-
-        print("  Option 1: Prebuilt binaries (recommended, no sudo needed):")
-        print()
-
-        try:
-            url = llvm_download_url(recommended_tuple)
-            print(f"    wget {url}")
-            print(f"    tar -xf clang+llvm-{recommended}-*.tar.xz")
-            print(f"    mv clang+llvm-{recommended}-* ~/.llvm/{recommended}")
-            print()
-            print("    # Add to PATH:")
-            print(f"    export PATH=$HOME/.llvm/{recommended}/bin:$PATH")
-            print()
-        except NotImplementedError:
-            print("    # Prebuilt binaries not available for your platform")
-            print("    # See Option 2 below")
-            print()
-
-        print("  Option 2: System package manager:")
-        print()
-
-        os_type = self.platform_info["os"]
-        major_version = recommended_tuple[0]
-
-        if os_type == "Linux":
-            if self.platform_info.get("ubuntu_based"):
-                print("    # Ubuntu/Debian (LLVM APT repository):")
-                print("    wget https://apt.llvm.org/llvm.sh")
-                print("    chmod +x llvm.sh")
-                print(f"    sudo ./llvm.sh {major_version}")
-                print()
-            else:
-                print("    # Check your distribution's package manager")
-                print("    # Example for RHEL/CentOS:")
-                print("    # sudo yum install llvm18")
-                print()
-
-        elif os_type == "Darwin":
-            print("    brew install llvm@18")
-            print()
-            print("    # Add to PATH:")
-            print("    export PATH=/opt/homebrew/opt/llvm@18/bin:$PATH")
-            print()
-
-    def _help_torch_cuda_constraint(self, failure: Dict):
-        """Generate help for Torch CUDA version mismatch"""
-        constraint_type = failure.get("constraint_type")
-
-        if constraint_type == "cuda_mismatch":
-            torch_cuda = failure.get("constraint_found", "")
-            toolkit_cuda = failure.get("constraint_required", "")
-
-            print(f"PyTorch/CUDA Version Mismatch")
-            print()
-            print(f"Why: PyTorch was built with CUDA {torch_cuda}, but system has CUDA Toolkit {toolkit_cuda}.")
-            print("     These versions must match (major.minor) for nvFuser to work correctly.")
-            print()
-            print("Fix this by either:")
-            print()
-            print(f"  Option 1: Install PyTorch built for CUDA {toolkit_cuda}:")
-            print()
-
-            # Parse toolkit version to get install command
-            try:
-                toolkit_parts = parse_version(toolkit_cuda)
-                if len(toolkit_parts) >= 2:
-                    print(pytorch_install_instructions(cuda_major=toolkit_parts[0]))
-                else:
-                    print(pytorch_install_instructions())
-            except:
-                print(pytorch_install_instructions())
-            print()
-
-            print(f"  Option 2: Install CUDA Toolkit {torch_cuda} to match PyTorch:")
-            print()
-            print(f"    {cuda_toolkit_download_url()}")
-            print()
-
-        elif constraint_type == "cuda_unavailable":
-            print("PyTorch CUDA Support Missing")
-            print()
-            print("Why: nvFuser requires PyTorch with CUDA support, but your PyTorch")
-            print("     installation was built without CUDA.")
-            print()
-            print("Install PyTorch with CUDA support:")
-            print()
-            print(pytorch_install_instructions())
-            print()
-
-    def _help_compiler(self, failure: Dict):
-        """Generate GCC/Clang compiler installation help"""
-        name = failure["name"]
-        version_min = failure.get("version_required", "13" if name == "GCC" else "19")
-
-        print(f"{name} {version_min}+ Required")
-        print()
-        print("Why: nvFuser requires a modern C++ compiler with C++20 support,")
-        print("     including the <format> header.")
-        print()
-        print(f"Install {name} {version_min} or higher:")
-        print()
-
-        os_type = self.platform_info["os"]
-
-        if name == "GCC":
-            if os_type == "Linux":
-                if self.platform_info.get("ubuntu_based"):
-                    print("  Option 1: Ubuntu PPA (recommended):")
-                    print()
-                    print("    sudo add-apt-repository ppa:ubuntu-toolchain-r/test")
-                    print("    sudo apt update")
-                    print(f"    sudo apt install gcc-{version_min} g++-{version_min}")
-                    print()
-                    print("    # Set as default:")
-                    print(f"    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{version_min} 100")
-                    print(f"    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{version_min} 100")
-                    print()
-                else:
-                    print("  Option 1: System package manager:")
-                    print()
-                    print(f"    # Example for RHEL/CentOS:")
-                    print(f"    # sudo yum install gcc-toolset-{version_min}")
-                    print()
-
-            elif os_type == "Darwin":
-                print("  On macOS, use Clang instead:")
-                print()
-                print("    # Xcode Command Line Tools (includes Clang):")
-                print("    xcode-select --install")
-                print()
-
-        elif name == "Clang":
-            if os_type == "Linux":
-                if self.platform_info.get("ubuntu_based"):
-                    print("  Option 1: LLVM APT repository:")
-                    print()
-                    print("    wget https://apt.llvm.org/llvm.sh")
-                    print("    chmod +x llvm.sh")
-                    print(f"    sudo ./llvm.sh {version_min}")
-                    print()
-                else:
-                    print("  Option 1: System package manager:")
-                    print()
-                    print(f"    # Check your distribution for clang-{version_min}")
-                    print()
-
-            elif os_type == "Darwin":
-                print("  Option 1: Xcode Command Line Tools:")
-                print()
-                print("    xcode-select --install")
-                print()
-
-        print("  Option 2: Build from source:")
-        print()
-        print("    # See compiler documentation for build instructions")
-        print()
-
-    def _help_git_submodules(self, failure: Dict):
-        """Generate Git submodules help"""
-        print("Git Submodules Not Initialized")
-        print()
-        print("Why: nvFuser depends on third-party libraries included as Git submodules.")
-        print()
-        print("Initialize and update Git submodules:")
-        print()
-        print("  # From the repository root:")
-        print("  git submodule update --init --recursive")
-        print()
-        print("  # Or if you just cloned:")
-        print("  git clone --recursive <repository-url>")
-        print()
-
-    def _help_ninja(self, failure: Dict):
-        """Generate Ninja build system help"""
-        print("Ninja Build System Required")
-        print()
-        print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
-        print()
-        print("Install Ninja:")
-        print()
-
-        os_type = self.platform_info["os"]
-
-        if os_type == "Linux":
-            if self.platform_info.get("ubuntu_based"):
-                print("  Option 1: Ubuntu/Debian:")
-                print()
-                print("    sudo apt update")
-                print("    sudo apt install ninja-build")
-                print()
-            else:
-                print("  Option 1: System package manager:")
-                print()
-                print("    # Example for RHEL/CentOS:")
-                print("    # sudo yum install ninja-build")
-                print()
-
-        elif os_type == "Darwin":
-            print("  Option 1: Homebrew:")
-            print()
-            print("    brew install ninja")
-            print()
-
-        print("  Option 2: pip:")
-        print()
-        print("    pip install ninja")
-        print()
-
-    def _help_cmake(self, failure: Dict):
-        """Generate CMake installation help"""
-        version_min = failure.get("version_required", "3.18")
-
-        print(f"CMake {version_min}+ Required")
-        print()
-        print("Why: CMake is the build system generator used by nvFuser.")
-        print()
-        print(f"Install CMake {version_min} or higher:")
-        print()
-
-        os_type = self.platform_info["os"]
-
-        if os_type == "Linux":
-            if self.platform_info.get("ubuntu_based"):
-                print("  Option 1: Ubuntu/Debian (latest):")
-                print()
-                print("    # Remove old version if installed:")
-                print("    sudo apt remove cmake")
-                print()
-                print("    # Install from Kitware APT repository:")
-                print("    wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo apt-key add -")
-                print("    sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'")
-                print("    sudo apt update")
-                print("    sudo apt install cmake")
-                print()
-            else:
-                print("  Option 1: Download binary:")
-                print()
-                print("    wget https://github.com/Kitware/CMake/releases/download/v3.27.0/cmake-3.27.0-linux-x86_64.sh")
-                print("    sudo sh cmake-3.27.0-linux-x86_64.sh --prefix=/usr/local --skip-license")
-                print()
-
-        elif os_type == "Darwin":
-            print("  Option 1: Homebrew:")
-            print()
-            print("    brew install cmake")
-            print()
-
-        print("  Option 2: pip:")
-        print()
-        print(f"    pip install 'cmake>={version_min}'")
-        print()
-
-    def _help_generic(self, failure: Dict):
-        """Fallback help for unknown dependencies"""
-        name = failure["name"]
-        version_min = failure.get("version_required", "")
-
-        if version_min:
-            print(f"{name} {version_min}+ Required")
-        else:
-            print(f"{name} Required")
-        print()
-        print(f"Please install {name} and try again.")
-        print()
+        help_provider = self.help_providers.get(name, self.generic_help)
+        help_provider.generate_help(failure)
 
 
 def main():
