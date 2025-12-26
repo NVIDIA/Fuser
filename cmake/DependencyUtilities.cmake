@@ -233,10 +233,6 @@ macro(report_dependencies)
     endif()
   endif()
 
-  # Check if any required dependencies failed
-  if(NOT NVFUSER_DEPENDENCIES_OK)
-    message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
-  endif()
 endmacro()
 
 

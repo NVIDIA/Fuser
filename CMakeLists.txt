@@ -83,6 +83,11 @@ dump_captured_logs("${DEP_LOGS}")
 message(STATUS "******** End Dependency Output ********")
 message("")
 
+# Check if any required dependencies failed
+if(NOT NVFUSER_DEPENDENCIES_OK)
+  message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
+endif()
+
 # -----------------------------------------------------------------------------
 
 # --------------------------
