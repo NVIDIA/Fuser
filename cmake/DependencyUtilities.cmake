@@ -72,204 +72,69 @@ function(set_dependency_status name)
 endfunction()
 
 # --------------------------
-# JSON Export for Python Reporting
+# Python Export for Dependency Reporting
 # --------------------------
 
 function(export_dependency_json output_file)
-  # Get all CMake variables to filter for dependency-related ones
+  # Get all CMake variables
   get_cmake_property(all_vars VARIABLES)
 
-  # Build JSON structure
-  set(json_content "{\n")
-  string(APPEND json_content "  \"dependencies\": [\n")
+  # Write JSON file with flat variable dict
+  file(WRITE "${output_file}" "{\n")
+  file(APPEND "${output_file}" "  \"cmake_vars\": {\n")
 
-  # Count totals for summary
-  set(total 0)
-  set(success_count 0)
-  set(not_found_count 0)
-  set(incompatible_count 0)
+  # Export all variables (sorted for consistency)
+  list(SORT all_vars)
+  list(LENGTH all_vars var_count)
+  set(var_index 0)
+  foreach(var ${all_vars})
+    set(value "${${var}}")
+    # Escape for JSON strings
+    string(REPLACE "\\" "\\\\" value "${value}")
+    string(REPLACE "\"" "\\\"" value "${value}")
+    string(REPLACE "\n" "\\n" value "${value}")
+    string(REPLACE "\t" "\\t" value "${value}")
+    string(REPLACE "\r" "\\r" value "${value}")
 
-  # Iterate through all dependencies
-  set(first TRUE)
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    # Skip constraints - they're reported but not exported separately
-    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
-    if(is_constraint)
-      continue()
+    # Add comma if not last item
+    math(EXPR var_index "${var_index} + 1")
+    if(var_index LESS var_count)
+      file(APPEND "${output_file}" "    \"${var}\": \"${value}\",\n")
+    else()
+      file(APPEND "${output_file}" "    \"${var}\": \"${value}\"\n")
     endif()
-
-    # Add comma separator after first entry
-    if(NOT first)
-      string(APPEND json_content ",\n")
-    endif()
-    set(first FALSE)
-
-    # Set status if not already set (e.g., by post-find hook)
-    if(NOT DEFINED ${dep_name}_STATUS)
-      set_dependency_status(${dep_name})
-    endif()
-
-    # Get basic metadata
-    set(dep_type "${NVFUSER_REQUIREMENT_${dep_name}_TYPE}")
-    if(NOT dep_type)
-      set(dep_type "find_package")
-    endif()
-    set(status "${${dep_name}_STATUS}")
-
-    # Determine export name (Compiler -> GCC/Clang)
-    set(export_name "${dep_name}")
-    if(dep_name STREQUAL "Compiler" AND DEFINED Compiler_NAME)
-      set(export_name "${Compiler_NAME}")
-    endif()
-
-    # Update counts
-    math(EXPR total "${total} + 1")
-    if(status STREQUAL "SUCCESS")
-      math(EXPR success_count "${success_count} + 1")
-    elseif(status STREQUAL "NOT_FOUND")
-      math(EXPR not_found_count "${not_found_count} + 1")
-    elseif(status STREQUAL "INCOMPATIBLE")
-      math(EXPR incompatible_count "${incompatible_count} + 1")
-    endif()
-
-    # Build JSON entry header
-    string(APPEND json_content "    {\n")
-    string(APPEND json_content "      \"name\": \"${export_name}\",\n")
-    string(APPEND json_content "      \"type\": \"${dep_type}\",\n")
-
-    # --------------------------
-    # Export CMake Variables
-    # --------------------------
-    string(APPEND json_content "      \"cmake_vars\": {\n")
-
-    # Filter all CMake variables that start with this dependency name
-    set(dep_vars)
-    foreach(var ${all_vars})
-      if(var MATCHES "^${dep_name}_")
-        list(APPEND dep_vars ${var})
-      endif()
-    endforeach()
-
-    # Sort for consistent output
-    if(dep_vars)
-      list(SORT dep_vars)
-    endif()
-
-    # Export each variable
-    set(var_first TRUE)
-    foreach(var ${dep_vars})
-      if(NOT var_first)
-        string(APPEND json_content ",\n")
-      endif()
-      set(var_first FALSE)
-
-      # Get variable value
-      set(value "${${var}}")
-
-      # Escape special characters for JSON
-      string(REPLACE "\\" "\\\\" value "${value}")
-      string(REPLACE "\"" "\\\"" value "${value}")
-      string(REPLACE "\n" "\\n" value "${value}")
-      string(REPLACE "\r" "\\r" value "${value}")
-      string(REPLACE "\t" "\\t" value "${value}")
-
-      # Determine if value is boolean or string
-      set(is_bool FALSE)
-      if("${value}" STREQUAL "TRUE" OR "${value}" STREQUAL "ON" OR "${value}" STREQUAL "YES" OR "${value}" STREQUAL "1")
-        set(value "true")
-        set(is_bool TRUE)
-      elseif("${value}" STREQUAL "FALSE" OR "${value}" STREQUAL "OFF" OR "${value}" STREQUAL "NO" OR "${value}" STREQUAL "0")
-        set(value "false")
-        set(is_bool TRUE)
-      elseif("${value}" STREQUAL "")
-        set(value "null")
-        set(is_bool TRUE)
-      endif()
-
-      # Write JSON field
-      if(is_bool)
-        string(APPEND json_content "        \"${var}\": ${value}")
-      else()
-        string(APPEND json_content "        \"${var}\": \"${value}\"")
-      endif()
-    endforeach()
-
-    string(APPEND json_content "\n      },\n")
-
-    # --------------------------
-    # Export Metadata (Requirements Config)
-    # --------------------------
-    string(APPEND json_content "      \"metadata\": {\n")
-
-    # Collect all NVFUSER_REQUIREMENT_${dep_name}_* variables
-    set(metadata_vars)
-    set(metadata_prefix "NVFUSER_REQUIREMENT_${dep_name}_")
-    foreach(var ${all_vars})
-      if(var MATCHES "^${metadata_prefix}")
-        list(APPEND metadata_vars ${var})
-      endif()
-    endforeach()
-
-    # Sort for consistent output
-    if(metadata_vars)
-      list(SORT metadata_vars)
-    endif()
-
-    # Export each metadata variable
-    set(meta_first TRUE)
-    foreach(var ${metadata_vars})
-      if(NOT meta_first)
-        string(APPEND json_content ",\n")
-      endif()
-      set(meta_first FALSE)
-
-      # Get variable value
-      set(value "${${var}}")
-
-      # Escape special characters for JSON
-      string(REPLACE "\\" "\\\\" value "${value}")
-      string(REPLACE "\"" "\\\"" value "${value}")
-      string(REPLACE "\n" "\\n" value "${value}")
-      string(REPLACE "\r" "\\r" value "${value}")
-      string(REPLACE "\t" "\\t" value "${value}")
-
-      # Determine if value is boolean or string
-      set(is_bool FALSE)
-      if("${value}" STREQUAL "TRUE" OR "${value}" STREQUAL "ON" OR "${value}" STREQUAL "YES" OR "${value}" STREQUAL "1")
-        set(value "true")
-        set(is_bool TRUE)
-      elseif("${value}" STREQUAL "FALSE" OR "${value}" STREQUAL "OFF" OR "${value}" STREQUAL "NO" OR "${value}" STREQUAL "0")
-        set(value "false")
-        set(is_bool TRUE)
-      elseif("${value}" STREQUAL "")
-        set(value "null")
-        set(is_bool TRUE)
-      endif()
-
-      # Write JSON field
-      if(is_bool)
-        string(APPEND json_content "        \"${var}\": ${value}")
-      else()
-        string(APPEND json_content "        \"${var}\": \"${value}\"")
-      endif()
-    endforeach()
-
-    string(APPEND json_content "\n      }\n")
-    string(APPEND json_content "    }")
   endforeach()
 
-  # Close dependencies array and add summary
-  string(APPEND json_content "\n  ],\n")
-  string(APPEND json_content "  \"summary\": {\n")
-  string(APPEND json_content "    \"total\": ${total},\n")
-  string(APPEND json_content "    \"success\": ${success_count},\n")
-  string(APPEND json_content "    \"not_found\": ${not_found_count},\n")
-  string(APPEND json_content "    \"incompatible\": ${incompatible_count}\n")
-  string(APPEND json_content "  }\n")
-  string(APPEND json_content "}\n")
+  file(APPEND "${output_file}" "  },\n")
+  file(APPEND "${output_file}" "  \"dependency_names\": [\n")
 
-  # Write to file
-  file(WRITE "${output_file}" "${json_content}")
+  # Export dependency names in order
+  set(dep_list "")
+  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
+    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
+    if(NOT is_constraint)
+      # Map Compiler -> GCC/Clang
+      set(export_name "${dep_name}")
+      if(dep_name STREQUAL "Compiler" AND DEFINED Compiler_NAME)
+        set(export_name "${Compiler_NAME}")
+      endif()
+      list(APPEND dep_list "${export_name}")
+    endif()
+  endforeach()
+
+  list(LENGTH dep_list dep_count)
+  set(dep_index 0)
+  foreach(dep_name ${dep_list})
+    math(EXPR dep_index "${dep_index} + 1")
+    if(dep_index LESS dep_count)
+      file(APPEND "${output_file}" "    \"${dep_name}\",\n")
+    else()
+      file(APPEND "${output_file}" "    \"${dep_name}\"\n")
+    endif()
+  endforeach()
+
+  file(APPEND "${output_file}" "  ]\n")
+  file(APPEND "${output_file}" "}\n")
 endfunction()
 
 # --------------------------

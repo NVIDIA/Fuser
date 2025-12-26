@@ -33,37 +33,42 @@ class Requirement(ABC):
 
     def __init__(self, data: Dict):
         """
-        Initialize from CMake JSON data.
+        Initialize from CMake data.
 
         Args:
-            data: Dictionary from nvfuser_dependencies.json with keys:
+            data: Dictionary with keys:
                 - name: Dependency name
-                - type: Dependency type (find_package, compiler, etc.)
-                - cmake_vars: Dict of all CMake variables for this dependency
-                - metadata: Dict of requirement metadata (VERSION_MIN, etc.)
+                - cmake_vars: Flat dict of ALL CMake variables
         """
         self.name = data["name"]
-        self.type = data["type"]
-        cmake_vars = data.get("cmake_vars", {})
-        metadata = data.get("metadata", {})
+        cmake_vars = data["cmake_vars"]
 
-        # Extract common fields from cmake_vars
-        self.found = cmake_vars.get(f"{self.name}_FOUND", False)
+        # Extract common fields from flat cmake_vars dict
+        self.found = self._to_bool(cmake_vars.get(f"{self.name}_FOUND", "FALSE"))
         self.status = cmake_vars.get(f"{self.name}_STATUS", "UNKNOWN")
+        self.type = cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_TYPE", "find_package")
 
-        # Extract metadata
-        self.optional = metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_OPTIONAL", False)
+        # Extract metadata from flat dict
+        self.optional = self._to_bool(cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_OPTIONAL", "FALSE"))
 
-        # Get location from location_var metadata
-        location_var = metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_LOCATION_VAR")
+        # Get location from location_var
+        location_var = cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_LOCATION_VAR")
         if location_var:
             self.location = cmake_vars.get(location_var)
         else:
             self.location = None
 
-        self._data = data  # Store for subclass access
+        self._data = data
         self._cmake_vars = cmake_vars
-        self._metadata = metadata
+
+    @staticmethod
+    def _to_bool(value) -> bool:
+        """Convert CMake boolean string to Python bool."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.upper() in ("TRUE", "ON", "YES", "1")
+        return bool(value)
 
     @abstractmethod
     def format_status_line(self, colors) -> str:
@@ -90,9 +95,9 @@ class VersionRequirement(Requirement):
     def __init__(self, data: Dict):
         super().__init__(data)
 
-        # Extract version information
+        # Extract version information from flat cmake_vars dict
         self.version_found = self._cmake_vars.get(f"{self.name}_VERSION")
-        self.version_required = self._metadata.get(f"NVFUSER_REQUIREMENT_{self.name}_VERSION_MIN")
+        self.version_required = self._cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_VERSION_MIN")
 
     def format_status_line(self, colors) -> str:
         """Format status line with version information."""

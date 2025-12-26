@@ -29,7 +29,7 @@ class TorchRequirement(VersionRequirement):
     def __init__(self, data: Dict):
         super().__init__(data)
 
-        # Extract Torch CUDA constraint variables
+        # Extract Torch CUDA constraint variables from flat cmake_vars dict
         self.constraint_status = self._cmake_vars.get("Torch_CUDA_constraint_status")
         self.constraint_version = self._cmake_vars.get("Torch_CUDA_constraint_version")
         self.constraint_found = self._cmake_vars.get("Torch_CUDA_constraint_found")

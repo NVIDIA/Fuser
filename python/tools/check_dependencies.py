@@ -65,20 +65,28 @@ class DependencyReporter:
     and generates platform-specific installation instructions for failures.
     """
 
-    def __init__(self, json_path: Path):
-        self.data = self._load_json(json_path)
+    def __init__(self, deps_path: Path):
+        # Load CMake variables
+        data = self._load_cmake_vars(deps_path)
+
         self.colors = Colors()
         self.platform_info = detect_platform()
 
-        # Create requirement objects from JSON data
+        # Create requirement objects - explicitly instantiate each class
         self.requirements = []
         if create_requirement:
-            for dep_data in self.data["dependencies"]:
+            cmake_vars = data.get("cmake_vars", {})
+            dependency_names = data.get("dependency_names", [])
+            for dep_name in dependency_names:
+                # Create dict with CMake variables for this dependency
+                dep_data = {
+                    "name": dep_name,
+                    "cmake_vars": cmake_vars,
+                }
                 req = create_requirement(dep_data)
                 self.requirements.append(req)
         else:
-            # Fallback: store raw dicts if OOP not available
-            self.requirements = self.data["dependencies"]
+            self.requirements = []
 
         # Initialize help providers if available
         if HELP_AVAILABLE:
@@ -102,16 +110,17 @@ class DependencyReporter:
             self.help_providers = {}
             self.generic_help = None
 
-    def _load_json(self, json_path: Path) -> Dict:
-        """Load and parse the dependency JSON file"""
+    def _load_cmake_vars(self, deps_path: Path) -> Dict:
+        """Load CMake variables from JSON file"""
         try:
-            with open(json_path, 'r') as f:
-                return json.load(f)
+            with open(deps_path, 'r') as f:
+                data = json.load(f)
+                return data
         except FileNotFoundError:
-            print(f"Error: {json_path} not found", file=sys.stderr)
+            print(f"Error: {deps_path} not found", file=sys.stderr)
             sys.exit(1)
-        except json.JSONDecodeError as e:
-            print(f"Error: Invalid JSON in {json_path}: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Error loading dependencies: {e}", file=sys.stderr)
             sys.exit(1)
 
 

@@ -27,30 +27,36 @@ class CompilerRequirement(VersionRequirement):
 
     def __init__(self, data: Dict):
         # Special handling: name is "GCC" or "Clang" but variables are "Compiler_*"
-        # Override base class to use "Compiler" prefix for variable lookups
         self.name = data["name"]  # GCC or Clang
-        self.type = data["type"]
-        cmake_vars = data.get("cmake_vars", {})
-        metadata = data.get("metadata", {})
+        cmake_vars = data["cmake_vars"]
 
         # Use "Compiler" prefix for CMake variables (not self.name)
-        self.found = cmake_vars.get("Compiler_FOUND", False)
+        self.found = self._to_bool(cmake_vars.get("Compiler_FOUND", "FALSE"))
         self.status = cmake_vars.get("Compiler_STATUS", "UNKNOWN")
+        self.type = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_TYPE", "compiler")
         self.version_found = cmake_vars.get("Compiler_VERSION")
-        self.version_required = metadata.get("NVFUSER_REQUIREMENT_Compiler_VERSION_MIN")
+        self.version_required = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_VERSION_MIN")
 
         # Get location
-        location_var = metadata.get("NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR")
+        location_var = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR")
         if location_var:
             self.location = cmake_vars.get(location_var)
         else:
             self.location = None
 
-        self.optional = metadata.get("NVFUSER_REQUIREMENT_Compiler_OPTIONAL", False)
+        self.optional = self._to_bool(cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_OPTIONAL", "FALSE"))
 
         self._data = data
         self._cmake_vars = cmake_vars
-        self._metadata = metadata
+
+    @staticmethod
+    def _to_bool(value) -> bool:
+        """Convert CMake boolean string to Python bool."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.upper() in ("TRUE", "ON", "YES", "1")
+        return bool(value)
 
     # Inherits format_status_line from VersionRequirement
     # Name (GCC/Clang) is already set correctly for display
