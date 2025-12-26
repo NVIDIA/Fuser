@@ -236,6 +236,14 @@ class DependencyReporter:
             self._help_llvm(failure)
         elif name == "Torch_CUDA":
             self._help_torch_cuda_constraint(failure)
+        elif name in ("GCC", "Clang", "Compiler"):
+            self._help_compiler(failure)
+        elif name in ("Git", "GitSubmodules"):
+            self._help_git_submodules(failure)
+        elif name == "Ninja":
+            self._help_ninja(failure)
+        elif name == "CMake":
+            self._help_cmake(failure)
         else:
             self._help_generic(failure)
 
@@ -426,6 +434,169 @@ class DependencyReporter:
             print()
             print(pytorch_install_instructions())
             print()
+
+    def _help_compiler(self, failure: Dict):
+        """Generate GCC/Clang compiler installation help"""
+        name = failure["name"]
+        version_min = failure.get("version_required", "13" if name == "GCC" else "19")
+
+        print(f"{name} {version_min}+ Required")
+        print()
+        print("Why: nvFuser requires a modern C++ compiler with C++20 support,")
+        print("     including the <format> header.")
+        print()
+        print(f"Install {name} {version_min} or higher:")
+        print()
+
+        os_type = self.platform_info["os"]
+
+        if name == "GCC":
+            if os_type == "Linux":
+                if self.platform_info.get("ubuntu_based"):
+                    print("  Option 1: Ubuntu PPA (recommended):")
+                    print()
+                    print("    sudo add-apt-repository ppa:ubuntu-toolchain-r/test")
+                    print("    sudo apt update")
+                    print(f"    sudo apt install gcc-{version_min} g++-{version_min}")
+                    print()
+                    print("    # Set as default:")
+                    print(f"    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{version_min} 100")
+                    print(f"    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{version_min} 100")
+                    print()
+                else:
+                    print("  Option 1: System package manager:")
+                    print()
+                    print(f"    # Example for RHEL/CentOS:")
+                    print(f"    # sudo yum install gcc-toolset-{version_min}")
+                    print()
+
+            elif os_type == "Darwin":
+                print("  On macOS, use Clang instead:")
+                print()
+                print("    # Xcode Command Line Tools (includes Clang):")
+                print("    xcode-select --install")
+                print()
+
+        elif name == "Clang":
+            if os_type == "Linux":
+                if self.platform_info.get("ubuntu_based"):
+                    print("  Option 1: LLVM APT repository:")
+                    print()
+                    print("    wget https://apt.llvm.org/llvm.sh")
+                    print("    chmod +x llvm.sh")
+                    print(f"    sudo ./llvm.sh {version_min}")
+                    print()
+                else:
+                    print("  Option 1: System package manager:")
+                    print()
+                    print(f"    # Check your distribution for clang-{version_min}")
+                    print()
+
+            elif os_type == "Darwin":
+                print("  Option 1: Xcode Command Line Tools:")
+                print()
+                print("    xcode-select --install")
+                print()
+
+        print("  Option 2: Build from source:")
+        print()
+        print("    # See compiler documentation for build instructions")
+        print()
+
+    def _help_git_submodules(self, failure: Dict):
+        """Generate Git submodules help"""
+        print("Git Submodules Not Initialized")
+        print()
+        print("Why: nvFuser depends on third-party libraries included as Git submodules.")
+        print()
+        print("Initialize and update Git submodules:")
+        print()
+        print("  # From the repository root:")
+        print("  git submodule update --init --recursive")
+        print()
+        print("  # Or if you just cloned:")
+        print("  git clone --recursive <repository-url>")
+        print()
+
+    def _help_ninja(self, failure: Dict):
+        """Generate Ninja build system help"""
+        print("Ninja Build System Required")
+        print()
+        print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
+        print()
+        print("Install Ninja:")
+        print()
+
+        os_type = self.platform_info["os"]
+
+        if os_type == "Linux":
+            if self.platform_info.get("ubuntu_based"):
+                print("  Option 1: Ubuntu/Debian:")
+                print()
+                print("    sudo apt update")
+                print("    sudo apt install ninja-build")
+                print()
+            else:
+                print("  Option 1: System package manager:")
+                print()
+                print("    # Example for RHEL/CentOS:")
+                print("    # sudo yum install ninja-build")
+                print()
+
+        elif os_type == "Darwin":
+            print("  Option 1: Homebrew:")
+            print()
+            print("    brew install ninja")
+            print()
+
+        print("  Option 2: pip:")
+        print()
+        print("    pip install ninja")
+        print()
+
+    def _help_cmake(self, failure: Dict):
+        """Generate CMake installation help"""
+        version_min = failure.get("version_required", "3.18")
+
+        print(f"CMake {version_min}+ Required")
+        print()
+        print("Why: CMake is the build system generator used by nvFuser.")
+        print()
+        print(f"Install CMake {version_min} or higher:")
+        print()
+
+        os_type = self.platform_info["os"]
+
+        if os_type == "Linux":
+            if self.platform_info.get("ubuntu_based"):
+                print("  Option 1: Ubuntu/Debian (latest):")
+                print()
+                print("    # Remove old version if installed:")
+                print("    sudo apt remove cmake")
+                print()
+                print("    # Install from Kitware APT repository:")
+                print("    wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc | sudo apt-key add -")
+                print("    sudo apt-add-repository 'deb https://apt.kitware.com/ubuntu/ focal main'")
+                print("    sudo apt update")
+                print("    sudo apt install cmake")
+                print()
+            else:
+                print("  Option 1: Download binary:")
+                print()
+                print("    wget https://github.com/Kitware/CMake/releases/download/v3.27.0/cmake-3.27.0-linux-x86_64.sh")
+                print("    sudo sh cmake-3.27.0-linux-x86_64.sh --prefix=/usr/local --skip-license")
+                print()
+
+        elif os_type == "Darwin":
+            print("  Option 1: Homebrew:")
+            print()
+            print("    brew install cmake")
+            print()
+
+        print("  Option 2: pip:")
+        print()
+        print(f"    pip install 'cmake>={version_min}'")
+        print()
 
     def _help_generic(self, failure: Dict):
         """Fallback help for unknown dependencies"""
