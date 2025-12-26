@@ -212,7 +212,8 @@ class StructHandle {
   inline Accessor operator->*(const std::string& key) const;
 };
 
-using PolymorphicValue = dynamic_type::DynamicType<
+namespace detail {
+using DynamicTypeAlias = dynamic_type::DynamicType<
     dynamic_type::Containers<std::vector>,
     StructHandle,
     Pointer,
@@ -222,6 +223,9 @@ using PolymorphicValue = dynamic_type::DynamicType<
     double,
     int64_t,
     bool>;
+} // namespace detail
+
+using PolymorphicValue = detail::DynamicTypeAlias;
 
 namespace PolymorphicValue_functions {
 
