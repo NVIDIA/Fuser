@@ -91,15 +91,15 @@ set(NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR "")
 # ==============================================================================
 # Note: CUDAToolkit must come before Torch for CUDA version constraint validation
 set(NVFUSER_ALL_REQUIREMENTS
-  Python
+  GitSubmodules
+  Ninja
   Compiler
+  Python
   CUDAToolkit
   Torch
   Torch_CUDA
   pybind11
   LLVM
-  Ninja
-  GitSubmodules
 )
 
 # Note: Future dependency types (compiler, header_only, submodule, constraint)
