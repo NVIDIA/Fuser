@@ -12,9 +12,6 @@
 #
 # ==============================================================================
 
-# Include requirement definitions
-include(cmake/DependencyRequirements.cmake)
-
 # --------------------------
 # Conditionally add REQUIRED to find_package calls
 # --------------------------
