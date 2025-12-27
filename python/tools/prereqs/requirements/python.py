@@ -32,7 +32,7 @@ class PythonRequirement(VersionRequirement):
         # Define dependency name and CMake variable names for this requirement
         name = "Python"
         found_var = f"{name}_FOUND"
-        status_var = f"{name}_STATUS"
+        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
         optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
         version_found_var = f"{name}_VERSION"
         version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"

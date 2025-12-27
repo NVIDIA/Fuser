@@ -6,39 +6,25 @@
 # nvFuser Dependency Utilities
 # ==============================================================================
 #
-# This file provides utilities for finding and reporting on nvFuser dependencies.
+# This file provides utilities for dependency status tracking and reporting.
 # Dependency metadata is defined in DependencyRequirements.cmake
-# Validation logic is defined in DependencyValidators.cmake
+# Individual dependency handlers are in cmake/deps/
 #
 # ==============================================================================
 
-# Include requirement definitions and validators
+# Include requirement definitions
 include(cmake/DependencyRequirements.cmake)
-include(cmake/DependencyValidators.cmake)
-
-# --------------------------
-# Find all dependencies
-# --------------------------
-macro(find_nvfuser_dependencies)
-  # Initialize success flag - will be set to FALSE if any required dependency fails
-  set(NVFUSER_DEPENDENCIES_OK TRUE)
-
-  # Iterate through all requirements and validate each
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    validate_dependency(NAME ${dep_name})
-  endforeach()
-endmacro()
 
 # --------------------------
 # Status Tracking for JSON Export
 # --------------------------
 
 # Set dependency status based on found state and version check
-function(set_dependency_status name)
+macro(set_dependency_status name)
   set(is_constraint "${NVFUSER_REQUIREMENT_${name}_IS_CONSTRAINT}")
 
   if(is_constraint)
-    # Status already set by post-find hook
+    # Status already set by handler
     return()
   endif()
 
@@ -51,25 +37,25 @@ function(set_dependency_status name)
 
     if(DEFINED min_version AND NOT "${min_version}" STREQUAL "")
       if("${version}" VERSION_GREATER_EQUAL "${min_version}")
-        set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
+        set(NVFUSER_REQUIREMENT_${name}_STATUS "SUCCESS")
       else()
-        set(${name}_STATUS "INCOMPATIBLE" PARENT_SCOPE)
+        set(NVFUSER_REQUIREMENT_${name}_STATUS "INCOMPATIBLE")
         # Mark dependencies as failed if this is a required dependency
         if(NOT optional)
-          set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
+          set(NVFUSER_DEPENDENCIES_OK FALSE)
         endif()
       endif()
     else()
-      set(${name}_STATUS "SUCCESS" PARENT_SCOPE)
+      set(NVFUSER_REQUIREMENT_${name}_STATUS "SUCCESS")
     endif()
   else()
-    set(${name}_STATUS "NOT_FOUND" PARENT_SCOPE)
+    set(NVFUSER_REQUIREMENT_${name}_STATUS "NOT_FOUND")
     # Mark dependencies as failed if this is a required dependency
     if(NOT optional)
-      set(NVFUSER_DEPENDENCIES_OK FALSE PARENT_SCOPE)
+      set(NVFUSER_DEPENDENCIES_OK FALSE)
     endif()
   endif()
-endfunction()
+endmacro()
 
 # --------------------------
 # Python Export for Dependency Reporting

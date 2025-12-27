@@ -68,9 +68,29 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
 
-# First pass: Sandboxed check (non-fatal) to gather all dependency info
+# Include all dependency handler functions
+include(cmake/deps/handle_git_submodules.cmake)
+include(cmake/deps/handle_ninja.cmake)
+include(cmake/deps/handle_compiler.cmake)
+include(cmake/deps/handle_python.cmake)
+include(cmake/deps/handle_cuda_toolkit.cmake)
+include(cmake/deps/handle_torch.cmake)
+include(cmake/deps/handle_pybind11.cmake)
+include(cmake/deps/handle_llvm.cmake)
+
+# Initialize success flag
+set(NVFUSER_DEPENDENCIES_OK TRUE)
+
+# Handle each dependency explicitly (order matters!)
 start_capture()
-find_nvfuser_dependencies()
+handle_git_submodules()
+handle_ninja()
+handle_compiler()
+handle_python()
+handle_cuda_toolkit()  # Must come before Torch for CUDA constraint
+handle_torch()
+handle_pybind11()
+handle_llvm()
 stop_capture(DEP_LOGS)
 
 # Show the dependency report (Python-based)
