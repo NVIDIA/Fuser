@@ -14,5 +14,5 @@ macro(handle_python)
   find_package(Python COMPONENTS Interpreter Development)
 
   # Use common status function
-  set_dependency_status(Python)
+  set_dependency_report_status(Python)
 endmacro()

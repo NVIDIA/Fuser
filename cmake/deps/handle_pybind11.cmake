@@ -14,5 +14,5 @@ macro(handle_pybind11)
   find_package(pybind11)
 
   # Use common status function
-  set_dependency_status(pybind11)
+  set_dependency_report_status(pybind11)
 endmacro()

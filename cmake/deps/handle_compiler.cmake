@@ -20,5 +20,5 @@ macro(handle_compiler)
   # Set optional to true, we throw a warning in the report a if a different
   # compiler is used but not necessarily fail.
   set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
-  set_dependency_status(Compiler)
+  set_dependency_report_status(Compiler)
 endmacro()

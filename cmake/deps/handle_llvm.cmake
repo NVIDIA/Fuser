@@ -14,7 +14,7 @@ macro(handle_llvm)
   find_package(LLVM)
 
   # Use common status function
-  set_dependency_status(LLVM)
+  set_dependency_report_status(LLVM)
 
   # Additional validation: Map LLVM components to library names
   if(LLVM_FOUND)

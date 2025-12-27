@@ -53,6 +53,7 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 # -----------------------------------------------------------------------------
 # nvFuser Requirements & Dependencies
 # -----------------------------------------------------------------------------
+include(cmake/DependencyRequirements.cmake)
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
 
@@ -70,17 +71,15 @@ include(cmake/deps/handle_llvm.cmake)
 set(NVFUSER_DEPENDENCIES_OK TRUE)
 
 start_capture()
-
 # Handle each dependency explicitly
+handle_compiler()
 handle_git_submodules()
 handle_ninja()
-handle_compiler()
-handle_python()
 handle_cuda_toolkit()
+handle_python()
 handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
-
 stop_capture(DEP_LOGS)
 
 # Show the dependency report (Python-based)

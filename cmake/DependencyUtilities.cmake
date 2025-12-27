@@ -20,7 +20,7 @@ include(cmake/DependencyRequirements.cmake)
 # --------------------------
 
 # Set dependency status based on found state and version check
-macro(set_dependency_status name)
+macro(set_dependency_report_status name)
   set(optional "${NVFUSER_REQUIREMENT_${name}_OPTIONAL}")
 
   if(${name}_FOUND)

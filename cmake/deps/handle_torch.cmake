@@ -49,7 +49,7 @@ macro(handle_torch)
   find_package(Torch)
 
   # Use common status function for basic version check
-  set_dependency_status(Torch)
+  set_dependency_report_status(Torch)
 
   # Additional validation: Check CUDA constraint
   # This must happen AFTER set_dependency_status since we need Torch to be found

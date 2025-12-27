@@ -14,5 +14,5 @@ macro(handle_cuda_toolkit)
   find_package(CUDAToolkit COMPONENTS Cupti cuda_driver)
 
   # Use common status function
-  set_dependency_status(CUDAToolkit)
+  set_dependency_report_status(CUDAToolkit)
 endmacro()
