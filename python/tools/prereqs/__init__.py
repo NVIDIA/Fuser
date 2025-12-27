@@ -63,7 +63,6 @@ from .requirements import (
     VersionRequirement,
     BooleanRequirement,
     RequirementStatus,
-    create_requirement,
     # Explicit requirement classes
     PythonRequirement,
     TorchRequirement,
@@ -96,7 +95,6 @@ __all__ = [
     "VersionRequirement",
     "BooleanRequirement",
     "RequirementStatus",
-    "create_requirement",
     # Explicit requirement classes
     "PythonRequirement",
     "TorchRequirement",

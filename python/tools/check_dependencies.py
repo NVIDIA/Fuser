@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 # Import prereqs utilities
 try:
-    from prereqs import detect_platform
+    from prereqs import detect_platform, format_platform_info
     from prereqs.requirements import (
         PythonRequirement,
         TorchRequirement,
@@ -33,7 +33,7 @@ except ImportError:
     # Fallback if prereqs not available
     print("Warning: prereqs package not found. Platform-specific help unavailable.", file=sys.stderr)
     detect_platform = lambda: {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
-    PythonRequirement = None
+    format_platform_info = lambda x=None: "unknown platform"
     HELP_AVAILABLE = False
 
 
@@ -116,8 +116,10 @@ class DependencyReporter:
         print()  # Blank line at end
 
     def _print_header(self):
-        """Print report header"""
+        """Print report header with platform information"""
+        platform_str = format_platform_info(self.platform_info)
         print(f"{self.colors.BOLD_GREEN}[nvFuser] Validating build prerequisites...{self.colors.RESET}")
+        print(f"{self.colors.CYAN}Platform: {platform_str}{self.colors.RESET}")
 
     def _print_failure_summary(self):
         """Print failure summary message"""
@@ -133,7 +135,7 @@ class DependencyReporter:
                 print(req.format_status_line(self.colors))
             else:
                 # Fallback: use legacy dict-based formatting (shouldn't happen)
-                print(f"[nvFuser] ? {req.get('name', 'Unknown')}")
+                print(f"[nvFuser] ? {getattr(req, 'name', 'Unknown')}")
 
     def _print_help_section(self, failures):
         """Print help section header and help for each failed dependency"""
