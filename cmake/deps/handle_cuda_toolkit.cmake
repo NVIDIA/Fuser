@@ -11,7 +11,7 @@ macro(handle_cuda_toolkit)
   message("Finding CUDAToolkit...")
 
   # Direct find_package call with components
-  find_package(CUDAToolkit ${MAYBE_REQUIRED} COMPONENTS Cupti cuda_driver)
+  find_package(CUDAToolkit ${MAYBE_REQUIRED} COMPONENTS ${NVFUSER_REQUIREMENT_CUDAToolkit_COMPONENTS})
 
   # Use common status function
   set_dependency_report_status(CUDAToolkit)

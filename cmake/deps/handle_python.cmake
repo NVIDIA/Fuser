@@ -11,7 +11,7 @@ macro(handle_python)
   message("Finding Python...")
 
   # Direct find_package call
-  find_package(Python ${MAYBE_REQUIRED} COMPONENTS Interpreter Development)
+  find_package(Python ${MAYBE_REQUIRED} COMPONENTS ${NVFUSER_REQUIREMENT_Python_COMPONENTS})
 
   # Use common status function
   set_dependency_report_status(Python)
