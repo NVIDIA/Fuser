@@ -1,6 +1,6 @@
-# =========================================================
-#  PART 1: THE UTILITIES (Copy this to cmake/Utils.cmake)
-# =========================================================
+# ==============================================================================
+# nvFuser Log Capture Utilities
+# ==============================================================================
 
 # Global switch to control logging behavior
 set(LOG_CAPTURE_MODE FALSE CACHE INTERNAL "")
