@@ -29,12 +29,15 @@ class CompilerRequirement(VersionRequirement):
         name = cmake_vars.get("CMAKE_CXX_COMPILER_ID", "Unknown")
 
         # Compiler uses "Compiler_" prefix for all variables, regardless of actual name
-        found_var = "NVFUSER_Compiler_FOUND"
+        found_var = "Compiler_FOUND"
         status_var = "NVFUSER_REQUIREMENT_Compiler_STATUS"
         optional_var = "NVFUSER_REQUIREMENT_Compiler_OPTIONAL"
         version_found_var = "CMAKE_CXX_COMPILER_VERSION"
         version_required_var = "NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"
         location_var = "CMAKE_CXX_COMPILER"
+
+        gnu_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_GNU_VERSION_MIN")
+        clang_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_Clang_VERSION_MIN")
 
         super().__init__(
             name,
@@ -60,7 +63,9 @@ class CompilerRequirement(VersionRequirement):
 
     def generate_help(self, platform_info):
         """Generate compiler installation help."""
-        version_min = self.version_required or ("13" if self.name == "GNU" else "19")
+        version_min = self.version_required or (
+            gnu_min_version if self.name == "GNU" else clang_min_version
+        )
 
         print(f"{self.name} {version_min}+ Required")
         print()

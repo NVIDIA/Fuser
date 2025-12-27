@@ -56,17 +56,7 @@ class Requirement(ABC):
         self.optional = self._to_bool(cmake_vars.get(optional_var, "FALSE"))
 
         # Look up location if location_var is provided
-        if location_var:
-            # location_var contains the NAME of the variable to look up
-            # e.g., location_var = "NVFUSER_REQUIREMENT_Python_LOCATION_VAR"
-            # which contains "Python_EXECUTABLE"
-            actual_location_var = cmake_vars.get(location_var)
-            if actual_location_var:
-                self.location = cmake_vars.get(actual_location_var)
-            else:
-                self.location = None
-        else:
-            self.location = None
+        self.location = cmake_vars.get(location_var) if location_var else None
 
     @staticmethod
     def _to_bool(value) -> bool:
