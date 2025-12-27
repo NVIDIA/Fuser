@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-"""Compiler dependency requirement (GCC/Clang)."""
+"""Compiler dependency requirement (GNU/Clang)."""
 
 from typing import Optional, Dict
 from .base import VersionRequirement
@@ -11,19 +11,10 @@ class CompilerRequirement(VersionRequirement):
     """
     C++ compiler requirement with name mapping.
 
-    CMake variables used:
-    - CMAKE_CXX_COMPILER: Path to compiler binary
-    - Compiler_NAME: Mapped compiler name ("GCC" or "Clang")
-    - Compiler_VERSION: Detected version
-    - Compiler_FOUND: Whether compiler was found
-    - Compiler_STATUS: Validation status
-    - NVFUSER_REQUIREMENT_Compiler_VERSION_MIN: Minimum required version
-    - NVFUSER_REQUIREMENT_Compiler_OPTIONAL: Whether compiler is optional
-
-    Note: CMake exports "GCC" or "Clang" as the name, but variables are prefixed with "Compiler_"
+    Note: CMake exports "GNU" or "Clang" as the name, but variables are prefixed with "Compiler_"
 
     Minimum versions:
-    - GCC: 13+ (C++20 with <format>)
+    - GNU: 13+ (C++20 with <format>)
     - Clang: 19+ (C++20 with <format>)
     """
 
@@ -31,24 +22,30 @@ class CompilerRequirement(VersionRequirement):
         """
         Initialize compiler requirement.
 
-        Note: Name is extracted from cmake_vars (Compiler_NAME = "GCC" or "Clang"),
-        but all CMake variables use "Compiler_" prefix.
-
         Args:
             cmake_vars: Dictionary of all CMake variables
         """
-        # Extract compiler name from CMake (GCC or Clang)
-        name = cmake_vars.get("Compiler_NAME", "Compiler")
+        # Extract compiler name from CMake (GNU or Clang)
+        name = cmake_vars.get("CMAKE_CXX_COMPILER_ID", "Unknown")
 
         # Compiler uses "Compiler_" prefix for all variables, regardless of actual name
-        found_var = "Compiler_FOUND"
-        status_var = "Compiler_STATUS"
+        found_var = "NVFUSER_Compiler_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_Compiler_STATUS"
         optional_var = "NVFUSER_REQUIREMENT_Compiler_OPTIONAL"
-        version_found_var = "Compiler_VERSION"
+        version_found_var = "CMAKE_CXX_COMPILER_VERSION"
         version_required_var = "NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"
-        location_var = "NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR"
+        location_var = "CMAKE_CXX_COMPILER"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
     def format_status_line(self, colors) -> str:
         """Format with compiler path."""
@@ -63,7 +60,7 @@ class CompilerRequirement(VersionRequirement):
 
     def generate_help(self, platform_info):
         """Generate compiler installation help."""
-        version_min = self.version_required or ("13" if self.name == "GCC" else "19")
+        version_min = self.version_required or ("13" if self.name == "GNU" else "19")
 
         print(f"{self.name} {version_min}+ Required")
         print()
@@ -75,7 +72,7 @@ class CompilerRequirement(VersionRequirement):
 
         os_type = platform_info["os"]
 
-        if self.name == "GCC":
+        if self.name == "GNU":
             if os_type == "Linux":
                 if platform_info.get("ubuntu_based"):
                     print("  Option 1: Ubuntu PPA (recommended):")
@@ -85,8 +82,12 @@ class CompilerRequirement(VersionRequirement):
                     print(f"    sudo apt install gcc-{version_min} g++-{version_min}")
                     print()
                     print("    # Set as default:")
-                    print(f"    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{version_min} 100")
-                    print(f"    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{version_min} 100")
+                    print(
+                        f"    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{version_min} 100"
+                    )
+                    print(
+                        f"    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{version_min} 100"
+                    )
                     print()
                 else:
                     print("  Option 1: System package manager:")
@@ -127,4 +128,3 @@ class CompilerRequirement(VersionRequirement):
         print()
         print("    # See compiler documentation for build instructions")
         print()
-

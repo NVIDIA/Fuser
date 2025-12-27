@@ -18,12 +18,16 @@
 #
 # ==============================================================================
 
+# Compiler (GCC or Clang)
+set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN "13")  # GCC 13+ or Clang 19+
+set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE)
+set(NVFUSER_REQUIREMENT_Compiler_TYPE "compiler")
+
 # Python
 set(NVFUSER_REQUIREMENT_Python_VERSION_MIN "3.8")
 set(NVFUSER_REQUIREMENT_Python_OPTIONAL FALSE)
 set(NVFUSER_REQUIREMENT_Python_COMPONENTS "Interpreter;Development")
 set(NVFUSER_REQUIREMENT_Python_LOCATION_VAR "Python_EXECUTABLE")
-set(NVFUSER_REQUIREMENT_Python_CLASS_TYPE "version")
 
 # Torch
 set(NVFUSER_REQUIREMENT_Torch_VERSION_MIN "2.0")
@@ -60,13 +64,6 @@ set(NVFUSER_REQUIREMENT_LLVM_COMPONENTS "")
 set(NVFUSER_REQUIREMENT_LLVM_LOCATION_VAR "LLVM_DIR")
 set(NVFUSER_REQUIREMENT_LLVM_POST_FIND_HOOK "llvm_post_find_hook")  # Map components
 set(NVFUSER_REQUIREMENT_LLVM_CLASS_TYPE "version")
-
-# Compiler (GCC or Clang)
-set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN "13")  # GCC 13+ or Clang 19+
-set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE)
-set(NVFUSER_REQUIREMENT_Compiler_TYPE "compiler")
-set(NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR "CMAKE_CXX_COMPILER")
-set(NVFUSER_REQUIREMENT_Compiler_CLASS_TYPE "version")
 
 # Ninja
 set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL FALSE)

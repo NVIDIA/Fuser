@@ -63,7 +63,7 @@ endif()
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
 # -----------------------------------------------------------------------------
-# nvFuser Dependencies
+# nvFuser Requirements & Dependencies
 # -----------------------------------------------------------------------------
 include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
