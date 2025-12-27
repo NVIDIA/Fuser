@@ -17,7 +17,17 @@ from typing import Dict, List, Optional
 
 # Import prereqs utilities
 try:
-    from prereqs import detect_platform, create_requirement
+    from prereqs import detect_platform
+    from prereqs.requirements import (
+        PythonRequirement,
+        TorchRequirement,
+        LLVMRequirement,
+        CUDAToolkitRequirement,
+        Pybind11Requirement,
+        CompilerRequirement,
+        GitSubmodulesRequirement,
+        NinjaRequirement,
+    )
     from prereqs.help import (
         PythonHelp,
         TorchHelp,
@@ -36,7 +46,7 @@ except ImportError:
     # Fallback if prereqs not available
     print("Warning: prereqs package not found. Platform-specific help unavailable.", file=sys.stderr)
     detect_platform = lambda: {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
-    create_requirement = None
+    PythonRequirement = None
     HELP_AVAILABLE = False
 
 
@@ -67,22 +77,103 @@ class DependencyReporter:
 
     def __init__(self, deps_path: Path):
         # Load CMake variables
-        data = self._load_cmake_vars(deps_path)
+        cmake_vars = self._load_cmake_vars(deps_path)
 
         self.colors = Colors()
         self.platform_info = detect_platform()
 
-        # Create requirement objects - pass individual CMake variables explicitly
+        # Create requirement objects - explicitly instantiate each dependency
+        # Dependency order matches CMake validation order
         self.requirements = []
-        if create_requirement:
-            cmake_vars = data.get("cmake_vars", {})
-            dependency_names = data.get("dependency_names", [])
-            for dep_name in dependency_names:
-                # Create requirement with explicit CMake variable names
-                req = create_requirement(dep_name, cmake_vars)
-                self.requirements.append(req)
-        else:
-            self.requirements = []
+        if HELP_AVAILABLE:
+            # GitSubmodules
+            self.requirements.append(GitSubmodulesRequirement(
+                name="GitSubmodules",
+                found=cmake_vars.get("GitSubmodules_FOUND", "FALSE"),
+                status=cmake_vars.get("GitSubmodules_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL", "FALSE"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR", ""), ""),
+            ))
+
+            # Ninja
+            self.requirements.append(NinjaRequirement(
+                name="Ninja",
+                found=cmake_vars.get("Ninja_FOUND", "FALSE"),
+                status=cmake_vars.get("Ninja_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Ninja_OPTIONAL", "FALSE"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR", ""), ""),
+            ))
+
+            # Compiler (GCC or Clang)
+            compiler_name = cmake_vars.get("Compiler_NAME", "Compiler")
+            self.requirements.append(CompilerRequirement(
+                name=compiler_name,
+                found=cmake_vars.get("Compiler_FOUND", "FALSE"),
+                status=cmake_vars.get("Compiler_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("Compiler_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR", ""), ""),
+            ))
+
+            # Python
+            self.requirements.append(PythonRequirement(
+                name="Python",
+                found=cmake_vars.get("Python_FOUND", "FALSE"),
+                status=cmake_vars.get("Python_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Python_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("Python_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Python_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Python_LOCATION_VAR", ""), ""),
+            ))
+
+            # CUDAToolkit
+            self.requirements.append(CUDAToolkitRequirement(
+                name="CUDAToolkit",
+                found=cmake_vars.get("CUDAToolkit_FOUND", "FALSE"),
+                status=cmake_vars.get("CUDAToolkit_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("CUDAToolkit_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_LOCATION_VAR", ""), ""),
+            ))
+
+            # Torch
+            self.requirements.append(TorchRequirement(
+                name="Torch",
+                found=cmake_vars.get("Torch_FOUND", "FALSE"),
+                status=cmake_vars.get("Torch_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Torch_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("Torch_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Torch_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Torch_LOCATION_VAR", ""), ""),
+                torch_cuda_constraint_status=cmake_vars.get("Torch_CUDA_constraint_status"),
+                torch_cuda_constraint_version=cmake_vars.get("Torch_CUDA_constraint_version"),
+                torch_cuda_constraint_found=cmake_vars.get("Torch_CUDA_constraint_found"),
+                torch_cuda_constraint_required=cmake_vars.get("Torch_CUDA_constraint_required"),
+            ))
+
+            # pybind11
+            self.requirements.append(Pybind11Requirement(
+                name="pybind11",
+                found=cmake_vars.get("pybind11_FOUND", "FALSE"),
+                status=cmake_vars.get("pybind11_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("pybind11_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_LOCATION_VAR", ""), ""),
+            ))
+
+            # LLVM
+            self.requirements.append(LLVMRequirement(
+                name="LLVM",
+                found=cmake_vars.get("LLVM_FOUND", "FALSE"),
+                status=cmake_vars.get("LLVM_STATUS", "UNKNOWN"),
+                optional=cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_OPTIONAL", "FALSE"),
+                version_found=cmake_vars.get("LLVM_VERSION"),
+                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_VERSION_MIN"),
+                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_LOCATION_VAR", ""), ""),
+            ))
 
         # Initialize help providers if available
         if HELP_AVAILABLE:
@@ -111,7 +202,7 @@ class DependencyReporter:
         try:
             with open(deps_path, 'r') as f:
                 data = json.load(f)
-                return data
+                return data.get("cmake_vars", {})
         except FileNotFoundError:
             print(f"Error: {deps_path} not found", file=sys.stderr)
             sys.exit(1)

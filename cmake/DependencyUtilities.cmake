@@ -105,35 +105,7 @@ function(export_dependency_json output_file)
     endif()
   endforeach()
 
-  file(APPEND "${output_file}" "  },\n")
-  file(APPEND "${output_file}" "  \"dependency_names\": [\n")
-
-  # Export dependency names in order
-  set(dep_list "")
-  foreach(dep_name ${NVFUSER_ALL_REQUIREMENTS})
-    set(is_constraint "${NVFUSER_REQUIREMENT_${dep_name}_IS_CONSTRAINT}")
-    if(NOT is_constraint)
-      # Map Compiler -> GCC/Clang
-      set(export_name "${dep_name}")
-      if(dep_name STREQUAL "Compiler" AND DEFINED Compiler_NAME)
-        set(export_name "${Compiler_NAME}")
-      endif()
-      list(APPEND dep_list "${export_name}")
-    endif()
-  endforeach()
-
-  list(LENGTH dep_list dep_count)
-  set(dep_index 0)
-  foreach(dep_name ${dep_list})
-    math(EXPR dep_index "${dep_index} + 1")
-    if(dep_index LESS dep_count)
-      file(APPEND "${output_file}" "    \"${dep_name}\",\n")
-    else()
-      file(APPEND "${output_file}" "    \"${dep_name}\"\n")
-    endif()
-  endforeach()
-
-  file(APPEND "${output_file}" "  ]\n")
+  file(APPEND "${output_file}" "  }\n")
   file(APPEND "${output_file}" "}\n")
 endfunction()
 
