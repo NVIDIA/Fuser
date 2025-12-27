@@ -41,7 +41,12 @@ class CUDAToolkitRequirement(VersionRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate CUDA Toolkit installation help."""
+        """
+        Generate CUDA Toolkit installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         version_min = self.version_required or "12.6"
 
         print(f"CUDA Toolkit {version_min}+ Required")

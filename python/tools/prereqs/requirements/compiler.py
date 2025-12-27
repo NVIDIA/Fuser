@@ -51,10 +51,14 @@ class CompilerRequirement(VersionRequirement):
         )
 
     def generate_help(self, platform_info):
-        """Generate compiler installation help."""
-        version_min = self.version_required or (
-            gnu_min_version if self.name == "GNU" else clang_min_version
-        )
+        """
+        Generate compiler installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
+        # Use the version requirement that was set during initialization
+        version_min = self.version_required or "13.1"
 
         print(f"{self.name} {version_min}+ Required")
         print()

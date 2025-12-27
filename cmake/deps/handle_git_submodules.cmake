@@ -5,12 +5,17 @@
 # ------------------------------------------------------------------------------
 # Git Submodules Handler
 # ------------------------------------------------------------------------------
+#
+# Validates that git submodules have been initialized and updated.
+# Currently checks for third_party/googletest as a representative submodule.
+# All submodules should be initialized with: git submodule update --init --recursive
 
 macro(handle_git_submodules)
   message("")
   message("Finding GitSubmodules...")
 
   # Check if third_party/googletest exists and is populated
+  # This serves as a proxy for all submodules being properly initialized
   set(test_file "${CMAKE_SOURCE_DIR}/third_party/googletest/CMakeLists.txt")
 
   if(EXISTS "${test_file}")

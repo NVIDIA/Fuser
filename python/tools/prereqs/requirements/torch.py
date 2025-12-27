@@ -107,7 +107,12 @@ class TorchRequirement(VersionRequirement):
         return False
 
     def generate_help(self, platform_info):
-        """Generate PyTorch installation help."""
+        """
+        Generate PyTorch installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         version_min = self.version_required or "2.0"
 
         print(f"PyTorch {version_min}+ Required")

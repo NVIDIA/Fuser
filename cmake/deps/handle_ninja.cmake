@@ -5,12 +5,16 @@
 # ------------------------------------------------------------------------------
 # Ninja Build Tool Handler
 # ------------------------------------------------------------------------------
+#
+# Checks if the Ninja build system is being used as the CMake generator.
+# Note: This check happens after generator selection, so it only reports status.
+# To use Ninja, specify it when running CMake: cmake -G Ninja ..
 
 macro(handle_ninja)
   message("")
   message("Finding Ninja...")
 
-  # Check if using Ninja generator
+  # Check if using Ninja generator (CMAKE_GENERATOR is already set by this point)
   if(CMAKE_GENERATOR STREQUAL "Ninja")
     set(Ninja_FOUND TRUE)
     set(NVFUSER_REQUIREMENT_Ninja_STATUS "SUCCESS")

@@ -36,7 +36,12 @@ class GitSubmodulesRequirement(BooleanRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate Git submodules help."""
+        """
+        Generate Git submodules help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         print("Git Submodules Not Initialized")
         print()
         print("Why: nvFuser depends on third-party libraries included as Git submodules.")

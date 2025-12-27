@@ -41,7 +41,12 @@ class Pybind11Requirement(VersionRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate pybind11 installation help."""
+        """
+        Generate pybind11 installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         version_min = self.version_required or "2.0"
 
         print(f"pybind11 {version_min}+ Required")

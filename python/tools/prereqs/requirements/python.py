@@ -41,7 +41,12 @@ class PythonRequirement(VersionRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate Python installation help."""
+        """
+        Generate Python installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         version_min = self.version_required or "3.8"
 
         print(f"Python {version_min}+ Required")

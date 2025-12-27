@@ -17,8 +17,9 @@ macro(handle_compiler)
     set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_Clang_VERSION_MIN})
   endif()
 
-  # Set optional to true, we throw a warning in the report a if a different
-  # compiler is used but not necessarily fail.
+  # Mark compiler as optional to allow builds with any compiler.
+  # Only GNU and Clang have version requirements - other compilers get SUCCESS status.
+  # Python report will show warnings for unknown/old compilers without failing the build.
   set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
   set_dependency_report_status(Compiler)
 endmacro()

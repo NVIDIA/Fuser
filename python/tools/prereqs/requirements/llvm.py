@@ -41,7 +41,12 @@ class LLVMRequirement(VersionRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate LLVM installation help."""
+        """
+        Generate LLVM installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         import re
 
         version_min = self.version_required or "18.1"

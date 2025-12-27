@@ -37,7 +37,12 @@ class NinjaRequirement(BooleanRequirement):
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
 
     def generate_help(self, platform_info):
-        """Generate Ninja installation help."""
+        """
+        Generate Ninja installation help.
+
+        Args:
+            platform_info: Platform detection dict from detect_platform()
+        """
         print("Ninja Build System Required")
         print()
         print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
