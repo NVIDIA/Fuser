@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Ninja build system dependency requirement."""
 
-from typing import Dict
+from typing import Optional
 from .base import BooleanRequirement
 
 
@@ -15,13 +15,27 @@ class NinjaRequirement(BooleanRequirement):
     - Ninja_FOUND: Whether Ninja is available
     - Ninja_STATUS: Validation status
     - CMAKE_MAKE_PROGRAM: Path to build tool
+    - NVFUSER_REQUIREMENT_Ninja_OPTIONAL: Whether Ninja is optional
 
     No version checking - just verifies Ninja is available.
     """
 
-    def __init__(self, data: Dict):
-        super().__init__(data)
-        # Simple boolean check, no additional fields needed
+    def __init__(
+        self,
+        name: str,
+        found: str,
+        status: str,
+        optional: str,
+        location: Optional[str] = None,
+    ):
+        """
+        Initialize Ninja requirement.
 
-    # Inherits format_status_line from BooleanRequirement
-    # Pure boolean validation
+        Args:
+            name: Dependency name ("Ninja")
+            found: Ninja_FOUND CMake variable
+            status: Ninja_STATUS CMake variable
+            optional: NVFUSER_REQUIREMENT_Ninja_OPTIONAL CMake variable
+            location: CMAKE_MAKE_PROGRAM (from NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR)
+        """
+        super().__init__(name, found, status, optional, location)

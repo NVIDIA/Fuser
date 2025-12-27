@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Compiler dependency requirement (GCC/Clang)."""
 
-from typing import Dict
+from typing import Optional
 from .base import VersionRequirement
 
 
@@ -17,6 +17,8 @@ class CompilerRequirement(VersionRequirement):
     - Compiler_VERSION: Detected version
     - Compiler_FOUND: Whether compiler was found
     - Compiler_STATUS: Validation status
+    - NVFUSER_REQUIREMENT_Compiler_VERSION_MIN: Minimum required version
+    - NVFUSER_REQUIREMENT_Compiler_OPTIONAL: Whether compiler is optional
 
     Note: CMake exports "GCC" or "Clang" as the name, but variables are prefixed with "Compiler_"
 
@@ -25,38 +27,40 @@ class CompilerRequirement(VersionRequirement):
     - Clang: 19+ (C++20 with <format>)
     """
 
-    def __init__(self, data: Dict):
-        # Special handling: name is "GCC" or "Clang" but variables are "Compiler_*"
-        self.name = data["name"]  # GCC or Clang
-        cmake_vars = data["cmake_vars"]
+    def __init__(
+        self,
+        name: str,
+        found: str,
+        status: str,
+        optional: str,
+        version_found: Optional[str] = None,
+        version_required: Optional[str] = None,
+        location: Optional[str] = None,
+    ):
+        """
+        Initialize compiler requirement.
 
-        # Use "Compiler" prefix for CMake variables (not self.name)
-        self.found = self._to_bool(cmake_vars.get("Compiler_FOUND", "FALSE"))
-        self.status = cmake_vars.get("Compiler_STATUS", "UNKNOWN")
-        self.type = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_TYPE", "compiler")
-        self.version_found = cmake_vars.get("Compiler_VERSION")
-        self.version_required = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_VERSION_MIN")
+        Note: Name will be "GCC" or "Clang", but all CMake variables use "Compiler_" prefix.
 
-        # Get location
-        location_var = cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR")
-        if location_var:
-            self.location = cmake_vars.get(location_var)
+        Args:
+            name: Dependency name ("GCC" or "Clang" from Compiler_NAME)
+            found: Compiler_FOUND CMake variable
+            status: Compiler_STATUS CMake variable
+            optional: NVFUSER_REQUIREMENT_Compiler_OPTIONAL CMake variable
+            version_found: Compiler_VERSION CMake variable
+            version_required: NVFUSER_REQUIREMENT_Compiler_VERSION_MIN CMake variable
+            location: CMAKE_CXX_COMPILER (from NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR)
+        """
+        super().__init__(name, found, status, optional, version_found, version_required, location)
+
+    def format_status_line(self, colors) -> str:
+        """Format with compiler path."""
+        # Get base version line
+        main_line = super().format_status_line(colors)
+
+        # Add compiler path if available and successful
+        if self.status == "SUCCESS" and self.location:
+            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
         else:
-            self.location = None
+            return main_line
 
-        self.optional = self._to_bool(cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_OPTIONAL", "FALSE"))
-
-        self._data = data
-        self._cmake_vars = cmake_vars
-
-    @staticmethod
-    def _to_bool(value) -> bool:
-        """Convert CMake boolean string to Python bool."""
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.upper() in ("TRUE", "ON", "YES", "1")
-        return bool(value)
-
-    # Inherits format_status_line from VersionRequirement
-    # Name (GCC/Clang) is already set correctly for display

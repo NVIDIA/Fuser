@@ -72,18 +72,14 @@ class DependencyReporter:
         self.colors = Colors()
         self.platform_info = detect_platform()
 
-        # Create requirement objects - explicitly instantiate each class
+        # Create requirement objects - pass individual CMake variables explicitly
         self.requirements = []
         if create_requirement:
             cmake_vars = data.get("cmake_vars", {})
             dependency_names = data.get("dependency_names", [])
             for dep_name in dependency_names:
-                # Create dict with CMake variables for this dependency
-                dep_data = {
-                    "name": dep_name,
-                    "cmake_vars": cmake_vars,
-                }
-                req = create_requirement(dep_data)
+                # Create requirement with explicit CMake variable names
+                req = create_requirement(dep_name, cmake_vars)
                 self.requirements.append(req)
         else:
             self.requirements = []

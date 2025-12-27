@@ -9,7 +9,7 @@ Each requirement knows how to format its status and determine if it represents a
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Optional
 from dataclasses import dataclass
 
 
@@ -28,38 +28,31 @@ class Requirement(ABC):
     All requirements must implement:
     - format_status_line(): Format output for terminal
     - is_failure(): Determine if this represents a build failure
-    - get_failure_data(): Provide data for help text generation
     """
 
-    def __init__(self, data: Dict):
+    def __init__(
+        self,
+        name: str,
+        found: str,
+        status: str,
+        optional: str,
+        location: Optional[str] = None,
+    ):
         """
-        Initialize from CMake data.
+        Initialize from CMake variables.
 
         Args:
-            data: Dictionary with keys:
-                - name: Dependency name
-                - cmake_vars: Flat dict of ALL CMake variables
+            name: Dependency name
+            found: CMake boolean string (e.g., "TRUE", "FALSE")
+            status: Validation status (SUCCESS, NOT_FOUND, INCOMPATIBLE)
+            optional: CMake boolean string indicating if dependency is optional
+            location: Optional path to the dependency
         """
-        self.name = data["name"]
-        cmake_vars = data["cmake_vars"]
-
-        # Extract common fields from flat cmake_vars dict
-        self.found = self._to_bool(cmake_vars.get(f"{self.name}_FOUND", "FALSE"))
-        self.status = cmake_vars.get(f"{self.name}_STATUS", "UNKNOWN")
-        self.type = cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_TYPE", "find_package")
-
-        # Extract metadata from flat dict
-        self.optional = self._to_bool(cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_OPTIONAL", "FALSE"))
-
-        # Get location from location_var
-        location_var = cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_LOCATION_VAR")
-        if location_var:
-            self.location = cmake_vars.get(location_var)
-        else:
-            self.location = None
-
-        self._data = data
-        self._cmake_vars = cmake_vars
+        self.name = name
+        self.found = self._to_bool(found)
+        self.status = status
+        self.optional = self._to_bool(optional)
+        self.location = location
 
     @staticmethod
     def _to_bool(value) -> bool:
@@ -79,9 +72,16 @@ class Requirement(ABC):
         """Check if this requirement represents a failure."""
         return not self.optional and self.status != RequirementStatus.SUCCESS
 
-    def get_failure_data(self) -> Dict:
+    def get_failure_data(self):
         """Get data for help text generation."""
-        return self._data.copy()
+        # Return a dict compatible with help system
+        return {
+            "name": self.name,
+            "status": self.status,
+            "found": self.found,
+            "optional": self.optional,
+            "location": self.location,
+        }
 
 
 class VersionRequirement(Requirement):
@@ -92,12 +92,31 @@ class VersionRequirement(Requirement):
     Subclasses inherit all version comparison logic.
     """
 
-    def __init__(self, data: Dict):
-        super().__init__(data)
+    def __init__(
+        self,
+        name: str,
+        found: str,
+        status: str,
+        optional: str,
+        version_found: Optional[str] = None,
+        version_required: Optional[str] = None,
+        location: Optional[str] = None,
+    ):
+        """
+        Initialize version requirement.
 
-        # Extract version information from flat cmake_vars dict
-        self.version_found = self._cmake_vars.get(f"{self.name}_VERSION")
-        self.version_required = self._cmake_vars.get(f"NVFUSER_REQUIREMENT_{self.name}_VERSION_MIN")
+        Args:
+            name: Dependency name
+            found: CMake boolean string
+            status: Validation status
+            optional: CMake boolean string
+            version_found: Detected version string
+            version_required: Minimum required version string
+            location: Optional path to the dependency
+        """
+        super().__init__(name, found, status, optional, location)
+        self.version_found = version_found
+        self.version_required = version_required
 
     def format_status_line(self, colors) -> str:
         """Format status line with version information."""
