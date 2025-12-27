@@ -145,11 +145,16 @@ class VersionRequirement(Requirement):
     def _format_success(self, colors) -> str:
         """Format success: [nvFuser] ✓ Python 3.12.3 >= 3.8"""
         if self.version_found and self.version_required:
-            return f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found} >= {self.version_required}{colors.RESET}"
+            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found} >= {self.version_required}{colors.RESET}"
         elif self.version_found:
-            return f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found}{colors.RESET}"
+            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found}{colors.RESET}"
         else:
-            return f"{colors.GREEN}[nvFuser] ✓ {self.name}{colors.RESET}"
+            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name}{colors.RESET}"
+
+        # Add location if available
+        if self.location:
+            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
+        return main_line
 
     def _format_not_found(self, colors) -> str:
         """Format not found line."""

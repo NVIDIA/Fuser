@@ -39,12 +39,12 @@ class TorchRequirement(VersionRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "Torch"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        version_found_var = f"{name}_VERSION"
-        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "Torch_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_Torch_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_Torch_OPTIONAL"
+        version_found_var = "Torch_VERSION"
+        version_required_var = "NVFUSER_REQUIREMENT_Torch_VERSION_MIN"
+        location_var = "Torch_DIR"
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
@@ -58,10 +58,6 @@ class TorchRequirement(VersionRequirement):
         """Format with both Torch version and CUDA constraint."""
         # Main Torch version line
         main_line = super().format_status_line(colors)
-
-        # Add Torch path if available and successful
-        if self.status == "SUCCESS" and self.location:
-            main_line = main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
 
         # Add CUDA constraint line
         constraint_line = self._format_cuda_constraint(colors)

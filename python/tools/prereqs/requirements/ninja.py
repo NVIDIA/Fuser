@@ -29,10 +29,10 @@ class NinjaRequirement(BooleanRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "Ninja"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "Ninja_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_Ninja_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_Ninja_OPTIONAL"
+        location_var = ""
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
 

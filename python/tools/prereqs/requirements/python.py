@@ -31,12 +31,12 @@ class PythonRequirement(VersionRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "Python"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        version_found_var = f"{name}_VERSION"
-        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "Python_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_Python_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_Python_OPTIONAL"
+        version_found_var = "Python_VERSION"
+        version_required_var = "NVFUSER_REQUIREMENT_Python_VERSION_MIN"
+        location_var = "Python_EXECUTABLE"
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 

@@ -50,17 +50,6 @@ class CompilerRequirement(VersionRequirement):
             location_var,
         )
 
-    def format_status_line(self, colors) -> str:
-        """Format with compiler path."""
-        # Get base version line
-        main_line = super().format_status_line(colors)
-
-        # Add compiler path if available and successful
-        if self.status == "SUCCESS" and self.location:
-            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
-        else:
-            return main_line
-
     def generate_help(self, platform_info):
         """Generate compiler installation help."""
         version_min = self.version_required or (

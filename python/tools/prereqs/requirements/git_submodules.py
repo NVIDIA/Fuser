@@ -28,10 +28,10 @@ class GitSubmodulesRequirement(BooleanRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "GitSubmodules"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "GitSubmodules_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_GitSubmodules_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL"
+        location_var = "NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR"
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
 

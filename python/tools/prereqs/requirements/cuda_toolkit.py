@@ -31,25 +31,14 @@ class CUDAToolkitRequirement(VersionRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "CUDAToolkit"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        version_found_var = f"{name}_VERSION"
-        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "CUDAToolkit_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_CUDAToolkit_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL"
+        version_found_var = "CUDAToolkit_VERSION"
+        version_required_var = "NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN"
+        location_var = "CUDAToolkit_ROOT"
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
-
-    def format_status_line(self, colors) -> str:
-        """Format with CUDA Toolkit path."""
-        # Get base version line
-        main_line = super().format_status_line(colors)
-
-        # Add CUDA path if available and successful
-        if self.status == "SUCCESS" and self.location:
-            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
-        else:
-            return main_line
 
     def generate_help(self, platform_info):
         """Generate CUDA Toolkit installation help."""

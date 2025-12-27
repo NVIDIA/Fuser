@@ -31,25 +31,14 @@ class LLVMRequirement(VersionRequirement):
         """
         # Define dependency name and CMake variable names for this requirement
         name = "LLVM"
-        found_var = f"{name}_FOUND"
-        status_var = f"NVFUSER_REQUIREMENT_{name}_STATUS"
-        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
-        version_found_var = f"{name}_VERSION"
-        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
-        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+        found_var = "LLVM_FOUND"
+        status_var = "NVFUSER_REQUIREMENT_LLVM_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_LLVM_OPTIONAL"
+        version_found_var = "LLVM_VERSION"
+        version_required_var = "NVFUSER_REQUIREMENT_LLVM_VERSION_MIN"
+        location_var = "LLVM_DIR"
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
-
-    def format_status_line(self, colors) -> str:
-        """Format with LLVM directory path."""
-        # Get base version line
-        main_line = super().format_status_line(colors)
-
-        # Add LLVM directory if available and successful
-        if self.status == "SUCCESS" and self.location:
-            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
-        else:
-            return main_line
 
     def generate_help(self, platform_info):
         """Generate LLVM installation help."""
