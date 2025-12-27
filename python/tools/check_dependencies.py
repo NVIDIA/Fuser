@@ -107,11 +107,23 @@ class DependencyReporter:
         print("* Optional requirement")
         print("=" * 80)
 
-        # Collect failures and print help if needed
-        failures = [req for req in self.requirements if hasattr(req, 'is_failure') and req.is_failure()]
+        # Collect failures and issues to show help for
+        # Include required failures (is_failure=True) and optional issues (not SUCCESS)
+        failures = []
+        for req in self.requirements:
+            if hasattr(req, 'is_failure') and req.is_failure():
+                # Required dependency that failed
+                failures.append(req)
+            elif hasattr(req, 'status') and hasattr(req, 'optional') and req.optional and req.status != 'SUCCESS':
+                # Optional dependency with issues (NOT_FOUND or INCOMPATIBLE)
+                failures.append(req)
+
         if failures:
             self._print_help_section(failures)
-            self._print_failure_summary()
+            # Only print failure summary if there are actual (non-optional) failures
+            required_failures = [req for req in self.requirements if hasattr(req, 'is_failure') and req.is_failure()]
+            if required_failures:
+                self._print_failure_summary()
 
         print()  # Blank line at end
 
