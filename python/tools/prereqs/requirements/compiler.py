@@ -47,8 +47,8 @@ class CompilerRequirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"
         location_var = "CMAKE_CXX_COMPILER"
 
-        gnu_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_GNU_VERSION_MIN")
-        clang_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_Clang_VERSION_MIN")
+        self.gnu_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_GNU_VERSION_MIN")
+        self.clang_min_version = cmake_vars.get("NVFUSER_REQUIREMENT_Clang_VERSION_MIN")
 
         super().__init__(
             name,
