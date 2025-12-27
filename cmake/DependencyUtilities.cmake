@@ -21,13 +21,6 @@ include(cmake/DependencyRequirements.cmake)
 
 # Set dependency status based on found state and version check
 macro(set_dependency_status name)
-  set(is_constraint "${NVFUSER_REQUIREMENT_${name}_IS_CONSTRAINT}")
-
-  if(is_constraint)
-    # Status already set by handler
-    return()
-  endif()
-
   set(optional "${NVFUSER_REQUIREMENT_${name}_OPTIONAL}")
 
   if(${name}_FOUND)
