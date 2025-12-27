@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Compiler dependency requirement (GNU/Clang)."""
 
-from typing import Optional, Dict
+from typing import Dict
 from .base import VersionRequirement
 
 

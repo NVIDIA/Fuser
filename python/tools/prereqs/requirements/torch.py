@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """PyTorch dependency requirement with CUDA constraint validation."""
 
-from typing import Optional, Dict
-from .base import VersionRequirement, RequirementStatus
+from typing import Dict
+from .base import VersionRequirement
 
 
 class TorchRequirement(VersionRequirement):

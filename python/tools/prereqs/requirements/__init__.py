@@ -3,7 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Requirement class registry and factory."""
 
-from typing import Dict
 from .base import Requirement, VersionRequirement, BooleanRequirement, RequirementStatus
 from .python import PythonRequirement
 from .torch import TorchRequirement
