@@ -59,7 +59,6 @@ include(cmake/DependencyUtilities.cmake)
 include(cmake/LogCapture.cmake)
 
 # Include all dependency handler functions
-include(cmake/deps/handle_git_submodules.cmake)
 include(cmake/deps/handle_ninja.cmake)
 include(cmake/deps/handle_compiler.cmake)
 include(cmake/deps/handle_python.cmake)
@@ -77,7 +76,6 @@ endif()
 
 # Handle each dependency explicitly
 handle_compiler()
-handle_git_submodules()
 handle_ninja()
 handle_cuda_toolkit()
 handle_python()
