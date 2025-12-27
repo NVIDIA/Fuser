@@ -12,10 +12,10 @@ class LLVMRequirement(VersionRequirement):
     LLVM requirement for Host IR JIT compilation.
 
     CMake variables used:
-    - LLVM_DIR: Path to LLVM CMake config
-    - LLVM_VERSION: Detected version (e.g., "18.1.3")
     - LLVM_FOUND: Whether LLVM was found
-    - LLVM_STATUS: Validation status
+    - LLVM_VERSION: Detected version (e.g., "18.1.3")
+    - LLVM_DIR: Path to LLVM CMake config
+    - NVFUSER_REQUIREMENT_LLVM_STATUS: Validation status
     - NVFUSER_REQUIREMENT_LLVM_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_LLVM_OPTIONAL: Whether LLVM is optional
 

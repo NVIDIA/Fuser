@@ -11,6 +11,17 @@ class CompilerRequirement(VersionRequirement):
     """
     C++ compiler requirement with name mapping.
 
+    CMake variables used:
+    - CMAKE_CXX_COMPILER_ID: Compiler name (GNU or Clang)
+    - Compiler_FOUND: Whether compiler is available (always TRUE)
+    - CMAKE_CXX_COMPILER_VERSION: Detected compiler version
+    - CMAKE_CXX_COMPILER: Path to compiler executable
+    - NVFUSER_REQUIREMENT_Compiler_STATUS: Validation status
+    - NVFUSER_REQUIREMENT_Compiler_VERSION_MIN: Minimum required version (set based on compiler ID)
+    - NVFUSER_REQUIREMENT_Compiler_OPTIONAL: Whether compiler is optional
+    - NVFUSER_REQUIREMENT_GNU_VERSION_MIN: Minimum GNU version (from DependencyRequirements.cmake)
+    - NVFUSER_REQUIREMENT_Clang_VERSION_MIN: Minimum Clang version (from DependencyRequirements.cmake)
+
     Note: CMake exports "GNU" or "Clang" as the name, but variables are prefixed with "Compiler_"
 
     Minimum versions:

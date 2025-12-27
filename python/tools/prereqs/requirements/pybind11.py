@@ -12,10 +12,10 @@ class Pybind11Requirement(VersionRequirement):
     pybind11 requirement for Python bindings.
 
     CMake variables used:
-    - pybind11_DIR: Path to pybind11 CMake config
-    - pybind11_VERSION: Detected version (e.g., "3.0.1")
     - pybind11_FOUND: Whether pybind11 was found
-    - pybind11_STATUS: Validation status
+    - pybind11_VERSION: Detected version (e.g., "3.0.1")
+    - pybind11_DIR: Path to pybind11 CMake config
+    - NVFUSER_REQUIREMENT_pybind11_STATUS: Validation status
     - NVFUSER_REQUIREMENT_pybind11_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_pybind11_OPTIONAL: Whether pybind11 is optional
 

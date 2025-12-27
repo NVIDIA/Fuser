@@ -12,10 +12,10 @@ class PythonRequirement(VersionRequirement):
     Python interpreter requirement.
 
     CMake variables used:
-    - Python_EXECUTABLE: Path to python binary
-    - Python_VERSION: Detected version (e.g., "3.12.3")
     - Python_FOUND: Whether Python was found
-    - Python_STATUS: Validation status
+    - Python_VERSION: Detected version (e.g., "3.12.3")
+    - Python_EXECUTABLE: Path to python binary
+    - NVFUSER_REQUIREMENT_Python_STATUS: Validation status
     - NVFUSER_REQUIREMENT_Python_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_Python_OPTIONAL: Whether Python is optional
 

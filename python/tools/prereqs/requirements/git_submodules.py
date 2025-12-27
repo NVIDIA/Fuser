@@ -13,7 +13,7 @@ class GitSubmodulesRequirement(BooleanRequirement):
 
     CMake variables used:
     - GitSubmodules_FOUND: Whether submodules are initialized
-    - GitSubmodules_STATUS: Validation status
+    - NVFUSER_REQUIREMENT_GitSubmodules_STATUS: Validation status
     - NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL: Whether submodules are optional
 
     No version checking - simple pass/fail.

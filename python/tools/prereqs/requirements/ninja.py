@@ -13,8 +13,7 @@ class NinjaRequirement(BooleanRequirement):
 
     CMake variables used:
     - Ninja_FOUND: Whether Ninja is available
-    - Ninja_STATUS: Validation status
-    - CMAKE_MAKE_PROGRAM: Path to build tool
+    - NVFUSER_REQUIREMENT_Ninja_STATUS: Validation status
     - NVFUSER_REQUIREMENT_Ninja_OPTIONAL: Whether Ninja is optional
 
     No version checking - just verifies Ninja is available.

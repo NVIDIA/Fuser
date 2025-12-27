@@ -12,10 +12,10 @@ class CUDAToolkitRequirement(VersionRequirement):
     NVIDIA CUDA Toolkit requirement.
 
     CMake variables used:
-    - CUDAToolkit_LIBRARY_ROOT: Path to CUDA installation
-    - CUDAToolkit_VERSION: Detected version (e.g., "13.1.80")
     - CUDAToolkit_FOUND: Whether CUDA was found
-    - CUDAToolkit_STATUS: Validation status
+    - CUDAToolkit_VERSION: Detected version (e.g., "13.1.80")
+    - CUDAToolkit_ROOT: Path to CUDA installation
+    - NVFUSER_REQUIREMENT_CUDAToolkit_STATUS: Validation status
     - NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL: Whether CUDA is optional
 

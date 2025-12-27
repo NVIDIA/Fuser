@@ -12,10 +12,10 @@ class TorchRequirement(VersionRequirement):
     PyTorch requirement with CUDA version constraint checking.
 
     CMake variables used:
-    - Torch_DIR: Path to Torch CMake config
-    - Torch_VERSION: Detected PyTorch version
     - Torch_FOUND: Whether Torch was found
-    - Torch_STATUS: Validation status
+    - Torch_VERSION: Detected PyTorch version
+    - Torch_DIR: Path to Torch CMake config
+    - NVFUSER_REQUIREMENT_Torch_STATUS: Validation status
     - NVFUSER_REQUIREMENT_Torch_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_Torch_OPTIONAL: Whether Torch is optional
     - Torch_CUDA_constraint_status: CUDA constraint validation result
