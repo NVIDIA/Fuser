@@ -11,10 +11,6 @@
 # - VERSION_MIN: Minimum version required (can be empty for "any version")
 # - OPTIONAL: TRUE/FALSE (default FALSE)
 # - COMPONENTS: Components required (for find_package, semicolon-separated)
-# - INSTALL_HELP: Text to show on failure (content TBD from #5609)
-# - LOCATION_VAR: Which variable to use for display path
-# - PRE_FIND_HOOK: Function name to call before find_package (optional)
-# - POST_FIND_HOOK: Function name to call after successful find_package (optional)
 #
 # ==============================================================================
 
@@ -22,7 +18,7 @@
 set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL "True")
 
 # Compiler (GCC or Clang)
-set(NVFUSER_REQUIREMENT_GNU_VERSION_MIN "13")
+set(NVFUSER_REQUIREMENT_GNU_VERSION_MIN "13.1")
 set(NVFUSER_REQUIREMENT_Clang_VERSION_MIN "19")
 
 # Python
