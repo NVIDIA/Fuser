@@ -16,6 +16,19 @@
 include(cmake/DependencyRequirements.cmake)
 
 # --------------------------
+# Conditionally add REQUIRED to find_package calls
+# --------------------------
+
+# When dependency report is enabled, we don't use REQUIRED so we can collect
+# all failures and show a comprehensive Python report.
+# When disabled, we use REQUIRED for immediate failure with standard CMake errors.
+if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
+  set(MAYBE_REQUIRED "")
+else()
+  set(MAYBE_REQUIRED "REQUIRED")
+endif()
+
+# --------------------------
 # Status Tracking for JSON Export
 # --------------------------
 

@@ -11,7 +11,7 @@ macro(handle_llvm)
   message("Finding LLVM...")
 
   # Direct find_package call
-  find_package(LLVM)
+  find_package(LLVM ${MAYBE_REQUIRED})
 
   # Use common status function
   set_dependency_report_status(LLVM)

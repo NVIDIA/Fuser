@@ -11,7 +11,7 @@ macro(handle_pybind11)
   message("Finding pybind11...")
 
   # Direct find_package call
-  find_package(pybind11)
+  find_package(pybind11 ${MAYBE_REQUIRED})
 
   # Use common status function
   set_dependency_report_status(pybind11)

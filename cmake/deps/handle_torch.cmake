@@ -46,7 +46,7 @@ macro(handle_torch)
   string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 
   # Direct find_package call
-  find_package(Torch)
+  find_package(Torch ${MAYBE_REQUIRED})
 
   # Use common status function for basic version check
   set_dependency_report_status(Torch)

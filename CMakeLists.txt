@@ -26,6 +26,7 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
+option(NVFUSER_ENABLE_DEPENDENCY_REPORT "Enable Python-based dependency reporting and log capture" ON)
 
 if(NVFUSER_EXPLICIT_ERROR_CHECK)
   add_compile_definitions(NVFUSER_EXPLICIT_ERROR_CHECK)
@@ -70,7 +71,10 @@ include(cmake/deps/handle_llvm.cmake)
 # Initialize success flag
 set(NVFUSER_DEPENDENCIES_OK TRUE)
 
-start_capture()
+if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
+  start_capture()
+endif()
+
 # Handle each dependency explicitly
 handle_compiler()
 handle_git_submodules()
@@ -80,17 +84,20 @@ handle_python()
 handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
-stop_capture(DEP_LOGS)
 
-# Show the dependency report (Python-based)
-report_dependencies()
+if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
+  stop_capture(DEP_LOGS)
 
-# Dump detailed logs
-message("")
-message(STATUS "******** Detailed Dependency Output ********")
-dump_captured_logs("${DEP_LOGS}")
-message(STATUS "******** End Dependency Output ********")
-message("")
+  # Show the dependency report (Python-based)
+  report_dependencies()
+
+  # Dump detailed logs
+  message("")
+  message(STATUS "******** Detailed Dependency Output ********")
+  dump_captured_logs("${DEP_LOGS}")
+  message(STATUS "******** End Dependency Output ********")
+  message("")
+endif()
 
 # Check if any required dependencies failed
 if(NOT NVFUSER_DEPENDENCIES_OK)
