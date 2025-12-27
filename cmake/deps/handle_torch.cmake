@@ -13,8 +13,7 @@ macro(handle_torch)
   # Setup: Query Python for Torch path
   if(NOT Python_FOUND)
     set(Torch_FOUND FALSE)
-    set(NVFUSER_REQUIREMENT_Torch_STATUS "NOT_FOUND")
-    set(NVFUSER_DEPENDENCIES_OK FALSE)
+    set_dependency_report_status(Torch)
     return()
   endif()
 
@@ -27,8 +26,7 @@ macro(handle_torch)
 
   if(NOT TORCH_FIND_RESULT EQUAL 0)
     set(Torch_FOUND FALSE)
-    set(NVFUSER_REQUIREMENT_Torch_STATUS "NOT_FOUND")
-    set(NVFUSER_DEPENDENCIES_OK FALSE)
+    set_dependency_report_status(Torch)
     return()
   endif()
 
