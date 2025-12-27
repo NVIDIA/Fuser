@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """PyTorch dependency requirement with CUDA constraint validation."""
 
-from typing import Optional
+from typing import Optional, Dict
 from .base import VersionRequirement, RequirementStatus
 
 
@@ -30,43 +30,29 @@ class TorchRequirement(VersionRequirement):
     Special: Also validates CUDA version constraint
     """
 
-    def __init__(
-        self,
-        name: str,
-        found: str,
-        status: str,
-        optional: str,
-        version_found: Optional[str] = None,
-        version_required: Optional[str] = None,
-        location: Optional[str] = None,
-        torch_cuda_constraint_status: Optional[str] = None,
-        torch_cuda_constraint_version: Optional[str] = None,
-        torch_cuda_constraint_found: Optional[str] = None,
-        torch_cuda_constraint_required: Optional[str] = None,
-    ):
+    def __init__(self, cmake_vars: Dict):
         """
         Initialize Torch requirement.
 
         Args:
-            name: Dependency name ("Torch")
-            found: Torch_FOUND CMake variable
-            status: Torch_STATUS CMake variable
-            optional: NVFUSER_REQUIREMENT_Torch_OPTIONAL CMake variable
-            version_found: Torch_VERSION CMake variable
-            version_required: NVFUSER_REQUIREMENT_Torch_VERSION_MIN CMake variable
-            location: Torch_DIR (from NVFUSER_REQUIREMENT_Torch_LOCATION_VAR)
-            torch_cuda_constraint_status: Torch_CUDA_constraint_status CMake variable
-            torch_cuda_constraint_version: Torch_CUDA_constraint_version CMake variable
-            torch_cuda_constraint_found: Torch_CUDA_constraint_found CMake variable
-            torch_cuda_constraint_required: Torch_CUDA_constraint_required CMake variable
+            cmake_vars: Dictionary of all CMake variables
         """
-        super().__init__(name, found, status, optional, version_found, version_required, location)
+        # Define dependency name and CMake variable names for this requirement
+        name = "Torch"
+        found_var = f"{name}_FOUND"
+        status_var = f"{name}_STATUS"
+        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
+        version_found_var = f"{name}_VERSION"
+        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
+        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
 
-        # Extract Torch CUDA constraint variables
-        self.constraint_status = torch_cuda_constraint_status
-        self.constraint_version = torch_cuda_constraint_version
-        self.constraint_found = torch_cuda_constraint_found
-        self.constraint_required = torch_cuda_constraint_required
+        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+
+        # Extract Torch CUDA constraint variables from cmake_vars
+        self.constraint_status = cmake_vars.get(f"{name}_CUDA_constraint_status")
+        self.constraint_version = cmake_vars.get(f"{name}_CUDA_constraint_version")
+        self.constraint_found = cmake_vars.get(f"{name}_CUDA_constraint_found")
+        self.constraint_required = cmake_vars.get(f"{name}_CUDA_constraint_required")
 
     def format_status_line(self, colors) -> str:
         """Format with both Torch version and CUDA constraint."""

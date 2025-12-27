@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Git submodules dependency requirement."""
 
-from typing import Optional
+from typing import Optional, Dict
 from .base import BooleanRequirement
 
 
@@ -19,25 +19,21 @@ class GitSubmodulesRequirement(BooleanRequirement):
     No version checking - simple pass/fail.
     """
 
-    def __init__(
-        self,
-        name: str,
-        found: str,
-        status: str,
-        optional: str,
-        location: Optional[str] = None,
-    ):
+    def __init__(self, cmake_vars: Dict):
         """
         Initialize Git submodules requirement.
 
         Args:
-            name: Dependency name ("GitSubmodules")
-            found: GitSubmodules_FOUND CMake variable
-            status: GitSubmodules_STATUS CMake variable
-            optional: NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL CMake variable
-            location: Not used for submodules
+            cmake_vars: Dictionary of all CMake variables
         """
-        super().__init__(name, found, status, optional, location)
+        # Define dependency name and CMake variable names for this requirement
+        name = "GitSubmodules"
+        found_var = f"{name}_FOUND"
+        status_var = f"{name}_STATUS"
+        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
+        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+
+        super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
 
     def generate_help(self, platform_info):
         """Generate Git submodules help."""

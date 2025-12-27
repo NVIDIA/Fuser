@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """CUDA Toolkit dependency requirement."""
 
-from typing import Optional
+from typing import Optional, Dict
 from .base import VersionRequirement
 
 
@@ -22,29 +22,23 @@ class CUDAToolkitRequirement(VersionRequirement):
     Minimum version: 12.6+ (defined in CMake)
     """
 
-    def __init__(
-        self,
-        name: str,
-        found: str,
-        status: str,
-        optional: str,
-        version_found: Optional[str] = None,
-        version_required: Optional[str] = None,
-        location: Optional[str] = None,
-    ):
+    def __init__(self, cmake_vars: Dict):
         """
         Initialize CUDAToolkit requirement.
 
         Args:
-            name: Dependency name ("CUDAToolkit")
-            found: CUDAToolkit_FOUND CMake variable
-            status: CUDAToolkit_STATUS CMake variable
-            optional: NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL CMake variable
-            version_found: CUDAToolkit_VERSION CMake variable
-            version_required: NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN CMake variable
-            location: CUDAToolkit_LIBRARY_ROOT (from NVFUSER_REQUIREMENT_CUDAToolkit_LOCATION_VAR)
+            cmake_vars: Dictionary of all CMake variables
         """
-        super().__init__(name, found, status, optional, version_found, version_required, location)
+        # Define dependency name and CMake variable names for this requirement
+        name = "CUDAToolkit"
+        found_var = f"{name}_FOUND"
+        status_var = f"{name}_STATUS"
+        optional_var = f"NVFUSER_REQUIREMENT_{name}_OPTIONAL"
+        version_found_var = f"{name}_VERSION"
+        version_required_var = f"NVFUSER_REQUIREMENT_{name}_VERSION_MIN"
+        location_var = f"NVFUSER_REQUIREMENT_{name}_LOCATION_VAR"
+
+        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def format_status_line(self, colors) -> str:
         """Format with CUDA Toolkit path."""

@@ -9,7 +9,7 @@ Each requirement knows how to format its status and determine if it represents a
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Dict
 from dataclasses import dataclass
 
 
@@ -33,26 +33,40 @@ class Requirement(ABC):
     def __init__(
         self,
         name: str,
-        found: str,
-        status: str,
-        optional: str,
-        location: Optional[str] = None,
+        cmake_vars: Dict,
+        found_var: str,
+        status_var: str,
+        optional_var: str,
+        location_var: Optional[str] = None,
     ):
         """
-        Initialize from CMake variables.
+        Initialize from CMake variable names.
 
         Args:
             name: Dependency name
-            found: CMake boolean string (e.g., "TRUE", "FALSE")
-            status: Validation status (SUCCESS, NOT_FOUND, INCOMPATIBLE)
-            optional: CMake boolean string indicating if dependency is optional
-            location: Optional path to the dependency
+            cmake_vars: Dictionary of all CMake variables
+            found_var: Name of CMake variable for found status (e.g., "Python_FOUND")
+            status_var: Name of CMake variable for validation status (e.g., "Python_STATUS")
+            optional_var: Name of CMake variable for optional flag (e.g., "NVFUSER_REQUIREMENT_Python_OPTIONAL")
+            location_var: Optional name of CMake variable for location (e.g., "Python_EXECUTABLE")
         """
         self.name = name
-        self.found = self._to_bool(found)
-        self.status = status
-        self.optional = self._to_bool(optional)
-        self.location = location
+        self.found = self._to_bool(cmake_vars.get(found_var, "FALSE"))
+        self.status = cmake_vars.get(status_var, "UNKNOWN")
+        self.optional = self._to_bool(cmake_vars.get(optional_var, "FALSE"))
+
+        # Look up location if location_var is provided
+        if location_var:
+            # location_var contains the NAME of the variable to look up
+            # e.g., location_var = "NVFUSER_REQUIREMENT_Python_LOCATION_VAR"
+            # which contains "Python_EXECUTABLE"
+            actual_location_var = cmake_vars.get(location_var)
+            if actual_location_var:
+                self.location = cmake_vars.get(actual_location_var)
+            else:
+                self.location = None
+        else:
+            self.location = None
 
     @staticmethod
     def _to_bool(value) -> bool:
@@ -102,28 +116,30 @@ class VersionRequirement(Requirement):
     def __init__(
         self,
         name: str,
-        found: str,
-        status: str,
-        optional: str,
-        version_found: Optional[str] = None,
-        version_required: Optional[str] = None,
-        location: Optional[str] = None,
+        cmake_vars: Dict,
+        found_var: str,
+        status_var: str,
+        optional_var: str,
+        version_found_var: Optional[str] = None,
+        version_required_var: Optional[str] = None,
+        location_var: Optional[str] = None,
     ):
         """
         Initialize version requirement.
 
         Args:
             name: Dependency name
-            found: CMake boolean string
-            status: Validation status
-            optional: CMake boolean string
-            version_found: Detected version string
-            version_required: Minimum required version string
-            location: Optional path to the dependency
+            cmake_vars: Dictionary of all CMake variables
+            found_var: Name of CMake variable for found status
+            status_var: Name of CMake variable for validation status
+            optional_var: Name of CMake variable for optional flag
+            version_found_var: Name of CMake variable for detected version (e.g., "Python_VERSION")
+            version_required_var: Name of CMake variable for minimum required version (e.g., "NVFUSER_REQUIREMENT_Python_VERSION_MIN")
+            location_var: Optional name of CMake variable for location
         """
-        super().__init__(name, found, status, optional, location)
-        self.version_found = version_found
-        self.version_required = version_required
+        super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
+        self.version_found = cmake_vars.get(version_found_var) if version_found_var else None
+        self.version_required = cmake_vars.get(version_required_var) if version_required_var else None
 
     def format_status_line(self, colors) -> str:
         """Format status line with version information."""

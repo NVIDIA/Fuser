@@ -69,98 +69,17 @@ class DependencyReporter:
         self.colors = Colors()
         self.platform_info = detect_platform()
 
-        # Create requirement objects - explicitly instantiate each dependency
-        # Dependency order matches CMake validation order
+        # Create requirement objects - each class defines its own name and variable names
         self.requirements = []
         if HELP_AVAILABLE:
-            # GitSubmodules
-            self.requirements.append(GitSubmodulesRequirement(
-                name="GitSubmodules",
-                found=cmake_vars.get("GitSubmodules_FOUND", "FALSE"),
-                status=cmake_vars.get("GitSubmodules_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL", "FALSE"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR", ""), ""),
-            ))
-
-            # Ninja
-            self.requirements.append(NinjaRequirement(
-                name="Ninja",
-                found=cmake_vars.get("Ninja_FOUND", "FALSE"),
-                status=cmake_vars.get("Ninja_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Ninja_OPTIONAL", "FALSE"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR", ""), ""),
-            ))
-
-            # Compiler (GCC or Clang)
-            compiler_name = cmake_vars.get("Compiler_NAME", "Compiler")
-            self.requirements.append(CompilerRequirement(
-                name=compiler_name,
-                found=cmake_vars.get("Compiler_FOUND", "FALSE"),
-                status=cmake_vars.get("Compiler_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("Compiler_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR", ""), ""),
-            ))
-
-            # Python
-            self.requirements.append(PythonRequirement(
-                name="Python",
-                found=cmake_vars.get("Python_FOUND", "FALSE"),
-                status=cmake_vars.get("Python_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Python_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("Python_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Python_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Python_LOCATION_VAR", ""), ""),
-            ))
-
-            # CUDAToolkit
-            self.requirements.append(CUDAToolkitRequirement(
-                name="CUDAToolkit",
-                found=cmake_vars.get("CUDAToolkit_FOUND", "FALSE"),
-                status=cmake_vars.get("CUDAToolkit_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("CUDAToolkit_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_CUDAToolkit_LOCATION_VAR", ""), ""),
-            ))
-
-            # Torch
-            self.requirements.append(TorchRequirement(
-                name="Torch",
-                found=cmake_vars.get("Torch_FOUND", "FALSE"),
-                status=cmake_vars.get("Torch_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_Torch_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("Torch_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_Torch_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_Torch_LOCATION_VAR", ""), ""),
-                torch_cuda_constraint_status=cmake_vars.get("Torch_CUDA_constraint_status"),
-                torch_cuda_constraint_version=cmake_vars.get("Torch_CUDA_constraint_version"),
-                torch_cuda_constraint_found=cmake_vars.get("Torch_CUDA_constraint_found"),
-                torch_cuda_constraint_required=cmake_vars.get("Torch_CUDA_constraint_required"),
-            ))
-
-            # pybind11
-            self.requirements.append(Pybind11Requirement(
-                name="pybind11",
-                found=cmake_vars.get("pybind11_FOUND", "FALSE"),
-                status=cmake_vars.get("pybind11_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("pybind11_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_pybind11_LOCATION_VAR", ""), ""),
-            ))
-
-            # LLVM
-            self.requirements.append(LLVMRequirement(
-                name="LLVM",
-                found=cmake_vars.get("LLVM_FOUND", "FALSE"),
-                status=cmake_vars.get("LLVM_STATUS", "UNKNOWN"),
-                optional=cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_OPTIONAL", "FALSE"),
-                version_found=cmake_vars.get("LLVM_VERSION"),
-                version_required=cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_VERSION_MIN"),
-                location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_LOCATION_VAR", ""), ""),
-            ))
+            self.requirements.append(GitSubmodulesRequirement(cmake_vars))
+            self.requirements.append(NinjaRequirement(cmake_vars))
+            self.requirements.append(CompilerRequirement(cmake_vars))
+            self.requirements.append(PythonRequirement(cmake_vars))
+            self.requirements.append(CUDAToolkitRequirement(cmake_vars))
+            self.requirements.append(TorchRequirement(cmake_vars))
+            self.requirements.append(Pybind11Requirement(cmake_vars))
+            self.requirements.append(LLVMRequirement(cmake_vars))
 
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 """Compiler dependency requirement (GCC/Clang)."""
 
-from typing import Optional
+from typing import Optional, Dict
 from .base import VersionRequirement
 
 
@@ -27,31 +27,28 @@ class CompilerRequirement(VersionRequirement):
     - Clang: 19+ (C++20 with <format>)
     """
 
-    def __init__(
-        self,
-        name: str,
-        found: str,
-        status: str,
-        optional: str,
-        version_found: Optional[str] = None,
-        version_required: Optional[str] = None,
-        location: Optional[str] = None,
-    ):
+    def __init__(self, cmake_vars: Dict):
         """
         Initialize compiler requirement.
 
-        Note: Name will be "GCC" or "Clang", but all CMake variables use "Compiler_" prefix.
+        Note: Name is extracted from cmake_vars (Compiler_NAME = "GCC" or "Clang"),
+        but all CMake variables use "Compiler_" prefix.
 
         Args:
-            name: Dependency name ("GCC" or "Clang" from Compiler_NAME)
-            found: Compiler_FOUND CMake variable
-            status: Compiler_STATUS CMake variable
-            optional: NVFUSER_REQUIREMENT_Compiler_OPTIONAL CMake variable
-            version_found: Compiler_VERSION CMake variable
-            version_required: NVFUSER_REQUIREMENT_Compiler_VERSION_MIN CMake variable
-            location: CMAKE_CXX_COMPILER (from NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR)
+            cmake_vars: Dictionary of all CMake variables
         """
-        super().__init__(name, found, status, optional, version_found, version_required, location)
+        # Extract compiler name from CMake (GCC or Clang)
+        name = cmake_vars.get("Compiler_NAME", "Compiler")
+
+        # Compiler uses "Compiler_" prefix for all variables, regardless of actual name
+        found_var = "Compiler_FOUND"
+        status_var = "Compiler_STATUS"
+        optional_var = "NVFUSER_REQUIREMENT_Compiler_OPTIONAL"
+        version_found_var = "Compiler_VERSION"
+        version_required_var = "NVFUSER_REQUIREMENT_Compiler_VERSION_MIN"
+        location_var = "NVFUSER_REQUIREMENT_Compiler_LOCATION_VAR"
+
+        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
     def format_status_line(self, colors) -> str:
         """Format with compiler path."""
