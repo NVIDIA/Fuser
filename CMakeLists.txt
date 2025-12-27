@@ -40,12 +40,6 @@ if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
 
-
-# We try to update which C++ standard we use together in lockstep across all
-# built libraries, and these variables control which that is. Generally we are
-# on C++20, but we still support a version of CUDA (11) that does not recognize
-# C++20 and so we drop back to 17 there. Also, we allow all of these to be
-# overridden by the user.
 # Note we do not use a global set_property on e.g. CXX_STANDARD. CMake globals
 # are footguns that should generally be avoided, because they are difficult to
 # target where and *only* where they are needed. See e.g.:
@@ -53,12 +47,6 @@ endif()
 set(NVFUSER_C_STANDARD 20 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
-
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.1)
-    message(FATAL_ERROR "GCC < 13.1 : nvFuser requires a C++20 compliant compiler.")
-  endif()
-endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
@@ -81,16 +69,18 @@ include(cmake/deps/handle_llvm.cmake)
 # Initialize success flag
 set(NVFUSER_DEPENDENCIES_OK TRUE)
 
-# Handle each dependency explicitly (order matters!)
 start_capture()
+
+# Handle each dependency explicitly
 handle_git_submodules()
 handle_ninja()
 handle_compiler()
-handle_python() # Much come before Torch
-handle_cuda_toolkit()  # Must come before Torch for CUDA constraint
-handle_torch()
+handle_python()
+handle_cuda_toolkit()
+handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
+
 stop_capture(DEP_LOGS)
 
 # Show the dependency report (Python-based)

@@ -18,8 +18,12 @@
 #
 # ==============================================================================
 
+# Ninja
+set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL "True")
+
 # Compiler (GCC or Clang)
-set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN "13")  # GCC 13+ or Clang 19+
+set(NVFUSER_REQUIREMENT_GNU_VERSION_MIN "13")
+set(NVFUSER_REQUIREMENT_Clang_VERSION_MIN "19")
 
 # Python
 set(NVFUSER_REQUIREMENT_Python_VERSION_MIN "3.8")
@@ -27,10 +31,6 @@ set(NVFUSER_REQUIREMENT_Python_COMPONENTS "Interpreter;Development")
 
 # Torch
 set(NVFUSER_REQUIREMENT_Torch_VERSION_MIN "2.0")
-
-# Torch_CUDA (constraint check - not a real find_package)
-# This is a pseudo-dependency that reports the CUDA version constraint
-# Note: This is displayed as part of Torch output, not as separate requirement
 
 # pybind11
 set(NVFUSER_REQUIREMENT_pybind11_VERSION_MIN "2.0")
@@ -41,7 +41,3 @@ set(NVFUSER_REQUIREMENT_CUDAToolkit_COMPONENTS "Cupti;cuda_driver")
 
 # LLVM
 set(NVFUSER_REQUIREMENT_LLVM_VERSION_MIN "18.1")
-
-# Ninja
-set(NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR "CMAKE_MAKE_PROGRAM")
-set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL "True")
