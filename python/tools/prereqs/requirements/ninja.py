@@ -42,7 +42,7 @@ class NinjaRequirement(BooleanRequirement):
         Args:
             platform_info: Platform detection dict from detect_platform()
         """
-        print("Ninja Build System Required")
+        print("Ninja Build System")
         print()
         print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
         print()
@@ -74,4 +74,9 @@ class NinjaRequirement(BooleanRequirement):
         print("  Option 2: pip:")
         print()
         print("    pip install ninja")
+        print()
+        print("  Configuring CMake")
+        print()
+        print("    Pass Ninja as the CMake Generator")
+        print("    CMake <options> -G Ninja")
         print()
