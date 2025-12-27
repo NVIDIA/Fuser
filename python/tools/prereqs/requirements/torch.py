@@ -56,7 +56,7 @@ class TorchRequirement(VersionRequirement):
 
     def format_status_line(self, colors) -> str:
         """Format with both Torch version and CUDA constraint."""
-        # Main Torch version line
+        # Main Torch version line (base class handles location)
         main_line = super().format_status_line(colors)
 
         # Add CUDA constraint line
@@ -72,15 +72,25 @@ class TorchRequirement(VersionRequirement):
         if not self.constraint_status:
             return ""
 
+        # Use same padding as main dependency name
+        name_padded = f"{'Torch_CUDA':<15}"
+
         if self.constraint_status == "match":
             cuda_version = self.constraint_version or "unknown"
-            return f"{colors.GREEN}[nvFuser] ✓ Torch_CUDA {cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
+            status_part = f"{colors.GREEN}[nvFuser] ✓{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            # Use cyan for the CUDA version/result, matching location color
+            version_part = f"{colors.CYAN}{cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
+            return f"{status_part} {version_part}"
         elif self.constraint_status == "mismatch":
             torch_cuda = self.constraint_found or "unknown"
             toolkit_cuda = self.constraint_required or "unknown"
-            return f"{colors.BOLD_RED}[nvFuser] ✗ Torch_CUDA mismatch (Torch: {torch_cuda}, CUDAToolkit: {toolkit_cuda}){colors.RESET}"
+            status_part = f"{colors.BOLD_RED}[nvFuser] ✗{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            error_part = f"{colors.BOLD_RED}mismatch (Torch: {torch_cuda}, CUDAToolkit: {toolkit_cuda}){colors.RESET}"
+            return f"{status_part} {error_part}"
         elif self.constraint_status == "not_available":
-            return f"{colors.YELLOW}[nvFuser] ○ Torch_CUDA Torch built without CUDA{colors.RESET}"
+            status_part = f"{colors.YELLOW}[nvFuser] ○{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            message_part = f"{colors.YELLOW}Torch built without CUDA{colors.RESET}"
+            return f"{status_part} {message_part}"
         else:
             return ""
 

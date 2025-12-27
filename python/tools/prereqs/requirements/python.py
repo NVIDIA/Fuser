@@ -40,17 +40,6 @@ class PythonRequirement(VersionRequirement):
 
         super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
 
-    def format_status_line(self, colors) -> str:
-        """Format with Python executable path."""
-        # Get base version line
-        main_line = super().format_status_line(colors)
-
-        # Add executable path if available and successful
-        if self.status == "SUCCESS" and self.location:
-            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
-        else:
-            return main_line
-
     def generate_help(self, platform_info):
         """Generate Python installation help."""
         version_min = self.version_required or "3.8"

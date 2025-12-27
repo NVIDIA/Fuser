@@ -143,38 +143,63 @@ class VersionRequirement(Requirement):
             return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} unknown status{colors.RESET}"
 
     def _format_success(self, colors) -> str:
-        """Format success: [nvFuser] ✓ Python 3.12.3 >= 3.8"""
-        if self.version_found and self.version_required:
-            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found} >= {self.version_required}{colors.RESET}"
-        elif self.version_found:
-            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name} {self.version_found}{colors.RESET}"
-        else:
-            main_line = f"{colors.GREEN}[nvFuser] ✓ {self.name}{colors.RESET}"
+        """Format success: [nvFuser] ✓ Python        3.12.3 >= 3.8 (/usr/bin/python3)"""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        # Status symbol and name in white/green with padding
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+        status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
 
-        # Add location if available
+        # Version info in green
+        if self.version_found and self.version_required:
+            version_part = f"{colors.GREEN}{self.version_found} >= {self.version_required}{colors.RESET}"
+        elif self.version_found:
+            version_part = f"{colors.GREEN}{self.version_found}{colors.RESET}"
+        else:
+            version_part = ""
+
+        # Combine parts
+        if version_part:
+            main_line = f"{status_part} {version_part}"
+        else:
+            main_line = status_part
+
+        # Add location in cyan if available
         if self.location:
-            return main_line.replace(colors.RESET, f" ({self.location}){colors.RESET}")
+            main_line += f" {colors.CYAN}({self.location}){colors.RESET}"
+
         return main_line
 
     def _format_not_found(self, colors) -> str:
         """Format not found line."""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+
         if self.optional:
+            status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
             if self.version_required:
-                return f"{colors.YELLOW}[nvFuser] ○ {self.name} NOT found (optional, v{self.version_required}+ recommended){colors.RESET}"
+                return f"{status_part} {colors.YELLOW}Not found (optional, v{self.version_required}+ recommended){colors.RESET}"
             else:
-                return f"{colors.YELLOW}[nvFuser] ○ {self.name} NOT found (optional){colors.RESET}"
+                return f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
         else:
+            status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
             if self.version_required:
-                return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found (requires {self.version_required}+){colors.RESET}"
+                return f"{status_part} {colors.BOLD_RED}Not found (requires {self.version_required}+){colors.RESET}"
             else:
-                return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found{colors.RESET}"
+                return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
 
     def _format_incompatible(self, colors) -> str:
-        """Format incompatible: [nvFuser] ✗ Python 3.7.0 < 3.8"""
+        """Format incompatible: [nvFuser] ✗ Python        3.7.0 < 3.8"""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+        status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+
         if self.version_found and self.version_required:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} {self.version_found} < {self.version_required}{colors.RESET}"
+            return f"{status_part} {colors.BOLD_RED}{self.version_found} < {self.version_required}{colors.RESET}"
         else:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} incompatible{colors.RESET}"
+            return f"{status_part} {colors.BOLD_RED}incompatible{colors.RESET}"
 
 
 class BooleanRequirement(Requirement):
@@ -186,12 +211,21 @@ class BooleanRequirement(Requirement):
 
     def format_status_line(self, colors) -> str:
         """Format status line without version information."""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+
         if self.status == RequirementStatus.SUCCESS:
-            return f"{colors.GREEN}[nvFuser] ✓ {self.name}{colors.RESET}"
+            status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+            if self.location:
+                return f"{status_part} {colors.CYAN}({self.location}){colors.RESET}"
+            return status_part
         elif self.status == RequirementStatus.NOT_FOUND:
             if self.optional:
-                return f"{colors.YELLOW}[nvFuser] ○ {self.name} NOT found (optional){colors.RESET}"
+                status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
+                return f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
             else:
-                return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} NOT found{colors.RESET}"
+                status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+                return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
         else:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} validation failed{colors.RESET}"
+            return f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded} {colors.BOLD_RED}validation failed{colors.RESET}"

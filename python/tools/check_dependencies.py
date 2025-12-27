@@ -97,8 +97,15 @@ class DependencyReporter:
 
     def generate_report(self):
         """Main entry point - prints formatted report"""
+        print()  # Blank line before report
+        print("=" * 80)
         self._print_header()
+        print("=" * 80)
+        print()  # Blank line after header
         self._print_dependencies()
+        print()  # Blank line after dependencies
+        print("* Optional requirement")
+        print("=" * 80)
 
         # Collect failures and print help if needed
         failures = [req for req in self.requirements if hasattr(req, 'is_failure') and req.is_failure()]
@@ -110,9 +117,7 @@ class DependencyReporter:
 
     def _print_header(self):
         """Print report header"""
-        print()
         print(f"{self.colors.BOLD_GREEN}[nvFuser] Validating build prerequisites...{self.colors.RESET}")
-        print()
 
     def _print_failure_summary(self):
         """Print failure summary message"""
