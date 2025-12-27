@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.18)
 project(nvfuser)
 
 enable_language(CUDA)
@@ -86,7 +86,7 @@ start_capture()
 handle_git_submodules()
 handle_ninja()
 handle_compiler()
-handle_python()
+handle_python() # Much come before Torch
 handle_cuda_toolkit()  # Must come before Torch for CUDA constraint
 handle_torch()
 handle_pybind11()
@@ -714,9 +714,9 @@ if(BUILD_PYTHON)
   add_custom_command(
     OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
+    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
@@ -841,9 +841,9 @@ if(BUILD_PYTHON)
   add_custom_command(
     OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
+    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
@@ -1531,7 +1531,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
     COMMENT "Stringify NVFUSER runtime source file ${src}"
     OUTPUT ${dst}
     DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
-    COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
+    COMMAND ${Python_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
   )
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
   add_dependencies(codegen_internal nvfuser_rt_${filename})
@@ -1541,7 +1541,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   if(${src} IS_NEWER_THAN ${dst})
     # also generate the resource headers during the configuration step
     # (so tools like clang-tidy can run w/o requiring a real build)
-    execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+    execute_process(COMMAND ${Python_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
   endif()
 endforeach()
 
