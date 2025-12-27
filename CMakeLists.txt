@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
 project(nvfuser)
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
@@ -39,7 +40,6 @@ if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
 
-message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
@@ -55,16 +55,60 @@ set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
-  # I believe we should bump up the version below to 12.x.
-  # However, because gcc 11.4 is well tested and stable, let's defer this
-  # rejection until the day that we find a bug in gcc 11.4.
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
-    message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
+  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13.1)
+    message(FATAL_ERROR "GCC < 13.1 : nvFuser requires a C++20 compliant compiler.")
   endif()
 endif()
 
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
+
+# -----------------------------------------------------------------------------
+# nvFuser Requirements & Dependencies
+# -----------------------------------------------------------------------------
+include(cmake/DependencyUtilities.cmake)
+include(cmake/LogCapture.cmake)
+
+# Include all dependency handler functions
+include(cmake/deps/handle_git_submodules.cmake)
+include(cmake/deps/handle_ninja.cmake)
+include(cmake/deps/handle_compiler.cmake)
+include(cmake/deps/handle_python.cmake)
+include(cmake/deps/handle_cuda_toolkit.cmake)
+include(cmake/deps/handle_torch.cmake)
+include(cmake/deps/handle_pybind11.cmake)
+include(cmake/deps/handle_llvm.cmake)
+
+# Initialize success flag
+set(NVFUSER_DEPENDENCIES_OK TRUE)
+
+# Handle each dependency explicitly (order matters!)
+start_capture()
+handle_git_submodules()
+handle_ninja()
+handle_compiler()
+handle_python()
+handle_cuda_toolkit()  # Must come before Torch for CUDA constraint
+handle_torch()
+handle_pybind11()
+handle_llvm()
+stop_capture(DEP_LOGS)
+
+# Show the dependency report (Python-based)
+report_dependencies()
+
+# Dump detailed logs
+message("")
+message(STATUS "******** Detailed Dependency Output ********")
+dump_captured_logs("${DEP_LOGS}")
+message(STATUS "******** End Dependency Output ********")
+message("")
+
+# Check if any required dependencies failed
+if(NOT NVFUSER_DEPENDENCIES_OK)
+  message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
+endif()
+
+# -----------------------------------------------------------------------------
 
 # --------------------------
 # nvMatmulHeuristics support
@@ -72,7 +116,10 @@ string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
 if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
   find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
-    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+    PATHS 
+    /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
+    $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
+  )
 endif()
 
 if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
@@ -84,31 +131,14 @@ else()
 endif()
 # --------------------------
 
-find_package(Torch REQUIRED)
-find_package(Python REQUIRED Development.Module Interpreter)
-find_package(pybind11 REQUIRED)
-find_package(CUDAToolkit REQUIRED)
 
-# need this since the pytorch execution uses a different name
-set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-
-# CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
-string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
-
-# set CUDA_ARCH for cu tests.
-if(TORCH_CUDA_ARCH_LIST)
-  set(ARCH_FLAGS)
-  cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
-  list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
-endif()
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 set(CUTLASS_STATUS "N/A")
 if(BUILD_CUTLASS)
-  enable_language(CUDA)
 
   if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
     message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
@@ -434,25 +464,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-# Add LLVM JIT related dependencies
-set(LLVM_MINIMUM_VERSION "18.1")
-find_package(LLVM REQUIRED CONFIG)
-if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
-  message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
-endif()
-llvm_map_components_to_libnames(LLVM_LIBS
-  support
-  core
-  orcjit
-  executionengine
-  irreader
-  nativecodegen
-  Target
-  Analysis
-  JITLink
-  Demangle
-)
-
 add_library(LLVM_JIT INTERFACE)
 target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
@@ -773,7 +784,7 @@ if(BUILD_PYTHON)
   endif()
 
   if (NOT MSVC)
-      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+    target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
   endif()
 
   target_link_libraries(nvf_py_internal PRIVATE
@@ -1521,5 +1532,8 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+if (NVMMH_FOUND)
+  message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+endif()
 message(STATUS "******** End of Nvfuser configuration summary ********")
+message(STATUS "")
