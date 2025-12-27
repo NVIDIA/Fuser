@@ -39,3 +39,39 @@ class NinjaRequirement(BooleanRequirement):
             location: CMAKE_MAKE_PROGRAM (from NVFUSER_REQUIREMENT_Ninja_LOCATION_VAR)
         """
         super().__init__(name, found, status, optional, location)
+
+    def generate_help(self, platform_info):
+        """Generate Ninja installation help."""
+        print("Ninja Build System Required")
+        print()
+        print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
+        print()
+        print("Install Ninja:")
+        print()
+
+        os_type = platform_info["os"]
+
+        if os_type == "Linux":
+            if platform_info.get("ubuntu_based"):
+                print("  Option 1: Ubuntu/Debian:")
+                print()
+                print("    sudo apt update")
+                print("    sudo apt install ninja-build")
+                print()
+            else:
+                print("  Option 1: System package manager:")
+                print()
+                print("    # Example for RHEL/CentOS:")
+                print("    # sudo yum install ninja-build")
+                print()
+
+        elif os_type == "Darwin":
+            print("  Option 1: Homebrew:")
+            print()
+            print("    brew install ninja")
+            print()
+
+        print("  Option 2: pip:")
+        print()
+        print("    pip install ninja")
+        print()

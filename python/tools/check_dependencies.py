@@ -28,19 +28,6 @@ try:
         GitSubmodulesRequirement,
         NinjaRequirement,
     )
-    from prereqs.help import (
-        PythonHelp,
-        TorchHelp,
-        CUDAToolkitHelp,
-        TorchCUDAConstraintHelp,
-        Pybind11Help,
-        LLVMHelp,
-        CompilerHelp,
-        GitSubmodulesHelp,
-        NinjaHelp,
-        CMakeHelp,
-        GenericHelp,
-    )
     HELP_AVAILABLE = True
 except ImportError:
     # Fallback if prereqs not available
@@ -175,28 +162,6 @@ class DependencyReporter:
                 location=cmake_vars.get(cmake_vars.get("NVFUSER_REQUIREMENT_LLVM_LOCATION_VAR", ""), ""),
             ))
 
-        # Initialize help providers if available
-        if HELP_AVAILABLE:
-            self.help_providers = {
-                "Python": PythonHelp(self.platform_info),
-                "Torch": TorchHelp(self.platform_info),
-                "CUDAToolkit": CUDAToolkitHelp(self.platform_info),
-                "Torch_CUDA": TorchCUDAConstraintHelp(self.platform_info),
-                "pybind11": Pybind11Help(self.platform_info),
-                "LLVM": LLVMHelp(self.platform_info),
-                "GCC": CompilerHelp(self.platform_info),
-                "Clang": CompilerHelp(self.platform_info),
-                "Compiler": CompilerHelp(self.platform_info),
-                "Git": GitSubmodulesHelp(self.platform_info),
-                "GitSubmodules": GitSubmodulesHelp(self.platform_info),
-                "Ninja": NinjaHelp(self.platform_info),
-                "CMake": CMakeHelp(self.platform_info),
-            }
-            self.generic_help = GenericHelp(self.platform_info)
-        else:
-            self.help_providers = {}
-            self.generic_help = None
-
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""
         try:
@@ -258,20 +223,13 @@ class DependencyReporter:
             self._print_help_for_requirement(req)
 
     def _print_help_for_requirement(self, req):
-        """Dispatch to specific help provider based on requirement"""
-        if not HELP_AVAILABLE:
-            # Fallback if help system not available
-            name = req.name if hasattr(req, 'name') else req.get('name', 'Unknown')
-            print(f"{name} installation help not available (prereqs package missing)")
+        """Call requirement's help generation method"""
+        if hasattr(req, 'generate_help'):
+            req.generate_help(self.platform_info)
+        else:
+            # Fallback for requirements without help
+            print(f"{req.name} installation help not available")
             print()
-            return
-
-        # Get failure data for help provider
-        failure_data = req.get_failure_data() if hasattr(req, 'get_failure_data') else req
-
-        name = failure_data.get("name", "Unknown")
-        help_provider = self.help_providers.get(name, self.generic_help)
-        help_provider.generate_help(failure_data)
 
 
 def main():

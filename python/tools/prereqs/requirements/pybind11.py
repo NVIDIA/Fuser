@@ -45,3 +45,18 @@ class Pybind11Requirement(VersionRequirement):
             location: pybind11_DIR (from NVFUSER_REQUIREMENT_pybind11_LOCATION_VAR)
         """
         super().__init__(name, found, status, optional, version_found, version_required, location)
+
+    def generate_help(self, platform_info):
+        """Generate pybind11 installation help."""
+        version_min = self.version_required or "2.0"
+
+        print(f"pybind11 {version_min}+ Required")
+        print()
+        print("Why: pybind11 provides Python bindings for nvFuser's C++ code.")
+        print()
+        print(f"Install pybind11 {version_min} or higher:")
+        print()
+        print("  pip install 'pybind11[global]>=2.0'")
+        print()
+        print("  Note: The [global] extra provides CMake integration.")
+        print()

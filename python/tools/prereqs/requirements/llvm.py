@@ -57,3 +57,67 @@ class LLVMRequirement(VersionRequirement):
         else:
             return main_line
 
+    def generate_help(self, platform_info):
+        """Generate LLVM installation help."""
+        import re
+
+        version_min = self.version_required or "18.1"
+
+        # Parse version to recommend a specific patch version
+        try:
+            clean = re.match(r"^[\d.]+", version_min.strip())
+            if clean:
+                parts = clean.group().rstrip(".").split(".")
+                version_parts = tuple(int(p) for p in parts if p)
+                if len(version_parts) >= 2:
+                    recommended = f"{version_parts[0]}.{version_parts[1]}.8"
+                    major_version = version_parts[0]
+                else:
+                    recommended = f"{version_parts[0]}.1.8"
+                    major_version = version_parts[0]
+            else:
+                recommended = "18.1.8"
+                major_version = 18
+        except:
+            recommended = "18.1.8"
+            major_version = 18
+
+        print(f"LLVM {version_min}+ Required")
+        print()
+        print("Why: nvFuser uses LLVM for runtime Host IR JIT compilation.")
+        print()
+        print(f"Install LLVM {recommended} (recommended):")
+        print()
+
+        print("  Option 1: Prebuilt binaries (recommended, no sudo needed):")
+        print()
+        print(f"    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-{recommended}/clang+llvm-{recommended}-x86_64-linux-gnu-ubuntu-18.04.tar.xz")
+        print(f"    tar -xf clang+llvm-{recommended}-*.tar.xz")
+        print(f"    mv clang+llvm-{recommended}-* ~/.llvm/{recommended}")
+        print()
+        print("    # Add to PATH:")
+        print(f"    export PATH=$HOME/.llvm/{recommended}/bin:$PATH")
+        print()
+
+        print("  Option 2: System package manager:")
+        print()
+
+        os_type = platform_info["os"]
+
+        if os_type == "Linux":
+            if platform_info.get("ubuntu_based"):
+                print("    # Ubuntu/Debian (LLVM APT repository):")
+                print("    wget https://apt.llvm.org/llvm.sh")
+                print("    chmod +x llvm.sh")
+                print(f"    sudo ./llvm.sh {major_version}")
+                print()
+            else:
+                print("    # Check your distribution's package manager")
+                print()
+        elif os_type == "Darwin":
+            print(f"    brew install llvm@{major_version}")
+            print()
+            print("    # Add to PATH:")
+            print(f"    export PATH=/opt/homebrew/opt/llvm@{major_version}/bin:$PATH")
+            print()
+

@@ -83,6 +83,13 @@ class Requirement(ABC):
             "location": self.location,
         }
 
+    def generate_help(self, platform_info):
+        """Generate help text for this requirement when it fails.
+
+        Subclasses should override this to provide specific installation instructions.
+        """
+        pass  # Default: no help text
+
 
 class VersionRequirement(Requirement):
     """

@@ -38,3 +38,18 @@ class GitSubmodulesRequirement(BooleanRequirement):
             location: Not used for submodules
         """
         super().__init__(name, found, status, optional, location)
+
+    def generate_help(self, platform_info):
+        """Generate Git submodules help."""
+        print("Git Submodules Not Initialized")
+        print()
+        print("Why: nvFuser depends on third-party libraries included as Git submodules.")
+        print()
+        print("Initialize and update Git submodules:")
+        print()
+        print("  # From the repository root:")
+        print("  git submodule update --init --recursive")
+        print()
+        print("  # Or if you just cloned:")
+        print("  git clone --recursive <repository-url>")
+        print()

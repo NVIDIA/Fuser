@@ -57,3 +57,23 @@ class CUDAToolkitRequirement(VersionRequirement):
         else:
             return main_line
 
+    def generate_help(self, platform_info):
+        """Generate CUDA Toolkit installation help."""
+        version_min = self.version_required or "12.6"
+
+        print(f"CUDA Toolkit {version_min}+ Required")
+        print()
+        print("Why: nvFuser needs the CUDA compiler (nvcc) for GPU kernel generation.")
+        print()
+        print(f"Install CUDA Toolkit {version_min} or higher:")
+        print()
+        print("  Download from NVIDIA:")
+        print()
+        print("    https://developer.nvidia.com/cuda-downloads")
+        print()
+        print("  After installation, ensure CUDA is in your PATH:")
+        print()
+        print("    export PATH=/usr/local/cuda/bin:$PATH")
+        print("    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH")
+        print()
+

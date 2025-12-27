@@ -113,3 +113,46 @@ class TorchRequirement(VersionRequirement):
             return True
 
         return False
+
+    def generate_help(self, platform_info):
+        """Generate PyTorch installation help."""
+        version_min = self.version_required or "2.0"
+
+        print(f"PyTorch {version_min}+ Required")
+        print()
+        print("Why: nvFuser is a PyTorch extension and requires PyTorch with CUDA support.")
+        print()
+        print(f"Install PyTorch {version_min} or higher with CUDA:")
+        print()
+
+        # Show common CUDA versions
+        print("  # For CUDA 13.1:")
+        print("  pip install torch --index-url https://download.pytorch.org/whl/cu131")
+        print("  # For CUDA 13.0:")
+        print("  pip install torch --index-url https://download.pytorch.org/whl/cu130")
+        print("  # For CUDA 12.8:")
+        print("  pip install torch --index-url https://download.pytorch.org/whl/cu128")
+        print()
+
+        # If CUDA constraint mismatch, add additional help
+        if self.constraint_status == "mismatch":
+            print()
+            print("IMPORTANT: Torch CUDA Version Mismatch Detected")
+            print()
+            print("Why: PyTorch was built with a different CUDA version than your system's")
+            print("     CUDA Toolkit. This will cause runtime errors.")
+            print()
+            print("Resolution:")
+            print()
+            print("  You have two options:")
+            print()
+            print("  Option 1: Install matching CUDA Toolkit (recommended)")
+            print()
+            print("    Install the CUDA Toolkit version that matches your PyTorch build.")
+            print("    Check PyTorch CUDA version: python -c 'import torch; print(torch.version.cuda)'")
+            print()
+            print("  Option 2: Reinstall PyTorch for your CUDA version")
+            print()
+            print("    Reinstall PyTorch built for your system's CUDA Toolkit version.")
+            print("    Check system CUDA version: nvcc --version")
+            print()

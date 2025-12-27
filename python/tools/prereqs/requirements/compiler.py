@@ -64,3 +64,70 @@ class CompilerRequirement(VersionRequirement):
         else:
             return main_line
 
+    def generate_help(self, platform_info):
+        """Generate compiler installation help."""
+        version_min = self.version_required or ("13" if self.name == "GCC" else "19")
+
+        print(f"{self.name} {version_min}+ Required")
+        print()
+        print("Why: nvFuser requires a modern C++ compiler with C++20 support,")
+        print("     including the <format> header.")
+        print()
+        print(f"Install {self.name} {version_min} or higher:")
+        print()
+
+        os_type = platform_info["os"]
+
+        if self.name == "GCC":
+            if os_type == "Linux":
+                if platform_info.get("ubuntu_based"):
+                    print("  Option 1: Ubuntu PPA (recommended):")
+                    print()
+                    print("    sudo add-apt-repository ppa:ubuntu-toolchain-r/test")
+                    print("    sudo apt update")
+                    print(f"    sudo apt install gcc-{version_min} g++-{version_min}")
+                    print()
+                    print("    # Set as default:")
+                    print(f"    sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-{version_min} 100")
+                    print(f"    sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-{version_min} 100")
+                    print()
+                else:
+                    print("  Option 1: System package manager:")
+                    print()
+                    print(f"    # Example for RHEL/CentOS:")
+                    print(f"    # sudo yum install gcc-toolset-{version_min}")
+                    print()
+
+            elif os_type == "Darwin":
+                print("  On macOS, use Clang instead:")
+                print()
+                print("    # Xcode Command Line Tools (includes Clang):")
+                print("    xcode-select --install")
+                print()
+
+        elif self.name == "Clang":
+            if os_type == "Linux":
+                if platform_info.get("ubuntu_based"):
+                    print("  Option 1: LLVM APT repository:")
+                    print()
+                    print("    wget https://apt.llvm.org/llvm.sh")
+                    print("    chmod +x llvm.sh")
+                    print(f"    sudo ./llvm.sh {version_min}")
+                    print()
+                else:
+                    print("  Option 1: System package manager:")
+                    print()
+                    print(f"    # Check your distribution for clang-{version_min}")
+                    print()
+
+            elif os_type == "Darwin":
+                print("  Option 1: Xcode Command Line Tools:")
+                print()
+                print("    xcode-select --install")
+                print()
+
+        print("  Option 2: Build from source:")
+        print()
+        print("    # See compiler documentation for build instructions")
+        print()
+
