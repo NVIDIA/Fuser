@@ -769,7 +769,8 @@ template <
         any_check(can_print, DT::type_identities_as_tuple)>>
 std::ostream& operator<<(std::ostream& os, const DT& dt);
 
-#define DEFINE_LEFT_PPMM(opname, op)                                           \
+// Declaration macro for prefix ++/-- - implementation in impl.h
+#define DEFINE_LEFT_PPMM_DECL(opname, op)                                      \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x) constexpr {                      \
@@ -784,34 +785,11 @@ std::ostream& operator<<(std::ostream& os, const DT& dt);
       typename = std::enable_if_t<                                             \
           is_dynamic_type_v<DT> &&                                             \
           any_check(opname##_helper, DT::type_identities_as_tuple)>>           \
-  inline constexpr DT& operator op(DT & x) {                                   \
-    bool computed = false;                                                     \
-    DT::for_all_types([&computed, &x](auto _) {                                \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (op opcheck<Type&>) {                                       \
-        if constexpr (std::is_same_v<                                          \
-                          decltype(op std::declval<Type&>()),                  \
-                          Type&>) {                                            \
-          if (x.template is<Type>()) {                                         \
-            op x.template as<Type>();                                          \
-            computed = true;                                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        computed,                                                              \
-        "Cannot compute ",                                                     \
-        #op,                                                                   \
-        x.type().name(),                                                       \
-        " : incompatible type");                                               \
-    return x;                                                                  \
-  }
+  inline constexpr DT& operator op(DT & x);
 
-DEFINE_LEFT_PPMM(lpp, ++);
-DEFINE_LEFT_PPMM(lmm, --);
-
-#undef DEFINE_LEFT_PPMM
+DEFINE_LEFT_PPMM_DECL(lpp, ++);
+DEFINE_LEFT_PPMM_DECL(lmm, --);
+#undef DEFINE_LEFT_PPMM_DECL
 
 #define DEFINE_RIGHT_PPMM(opname, op)                                          \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \

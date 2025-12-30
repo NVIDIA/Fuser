@@ -84,6 +84,37 @@ DT& operator*(const DT& x) {
   return ret.value();
 }
 
+// Prefix ++/-- operator implementations
+#define DEFINE_LEFT_PPMM_IMPL(opname, op)                                      \
+  template <typename DT, typename>                                             \
+  inline constexpr DT& operator op(DT & x) {                                   \
+    bool computed = false;                                                     \
+    DT::for_all_types([&computed, &x](auto _) {                                \
+      using Type = typename decltype(_)::type;                                 \
+      if constexpr (op opcheck<Type&>) {                                       \
+        if constexpr (std::is_same_v<                                          \
+                          decltype(op std::declval<Type&>()),                  \
+                          Type&>) {                                            \
+          if (x.template is<Type>()) {                                         \
+            op x.template as<Type>();                                          \
+            computed = true;                                                   \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    DYNAMIC_TYPE_CHECK(                                                        \
+        computed,                                                              \
+        "Cannot compute ",                                                     \
+        #op,                                                                   \
+        x.type().name(),                                                       \
+        " : incompatible type");                                               \
+    return x;                                                                  \
+  }
+
+DEFINE_LEFT_PPMM_IMPL(lpp, ++);
+DEFINE_LEFT_PPMM_IMPL(lmm, --);
+#undef DEFINE_LEFT_PPMM_IMPL
+
 } // namespace dynamic_type
 
 #if defined(__clang__)
