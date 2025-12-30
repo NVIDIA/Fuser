@@ -703,7 +703,8 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
 
 #undef DEFINE_BINARY_OP
 
-#define DEFINE_UNARY_OP(opname, op)                                            \
+// Declaration macro for unary operators - implementation in impl.h
+#define DEFINE_UNARY_OP_DECL(opname, op)                                       \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   constexpr auto opname##_helper = [](auto x) constexpr {                      \
@@ -715,21 +716,13 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
           is_dynamic_type_v<std::decay_t<DT>> &&                               \
           any_check(                                                           \
               opname##_helper, std::decay_t<DT>::type_identities_as_tuple)>>   \
-  inline constexpr decltype(auto) operator op(DT&& x) {                        \
-    return std::decay_t<DT>::dispatch(                                         \
-        [](auto&& x) -> decltype(auto) {                                       \
-          if constexpr (op opcheck<std::decay_t<decltype(x)>>) {               \
-            return op std::forward<decltype(x)>(x);                            \
-          }                                                                    \
-        },                                                                     \
-        std::forward<DT>(x));                                                  \
-  }
+  inline constexpr decltype(auto) operator op(DT&& x);
 
-DEFINE_UNARY_OP(pos, +);
-DEFINE_UNARY_OP(neg, -);
-DEFINE_UNARY_OP(bnot, ~);
-DEFINE_UNARY_OP(lnot, !);
-#undef DEFINE_UNARY_OP
+DEFINE_UNARY_OP_DECL(pos, +);
+DEFINE_UNARY_OP_DECL(neg, -);
+DEFINE_UNARY_OP_DECL(bnot, ~);
+DEFINE_UNARY_OP_DECL(lnot, !);
+#undef DEFINE_UNARY_OP_DECL
 
 // Intentionally not supporting the following unary ops:
 // DEFINE_UNARY_OP(addr, &);

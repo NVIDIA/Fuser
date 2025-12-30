@@ -13,6 +13,16 @@
 
 #include "decl.h"
 
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wbool-operation"
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wbool-operation"
+#endif
+
 namespace dynamic_type {
 
 // Stream output operator implementation
@@ -37,5 +47,32 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   return os;
 }
 
+// Unary operator implementations
+#define DEFINE_UNARY_OP_IMPL(opname, op)                                       \
+  template <typename DT, typename>                                             \
+  inline constexpr decltype(auto) operator op(DT&& x) {                        \
+    return std::decay_t<DT>::dispatch(                                         \
+        [](auto&& x) -> decltype(auto) {                                       \
+          if constexpr (op opcheck<std::decay_t<decltype(x)>>) {               \
+            return op std::forward<decltype(x)>(x);                            \
+          }                                                                    \
+        },                                                                     \
+        std::forward<DT>(x));                                                  \
+  }
+
+DEFINE_UNARY_OP_IMPL(pos, +);
+DEFINE_UNARY_OP_IMPL(neg, -);
+DEFINE_UNARY_OP_IMPL(bnot, ~);
+DEFINE_UNARY_OP_IMPL(lnot, !);
+#undef DEFINE_UNARY_OP_IMPL
+
 } // namespace dynamic_type
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
