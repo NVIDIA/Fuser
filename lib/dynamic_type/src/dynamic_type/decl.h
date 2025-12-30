@@ -816,26 +816,26 @@ DEFINE_RIGHT_PPMM_DECL(rpp, ++);
 DEFINE_RIGHT_PPMM_DECL(rmm, --);
 #undef DEFINE_RIGHT_PPMM_DECL
 
-#define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
+// Declaration macro for compound assignment - implementation in impl.h
+#define DEFINE_ASSIGNMENT_OP_DECL(op, assign_op)                 \
   template <                                                     \
       typename DT,                                               \
       typename T,                                                \
       typename = std::enable_if_t<                               \
           is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
-  inline constexpr DT& operator assign_op(DT & x, const T & y) { \
-    return x = x op y;                                           \
-  }
+  inline constexpr DT& operator assign_op(DT & x, const T & y);
 
-DEFINE_ASSIGNMENT_OP(+, +=);
-DEFINE_ASSIGNMENT_OP(-, -=);
-DEFINE_ASSIGNMENT_OP(*, *=);
-DEFINE_ASSIGNMENT_OP(/, /=);
-DEFINE_ASSIGNMENT_OP(%, %=);
-DEFINE_ASSIGNMENT_OP(&, &=);
-DEFINE_ASSIGNMENT_OP(|, |=);
-DEFINE_ASSIGNMENT_OP(^, ^=);
-DEFINE_ASSIGNMENT_OP(<<, <<=);
-DEFINE_ASSIGNMENT_OP(>>, >>=);
+DEFINE_ASSIGNMENT_OP_DECL(+, +=);
+DEFINE_ASSIGNMENT_OP_DECL(-, -=);
+DEFINE_ASSIGNMENT_OP_DECL(*, *=);
+DEFINE_ASSIGNMENT_OP_DECL(/, /=);
+DEFINE_ASSIGNMENT_OP_DECL(%, %=);
+DEFINE_ASSIGNMENT_OP_DECL(&, &=);
+DEFINE_ASSIGNMENT_OP_DECL(|, |=);
+DEFINE_ASSIGNMENT_OP_DECL(^, ^=);
+DEFINE_ASSIGNMENT_OP_DECL(<<, <<=);
+DEFINE_ASSIGNMENT_OP_DECL(>>, >>=);
+#undef DEFINE_ASSIGNMENT_OP_DECL
 
 // Intentionally not overloading operator comma",". This operator is rarely
 // overloaded, and the automatically defined version by the compiler usually

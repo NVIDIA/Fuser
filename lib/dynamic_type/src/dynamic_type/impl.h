@@ -150,6 +150,25 @@ DEFINE_RIGHT_PPMM_IMPL(rpp, ++);
 DEFINE_RIGHT_PPMM_IMPL(rmm, --);
 #undef DEFINE_RIGHT_PPMM_IMPL
 
+// Compound assignment operator implementations
+#define DEFINE_ASSIGNMENT_OP_IMPL(op, assign_op)                 \
+  template <typename DT, typename T, typename>                   \
+  inline constexpr DT& operator assign_op(DT & x, const T & y) { \
+    return x = x op y;                                           \
+  }
+
+DEFINE_ASSIGNMENT_OP_IMPL(+, +=);
+DEFINE_ASSIGNMENT_OP_IMPL(-, -=);
+DEFINE_ASSIGNMENT_OP_IMPL(*, *=);
+DEFINE_ASSIGNMENT_OP_IMPL(/, /=);
+DEFINE_ASSIGNMENT_OP_IMPL(%, %=);
+DEFINE_ASSIGNMENT_OP_IMPL(&, &=);
+DEFINE_ASSIGNMENT_OP_IMPL(|, |=);
+DEFINE_ASSIGNMENT_OP_IMPL(^, ^=);
+DEFINE_ASSIGNMENT_OP_IMPL(<<, <<=);
+DEFINE_ASSIGNMENT_OP_IMPL(>>, >>=);
+#undef DEFINE_ASSIGNMENT_OP_IMPL
+
 } // namespace dynamic_type
 
 #if defined(__clang__)
