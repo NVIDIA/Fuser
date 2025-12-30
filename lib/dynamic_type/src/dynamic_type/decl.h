@@ -557,6 +557,55 @@ struct DynamicType {
   // TODO: support operator(). This is not supported yet because it is the most
   // difficulty one to implement because it can has arbitrary number of
   // arguments. I believe it is doable, but I decide to leave it for future.
+
+  // ========================================================================
+  // Friend operators with static member implementations
+  // - Static _impl functions: declarations here, definitions in impl.h
+  // - Friend operators: trivial forwarding, fine to inline everywhere
+  // - Mixed types work via implicit constructor
+  // - Static members are covered by extern template
+  // ========================================================================
+
+  // General macro for binary operators (works for both operators and named functions)
+  // return_type: bool for comparison operators, DynamicType for arithmetic
+  // func_name: operator+ or named function like eq, add, etc.
+#define DEFINE_BINARY_OP_FRIEND(opname, op, func_name, return_type)            \
+  static return_type opname##_impl(const DynamicType& a, const DynamicType& b);\
+  friend return_type func_name(const DynamicType& a, const DynamicType& b) {   \
+    return opname##_impl(a, b);                                                \
+  }
+
+  // Comparison operators (return bool)
+  DEFINE_BINARY_OP_FRIEND(eq, ==, operator==, bool)
+  DEFINE_BINARY_OP_FRIEND(neq, !=, operator!=, bool)
+  DEFINE_BINARY_OP_FRIEND(lt, <, operator<, bool)
+  DEFINE_BINARY_OP_FRIEND(gt, >, operator>, bool)
+  DEFINE_BINARY_OP_FRIEND(le, <=, operator<=, bool)
+  DEFINE_BINARY_OP_FRIEND(ge, >=, operator>=, bool)
+
+  // Arithmetic operators (return DynamicType)
+  DEFINE_BINARY_OP_FRIEND(add, +, operator+, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(sub, -, operator-, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(mul, *, operator*, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(div, /, operator/, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(mod, %, operator%, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(band, &, operator&, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(bor, |, operator|, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(bxor, ^, operator^, DynamicType)
+  // NOTE: operator&& and operator|| are kept as template functions (below)
+  // to avoid ambiguity with built-in bool && bool when one operand is bool
+  DEFINE_BINARY_OP_FRIEND(lshift, <<, operator<<, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(rshift, >>, operator>>, DynamicType)
+
+  // Named comparison functions (return DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_eq, ==, eq, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_neq, !=, ne, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_lt, <, lt, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_gt, >, gt, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_le, <=, le, DynamicType)
+  DEFINE_BINARY_OP_FRIEND(named_ge, >=, ge, DynamicType)
+
+#undef DEFINE_BINARY_OP_FRIEND
 };
 
 template <typename T>
@@ -627,42 +676,11 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>               \
   inline constexpr return_type func_name(LHS&& x, RHS&& y);
 
-// Binary operator declarations - implementations in impl.h
-DEFINE_BINARY_OP_DECL(add, +, operator+, DT, true);
-DEFINE_BINARY_OP_DECL(minus, -, operator-, DT, true);
-DEFINE_BINARY_OP_DECL(mul, *, operator*, DT, true);
-DEFINE_BINARY_OP_DECL(div, /, operator/, DT, true);
-DEFINE_BINARY_OP_DECL(mod, %, operator%, DT, true);
-DEFINE_BINARY_OP_DECL(band, &, operator&, DT, true);
-DEFINE_BINARY_OP_DECL(bor, |, operator|, DT, true);
-DEFINE_BINARY_OP_DECL(xor, ^, operator^, DT, true);
+// NOTE: Most binary operators are now friend functions inside DynamicType class.
+// Only operator&& and operator|| remain as templates to avoid ambiguity with
+// built-in bool && bool when one operand is bool.
 DEFINE_BINARY_OP_DECL(land, &&, operator&&, DT, true);
 DEFINE_BINARY_OP_DECL(lor, ||, operator||, DT, true);
-DEFINE_BINARY_OP_DECL(lshift, <<, operator<<, DT, true);
-DEFINE_BINARY_OP_DECL(rshift, >>, operator>>, DT, true);
-
-// Not defining comparison operators that returns DynamicType as operator
-// overloading, because we want to leave the operator overloading for comparison
-// operators that returns bool. Instead, we give each operator a function name,
-// so that users can use the function name to call the operator. That is:
-//   dt1 < dt2 --> returns a bool (defined below by DEFINE_COMPARE_OP)
-//   lt(dt1, dt2) --> returns a DynamicType
-DEFINE_BINARY_OP_DECL(named_eq, ==, eq, DT, true);
-DEFINE_BINARY_OP_DECL(named_neq, !=, ne, DT, true);
-DEFINE_BINARY_OP_DECL(named_lt, <, lt, DT, true);
-DEFINE_BINARY_OP_DECL(named_gt, >, gt, DT, true);
-DEFINE_BINARY_OP_DECL(named_le, <=, le, DT, true);
-DEFINE_BINARY_OP_DECL(named_ge, >=, ge, DT, true);
-
-// std::monostate has definitions on compare operators, so DynamicType should
-// always define them as well. There is no need for any SFINAE about member type
-// here. https://en.cppreference.com/w/cpp/utility/variant/monostate
-DEFINE_BINARY_OP_DECL(eq, ==, operator==, bool, false);
-DEFINE_BINARY_OP_DECL(neq, !=, operator!=, bool, false);
-DEFINE_BINARY_OP_DECL(lt, <, operator<, bool, false);
-DEFINE_BINARY_OP_DECL(gt, >, operator>, bool, false);
-DEFINE_BINARY_OP_DECL(le, <=, operator<=, bool, false);
-DEFINE_BINARY_OP_DECL(ge, >=, operator>=, bool, false);
 
 #undef DEFINE_BINARY_OP_DECL
 

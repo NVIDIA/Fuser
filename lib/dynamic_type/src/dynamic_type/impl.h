@@ -213,37 +213,71 @@ DEFINE_ASSIGNMENT_OP_IMPL(>>, >>=);
     }                                                                          \
   }
 
-// Binary operator implementations - all 24 operators
-DEFINE_BINARY_OP_IMPL(add, +, operator+, DT, true);
-DEFINE_BINARY_OP_IMPL(minus, -, operator-, DT, true);
-DEFINE_BINARY_OP_IMPL(mul, *, operator*, DT, true);
-DEFINE_BINARY_OP_IMPL(div, /, operator/, DT, true);
-DEFINE_BINARY_OP_IMPL(mod, %, operator%, DT, true);
-DEFINE_BINARY_OP_IMPL(band, &, operator&, DT, true);
-DEFINE_BINARY_OP_IMPL(bor, |, operator|, DT, true);
-DEFINE_BINARY_OP_IMPL(xor, ^, operator^, DT, true);
+// NOTE: Most binary operators are now friend functions inside DynamicType class.
+// Only operator&& and operator|| remain as templates to avoid ambiguity with
+// built-in bool && bool when one operand is bool.
 DEFINE_BINARY_OP_IMPL(land, &&, operator&&, DT, true);
 DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
-DEFINE_BINARY_OP_IMPL(lshift, <<, operator<<, DT, true);
-DEFINE_BINARY_OP_IMPL(rshift, >>, operator>>, DT, true);
-
-// Named comparison (return DT)
-DEFINE_BINARY_OP_IMPL(named_eq, ==, eq, DT, true);
-DEFINE_BINARY_OP_IMPL(named_neq, !=, ne, DT, true);
-DEFINE_BINARY_OP_IMPL(named_lt, <, lt, DT, true);
-DEFINE_BINARY_OP_IMPL(named_gt, >, gt, DT, true);
-DEFINE_BINARY_OP_IMPL(named_le, <=, le, DT, true);
-DEFINE_BINARY_OP_IMPL(named_ge, >=, ge, DT, true);
-
-// Comparison (return bool)
-DEFINE_BINARY_OP_IMPL(eq, ==, operator==, bool, false);
-DEFINE_BINARY_OP_IMPL(neq, !=, operator!=, bool, false);
-DEFINE_BINARY_OP_IMPL(lt, <, operator<, bool, false);
-DEFINE_BINARY_OP_IMPL(gt, >, operator>, bool, false);
-DEFINE_BINARY_OP_IMPL(le, <=, operator<=, bool, false);
-DEFINE_BINARY_OP_IMPL(ge, >=, operator>=, bool, false);
 
 #undef DEFINE_BINARY_OP_IMPL
+
+// ============================================================================
+// Static member implementations for friend operators
+// These are covered by extern template, so only instantiated once
+// ============================================================================
+
+#define DEFINE_BINARY_OP_FRIEND_IMPL(opname, op, return_type)                  \
+  template <typename Containers, typename... Ts>                               \
+  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+      const DynamicType& a, const DynamicType& b) -> return_type {             \
+    std::optional<return_type> result;                                         \
+    dispatch(                                                                  \
+        [&result](auto&& x, auto&& y) {                                        \
+          using X = std::decay_t<decltype(x)>;                                 \
+          using Y = std::decay_t<decltype(y)>;                                 \
+          if constexpr (opcheck<X> op opcheck<Y>) {                            \
+            if constexpr (std::is_convertible_v<decltype(x op y), return_type>) { \
+              result = static_cast<return_type>(x op y);                       \
+            }                                                                  \
+          }                                                                    \
+        },                                                                     \
+        a, b);                                                                 \
+    DYNAMIC_TYPE_CHECK(                                                        \
+        result.has_value(),                                                    \
+        "Cannot compute ", a.type().name(), " " #op " ", b.type().name());     \
+    return *result;                                                            \
+  }
+
+// Comparison operators (return bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(eq, ==, bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(neq, !=, bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(lt, <, bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(gt, >, bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(le, <=, bool)
+DEFINE_BINARY_OP_FRIEND_IMPL(ge, >=, bool)
+
+// Arithmetic operators (return DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(add, +, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(sub, -, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(mul, *, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(div, /, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(mod, %, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(band, &, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(bor, |, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(bxor, ^, DynamicType)
+// NOTE: land and lor kept as template functions (see DEFINE_BINARY_OP_IMPL above)
+DEFINE_BINARY_OP_FRIEND_IMPL(lshift, <<, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(rshift, >>, DynamicType)
+
+// Named comparison functions (return DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_eq, ==, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_neq, !=, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_lt, <, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_gt, >, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_le, <=, DynamicType)
+DEFINE_BINARY_OP_FRIEND_IMPL(named_ge, >=, DynamicType)
+
+#undef DEFINE_BINARY_OP_FRIEND_IMPL
 
 } // namespace dynamic_type
 
