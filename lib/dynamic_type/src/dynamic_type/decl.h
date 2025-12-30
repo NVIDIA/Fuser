@@ -568,6 +568,65 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
+// Declaration macro for binary operators - implementation in impl.h
+#define DEFINE_BINARY_OP_DECL(opname, op, func_name, return_type, check_existence) \
+  template <typename X, typename Y, typename RetT>                             \
+  constexpr bool opname##_type_compatible() {                                  \
+    if constexpr (opcheck<X> op opcheck<Y>) {                                  \
+      if constexpr (std::is_convertible_v<                                     \
+                        decltype(std::declval<X>() op std::declval<Y>()),      \
+                        RetT>) {                                               \
+        return true;                                                           \
+      }                                                                        \
+    }                                                                          \
+    return false;                                                              \
+  }                                                                            \
+  template <typename RetT>                                                     \
+  constexpr auto opname##_is_valid = [](auto&& x, auto&& y) {                  \
+    using X = decltype(x);                                                     \
+    using Y = decltype(y);                                                     \
+    if constexpr (opname##_type_compatible<X, Y, RetT>()) {                    \
+      return std::true_type{};                                                 \
+    } else {                                                                   \
+      return;                                                                  \
+    }                                                                          \
+  };                                                                           \
+  template <typename LHS, typename RHS>                                        \
+  constexpr bool opname##_defined() {                                          \
+    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;           \
+    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;           \
+    using DT =                                                                 \
+        std::conditional_t<lhs_is_dt, std::decay_t<LHS>, std::decay_t<RHS>>;   \
+    if constexpr (!lhs_is_dt && !rhs_is_dt) {                                  \
+      return false;                                                            \
+    } else if constexpr (                                                      \
+        (lhs_is_dt && !rhs_is_dt &&                                            \
+         opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                         \
+             opcheck<std::decay_t<LHS>>)) ||                                   \
+        (!lhs_is_dt && rhs_is_dt &&                                            \
+         opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                         \
+             opcheck<std::decay_t<RHS>>))) {                                   \
+      return opname##_defined<DT, DT>();                                       \
+    } else {                                                                   \
+      if constexpr (check_existence) {                                         \
+        using should_define_t = decltype(DT::dispatch(                         \
+            opname##_is_valid<DT>, std::declval<LHS>(), std::declval<RHS>())); \
+        return std::is_same_v<should_define_t, std::true_type>;                \
+      } else {                                                                 \
+        return true;                                                           \
+      }                                                                        \
+    }                                                                          \
+  }                                                                            \
+  template <                                                                   \
+      typename LHS,                                                            \
+      typename RHS,                                                            \
+      typename DT = std::conditional_t<                                        \
+          is_dynamic_type_v<std::decay_t<LHS>>,                                \
+          std::decay_t<LHS>,                                                   \
+          std::decay_t<RHS>>,                                                  \
+      typename = std::enable_if_t<opname##_defined<LHS, RHS>()>>               \
+  inline constexpr return_type func_name(LHS&& x, RHS&& y);
+
 #define DEFINE_BINARY_OP(opname, op, func_name, return_type, check_existence)  \
   template <typename X, typename Y, typename RetT>                             \
   constexpr bool opname##_type_compatible() {                                  \
@@ -665,7 +724,10 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     }                                                                          \
   }
 
-DEFINE_BINARY_OP(add, +, operator+, DT, true);
+// Use new DECL macro for operator+ (pattern validation)
+DEFINE_BINARY_OP_DECL(add, +, operator+, DT, true);
+
+// Keep original macro for all others (for now)
 DEFINE_BINARY_OP(minus, -, operator-, DT, true);
 DEFINE_BINARY_OP(mul, *, operator*, DT, true);
 DEFINE_BINARY_OP(div, /, operator/, DT, true);

@@ -169,6 +169,53 @@ DEFINE_ASSIGNMENT_OP_IMPL(<<, <<=);
 DEFINE_ASSIGNMENT_OP_IMPL(>>, >>=);
 #undef DEFINE_ASSIGNMENT_OP_IMPL
 
+// Binary operator implementations
+#define DEFINE_BINARY_OP_IMPL(opname, op, func_name, return_type, check_existence) \
+  template <typename LHS, typename RHS, typename DT, typename>                 \
+  inline constexpr return_type func_name(LHS&& x, RHS&& y) {                   \
+    constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;           \
+    constexpr bool rhs_is_dt = is_dynamic_type_v<std::decay_t<RHS>>;           \
+    if constexpr (                                                             \
+        lhs_is_dt && !rhs_is_dt &&                                             \
+        opcheck<std::decay_t<RHS>>.hasExplicitCastTo(                          \
+            opcheck<std::decay_t<LHS>>)) {                                     \
+      return x op(DT) y;                                                       \
+    } else if constexpr (                                                      \
+        !lhs_is_dt && rhs_is_dt &&                                             \
+        opcheck<std::decay_t<LHS>>.hasExplicitCastTo(                          \
+            opcheck<std::decay_t<RHS>>)) {                                     \
+      return (DT)x op y;                                                       \
+    } else {                                                                   \
+      return DT::dispatch(                                                     \
+          [](auto&& x, auto&& y) -> decltype(auto) {                           \
+            using X = decltype(x);                                             \
+            using Y = decltype(y);                                             \
+            if constexpr (false) {                                             \
+              /* TODO: This doesn't work on gcc 11.4 with C++20, temporarily   \
+               * disabled and use the more verbose implementation below. We    \
+               * should reenable this when we upgrade our compilers. */        \
+              if constexpr (opname##_type_compatible<X, Y, return_type>()) {   \
+                return std::forward<X>(x) op std::forward<Y>(y);               \
+              }                                                                \
+            } else {                                                           \
+              if constexpr (opcheck<X> op opcheck<Y>) {                        \
+                if constexpr (std::is_convertible_v<                           \
+                                  decltype(std::declval<X>()                   \
+                                               op std::declval<Y>()),          \
+                                  return_type>) {                              \
+                  return std::forward<X>(x) op std::forward<Y>(y);             \
+                }                                                              \
+              }                                                                \
+            }                                                                  \
+          },                                                                   \
+          std::forward<LHS>(x),                                                \
+          std::forward<RHS>(y));                                               \
+    }                                                                          \
+  }
+
+DEFINE_BINARY_OP_IMPL(add, +, operator+, DT, true);
+#undef DEFINE_BINARY_OP_IMPL
+
 } // namespace dynamic_type
 
 #if defined(__clang__)
