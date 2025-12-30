@@ -1086,9 +1086,6 @@ std::string _getStructuredCode(
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
   }
-  if (has_block_layout) {
-    // code += nvfuser_resources::block_layout_cu;
-  }
 
   if (has_block_layout || has_block_quantize_op) {
     code += nvfuser_resources::block_quantization_kernels_cu;
