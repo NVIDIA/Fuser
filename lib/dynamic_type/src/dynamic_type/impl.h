@@ -115,6 +115,41 @@ DEFINE_LEFT_PPMM_IMPL(lpp, ++);
 DEFINE_LEFT_PPMM_IMPL(lmm, --);
 #undef DEFINE_LEFT_PPMM_IMPL
 
+// Postfix ++/-- operator implementations
+#define DEFINE_RIGHT_PPMM_IMPL(opname, op)                                     \
+  template <typename DT>                                                       \
+  inline constexpr std::enable_if_t<                                           \
+      is_dynamic_type_v<DT> &&                                                 \
+          any_check(                                                           \
+              opname##_helper<typename DT::VariantType>,                       \
+              DT::type_identities_as_tuple),                                   \
+      DT> operator op(DT & x, int) {                                           \
+    DT ret;                                                                    \
+    DT::for_all_types([&ret, &x](auto _) {                                     \
+      using Type = typename decltype(_)::type;                                 \
+      if constexpr (opcheck<Type&> op) {                                       \
+        if constexpr (std::is_constructible_v<                                 \
+                          typename DT::VariantType,                            \
+                          decltype(std::declval<Type&>() op)>) {               \
+          if (x.template is<Type>()) {                                         \
+            ret = DT(x.template as<Type>() op);                                \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    DYNAMIC_TYPE_CHECK(                                                        \
+        !ret.template is<std::monostate>(),                                    \
+        "Cannot compute ",                                                     \
+        x.type().name(),                                                       \
+        #op,                                                                   \
+        " : incompatible type");                                               \
+    return ret;                                                                \
+  }
+
+DEFINE_RIGHT_PPMM_IMPL(rpp, ++);
+DEFINE_RIGHT_PPMM_IMPL(rmm, --);
+#undef DEFINE_RIGHT_PPMM_IMPL
+
 } // namespace dynamic_type
 
 #if defined(__clang__)

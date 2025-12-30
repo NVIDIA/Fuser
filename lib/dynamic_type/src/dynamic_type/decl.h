@@ -791,7 +791,8 @@ DEFINE_LEFT_PPMM_DECL(lpp, ++);
 DEFINE_LEFT_PPMM_DECL(lmm, --);
 #undef DEFINE_LEFT_PPMM_DECL
 
-#define DEFINE_RIGHT_PPMM(opname, op)                                          \
+// Declaration macro for postfix ++/-- - implementation in impl.h
+#define DEFINE_RIGHT_PPMM_DECL(opname, op)                                     \
   /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
   /*but I can only do this in C++20 */                                         \
   template <typename DTVariantType>                                            \
@@ -809,33 +810,11 @@ DEFINE_LEFT_PPMM_DECL(lmm, --);
           any_check(                                                           \
               opname##_helper<typename DT::VariantType>,                       \
               DT::type_identities_as_tuple),                                   \
-      DT> operator op(DT & x, int) {                                           \
-    DT ret;                                                                    \
-    DT::for_all_types([&ret, &x](auto _) {                                     \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (opcheck<Type&> op) {                                       \
-        if constexpr (std::is_constructible_v<                                 \
-                          typename DT::VariantType,                            \
-                          decltype(std::declval<Type&>() op)>) {               \
-          if (x.template is<Type>()) {                                         \
-            ret = DT(x.template as<Type>() op);                                \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        !ret.template is<std::monostate>(),                                    \
-        "Cannot compute ",                                                     \
-        x.type().name(),                                                       \
-        #op,                                                                   \
-        " : incompatible type");                                               \
-    return ret;                                                                \
-  }
+      DT> operator op(DT & x, int);
 
-DEFINE_RIGHT_PPMM(rpp, ++);
-DEFINE_RIGHT_PPMM(rmm, --);
-
-#undef DEFINE_RIGHT_PPMM
+DEFINE_RIGHT_PPMM_DECL(rpp, ++);
+DEFINE_RIGHT_PPMM_DECL(rmm, --);
+#undef DEFINE_RIGHT_PPMM_DECL
 
 #define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
   template <                                                     \
