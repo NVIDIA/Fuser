@@ -140,3 +140,16 @@ c10::IValue toIValue(const PolymorphicValue& x) {
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
+
+// Explicit instantiation of DynamicType for PolymorphicValue.
+// This is the single point where the template is fully instantiated.
+template struct dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    nvfuser::StructHandle,
+    nvfuser::Pointer,
+    nvfuser::Opaque,
+    at::Tensor,
+    std::complex<double>,
+    double,
+    int64_t,
+    bool>;
