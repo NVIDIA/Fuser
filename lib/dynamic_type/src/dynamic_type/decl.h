@@ -606,6 +606,44 @@ struct DynamicType {
   DEFINE_BINARY_OP_FRIEND(named_ge, >=, ge, DynamicType)
 
 #undef DEFINE_BINARY_OP_FRIEND
+
+  // Unary operators (return DynamicType)
+#define DEFINE_UNARY_OP_FRIEND(opname, op)                                     \
+  static DynamicType opname##_impl(const DynamicType& x);                      \
+  friend DynamicType operator op(const DynamicType& x) {                       \
+    return opname##_impl(x);                                                   \
+  }
+
+  DEFINE_UNARY_OP_FRIEND(pos, +)
+  DEFINE_UNARY_OP_FRIEND(neg, -)
+  DEFINE_UNARY_OP_FRIEND(bnot, ~)
+  DEFINE_UNARY_OP_FRIEND(lnot, !)
+
+#undef DEFINE_UNARY_OP_FRIEND
+
+  // Prefix increment/decrement (++x, --x) - return reference
+  static DynamicType& lpp_impl(DynamicType& x);  // ++x
+  static DynamicType& lmm_impl(DynamicType& x);  // --x
+  friend DynamicType& operator++(DynamicType& x) { return lpp_impl(x); }
+  friend DynamicType& operator--(DynamicType& x) { return lmm_impl(x); }
+
+  // Postfix increment/decrement (x++, x--) - return copy of original
+  static DynamicType rpp_impl(DynamicType& x);  // x++
+  static DynamicType rmm_impl(DynamicType& x);  // x--
+  friend DynamicType operator++(DynamicType& x, int) { return rpp_impl(x); }
+  friend DynamicType operator--(DynamicType& x, int) { return rmm_impl(x); }
+
+  // Compound assignment operators - use the binary operators
+  friend DynamicType& operator+=(DynamicType& x, const DynamicType& y) { return x = x + y; }
+  friend DynamicType& operator-=(DynamicType& x, const DynamicType& y) { return x = x - y; }
+  friend DynamicType& operator*=(DynamicType& x, const DynamicType& y) { return x = x * y; }
+  friend DynamicType& operator/=(DynamicType& x, const DynamicType& y) { return x = x / y; }
+  friend DynamicType& operator%=(DynamicType& x, const DynamicType& y) { return x = x % y; }
+  friend DynamicType& operator&=(DynamicType& x, const DynamicType& y) { return x = x & y; }
+  friend DynamicType& operator|=(DynamicType& x, const DynamicType& y) { return x = x | y; }
+  friend DynamicType& operator^=(DynamicType& x, const DynamicType& y) { return x = x ^ y; }
+  friend DynamicType& operator<<=(DynamicType& x, const DynamicType& y) { return x = x << y; }
+  friend DynamicType& operator>>=(DynamicType& x, const DynamicType& y) { return x = x >> y; }
 };
 
 template <typename T>
@@ -684,26 +722,7 @@ DEFINE_BINARY_OP_DECL(lor, ||, operator||, DT, true);
 
 #undef DEFINE_BINARY_OP_DECL
 
-// Declaration macro for unary operators - implementation in impl.h
-#define DEFINE_UNARY_OP_DECL(opname, op)                                       \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    return (op opcheck<typename decltype(x)::type>);                           \
-  };                                                                           \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename = std::enable_if_t<                                             \
-          is_dynamic_type_v<std::decay_t<DT>> &&                               \
-          any_check(                                                           \
-              opname##_helper, std::decay_t<DT>::type_identities_as_tuple)>>   \
-  inline constexpr decltype(auto) operator op(DT&& x);
-
-DEFINE_UNARY_OP_DECL(pos, +);
-DEFINE_UNARY_OP_DECL(neg, -);
-DEFINE_UNARY_OP_DECL(bnot, ~);
-DEFINE_UNARY_OP_DECL(lnot, !);
-#undef DEFINE_UNARY_OP_DECL
+// NOTE: Unary operators (+, -, ~, !) are now friend functions inside DynamicType class.
 
 // Intentionally not supporting the following unary ops:
 // DEFINE_UNARY_OP(addr, &);
@@ -750,73 +769,8 @@ template <
         any_check(can_print, DT::type_identities_as_tuple)>>
 std::ostream& operator<<(std::ostream& os, const DT& dt);
 
-// Declaration macro for prefix ++/-- - implementation in impl.h
-#define DEFINE_LEFT_PPMM_DECL(opname, op)                                      \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    using X = typename decltype(x)::type;                                      \
-    if constexpr (op opcheck<X&>) {                                            \
-      return std::is_same_v<decltype(op std::declval<X&>()), X&>;              \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <                                                                   \
-      typename DT,                                                             \
-      typename = std::enable_if_t<                                             \
-          is_dynamic_type_v<DT> &&                                             \
-          any_check(opname##_helper, DT::type_identities_as_tuple)>>           \
-  inline constexpr DT& operator op(DT & x);
-
-DEFINE_LEFT_PPMM_DECL(lpp, ++);
-DEFINE_LEFT_PPMM_DECL(lmm, --);
-#undef DEFINE_LEFT_PPMM_DECL
-
-// Declaration macro for postfix ++/-- - implementation in impl.h
-#define DEFINE_RIGHT_PPMM_DECL(opname, op)                                     \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  template <typename DTVariantType>                                            \
-  constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    using X = typename decltype(x)::type;                                      \
-    if constexpr (opcheck<X&> op) {                                            \
-      return std::                                                             \
-          is_constructible_v<DTVariantType, decltype(std::declval<X&>() op)>;  \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <typename DT>                                                       \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> &&                                                 \
-          any_check(                                                           \
-              opname##_helper<typename DT::VariantType>,                       \
-              DT::type_identities_as_tuple),                                   \
-      DT> operator op(DT & x, int);
-
-DEFINE_RIGHT_PPMM_DECL(rpp, ++);
-DEFINE_RIGHT_PPMM_DECL(rmm, --);
-#undef DEFINE_RIGHT_PPMM_DECL
-
-// Declaration macro for compound assignment - implementation in impl.h
-#define DEFINE_ASSIGNMENT_OP_DECL(op, assign_op)                 \
-  template <                                                     \
-      typename DT,                                               \
-      typename T,                                                \
-      typename = std::enable_if_t<                               \
-          is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
-  inline constexpr DT& operator assign_op(DT & x, const T & y);
-
-DEFINE_ASSIGNMENT_OP_DECL(+, +=);
-DEFINE_ASSIGNMENT_OP_DECL(-, -=);
-DEFINE_ASSIGNMENT_OP_DECL(*, *=);
-DEFINE_ASSIGNMENT_OP_DECL(/, /=);
-DEFINE_ASSIGNMENT_OP_DECL(%, %=);
-DEFINE_ASSIGNMENT_OP_DECL(&, &=);
-DEFINE_ASSIGNMENT_OP_DECL(|, |=);
-DEFINE_ASSIGNMENT_OP_DECL(^, ^=);
-DEFINE_ASSIGNMENT_OP_DECL(<<, <<=);
-DEFINE_ASSIGNMENT_OP_DECL(>>, >>=);
-#undef DEFINE_ASSIGNMENT_OP_DECL
+// NOTE: Prefix/postfix ++/-- and compound assignment operators are now
+// friend functions inside DynamicType class.
 
 // Intentionally not overloading operator comma",". This operator is rarely
 // overloaded, and the automatically defined version by the compiler usually

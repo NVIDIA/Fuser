@@ -47,24 +47,7 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   return os;
 }
 
-// Unary operator implementations
-#define DEFINE_UNARY_OP_IMPL(opname, op)                                       \
-  template <typename DT, typename>                                             \
-  inline constexpr decltype(auto) operator op(DT&& x) {                        \
-    return std::decay_t<DT>::dispatch(                                         \
-        [](auto&& x) -> decltype(auto) {                                       \
-          if constexpr (op opcheck<std::decay_t<decltype(x)>>) {               \
-            return op std::forward<decltype(x)>(x);                            \
-          }                                                                    \
-        },                                                                     \
-        std::forward<DT>(x));                                                  \
-  }
-
-DEFINE_UNARY_OP_IMPL(pos, +);
-DEFINE_UNARY_OP_IMPL(neg, -);
-DEFINE_UNARY_OP_IMPL(bnot, ~);
-DEFINE_UNARY_OP_IMPL(lnot, !);
-#undef DEFINE_UNARY_OP_IMPL
+// NOTE: Unary operators (+, -, ~, !) are now friend functions inside DynamicType class.
 
 // Dereference operator implementation
 template <typename DT, typename>
@@ -84,90 +67,9 @@ DT& operator*(const DT& x) {
   return ret.value();
 }
 
-// Prefix ++/-- operator implementations
-#define DEFINE_LEFT_PPMM_IMPL(opname, op)                                      \
-  template <typename DT, typename>                                             \
-  inline constexpr DT& operator op(DT & x) {                                   \
-    bool computed = false;                                                     \
-    DT::for_all_types([&computed, &x](auto _) {                                \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (op opcheck<Type&>) {                                       \
-        if constexpr (std::is_same_v<                                          \
-                          decltype(op std::declval<Type&>()),                  \
-                          Type&>) {                                            \
-          if (x.template is<Type>()) {                                         \
-            op x.template as<Type>();                                          \
-            computed = true;                                                   \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        computed,                                                              \
-        "Cannot compute ",                                                     \
-        #op,                                                                   \
-        x.type().name(),                                                       \
-        " : incompatible type");                                               \
-    return x;                                                                  \
-  }
+// NOTE: Prefix/postfix ++/-- are now friend functions inside DynamicType class.
 
-DEFINE_LEFT_PPMM_IMPL(lpp, ++);
-DEFINE_LEFT_PPMM_IMPL(lmm, --);
-#undef DEFINE_LEFT_PPMM_IMPL
-
-// Postfix ++/-- operator implementations
-#define DEFINE_RIGHT_PPMM_IMPL(opname, op)                                     \
-  template <typename DT>                                                       \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> &&                                                 \
-          any_check(                                                           \
-              opname##_helper<typename DT::VariantType>,                       \
-              DT::type_identities_as_tuple),                                   \
-      DT> operator op(DT & x, int) {                                           \
-    DT ret;                                                                    \
-    DT::for_all_types([&ret, &x](auto _) {                                     \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (opcheck<Type&> op) {                                       \
-        if constexpr (std::is_constructible_v<                                 \
-                          typename DT::VariantType,                            \
-                          decltype(std::declval<Type&>() op)>) {               \
-          if (x.template is<Type>()) {                                         \
-            ret = DT(x.template as<Type>() op);                                \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        !ret.template is<std::monostate>(),                                    \
-        "Cannot compute ",                                                     \
-        x.type().name(),                                                       \
-        #op,                                                                   \
-        " : incompatible type");                                               \
-    return ret;                                                                \
-  }
-
-DEFINE_RIGHT_PPMM_IMPL(rpp, ++);
-DEFINE_RIGHT_PPMM_IMPL(rmm, --);
-#undef DEFINE_RIGHT_PPMM_IMPL
-
-// Compound assignment operator implementations
-#define DEFINE_ASSIGNMENT_OP_IMPL(op, assign_op)                 \
-  template <typename DT, typename T, typename>                   \
-  inline constexpr DT& operator assign_op(DT & x, const T & y) { \
-    return x = x op y;                                           \
-  }
-
-DEFINE_ASSIGNMENT_OP_IMPL(+, +=);
-DEFINE_ASSIGNMENT_OP_IMPL(-, -=);
-DEFINE_ASSIGNMENT_OP_IMPL(*, *=);
-DEFINE_ASSIGNMENT_OP_IMPL(/, /=);
-DEFINE_ASSIGNMENT_OP_IMPL(%, %=);
-DEFINE_ASSIGNMENT_OP_IMPL(&, &=);
-DEFINE_ASSIGNMENT_OP_IMPL(|, |=);
-DEFINE_ASSIGNMENT_OP_IMPL(^, ^=);
-DEFINE_ASSIGNMENT_OP_IMPL(<<, <<=);
-DEFINE_ASSIGNMENT_OP_IMPL(>>, >>=);
-#undef DEFINE_ASSIGNMENT_OP_IMPL
+// NOTE: Compound assignment operators are now friend functions inside DynamicType class.
 
 // Binary operator implementations
 #define DEFINE_BINARY_OP_IMPL(opname, op, func_name, return_type, check_existence) \
@@ -278,6 +180,116 @@ DEFINE_BINARY_OP_FRIEND_IMPL(named_le, <=, DynamicType)
 DEFINE_BINARY_OP_FRIEND_IMPL(named_ge, >=, DynamicType)
 
 #undef DEFINE_BINARY_OP_FRIEND_IMPL
+
+// ============================================================================
+// Unary operator static member implementations
+// ============================================================================
+
+#define DEFINE_UNARY_OP_FRIEND_IMPL(opname, op)                                \
+  template <typename Containers, typename... Ts>                               \
+  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+      const DynamicType& x) -> DynamicType {                                   \
+    std::optional<DynamicType> result;                                         \
+    for_all_types([&result, &x](auto t) {                                      \
+      using Type = typename decltype(t)::type;                                 \
+      if constexpr (op opcheck<Type>) {                                        \
+        if constexpr (std::is_constructible_v<VariantType, decltype(op std::declval<Type>())>) { \
+          if (x.template is<Type>()) {                                         \
+            result = DynamicType(op x.template as<Type>());                    \
+          }                                                                    \
+        }                                                                      \
+      }                                                                        \
+    });                                                                        \
+    DYNAMIC_TYPE_CHECK(                                                        \
+        result.has_value(),                                                    \
+        "Cannot compute " #op, x.type().name(), " : incompatible type");       \
+    return *result;                                                            \
+  }
+
+DEFINE_UNARY_OP_FRIEND_IMPL(pos, +)
+DEFINE_UNARY_OP_FRIEND_IMPL(neg, -)
+DEFINE_UNARY_OP_FRIEND_IMPL(bnot, ~)
+DEFINE_UNARY_OP_FRIEND_IMPL(lnot, !)
+
+#undef DEFINE_UNARY_OP_FRIEND_IMPL
+
+// ============================================================================
+// Prefix increment/decrement static member implementations (++x, --x)
+// ============================================================================
+
+template <typename Containers, typename... Ts>
+auto DynamicType<Containers, Ts...>::lpp_impl(DynamicType& x) -> DynamicType& {
+  bool computed = false;
+  for_all_types([&computed, &x](auto t) {
+    using Type = typename decltype(t)::type;
+    if constexpr (++opcheck<Type&>) {
+      if constexpr (std::is_same_v<decltype(++std::declval<Type&>()), Type&>) {
+        if (x.template is<Type>()) {
+          ++x.template as<Type>();
+          computed = true;
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(computed, "Cannot compute ++", x.type().name());
+  return x;
+}
+
+template <typename Containers, typename... Ts>
+auto DynamicType<Containers, Ts...>::lmm_impl(DynamicType& x) -> DynamicType& {
+  bool computed = false;
+  for_all_types([&computed, &x](auto t) {
+    using Type = typename decltype(t)::type;
+    if constexpr (--opcheck<Type&>) {
+      if constexpr (std::is_same_v<decltype(--std::declval<Type&>()), Type&>) {
+        if (x.template is<Type>()) {
+          --x.template as<Type>();
+          computed = true;
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(computed, "Cannot compute --", x.type().name());
+  return x;
+}
+
+// ============================================================================
+// Postfix increment/decrement static member implementations (x++, x--)
+// ============================================================================
+
+template <typename Containers, typename... Ts>
+auto DynamicType<Containers, Ts...>::rpp_impl(DynamicType& x) -> DynamicType {
+  std::optional<DynamicType> result;
+  for_all_types([&result, &x](auto t) {
+    using Type = typename decltype(t)::type;
+    if constexpr (opcheck<Type&>++) {
+      if constexpr (std::is_constructible_v<VariantType, decltype(std::declval<Type&>()++)>) {
+        if (x.template is<Type>()) {
+          result = DynamicType(x.template as<Type>()++);
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(result.has_value(), "Cannot compute ", x.type().name(), "++");
+  return *result;
+}
+
+template <typename Containers, typename... Ts>
+auto DynamicType<Containers, Ts...>::rmm_impl(DynamicType& x) -> DynamicType {
+  std::optional<DynamicType> result;
+  for_all_types([&result, &x](auto t) {
+    using Type = typename decltype(t)::type;
+    if constexpr (opcheck<Type&>--) {
+      if constexpr (std::is_constructible_v<VariantType, decltype(std::declval<Type&>()--)>) {
+        if (x.template is<Type>()) {
+          result = DynamicType(x.template as<Type>()--);
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(result.has_value(), "Cannot compute ", x.type().name(), "--");
+  return *result;
+}
 
 } // namespace dynamic_type
 
