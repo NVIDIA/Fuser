@@ -213,7 +213,36 @@ DEFINE_ASSIGNMENT_OP_IMPL(>>, >>=);
     }                                                                          \
   }
 
+// Binary operator implementations - all 24 operators
 DEFINE_BINARY_OP_IMPL(add, +, operator+, DT, true);
+DEFINE_BINARY_OP_IMPL(minus, -, operator-, DT, true);
+DEFINE_BINARY_OP_IMPL(mul, *, operator*, DT, true);
+DEFINE_BINARY_OP_IMPL(div, /, operator/, DT, true);
+DEFINE_BINARY_OP_IMPL(mod, %, operator%, DT, true);
+DEFINE_BINARY_OP_IMPL(band, &, operator&, DT, true);
+DEFINE_BINARY_OP_IMPL(bor, |, operator|, DT, true);
+DEFINE_BINARY_OP_IMPL(xor, ^, operator^, DT, true);
+DEFINE_BINARY_OP_IMPL(land, &&, operator&&, DT, true);
+DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
+DEFINE_BINARY_OP_IMPL(lshift, <<, operator<<, DT, true);
+DEFINE_BINARY_OP_IMPL(rshift, >>, operator>>, DT, true);
+
+// Named comparison (return DT)
+DEFINE_BINARY_OP_IMPL(named_eq, ==, eq, DT, true);
+DEFINE_BINARY_OP_IMPL(named_neq, !=, ne, DT, true);
+DEFINE_BINARY_OP_IMPL(named_lt, <, lt, DT, true);
+DEFINE_BINARY_OP_IMPL(named_gt, >, gt, DT, true);
+DEFINE_BINARY_OP_IMPL(named_le, <=, le, DT, true);
+DEFINE_BINARY_OP_IMPL(named_ge, >=, ge, DT, true);
+
+// Comparison (return bool)
+DEFINE_BINARY_OP_IMPL(eq, ==, operator==, bool, false);
+DEFINE_BINARY_OP_IMPL(neq, !=, operator!=, bool, false);
+DEFINE_BINARY_OP_IMPL(lt, <, operator<, bool, false);
+DEFINE_BINARY_OP_IMPL(gt, >, operator>, bool, false);
+DEFINE_BINARY_OP_IMPL(le, <=, operator<=, bool, false);
+DEFINE_BINARY_OP_IMPL(ge, >=, operator>=, bool, false);
+
 #undef DEFINE_BINARY_OP_IMPL
 
 } // namespace dynamic_type
