@@ -66,6 +66,24 @@ DEFINE_UNARY_OP_IMPL(bnot, ~);
 DEFINE_UNARY_OP_IMPL(lnot, !);
 #undef DEFINE_UNARY_OP_IMPL
 
+// Dereference operator implementation
+template <typename DT, typename>
+DT& operator*(const DT& x) {
+  std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
+  DT::for_all_types([&ret, &x](auto t) {
+    using T = typename decltype(t)::type;
+    if constexpr (*opcheck<T>) {
+      if constexpr (std::is_same_v<decltype(*std::declval<T>()), DT&>) {
+        if (x.template is<T>()) {
+          ret = std::ref(*(x.template as<T>()));
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
+  return ret.value();
+}
+
 } // namespace dynamic_type
 
 #if defined(__clang__)

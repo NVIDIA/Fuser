@@ -740,26 +740,13 @@ auto star_defined_checker = [](auto t) {
   return false;
 };
 
+// Declaration only - implementation in impl.h
 template <
     typename DT,
     typename = std::enable_if_t<
         is_dynamic_type_v<DT> &&
         any_check(star_defined_checker<DT>, DT::type_identities_as_tuple)>>
-DT& operator*(const DT& x) {
-  std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
-  DT::for_all_types([&ret, &x](auto t) {
-    using T = typename decltype(t)::type;
-    if constexpr (*opcheck<T>) {
-      if constexpr (std::is_same_v<decltype(*std::declval<T>()), DT&>) {
-        if (x.template is<T>()) {
-          ret = std::ref(*(x.template as<T>()));
-        }
-      }
-    }
-  });
-  DYNAMIC_TYPE_CHECK(ret.has_value(), "Cannot dereference ", x.type().name());
-  return ret.value();
-}
+DT& operator*(const DT& x);
 
 // Printing
 // TODO: we should inline the definition of can_print into enable_if, but I can
