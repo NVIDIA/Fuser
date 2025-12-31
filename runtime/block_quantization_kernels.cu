@@ -357,8 +357,13 @@ __device__ void preprocessGroupedMatmulInputSf(
 
 template <
     bool USE_GLOBAL_SCALE,
+    int BLOCK_ROW_OUTER,
+    int BLOCK_ROW_INNER,
+    int BLOCK_COL,
+    int UNROLL_FACTOR,
     int ITEMS_PER_THREAD,
     typename T,
+    typename Index_T,
     int ALIGNMENT_1,
     int ALIGNMENT_2,
     int BLOCK_SCALE_DIM,
@@ -367,40 +372,34 @@ __device__ void grouped_block_quantize_to_nvfp4(
     const Array<T, ITEMS_PER_THREAD, ALIGNMENT_1>& input,
     Array<__e2m1, ITEMS_PER_THREAD, ALIGNMENT_2>& output,
     Tensor<__e4m3, BLOCK_SCALE_DIM, BLOCK_SCALE_ALLOC>& block_scales,
-    nvfuser_index_t logical_index,
+    const nvfuser_index_t row_idx,
+    const nvfuser_index_t col_idx,
+    const Index_T* input_offsets,
+    const Index_T* output_offsets,
+    const nvfuser_index_t col_size,
+    const nvfuser_index_t group_size,
     Tensor<float, 0, 0> global_scale) {
-  // Write out the block scaling factor to global memory.
-  // This assumes 16 elements in the input were contiguous.
-  // Only one block scaling factor is written out per 16(assumed block size)
-  // elements.
-  int offset = logical_index / 16;
-
-  if (fp8_scaling_factors_inner_dim > 0) {
-    auto stride_4 = 1;
-    auto stride_3 = stride_4 * alloc_dim4;
-    auto stride_2 = stride_3 * alloc_dim3;
-    auto stride_1 = stride_2 * alloc_dim2;
-    auto stride_0 = stride_1 * alloc_dim1;
-
-    auto logical_inner = offset % fp8_scaling_factors_inner_dim;
-    auto logical_outer = offset / fp8_scaling_factors_inner_dim;
-
-    // The allocation domain swizzle logic is:
-    // m, k -> m, k/4, 4
-    // m, k/4, 4 -> m/128, 128, k/4, 4 ->
-    // m/128, 4(m), 32, k/4, 4(k) ->
-    // m/128, k/4, 32, 4(m), 4(k)
-
-    auto pos_4 = logical_inner % 4;
-    auto pos_1 = logical_inner / 4;
-    auto pos_t = logical_outer % 128;
-    auto pos_0 = logical_outer / 128;
-    auto pos_3 = pos_t / 32;
-    auto pos_2 = pos_t % 32;
-
-    offset = pos_4 * stride_4 + pos_3 * stride_3 + pos_2 * stride_2 +
-        pos_1 * stride_1 + pos_0 * stride_0;
+  // find corresponding expert_id
+  int expert_id = group_size - 1;
+  for (int i = 1; i < group_size; ++i) {
+    if (row_idx < input_offsets[i]) {
+      expert_id = i - 1;
+      break;
+    }
   }
+  // row idx for current group
+  nvfuser_index_t c_row_idx = row_idx - input_offsets[expert_id];
+  // compute output group offset for current group
+  nvfuser_index_t padded_col_size =
+      (col_size + BLOCK_COL - 1) / BLOCK_COL * BLOCK_COL;
+  nvfuser_index_t out_group_offset = output_offsets[expert_id] * padded_col_size;
+  // compute the offset
+  nvfuser_index_t index = outputOffsetAfterSwizzlePadding<
+      BLOCK_ROW_OUTER,
+      BLOCK_ROW_INNER,
+      BLOCK_COL>(c_row_idx, col_idx, padded_col_size);
+  nvfuser_index_t offset = out_group_offset + index;
+  
   block_quantize_to_nvfp4_util<USE_GLOBAL_SCALE>(input, output, block_scales, global_scale, offset);
 }
 
