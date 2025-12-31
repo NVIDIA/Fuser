@@ -920,27 +920,6 @@ class ExprValidator : public OptOutDispatch {
         !quantized_output->hasAllocation(),
         "Quantized output must not have an allocation domain.");
 
-    // When output scales is swizzled we will need to allow these checks
-    // to be relaxed. We will need to ensure that the swizzling
-    // allocation allowed is a fixed pattern:
-    // 2D logical and 5D allocation domain.
-    // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
-    if (block_scaling_factor->hasAllocation()) {
-      isValidBlockScaleSwizzle(block_scaling_factor);
-      NVF_ERROR_EQ(
-          bqop->isSwizzledScales(),
-          true,
-          "Block scaling factor with allocation domain requires swizzled "
-          "scales.");
-    }
-
-    NVF_ERROR(
-        std::all_of(
-            block_scaling_factor->getContiguity().begin(),
-            block_scaling_factor->getContiguity().end(),
-            [](std::optional<bool> c) { return c.value_or(true); }),
-        "Block scaling factor not contiguous");
-
     IterDomain* grouped_id = nullptr;
     IterDomain* thread_x = nullptr;
     IterDomain* block_x = nullptr;

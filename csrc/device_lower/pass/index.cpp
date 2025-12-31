@@ -458,21 +458,10 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* bqop) {
   std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
       bqop->quantizedOutput()->as<TensorView>(), for_loops_);
 
-  auto loop_domain =
-      bqop->quantizedOutput()->as<TensorView>()->getLogicalDomain();
+  NVF_ERROR(
+      logical_index.size() == 2,
+      "only matrices are supported in GroupedBlockQuantizationOp");
 
-  int64_t dim_count = logical_index.size();
-
-  // logical_index[2] * 1 + logical_index[1] * extent[2] + logical_index[0] *
-  // extent[1] * extent[2]
-  auto idx = logical_index[dim_count - 1];
-  for (auto i = dim_count - 2; i >= 0; i--) {
-    auto stride = IrBuilder::create<Val>(1, DataType::Index);
-    for (auto j = i + 1; j < dim_count; j++) {
-      stride = IrBuilder::mulExpr(stride, loop_domain[j]->extent());
-    }
-    idx = IrBuilder::addExpr(IrBuilder::mulExpr(logical_index[i], stride), idx);
-  }
 
   // As part of runtime validation
   // make sure that the inner dimension of the input is divisible by block size.
@@ -494,7 +483,18 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* bqop) {
       bqop->toString());
 
   pushBack(IrBuilder::create<GroupedBlockQuantizationOp>(
-      out_scales, out_quantized, in, idx, bqop->globalScale()));
+      out_scales,
+      out_quantized,
+      in,
+      preprocess_op->inputOffsets(),
+      preprocess_op->outputOffsets(),
+      preprocess_op->layout(),
+      preprocess_op->k(),
+      preprocess_op->g(),
+      bqop->globalScale(),
+      16,
+      logical_index[0],
+      logical_index[1]));
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 
