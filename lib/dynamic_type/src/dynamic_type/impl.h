@@ -138,7 +138,24 @@ DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
           using X = std::decay_t<decltype(x)>;                                 \
           using Y = std::decay_t<decltype(y)>;                                 \
           if constexpr (opcheck<X> op opcheck<Y>) {                            \
-            if constexpr (std::is_convertible_v<decltype(x op y), return_type>) { \
+            using ResultT = decltype(x op y);                                  \
+            /* Skip if result type is DynamicType - indicates recursive call   \
+               through arithmetic operators returning DynamicType */           \
+            constexpr bool result_is_dt =                                      \
+                std::is_same_v<std::decay_t<ResultT>, DynamicType>;            \
+            /* Skip if X and Y are DIFFERENT types and one/both are            \
+               constructible to DynamicType but aren't base types.             \
+               This indicates opcheck success is via implicit conversion       \
+               to DynamicType, which would cause infinite recursion.           \
+               If X == Y (same type), the native operator is used - safe. */   \
+            constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);         \
+            constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);         \
+            constexpr bool mixed_with_container =                              \
+                !std::is_same_v<X, Y> &&  /* different types */                \
+                ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||    \
+                 (std::is_constructible_v<DynamicType, Y> && !y_is_base));     \
+            if constexpr (!result_is_dt && !mixed_with_container &&            \
+                          std::is_convertible_v<ResultT, return_type>) {       \
               result = static_cast<return_type>(x op y);                       \
             }                                                                  \
           }                                                                    \
@@ -193,7 +210,18 @@ DEFINE_BINARY_OP_FRIEND_IMPL(named_ge, >=, DynamicType)
     for_all_types([&result, &x](auto t) {                                      \
       using Type = typename decltype(t)::type;                                 \
       if constexpr (op opcheck<Type>) {                                        \
-        if constexpr (std::is_constructible_v<VariantType, decltype(op std::declval<Type>())>) { \
+        using ResultT = decltype(op std::declval<Type>());                     \
+        /* Skip if result type is DynamicType - indicates recursion */         \
+        constexpr bool result_is_dt =                                          \
+            std::is_same_v<std::decay_t<ResultT>, DynamicType>;                \
+        /* Skip if Type is a container (not a base type) that converts to      \
+           DynamicType - this would cause infinite recursion */                \
+        constexpr bool is_base = (std::is_same_v<Type, Ts> || ...);            \
+        constexpr bool converts_to_dt =                                        \
+            std::is_constructible_v<DynamicType, Type>;                        \
+        constexpr bool is_container_type = converts_to_dt && !is_base;         \
+        if constexpr (!result_is_dt && !is_container_type &&                   \
+                      std::is_constructible_v<VariantType, ResultT>) {         \
           if (x.template is<Type>()) {                                         \
             result = DynamicType(op x.template as<Type>());                    \
           }                                                                    \
@@ -209,9 +237,35 @@ DEFINE_BINARY_OP_FRIEND_IMPL(named_ge, >=, DynamicType)
 DEFINE_UNARY_OP_FRIEND_IMPL(pos, +)
 DEFINE_UNARY_OP_FRIEND_IMPL(neg, -)
 DEFINE_UNARY_OP_FRIEND_IMPL(bnot, ~)
-DEFINE_UNARY_OP_FRIEND_IMPL(lnot, !)
 
 #undef DEFINE_UNARY_OP_FRIEND_IMPL
+
+// Logical not - returns bool
+template <typename Containers, typename... Ts>
+bool DynamicType<Containers, Ts...>::lnot_impl(const DynamicType& x) {
+  std::optional<bool> result;
+  for_all_types([&result, &x](auto t) {
+    using Type = typename decltype(t)::type;
+    if constexpr (!opcheck<Type>) {
+      using ResultT = decltype(!std::declval<Type>());
+      // Skip if Type is a container (not a base type) that would convert
+      // to DynamicType - this would cause infinite recursion
+      constexpr bool is_base = (std::is_same_v<Type, Ts> || ...);
+      constexpr bool converts_to_dt = std::is_constructible_v<DynamicType, Type>;
+      constexpr bool is_container_type = converts_to_dt && !is_base;
+      if constexpr (!is_container_type &&
+                    std::is_convertible_v<ResultT, bool>) {
+        if (x.template is<Type>()) {
+          result = static_cast<bool>(!x.template as<Type>());
+        }
+      }
+    }
+  });
+  DYNAMIC_TYPE_CHECK(
+      result.has_value(),
+      "Cannot compute !", x.type().name(), " : incompatible type");
+  return *result;
+}
 
 // ============================================================================
 // Prefix increment/decrement static member implementations (++x, --x)

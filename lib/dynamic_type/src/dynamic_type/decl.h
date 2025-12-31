@@ -617,9 +617,12 @@ struct DynamicType {
   DEFINE_UNARY_OP_FRIEND(pos, +)
   DEFINE_UNARY_OP_FRIEND(neg, -)
   DEFINE_UNARY_OP_FRIEND(bnot, ~)
-  DEFINE_UNARY_OP_FRIEND(lnot, !)
 
 #undef DEFINE_UNARY_OP_FRIEND
+
+  // Logical not - returns bool
+  static bool lnot_impl(const DynamicType& x);
+  friend bool operator!(const DynamicType& x) { return lnot_impl(x); }
 
   // Prefix increment/decrement (++x, --x) - return reference
   static DynamicType& lpp_impl(DynamicType& x);  // ++x

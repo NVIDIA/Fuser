@@ -143,7 +143,7 @@ static StructVecDouble kNN_Dictionary(
     sum += distances_and_values.top().second;
     distances_and_values.pop();
   }
-  return sum / k;
+  return sum / static_cast<double>(k);
 }
 
 static void kNN_Dictionary(benchmark::State& state) {

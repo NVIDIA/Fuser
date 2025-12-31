@@ -22,45 +22,47 @@ using namespace dynamic_type;
 
 class Examples : public ::testing::Test {};
 
-namespace example_1 {
-
-using IntOrFloat = DynamicType<NoContainers, int, float>;
-constexpr IntOrFloat x = 1;
-constexpr IntOrFloat y = 2.5f;
-constexpr IntOrFloat z = x + y;
-static_assert(z.as<float>() == 3.5f);
-
-} // namespace example_1
+TEST_F(Examples, Example1) {
+  using IntOrFloat = DynamicType<NoContainers, int, float>;
+  IntOrFloat x = 1;
+  IntOrFloat y = 2.5f;
+  IntOrFloat z = x + y;
+  EXPECT_EQ(z.as<float>(), 3.5f);
+}
 
 TEST_F(Examples, Example2) {
   struct CustomType {};
   using IntOrFloatOrCustom = DynamicType<NoContainers, int, float, CustomType>;
-  constexpr IntOrFloatOrCustom i = 1;
-  constexpr IntOrFloatOrCustom f = 2.5f;
-  constexpr IntOrFloatOrCustom c = CustomType{};
-  constexpr IntOrFloatOrCustom null;
-  static_assert(i + i == 2);
-  static_assert(i + f == 3.5f);
-  static_assert(f + i == 3.5f);
-  static_assert(f + f == 5.0f);
+  IntOrFloatOrCustom i = 1;
+  IntOrFloatOrCustom f = 2.5f;
+  IntOrFloatOrCustom c = CustomType{};
+  IntOrFloatOrCustom null;
+  EXPECT_EQ(i + i, 2);
+  EXPECT_EQ(i + f, 3.5f);
+  EXPECT_EQ(f + i, 3.5f);
+  EXPECT_EQ(f + f, 5.0f);
   EXPECT_THAT(
       [&]() { i + null; },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Result is dynamic but not convertible to result type")));
+          "Cannot compute")));
   EXPECT_THAT(
       [&]() { i + c; },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Result is dynamic but not convertible to result type")));
+          "Cannot compute")));
 }
 
-namespace example_3 {
-
-struct CustomType {};
-struct CustomType2 {};
-using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
-static_assert(!(opcheck<Custom12> + opcheck<Custom12>));
-
-} // namespace example_3
+TEST_F(Examples, Example3) {
+  // Test that operations on unsupported types fail at runtime
+  struct CustomType {};
+  struct CustomType2 {};
+  using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
+  // With friend operators, the operator is always defined at compile time
+  // but will fail at runtime for unsupported type combinations
+  EXPECT_THAT(
+      []() { Custom12(CustomType{}) + Custom12(CustomType2{}); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Cannot compute")));
+}
 
 struct bfloat16_zero {};
 struct half_zero {};
@@ -70,7 +72,12 @@ float operator+(bfloat16_zero, half_zero) {
 
 TEST_F(Examples, Example4) {
   using BFloatOrHalfZero = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-  static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
+  // With friend operators, the operator is always defined at compile time
+  // Runtime error for unsupported type combinations
+  EXPECT_THAT(
+      []() { BFloatOrHalfZero(bfloat16_zero{}) + BFloatOrHalfZero(half_zero{}); },
+      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+          "Cannot compute")));
   using BFloatOrHalfZeroOrInt =
       DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
   static_assert(
@@ -81,22 +88,20 @@ TEST_F(Examples, Example4) {
             BFloatOrHalfZeroOrInt(bfloat16_zero{});
       },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Result is dynamic but not convertible to result type")));
+          "Cannot compute")));
 }
 
-namespace example_5 {
-
-using IntOrFloat = DynamicType<NoContainers, int, float>;
-constexpr IntOrFloat x = 1;
-constexpr float y = 2.5f;
-static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
-static_assert((x + y).as<float>() == 3.5f);
-static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
-static_assert((y + x).as<float>() == 3.5f);
-static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
-static_assert(!(opcheck<double> + opcheck<IntOrFloat>));
-
-} // namespace example_5
+TEST_F(Examples, Example5) {
+  using IntOrFloat = DynamicType<NoContainers, int, float>;
+  IntOrFloat x = 1;
+  float y = 2.5f;
+  static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
+  EXPECT_EQ((x + y).as<float>(), 3.5f);
+  static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
+  EXPECT_EQ((y + x).as<float>(), 3.5f);
+  static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
+  static_assert(!(opcheck<double> + opcheck<IntOrFloat>));
+}
 
 TEST_F(Examples, Example6) {
   using IntFloatVecList =
