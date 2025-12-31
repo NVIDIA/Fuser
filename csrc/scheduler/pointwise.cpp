@@ -431,7 +431,7 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
           .get();
   if (has_block_quantization_ops) {
     // FIXME: this needs to be done per input dtype. I'm capping it as 4 for simplicity for now.
-    pparams->vectorization_factor = std::min(4, params->vectorization_factor);
+    pparams->as<PointwiseParams>()->vectorization_factor = std::min<int64_t>(4, pparams->as<PointwiseParams>()->vectorization_factor);
   }
 
 

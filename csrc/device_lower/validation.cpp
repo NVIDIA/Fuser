@@ -2100,7 +2100,7 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
             def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
-            def->isA<BlockQuantizationOp>(),
+            def->isA<BlockQuantizationOp>() || def->isA<GroupedBlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 
