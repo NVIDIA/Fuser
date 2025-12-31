@@ -1129,6 +1129,15 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
+  
+  # Create separate PCH for test targets (can't reuse from codegen_internal
+  # due to -fpie flag difference between library and executable)
+  if(NVFUSER_USE_POLYMORPHIC_PCH)
+    target_precompile_headers(${TEST_NAME} PRIVATE
+      "${NVFUSER_SRCS_DIR}/polymorphic_value.h"
+    )
+  endif()
+  
   target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
   target_include_directories(${TEST_NAME} SYSTEM PRIVATE
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
