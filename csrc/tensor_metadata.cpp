@@ -358,7 +358,7 @@ inferAndValidateAllocationSizesAndStrides(
     }
   } else if (tv->definition() && tv->definition()->isA<GroupedBlockQuantizationOp>()) {
     auto bqop = tv->definition()->as<GroupedBlockQuantizationOp>();
-    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+    if (tv == bqop->blockScales()) {
       skip_validation = true;
     }
   }
