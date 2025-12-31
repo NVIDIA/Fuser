@@ -136,24 +136,13 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       }
       has_consumer_id = true;
     }
-  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition()) ||
-             dynamic_cast<GroupedBlockQuantizationOp*>(consumer_tv->definition())) {
+  } else if (dynamic_cast<BlockQuantizationOp*>(consumer_tv->definition())) {
     // We don't map the inner-most dimension of the block scaling factors
     // as it's extent is reduced by a factor of the block size
     // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
     // Make sure the producer isn't the global scale.
-    bool is_block_quant = consumer_tv->definition()->isA<BlockQuantizationOp>();
-    bool is_grouped_block_quant = consumer_tv->definition()->isA<GroupedBlockQuantizationOp>();
-    
-    Val* block_scales = nullptr;
-    Val* global_scale = nullptr;
-    if (is_block_quant) {
-      block_scales = consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales();
-      global_scale = consumer_tv->definition()->as<BlockQuantizationOp>()->globalScale();
-    } else if (is_grouped_block_quant) {
-      block_scales = consumer_tv->definition()->as<GroupedBlockQuantizationOp>()->blockScales();
-      global_scale = consumer_tv->definition()->as<GroupedBlockQuantizationOp>()->globalScale();
-    }
+    Val* block_scales = consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales();
+    Val* global_scale = consumer_tv->definition()->as<BlockQuantizationOp>()->globalScale();
     
     if (consumer_tv == block_scales && producer_tv != global_scale) {
       auto producer_logical =
@@ -162,6 +151,15 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
       non_mapping_ids.insert(producer_logical.at(last_logical_dim));
       // We are mapping everything but the last ID.
       has_consumer_id = true;
+    }
+  } else if (auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(consumer_tv->definition())) {
+    // NOTE: merge this with PreprocessGroupedMatmulInputSf above.
+    if (producer_tv != grouped_bqop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
     }
   }
 
