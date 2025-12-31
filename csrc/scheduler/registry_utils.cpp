@@ -1090,6 +1090,7 @@ bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
         return true;
       }
     }
+    // FIXME: I think I needed to do the same for GroupedBlockQuantizationOp
   }
   return false;
 }

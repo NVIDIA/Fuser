@@ -66,6 +66,14 @@ bool canIgnoreIndexedInputDomainID(
           input_tv == layout->outputOffsets()) {
         continue;
       }
+    } else if (
+        auto layout = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
+      // since we don't index into offsets, scheduler doesn't need to cover
+      // offset TVs ID.
+      if (input_tv == layout->inputOffsets() ||
+          input_tv == layout->outputOffsets()) {
+        continue;
+      }
     } else {
       // If the input TV is used by any other ops
       return false;
