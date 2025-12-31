@@ -1357,7 +1357,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     auto isGroupOffsets = [tv](Expr* use) {
       if (auto op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
         return tv == op->inputOffsets() || tv == op->outputOffsets();
-      } else (auto op = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
+      } else if (auto op = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
         return tv == op->inputOffsets() || tv == op->outputOffsets();
       }
       return false;
