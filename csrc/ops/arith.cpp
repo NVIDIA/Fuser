@@ -2758,8 +2758,8 @@ BlockQuantizationResults groupedBlockQuantize(
     TensorView* input,
     TensorView* input_offsets,
     TensorView* output_offsets,
-    TensorView* global_scaling_factor,
     BlockScalingFactorLayout layout,
+    TensorView* global_scaling_factor,
     int64_t block_size,
     DataType out_dtype) {
   NVF_CHECK(
