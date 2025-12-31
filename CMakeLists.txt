@@ -564,6 +564,23 @@ endif()
 
 target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
+# Narrow PCH for polymorphic_value.h
+# Post-M8, template instantiation is reduced by 81%, making header parsing
+# a significant fraction of build cost. This PCH targets the heaviest headers.
+# Enabled by default for Release builds (provides ~50% build time improvement).
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  option(NVFUSER_USE_POLYMORPHIC_PCH "Use PCH for polymorphic_value.h to reduce parse time" ON)
+else()
+  option(NVFUSER_USE_POLYMORPHIC_PCH "Use PCH for polymorphic_value.h to reduce parse time" OFF)
+endif()
+
+if(NVFUSER_USE_POLYMORPHIC_PCH)
+  message(STATUS "Enabling narrow PCH for polymorphic_value.h")
+  target_precompile_headers(codegen_internal PRIVATE
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.h"
+  )
+endif()
+
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
