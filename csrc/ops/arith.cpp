@@ -17,6 +17,7 @@
 #include <ir/utils.h>
 #include <ops/alias.h>
 #include <ops/utils.h>
+#include <ops/indexing.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -2755,9 +2756,11 @@ BlockQuantizationResults blockQuantize(
 
 BlockQuantizationResults groupedBlockQuantize(
     TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
     TensorView* global_scaling_factor,
+    BlockScalingFactorLayout layout,
     int64_t block_size,
-    bool swizzle_scales,
     DataType out_dtype) {
   NVF_CHECK(
       out_dtype == DataType::Float4_e2m1fn ||
@@ -2776,8 +2779,6 @@ BlockQuantizationResults groupedBlockQuantize(
         32,
         "Block size must be 32 for Float8_e4m3fn, got ",
         block_size);
-    NVF_CHECK(
-        !swizzle_scales, "swizzle_scales must be false for Float8_e4m3fn");
     NVF_CHECK(
         !global_scaling_factor,
         "global_scaling_factor must be nullptr for Float8_e4m3fn");
@@ -2820,27 +2821,6 @@ BlockQuantizationResults groupedBlockQuantize(
     quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
   }
 
-  // Create output domain for block scales
-  // We'll clone the outer domains but divide the
-  // extent of the inner domain by 16. (block_size).
-  std::vector<IterDomain*> scales_out_domain;
-  scales_out_domain.reserve(inp_domain.size());
-
-  for (auto inp_id : inp_domain) {
-    if (inp_id == inp_domain.back()) {
-      scales_out_domain.push_back(
-          IterDomainBuilder(
-              inp_id->start(),
-              SimplifyingIrBuilder::divExpr(
-                  inp_id->extent(),
-                  IrBuilder::create<Val>(block_size, DataType::Index)))
-              .build());
-
-    } else {
-      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
-    }
-  }
-
   // Create output tensors
   TensorView* quantized_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
@@ -2848,30 +2828,55 @@ BlockQuantizationResults groupedBlockQuantize(
           TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
       out_dtype);
 
+  // Create output blocked scaling factor
   auto block_scales_dtype = (out_dtype == DataType::Float4_e2m1fn)
       ? DataType::Float8_e4m3fn
       : DataType::Float8_e8m0fnu;
+  NVF_ERROR_EQ(inp_domain.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> out_logical_dom;
+  out_logical_dom.reserve(inp_domain.size());
+  std::ranges::transform(
+      inp_domain,
+      std::back_inserter(out_logical_dom),
+      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
+  
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  Val* num_groups = offset_logical_dom[0]->extent();
+  
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> out_alloc_dom =
+      layoutAllocationDomain(out_logical_dom, num_groups, layout);
 
   // Create block scaling factors
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          scales_out_domain,
-          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/out_logical_dom,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/out_logical_dom,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
       block_scales_dtype);
-
-  if (swizzle_scales) {
-    ir_utils::swizzleBlockScales(block_scales);
-  }
 
   // Create the grouped block quantization operation
   IrBuilder::create<GroupedBlockQuantizationOp>(
       block_scales,
       quantized_tensor,
       input,
-      /*logical_index=*/nullptr,
+     	input_offsets,
+     	output_offsets,
+     	layout,
+     	inp_domain[1]->getMaybeExpandedExtent(),
+     	num_groups,
       global_scaling_factor,
-      block_size,
-      swizzle_scales);
+      block_size);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

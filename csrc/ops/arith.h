@@ -857,9 +857,11 @@ NVF_API BlockQuantizationResults blockQuantize(
 
 NVF_API BlockQuantizationResults groupedBlockQuantize(
     TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
     TensorView* global_scaling_factor = nullptr,
+    BlockScalingFactorLayout layout,
     int64_t block_size = 16,
-    bool swizzle_scales = false,
     DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser

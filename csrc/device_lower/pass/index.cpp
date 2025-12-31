@@ -437,14 +437,14 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 
-void IndexLowering::handle(const GroupedBlockQuantizationOp* bqop) {
+void IndexLowering::handle(const GroupedBlockQuantizationOp* grouped_bqop) {
   const auto in = IrBuilder::create<kir::TensorIndex>(
-      bqop->in()->as<TensorView>(), bqop->fusion()->zeroVal());
+      grouped_bqop->in()->as<TensorView>(), grouped_bqop->fusion()->zeroVal());
 
   const auto out_scales = IrBuilder::create<kir::TensorIndex>(
-      bqop->blockScales()->as<TensorView>(), bqop->fusion()->zeroVal());
+      grouped_bqop->blockScales()->as<TensorView>(), grouped_bqop->fusion()->zeroVal());
   const auto out_quantized = IrBuilder::create<kir::TensorIndex>(
-      bqop->quantizedOutput()->as<TensorView>(), bqop->fusion()->zeroVal());
+      grouped_bqop->quantizedOutput()->as<TensorView>(), grouped_bqop->fusion()->zeroVal());
 
   // The GroupedBlockQuantizationOp funnels down to a runtime function.
   // We pass the index for the block scaling factors output. We compute
@@ -456,7 +456,7 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* bqop) {
   // We then multiply and accumulate them using the logical extents of the
   // quantized output tensor to get the linearized index.
   std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
-      bqop->quantizedOutput()->as<TensorView>(), for_loops_);
+      grouped_bqop->quantizedOutput()->as<TensorView>(), for_loops_);
 
   NVF_ERROR(
       logical_index.size() == 2,
@@ -465,37 +465,37 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* bqop) {
 
   // As part of runtime validation
   // make sure that the inner dimension of the input is divisible by block size.
-  auto* inner_id = bqop->in()->as<TensorView>()->getLogicalDomain().back();
+  auto* inner_id = grouped_bqop->in()->as<TensorView>()->getLogicalDomain().back();
   Val* is_divisible = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
           inner_id->extent(),
-          IrBuilder::create<Val>(bqop->blockSize(), DataType::Index)),
-      bqop->fusion()->zeroVal());
+          IrBuilder::create<Val>(grouped_bqop->blockSize(), DataType::Index)),
+      grouped_bqop->fusion()->zeroVal());
 
   NVFUSER_LOWER_VALIDATE(
       is_divisible,
       "Inner dimension of GroupedBlockQuantizationOp input must be divisible by block "
       "size (",
-      bqop->blockSize(),
+      grouped_bqop->blockSize(),
       "), but got extent ",
       inner_id->extent()->toInlineString(),
       " in ",
-      bqop->toString());
+      grouped_bqop->toString());
 
   pushBack(IrBuilder::create<GroupedBlockQuantizationOp>(
       out_scales,
       out_quantized,
       in,
-      preprocess_op->inputOffsets(),
-      preprocess_op->outputOffsets(),
-      preprocess_op->layout(),
-      preprocess_op->k(),
-      preprocess_op->g(),
-      bqop->globalScale(),
+      grouped_bqop->inputOffsets(),
+      grouped_bqop->outputOffsets(),
+      grouped_bqop->layout(),
+      grouped_bqop->k(),
+      grouped_bqop->g(),
+      grouped_bqop->globalScale(),
       16,
       logical_index[0],
       logical_index[1]));
-  GpuLower::current()->propagateExprInfo(bqop, back());
+  GpuLower::current()->propagateExprInfo(grouped_bqop, back());
 }
 
 void IndexLowering::handle(const SelectOp* sop) {
