@@ -4855,23 +4855,38 @@ GroupedBlockQuantizationOp::GroupedBlockQuantizationOp(
     Val* output_scales,
     Val* output,
     Val* input,
-    Val* logical_index,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g,
     Val* global_scale,
     int64_t block_size,
-    bool swizzled_scales)
+    Val* row_idx,
+    Val* col_idx)
     : Expr(passkey) {
   addOutput(output);
   addOutput(output_scales);
   addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
   if (global_scale) {
     addInput(global_scale);
   }
-  addAttribute(logical_index);
   addDataAttribute(block_size);
-  addDataAttribute(swizzled_scales);
+  addDataAttribute(layout);
+  if (row_idx != nullptr) {
+    addAttribute(row_idx);
+  }
+  if (col_idx != nullptr) {
+    addAttribute(col_idx);
+  }
 }
 
 std::string GroupedBlockQuantizationOp::toString(int indent_size) const {
+  // FIXME(jiej): update this to print out additional stuff.
   std::stringstream ss;
   indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
                           << quantizedOutput()->toString() << ")\n"

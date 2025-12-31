@@ -3490,6 +3490,7 @@ class BlockQuantizationOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+//! This combines BlockQuantizationOp and PreprocessGroupedMatmulInputSf, where it applied the swizzle on blocked scaling factor. see NOTE -- [ PreprocessGroupedMatmulInputSf ].
 class GroupedBlockQuantizationOp : public Expr {
  public:
   using Expr::Expr;
@@ -3506,10 +3507,15 @@ class GroupedBlockQuantizationOp : public Expr {
       Val* output_scales,
       Val* output,
       Val* input,
-      Val* logical_index = nullptr,
+      Val* input_offsets,
+      Val* output_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g,
       Val* global_scale = nullptr,
       int64_t block_size = 16,
-      bool swizzled_scales = false);
+      Val* row_idx = nullptr,
+      Val* col_idx = nullptr);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -3526,11 +3532,11 @@ class GroupedBlockQuantizationOp : public Expr {
   }
 
   int64_t blockSize() const {
-    return attribute<int64_t>(1);
+    return attribute<int64_t>(0);
   }
 
   bool hasGlobalScale() const {
-    if (inputs().size() > 1) {
+    if (inputs().size() > 5) {
       return true;
     }
     return false;
@@ -3538,7 +3544,7 @@ class GroupedBlockQuantizationOp : public Expr {
 
   Val* globalScale() const {
     if (hasGlobalScale()) {
-      return input(1);
+      return input(5);
     }
     return nullptr;
   }
@@ -3547,8 +3553,27 @@ class GroupedBlockQuantizationOp : public Expr {
     return "GroupedBlockQuantizationOp";
   }
 
-  bool isSwizzledScales() const {
-    return attribute<bool>(2);
+  TensorView* inputOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+  
+  TensorView* outputOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+  
+  // get scalar - column size
+  Val* k() const {
+    return input(3);
+  }
+  
+  // get scalar - number of groups
+  Val* g() const {
+    return input(4);
+  }
+  
+  // get enum - block scaling factor layout
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(1);
   }
 
   std::string toString(int indent_size = 0) const override;
