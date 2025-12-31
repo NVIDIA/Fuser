@@ -1365,7 +1365,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
       if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
-          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
+          !isGroupOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
