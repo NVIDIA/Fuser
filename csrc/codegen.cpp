@@ -1966,14 +1966,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
 
 // generate logical index for runtime function
-func_args.arg(genInline(layout_op->attributeVal(1)));
-func_args.arg(genInline(layout_op->attributeVal(2)));
+func_args.arg(genInline(bqop->attributeVal(1)));
+func_args.arg(genInline(bqop->attributeVal(2)));
 func_args.arg("&").append(
-    genVariableName(layout_op->inputOffsets()) + "[0]");
+    genVariableName(bqop->inputOffsets()) + "[0]");
 func_args.arg("&").append(
-    genVariableName(layout_op->outputOffsets()) + "[0]");
-func_args.arg(genInline(layout_op->k()));
-func_args.arg(genInline(layout_op->g()));
+    genVariableName(bqop->outputOffsets()) + "[0]");
+func_args.arg(genInline(bqop->k()));
+func_args.arg(genInline(bqop->g()));
 
     if (output_dtype == DataType::Float4_e2m1fn) {
       func_args.arg(
