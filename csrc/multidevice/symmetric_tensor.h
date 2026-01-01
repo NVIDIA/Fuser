@@ -71,12 +71,12 @@ class SymmetricTensor {
   size_t requested_size_;
   mutable bool are_remote_tensors_setup_ = false;
   bool is_multicast_setup_ = false;
-  CUmemGenericAllocationHandle mcast_handle_{};
-  CUdevice cu_dev_{};
+  [[maybe_unused]] CUmemGenericAllocationHandle mcast_handle_{};
+  [[maybe_unused]] CUdevice cu_dev_{};
   void* mc_ptr_{nullptr};
   CUdeviceptr mc_base_ptr_{0};
-  int exporter_rank_{-1};
-  int peer_fd_{-1};
+  [[maybe_unused]] int exporter_rank_{-1};
+  [[maybe_unused]] int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
   at::Tensor contiguous_view_;
 };
