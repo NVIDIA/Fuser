@@ -1945,6 +1945,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (output_dtype == DataType::Float4_e2m1fn) {
       template_args.arg(bqop->hasGlobalScale());
     }
+    switch (bqop->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
     template_args.arg(group_size); // ITEMS_PER_THREAD
 
     // Build function arguments
@@ -1954,8 +1964,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(output)); // quantized output
     func_args.arg(genInline(
         bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
-    func_args.arg(genInline(
-        bqop->attributeVal(0))); // linearized index for runtime function
+
+// generate logical index for runtime function
+func_args.arg(genInline(layout_op->attributeVal(1)));
+func_args.arg(genInline(layout_op->attributeVal(2)));
+func_args.arg("&").append(
+    genVariableName(layout_op->inputOffsets()) + "[0]");
+func_args.arg("&").append(
+    genVariableName(layout_op->outputOffsets()) + "[0]");
+func_args.arg(genInline(layout_op->k()));
+func_args.arg(genInline(layout_op->g()));
+
     if (output_dtype == DataType::Float4_e2m1fn) {
       func_args.arg(
           bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");

@@ -360,7 +360,6 @@ template <
     int BLOCK_ROW_OUTER,
     int BLOCK_ROW_INNER,
     int BLOCK_COL,
-    int UNROLL_FACTOR,
     int ITEMS_PER_THREAD,
     typename T,
     typename Index_T,
