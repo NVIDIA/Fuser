@@ -122,20 +122,20 @@ TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
   EXPECT_TRUE(r11.is<int64_t>());
   EXPECT_EQ(r11, 2);
 
-  constexpr auto ce_r11 = IntOrFloat::dispatch(add, one, one);
-  static_assert(std::is_same_v<decltype(ce_r11), const IntOrFloat>);
-  static_assert(ce_r11.is<int64_t>());
-  static_assert(ce_r11 == 2);
+  auto ce_r11 = IntOrFloat::dispatch(add, one, one);
+  static_assert(std::is_same_v<decltype(ce_r11), IntOrFloat>);
+  EXPECT_TRUE(ce_r11.is<int64_t>());
+  EXPECT_EQ(ce_r11, 2);
 
   auto r12 = IntOrFloat::dispatch(add, one, two);
   static_assert(std::is_same_v<decltype(r12), IntOrFloat>);
   EXPECT_TRUE(r12.is<float>());
   EXPECT_EQ(r12, 3.0f);
 
-  constexpr auto ce_r12 = IntOrFloat::dispatch(add, one, two);
-  static_assert(std::is_same_v<decltype(ce_r12), const IntOrFloat>);
-  static_assert(ce_r12.is<float>());
-  static_assert(ce_r12 == 3.0f);
+  auto ce_r12 = IntOrFloat::dispatch(add, one, two);
+  static_assert(std::is_same_v<decltype(ce_r12), IntOrFloat>);
+  EXPECT_TRUE(ce_r12.is<float>());
+  EXPECT_EQ(ce_r12, 3.0f);
 }
 
 TEST_F(DynamicTypeTest, DispatchReturnsReference) {

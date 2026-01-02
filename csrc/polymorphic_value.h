@@ -544,4 +544,17 @@ c10::IValue toIValue(const PolymorphicValue& x);
 
 } // namespace nvfuser
 
+// Prevent implicit instantiation in other TUs - use explicit instantiation from
+// polymorphic_value.cpp
+extern template struct dynamic_type::DynamicType<
+    dynamic_type::Containers<std::vector>,
+    nvfuser::StructHandle,
+    nvfuser::Pointer,
+    nvfuser::Opaque,
+    at::Tensor,
+    std::complex<double>,
+    double,
+    int64_t,
+    bool>;
+
 #include <struct.inl>

@@ -87,7 +87,7 @@ TEST_F(DynamicTypeTest, CastToDynamicType) {
       return 1;
     }
   };
-  static_assert((IntOrFloat)A{} == 1);
+  EXPECT_EQ((IntOrFloat)A{}, 1);
   IntOrFloat x = A{};
   EXPECT_EQ(x, 1);
 }

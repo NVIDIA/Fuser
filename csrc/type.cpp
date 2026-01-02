@@ -18,6 +18,67 @@
 
 namespace nvfuser {
 
+// Implementation moved from type.h to reduce template instantiation costs.
+// Uses PolymorphicValue::for_all_types() which triggers ForAllTypes dispatch.
+DataType getDataType(const PolymorphicValue& value) {
+  std::optional<DataType> dtype = std::nullopt;
+  PolymorphicValue::for_all_types([&value, &dtype](auto _) {
+    using T = typename decltype(_)::type;
+    if constexpr (IsPrimitiveNativeType<T>::value) {
+      if (value.is<T>()) {
+        dtype = NativeTypeToDataType<T>::type;
+      }
+    } else if constexpr (std::is_same_v<T, std::vector<PolymorphicValue>>) {
+      if (value.is<T>()) {
+        const auto& vec = value.as<T>();
+        size_t size = vec.size();
+        NVF_CHECK(size > 0, "Empty array is not supported");
+        dtype =
+            ArrayType{std::make_shared<DataType>(getDataType(vec[0])), size};
+      }
+    } else if constexpr (std::is_same_v<T, Pointer>) {
+      // For pointers in polymorphic value, we only store the data size of the
+      // pointee, so it is impossible to infer the pointer type.
+      NVF_CHECK(!value.is<T>(), "Can not infer pointer type.");
+    } else if constexpr (std::is_same_v<T, StructHandle>) {
+      if (value.is<T>()) {
+        dtype = value.as<T>().type();
+      }
+    } else if constexpr (std::is_same_v<T, Opaque>) {
+      if (value.is<T>()) {
+        const auto& opaque = value.as<T>();
+        dtype = DataType(OpaqueType{
+            .type_info = opaque.any().type(), .size = opaque.size()});
+      }
+    }
+  });
+  NVF_CHECK(dtype.has_value(), "Unknown dtype for ", value.type().name());
+  return dtype.value();
+}
+
+// Implementation moved from type.h to reduce template instantiation costs.
+// Uses PolymorphicValue::for_all_types() which triggers ForAllTypes dispatch.
+PolymorphicValue castToDtype(PolymorphicValue value, const DataType& dtype) {
+  if (!value.hasValue()) {
+    return value;
+  }
+  // Cast the given value to the given data type. This enables interface
+  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
+  // an integer but the desired data type is double.
+  if (!hasCompatibleDataType(value, dtype)) {
+    PolymorphicValue::for_all_types([&](auto _) {
+      using T = typename decltype(_)::type;
+      if constexpr (IsPrimitiveNativeType<T>::value) {
+        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
+          value = PolymorphicValue(static_cast<T>(value));
+        }
+      }
+      // TODO: support arrays and pointers
+    });
+  }
+  return value;
+}
+
 StructType NotImplementedStruct::type() const {
   NVF_THROW("Not implemented");
 }
