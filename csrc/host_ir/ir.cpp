@@ -158,10 +158,6 @@ std::string LaunchKernel::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string LaunchKernel::toInlineString(int indent_size) const {
-  NVF_THROW("Can not be printed inline");
-}
-
 Deallocate::Deallocate(IrBuilderPasskey passkey, TensorView* tv)
     : Expr(passkey) {
   addAttribute(tv);
@@ -221,7 +217,7 @@ bool Stream::sameAs(const Statement* other) const {
 }
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
-    : Expr(passkey, {stream}, {}, {stream}) {
+    : Expr(passkey, {stream}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
@@ -230,19 +226,9 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
 
 std::string SetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString()
-                          << std::endl;
+  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toInlineString()
+                          << ")" << std::endl;
   return ss.str();
-}
-
-// TODO: implement better ?
-std::string SetCurrentStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
-}
-
-// TODO: implement
-bool SetCurrentStream::sameAs(const Statement* other) const {
-  return false;
 }
 
 GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
