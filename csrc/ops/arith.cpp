@@ -2839,10 +2839,6 @@ BlockQuantizationResults groupedBlockQuantize(
   std::vector<IterDomain*> scales_out_domain;
   scales_out_domain.reserve(inp_domain.size());
 
-
-std::vector<IterDomain*> scales_out_domain;
-scales_out_domain.reserve(inp_domain.size());
-
 for (auto inp_id : inp_domain) {
   if (inp_id == inp_domain.back()) {
     scales_out_domain.push_back(
