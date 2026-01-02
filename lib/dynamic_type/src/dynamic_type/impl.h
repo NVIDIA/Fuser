@@ -129,108 +129,191 @@ DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
 // ============================================================================
 
 // ============================================================================
-// Index-based switch dispatch for operator==
+// Index-based switch dispatch macro for binary operators
 // This eliminates ForAllTypes/Void/tuple overhead by using direct switch
 // dispatch based on variant index.
+//
+// Parameters:
+//   opname      - Function name prefix (eq, neq, lt, add, etc.)
+//   op          - Operator symbol (==, !=, <, +, etc.)
+//   return_type - Return type (bool for comparison, DynamicType for arithmetic)
 // ============================================================================
 
-template <typename Containers, typename... Ts>
-bool DynamicType<Containers, Ts...>::eq_impl(
-    const DynamicType& a,
-    const DynamicType& b) {
-  // Helper to check if type T is one of the base types Ts...
-  auto is_base_type = [](auto type_identity) constexpr {
-    using T = typename decltype(type_identity)::type;
-    return (std::is_same_v<T, Ts> || ...);
-  };
+#define DEFINE_BINARY_OP_INDEX_DISPATCH(opname, op, return_type)               \
+  template <typename Containers, typename... Ts>                               \
+  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+      const DynamicType& a, const DynamicType& b) -> return_type {             \
+    /* Compute result for specific type indices I, J */                        \
+    auto compute_at_indices = [&]<std::size_t I, std::size_t J>()              \
+        -> std::pair<bool, std::optional<return_type>> {                       \
+      using X = std::variant_alternative_t<I, VariantType>;                    \
+      using Y = std::variant_alternative_t<J, VariantType>;                    \
+      if constexpr ((opcheck<X> op opcheck<Y>)) {                              \
+        using ResultT = decltype((std::declval<X>() op std::declval<Y>()));      \
+        /* Skip if result type is DynamicType - indicates recursive call       \
+           through operators returning DynamicType */                          \
+        constexpr bool result_is_dt =                                          \
+            std::is_same_v<std::decay_t<ResultT>, DynamicType>;                \
+        /* Skip if X and Y are DIFFERENT types and one/both are                \
+           constructible to DynamicType but aren't base types.                 \
+           This indicates opcheck success is via implicit conversion           \
+           to DynamicType, which would cause infinite recursion.               \
+           If X == Y (same type), the native operator is used - safe. */       \
+        constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);             \
+        constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);             \
+        constexpr bool mixed_with_container =                                  \
+            !std::is_same_v<X, Y> && /* different types */                     \
+            ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||        \
+             (std::is_constructible_v<DynamicType, Y> && !y_is_base));         \
+        if constexpr (!result_is_dt && !mixed_with_container &&                \
+                      std::is_convertible_v<ResultT, return_type>) {           \
+          return {true, static_cast<return_type>(                              \
+              (std::get<I>(a.value) op std::get<J>(b.value)))};                 \
+        }                                                                      \
+      }                                                                        \
+      return {false, std::nullopt};                                            \
+    };                                                                         \
+                                                                               \
+    /* Inner dispatch on b's index */                                          \
+    auto dispatch_b = [&]<std::size_t I, std::size_t... Js>(                   \
+        std::index_sequence<Js...>)                                            \
+        -> std::pair<bool, std::optional<return_type>> {                       \
+      std::pair<bool, std::optional<return_type>> result{false, std::nullopt}; \
+      const std::size_t b_idx = b.value.index();                               \
+      ((b_idx == Js                                                            \
+            ? (result = compute_at_indices.template operator()<I, Js>(), true) \
+            : false) ||                                                        \
+       ...);                                                                   \
+      return result;                                                           \
+    };                                                                         \
+                                                                               \
+    /* Outer dispatch on a's index */                                          \
+    auto dispatch_a = [&]<std::size_t... Is>(std::index_sequence<Is...> seq)   \
+        -> std::pair<bool, std::optional<return_type>> {                       \
+      std::pair<bool, std::optional<return_type>> result{false, std::nullopt}; \
+      const std::size_t a_idx = a.value.index();                               \
+      ((a_idx == Is                                                            \
+            ? (result = dispatch_b.template operator()<Is>(seq), true)         \
+            : false) ||                                                        \
+       ...);                                                                   \
+      return result;                                                           \
+    };                                                                         \
+                                                                               \
+    auto [found, result] = dispatch_a(std::make_index_sequence<num_types>{});  \
+                                                                               \
+    DYNAMIC_TYPE_CHECK(                                                        \
+        found && result.has_value(),                                           \
+        "Cannot compute ",                                                     \
+        a.type().name(),                                                       \
+        " " #op " ",                                                           \
+        b.type().name());                                                      \
+    return *result;                                                            \
+  }
 
-  // Helper to try equality comparison for a specific type pair
-  auto try_compare = [&](auto x_identity, auto y_identity) -> std::optional<bool> {
-    using X = typename decltype(x_identity)::type;
-    using Y = typename decltype(y_identity)::type;
+// operator== uses template-based dispatch (works with Clang for this operator)
+DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
 
-    if constexpr (opcheck<X> == opcheck<Y>) {
-      using ResultT = decltype(std::declval<X>() == std::declval<Y>());
-      // Skip if result type is DynamicType - indicates recursive call
-      constexpr bool result_is_dt = std::is_same_v<std::decay_t<ResultT>, DynamicType>;
-      // Skip if X and Y are DIFFERENT types and one/both are
-      // constructible to DynamicType but aren't base types.
-      // This indicates opcheck success is via implicit conversion
-      // to DynamicType, which would cause infinite recursion.
-      constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);
-      constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);
-      constexpr bool mixed_with_container =
-          !std::is_same_v<X, Y> &&
-          ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||
-           (std::is_constructible_v<DynamicType, Y> && !y_is_base));
-      if constexpr (!result_is_dt && !mixed_with_container &&
-                    std::is_convertible_v<ResultT, bool>) {
-        return std::nullopt; // Signal to actually perform comparison
-      }
-    }
-    return std::nullopt; // Not a valid comparison
-  };
-
-  // Perform the actual comparison for indices I, J
-  // Returns: pair<bool, optional<bool>> where first = valid comparison found
-  auto compare_at_indices = [&]<std::size_t I, std::size_t J>() -> std::pair<bool, std::optional<bool>> {
-    using X = std::variant_alternative_t<I, VariantType>;
-    using Y = std::variant_alternative_t<J, VariantType>;
-
-    if constexpr (opcheck<X> == opcheck<Y>) {
-      using ResultT = decltype(std::declval<X>() == std::declval<Y>());
-      constexpr bool result_is_dt = std::is_same_v<std::decay_t<ResultT>, DynamicType>;
-      constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);
-      constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);
-      constexpr bool mixed_with_container =
-          !std::is_same_v<X, Y> &&
-          ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||
-           (std::is_constructible_v<DynamicType, Y> && !y_is_base));
-      if constexpr (!result_is_dt && !mixed_with_container &&
-                    std::is_convertible_v<ResultT, bool>) {
-        return {true, static_cast<bool>(std::get<I>(a.value) == std::get<J>(b.value))};
-      }
-    }
-    return {false, std::nullopt};
-  };
-
-  // Inner dispatch on b's index
-  auto dispatch_b = [&]<std::size_t I, std::size_t... Js>(
-      std::index_sequence<Js...>) -> std::pair<bool, std::optional<bool>> {
-    std::pair<bool, std::optional<bool>> result{false, std::nullopt};
-    const std::size_t b_idx = b.value.index();
-    ((b_idx == Js
-          ? (result = compare_at_indices.template operator()<I, Js>(), true)
-          : false) ||
-     ...);
-    return result;
-  };
-
-  // Outer dispatch on a's index
-  auto dispatch_a = [&]<std::size_t... Is>(
-      std::index_sequence<Is...> seq) -> std::pair<bool, std::optional<bool>> {
-    std::pair<bool, std::optional<bool>> result{false, std::nullopt};
-    const std::size_t a_idx = a.value.index();
-    ((a_idx == Is
-          ? (result = dispatch_b.template operator()<Is>(seq), true)
-          : false) ||
-     ...);
-    return result;
-  };
-
-  auto [found, result] = dispatch_a(std::make_index_sequence<num_types>{});
-
-  DYNAMIC_TYPE_CHECK(
-      found && result.has_value(),
-      "Cannot compute ",
-      a.type().name(),
-      " == ",
-      b.type().name());
-  return *result;
-}
+#undef DEFINE_BINARY_OP_INDEX_DISPATCH
 
 // ============================================================================
-// Macro for remaining binary operators (to be converted incrementally)
+// Macro-based switch dispatch for remaining comparison operators
+// Uses explicit switch statements instead of template fold expressions to
+// avoid deep template nesting that crashes Clang 18.1.8.
+// Supports up to 10 variant alternatives (increase cases if more needed).
+// ============================================================================
+
+// Helper: try comparison at indices I, J for operator OP
+#define SWITCH_DISPATCH_TRY(OP, I, J, result_var, found_var)                   \
+  do {                                                                         \
+    if constexpr ((I) < num_types && (J) < num_types) {                        \
+      using X = std::variant_alternative_t<(I), VariantType>;                  \
+      using Y = std::variant_alternative_t<(J), VariantType>;                  \
+      if constexpr (opcheck<X> OP opcheck<Y>) {                                \
+        using ResultT = decltype(std::declval<X>() OP std::declval<Y>());      \
+        constexpr bool result_is_dt =                                          \
+            std::is_same_v<std::decay_t<ResultT>, DynamicType>;                \
+        constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);             \
+        constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);             \
+        constexpr bool mixed_with_container =                                  \
+            !std::is_same_v<X, Y> &&                                           \
+            ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||        \
+             (std::is_constructible_v<DynamicType, Y> && !y_is_base));         \
+        if constexpr (!result_is_dt && !mixed_with_container &&                \
+                      std::is_convertible_v<ResultT, bool>) {                  \
+          result_var = static_cast<bool>(                                      \
+              std::get<(I)>(a.value) OP std::get<(J)>(b.value));               \
+          found_var = true;                                                    \
+        }                                                                      \
+      }                                                                        \
+    }                                                                          \
+  } while (0)
+
+// Inner switch on b's index
+#define SWITCH_DISPATCH_B(OP, I, result_var, found_var)                        \
+  switch (b.value.index()) {                                                   \
+    case 0: SWITCH_DISPATCH_TRY(OP, I, 0, result_var, found_var); break;       \
+    case 1: SWITCH_DISPATCH_TRY(OP, I, 1, result_var, found_var); break;       \
+    case 2: SWITCH_DISPATCH_TRY(OP, I, 2, result_var, found_var); break;       \
+    case 3: SWITCH_DISPATCH_TRY(OP, I, 3, result_var, found_var); break;       \
+    case 4: SWITCH_DISPATCH_TRY(OP, I, 4, result_var, found_var); break;       \
+    case 5: SWITCH_DISPATCH_TRY(OP, I, 5, result_var, found_var); break;       \
+    case 6: SWITCH_DISPATCH_TRY(OP, I, 6, result_var, found_var); break;       \
+    case 7: SWITCH_DISPATCH_TRY(OP, I, 7, result_var, found_var); break;       \
+    case 8: SWITCH_DISPATCH_TRY(OP, I, 8, result_var, found_var); break;       \
+    case 9: SWITCH_DISPATCH_TRY(OP, I, 9, result_var, found_var); break;       \
+    default: break;                                                            \
+  }
+
+// Outer switch on a's index  
+#define SWITCH_DISPATCH_A(OP, result_var, found_var)                           \
+  switch (a.value.index()) {                                                   \
+    case 0: SWITCH_DISPATCH_B(OP, 0, result_var, found_var); break;            \
+    case 1: SWITCH_DISPATCH_B(OP, 1, result_var, found_var); break;            \
+    case 2: SWITCH_DISPATCH_B(OP, 2, result_var, found_var); break;            \
+    case 3: SWITCH_DISPATCH_B(OP, 3, result_var, found_var); break;            \
+    case 4: SWITCH_DISPATCH_B(OP, 4, result_var, found_var); break;            \
+    case 5: SWITCH_DISPATCH_B(OP, 5, result_var, found_var); break;            \
+    case 6: SWITCH_DISPATCH_B(OP, 6, result_var, found_var); break;            \
+    case 7: SWITCH_DISPATCH_B(OP, 7, result_var, found_var); break;            \
+    case 8: SWITCH_DISPATCH_B(OP, 8, result_var, found_var); break;            \
+    case 9: SWITCH_DISPATCH_B(OP, 9, result_var, found_var); break;            \
+    default: break;                                                            \
+  }
+
+// Generate a comparison operator implementation using switch dispatch
+#define DEFINE_COMPARE_OP_SWITCH(opname, op)                                   \
+  template <typename Containers, typename... Ts>                               \
+  bool DynamicType<Containers, Ts...>::opname##_impl(                          \
+      const DynamicType& a, const DynamicType& b) {                            \
+    static_assert(num_types <= 10,                                             \
+        "Switch dispatch supports max 10 types. Increase cases in impl.h.");   \
+    bool result = false;                                                       \
+    bool found = false;                                                        \
+    SWITCH_DISPATCH_A(op, result, found);                                      \
+    DYNAMIC_TYPE_CHECK(found, "Cannot compute ",                               \
+        a.type().name(), " " #op " ", b.type().name());                        \
+    return result;                                                             \
+  }
+
+// Remaining comparison operators (!=, <, >, <=, >=) use switch dispatch
+DEFINE_COMPARE_OP_SWITCH(neq, !=)
+DEFINE_COMPARE_OP_SWITCH(lt, <)
+DEFINE_COMPARE_OP_SWITCH(gt, >)
+DEFINE_COMPARE_OP_SWITCH(le, <=)
+DEFINE_COMPARE_OP_SWITCH(ge, >=)
+
+#undef SWITCH_DISPATCH_TRY
+#undef SWITCH_DISPATCH_B
+#undef SWITCH_DISPATCH_A
+#undef DEFINE_COMPARE_OP_SWITCH
+
+// ============================================================================
+// Legacy macro for remaining binary operators (arithmetic, bitwise, named)
+// NOTE: Attempted to convert these to index-based dispatch, but Clang 18.1.8
+// crashes (SIGSEGV) when instantiating too many index-based operators together.
+// The crash occurs during template substitution with large index sequences.
+// GCC handles it fine. Future work: investigate Clang workarounds or wait
+// for Clang fix. See Task 2 report for details.
 // ============================================================================
 
 #define DEFINE_BINARY_OP_FRIEND_IMPL(opname, op, return_type)                  \
@@ -271,14 +354,6 @@ bool DynamicType<Containers, Ts...>::eq_impl(
         "Cannot compute ", a.type().name(), " " #op " ", b.type().name());     \
     return *result;                                                            \
   }
-
-// Comparison operators (return bool)
-// NOTE: eq_impl is implemented above using index-based switch dispatch
-DEFINE_BINARY_OP_FRIEND_IMPL(neq, !=, bool)
-DEFINE_BINARY_OP_FRIEND_IMPL(lt, <, bool)
-DEFINE_BINARY_OP_FRIEND_IMPL(gt, >, bool)
-DEFINE_BINARY_OP_FRIEND_IMPL(le, <=, bool)
-DEFINE_BINARY_OP_FRIEND_IMPL(ge, >=, bool)
 
 // Arithmetic operators (return DynamicType)
 DEFINE_BINARY_OP_FRIEND_IMPL(add, +, DynamicType)
