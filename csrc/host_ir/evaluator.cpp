@@ -46,13 +46,12 @@ HostIrEvaluator::HostIrEvaluator(
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      my_local_device_index_(
+          communicator_ == nullptr ? 0 : communicator_->local_rank()),
       ipc_handle_cache_(expr_evaluator_),
       multicast_handle_cache_() {
   const DeviceIdxType device_index =
-      (communicator_ != nullptr && communicator_->is_available())
-      ? communicator_->deviceId()
-      : 0;
+      communicator_ == nullptr ? 0 : communicator_->deviceId();
   if (isDebugDumpEnabled(DebugDumpOption::HostIr) && device_index == 0) {
     container_->print(debug());
   }
