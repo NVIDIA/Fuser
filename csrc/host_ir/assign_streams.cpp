@@ -16,20 +16,21 @@ namespace nvfuser::hir {
 void AssignStreams::runPass(Fusion* fusion) {
   auto* hic = dynamic_cast<HostIrContainer*>(fusion);
   NVF_CHECK(hic != nullptr);
-
-  // For each stream-parallel loop, insert to the beginning a SetCurrentStream
-  // and a Synchronize (to the main stream). Right after the loop exits, insert
-  // another loop that joins all the worker streams.
+  FusionGuard fg(hic);
 
   for (auto it = hic->topLevel().exprs().begin();
-       it != hic->topLevel().exprs().end();
-       ++it) {
+       it != hic->topLevel().exprs().end();) {
+    auto next_it = std::next(it);
+
     auto* for_loop = dynamic_cast<hir::ForLoop*>(*it);
-    if (!for_loop) {
+    if (for_loop == nullptr) {
+      it = next_it;
       continue;
     }
 
-    // FIXME: should have checked that the loop is stream-parallel
+    // We should check that the loop is stream-parallel. This is not necessary
+    // at this moment because all loops are stream-parallel. This is also hard
+    // to do becauase hir::ForLoop doesn't point to the source IterDomain.
 
     auto* get_current_stream = IrBuilder::create<GetCurrentStream>();
     Stream* main_stream = get_current_stream->stream();
@@ -40,11 +41,9 @@ void AssignStreams::runPass(Fusion* fusion) {
     auto* worker_stream = IrBuilder::create<Stream>(for_loop->index());
     auto* set_stream = IrBuilder::create<SetCurrentStream>(worker_stream);
     auto* sync_main = IrBuilder::create<Synchronize>(main_stream);
-
-    // Insert at the beginning of the loop body
-    auto body_it =
-        for_loop->body().insert(for_loop->body().exprs().begin(), set_stream);
-    for_loop->body().insert(std::next(body_it), sync_main);
+    auto old_begin = for_loop->body().exprs().begin();
+    for_loop->body().insert(old_begin, set_stream);
+    for_loop->body().insert(old_begin, sync_main);
 
     // After the loop: create a joining loop to synchronize all worker streams
     auto* join_loop = IrBuilder::create<hir::ForLoop>(
@@ -56,8 +55,8 @@ void AssignStreams::runPass(Fusion* fusion) {
     join_loop->body().push_back(sync_worker);
 
     // Insert join_loop after the current for_loop
-    auto next_it = std::next(it);
     hic->topLevel().insert(next_it, join_loop);
+    it = next_it;
   }
 }
 
