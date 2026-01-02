@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/symmetric_tensor.h>
-#include <tests/cpp/multidevice.h>
+#include "multidevice/symmetric_tensor.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 

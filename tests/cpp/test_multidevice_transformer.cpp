@@ -10,12 +10,12 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/multidevice_transformer.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/multidevice_transformer.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

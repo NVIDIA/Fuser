@@ -11,8 +11,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <multidevice/communicator.h>
-#include <tests/cpp/multidevice.h>
+#include "multidevice/communicator.h"
+#include "tests/cpp/multidevice.h"
 
 namespace std {
 namespace chrono {
