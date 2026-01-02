@@ -35,7 +35,6 @@
 namespace nvfuser {
 
 class ViewTransform;
-class Scope;
 class IrCloner;
 struct AnalyzeViewResult;
 
