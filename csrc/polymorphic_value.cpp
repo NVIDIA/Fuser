@@ -143,6 +143,8 @@ c10::IValue toIValue(const PolymorphicValue& x) {
 
 // Explicit instantiation of DynamicType for PolymorphicValue.
 // This is the single point where the template is fully instantiated.
+// Note: This file is compiled with -fvisibility=default (set in CMakeLists.txt)
+// to ensure all DynamicType symbols are exported from the shared library.
 template struct dynamic_type::DynamicType<
     dynamic_type::Containers<std::vector>,
     nvfuser::StructHandle,

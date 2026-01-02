@@ -23,6 +23,20 @@
 #pragma GCC diagnostic ignored "-Wbool-operation"
 #endif
 
+// Visibility attribute for exported symbols.
+// Static member functions defined in this header need default visibility
+// to be exported from shared libraries built with -fvisibility=hidden.
+#if defined _WIN32 || defined __CYGWIN__
+#define DT_EXPORT __declspec(dllexport)
+#else
+#define DT_EXPORT __attribute__((visibility("default")))
+#endif
+
+// Push default visibility for all DynamicType member implementations.
+// This is needed because -fvisibility=hidden makes template instantiations
+// hidden by default, which prevents them from being exported from shared libs.
+#pragma GCC visibility push(default)
+
 namespace dynamic_type {
 
 // Stream output operator implementation
@@ -141,7 +155,7 @@ DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
 
 #define DEFINE_BINARY_OP_INDEX_DISPATCH(opname, op, return_type)               \
   template <typename Containers, typename... Ts>                               \
-  return_type DynamicType<Containers, Ts...>::opname##_impl(                   \
+  DT_EXPORT return_type DynamicType<Containers, Ts...>::opname##_impl(         \
       const DynamicType& a, const DynamicType& b) {             \
     /* Compute result for specific type indices I, J */                        \
     auto compute_at_indices = [&]<std::size_t I, std::size_t J>()              \
@@ -297,7 +311,7 @@ DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
 // Generate a binary operator returning bool (comparison operators)
 #define DEFINE_BINARY_OP_SWITCH_BOOL(opname, op)                               \
   template <typename Containers, typename... Ts>                               \
-  bool DynamicType<Containers, Ts...>::opname##_impl(                          \
+  DT_EXPORT bool DynamicType<Containers, Ts...>::opname##_impl(                \
       const DynamicType& a, const DynamicType& b) {                            \
     static_assert(num_types <= 16,                                             \
         "Switch dispatch supports max 16 types. Increase cases in impl.h.");   \
@@ -312,7 +326,7 @@ DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
 // Generate a binary operator returning DynamicType (arithmetic/bitwise)
 #define DEFINE_BINARY_OP_SWITCH_DT(opname, op)                                 \
   template <typename Containers, typename... Ts>                               \
-  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+  DT_EXPORT auto DynamicType<Containers, Ts...>::opname##_impl(                \
       const DynamicType& a, const DynamicType& b) -> DynamicType {             \
     static_assert(num_types <= 16,                                             \
         "Switch dispatch supports max 16 types. Increase cases in impl.h.");   \
@@ -365,7 +379,7 @@ DEFINE_BINARY_OP_SWITCH_DT(named_ge, >=)
 
 #define DEFINE_UNARY_OP_FRIEND_IMPL(opname, op)                                \
   template <typename Containers, typename... Ts>                               \
-  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+  DT_EXPORT auto DynamicType<Containers, Ts...>::opname##_impl(                \
       const DynamicType& x) -> DynamicType {                                   \
     std::optional<DynamicType> result;                                         \
     for_all_types([&result, &x](auto t) {                                      \
@@ -403,7 +417,7 @@ DEFINE_UNARY_OP_FRIEND_IMPL(bnot, ~)
 
 // Logical not - returns bool
 template <typename Containers, typename... Ts>
-bool DynamicType<Containers, Ts...>::lnot_impl(const DynamicType& x) {
+DT_EXPORT bool DynamicType<Containers, Ts...>::lnot_impl(const DynamicType& x) {
   std::optional<bool> result;
   for_all_types([&result, &x](auto t) {
     using Type = typename decltype(t)::type;
@@ -433,7 +447,7 @@ bool DynamicType<Containers, Ts...>::lnot_impl(const DynamicType& x) {
 // ============================================================================
 
 template <typename Containers, typename... Ts>
-auto DynamicType<Containers, Ts...>::lpp_impl(DynamicType& x) -> DynamicType& {
+DT_EXPORT auto DynamicType<Containers, Ts...>::lpp_impl(DynamicType& x) -> DynamicType& {
   bool computed = false;
   for_all_types([&computed, &x](auto t) {
     using Type = typename decltype(t)::type;
@@ -451,7 +465,7 @@ auto DynamicType<Containers, Ts...>::lpp_impl(DynamicType& x) -> DynamicType& {
 }
 
 template <typename Containers, typename... Ts>
-auto DynamicType<Containers, Ts...>::lmm_impl(DynamicType& x) -> DynamicType& {
+DT_EXPORT auto DynamicType<Containers, Ts...>::lmm_impl(DynamicType& x) -> DynamicType& {
   bool computed = false;
   for_all_types([&computed, &x](auto t) {
     using Type = typename decltype(t)::type;
@@ -473,7 +487,7 @@ auto DynamicType<Containers, Ts...>::lmm_impl(DynamicType& x) -> DynamicType& {
 // ============================================================================
 
 template <typename Containers, typename... Ts>
-auto DynamicType<Containers, Ts...>::rpp_impl(DynamicType& x) -> DynamicType {
+DT_EXPORT auto DynamicType<Containers, Ts...>::rpp_impl(DynamicType& x) -> DynamicType {
   std::optional<DynamicType> result;
   for_all_types([&result, &x](auto t) {
     using Type = typename decltype(t)::type;
@@ -490,7 +504,7 @@ auto DynamicType<Containers, Ts...>::rpp_impl(DynamicType& x) -> DynamicType {
 }
 
 template <typename Containers, typename... Ts>
-auto DynamicType<Containers, Ts...>::rmm_impl(DynamicType& x) -> DynamicType {
+DT_EXPORT auto DynamicType<Containers, Ts...>::rmm_impl(DynamicType& x) -> DynamicType {
   std::optional<DynamicType> result;
   for_all_types([&result, &x](auto t) {
     using Type = typename decltype(t)::type;
@@ -506,7 +520,11 @@ auto DynamicType<Containers, Ts...>::rmm_impl(DynamicType& x) -> DynamicType {
   return *result;
 }
 
+#undef DT_EXPORT
+
 } // namespace dynamic_type
+
+#pragma GCC visibility pop
 
 #if defined(__clang__)
 #pragma clang diagnostic pop

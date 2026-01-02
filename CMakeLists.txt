@@ -587,6 +587,14 @@ if(NVFUSER_USE_POLYMORPHIC_PCH)
     "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"                              # 33.3s (0.6m)
     "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"                             # 29.6s (0.5m)
   )
+  # Skip PCH for polymorphic_value.cpp to allow visibility override
+  # (PCH caches type with hidden visibility)
+  set_source_files_properties(
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.cpp"
+    PROPERTIES 
+      SKIP_PRECOMPILE_HEADERS ON
+      COMPILE_OPTIONS "-fvisibility=default"
+  )
 endif()
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)

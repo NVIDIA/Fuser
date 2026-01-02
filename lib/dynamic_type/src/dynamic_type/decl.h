@@ -20,6 +20,15 @@
 #include "error.h"
 #include "type_traits.h"
 
+// Visibility attribute for exported symbols.
+// Static member functions need default visibility to be exported from
+// shared libraries built with -fvisibility=hidden.
+#if defined _WIN32 || defined __CYGWIN__
+#define DT_API __declspec(dllexport)
+#else
+#define DT_API __attribute__((visibility("default")))
+#endif
+
 namespace dynamic_type {
 
 // We must disable a lot of compiler warnings to make this work. The reason for
@@ -569,8 +578,9 @@ struct DynamicType {
   // General macro for binary operators (works for both operators and named functions)
   // return_type: bool for comparison operators, DynamicType for arithmetic
   // func_name: operator+ or named function like eq, add, etc.
+  // DT_API ensures the static member is exported from shared libraries.
 #define DEFINE_BINARY_OP_FRIEND(opname, op, func_name, return_type)            \
-  static return_type opname##_impl(const DynamicType& a, const DynamicType& b);\
+  DT_API static return_type opname##_impl(const DynamicType& a, const DynamicType& b);\
   friend return_type func_name(const DynamicType& a, const DynamicType& b) {   \
     return opname##_impl(a, b);                                                \
   }
@@ -609,7 +619,7 @@ struct DynamicType {
 
   // Unary operators (return DynamicType)
 #define DEFINE_UNARY_OP_FRIEND(opname, op)                                     \
-  static DynamicType opname##_impl(const DynamicType& x);                      \
+  DT_API static DynamicType opname##_impl(const DynamicType& x);               \
   friend DynamicType operator op(const DynamicType& x) {                       \
     return opname##_impl(x);                                                   \
   }
@@ -621,18 +631,18 @@ struct DynamicType {
 #undef DEFINE_UNARY_OP_FRIEND
 
   // Logical not - returns bool
-  static bool lnot_impl(const DynamicType& x);
+  DT_API static bool lnot_impl(const DynamicType& x);
   friend bool operator!(const DynamicType& x) { return lnot_impl(x); }
 
   // Prefix increment/decrement (++x, --x) - return reference
-  static DynamicType& lpp_impl(DynamicType& x);  // ++x
-  static DynamicType& lmm_impl(DynamicType& x);  // --x
+  DT_API static DynamicType& lpp_impl(DynamicType& x);  // ++x
+  DT_API static DynamicType& lmm_impl(DynamicType& x);  // --x
   friend DynamicType& operator++(DynamicType& x) { return lpp_impl(x); }
   friend DynamicType& operator--(DynamicType& x) { return lmm_impl(x); }
 
   // Postfix increment/decrement (x++, x--) - return copy of original
-  static DynamicType rpp_impl(DynamicType& x);  // x++
-  static DynamicType rmm_impl(DynamicType& x);  // x--
+  DT_API static DynamicType rpp_impl(DynamicType& x);  // x++
+  DT_API static DynamicType rmm_impl(DynamicType& x);  // x--
   friend DynamicType operator++(DynamicType& x, int) { return rpp_impl(x); }
   friend DynamicType operator--(DynamicType& x, int) { return rmm_impl(x); }
 
@@ -802,6 +812,8 @@ constexpr bool has_cross_type_equality =
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
+
+#undef DT_API
 
 } // namespace dynamic_type
 
