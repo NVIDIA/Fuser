@@ -141,8 +141,8 @@ DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
 
 #define DEFINE_BINARY_OP_INDEX_DISPATCH(opname, op, return_type)               \
   template <typename Containers, typename... Ts>                               \
-  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
-      const DynamicType& a, const DynamicType& b) -> return_type {             \
+  return_type DynamicType<Containers, Ts...>::opname##_impl(                   \
+      const DynamicType& a, const DynamicType& b) {             \
     /* Compute result for specific type indices I, J */                        \
     auto compute_at_indices = [&]<std::size_t I, std::size_t J>()              \
         -> std::pair<bool, std::optional<return_type>> {                       \
@@ -210,20 +210,22 @@ DEFINE_BINARY_OP_IMPL(lor, ||, operator||, DT, true);
     return *result;                                                            \
   }
 
-// operator== uses template-based dispatch (works with Clang for this operator)
+// operator== also uses template-based dispatch (converted to switch for consistency)
+// Note: eq is kept using template dispatch as it was originally working.
+// If linking issues occur, convert to DEFINE_BINARY_OP_SWITCH_BOOL(eq, ==) below.
 DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
 
 #undef DEFINE_BINARY_OP_INDEX_DISPATCH
 
 // ============================================================================
-// Macro-based switch dispatch for remaining comparison operators
+// Macro-based switch dispatch for binary operators
 // Uses explicit switch statements instead of template fold expressions to
 // avoid deep template nesting that crashes Clang 18.1.8.
-// Supports up to 10 variant alternatives (increase cases if more needed).
+// Supports up to 16 variant alternatives (increase cases if more needed).
 // ============================================================================
 
-// Helper: try comparison at indices I, J for operator OP
-#define SWITCH_DISPATCH_TRY(OP, I, J, result_var, found_var)                   \
+// Helper: try binary op at indices I, J - works for any return type
+#define SWITCH_DISPATCH_TRY(OP, I, J, RET_TYPE, result_var, found_var)         \
   do {                                                                         \
     if constexpr ((I) < num_types && (J) < num_types) {                        \
       using X = std::variant_alternative_t<(I), VariantType>;                  \
@@ -239,8 +241,8 @@ DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
             ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||        \
              (std::is_constructible_v<DynamicType, Y> && !y_is_base));         \
         if constexpr (!result_is_dt && !mixed_with_container &&                \
-                      std::is_convertible_v<ResultT, bool>) {                  \
-          result_var = static_cast<bool>(                                      \
+                      std::is_convertible_v<ResultT, RET_TYPE>) {              \
+          result_var = static_cast<RET_TYPE>(                                  \
               std::get<(I)>(a.value) OP std::get<(J)>(b.value));               \
           found_var = true;                                                    \
         }                                                                      \
@@ -248,135 +250,114 @@ DEFINE_BINARY_OP_INDEX_DISPATCH(eq, ==, bool)
     }                                                                          \
   } while (0)
 
-// Inner switch on b's index
-#define SWITCH_DISPATCH_B(OP, I, result_var, found_var)                        \
+// Inner switch on b's index (supports up to 16 types)
+#define SWITCH_DISPATCH_B(OP, I, RET_TYPE, result_var, found_var)              \
   switch (b.value.index()) {                                                   \
-    case 0: SWITCH_DISPATCH_TRY(OP, I, 0, result_var, found_var); break;       \
-    case 1: SWITCH_DISPATCH_TRY(OP, I, 1, result_var, found_var); break;       \
-    case 2: SWITCH_DISPATCH_TRY(OP, I, 2, result_var, found_var); break;       \
-    case 3: SWITCH_DISPATCH_TRY(OP, I, 3, result_var, found_var); break;       \
-    case 4: SWITCH_DISPATCH_TRY(OP, I, 4, result_var, found_var); break;       \
-    case 5: SWITCH_DISPATCH_TRY(OP, I, 5, result_var, found_var); break;       \
-    case 6: SWITCH_DISPATCH_TRY(OP, I, 6, result_var, found_var); break;       \
-    case 7: SWITCH_DISPATCH_TRY(OP, I, 7, result_var, found_var); break;       \
-    case 8: SWITCH_DISPATCH_TRY(OP, I, 8, result_var, found_var); break;       \
-    case 9: SWITCH_DISPATCH_TRY(OP, I, 9, result_var, found_var); break;       \
+    case 0: SWITCH_DISPATCH_TRY(OP, I, 0, RET_TYPE, result_var, found_var); break; \
+    case 1: SWITCH_DISPATCH_TRY(OP, I, 1, RET_TYPE, result_var, found_var); break; \
+    case 2: SWITCH_DISPATCH_TRY(OP, I, 2, RET_TYPE, result_var, found_var); break; \
+    case 3: SWITCH_DISPATCH_TRY(OP, I, 3, RET_TYPE, result_var, found_var); break; \
+    case 4: SWITCH_DISPATCH_TRY(OP, I, 4, RET_TYPE, result_var, found_var); break; \
+    case 5: SWITCH_DISPATCH_TRY(OP, I, 5, RET_TYPE, result_var, found_var); break; \
+    case 6: SWITCH_DISPATCH_TRY(OP, I, 6, RET_TYPE, result_var, found_var); break; \
+    case 7: SWITCH_DISPATCH_TRY(OP, I, 7, RET_TYPE, result_var, found_var); break; \
+    case 8: SWITCH_DISPATCH_TRY(OP, I, 8, RET_TYPE, result_var, found_var); break; \
+    case 9: SWITCH_DISPATCH_TRY(OP, I, 9, RET_TYPE, result_var, found_var); break; \
+    case 10: SWITCH_DISPATCH_TRY(OP, I, 10, RET_TYPE, result_var, found_var); break; \
+    case 11: SWITCH_DISPATCH_TRY(OP, I, 11, RET_TYPE, result_var, found_var); break; \
+    case 12: SWITCH_DISPATCH_TRY(OP, I, 12, RET_TYPE, result_var, found_var); break; \
+    case 13: SWITCH_DISPATCH_TRY(OP, I, 13, RET_TYPE, result_var, found_var); break; \
+    case 14: SWITCH_DISPATCH_TRY(OP, I, 14, RET_TYPE, result_var, found_var); break; \
+    case 15: SWITCH_DISPATCH_TRY(OP, I, 15, RET_TYPE, result_var, found_var); break; \
     default: break;                                                            \
   }
 
-// Outer switch on a's index  
-#define SWITCH_DISPATCH_A(OP, result_var, found_var)                           \
+// Outer switch on a's index (supports up to 16 types)
+#define SWITCH_DISPATCH_A(OP, RET_TYPE, result_var, found_var)                 \
   switch (a.value.index()) {                                                   \
-    case 0: SWITCH_DISPATCH_B(OP, 0, result_var, found_var); break;            \
-    case 1: SWITCH_DISPATCH_B(OP, 1, result_var, found_var); break;            \
-    case 2: SWITCH_DISPATCH_B(OP, 2, result_var, found_var); break;            \
-    case 3: SWITCH_DISPATCH_B(OP, 3, result_var, found_var); break;            \
-    case 4: SWITCH_DISPATCH_B(OP, 4, result_var, found_var); break;            \
-    case 5: SWITCH_DISPATCH_B(OP, 5, result_var, found_var); break;            \
-    case 6: SWITCH_DISPATCH_B(OP, 6, result_var, found_var); break;            \
-    case 7: SWITCH_DISPATCH_B(OP, 7, result_var, found_var); break;            \
-    case 8: SWITCH_DISPATCH_B(OP, 8, result_var, found_var); break;            \
-    case 9: SWITCH_DISPATCH_B(OP, 9, result_var, found_var); break;            \
+    case 0: SWITCH_DISPATCH_B(OP, 0, RET_TYPE, result_var, found_var); break;  \
+    case 1: SWITCH_DISPATCH_B(OP, 1, RET_TYPE, result_var, found_var); break;  \
+    case 2: SWITCH_DISPATCH_B(OP, 2, RET_TYPE, result_var, found_var); break;  \
+    case 3: SWITCH_DISPATCH_B(OP, 3, RET_TYPE, result_var, found_var); break;  \
+    case 4: SWITCH_DISPATCH_B(OP, 4, RET_TYPE, result_var, found_var); break;  \
+    case 5: SWITCH_DISPATCH_B(OP, 5, RET_TYPE, result_var, found_var); break;  \
+    case 6: SWITCH_DISPATCH_B(OP, 6, RET_TYPE, result_var, found_var); break;  \
+    case 7: SWITCH_DISPATCH_B(OP, 7, RET_TYPE, result_var, found_var); break;  \
+    case 8: SWITCH_DISPATCH_B(OP, 8, RET_TYPE, result_var, found_var); break;  \
+    case 9: SWITCH_DISPATCH_B(OP, 9, RET_TYPE, result_var, found_var); break;  \
+    case 10: SWITCH_DISPATCH_B(OP, 10, RET_TYPE, result_var, found_var); break; \
+    case 11: SWITCH_DISPATCH_B(OP, 11, RET_TYPE, result_var, found_var); break; \
+    case 12: SWITCH_DISPATCH_B(OP, 12, RET_TYPE, result_var, found_var); break; \
+    case 13: SWITCH_DISPATCH_B(OP, 13, RET_TYPE, result_var, found_var); break; \
+    case 14: SWITCH_DISPATCH_B(OP, 14, RET_TYPE, result_var, found_var); break; \
+    case 15: SWITCH_DISPATCH_B(OP, 15, RET_TYPE, result_var, found_var); break; \
     default: break;                                                            \
   }
 
-// Generate a comparison operator implementation using switch dispatch
-#define DEFINE_COMPARE_OP_SWITCH(opname, op)                                   \
+// Generate a binary operator returning bool (comparison operators)
+#define DEFINE_BINARY_OP_SWITCH_BOOL(opname, op)                               \
   template <typename Containers, typename... Ts>                               \
   bool DynamicType<Containers, Ts...>::opname##_impl(                          \
       const DynamicType& a, const DynamicType& b) {                            \
-    static_assert(num_types <= 10,                                             \
-        "Switch dispatch supports max 10 types. Increase cases in impl.h.");   \
+    static_assert(num_types <= 16,                                             \
+        "Switch dispatch supports max 16 types. Increase cases in impl.h.");   \
     bool result = false;                                                       \
     bool found = false;                                                        \
-    SWITCH_DISPATCH_A(op, result, found);                                      \
+    SWITCH_DISPATCH_A(op, bool, result, found);                                \
     DYNAMIC_TYPE_CHECK(found, "Cannot compute ",                               \
         a.type().name(), " " #op " ", b.type().name());                        \
     return result;                                                             \
   }
 
-// Remaining comparison operators (!=, <, >, <=, >=) use switch dispatch
-DEFINE_COMPARE_OP_SWITCH(neq, !=)
-DEFINE_COMPARE_OP_SWITCH(lt, <)
-DEFINE_COMPARE_OP_SWITCH(gt, >)
-DEFINE_COMPARE_OP_SWITCH(le, <=)
-DEFINE_COMPARE_OP_SWITCH(ge, >=)
+// Generate a binary operator returning DynamicType (arithmetic/bitwise)
+#define DEFINE_BINARY_OP_SWITCH_DT(opname, op)                                 \
+  template <typename Containers, typename... Ts>                               \
+  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
+      const DynamicType& a, const DynamicType& b) -> DynamicType {             \
+    static_assert(num_types <= 16,                                             \
+        "Switch dispatch supports max 16 types. Increase cases in impl.h.");   \
+    std::optional<DynamicType> result;                                         \
+    bool found = false;                                                        \
+    SWITCH_DISPATCH_A(op, DynamicType, result, found);                         \
+    DYNAMIC_TYPE_CHECK(found && result.has_value(), "Cannot compute ",         \
+        a.type().name(), " " #op " ", b.type().name());                        \
+    return *result;                                                            \
+  }
+
+// Comparison operators (return bool)
+DEFINE_BINARY_OP_SWITCH_BOOL(neq, !=)
+DEFINE_BINARY_OP_SWITCH_BOOL(lt, <)
+DEFINE_BINARY_OP_SWITCH_BOOL(gt, >)
+DEFINE_BINARY_OP_SWITCH_BOOL(le, <=)
+DEFINE_BINARY_OP_SWITCH_BOOL(ge, >=)
+
+// Arithmetic operators (return DynamicType)
+DEFINE_BINARY_OP_SWITCH_DT(add, +)
+DEFINE_BINARY_OP_SWITCH_DT(sub, -)
+DEFINE_BINARY_OP_SWITCH_DT(mul, *)
+DEFINE_BINARY_OP_SWITCH_DT(div, /)
+DEFINE_BINARY_OP_SWITCH_DT(mod, %)
+
+// Bitwise operators (return DynamicType)
+DEFINE_BINARY_OP_SWITCH_DT(band, &)
+DEFINE_BINARY_OP_SWITCH_DT(bor, |)
+DEFINE_BINARY_OP_SWITCH_DT(bxor, ^)
+DEFINE_BINARY_OP_SWITCH_DT(lshift, <<)
+DEFINE_BINARY_OP_SWITCH_DT(rshift, >>)
+
+// Named comparison functions (return DynamicType)
+DEFINE_BINARY_OP_SWITCH_DT(named_eq, ==)
+DEFINE_BINARY_OP_SWITCH_DT(named_neq, !=)
+DEFINE_BINARY_OP_SWITCH_DT(named_lt, <)
+DEFINE_BINARY_OP_SWITCH_DT(named_gt, >)
+DEFINE_BINARY_OP_SWITCH_DT(named_le, <=)
+DEFINE_BINARY_OP_SWITCH_DT(named_ge, >=)
 
 #undef SWITCH_DISPATCH_TRY
 #undef SWITCH_DISPATCH_B
 #undef SWITCH_DISPATCH_A
-#undef DEFINE_COMPARE_OP_SWITCH
-
-// ============================================================================
-// Legacy macro for remaining binary operators (arithmetic, bitwise, named)
-// NOTE: Attempted to convert these to index-based dispatch, but Clang 18.1.8
-// crashes (SIGSEGV) when instantiating too many index-based operators together.
-// The crash occurs during template substitution with large index sequences.
-// GCC handles it fine. Future work: investigate Clang workarounds or wait
-// for Clang fix. See Task 2 report for details.
-// ============================================================================
-
-#define DEFINE_BINARY_OP_FRIEND_IMPL(opname, op, return_type)                  \
-  template <typename Containers, typename... Ts>                               \
-  auto DynamicType<Containers, Ts...>::opname##_impl(                          \
-      const DynamicType& a, const DynamicType& b) -> return_type {             \
-    std::optional<return_type> result;                                         \
-    dispatch(                                                                  \
-        [&result](auto&& x, auto&& y) {                                        \
-          using X = std::decay_t<decltype(x)>;                                 \
-          using Y = std::decay_t<decltype(y)>;                                 \
-          if constexpr (opcheck<X> op opcheck<Y>) {                            \
-            using ResultT = decltype(x op y);                                  \
-            /* Skip if result type is DynamicType - indicates recursive call   \
-               through arithmetic operators returning DynamicType */           \
-            constexpr bool result_is_dt =                                      \
-                std::is_same_v<std::decay_t<ResultT>, DynamicType>;            \
-            /* Skip if X and Y are DIFFERENT types and one/both are            \
-               constructible to DynamicType but aren't base types.             \
-               This indicates opcheck success is via implicit conversion       \
-               to DynamicType, which would cause infinite recursion.           \
-               If X == Y (same type), the native operator is used - safe. */   \
-            constexpr bool x_is_base = (std::is_same_v<X, Ts> || ...);         \
-            constexpr bool y_is_base = (std::is_same_v<Y, Ts> || ...);         \
-            constexpr bool mixed_with_container =                              \
-                !std::is_same_v<X, Y> &&  /* different types */                \
-                ((std::is_constructible_v<DynamicType, X> && !x_is_base) ||    \
-                 (std::is_constructible_v<DynamicType, Y> && !y_is_base));     \
-            if constexpr (!result_is_dt && !mixed_with_container &&            \
-                          std::is_convertible_v<ResultT, return_type>) {       \
-              result = static_cast<return_type>(x op y);                       \
-            }                                                                  \
-          }                                                                    \
-        },                                                                     \
-        a, b);                                                                 \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        result.has_value(),                                                    \
-        "Cannot compute ", a.type().name(), " " #op " ", b.type().name());     \
-    return *result;                                                            \
-  }
-
-// Arithmetic operators (return DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(add, +, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(sub, -, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(mul, *, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(div, /, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(mod, %, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(band, &, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(bor, |, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(bxor, ^, DynamicType)
-// NOTE: land and lor kept as template functions (see DEFINE_BINARY_OP_IMPL above)
-DEFINE_BINARY_OP_FRIEND_IMPL(lshift, <<, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(rshift, >>, DynamicType)
-
-// Named comparison functions (return DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_eq, ==, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_neq, !=, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_lt, <, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_gt, >, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_le, <=, DynamicType)
-DEFINE_BINARY_OP_FRIEND_IMPL(named_ge, >=, DynamicType)
-
-#undef DEFINE_BINARY_OP_FRIEND_IMPL
+#undef DEFINE_BINARY_OP_SWITCH_BOOL
+#undef DEFINE_BINARY_OP_SWITCH_DT
 
 // ============================================================================
 // Unary operator static member implementations
