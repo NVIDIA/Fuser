@@ -159,7 +159,7 @@ std::string LaunchKernel::toString(int indent_size) const {
 }
 
 std::string LaunchKernel::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Can not be printed inline");
+  NVF_THROW("Can not be printed inline");
 }
 
 Deallocate::Deallocate(IrBuilderPasskey passkey, TensorView* tv)
@@ -245,19 +245,18 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey) : Expr(passkey) {
+GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {}, {stream}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
-  auto stream = IrBuilder::createInContainer<Stream>(passkey.ir_container_);
-  addAttribute(stream);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetCurrentStream)
 
 std::string GetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "GetCurrentStream into " << stream()->toString()
-                          << std::endl;
+  indent(ss, indent_size) << stream()->toInlineString()
+                          << " = GetCurrentStream()" << std::endl;
   return ss.str();
 }
 

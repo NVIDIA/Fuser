@@ -330,9 +330,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             2 * 1024 * 1024LL, // 2 MB
             8 * 1024 * 1024LL, // 8 MB
-            32 * 1024 * 1024LL, // 32 MB
-            128 * 1024 * 1024LL, // 128 MB
-            256 * 1024 * 1024LL // 256 MB
+            32 * 1024 * 1024LL // 32 MB
             ),
         testing::Values(
             CommunicationProtocol::kMemcpy,

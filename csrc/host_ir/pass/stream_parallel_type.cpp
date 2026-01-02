@@ -600,8 +600,9 @@ std::list<Expr*> addStreamManagement(std::list<Expr*> top_level_exprs) {
     auto* for_loop = top_level_expr->as<kir::ForLoop>();
 
     // Get the current stream before entering the loop
-    auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
-    hir::Stream* original_stream = get_current_stream->stream();
+    hir::Stream* original_stream = IrBuilder::create<hir::Stream>();
+    auto* get_current_stream =
+        IrBuilder::create<hir::GetCurrentStream>(original_stream);
     new_top_level_exprs.push_back(get_current_stream);
 
     // Create a new for-loop for getting the current stream

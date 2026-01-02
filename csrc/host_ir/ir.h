@@ -241,7 +241,7 @@ class SetCurrentStream : public Expr {
 class GetCurrentStream : public Expr {
  public:
   using Expr::Expr;
-  GetCurrentStream(IrBuilderPasskey passkey);
+  GetCurrentStream(IrBuilderPasskey passkey, Stream* stream);
 
   GetCurrentStream(const GetCurrentStream& other) = delete;
   GetCurrentStream& operator=(const GetCurrentStream& other) = delete;
@@ -256,7 +256,7 @@ class GetCurrentStream : public Expr {
   }
 
   Stream* stream() const {
-    return attributes_.at(0)->as<Stream>();
+    return outputs().at(0)->as<Stream>();
   }
 };
 
