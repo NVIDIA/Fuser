@@ -2836,28 +2836,43 @@ BlockQuantizationResults groupedBlockQuantize(
 
   // This is used for both root and loop domain on output
   // maps directly to input's logical domain.
-  std::vector<IterDomain*> out_logical_dom;
-  out_logical_dom.reserve(inp_domain.size());
-  std::ranges::transform(
-      inp_domain,
-      std::back_inserter(out_logical_dom),
-      [](IterDomain* id) { return IterDomainBuilder(id).build(); });
-  
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+
+std::vector<IterDomain*> scales_out_domain;
+scales_out_domain.reserve(inp_domain.size());
+
+for (auto inp_id : inp_domain) {
+  if (inp_id == inp_domain.back()) {
+    scales_out_domain.push_back(
+        IterDomainBuilder(
+            inp_id->start(),
+            SimplifyingIrBuilder::divExpr(
+                inp_id->extent(),
+                IrBuilder::create<Val>(block_size, DataType::Index)))
+            .build());
+
+  } else {
+    scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+  }
+}
+
   std::vector<IterDomain*> offset_logical_dom =
       TensorDomain::noReductions(input_offsets->getLogicalDomain());
   Val* num_groups = offset_logical_dom[0]->extent();
   
   // Create the allocation domain of output.
   std::vector<IterDomain*> out_alloc_dom =
-      layoutAllocationDomain(out_logical_dom, num_groups, layout);
+      layoutAllocationDomain(scales_out_domain, num_groups, layout);
 
   // Create block scaling factors
   TensorView* block_scales = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           /*root_domain=*/std::vector<IterDomain*>(),
-          /*logical_domain=*/out_logical_dom,
+          /*logical_domain=*/scales_out_domain,
           /*allocation=*/out_alloc_dom,
-          /*loop_domain=*/out_logical_dom,
+          /*loop_domain=*/scales_out_domain,
           /*alternate_loop_domain=*/std::nullopt,
           /*contiguity=*/
           TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
