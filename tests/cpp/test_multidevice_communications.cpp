@@ -5,22 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cuda.h>
+
 #include <gtest/gtest.h>
 
-#include <cuda.h>
-#include <cuda_utils.h>
-#include <driver_api.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/cuda_p2p.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
-
-#include <ops/all_ops.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "fusion.h"
+#include "ir/builder.h"
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/cuda_p2p.h"
+#include "ops/all_ops.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

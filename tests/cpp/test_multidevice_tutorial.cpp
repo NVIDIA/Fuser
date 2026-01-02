@@ -8,14 +8,14 @@
 
 #include <torch/torch.h>
 
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/ir.h>
-#include <ir/iostream.h>
-#include <multidevice/communicator.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <tests/cpp/multidevice.h>
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ir.h"
+#include "ir/iostream.h"
+#include "multidevice/communicator.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 

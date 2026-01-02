@@ -9,14 +9,14 @@
 #include <c10/cuda/CUDAStream.h>
 #include <c10/util/ArrayRef.h>
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/ir.h>
-#include <ir/utils.h>
-#include <multidevice/cuda_p2p.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/multidevice.h>
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ir.h"
+#include "ir/utils.h"
+#include "multidevice/cuda_p2p.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 
