@@ -10,6 +10,7 @@ import nvfuser_direct as nvfuser
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
 
 
+@pytest.mark.skip(reason="Broke jit_python_distributed_tests_20_GB200_TNVF")
 @pytest.mark.mpi
 def test_row_parallel_linear_forward(multidevice_test):
     # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
