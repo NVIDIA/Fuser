@@ -9,11 +9,13 @@
 #include "host_ir/passes.h"
 
 #include "host_ir/allocate_and_deallocate.h"
+#include "host_ir/assign_streams.h"
 
 namespace nvfuser::hir {
 
 void runPasses(HostIrContainer& hic) {
   OptimizationPass<hir::AllocateAndDeallocate>::runPass(&hic);
+  OptimizationPass<hir::AssignStreams>::runPass(&hic);
 }
 
 } // namespace nvfuser::hir

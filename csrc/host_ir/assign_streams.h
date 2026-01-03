@@ -11,17 +11,15 @@
 
 namespace nvfuser::hir {
 
-// A host IR pass that inserts allocations and deallocations. Some allocations
-// are already inserted by lowerSegmentedFusionToHostIr. This pass inserts more
-// allocations for functionality and/or performance.
-class AllocateAndDeallocate : public OptimizationPass<AllocateAndDeallocate> {
-  friend class OptimizationPass<AllocateAndDeallocate>;
+// A host IR pass that assigns streams to stream-parallel loops.
+class AssignStreams : public OptimizationPass<AssignStreams> {
+  friend class OptimizationPass<AssignStreams>;
 
  protected:
   static void runPass(Fusion* fusion);
 
   static constexpr std::string_view name() {
-    return "AllocateAndDeallocate";
+    return "AssignStreams";
   }
 };
 
