@@ -110,7 +110,7 @@ endif()
 set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
 if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
   find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
-    PATHS 
+    PATHS
     /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
     $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
   )

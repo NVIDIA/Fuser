@@ -64,7 +64,7 @@ class Pybind11Requirement(VersionRequirement):
         print()
         print(f"Install pybind11 {version_min} or higher:")
         print()
-        print("  pip install 'pybind11[global]>=2.0'")
+        print(f"  pip install 'pybind11[global]>={version_min}'")
         print()
         print("  Note: The [global] extra provides CMake integration.")
         print()

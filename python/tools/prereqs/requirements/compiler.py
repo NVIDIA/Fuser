@@ -101,7 +101,7 @@ class CompilerRequirement(VersionRequirement):
                 else:
                     print("  Option 1: System package manager:")
                     print()
-                    print(f"    # Example for RHEL/CentOS:")
+                    print("    # Example for RHEL/CentOS:")
                     print(f"    # sudo yum install gcc-toolset-{version_min}")
                     print()
 
