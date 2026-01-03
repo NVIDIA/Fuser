@@ -8,6 +8,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <benchmark/benchmark.h>
+#include <gtest/gtest.h>
+
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
 #else
@@ -43,7 +51,11 @@ MultiDeviceFixture::MultiDeviceFixture() {
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
 }
 
-MultiDeviceFixture::~MultiDeviceFixture() {
+MultiDeviceTest::MultiDeviceTest() {
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+}
+
+MultiDeviceTest::~MultiDeviceTest() {
   // Force all processes to synchronize at a barrier between tests. It slightly
   // slows the tests down, but makes it much easier to isolate a failing test.
   // Without this, if a test fails such that a subset of processes fail, then
@@ -53,8 +65,13 @@ MultiDeviceFixture::~MultiDeviceFixture() {
   }
 }
 
-MultiDeviceTest::MultiDeviceTest() {
-  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+void MultiDeviceBenchmark::TearDown(benchmark::State& state) {
+  // Unlike testing::Test, a benchmark::Fixture is destructed after `main`
+  // exits, not after each benchmark. Therefore, we have to put barrier in
+  // TearDown instead of the destructor.
+  if (communicator_->is_available()) {
+    communicator_->barrier();
+  }
 }
 
 void MultiDeviceTest::SetUp() {
@@ -163,8 +180,27 @@ void MultiDeviceTest::validate(
 
 } // namespace nvfuser
 
+namespace {
+bool wantsBenchmarks(int argc, char** argv) {
+  for (int i = 1; i < argc; ++i) {
+    std::string_view a(argv[i]);
+    if (a.starts_with("--benchmark"))
+      return true;
+  }
+  return false;
+}
+} // namespace
+
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   testing::AddGlobalTestEnvironment(new nvfuser::MultiDeviceTestEnvironment());
+
+  if (wantsBenchmarks(argc, argv)) {
+    benchmark::Initialize(&argc, argv);
+    benchmark::RunSpecifiedBenchmarks();
+    benchmark::Shutdown();
+    return 0;
+  }
+
   return RUN_ALL_TESTS();
 }

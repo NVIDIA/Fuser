@@ -30,7 +30,6 @@ class MultiDeviceTestEnvironment : public testing::Environment {
 class MultiDeviceFixture {
  protected:
   MultiDeviceFixture();
-  ~MultiDeviceFixture();
 
   // Returns a shard of the tensor according to the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
@@ -53,6 +52,7 @@ class MultiDeviceFixture {
 class MultiDeviceTest : public NVFuserTest, public MultiDeviceFixture {
  protected:
   MultiDeviceTest();
+  ~MultiDeviceTest();
   void SetUp() override;
 
   // Validate the outputs of a fusion against expected outputs.
@@ -65,7 +65,10 @@ class MultiDeviceTest : public NVFuserTest, public MultiDeviceFixture {
 };
 
 class MultiDeviceBenchmark : public benchmark::Fixture,
-                             public MultiDeviceFixture {};
+                             public MultiDeviceFixture {
+ protected:
+  void TearDown(benchmark::State& state) override;
+};
 
 // This macro is supposed to be used in a test case of a MultiDeviceTest or its
 // `SetUp` method, which have access to GTEST_SKIP and communicator_. It's not

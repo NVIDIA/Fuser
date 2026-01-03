@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <benchmark/benchmark.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -1283,4 +1284,39 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 }
+
+BENCHMARK_DEFINE_F(MultiDeviceBenchmark, Reduction)(benchmark::State& state) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = sum(in, {0});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  in->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto unsharded_in_tensor =
+      at::randn({mesh.size(), state.range(0)}, tensor_options_);
+  auto in_tensor = shardTensor(unsharded_in_tensor, in);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  for (auto _ : state) {
+    executor_cache.runFusionWithInputs({in_tensor});
+  }
+}
+
+// `Iterations` ensures that all processes run the benchmark for the same number
+// of iterations. Without it, Google Benchmark adaptively determines the
+// iteration count per process, which can differ across processes and cause
+// collective operations (like allreduce) to hang indefinitely.
+BENCHMARK_REGISTER_F(MultiDeviceBenchmark, Reduction)
+    ->Arg(4)
+    ->Arg(8)
+    ->Iterations(10);
+
 } // namespace nvfuser
