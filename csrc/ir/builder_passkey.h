@@ -15,6 +15,7 @@ class IrContainer;
 // functions in IrContainer
 class IrBuilderPasskey {
   friend class IrBuilder;
+  friend class Fusion;
 
  public:
   // TODO: Collapse ir_container and Kernel once Kernel inherits from

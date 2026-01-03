@@ -5,12 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
 #include <ir/internal_nodes.h>
+#include <kernel.h>
 
 namespace nvfuser {
 
@@ -57,14 +60,16 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
     if (from->vals().count(val) > 0) {
-      to->vals_.insert(ir_cloner.clone(val));
+      // Clone - registration happens inside clone() via registerWithContainer()
+      ir_cloner.clone(val);
     }
   }
 
   // Copy expressions in deterministic order
   for (auto expr : from->deterministic_exprs()) {
     if (from->unordered_exprs().count(expr) > 0) {
-      to->exprs_.insert(ir_cloner.clone(expr));
+      // Clone - registration happens inside clone() via registerWithContainer()
+      ir_cloner.clone(expr);
     }
   }
 
@@ -239,6 +244,20 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   }
 
   return true;
+}
+
+void IrContainer::updateAllStatementContainerPointers() {
+  // Update all Val pointers
+  for (auto* val : vals_) {
+    // Access the protected ir_container_ member through Statement base class
+    const_cast<Statement*>(static_cast<const Statement*>(val))->ir_container_ =
+        this;
+  }
+  // Update all Expr pointers
+  for (auto* expr : exprs_) {
+    const_cast<Statement*>(static_cast<const Statement*>(expr))->ir_container_ =
+        this;
+  }
 }
 
 // Shortcuts for frequently used vals

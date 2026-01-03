@@ -354,7 +354,7 @@ bool haveDifferentShardings(
 bool isResharding(const Expr* expr) {
   FUSER_PERF_SCOPE("isResharding");
 
-  if (!ir_utils::isTvOp(expr)) {
+  if (expr == nullptr || !ir_utils::isTvOp(expr)) {
     return false;
   }
 

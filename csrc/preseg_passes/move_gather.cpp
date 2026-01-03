@@ -101,7 +101,7 @@ TensorView* addPostGatherUnary(
     GatherOp* old_gather,
     GatherOp* new_gather,
     Expr* def) {
-  IrCloner ir_cloner(fusion);
+  IrCloner ir_cloner(fusion->container());
 
   auto cloned_def = static_cast<Expr*>(def->clone(&ir_cloner));
 
