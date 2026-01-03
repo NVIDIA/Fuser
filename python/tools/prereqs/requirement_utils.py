@@ -242,7 +242,9 @@ def llvm_download_url(version: Optional[Tuple[int, ...]] = None) -> str:
             f"llvmorg-{v}/clang+llvm-{v}-arm64-apple-macos11.tar.xz"
         )
     else:
-        raise NotImplementedError(f"LLVM prebuilt binaries not available for: {machine}")
+        raise NotImplementedError(
+            f"LLVM prebuilt binaries not available for: {machine}"
+        )
 
 
 def cuda_toolkit_download_url() -> str:

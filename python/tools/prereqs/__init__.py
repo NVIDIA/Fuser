@@ -40,7 +40,7 @@ from .platform import detect_platform, format_platform_info
 
 # Version utilities
 from .requirement_utils import (
-    Requirement,
+    Requirement as RequirementUtil,
     parse_version,
     format_version,
     CUDA_AVAILABLE,
@@ -59,7 +59,6 @@ from .exceptions import PrerequisiteMissingError
 
 # Requirement classes (OOP abstraction)
 from .requirements import (
-    Requirement,
     VersionRequirement,
     BooleanRequirement,
     RequirementStatus,
@@ -79,7 +78,7 @@ __all__ = [
     "detect_platform",
     "format_platform_info",
     # Requirements (legacy utility class)
-    "Requirement",
+    "RequirementUtil",
     "parse_version",
     "format_version",
     "CUDA_AVAILABLE",

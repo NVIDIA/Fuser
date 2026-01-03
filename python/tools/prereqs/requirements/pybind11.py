@@ -38,7 +38,16 @@ class Pybind11Requirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_pybind11_VERSION_MIN"
         location_var = "pybind11_DIR"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
     def generate_help(self, platform_info):
         """

@@ -33,7 +33,9 @@ class NinjaRequirement(BooleanRequirement):
         optional_var = "NVFUSER_REQUIREMENT_Ninja_OPTIONAL"
         location_var = ""
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
+        super().__init__(
+            name, cmake_vars, found_var, status_var, optional_var, location_var
+        )
 
     def generate_help(self, platform_info):
         """
@@ -44,7 +46,9 @@ class NinjaRequirement(BooleanRequirement):
         """
         print("Ninja Build System")
         print()
-        print("Why: Ninja is a fast build system used by nvFuser for faster compilation.")
+        print(
+            "Why: Ninja is a fast build system used by nvFuser for faster compilation."
+        )
         print()
         print("Install Ninja:")
         print()

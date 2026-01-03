@@ -33,7 +33,9 @@ class GitSubmodulesRequirement(BooleanRequirement):
         optional_var = "NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL"
         location_var = "NVFUSER_REQUIREMENT_GitSubmodules_LOCATION_VAR"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
+        super().__init__(
+            name, cmake_vars, found_var, status_var, optional_var, location_var
+        )
 
     def generate_help(self, platform_info):
         """
@@ -44,7 +46,9 @@ class GitSubmodulesRequirement(BooleanRequirement):
         """
         print("Git Submodules Not Initialized")
         print()
-        print("Why: nvFuser depends on third-party libraries included as Git submodules.")
+        print(
+            "Why: nvFuser depends on third-party libraries included as Git submodules."
+        )
         print()
         print("Initialize and update Git submodules:")
         print()

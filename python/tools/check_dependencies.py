@@ -13,7 +13,7 @@ This script only formats output and provides help text.
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 
 # Import prereqs utilities
 try:
@@ -25,20 +25,29 @@ try:
         CUDAToolkitRequirement,
         Pybind11Requirement,
         CompilerRequirement,
-        GitSubmodulesRequirement,
         NinjaRequirement,
     )
+
     HELP_AVAILABLE = True
 except ImportError:
     # Fallback if prereqs not available
-    print("Warning: prereqs package not found. Platform-specific help unavailable.", file=sys.stderr)
-    detect_platform = lambda: {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
-    format_platform_info = lambda x=None: "unknown platform"
+    print(
+        "Warning: prereqs package not found. Platform-specific help unavailable.",
+        file=sys.stderr,
+    )
+
+    def detect_platform():
+        return {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
+
+    def format_platform_info(x=None):
+        return "unknown platform"
+
     HELP_AVAILABLE = False
 
 
 class Colors:
     """ANSI color codes for terminal output"""
+
     RESET = "\033[m"
     BOLD = "\033[1m"
 
@@ -83,7 +92,7 @@ class DependencyReporter:
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""
         try:
-            with open(deps_path, 'r') as f:
+            with open(deps_path, "r") as f:
                 data = json.load(f)
                 return data.get("cmake_vars", {})
         except FileNotFoundError:
@@ -92,7 +101,6 @@ class DependencyReporter:
         except Exception as e:
             print(f"Error loading dependencies: {e}", file=sys.stderr)
             sys.exit(1)
-
 
     def generate_report(self):
         """Main entry point - prints formatted report"""
@@ -110,17 +118,26 @@ class DependencyReporter:
         # Include required failures (is_failure=True) and optional issues (not SUCCESS)
         failures = []
         for req in self.requirements:
-            if hasattr(req, 'is_failure') and req.is_failure():
+            if hasattr(req, "is_failure") and req.is_failure():
                 # Required dependency that failed
                 failures.append(req)
-            elif hasattr(req, 'status') and hasattr(req, 'optional') and req.optional and req.status != 'SUCCESS':
+            elif (
+                hasattr(req, "status")
+                and hasattr(req, "optional")
+                and req.optional
+                and req.status != "SUCCESS"
+            ):
                 # Optional dependency with issues (NOT_FOUND or INCOMPATIBLE)
                 failures.append(req)
 
         if failures:
             self._print_help_section(failures)
             # Only print failure summary if there are actual (non-optional) failures
-            required_failures = [req for req in self.requirements if hasattr(req, 'is_failure') and req.is_failure()]
+            required_failures = [
+                req
+                for req in self.requirements
+                if hasattr(req, "is_failure") and req.is_failure()
+            ]
             if required_failures:
                 self._print_failure_summary()
 
@@ -129,19 +146,25 @@ class DependencyReporter:
     def _print_header(self):
         """Print report header with platform information"""
         platform_str = format_platform_info(self.platform_info)
-        print(f"{self.colors.BOLD_GREEN}[nvFuser] Validating build prerequisites...{self.colors.RESET}")
+        print(
+            f"{self.colors.BOLD_GREEN}[nvFuser] Validating build prerequisites...{self.colors.RESET}"
+        )
         print(f"{self.colors.CYAN}Platform: {platform_str}{self.colors.RESET}")
 
     def _print_failure_summary(self):
         """Print failure summary message"""
         print()
-        print(f"{self.colors.BOLD_RED}Build prerequisite validation FAILED{self.colors.RESET}")
-        print(f"{self.colors.WHITE}See installation instructions above{self.colors.RESET}")
+        print(
+            f"{self.colors.BOLD_RED}Build prerequisite validation FAILED{self.colors.RESET}"
+        )
+        print(
+            f"{self.colors.WHITE}See installation instructions above{self.colors.RESET}"
+        )
 
     def _print_dependencies(self):
         """Print status for each dependency using OOP requirement classes"""
         for req in self.requirements:
-            if hasattr(req, 'format_status_line'):
+            if hasattr(req, "format_status_line"):
                 # OOP: use requirement's format method
                 print(req.format_status_line(self.colors))
             else:
@@ -161,7 +184,7 @@ class DependencyReporter:
 
     def _print_help_for_requirement(self, req):
         """Call requirement's help generation method"""
-        if hasattr(req, 'generate_help'):
+        if hasattr(req, "generate_help"):
             req.generate_help(self.platform_info)
         else:
             # Fallback for requirements without help

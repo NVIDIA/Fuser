@@ -16,6 +16,7 @@ from dataclasses import dataclass
 @dataclass
 class RequirementStatus:
     """Validation status constants."""
+
     SUCCESS = "SUCCESS"
     NOT_FOUND = "NOT_FOUND"
     INCOMPATIBLE = "INCOMPATIBLE"
@@ -127,9 +128,15 @@ class VersionRequirement(Requirement):
             version_required_var: Name of CMake variable for minimum required version (e.g., "NVFUSER_REQUIREMENT_Python_VERSION_MIN")
             location_var: Optional name of CMake variable for location
         """
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, location_var)
-        self.version_found = cmake_vars.get(version_found_var) if version_found_var else None
-        self.version_required = cmake_vars.get(version_required_var) if version_required_var else None
+        super().__init__(
+            name, cmake_vars, found_var, status_var, optional_var, location_var
+        )
+        self.version_found = (
+            cmake_vars.get(version_found_var) if version_found_var else None
+        )
+        self.version_required = (
+            cmake_vars.get(version_required_var) if version_required_var else None
+        )
 
     def format_status_line(self, colors) -> str:
         """Format status line with version information."""
@@ -140,7 +147,9 @@ class VersionRequirement(Requirement):
         elif self.status == RequirementStatus.INCOMPATIBLE:
             return self._format_incompatible(colors)
         else:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} unknown status{colors.RESET}"
+            return (
+                f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} unknown status{colors.RESET}"
+            )
 
     def _format_success(self, colors) -> str:
         """Format success: [nvFuser] ✓ Python        3.12.3 >= 3.8 (/usr/bin/python3)"""
@@ -148,7 +157,9 @@ class VersionRequirement(Requirement):
         name_with_marker = f"{self.name}*" if self.optional else self.name
         # Status symbol and name in white/green with padding
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+        status_part = (
+            f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+        )
 
         # Version info in green
         if self.version_found and self.version_required:
@@ -177,11 +188,15 @@ class VersionRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.optional:
-            status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = (
+                f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
+            )
             if self.version_required:
                 return f"{status_part} {colors.YELLOW}Not found (optional, v{self.version_required}+ recommended){colors.RESET}"
             else:
-                return f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                return (
+                    f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                )
         else:
             status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
             if self.version_required:
@@ -194,7 +209,9 @@ class VersionRequirement(Requirement):
         # Add asterisk for optional requirements
         name_with_marker = f"{self.name}*" if self.optional else self.name
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+        status_part = (
+            f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+        )
 
         if self.version_found and self.version_required:
             return f"{status_part} {colors.BOLD_RED}{self.version_found} < {self.version_required}{colors.RESET}"
@@ -216,14 +233,18 @@ class BooleanRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.status == RequirementStatus.SUCCESS:
-            status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = (
+                f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+            )
             if self.location:
                 return f"{status_part} {colors.CYAN}({self.location}){colors.RESET}"
             return status_part
         elif self.status == RequirementStatus.NOT_FOUND:
             if self.optional:
                 status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
-                return f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                return (
+                    f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                )
             else:
                 status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
                 return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"

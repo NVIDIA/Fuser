@@ -38,7 +38,16 @@ class PythonRequirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_Python_VERSION_MIN"
         location_var = "Python_EXECUTABLE"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
     def generate_help(self, platform_info):
         """
@@ -51,7 +60,9 @@ class PythonRequirement(VersionRequirement):
 
         print(f"Python {version_min}+ Required")
         print()
-        print("Why: nvFuser requires modern Python with type hints and language features.")
+        print(
+            "Why: nvFuser requires modern Python with type hints and language features."
+        )
         print()
         print(f"Install Python {version_min} or higher:")
         print()
@@ -83,4 +94,3 @@ class PythonRequirement(VersionRequirement):
         print(f"    conda create -n nvfuser python={version_min}")
         print("    conda activate nvfuser")
         print()
-

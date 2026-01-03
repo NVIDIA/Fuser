@@ -38,7 +38,16 @@ class CUDAToolkitRequirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN"
         location_var = "CUDAToolkit_ROOT"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
     def generate_help(self, platform_info):
         """
@@ -64,4 +73,3 @@ class CUDAToolkitRequirement(VersionRequirement):
         print("    export PATH=/usr/local/cuda/bin:$PATH")
         print("    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH")
         print()
-

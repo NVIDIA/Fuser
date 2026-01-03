@@ -46,7 +46,16 @@ class TorchRequirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_Torch_VERSION_MIN"
         location_var = "Torch_DIR"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
         # Extract Torch CUDA constraint variables from cmake_vars
         self.constraint_status = cmake_vars.get(f"{name}_CUDA_constraint_status")
@@ -79,7 +88,9 @@ class TorchRequirement(VersionRequirement):
             cuda_version = self.constraint_version or "unknown"
             status_part = f"{colors.GREEN}[nvFuser] ✓{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
             # Use cyan for the CUDA version/result, matching location color
-            version_part = f"{colors.CYAN}{cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
+            version_part = (
+                f"{colors.CYAN}{cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
+            )
             return f"{status_part} {version_part}"
         elif self.constraint_status == "mismatch":
             torch_cuda = self.constraint_found or "unknown"
@@ -117,7 +128,9 @@ class TorchRequirement(VersionRequirement):
 
         print(f"PyTorch {version_min}+ Required")
         print()
-        print("Why: nvFuser is a PyTorch extension and requires PyTorch with CUDA support.")
+        print(
+            "Why: nvFuser is a PyTorch extension and requires PyTorch with CUDA support."
+        )
         print()
         print(f"Install PyTorch {version_min} or higher with CUDA:")
         print()
@@ -136,7 +149,9 @@ class TorchRequirement(VersionRequirement):
             print()
             print("IMPORTANT: Torch CUDA Version Mismatch Detected")
             print()
-            print("Why: PyTorch was built with a different CUDA version than your system's")
+            print(
+                "Why: PyTorch was built with a different CUDA version than your system's"
+            )
             print("     CUDA Toolkit. This will cause runtime errors.")
             print()
             print("Resolution:")
@@ -145,8 +160,12 @@ class TorchRequirement(VersionRequirement):
             print()
             print("  Option 1: Install matching CUDA Toolkit (recommended)")
             print()
-            print("    Install the CUDA Toolkit version that matches your PyTorch build.")
-            print("    Check PyTorch CUDA version: python -c 'import torch; print(torch.version.cuda)'")
+            print(
+                "    Install the CUDA Toolkit version that matches your PyTorch build."
+            )
+            print(
+                "    Check PyTorch CUDA version: python -c 'import torch; print(torch.version.cuda)'"
+            )
             print()
             print("  Option 2: Reinstall PyTorch for your CUDA version")
             print()

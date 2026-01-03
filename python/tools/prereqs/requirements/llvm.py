@@ -38,7 +38,16 @@ class LLVMRequirement(VersionRequirement):
         version_required_var = "NVFUSER_REQUIREMENT_LLVM_VERSION_MIN"
         location_var = "LLVM_DIR"
 
-        super().__init__(name, cmake_vars, found_var, status_var, optional_var, version_found_var, version_required_var, location_var)
+        super().__init__(
+            name,
+            cmake_vars,
+            found_var,
+            status_var,
+            optional_var,
+            version_found_var,
+            version_required_var,
+            location_var,
+        )
 
     def generate_help(self, platform_info):
         """
@@ -66,7 +75,7 @@ class LLVMRequirement(VersionRequirement):
             else:
                 recommended = "18.1.8"
                 major_version = 18
-        except:
+        except Exception:
             recommended = "18.1.8"
             major_version = 18
 
@@ -79,7 +88,9 @@ class LLVMRequirement(VersionRequirement):
 
         print("  Option 1: Prebuilt binaries (recommended, no sudo needed):")
         print()
-        print(f"    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-{recommended}/clang+llvm-{recommended}-x86_64-linux-gnu-ubuntu-18.04.tar.xz")
+        print(
+            f"    wget https://github.com/llvm/llvm-project/releases/download/llvmorg-{recommended}/clang+llvm-{recommended}-x86_64-linux-gnu-ubuntu-18.04.tar.xz"
+        )
         print(f"    tar -xf clang+llvm-{recommended}-*.tar.xz")
         print(f"    mv clang+llvm-{recommended}-* ~/.llvm/{recommended}")
         print()
@@ -108,4 +119,3 @@ class LLVMRequirement(VersionRequirement):
             print("    # Add to PATH:")
             print(f"    export PATH=/opt/homebrew/opt/llvm@{major_version}/bin:$PATH")
             print()
-
