@@ -72,7 +72,6 @@ class DependencyReporter:
         # Create requirement objects - each class defines its own name and variable names
         self.requirements = []
         if HELP_AVAILABLE:
-            #self.requirements.append(GitSubmodulesRequirement(cmake_vars))
             self.requirements.append(NinjaRequirement(cmake_vars))
             self.requirements.append(CompilerRequirement(cmake_vars))
             self.requirements.append(PythonRequirement(cmake_vars))

@@ -59,7 +59,7 @@ from .exceptions import PrerequisiteMissingError
 
 # Requirement classes (OOP abstraction)
 from .requirements import (
-    Requirement as BaseRequirement,
+    Requirement,
     VersionRequirement,
     BooleanRequirement,
     RequirementStatus,
@@ -91,7 +91,6 @@ __all__ = [
     # Exception
     "PrerequisiteMissingError",
     # Base requirement classes
-    "BaseRequirement",
     "VersionRequirement",
     "BooleanRequirement",
     "RequirementStatus",

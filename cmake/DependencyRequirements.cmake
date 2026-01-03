@@ -15,7 +15,7 @@
 # ==============================================================================
 
 # Ninja
-set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL "True")
+set(NVFUSER_REQUIREMENT_Ninja_OPTIONAL "TRUE")
 
 # Compiler (GCC or Clang)
 set(NVFUSER_REQUIREMENT_GNU_VERSION_MIN "13.1")
