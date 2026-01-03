@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <benchmark/benchmark.h>
+#include <gtest/gtest.h>
+
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <multidevice/execution_utils.h>
@@ -60,6 +63,9 @@ class MultiDeviceTest : public NVFuserTest, public MultiDeviceFixture {
 
   bool disable_skip;
 };
+
+class MultiDeviceBenchmark : public benchmark::Fixture,
+                             public MultiDeviceFixture {};
 
 // This macro is supposed to be used in a test case of a MultiDeviceTest or its
 // `SetUp` method, which have access to GTEST_SKIP and communicator_. It's not
