@@ -7,7 +7,6 @@
 // clang-format on
 #include <sys/types.h>
 #include <unistd.h>
-#include <mutex>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
@@ -33,7 +32,7 @@ void MultiDeviceTestEnvironment::TearDown() {
   Communicator::getInstance().cleanup();
 }
 
-MultiDeviceTest::MultiDeviceTest() {
+MultiDeviceFixture::MultiDeviceFixture() {
   // Enable logging in c10d so debug messages can be printed out via
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
@@ -42,10 +41,9 @@ MultiDeviceTest::MultiDeviceTest() {
   tensor_options_ =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
-  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
-MultiDeviceTest::~MultiDeviceTest() {
+MultiDeviceFixture::~MultiDeviceFixture() {
   // Force all processes to synchronize at a barrier between tests. It slightly
   // slows the tests down, but makes it much easier to isolate a failing test.
   // Without this, if a test fails such that a subset of processes fail, then
@@ -55,8 +53,11 @@ MultiDeviceTest::~MultiDeviceTest() {
   }
 }
 
+MultiDeviceTest::MultiDeviceTest() {
+  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
+}
+
 void MultiDeviceTest::SetUp() {
-  // Set the same random seed for all processes.
   NVFuserTest::SetUp();
 
   if (!disable_skip && !communicator_->is_available()) {
@@ -64,7 +65,7 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
+at::Tensor MultiDeviceFixture::shardTensor(at::Tensor tensor, TensorView* tv) {
   if (!isSharded(tv)) {
     return tensor;
   }
@@ -75,7 +76,7 @@ at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
       tv->getDeviceMesh());
 }
 
-at::Tensor MultiDeviceTest::shardTensor(
+at::Tensor MultiDeviceFixture::shardTensor(
     at::Tensor tensor,
     const int64_t axis,
     const DeviceMesh& mesh) {

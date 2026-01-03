@@ -22,11 +22,12 @@ class MultiDeviceTestEnvironment : public testing::Environment {
   void TearDown() override;
 };
 
-class MultiDeviceTest : public NVFuserTest {
+// Fixture class containing the logic for multi-device testing.
+// Does not inherit from NVFuserTest or testing::Test.
+class MultiDeviceFixture {
  protected:
-  MultiDeviceTest();
-  ~MultiDeviceTest();
-  void SetUp() override;
+  MultiDeviceFixture();
+  ~MultiDeviceFixture();
 
   // Returns a shard of the tensor according to the sharding annotation in tv
   // for the deviceId. If tensor is not sharded returns the original tensor.
@@ -40,15 +41,23 @@ class MultiDeviceTest : public NVFuserTest {
       int64_t axis,
       const DeviceMesh& mesh);
 
+  Communicator* communicator_;
+  c10::TensorOptions tensor_options_;
+  bool debug_print;
+};
+
+// Test class that inherits from NVFuserTest and uses MultiDeviceFixture.
+class MultiDeviceTest : public NVFuserTest, public MultiDeviceFixture {
+ protected:
+  MultiDeviceTest();
+  void SetUp() override;
+
   // Validate the outputs of a fusion against expected outputs.
   static void validate(
       const std::vector<at::Tensor>& expected_outputs,
       const KernelArgumentHolder& outputs,
       const std::vector<double>& atols);
 
-  Communicator* communicator_;
-  c10::TensorOptions tensor_options_;
-  bool debug_print;
   bool disable_skip;
 };
 
