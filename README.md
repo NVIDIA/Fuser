@@ -8,13 +8,12 @@
 
 A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
 
-## Installation
+## pip install
 
 We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org and https://pypi.nvidia.com.
 **Wheels are published for Python version: _3.10_, _3.12_**.
 
 Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
-
 
 ### Nightly nvfuser pip wheel
 
@@ -39,20 +38,15 @@ when major changes are added.
 
 We always recommend use of the latest nvfuser build with latest cuda and pytorch versions.
 
-PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
+## Install from source
 
-## Developer
-
-Docs: https://github.com/NVIDIA/Fuser/wiki
-
-### Install From Source:
 ```bash
 git clone https://github.com/NVIDIA/Fuser.git
 cd Fuser
 pip install -r python/requirements.txt
 
-[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
 pip install --no-build-isolation -e python -v
+# If you are in the internal PJNL container, use `_bn` instead for sccache.
 ```
 
 Supported compilers:
@@ -73,3 +67,13 @@ As of 3/2/2025, they are:
 Supported C++ standard:
 
 - C++20
+
+### Test
+
+The easiest way to test a PR is to comment `!test` on the PR to trigger CI.
+
+You can also run `tools/run_nvfuser_tests.py` to test locally.
+
+## nvFuser Internals
+
+https://github.com/NVIDIA/Fuser/blob/main/doc/README.md
