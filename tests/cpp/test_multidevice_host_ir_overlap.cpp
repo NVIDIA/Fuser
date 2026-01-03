@@ -375,7 +375,7 @@ TEST_F(
       communication,
       wait};
   for (Expr* expr : loop_body) {
-    for_loop->body().push_back(expr);
+    for_loop->body().pushBack(expr);
   }
 
   hic->pushBackTopLevelExprs(for_loop);
@@ -401,7 +401,7 @@ TEST_F(
       /*circular_buffer_loop_stage_depth=*/0);
   auto* sync_stream = IrBuilder::create<hir::Synchronize>(
       IrBuilder::create<hir::Stream>(i_stream));
-  for_loop_stream->body().push_back(sync_stream);
+  for_loop_stream->body().pushBack(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
   // The following line is artificial but necessary to make
@@ -611,9 +611,9 @@ TEST_F(
       end_coalescing,
       wait};
   for (Expr* expr : loop_j_body) {
-    for_loop_j->body().push_back(expr);
+    for_loop_j->body().pushBack(expr);
   }
-  for_loop_i->body().push_back(for_loop_j);
+  for_loop_i->body().pushBack(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
 
@@ -638,7 +638,7 @@ TEST_F(
       /*circular_buffer_loop_stage_depth=*/0);
   auto* sync_stream = IrBuilder::create<hir::Synchronize>(
       IrBuilder::create<hir::Stream>(i_stream));
-  for_loop_stream->body().push_back(sync_stream);
+  for_loop_stream->body().pushBack(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
   auto* tvc_reshaped =
@@ -870,7 +870,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
       tvc_j->definition(),
       mm};
   for (Expr* expr : loop_body) {
-    for_loop->body().push_back(expr);
+    for_loop->body().pushBack(expr);
   }
 
   hic->pushBackTopLevelExprs(for_loop);
@@ -896,7 +896,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
       /*circular_buffer_loop_stage_depth=*/0);
   auto* sync_stream = IrBuilder::create<hir::Synchronize>(
       IrBuilder::create<hir::Stream>(i_stream));
-  for_loop_stream->body().push_back(sync_stream);
+  for_loop_stream->body().pushBack(sync_stream);
   hic->pushBackTopLevelExprs(for_loop_stream);
 
   // The following line is artificial but necessary to make tva_j_unsqueeze a
@@ -1208,11 +1208,11 @@ TEST_F(
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
 
   // Nonblocking--just signals the buffer is ready for the get transfer
-  if_not_last_ring_step_post_comms->thenBody().push_back(send);
-  if_not_last_ring_step_post_comms->thenBody().push_back(set_next_stream);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(send);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(set_next_stream);
   // Block in recvPost on the next stream to do the get transfer
-  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
-  if_not_last_ring_step_post_comms->thenBody().push_back(set_curr_stream);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(recv);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(set_curr_stream);
 
   // For the get protocol, recvWait is a NOP
   // At the same time, sendWait will block waiting for the buffer to be
@@ -1232,9 +1232,9 @@ TEST_F(
       if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
-    for_loop_j->body().push_back(expr);
+    for_loop_j->body().pushBack(expr);
   }
-  for_loop_i->body().push_back(for_loop_j);
+  for_loop_i->body().pushBack(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
 
@@ -1363,16 +1363,16 @@ TEST_F(
   auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
   auto* if_not_first_ring_step_wait =
       IrBuilder::create<kir::IfThenElse>(wait_predicate);
-  if_not_first_ring_step_wait->thenBody().push_back(wait);
+  if_not_first_ring_step_wait->thenBody().pushBack(wait);
 
   auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
   auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
   auto* if_not_last_ring_step_post_comms =
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
-  if_not_last_ring_step_post_comms->thenBody().push_back(start_coalescing);
-  if_not_last_ring_step_post_comms->thenBody().push_back(send);
-  if_not_last_ring_step_post_comms->thenBody().push_back(recv);
-  if_not_last_ring_step_post_comms->thenBody().push_back(end_coalescing);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(start_coalescing);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(send);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(recv);
+  if_not_last_ring_step_post_comms->thenBody().pushBack(end_coalescing);
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
@@ -1386,9 +1386,9 @@ TEST_F(
       if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
-    for_loop_j->body().push_back(expr);
+    for_loop_j->body().pushBack(expr);
   }
-  for_loop_i->body().push_back(for_loop_j);
+  for_loop_i->body().pushBack(for_loop_j);
 
   hic->pushBackTopLevelExprs(for_loop_i);
 

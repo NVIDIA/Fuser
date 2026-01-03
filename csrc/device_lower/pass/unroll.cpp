@@ -28,7 +28,7 @@ kir::ForLoop* cloneLoopNest(const kir::ForLoop* for_loop) {
     if (auto nested_for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       expr = cloneLoopNest(nested_for_loop);
     }
-    new_loop->body().push_back(expr);
+    new_loop->body().pushBack(expr);
   }
   return new_loop;
 }
@@ -59,7 +59,7 @@ void UnrollPass::dispatch(Expr* expr) {
     kir::IfThenElse* inline_ite =
         IrBuilder::create<kir::IfThenElse>(expr->predicate());
     kir::ExprMutator::registerReplace(expr, inline_ite);
-    inline_ite->thenBody().push_back(expr);
+    inline_ite->thenBody().pushBack(expr);
     return;
   }
 
@@ -70,7 +70,7 @@ void UnrollPass::dispatch(Expr* expr) {
     auto pred = IrBuilder::create<kir::Predicate>(
         PredicateType::OneDimTmaWaitParity, expr);
     auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
-    inline_ite->thenBody().push_back(expr);
+    inline_ite->thenBody().pushBack(expr);
     kir::ExprMutator::registerReplace(expr, inline_ite);
     return;
   }
@@ -180,7 +180,7 @@ void UnrollPass::dispatch(Expr* expr) {
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::ElectSync, expr, thread_pred);
       auto elect_sync_ite = IrBuilder::create<kir::IfThenElse>(elect_sync_pred);
-      elect_sync_ite->thenBody().push_back(expr);
+      elect_sync_ite->thenBody().pushBack(expr);
       kir::ExprMutator::registerReplace(expr, elect_sync_ite);
       return;
     }
@@ -233,7 +233,7 @@ void UnrollPass::dispatch(Expr* expr) {
     if (expr != expr_with_predicate) {
       GpuLower::current()->propagateExprInfo(expr, expr_with_predicate);
     }
-    inline_ite->thenBody().push_back(expr_with_predicate);
+    inline_ite->thenBody().pushBack(expr_with_predicate);
   } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
@@ -294,7 +294,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
 
   // Get the loop nest for the unrolled path
   kir::ForLoop* unrolled_loop_nest = cloneLoopNest(fl);
-  unroll_ite->thenBody().push_back(unrolled_loop_nest);
+  unroll_ite->thenBody().pushBack(unrolled_loop_nest);
 
   // Thread predicates are not removed from the expressions. Visit
   // each expression to attach kir::Predicate.
@@ -324,7 +324,7 @@ void UnrollPass::handle(kir::ForLoop* fl) {
     kir::ExprMutator::registerReplace(fl, inlined_loop);
   } else {
     if (!canOmitElseClause(fl)) {
-      unroll_ite->elseBody().push_back(inlined_loop);
+      unroll_ite->elseBody().pushBack(inlined_loop);
     }
     kir::ExprMutator::registerReplace(fl, unroll_ite);
   }

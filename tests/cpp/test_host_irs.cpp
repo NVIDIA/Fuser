@@ -429,7 +429,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
-  for_loop->body().push_back(post_on_stream);
+  for_loop->body().pushBack(post_on_stream);
 
   hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
@@ -1140,9 +1140,9 @@ TEST_F(IfThenElseTest, HostIr) {
       std::vector<Val*>({input_buffer}),
       std::vector<Val*>({output_buffer}));
 
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->elseBody().push_back(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->elseBody().pushBack(add_one_to_buffer);
 
   hic->addInput(input_bool);
   hic->addOutput(input_buffer);
@@ -1214,7 +1214,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   tv0->setMemoryType(MemoryType::Global);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
 
-  for_loop->body().push_back(allocate);
+  for_loop->body().pushBack(allocate);
 
   hic->pushBackTopLevelExprs(for_loop);
   hic->addOutput(tv0);
