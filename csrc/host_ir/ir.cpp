@@ -197,7 +197,7 @@ std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Stream ";
   if (index() == nullptr) {
-    ss << name();
+    ss << static_cast<const void*>(this);
   } else {
     ss << index()->toInlineString();
   }
