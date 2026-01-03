@@ -289,7 +289,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        do_reduction,
        sharded_dim,
        use_fusion_executor_cache] = GetParam();
-  if (!disable_skip && !communicator_->isBackendAvailable(backend)) {
+  if (!communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator_->setDefaultBackend(backend);
