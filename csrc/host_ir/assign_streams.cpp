@@ -22,7 +22,7 @@ void AssignStreams::runPass(Fusion* fusion) {
        it != hic->topLevel().exprs().end();) {
     auto next_it = std::next(it);
 
-    auto* for_loop = dynamic_cast<hir::ForLoop*>(*it);
+    auto* for_loop = dynamic_cast<ForLoop*>(*it);
     if (for_loop == nullptr) {
       it = next_it;
       continue;
@@ -46,16 +46,17 @@ void AssignStreams::runPass(Fusion* fusion) {
     for_loop->body().insert(old_begin, sync_main);
 
     // After the loop: create a joining loop to synchronize all worker streams
-    auto* join_loop = IrBuilder::create<hir::ForLoop>(
+    hic->topLevel().insert(
+        next_it, IrBuilder::create<SetCurrentStream>(main_stream));
+    auto* join_loop = IrBuilder::create<ForLoop>(
         for_loop->index(), for_loop->start(), for_loop->stop());
+    hic->topLevel().insert(next_it, join_loop);
 
     // In the joining loop: synchronize each worker stream
     auto* join_worker_stream = IrBuilder::create<Stream>(join_loop->index());
     auto* sync_worker = IrBuilder::create<Synchronize>(join_worker_stream);
     join_loop->body().push_back(sync_worker);
 
-    // Insert join_loop after the current for_loop
-    hic->topLevel().insert(next_it, join_loop);
     it = next_it;
   }
 }
