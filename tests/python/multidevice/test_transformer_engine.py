@@ -31,12 +31,12 @@ class ComputeType(Enum):
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
-    ids=["forward", "backward"],
+    ids=lambda t: t.name(),
 )
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name(),
 )
 @pytest.mark.parametrize(
     "overlap",
