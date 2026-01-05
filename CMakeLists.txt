@@ -1391,45 +1391,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
   endif()
 
-  # multidevice transformer and cuda ipc benchmarks
   if(NVFUSER_DISTRIBUTED)
-    # multidevice transformer benchmark
-    set(MULTIDEVICE_BENCHMARK_SRCS)
-    list(APPEND MULTIDEVICE_BENCHMARK_SRCS
-      ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/utils.cpp
-    )
-    add_executable(nvfuser_multidevice_bench ${MULTIDEVICE_BENCHMARK_SRCS})
-    set_target_properties(nvfuser_multidevice_bench PROPERTIES
-      C_STANDARD ${NVFUSER_C_STANDARD}
-      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-      CXX_STANDARD_REQUIRED ON
-      CXX_VISIBILITY_PRESET hidden
-      POSITION_INDEPENDENT_CODE Yes
-      VISIBILITY_INLINES_HIDDEN Yes
-    )
-    target_include_directories(nvfuser_multidevice_bench SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-      ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    )
-    target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
-    target_link_libraries(nvfuser_multidevice_bench PRIVATE
-      GTest::gtest
-      benchmark::benchmark
-      codegen_internal
-    )
-    add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
-
-    if(NOT MSVC)
-      target_compile_options(nvfuser_multidevice_bench PRIVATE
-        -Wall -Wno-unused-function
-        -Werror -Wno-deprecated-copy
-      )
-    endif()
-
     # cuda ipc benchmark
     set(P2P_COMMUNICATION_BENCHMARK_SRCS)
     list(APPEND P2P_COMMUNICATION_BENCHMARK_SRCS

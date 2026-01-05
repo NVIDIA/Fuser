@@ -54,9 +54,6 @@ from layers_for_inference_benchmark import (
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
     nvfuser_f16a_nvfp4weight_scaled_mm,
-    FLOAT4_E2M1_MAX,
-    FLOAT8_E4M3_EPS,
-    FLOAT8_E4M3_MAX,
 )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
@@ -111,24 +108,7 @@ def _register_nvfp4_ops():
         nv_offsets = getnv(offsets, fd, lc_to_nv_map)
         nv_blocksf_offsets = getnv(blockscale_offsets, fd, lc_to_nv_map)
         nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
-        # dynamic shape support has some concretization issue
-        m_size = activation.shape[0]
-        k_size = activation.shape[1]
-        k_tile_size = k_size // 16
-
-        reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
-        scale1 = fd.ops.abs(reshaped_mat1)
-        scale1 = fd.ops.max(scale1, 2)
-        scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
-        scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
-
-        broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
-        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
-        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
-
-        scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
-        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
-        fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+        fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(nv_act)
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
         out = fd.ops.cutlass_nvfp4_grouped_mm(
             fp4_mat1,
