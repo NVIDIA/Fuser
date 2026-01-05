@@ -124,12 +124,14 @@ struct SdpfaFwdResult {
   TensorView* philox_offset = nullptr;
 };
 
-// Scaled Dot Product Flash Attention Forward API.
-// Returns the same output as at::_scaled_dot_product_flash_attention
+// Scaled Dot Product Flash Attention Forward API that wraps SdpaFwdOp.  See
+// SdpaFwdOp for the semantics.
 NVF_API SdpfaFwdResult sdpfa_fwd(
     TensorView* query,
     TensorView* key,
     TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale);
