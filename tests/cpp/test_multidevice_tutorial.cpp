@@ -993,7 +993,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   |   tv2[i,...] = Fusion1 (tv1_i)
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
-TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernekPipelining) {
+TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernelPipelining) {
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
