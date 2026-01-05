@@ -126,8 +126,8 @@ def test_triangle_updates(direction):
                 b = fd.ops.permute(b, [0, 3, 2, 1])  # [b, c, k, j]
             case Direction.INCOMING:
                 # z_out = einsum("bkic,bkjc->bijc", a, b)
-                a = fd.ops.permute(a, [0, 3, 2, 1])
-                b = fd.ops.permute(b, [0, 3, 1, 2])
+                a = fd.ops.permute(a, [0, 3, 2, 1])  # [b, c, i, k]
+                b = fd.ops.permute(b, [0, 3, 1, 2])  # [b, c, k, j]
         z = fd.ops.matmul(a, b)  # [b, c, i, j]
         z = fd.ops.permute(z, [0, 2, 3, 1])  # [b, i, j, c]
 
