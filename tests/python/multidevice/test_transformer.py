@@ -410,7 +410,7 @@ def _assert_shape_dtype(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
 def test_transformer_forward(multidevice_test, benchmark, parallelism: Parallelism):
@@ -1051,7 +1051,7 @@ def transformer_backward_definition(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
 def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallelism):
