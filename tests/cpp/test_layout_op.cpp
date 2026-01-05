@@ -62,7 +62,7 @@ bool validateGroupedLayout(
                               .transpose(1, 3)
                               .reshape({mn_tile * 4 * 32, k_tile * 4})
                               .slice(0, 0, m_g)
-                              .slice(1, 0, k);
+                              .slice(1, 0, k).to(ref.dtype());
     auto ref_g = ref.slice(
         0,
         expert_offsets[i].item().to<int>(),
@@ -415,7 +415,7 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   } else {
     auto outs = groupedBlockQuantize(
         inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
-    fusion.addOutput(outs.quantized_tensor);
+    fusion.addOutput(castOp(DataType::Float, outs.quantized_tensor));
     fusion.addOutput(outs.block_scales);
   }
 
@@ -433,22 +433,23 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
-  Tensor ref_block_sf;
-  Tensor ref_scaled_out;
+  at::Tensor ref_block_sf;
+  at::Tensor ref_scaled_out;
 
   // producing reference
-  if (debug) {
+  if (true) {
     auto ref_reshaped_inp = t0.view({m, k / 16, 16});
-    ref_block_sf = ref_reshaped_inp.amax(-1);
+    ref_block_sf = ref_reshaped_inp.amax(-1).div(6.0);
     ref_scaled_out =
         (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
+    ref_block_sf = ref_block_sf.to(at::kFloat8_e4m3fn).to(at::kFloat);
   } else {
     std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
     FusionGuard fg2(fusion_new_op.get());
     auto tv_in = makeContigTensor(2);
-    fusion_new_op->addInput(tv_in_1);
+    fusion_new_op->addInput(tv_in);
     auto quantization_results = blockQuantize(
-        tv_in_1, nullptr, /*block_size=*/16, false);
+        tv_in, nullptr, /*block_size=*/16, false);
     
     fusion_new_op->addOutput(quantization_results.block_scales);
     fusion_new_op->addOutput(quantization_results.quantized_tensor);
@@ -459,6 +460,11 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
     ref_scaled_out = outputs_new_op[1].as<at::Tensor>().to(at::kFloat);
   }
 
+  std::cout << ref_block_sf[0] << std::endl;
+  std::cout << outputs[1].as<at::Tensor>()[0] << std::endl;
+
+  std::cout << ref_scaled_out[0] << std::endl;
+  std::cout << outputs[0].as<at::Tensor>()[0] << std::endl;
 
   // check scaled output
   EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
