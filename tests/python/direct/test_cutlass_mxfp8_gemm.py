@@ -5,7 +5,6 @@
 
 import pytest
 import torch
-import random
 from nvfuser_direct import nvf_cutlass
 
 compute_cap = torch.cuda.get_device_capability()
@@ -157,13 +156,18 @@ def baseline_scaled_mm(
     ).to(out_dtype)
 
 
-@pytest.mark.parametrize("num_experts", [8, 16])
+@pytest.mark.parametrize("config", [[1024, 128, 256]])
+@pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
 @pytest.mark.parametrize("out_dtype", [torch.half, torch.bfloat16])
-def test_fp8_blockwise_scaled_grouped_mm(num_experts, out_dtype):
+def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
     device = "cuda"
     alignment = 16
-    n_g = alignment * random.randint(1, 5) * 128
-    k_g = alignment * random.randint(1, 5) * 128
+
+    # k dimension is multiple of 128 to avoid padding
+    m, n_g, k_g = config
+    tokens_per_expert = list(tokens_per_expert_neg_one)
+    tokens_per_expert.append(m - sum(tokens_per_expert))
+    num_experts = len(tokens_per_expert)
 
     scale_a_group_shape = (1, 128)
     scale_b_group_shape = (128, 128)
@@ -180,7 +184,7 @@ def test_fp8_blockwise_scaled_grouped_mm(num_experts, out_dtype):
     baseline_tensors = []
 
     for g in range(num_experts):
-        m_g = alignment * random.randint(1, 64)
+        m_g = tokens_per_expert[g]
         expert_offsets[g + 1] = expert_offsets[g] + m_g
         problem_sizes[g][:] = torch.tensor([m_g, n_g, k_g], device=device)
 
