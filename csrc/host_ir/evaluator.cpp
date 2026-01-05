@@ -147,8 +147,10 @@ c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
     stream_key = value.as<int64_t>();
   }
 
-  auto [it, inserted] =
-      streams_.try_emplace(stream_key, c10::cuda::getStreamFromPool());
+  auto it = streams_.find(stream_key);
+  if (it == streams_.end()) {
+    it = streams_.emplace(stream_key, c10::cuda::getStreamFromPool()).first;
+  }
   return it->second;
 }
 
