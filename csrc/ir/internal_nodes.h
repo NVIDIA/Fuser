@@ -13,6 +13,7 @@
 #include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/internal_base_nodes.h>
 #include <mma_type.h>
 #include <parallel_type_bitmap.h>
 #include <visibility.h>
@@ -2363,36 +2364,45 @@ class LinearOp : public Expr {
   }
 };
 
-// SDPA node with same functionality at::_scaled_dot_product_flash_attention
-// output = [N, H, L, Ev]
-// logsumexp = [N, H, L]
-// query_seq_len = scalar(int)
-// key_seq_len = scalar(int)
-// philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
-// philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
-// debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
-// setting `return_debug_mask=False` when invoking flash attention)
-
-// Note: For older versions, torch returns CPU scalar tensors for philox_seed
+// An SDPA (Scaled Dot Product Attention) forward operator to be expression
+// evaluated.
+//
+// Notation:
+// - N* = a non-empty list of dimensions that are treated as batch, e.g., the
+//   actual batch dimension, the DIDx dimension for DID logical split and/or the
+//   extra sequence dimension in [Triangle
+//   Attention](https://elanapearl.github.io/blog/2024/the-illustrated-alphafold/#triangle-attention).
+// - H = num of heads
+// - L = query sequence length / target sequence length
+// - S = key/value sequence length / source sequence length
+// - E = query/key embedding dimension
+// - Ev = value embedding dimension
+//
+// Inputs:
+// - query: [N*, H, L, E]
+// - key: [N*, H, S, E]
+// - value: [N*, H, S, Ev]
+// - bias: same rank as query/key/value and broadcastable to [N*, H, L, S]
+//   (optional)
+// - mask: same rank as query/key/value and broadcastable to [N*, H, L, S]
+//   (optional)
+// - dropout_p: double
+// - is_causal: bool
+// - scale: double
+//
+// Outputs:
+// - output: [N*, H, L, Ev]
+// - logsumexp: [N*, H, L]
+// - philox_seed: CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+// - philox_offset: CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
+//
+// Bias/mask broadcasting follows
+// https://docs.pytorch.org/docs/stable/notes/broadcasting.html
+//
+// For older versions, torch returns CPU scalar tensors for philox_seed
 // and philox_offset. For torch 2.7.0 and above, torch returns philox_seed ->
 // rng_state (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng
 // state contains both seed and offset.
-
-// query = [N, H, L, E]
-// key = [N, H, S, E]
-// value = [N, H, S, Ev]
-// dropout_p = scalar(double)
-// is_causal = scalar(bool)
-// scale = scalar(double)
-
-// N = number of sequences / batch size
-// H = num of heads
-// L = query sequence length / target sequence length
-// S = key/value sequence length / src sequence length
-// E = query/key embd dimension
-// Ev = value embd dimension
-
-// For flash attention, E = Ev
 class SdpaFwdOp : public Expr {
  public:
   using Expr::Expr;
@@ -2403,9 +2413,11 @@ class SdpaFwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
-      Val* query,
-      Val* key,
-      Val* value,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* bias,
+      TensorView* mask,
       Val* dropout_p,
       Val* is_causal,
       Val* scale);
@@ -2447,6 +2459,24 @@ class SdpaFwdOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  int64_t bias_input_index() const {
+    return attribute<int64_t>(1);
+  }
+
+  TensorView* bias() const {
+    return bias_input_index() >= 0 ? input(bias_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
+  int64_t mask_input_index() const {
+    return attribute<int64_t>(2);
+  }
+
+  TensorView* mask() const {
+    return mask_input_index() >= 0 ? input(mask_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
   Val* dropout_p() const {
     return input(3);
   }
@@ -2455,11 +2485,12 @@ class SdpaFwdOp : public Expr {
     return input(4);
   }
 
+  int64_t scale_input_index() const {
+    return attribute<int64_t>(0);
+  }
+
   Val* scale() const {
-    if (inputs().size() > 5) {
-      return input(5);
-    }
-    return nullptr;
+    return scale_input_index() >= 0 ? input(scale_input_index()) : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(
