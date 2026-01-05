@@ -200,8 +200,7 @@ NVF_API void mxfp8_scaled_grouped_mm(
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& workspace);
+    const torch::Tensor& expert_offsets);
 
 // Performs grouped matrix multiplication.
 //

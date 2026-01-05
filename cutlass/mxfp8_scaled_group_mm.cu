@@ -193,8 +193,7 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
     const torch::Tensor& layout_sfa,
     const torch::Tensor& layout_sfb,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& workspace) {
+    const torch::Tensor& expert_offsets) {
   using ProblemShape = cutlass::gemm::GroupProblemShape<Shape<int, int, int>>;
   using ElementA = cutlass::float_e4m3_t;
   using ElementB = cutlass::float_e4m3_t;
@@ -302,6 +301,11 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
   const cudaStream_t stream =
       at::cuda::getCurrentCUDAStream(a_ptrs.get_device());
 
+  size_t workspace_size = Gemm::get_workspace_size(args);
+  auto const workspace_options =
+      torch::TensorOptions().dtype(torch::kUInt8).device(a_ptrs.device());
+  auto workspace = torch::empty(workspace_size, workspace_options);
+
   auto can_implement_status = gemm_op.can_implement(args);
   NVF_CHECK(
       can_implement_status == cutlass::Status::kSuccess,
@@ -327,8 +331,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& workspace) {
+    const torch::Tensor& expert_offsets) {
   // Check the first matrix size to decide on the configuration
   // Assuming all matrices in the group have similar size characteristics
   // bool use_small_config = a[0].size(0) <= 128;
@@ -440,8 +443,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         layout_sfa,
         layout_sfb,
         problem_sizes_transpose,
-        expert_offsets,
-        workspace);
+        expert_offsets);
     output = output_t.t();
   } else if (a.size(0) > 512 && a.size(1) >= 2048) {
     run_get_group_gemm_starts<
@@ -478,8 +480,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         layout_sfa,
         layout_sfb,
         problem_sizes,
-        expert_offsets,
-        workspace);
+        expert_offsets);
   } else {
     run_get_group_gemm_starts<
         MMAConfig3::LayoutSFA,
@@ -515,8 +516,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         layout_sfa,
         layout_sfb,
         problem_sizes,
-        expert_offsets,
-        workspace);
+        expert_offsets);
   }
 }
 #else
@@ -538,8 +538,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     const torch::Tensor& layout_sfa,
     const torch::Tensor& layout_sfb,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& workspace) {
+    const torch::Tensor& expert_offsets) {
   NVF_THROW("Unsupported CUTLASS version.");
 }
 #endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
@@ -585,8 +584,7 @@ void mxfp8_scaled_grouped_mm(
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets,
-    const torch::Tensor& workspace) {
+    const torch::Tensor& expert_offsets) {
   NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor");
   NVF_CHECK(
       problem_sizes.size(1) == 3,
@@ -633,7 +631,6 @@ void mxfp8_scaled_grouped_mm(
   NVF_CHECK(
       problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32");
   NVF_CHECK(expert_offsets.dim() == 1, "expert_offsets must be 1D tensor");
-  NVF_CHECK(workspace.dim() == 1, "workspace must be 1D tensor");
 
   if (output.scalar_type() == torch::kHalf) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
@@ -646,8 +643,7 @@ void mxfp8_scaled_grouped_mm(
         stride_b,
         stride_c,
         problem_sizes,
-        expert_offsets,
-        workspace);
+        expert_offsets);
   } else if (output.scalar_type() == at::ScalarType::BFloat16) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::bfloat16_t>(
         output,
@@ -659,8 +655,7 @@ void mxfp8_scaled_grouped_mm(
         stride_b,
         stride_c,
         problem_sizes,
-        expert_offsets,
-        workspace);
+        expert_offsets);
   } else {
     NVF_THROW("Unsupported output data type of nvfp4 scaled_grouped_mm.");
   }

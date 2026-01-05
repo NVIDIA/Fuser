@@ -233,8 +233,6 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         (num_experts,), c_out.stride(0), device=device, dtype=torch.int64
     )
 
-    workspace = torch.empty((1024 * 1024 * 1024), device=device, dtype=torch.uint8)
-
     nvf_cutlass.mxfp8_scaled_grouped_mm(
         c_out,
         a_stack,
@@ -246,7 +244,6 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         c_strides,
         problem_sizes,
         expert_offsets[:-1],
-        workspace,
     )
 
     for g in range(num_experts):
