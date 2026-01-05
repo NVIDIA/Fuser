@@ -615,20 +615,6 @@ SdpfaFwdResult sdpfa_fwd(
     NVF_CHECK_EQ(mask->dtype(), DataType::Bool);
   }
 
-  if (bias != nullptr) {
-    NVF_CHECK_EQ(
-        TensorDomain::noReductions(bias->getLogicalDomain()).size(),
-        query_domain.size());
-    NVF_CHECK_EQ(bias->dtype(), query->dtype());
-  }
-
-  if (mask != nullptr) {
-    NVF_CHECK_EQ(
-        TensorDomain::noReductions(mask->getLogicalDomain()).size(),
-        query_domain.size());
-    NVF_CHECK_EQ(mask->dtype(), DataType::Bool);
-  }
-
   NVF_CHECK(
       !dropout_p || dropout_p->isFloatingPointScalar() ||
           dropout_p->isIntegralScalar(),
