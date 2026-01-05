@@ -310,6 +310,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // This means that {tv0, tv1} exist on device 0, while {tv2, tv3} exist on
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
+
   SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
@@ -366,7 +367,6 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
   at::Tensor input = at::ones({kTensorSize}, tensor_options);
-
   at::Tensor output =
       multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
@@ -1121,7 +1121,6 @@ TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernekPipelining) {
       std::move(hic),
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});
-
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
