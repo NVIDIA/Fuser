@@ -667,8 +667,6 @@ class BackwardTraverseFromAllocToLogical {
             0
         ? true
         : false;
-    std::cout << "[DEBUG][backward traverse] is_divisible: " << is_divisible
-              << std::endl;
 
     if (is_divisible && areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
