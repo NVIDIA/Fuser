@@ -1111,6 +1111,7 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
   target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
   target_include_directories(${TEST_NAME} SYSTEM PRIVATE
+    ${NVFUSER_ROOT}/third_party/benchmark/include
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
     ${NVFUSER_ROOT}/third_party/googletest/googlemock/include
   )
@@ -1123,6 +1124,7 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
     dynamic_type
     GTest::gtest
     GTest::gmock
+    benchmark::benchmark
     flatbuffers
     ${TORCH_LIBRARIES}
   )

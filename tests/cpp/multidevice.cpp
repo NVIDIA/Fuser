@@ -7,7 +7,14 @@
 // clang-format on
 #include <sys/types.h>
 #include <unistd.h>
-#include <mutex>
+
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <benchmark/benchmark.h>
+#include <gtest/gtest.h>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
@@ -33,7 +40,7 @@ void MultiDeviceTestEnvironment::TearDown() {
   Communicator::getInstance().cleanup();
 }
 
-MultiDeviceTest::MultiDeviceTest() {
+MultiDeviceFixture::MultiDeviceFixture() {
   // Enable logging in c10d so debug messages can be printed out via
   // `TORCH_DISTRIBUTED_DEBUG`.
   c10d::setDebugLevelFromEnvironment();
@@ -42,6 +49,9 @@ MultiDeviceTest::MultiDeviceTest() {
   tensor_options_ =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
+}
+
+MultiDeviceTest::MultiDeviceTest() {
   disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
@@ -55,8 +65,16 @@ MultiDeviceTest::~MultiDeviceTest() {
   }
 }
 
+void MultiDeviceBenchmark::TearDown(benchmark::State& state) {
+  // Unlike testing::Test, a benchmark::Fixture is destructed after `main`
+  // exits, not after each benchmark. Therefore, we have to put barrier in
+  // TearDown instead of the destructor.
+  if (communicator_->is_available()) {
+    communicator_->barrier();
+  }
+}
+
 void MultiDeviceTest::SetUp() {
-  // Set the same random seed for all processes.
   NVFuserTest::SetUp();
 
   if (!disable_skip && !communicator_->is_available()) {
@@ -64,7 +82,7 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
+at::Tensor MultiDeviceFixture::shardTensor(at::Tensor tensor, TensorView* tv) {
   if (!isSharded(tv)) {
     return tensor;
   }
@@ -75,7 +93,7 @@ at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
       tv->getDeviceMesh());
 }
 
-at::Tensor MultiDeviceTest::shardTensor(
+at::Tensor MultiDeviceFixture::shardTensor(
     at::Tensor tensor,
     const int64_t axis,
     const DeviceMesh& mesh) {
@@ -162,8 +180,27 @@ void MultiDeviceTest::validate(
 
 } // namespace nvfuser
 
+namespace {
+bool wantsBenchmarks(int argc, char** argv) {
+  for (int i = 1; i < argc; ++i) {
+    std::string_view a(argv[i]);
+    if (a.starts_with("--benchmark"))
+      return true;
+  }
+  return false;
+}
+} // namespace
+
 int main(int argc, char** argv) {
   testing::InitGoogleTest(&argc, argv);
   testing::AddGlobalTestEnvironment(new nvfuser::MultiDeviceTestEnvironment());
+
+  if (wantsBenchmarks(argc, argv)) {
+    benchmark::Initialize(&argc, argv);
+    benchmark::RunSpecifiedBenchmarks();
+    benchmark::Shutdown();
+    return 0;
+  }
+
   return RUN_ALL_TESTS();
 }
