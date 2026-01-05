@@ -290,7 +290,7 @@ def _(
         raise ValueError("Expected all inputs to be on the same device.")
 
 
-    a = torch.empty((activation.shape[0], fp4_weight.t().shape[0]), device=activation.device, dtype=activation.dtype)
+    a = torch.empty((activation.shape[0], fp4_weight.t().shape[0]), device=activation.device, dtype=torch.bfloat16)
     return a
 
 
