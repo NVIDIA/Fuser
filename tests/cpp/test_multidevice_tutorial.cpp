@@ -31,7 +31,7 @@ class MultiDeviceTutorial : public MultiDeviceTest {
       GTEST_SKIP() << "Distributed setting not available. "
                    << "Make sure you are on a node with n>1 GPUs and run "
                    << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
-                      "tutorial_multidevice`";
+                      "test_tutorial_multidevice`";
     }
   }
 
@@ -43,7 +43,7 @@ bool MultiDeviceTutorial::verbose_ = false;
 
 // To run those tests, allocate a node with n>1 GPUs and run:
 //
-// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 tutorial_multidevice
+// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 test_tutorial_multidevice
 //
 // We use a SPMD paradigm, where each host process manages one and only device,
 // and each device executes the same program. Therefore, the number of process
