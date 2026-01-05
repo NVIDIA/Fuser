@@ -23,7 +23,6 @@
 #include <device_lower/pass/inplace_alias.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
-#include <device_lower/pass/loop_rotation.h>
 #include <device_lower/pass/loops.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/predicate.h>
@@ -223,7 +222,6 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"insertWarAsyncWait", insertWarAsyncWait},
-           {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"IndexLowering", IndexLowering::getIndexedExprs},
            {"fuseWarpReduce", fuseWarpReduce},
@@ -311,7 +309,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     } else if (expr->isA<MmaOp>()) {
       options.setBuildTensorIndexer(true);
       continue;
-    } else if (expr->isOneOf<ScatterOp, SliceOp, PadOp>()) {
+    } else if (
+        expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
       options.setProducerIndex(true);
       options.setConsumerIndex(true);
       options.setInlinePredicate(true);

@@ -140,10 +140,6 @@ class NVF_API Communicator {
     return static_cast<DeviceIdxType>(rank);
   }
 
-  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
-    return backend.value_or(default_backend_);
-  }
-
   bool is_available_;
   CommunicatorBackend default_backend_;
   RankType rank_;

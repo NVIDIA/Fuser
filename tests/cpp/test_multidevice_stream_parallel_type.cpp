@@ -534,4 +534,77 @@ INSTANTIATE_TEST_SUITE_P(
       return p2p + "_" + backend;
     });
 
+TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
+  constexpr int64_t M = 32;
+  constexpr int64_t K = 8;
+  constexpr int64_t N = 2;
+  constexpr int64_t S = 4;
+  const int64_t D = communicator_->size();
+  if (M % (S * D) != 0) {
+    GTEST_SKIP() << "M must be a multiple of S * D, but got M = " << M
+                 << ", S = " << S << ", D = " << D;
+  }
+  if (K % D != 0) {
+    GTEST_SKIP() << "K must be a multiple of D, but got K = " << K
+                 << ", D = " << D;
+  }
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::InsertReshardingAfter);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Only the reduced dimension is actually sharded, the D dimension is for M
+  // Ideally we split it instead of making this assumption
+  TensorView* tv0 = makeContigTensor(4); // [DIDx(D), Stream(D), M/D, K/D]
+  TensorView* tv1 = makeContigTensor(3); // [DIDx(D), K/D, N]
+  TensorView* tv1b =
+      broadcast(tv1, {false, true, false, false}); // [DIDx(D), 1, K/D, N]
+  TensorView* tv2_unreduced = matmul(tv0, tv1b); // [Stream(D), DIDx(D), M/D, N]
+  // Ideally we would have an rFactor here instead of manually adding the sum
+  TensorView* tv2 = sum(tv2_unreduced, {0}); // [r(D), DIDx(D), M/D, N]
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv1b->setDeviceMesh(mesh);
+  tv2_unreduced->setDeviceMesh(mesh);
+  tv2->setDeviceMesh(mesh);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+  tv1b->axis(0)->parallelize(ParallelType::DIDx);
+  tv2_unreduced->axis(0)->parallelize(ParallelType::Stream);
+
+  // Annotate as Stream and let it propagate so the StreamParallelType pass can
+  // easily recognize the transition from Stream to DID
+  tv0->axis(1)->parallelize(ParallelType::Stream);
+
+  tv2_unreduced->axis(1)->parallelize(ParallelType::DIDx);
+  tv2->axis(1)->parallelize(ParallelType::DIDx);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto t0_unsharded = at::randn({D, D, M / D, K / D}, tensor_options);
+  auto t1_unsharded = at::randn({D, K / D, N}, tensor_options);
+  auto t0 = shardTensor(t0_unsharded, /*axis=*/0, mesh);
+  auto t1 = shardTensor(t1_unsharded, /*axis=*/0, mesh);
+
+  auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
+
+  auto t1b_unsharded = t1_unsharded.unsqueeze(1); // {D, 1, K / D, N}
+  auto t2_unreduced_unsharded =
+      at::matmul(t0_unsharded, t1b_unsharded); // {D, D, M / D, N}
+  auto t2_unreduced = at::sum(t2_unreduced_unsharded, {0}); // {D, M / D, N}
+  auto t2_ref = shardTensor(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
+  EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
+      << "Output: " << t2 << " Expected: " << t2_ref;
+}
+
 } // namespace nvfuser
