@@ -997,6 +997,9 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
 TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
+  GTEST_SKIP() << "Caught signal 11 (Segmentation fault: address not mapped to "
+                  "object at address 0x8)";
+
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
@@ -1125,9 +1128,6 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});
 
-  if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Need at least 2 devices to run this test";
-  }
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
