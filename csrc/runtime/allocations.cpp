@@ -393,7 +393,7 @@ bool areDimsToBeMergedContiguous(
   // Get the size and stride at merge_dim and merge_dim + 1
   NVF_ERROR(
       merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
-  [[maybe_unused]] auto size_outer = sizes[merge_dim];
+  auto size_outer = sizes[merge_dim];
   auto stride_outer = strides[merge_dim];
   auto size_inner = sizes[merge_dim + 1];
   auto stride_inner = strides[merge_dim + 1];
@@ -775,7 +775,6 @@ at::Tensor transformFromAllocationToLogical(
                .run(logical, alloc);
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
-
   NVF_ERROR(frontier.size() == logical.size());
 
   std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
