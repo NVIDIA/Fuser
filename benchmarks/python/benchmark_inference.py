@@ -136,7 +136,6 @@ def _register_nvfp4_ops():
     ):
         from nvfuser_direct import DataType
         from thunder.executors.nvfuserex_impl import getnv
-        print(f"[TRANSLATOR DEBUG] (nvfp4_scaled_mm_translator) activation shape: {activation.shape}, fp4_weight shape: {fp4_weight.shape}, weight_scaling_factor shape: {weight_scaling_factor.shape}")
 
         nv_act = getnv(activation, fd, lc_to_nv_map)
         nv_fp4_w = getnv(fp4_weight, fd, lc_to_nv_map)
@@ -390,11 +389,7 @@ class InferenceBenchmark:
         self.vocab_size = model.vocab_size
 
         if self.config.enable_nvfp4:
-            print("Model BEFORE _quantize_llama4:")
-            print(model)
             _quantize_llama4(model)
-            print("\nModel AFTER _quantize_llama4:")
-            print(model)
 
         # If debug_moe is on, we'll only compile the moe section, which is much easier to digest.
         if self.config.debug_moe:
