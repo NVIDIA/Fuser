@@ -1386,6 +1386,14 @@ class FusionTranslator : public OptInConstDispatch {
           return fd_->recordingState(output());
         });
 
+    State bias_state = (sdpa_fwd_op->bias() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->bias()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State mask_state = (sdpa_fwd_op->mask() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->mask()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
     State dropout_p_state = (sdpa_fwd_op->dropout_p() != nullptr)
         ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->dropout_p()))
         : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
@@ -1402,6 +1410,8 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->query())),
          fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->key())),
          fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->value())),
+         bias_state,
+         mask_state,
          dropout_p_state,
          is_causal_state,
          scale_state},

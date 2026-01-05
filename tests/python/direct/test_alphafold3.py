@@ -73,9 +73,8 @@ def test_triangle_attention_starting_node():
             broadcast_dims=[0, 2, 3, 4],
         )  # [b, 1, h, i, j]
 
-        mask_bias = fd.ops.where(mask, 0, float("-inf"))
-        mask_bias = fd.ops.broadcast_in_dim(
-            mask_bias,
+        mask = fd.ops.broadcast_in_dim(
+            mask,
             shape=[batch_size, n_tokens, 1, 1, n_tokens],
             broadcast_dims=[0, 1, 4],
         )  # [b, i, 1, 1, j]
@@ -86,9 +85,8 @@ def test_triangle_attention_starting_node():
         )  # [b, i, j, h, c_hidden]
         v_h = fd.ops.permute(v_h, [0, 1, 3, 2, 4])  # [b, i, h, j, c_hidden]
 
-        # FIXME: b_h and mask_bias should be added here. fd.ops.sdpfa_fwd hasn't yet supported custom masks.
         o_h, _, _, _ = fd.ops.sdpfa_fwd(
-            q_h, k_h, v_h, is_causal=False
+            q_h, k_h, v_h, bias=b_h, mask=mask, is_causal=False
         )  # [b, i, h, j, c_hidden]
 
         g = fd.ops.linear(z_in, w_g)
@@ -108,8 +106,8 @@ def test_triangle_attention_starting_node():
         z_out = fd.ops.linear(o, w_o)  # [b, i, j, c_z]
         fd.add_output(z_out)
 
-    batch_size = 2
-    n_tokens = 3
+    batch_size = 3
+    n_tokens = 5
     z_in = torch.testing.make_tensor(
         batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
     )
