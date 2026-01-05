@@ -49,6 +49,7 @@ from thunder.dynamo.compiler import thunderfx
 from layers_for_inference_benchmark import (
     GroupedSwiGLU,
     NVFP4InferenceSwiGLU,
+    NVFP4InferenceLinear,
     SwiGLU,
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
@@ -223,6 +224,21 @@ def _quantize_llama4(model: nn.Module) -> None:
         NVFP4InferenceSwiGLU.from_swiglu,
         lambda model, cur_fqn: isinstance(model, SwiGLU),
     )
+
+    # Find and return all submodules of the model that are instances of Llama4MoE
+    def _find_llama4moe_recursive(module):
+        found = []
+        for child in module.children():
+            if isinstance(child, Llama4MoE):
+                found.append(child)
+            found.extend(_find_llama4moe_recursive(child))
+        return found
+
+    llama4moe_module = _find_llama4moe_recursive(model)
+    assert len(llama4moe_module) == 1, f"Expected exactly one Llama4MoE module, found {len(llama4moe_module)}"
+
+    # Quantize the gate projection layer
+    llama4moe_module[0].gate = NVFP4InferenceLinear.from_linear(llama4moe_module[0].gate)
 
 @contextmanager
 def timer():
