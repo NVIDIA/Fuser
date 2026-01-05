@@ -48,7 +48,6 @@ class PredicateCompute {
   static Val* getInlinePredicate(
       const Expr* expr,
       const std::vector<kir::ForLoop*>& loops,
-      const std::unordered_set<kir::ForLoop*>& rotated_loops,
       Val* thread_pred,
       PredicateType pred_type);
 
@@ -248,9 +247,6 @@ class UnswitchPredicate {
   std::vector<Val*> predicates_;
 
   std::vector<kir::ForLoop*> for_loops_;
-
-  // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<kir::ForLoop*> rotated_loop_;
 
   kir::ForLoop* unrolled_loop_;
 };

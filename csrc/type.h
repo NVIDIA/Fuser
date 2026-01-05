@@ -59,7 +59,6 @@ enum class ValType {
 // Unswitch corresponds with UnswitchPredicate::get
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
-// LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
 // OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
 // load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
@@ -70,7 +69,6 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation,
   ElectSync,
   OneDimTmaLoadExpectArrive,
   OneDimTmaWaitParity,

@@ -328,20 +328,8 @@ std::vector<Val*> getAssumptions(const std::vector<kir::ForLoop*>& loops) {
   // assumptions from loop nesting
   for (auto loop : loops) {
     // Trivial loop is not generated, so there is no `if` or `for` in C++ to
-    // guard its scope. So we should not assume index < stop. One real example
-    // for this is loop rotation, where we might have trivial loop
-    //   FOR [index:0, start:0, stop:size]:
-    //     IF index < size:
-    //       ... = T0[index]
-    // The generated code will be
-    //   if (0 < size) {
-    //     ... = T0[0]
-    //   }
-    // We should not assume index smaller than size and simplify the code into
-    //   if (true) {
-    //     ... = T0[0]
-    //   }
-    // because this will break empty tensor support.
+    // guard its scope. So we should not assume index < stop because this will
+    // break empty tensor support.
     if (loop->isTrivial()) {
       continue;
     }
