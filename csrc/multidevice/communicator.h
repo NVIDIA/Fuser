@@ -19,7 +19,6 @@
 #include "multidevice/c10d_mock.h"
 #endif
 
-#include "exceptions.h"
 #include "multidevice/multidevice.h"
 #include "visibility.h"
 
