@@ -485,7 +485,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
-TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
+class RSMatmulTest : public MultiDeviceStreamParallelTypeTest,
+                     public testing::WithParamInterface<bool> {};
+
+TEST_P(RSMatmulTest, ReduceScatterP2p) {
+  bool use_cuda_backend = GetParam();
   constexpr int64_t M = 32;
   constexpr int64_t K = 8;
   constexpr int64_t N = 2;
@@ -538,7 +542,9 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   tv2_unreduced->axis(1)->parallelize(ParallelType::DIDx);
   tv2->axis(1)->parallelize(ParallelType::DIDx);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = use_cuda_backend ? CommunicatorBackend::kCuda : CommunicatorBackend::kNccl;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -557,5 +563,13 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    RSMatmulTest,
+    testing::Bool(),
+    [](const testing::TestParamInfo<bool>& info) {
+      return info.param ? "cuda_backend" : "nccl_backend";
+    });
 
 } // namespace nvfuser
