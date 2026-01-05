@@ -35,6 +35,19 @@ def is_pre_blackwell():
     return microarchitecture_is_pre(10)
 
 
+# 10.0 (B200 and GB200)
+# 10.3 (B300 and GB300)
+# 12.0 (RTX PRO 6000 and RTX 50XX)
+# 12.1 (DGX Spark)
+def is_blackwell():
+    return (
+        microarchitecture_is(10, 0)
+        or microarchitecture_is(10, 3)
+        or microarchitecture_is(12, 0)
+        or microarchitecture_is(12, 1)
+    )
+
+
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results
