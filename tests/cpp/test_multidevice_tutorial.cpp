@@ -284,6 +284,9 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 // pipeling will require a network communication between the two pipeline
 // Stages.
 TEST_F(MultiDeviceTutorial, SimplePipelining) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Need at least 2 devices to run this test";
+  }
   // MODEL DEFINITION
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -993,6 +996,9 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
 TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Need at least 2 devices to run this test";
+  }
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
