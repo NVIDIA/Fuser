@@ -402,12 +402,9 @@ bool areDimsToBeMergedContiguous(
   // For example we can call view on the tensor with shape
   // [1, 1536, 2, 128] and strides [393216, 1, 196608, 1536]
   // Then we should be able to merge the dims [1, 1536].
-
-  // TODO:: needs to be revisted
-
-  // if (size_outer == 1 || size_inner == 1) {
-  //   return true;
-  // }
+  if (size_outer == 1 || size_inner == 1) {
+    return true;
+  }
 
   if (stride_outer == size_inner * stride_inner) {
     return true;
@@ -665,7 +662,15 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+    bool is_divisible = split->in()->extent()->evaluate().as<int64_t>() %
+                split->factor()->evaluate().as<int64_t>() ==
+            0
+        ? true
+        : false;
+    std::cout << "[DEBUG][backward traverse] is_divisible: " << is_divisible
+              << std::endl;
+
+    if (is_divisible && areDimsToBeMergedContiguous(tensor_, new_shape)) {
       std::cout << "[DEBUG][before view] tensor_.shape = [";
       for (auto i : arange(tensor_.dim())) {
         std::cout << tensor_.size(i);
