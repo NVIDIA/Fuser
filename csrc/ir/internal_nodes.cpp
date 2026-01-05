@@ -3440,7 +3440,14 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
   }
   if (attn_bias.defined()) {
-    attn_bias = flattenBatchDims(attn_bias);
+    // `attn_bias` is of shape [B, N, H, Q, K]. For triangle attention starting
+    // nodes, B and N are adjacent in stride order and therefore can be
+    // flattened with a `view`. For ending nodes, however, `B` and `N` are no
+    // longer adjacent in stride order due to `mask` being transposed (see
+    // test_alphafold3.py:test_triangle_attention).  `attn_bias` can't be
+    // `flattenBatchDims`ed with a `view`. Therefore, `contiguous()` is
+    // required.
+    attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
   // 4D SDPA
