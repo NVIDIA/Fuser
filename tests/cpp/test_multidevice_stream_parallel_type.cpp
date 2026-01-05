@@ -568,9 +568,6 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     RSMatmulTest,
     testing::Values(CommunicatorBackend::kCuda, CommunicatorBackend::kNccl),
-    [](const testing::TestParamInfo<CommunicatorBackend>& info) {
-      return info.param == CommunicatorBackend::kCuda ? "cuda_backend"
-                                                      : "nccl_backend";
-    });
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser

@@ -457,8 +457,6 @@ std::list<Expr*> processForLoopBodies(
               if_sending_to_self->elseBody().pushBack(send);
               break;
             }
-            default:
-              std::unreachable();
           }
           if_sending_to_self->elseBody().pushBack(wait_recv);
           // Defer the wait on send to the loop epilogue under the same
@@ -580,8 +578,6 @@ std::list<Expr*> processForLoopBodies(
               if_sending_to_self->elseBody().pushBack(send);
               break;
             }
-            default:
-              std::unreachable();
           }
           if_sending_to_self->elseBody().pushBack(wait_recv);
           // Defer the wait on send to the loop epilogue under the same
