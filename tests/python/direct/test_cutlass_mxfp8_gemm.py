@@ -148,12 +148,11 @@ def baseline_scaled_mm(
                 )
         return t
 
+    a_fp32 = a.to(dtype=torch.float32)
+    b_fp32 = b.to(dtype=torch.float32)
     scale_a = group_broadcast(scale_a, a.shape)
     scale_b = group_broadcast(scale_b, b.shape)
-
-    return torch.mm(
-        (scale_a * a.to(dtype=torch.float32)), (scale_b * b.to(dtype=torch.float32))
-    ).to(out_dtype)
+    return torch.mm((scale_a * a_fp32), (scale_b * b_fp32)).to(out_dtype)
 
 
 @pytest.mark.parametrize("config", [[1024, 128, 256]])

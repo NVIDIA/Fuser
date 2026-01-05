@@ -34,6 +34,7 @@ namespace nvfuser::cutlass_kernels {
 
 using namespace cute;
 
+#if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 template <
     typename ElementAB,
     typename ElementC,
@@ -515,6 +516,31 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         workspace);
   }
 }
+#else
+
+template <typename OutType>
+void sm100_fp8_blockwise_group_mm_dispatch_shape(
+    torch::Tensor& output,
+    torch::Tensor& a_ptrs,
+    torch::Tensor& b_ptrs,
+    torch::Tensor& out_ptrs,
+    torch::Tensor& a_scales_ptrs,
+    torch::Tensor& b_scales_ptrs,
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& stride_a,
+    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_c,
+    const torch::Tensor& layout_sfa,
+    const torch::Tensor& layout_sfb,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets,
+    const torch::Tensor& workspace) {
+  NVF_THROW("Unsupported CUTLASS version.");
+}
+#endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
 /**
  * @brief Performs blockwise grouped matrix multiplication on FP8 quantized
@@ -628,64 +654,49 @@ void mxfp8_scaled_grouped_mm(
   NVF_CHECK(expert_offsets.dim() == 1, "expert_offsets must be 1D tensor");
   NVF_CHECK(workspace.dim() == 1, "workspace must be 1D tensor");
 
-  bool can_implement = false;
-  auto sm_version = getSMVersion();
-
-#if defined(CUTLASS_ARCH_MMA_SM100A_SUPPORTED) || \
-    defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
-#if defined CUDA_VERSION && CUDA_VERSION >= 12080
-  if (sm_version == 100) {
-    if (output.scalar_type() == torch::kBFloat16) {
-      sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::bfloat16_t>(
-          output,
-          a_ptrs,
-          b_ptrs,
-          out_ptrs,
-          a_scales_ptrs,
-          b_scales_ptrs,
-          a,
-          b,
-          scales_a,
-          scales_b,
-          stride_a,
-          stride_b,
-          stride_c,
-          layout_sfa,
-          layout_sfb,
-          problem_sizes,
-          expert_offsets,
-          workspace);
-    } else {
-      sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
-          output,
-          a_ptrs,
-          b_ptrs,
-          out_ptrs,
-          a_scales_ptrs,
-          b_scales_ptrs,
-          a,
-          b,
-          scales_a,
-          scales_b,
-          stride_a,
-          stride_b,
-          stride_c,
-          layout_sfa,
-          layout_sfb,
-          problem_sizes,
-          expert_offsets,
-          workspace);
-    }
-    can_implement = true;
+  if (output.scalar_type() == torch::kHalf) {
+    sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
+        output,
+        a_ptrs,
+        b_ptrs,
+        out_ptrs,
+        a_scales_ptrs,
+        b_scales_ptrs,
+        a,
+        b,
+        scales_a,
+        scales_b,
+        stride_a,
+        stride_b,
+        stride_c,
+        layout_sfa,
+        layout_sfb,
+        problem_sizes,
+        expert_offsets,
+        workspace);
+  } else if (output.scalar_type() == at::ScalarType::BFloat16) {
+    sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::bfloat16_t>(
+        output,
+        a_ptrs,
+        b_ptrs,
+        out_ptrs,
+        a_scales_ptrs,
+        b_scales_ptrs,
+        a,
+        b,
+        scales_a,
+        scales_b,
+        stride_a,
+        stride_b,
+        stride_c,
+        layout_sfa,
+        layout_sfb,
+        problem_sizes,
+        expert_offsets,
+        workspace);
+  } else {
+    NVF_THROW("Unsupported output data type of nvfp4 scaled_grouped_mm.");
   }
-#endif
-#endif
-
-  NVF_CHECK(
-      can_implement,
-      "fp8_blockwise_scaled_grouped_mm is not implemented for current compute "
-      "capability: ",
-      sm_version);
 }
 
 } // namespace nvfuser::cutlass_kernels
