@@ -50,7 +50,8 @@ at::Tensor shardTensor(
 
 std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
-    c10::IntArrayRef sizes) {
+    c10::IntArrayRef sizes,
+    std::unordered_map<Val*, int64_t>* extent_to_multiplier_map) {
   std::vector<int64_t> unsharded_sizes = sizes.vec();
   for (ParallelType parallel_type : deviceAndStreamParallelTypes()) {
     const DomainType domain_type = parallel_type == ParallelType::Stream
@@ -68,9 +69,6 @@ std::vector<int64_t> unshardedSizes(
         "Producing logical axis not found for ",
         sharded_id);
 
-    // Global map to track extent -> multiplier relationships
-    static std::unordered_map<Val*, int64_t> extent_to_multiplier_map;
-    
     auto multiplier = [&]() -> int64_t {
       if (parallel_type == ParallelType::Stream) {
         // TODO(#5525): hack for MultiDeviceExecutor.  MultiDeviceExecutor looks
@@ -106,19 +104,22 @@ std::vector<int64_t> unshardedSizes(
     }();
     
     // Check consistency: for the same extent, we should always get the same multiplier
-    Val* extent = sharded_id->extent();
-    auto it = extent_to_multiplier_map.find(extent);
-    if (it != extent_to_multiplier_map.end()) {
-      NVF_ERROR(
-          it->second == multiplier,
-          "Inconsistent multiplier for extent ",
-          extent->toString(),
-          ": expected ",
-          it->second,
-          " but got ",
-          multiplier);
-    } else {
-      extent_to_multiplier_map[extent] = multiplier;
+    // Only perform this check if a map is provided
+    if (extent_to_multiplier_map) {
+      Val* extent = sharded_id->extent();
+      auto it = extent_to_multiplier_map->find(extent);
+      if (it != extent_to_multiplier_map->end()) {
+        NVF_ERROR(
+            it->second == multiplier,
+            "Inconsistent multiplier for extent ",
+            extent->toString(),
+            ": expected ",
+            it->second,
+            " but got ",
+            multiplier);
+      } else {
+        (*extent_to_multiplier_map)[extent] = multiplier;
+      }
     }
     unsharded_sizes.at(sharded_axis) *= multiplier;
   }

@@ -181,6 +181,11 @@ class PrecomputedValues {
     return has_valid_values_;
   }
 
+  //! Get the extent to multiplier map for unshardedSizes
+  std::unordered_map<Val*, int64_t>* getExtentToMultiplierMap() {
+    return &extent_to_multiplier_map_;
+  }
+
   //! Runs the internal value machine that will compute
   //!  the values allocated in the workspace.
   void evaluate();
@@ -288,6 +293,9 @@ class PrecomputedValues {
 
   //! Stores the IR nodes corresponding to each index.
   std::vector<Val*> symbols_;
+
+  //! Extent to multiplier map for unshardedSizes - owned by this PrecomputedValues
+  std::unordered_map<Val*, int64_t> extent_to_multiplier_map_;
 
   //! An internal log to keep track of all the bindings
   //!  used in each evaluation cycle. To be used for

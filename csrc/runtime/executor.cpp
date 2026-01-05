@@ -744,7 +744,7 @@ void KernelExecutor::initializeExecutorEntry(
     shape_info.logical_strides = arg_tensor.strides().vec();
     if (isSharded(input_tv)) {
       shape_info.unsharded_logical_sizes =
-          unshardedSizes(input_tv, shape_info.logical_sizes);
+          unshardedSizes(input_tv, shape_info.logical_sizes, expr_eval.getExtentToMultiplierMap());
     }
     shape_info.allocation_sizes = alloc_sizes;
     shape_info.allocation_strides = alloc_strides;

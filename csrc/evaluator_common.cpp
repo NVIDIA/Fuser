@@ -382,7 +382,7 @@ void PrecomputedValues::bindTensorMetaData(
       tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
-  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes(), &extent_to_multiplier_map_);
   adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {

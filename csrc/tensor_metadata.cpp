@@ -302,7 +302,7 @@ inferAllocationSizesAndStrides(
   const auto& alloc = tv->getMaybeAllocationDomain();
 
   // active IDs and their shape and stride
-  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes(), ee.getExtentToMultiplierMap());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
   for (IterDomain* id : logical | TensorDomain::kNoReductions) {
@@ -398,7 +398,7 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->data = input.data_ptr();
 
   if (isSharded(tv)) {
-    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
+    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes(), ee.getExtentToMultiplierMap());
     metadata->logical_size_data = std::move(unsharded_sizes);
     metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
   } else {
