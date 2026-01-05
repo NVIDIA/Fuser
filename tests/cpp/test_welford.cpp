@@ -9,11 +9,11 @@
 
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
-#include "scheduler/utils.h"
-#include "utils.h"
+#include <utils.h>
 
 namespace nvfuser {
 
