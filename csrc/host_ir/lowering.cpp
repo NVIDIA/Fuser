@@ -192,7 +192,7 @@ void lowerSegment(
                 out,
                 DomainType::kLoop,
                 {ParallelType::Stream})) {
-          TensorView*& sharded_in = replacement_map[in];
+          Val*& sharded_in = replacement_map[in];
           if (sharded_in == nullptr) {
             sharded_in =
                 hir::shardByStream(in, innermost.loop->index(), communication);
