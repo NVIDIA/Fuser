@@ -173,8 +173,6 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
 
     expert_offsets = torch.zeros((num_experts + 1), device=device, dtype=torch.int32)
     problem_sizes = torch.zeros((num_experts, 3), device=device, dtype=torch.int32)
-    layout_sfa = torch.zeros((num_experts, 5), device=device, dtype=torch.int32)
-    layout_sfb = torch.zeros((num_experts, 5), device=device, dtype=torch.int32)
 
     a_tensors = []
     b_tensors = []
@@ -235,20 +233,10 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         (num_experts,), c_out.stride(0), device=device, dtype=torch.int64
     )
 
-    a_ptrs = torch.empty((num_experts,), device=device, dtype=torch.int64)
-    b_ptrs = torch.empty((num_experts,), device=device, dtype=torch.int64)
-    out_ptrs = torch.empty((num_experts,), device=device, dtype=torch.int64)
-    a_scales_ptrs = torch.empty((num_experts,), device=device, dtype=torch.int64)
-    b_scales_ptrs = torch.empty((num_experts,), device=device, dtype=torch.int64)
     workspace = torch.empty((1024 * 1024 * 1024), device=device, dtype=torch.uint8)
 
     nvf_cutlass.mxfp8_scaled_grouped_mm(
         c_out,
-        a_ptrs,
-        b_ptrs,
-        out_ptrs,
-        a_scales_ptrs,
-        b_scales_ptrs,
         a_stack,
         b_stack,
         a_scale_stack,
@@ -256,8 +244,6 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         a_strides,
         a_strides,
         c_strides,
-        layout_sfa,
-        layout_sfb,
         problem_sizes,
         expert_offsets[:-1],
         workspace,

@@ -319,11 +319,6 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
 template <typename OutType>
 void sm100_fp8_blockwise_group_mm_dispatch_shape(
     torch::Tensor& output,
-    torch::Tensor& a_ptrs,
-    torch::Tensor& b_ptrs,
-    torch::Tensor& out_ptrs,
-    torch::Tensor& a_scales_ptrs,
-    torch::Tensor& b_scales_ptrs,
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -331,8 +326,6 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     const torch::Tensor& stride_a,
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
-    const torch::Tensor& layout_sfa,
-    const torch::Tensor& layout_sfb,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
     const torch::Tensor& workspace) {
@@ -390,9 +383,11 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     using LayoutSFA = decltype(ScaleConfig::deduce_layoutSFA());
     using LayoutSFB = decltype(ScaleConfig::deduce_layoutSFB());
   };
+
   int num_experts = (int)expert_offsets.size(0);
-  torch::TensorOptions options_int =
+  auto options_int =
       torch::TensorOptions().dtype(torch::kInt64).device(a.device());
+
   torch::Tensor problem_sizes_transpose =
       torch::empty(num_experts * 3, options_int);
   torch::Tensor output_t = output.t();
@@ -400,6 +395,14 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
   torch::Tensor b_t = b.transpose(1, 2);
   torch::Tensor scales_a_t = scales_a.t();
   torch::Tensor scales_b_t = scales_b.transpose(1, 2);
+
+  torch::Tensor a_ptrs = torch::empty(num_experts, options_int);
+  torch::Tensor b_ptrs = torch::empty(num_experts, options_int);
+  torch::Tensor out_ptrs = torch::empty(num_experts, options_int);
+  torch::Tensor a_scales_ptrs = torch::empty(num_experts, options_int);
+  torch::Tensor b_scales_ptrs = torch::empty(num_experts, options_int);
+  torch::Tensor layout_sfa = torch::empty({num_experts, 5}, options_int);
+  torch::Tensor layout_sfb = torch::empty({num_experts, 5}, options_int);
 
   if (a.size(0) <= 512 && a.size(1) >= 2048) {
     run_get_group_gemm_starts<
@@ -517,7 +520,6 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
   }
 }
 #else
-
 template <typename OutType>
 void sm100_fp8_blockwise_group_mm_dispatch_shape(
     torch::Tensor& output,
@@ -563,9 +565,6 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
  * @param stride_a       Stride information for tensor A (int32).
  * @param stride_b       Stride information for tensor B (int32).
  * @param stride_c       Stride information for output tensor C (int32).
- * @param layout_sfa     Layout descriptor for A (int32), e.g.,
- * row-major/column-major.
- * @param layout_sfb     Layout descriptor for B (int32).
  * @param problem_sizes  2D int32 tensor of shape (num_experts, 3), specifying
  * (M, N, K) for each grouped matrix multiplication problem.
  * @param expert_offsets 1D int32 tensor of size (num_experts), used to index
@@ -578,11 +577,6 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
  */
 void mxfp8_scaled_grouped_mm(
     torch::Tensor& output,
-    torch::Tensor& a_ptrs,
-    torch::Tensor& b_ptrs,
-    torch::Tensor& out_ptrs,
-    torch::Tensor& a_scales_ptrs,
-    torch::Tensor& b_scales_ptrs,
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -590,8 +584,6 @@ void mxfp8_scaled_grouped_mm(
     const torch::Tensor& stride_a,
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
-    const torch::Tensor& layout_sfa,
-    const torch::Tensor& layout_sfb,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
     const torch::Tensor& workspace) {
@@ -620,10 +612,6 @@ void mxfp8_scaled_grouped_mm(
   NVF_CHECK(stride_b.scalar_type() == torch::kInt64, "stride_b must be int64");
   NVF_CHECK(stride_c.scalar_type() == torch::kInt64, "stride_c must be int64");
   NVF_CHECK(
-      layout_sfa.scalar_type() == torch::kInt32, "layout_sfa must be int32");
-  NVF_CHECK(
-      layout_sfb.scalar_type() == torch::kInt32, "layout_sfb must be int32");
-  NVF_CHECK(
       expert_offsets.scalar_type() == torch::kInt32,
       "expert_offsets must be int32");
 
@@ -635,13 +623,6 @@ void mxfp8_scaled_grouped_mm(
   NVF_CHECK(stride_a.dim() == 1, "stride_a must be 1D tensor");
   NVF_CHECK(stride_b.dim() == 1, "stride_b must be 1D tensor");
   NVF_CHECK(stride_c.dim() == 1, "stride_c must be 1D tensor");
-  NVF_CHECK(layout_sfa.dim() == 2, "layout_sfa must be 1D tensor");
-  NVF_CHECK(layout_sfb.dim() == 2, "layout_sfb must be 1D tensor");
-  NVF_CHECK(a_ptrs.dim() == 1, "a_ptrs must be 1D tensor");
-  NVF_CHECK(b_ptrs.dim() == 1, "b_ptrs must be 1D tensor");
-  NVF_CHECK(out_ptrs.dim() == 1, "out_ptrs must be 1D tensor");
-  NVF_CHECK(a_scales_ptrs.dim() == 1, "a_scales_ptrs must be 1D tensor");
-  NVF_CHECK(b_scales_ptrs.dim() == 1, "b_scales_ptrs must be 1D tensor");
   NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor");
   NVF_CHECK(
       problem_sizes.size(1) == 3,
@@ -657,11 +638,6 @@ void mxfp8_scaled_grouped_mm(
   if (output.scalar_type() == torch::kHalf) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
         output,
-        a_ptrs,
-        b_ptrs,
-        out_ptrs,
-        a_scales_ptrs,
-        b_scales_ptrs,
         a,
         b,
         scales_a,
@@ -669,19 +645,12 @@ void mxfp8_scaled_grouped_mm(
         stride_a,
         stride_b,
         stride_c,
-        layout_sfa,
-        layout_sfb,
         problem_sizes,
         expert_offsets,
         workspace);
   } else if (output.scalar_type() == at::ScalarType::BFloat16) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::bfloat16_t>(
         output,
-        a_ptrs,
-        b_ptrs,
-        out_ptrs,
-        a_scales_ptrs,
-        b_scales_ptrs,
         a,
         b,
         scales_a,
@@ -689,8 +658,6 @@ void mxfp8_scaled_grouped_mm(
         stride_a,
         stride_b,
         stride_c,
-        layout_sfa,
-        layout_sfb,
         problem_sizes,
         expert_offsets,
         workspace);
