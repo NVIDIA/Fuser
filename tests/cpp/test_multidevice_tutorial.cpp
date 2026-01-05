@@ -31,7 +31,7 @@ class MultiDeviceTutorial : public MultiDeviceTest {
       GTEST_SKIP() << "Distributed setting not available. "
                    << "Make sure you are on a node with n>1 GPUs and run "
                    << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
-                      "test_tutorial_multidevice`";
+                      "test_multidevice_tutorial`";
     }
   }
 
@@ -43,7 +43,7 @@ bool MultiDeviceTutorial::verbose_ = false;
 
 // To run those tests, allocate a node with n>1 GPUs and run:
 //
-// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 test_tutorial_multidevice
+// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 test_multidevice_tutorial
 //
 // We use a SPMD paradigm, where each host process manages one and only device,
 // and each device executes the same program. Therefore, the number of process
@@ -284,9 +284,6 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
 // pipeling will require a network communication between the two pipeline
 // Stages.
 TEST_F(MultiDeviceTutorial, SimplePipelining) {
-  if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Need at least 2 devices to run this test";
-  }
   // MODEL DEFINITION
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -313,6 +310,9 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // This means that {tv0, tv1} exist on device 0, while {tv2, tv3} exist on
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Need at least 2 devices to run this test";
+  }
 
   MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
@@ -369,6 +369,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
   at::Tensor input = at::ones({kTensorSize}, tensor_options);
+
   at::Tensor output =
       multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
@@ -996,9 +997,6 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
 TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
-  if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Need at least 2 devices to run this test";
-  }
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
@@ -1126,6 +1124,10 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       std::move(hic),
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});
+
+  if (communicator_->size() < 2) {
+    GTEST_SKIP() << "Need at least 2 devices to run this test";
+  }
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result

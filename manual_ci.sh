@@ -68,7 +68,7 @@ fi
 echo ""
 echo "Running C++ Binary Tests..."
 # Tests that require MPI
-MPI_TESTS=("test_multidevice" "test_tutorial_multidevice")
+MPI_TESTS=("test_multidevice" "test_multidevice_tutorial")
 
 # Find all test_* and tutorial_* binaries in bin/
 if [ -d "./bin" ]; then
