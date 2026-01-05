@@ -175,18 +175,18 @@ def extract_te_nvfp4_metadata(input_tensor):
 @pytest.mark.skipif(
     is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
 )
-@pytest.mark.parametrize("swizzle_scales", [True])
-@pytest.mark.parametrize("sizes", [[256, 5120]])
-@pytest.mark.parametrize("dtype", [torch.float32])
+@pytest.mark.parametrize("swizzle_scales", [True, False])
+@pytest.mark.parametrize("sizes", [[1024, 1024], [1, 1024]])
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
 def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes, dtype):
     """Compare nvfuser nv_block_quantize output against Transformer Engine NVFP4 quantization."""
     x = torch.randn(sizes, dtype=dtype, device="cuda")
 
-    # if swizzle_scales and (sizes[0] % 128 != 0 or sizes[1] % 4 != 0):
-    #     # otherwise, nvfuser_direct_test.exec_nvfuser would assert on identical result from captured fusion.
-    #     pytest.skip(
-    #         "Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs"
-    #     )
+    if swizzle_scales and (sizes[0] % 128 != 0 or sizes[1] % 4 != 0):
+        # otherwise, nvfuser_direct_test.exec_nvfuser would assert on identical result from captured fusion.
+        pytest.skip(
+            "Swizzled scales require 128x4 block size to avoid uninitialized padding region in outputs"
+        )
 
     # Compute global scale for nvfuser block quantization
     x_global_scale = compute_nvfp4_global_scale(x)
@@ -218,8 +218,6 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
 
     fuser_data = outputs[0].view(torch.uint8)
     fuser_scales = outputs[1]
-    print("fuser_scales.shape:", fuser_scales.shape)
-    print("fuser_scales.stride():", fuser_scales.stride())
 
     if swizzle_scales:
         te_scales = linear_to_swizzled_128_4(te_scales)
