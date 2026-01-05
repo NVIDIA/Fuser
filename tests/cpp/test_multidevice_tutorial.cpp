@@ -1072,11 +1072,11 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*outputs=*/std::vector<Val*>({tv2_i}));
 
   // Let us add the different Exprs in the for-loop's body
-  for_loop->body().push_back(set_stream);
-  for_loop->body().push_back(tv0_i->definition());
-  for_loop->body().push_back(tv2_i->definition());
-  for_loop->body().push_back(post_fusion0);
-  for_loop->body().push_back(post_fusion1);
+  for_loop->body().pushBack(set_stream);
+  for_loop->body().pushBack(tv0_i->definition());
+  for_loop->body().pushBack(tv2_i->definition());
+  for_loop->body().pushBack(post_fusion0);
+  for_loop->body().pushBack(post_fusion1);
 
   // The host program consists of the for-loop only
   hic->pushBackTopLevelExprs(for_loop);
