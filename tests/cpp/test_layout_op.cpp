@@ -388,7 +388,9 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   fusion.addInput(offsets);
   fusion.addInput(rounded_offsets);
 
-  if (false) {
+  bool debug = false;
+
+  if (debug) {
     auto block_size = IrBuilder::create<Val>(16, DataType::Int);
     auto remainder = ceilDiv(inp->axis(1)->extent(), block_size);
 
@@ -431,11 +433,32 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
+  Tensor ref_block_sf;
+  Tensor ref_scaled_out;
+
   // producing reference
-  auto ref_reshaped_inp = t0.view({m, k / 16, 16});
-  auto ref_block_sf = ref_reshaped_inp.amax(-1);
-  auto ref_scaled_out =
-      (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
+  if (debug) {
+    auto ref_reshaped_inp = t0.view({m, k / 16, 16});
+    ref_block_sf = ref_reshaped_inp.amax(-1);
+    ref_scaled_out =
+        (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
+  } else {
+    std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+    FusionGuard fg2(fusion_new_op.get());
+    auto tv_in = makeContigTensor(2);
+    fusion_new_op->addInput(tv_in_1);
+    auto quantization_results = blockQuantize(
+        tv_in_1, nullptr, /*block_size=*/16, false);
+    
+    fusion_new_op->addOutput(quantization_results.block_scales);
+    fusion_new_op->addOutput(quantization_results.quantized_tensor);
+    FusionExecutorCache executor_cache(std::move(fusion_new_op));
+    auto outputs_new_op = executor_cache.runFusionWithInputs({t0});
+    
+    ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+    ref_scaled_out = outputs_new_op[1].as<at::Tensor>().to(at::kFloat);
+  }
+
 
   // check scaled output
   EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
