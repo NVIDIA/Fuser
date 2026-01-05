@@ -46,13 +46,12 @@ HostIrEvaluator::HostIrEvaluator(
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      my_local_device_index_(
+          communicator_ == nullptr ? 0 : communicator_->local_rank()),
       ipc_handle_cache_(expr_evaluator_),
       multicast_handle_cache_() {
   const DeviceIdxType device_index =
-      (communicator_ != nullptr && communicator_->is_available())
-      ? communicator_->deviceId()
-      : 0;
+      communicator_ == nullptr ? 0 : communicator_->deviceId();
   if (isDebugDumpEnabled(DebugDumpOption::HostIr) && device_index == 0) {
     container_->print(debug());
   }
@@ -147,16 +146,12 @@ c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
     NVF_ERROR(value.hasValue() && value.is<int64_t>());
     stream_key = value.as<int64_t>();
   }
-  if (streams_.find(stream_key) == streams_.end()) {
-    auto i = (communicator_ != nullptr && communicator_->is_available())
-        ? communicator_->deviceId()
-        : 0;
-    streams_.insert(
-        {stream_key,
-         c10::cuda::getStreamFromPool(
-             /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
+
+  auto it = streams_.find(stream_key);
+  if (it == streams_.end()) {
+    it = streams_.emplace(stream_key, c10::cuda::getStreamFromPool()).first;
   }
-  return streams_.at(stream_key);
+  return it->second;
 }
 
 void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {

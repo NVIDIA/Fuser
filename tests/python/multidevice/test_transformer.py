@@ -264,7 +264,7 @@ def transformer_forward_definition(
     S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
     S118 = fd.define_scalar(True, dtype=DataType.Bool)
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
-        T109, T102, T116, S117, S118, None
+        T109, T102, T116, dropout_p=S117, is_causal=S118, scale=None
     )
     T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
     T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
@@ -410,7 +410,7 @@ def _assert_shape_dtype(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
 def test_transformer_forward(multidevice_test, benchmark, parallelism: Parallelism):
@@ -1051,7 +1051,7 @@ def transformer_backward_definition(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
 def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallelism):

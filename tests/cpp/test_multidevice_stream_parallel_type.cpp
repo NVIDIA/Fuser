@@ -5,17 +5,17 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/ir.h>
-#include <ir/all_nodes.h>
-#include <multidevice/communication.h>
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ir.h"
+#include "ir/all_nodes.h"
+#include "multidevice/communication.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -485,7 +485,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
-TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
+class RSMatmulTest : public MultiDeviceStreamParallelTypeTest,
+                     public testing::WithParamInterface<CommunicatorBackend> {};
+
+TEST_P(RSMatmulTest, ReduceScatterP2p) {
+  CommunicatorBackend communicator_backend = GetParam();
   constexpr int64_t M = 32;
   constexpr int64_t K = 8;
   constexpr int64_t N = 2;
@@ -538,7 +542,9 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   tv2_unreduced->axis(1)->parallelize(ParallelType::DIDx);
   tv2->axis(1)->parallelize(ParallelType::DIDx);
 
-  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = communicator_backend;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -557,5 +563,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    RSMatmulTest,
+    testing::Values(CommunicatorBackend::kCuda, CommunicatorBackend::kNccl),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
