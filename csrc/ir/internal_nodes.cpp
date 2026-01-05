@@ -4478,17 +4478,6 @@ std::vector<PolymorphicValue> ScaledMmaOp::evaluate(
 
     DataType in_dtype = matrix1()->dtype();
 
-    // Debugging: Print shape and strides of mat1_view, mat2_view, scale1, and
-    // scale2
-    std::cout << "mat1_view shape: " << mat1_view.sizes()
-              << ", strides: " << mat1_view.strides() << std::endl;
-    std::cout << "mat2_view shape: " << mat2_view.sizes()
-              << ", strides: " << mat2_view.strides() << std::endl;
-    std::cout << "scale1 shape: " << scale1.sizes()
-              << ", strides: " << scale1.strides() << std::endl;
-    std::cout << "scale2 shape: " << scale2.sizes()
-              << ", strides: " << scale2.strides() << std::endl;
-
     // NOTE: cutlass nvfp4 kernel doesn't support bias, beta or quantized output
     if (!bias.defined() && !beta.defined() && outputs().size() == 1) {
       bool cutlass_can_run = true;

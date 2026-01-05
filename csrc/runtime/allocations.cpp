@@ -671,96 +671,11 @@ class BackwardTraverseFromAllocToLogical {
               << std::endl;
 
     if (is_divisible && areDimsToBeMergedContiguous(tensor_, new_shape)) {
-      std::cout << "[DEBUG][before view] tensor_.shape = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.size(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "], strides = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.stride(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "]" << std::endl;
-      std::cout << "[DEBUG][before view] tensor_.is_contiguous(): "
-                << tensor_.is_contiguous() << std::endl;
-
       tensor_ = tensor_.view(new_shape);
-
-      std::cout << "[DEBUG][after view] tensor_.shape = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.size(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "], strides = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.stride(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "]" << std::endl;
-      std::cout << "[DEBUG][after view] tensor_.is_contiguous(): "
-                << tensor_.is_contiguous() << std::endl;
     } else {
-      // Debug: Print tensor_ shape, strides, and new_shape before
-      // getShapeAndStrided
-      std::cout << "[DEBUG][before getShapeAndStrided] tensor_.shape = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.size(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "], strides = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.stride(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "], new_shape = [";
-      for (auto i : arange(new_shape.size())) {
-        std::cout << new_shape[i];
-        if (i + 1 != new_shape.size())
-          std::cout << ", ";
-      }
-      std::cout << "]" << std::endl;
-
       auto [tensor_new_shape, tensor_new_strides] =
           getShapeAndStrideAfterDimMerged(tensor_, new_shape);
-
-      // Debug: Print tensor_new_shape and tensor_new_strides after
-      // getShapeAndStrided
-      std::cout << "[DEBUG][after getShapeAndStrided] tensor_new_shape = [";
-      for (auto i : arange(tensor_new_shape.size())) {
-        std::cout << tensor_new_shape[i];
-        if (i + 1 != tensor_new_shape.size())
-          std::cout << ", ";
-      }
-      std::cout << "], tensor_new_strides = [";
-      for (auto i : arange(tensor_new_strides.size())) {
-        std::cout << tensor_new_strides[i];
-        if (i + 1 != tensor_new_strides.size())
-          std::cout << ", ";
-      }
-      std::cout << "]" << std::endl;
       tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
-      std::cout << "[DEBUG][after as_strided] tensor_.shape = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.size(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "], strides = [";
-      for (auto i : arange(tensor_.dim())) {
-        std::cout << tensor_.stride(i);
-        if (i + 1 != tensor_.dim())
-          std::cout << ", ";
-      }
-      std::cout << "]" << std::endl;
-      std::cout << "[DEBUG][after as_strided] tensor_.is_contiguous(): "
-                << tensor_.is_contiguous() << std::endl;
     }
 
     // update frontier
@@ -858,27 +773,8 @@ at::Tensor transformFromAllocationToLogical(
   NVF_ERROR(tensor.dim() == (int64_t)frontier.size());
   tensor = ForwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
-
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
-
-  // Print tensor sizes and strides after backward traversal for debugging.
-  // Tag: after backward traversal
-  std::cout << "[allocations] After backward traversal: tensor sizes = [";
-  for (size_t i = 0; i < tensor.sizes().size(); ++i) {
-    std::cout << tensor.sizes()[i];
-    if (i != tensor.sizes().size() - 1)
-      std::cout << ", ";
-  }
-  std::cout << "], strides = [";
-  for (size_t i = 0; i < tensor.strides().size(); ++i) {
-    std::cout << tensor.strides()[i];
-    if (i != tensor.strides().size() - 1)
-      std::cout << ", ";
-  }
-  std::cout << "]" << std::endl;
-  std::cout << "[allocations] After backward traversal: tensor is contiguous: "
-            << (tensor.is_contiguous() ? "true" : "false") << std::endl;
 
   NVF_ERROR(frontier.size() == logical.size());
 
@@ -989,22 +885,10 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
   auto meta_tensor =
       at::empty_strided(size_stride.first, size_stride.second, options);
-  std::cout << "meta_tensor sizes: " << meta_tensor.sizes() << std::endl;
-  std::cout << "meta_tensor strides: " << meta_tensor.strides() << std::endl;
-  std::cout << "meta_tensor is contiguous: "
-            << (meta_tensor.is_contiguous() ? "true" : "false") << std::endl;
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
   // `transformFromAllocationToLogical`
   meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
-  std::cout << "[inferShapeOfOutput][after transform] meta_tensor sizes: "
-            << meta_tensor.sizes() << std::endl;
-  std::cout << "[inferShapeOfOutput][after transform] meta_tensor strides: "
-            << meta_tensor.strides() << std::endl;
-  std::cout
-      << "[inferShapeOfOutput][after transform] meta_tensor is contiguous: "
-      << (meta_tensor.is_contiguous() ? "true" : "false") << std::endl;
-
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 
