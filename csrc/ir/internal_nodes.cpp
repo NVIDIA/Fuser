@@ -3317,22 +3317,35 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << ",\n";
-  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
-  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
-  indent(ss, indent_size) << philox_offset()->toString() << "\n";
-  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size) << attn_out()->toString() << "," << std::endl;
+  indent(ss, indent_size) << logsumexp()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_seed()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_offset()->toString() << std::endl;
   indent(ss, indent_size + 1)
-      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+      << " = sdpa(" << query()->toString() << "," << std::endl;
   indent(ss, indent_size + 1)
-      << "          is_causal = " << is_causal()->toInlineString();
+      << "          " << key()->toString() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "          " << value()->toString() << "," << std::endl;
+  if (bias() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          bias=" << bias()->toString() << "," << std::endl;
+  }
+  if (mask() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          mask=" << mask()->toString() << "," << std::endl;
+  }
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ","
+      << std::endl;
+  indent(ss, indent_size + 1)
+      << "          is_causal=" << is_causal()->toInlineString() << ","
+      << std::endl;
   if (scale() != nullptr) {
     indent(ss, indent_size + 1)
-        << ",\n          scale = " << scale()->toInlineString();
+        << "          scale=" << scale()->toInlineString() << "," << std::endl;
   }
-  indent(ss, indent_size + 1) << ")\n";
+  indent(ss, indent_size + 1) << ")" << std::endl;
   return ss.str();
 }
 
