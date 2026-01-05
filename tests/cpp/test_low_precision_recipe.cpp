@@ -173,7 +173,8 @@ void createNVFP4QuantizationFusion(
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = div(tv_global_scale, tv_block_scale_fp32);
+    tv_block_scale_fp32 =
+        reciprocal(mul(tv_block_scale_fp32, reciprocal(tv_global_scale)));
   } else {
     tv_block_scale_fp32 = reciprocal(tv_block_scale_fp32);
   }

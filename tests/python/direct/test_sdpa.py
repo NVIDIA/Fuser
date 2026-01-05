@@ -8,12 +8,18 @@ import math
 import pytest
 import torch
 import torch.nn.functional as F
+from enum import Enum, auto
 from functools import partial
+
 from nvfuser_direct import (
     FusionDefinition,
     DataType,
 )
-from python.direct_utils import is_pre_ampere, define_sdpa_rng_state
+from python.direct_utils import (
+    is_pre_ampere,
+    define_sdpa_rng_state,
+    verify_stride_order,
+)
 
 
 @pytest.mark.skipif(
@@ -96,14 +102,16 @@ def test_sdpa_fwd(nvfuser_direct_test):
             is_causal = fd.define_scalar(value=None, dtype=DataType.Bool)
         if has_scale:
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
-        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, dropout_p, is_causal, scale)
+        attn, *_ = fd.ops.sdpfa_fwd(
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
+        )
         fd.add_output(attn)
 
     N, H, L, S, E = 4, 8, 16, 16, 8
     qkv = [
-        torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0"),
-        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
-        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0"),
+        torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda"),
+        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda"),
+        torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda"),
     ]
 
     dropout_vals = [None, 0.0, 0.2]
@@ -148,13 +156,92 @@ def test_sdpa_fwd(nvfuser_direct_test):
             torch.testing.assert_close(nvf_out[0], ref_out)
 
 
+# Memory layout of query, key, value and output tensors.
+class Layout(Enum):
+    NHSE = auto()
+    NSHE = auto()
+
+
+@pytest.mark.skipif(
+    is_pre_ampere(),
+    reason="Flash Attention is only supported on Ampere and newer devices.",
+)
+@pytest.mark.parametrize("layout", [Layout.NHSE, Layout.NSHE])
+def test_sdpa_fwd_bias_mask(nvfuser_direct_test, layout: Layout):
+    match layout:
+        case Layout.NHSE:
+            stride_order = [3, 2, 1, 0]
+        case Layout.NSHE:
+            stride_order = [3, 1, 2, 0]
+
+    with FusionDefinition() as fd:
+        q = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            stride_order=stride_order,
+        )
+        k = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            stride_order=stride_order,
+        )
+        v = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+            stride_order=stride_order,
+        )
+        bias = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.BFloat16,
+        )
+        mask = fd.define_tensor(
+            shape=[-1, -1, -1, -1],
+            contiguity=True,
+            dtype=DataType.Bool,
+        )
+        attn, *_ = fd.ops.sdpfa_fwd(q, k, v, bias=bias, mask=mask)
+        fd.add_output(attn)
+
+    N, H, L, S, E = 11, 7, 5, 3, 2
+    match layout:
+        case Layout.NHSE:
+            q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+            k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+            v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+        case Layout.NSHE:
+            q = torch.randn(
+                (N, L, H, E), dtype=torch.bfloat16, device="cuda"
+            ).transpose(1, 2)
+            k = torch.randn(
+                (N, S, H, E), dtype=torch.bfloat16, device="cuda"
+            ).transpose(1, 2)
+            v = torch.randn(
+                (N, S, H, E), dtype=torch.bfloat16, device="cuda"
+            ).transpose(1, 2)
+    bias = torch.randn((N, H, L, S), dtype=torch.bfloat16, device="cuda")
+    mask = torch.rand((N, H, L, S), device="cuda") > 0.3
+
+    (out,) = fd.execute([q, k, v, bias, mask])
+
+    attn_mask = (bias + torch.where(mask, 0.0, float("-inf"))).to(dtype=bias.dtype)
+    ref_out = torch.nn.functional.scaled_dot_product_attention(
+        q, k, v, attn_mask=attn_mask
+    )
+    torch.testing.assert_close(out, ref_out)
+    verify_stride_order(out.stride(), stride_order)
+
+
 def test_sdpa_bwd(nvfuser_direct_test):
     N, H, L, S, E = 4, 8, 16, 16, 8
 
-    grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda:0")
-    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
-    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda:0")
+    grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+    q = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
+    k = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
+    v = torch.randn((N, H, S, E), dtype=torch.bfloat16, device="cuda")
 
     dropout_vals = [None, 0.0, 0.2]
     is_causal_vals = [None, True, False]
@@ -350,7 +437,7 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             scale = fd.define_scalar(value=None, dtype=DataType.Double)
 
         output, log_sumexp, philox_seed, philox_offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal, scale=scale
         )
         grad_query, grad_key, grad_value = fd.ops.sdpfa_bwd(
             grad_out,
@@ -382,24 +469,22 @@ def test_sdpa_fwd_bwd(nvfuser_direct_test):
             q = torch.randn(
                 (N, H, L, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
             k = torch.randn(
                 (N, H, S, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
             v = torch.randn(
                 (N, H, S, E),
                 dtype=torch.bfloat16,
-                device="cuda:0",
+                device="cuda",
                 requires_grad=True,
             )
-            grad_output = torch.randn(
-                (N, H, L, E), dtype=torch.bfloat16, device="cuda:0"
-            )
+            grad_output = torch.randn((N, H, L, E), dtype=torch.bfloat16, device="cuda")
 
             has_dropout = True if dropout_p is not None else False
             has_causal = True if is_causal is not None else False
