@@ -446,14 +446,19 @@ std::list<Expr*> processForLoopBodies(
           auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
           if_sending_to_self->elseBody().pushBack(share_mem_handles);
-          if (getP2pProtocol() == P2pProtocol::Put) {
-            if_sending_to_self->elseBody().pushBack(recv);
-            if_sending_to_self->elseBody().pushBack(send);
-          } else if (getP2pProtocol() == P2pProtocol::Get) {
-            if_sending_to_self->elseBody().pushBack(send);
-            if_sending_to_self->elseBody().pushBack(recv);
-          } else {
-            NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
+          switch (getP2pProtocol()) {
+            case P2pProtocol::Get: {
+              if_sending_to_self->elseBody().pushBack(send);
+              if_sending_to_self->elseBody().pushBack(recv);
+              break;
+            }
+            case P2pProtocol::Put: {
+              if_sending_to_self->elseBody().pushBack(recv);
+              if_sending_to_self->elseBody().pushBack(send);
+              break;
+            }
+            default:
+              std::unreachable();
           }
           if_sending_to_self->elseBody().pushBack(wait_recv);
           // Defer the wait on send to the loop epilogue under the same
@@ -564,14 +569,19 @@ std::list<Expr*> processForLoopBodies(
           auto wait_recv = IrBuilder::create<hir::Wait>(recv);
 
           if_sending_to_self->elseBody().pushBack(share_mem_handles);
-          if (getP2pProtocol() == P2pProtocol::Put) {
-            if_sending_to_self->elseBody().pushBack(recv);
-            if_sending_to_self->elseBody().pushBack(send);
-          } else if (getP2pProtocol() == P2pProtocol::Get) {
-            if_sending_to_self->elseBody().pushBack(send);
-            if_sending_to_self->elseBody().pushBack(recv);
-          } else {
-            NVF_ERROR("Invalid P2P protocol: ", getP2pProtocol());
+          switch (getP2pProtocol()) {
+            case P2pProtocol::Get: {
+              if_sending_to_self->elseBody().pushBack(send);
+              if_sending_to_self->elseBody().pushBack(recv);
+              break;
+            }
+            case P2pProtocol::Put: {
+              if_sending_to_self->elseBody().pushBack(recv);
+              if_sending_to_self->elseBody().pushBack(send);
+              break;
+            }
+            default:
+              std::unreachable();
           }
           if_sending_to_self->elseBody().pushBack(wait_recv);
           // Defer the wait on send to the loop epilogue under the same
