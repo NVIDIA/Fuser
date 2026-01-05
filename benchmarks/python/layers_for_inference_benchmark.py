@@ -609,9 +609,6 @@ class NVFP4InferenceLinear(nn.Module):
 
         Args:
             hidden_states: Input tensor of shape [batch, seq_len, in_features]
-
-        Returns:
-            Output tensor of shape [batch, seq_len, out_features]
         """
         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
 
@@ -623,7 +620,6 @@ class NVFP4InferenceLinear(nn.Module):
             self.weight_global_scale,
         )
 
-        # Reshape back to original shape
         return output
 
     @staticmethod
