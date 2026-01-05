@@ -208,6 +208,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   std::unordered_map<TensorView*, std::pair<int64_t, int64_t>>
       required_size_bit_regs_smem_map;
   int64_t total_smem_buffer_size_bit = 0;
+  int64_t total_regs_buffer_size_bit = 0;
   for (auto buffer : buffers) {
     int64_t buffer_size_regs_bit =
         scheduler_utils::getPersistentBufferSizeBitOfTensor(
@@ -227,8 +228,23 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     required_size_bit_regs_smem_map[buffer] =
         std::make_pair(buffer_size_regs_bit, buffer_size_smem_bit);
     total_smem_buffer_size_bit += buffer_size_smem_bit;
+    total_regs_buffer_size_bit += buffer_size_regs_bit;
   }
-  buffer_params.smem_buffer_size_bit = total_smem_buffer_size_bit;
+  // Prefer shared memory persistent buffers when cached inputs are persistent,
+  // enabling efficient CpAsync or TMA direct copies from global memory to
+  // shared memory. Otherwise, register buffers are preferred to avoid the
+  // inefficient data path: gmem (input) → regs (cached input) → smem
+  // (persistent buffer) → regs (computation), where the regs → smem → regs path
+  // is redundant.
+  bool cached_inputs_are_persistent = buffer_params.project_to_input ||
+      std::all_of(buffers.begin(), buffers.end(), [](TensorView* tv) {
+                                        return tv->isFusionInput();
+                                      });
+  if (cached_inputs_are_persistent) {
+    buffer_params.smem_buffer_size_bit += total_smem_buffer_size_bit;
+  } else {
+    buffer_params.regs_buffer_size_bit += total_regs_buffer_size_bit;
+  }
   buffer_params.regs_buffer_size_bit +=
       partialOuterReductionBufferSizeBit(reduction_tvs, runtime_info);
   buffer_params.circular_buffered_smem_size_bit =
@@ -236,7 +252,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       buffer_params.non_circular_buffered_smem_size_bit;
   if (buffer_params.regs_buffer_size_bit <= available_regs_bit &&
       buffer_params.smem_buffer_size_bit <= available_smem_bit) {
-    buffer_params.smem_persistent_buffers = buffers;
+    if (cached_inputs_are_persistent) {
+      buffer_params.smem_persistent_buffers = buffers;
+    }
     buffer_params.has_enough_regs_and_smem = true;
     return buffer_params;
   }
