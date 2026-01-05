@@ -310,10 +310,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // This means that {tv0, tv1} exist on device 0, while {tv2, tv3} exist on
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
-  if (communicator_->size() < 2) {
-    GTEST_SKIP() << "Need at least 2 devices to run this test";
-  }
-
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
     std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
@@ -996,10 +993,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   |   tv2[i,...] = Fusion1 (tv1_i)
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
-TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
-  GTEST_SKIP() << "Caught signal 11 (Segmentation fault: address not mapped to "
-                  "object at address 0x8)";
-
+TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernekPipelining) {
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
