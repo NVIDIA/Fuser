@@ -17,7 +17,7 @@ from nvfuser_direct import FusionDefinition, DataType, TensorView
 class ModelConfig:
     c_z: int = 128
     c_hidden: int = 32
-    n_heads: int = 2
+    n_heads: int = 4
 
 
 _DEFAULT_CONFIG = ModelConfig()

@@ -3317,22 +3317,35 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << ",\n";
-  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
-  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
-  indent(ss, indent_size) << philox_offset()->toString() << "\n";
-  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size) << attn_out()->toString() << "," << std::endl;
+  indent(ss, indent_size) << logsumexp()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_seed()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_offset()->toString() << std::endl;
   indent(ss, indent_size + 1)
-      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+      << " = sdpa(" << query()->toString() << "," << std::endl;
   indent(ss, indent_size + 1)
-      << "          is_causal = " << is_causal()->toInlineString();
+      << "          " << key()->toString() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "          " << value()->toString() << "," << std::endl;
+  if (bias() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          bias=" << bias()->toString() << "," << std::endl;
+  }
+  if (mask() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          mask=" << mask()->toString() << "," << std::endl;
+  }
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ","
+      << std::endl;
+  indent(ss, indent_size + 1)
+      << "          is_causal=" << is_causal()->toInlineString() << ","
+      << std::endl;
   if (scale() != nullptr) {
     indent(ss, indent_size + 1)
-        << ",\n          scale = " << scale()->toInlineString();
+        << "          scale=" << scale()->toInlineString() << "," << std::endl;
   }
-  indent(ss, indent_size + 1) << ")\n";
+  indent(ss, indent_size + 1) << ")" << std::endl;
   return ss.str();
 }
 
@@ -3427,9 +3440,13 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     }
   }
   if (attn_bias.defined()) {
-    // For triangle attention (ending nodes), `mask` is not in major-to-minor
-    // layout. `attn_bias`, derived from `mask`, isn't either. Therefore,
-    // `contiguous()` is required.
+    // `attn_bias` is of shape [B, N, H, Q, K]. For triangle attention starting
+    // nodes, B and N are adjacent in stride order and therefore can be
+    // flattened with a `view`. For ending nodes, however, `B` and `N` are no
+    // longer adjacent in stride order due to `mask` being transposed (see
+    // test_alphafold3.py:test_triangle_attention).  `attn_bias` can't be
+    // `flattenBatchDims`ed with a `view`. Therefore, `contiguous()` is
+    // required.
     attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 

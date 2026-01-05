@@ -9,6 +9,11 @@ from nvfuser_direct import FusionDefinition, DataType, TensorView
 from looseversion import LooseVersion
 
 
+def microarchitecture_is(major, minor):
+    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
+    return prop.major == major and prop.minor == minor
+
+
 def microarchitecture_is_pre(major):
     prop = torch.cuda.get_device_properties(torch.cuda.current_device())
     return prop.major < major

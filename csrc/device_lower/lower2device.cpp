@@ -83,7 +83,7 @@ class KIRCleaner : public OptOutDispatch {
       dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
-        fl->body().push_back(expr);
+        fl->body().pushBack(expr);
       }
     }
     // The loop is nop when no expr exists in the body
@@ -100,7 +100,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : then_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->thenBody().push_back(expr);
+          ite->thenBody().pushBack(expr);
         }
       }
     }
@@ -114,7 +114,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : else_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->elseBody().push_back(expr);
+          ite->elseBody().pushBack(expr);
         }
       }
     }
@@ -129,7 +129,7 @@ class KIRCleaner : public OptOutDispatch {
       Val* not_pred = SimplifyingIrBuilder::logicalNotExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
-        ite->thenBody().push_back(expr);
+        ite->thenBody().pushBack(expr);
       }
       ite->elseBody().clear();
     }
