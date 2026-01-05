@@ -543,7 +543,9 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   tv2->axis(1)->parallelize(ParallelType::DIDx);
 
   MultiDeviceExecutorParams params;
-  params.lower.communicator_backend = use_cuda_backend ? CommunicatorBackend::kCuda : CommunicatorBackend::kNccl;
+  params.lower.communicator_backend = use_cuda_backend
+      ? CommunicatorBackend::kCuda
+      : CommunicatorBackend::kNccl;
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =
