@@ -2539,7 +2539,7 @@ class Scope {
 
   Iterator insert(Iterator pos, Expr* expr);
 
-  Iterator push_back(Expr* e) {
+  Iterator pushBack(Expr* e) {
     return insert(exprs_.end(), e);
   }
 
