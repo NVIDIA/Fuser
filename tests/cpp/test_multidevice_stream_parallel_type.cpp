@@ -593,6 +593,7 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
 
   MultiDeviceExecutorParams params;
   params.lower.communicator_backend = communicator_backend;
+  params.lower.offset_stream_indexing_by_rank = true;
   MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
 
   auto tensor_options =

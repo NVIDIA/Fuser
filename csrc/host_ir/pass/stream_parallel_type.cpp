@@ -380,6 +380,10 @@ std::list<Expr*> processForLoopBodies(
             body_expr->isA<LoadStoreOp>(),
             "expected a Tv operation but got ",
             body_expr);
+        NVF_ERROR(
+            params.offset_stream_indexing_by_rank == true,
+            "offset_stream_indexing_by_rank==false not supported for "
+            "ReduceScatter patterns");
         auto* set_op = body_expr->as<LoadStoreOp>();
         auto* input_tv = set_op->in()->as<TensorView>();
         auto* output_tv = set_op->out()->as<TensorView>();

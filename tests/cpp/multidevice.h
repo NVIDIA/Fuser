@@ -49,7 +49,6 @@ class MultiDeviceTest : public NVFuserTest {
   Communicator* communicator_;
   c10::TensorOptions tensor_options_;
   bool debug_print;
-  bool disable_skip;
 };
 
 // This macro is supposed to be used in a test case of a MultiDeviceTest or its
