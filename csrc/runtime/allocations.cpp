@@ -662,9 +662,9 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    bool is_divisible = split->in()->extent()->evaluate().as<int64_t>() %
-            split->factor()->evaluate().as<int64_t>() ==
-        0;
+    auto factor = ee_.evaluate(split->factor()).as<int64_t>();
+    auto in_extent = ee_.evaluate(split->in()->extent()).as<int64_t>();
+    bool is_divisible = in_extent % factor == 0 ? true : false;
 
     if (is_divisible && areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
