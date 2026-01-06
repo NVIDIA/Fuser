@@ -567,8 +567,8 @@ TEST_F(StreamTest, HostIrDefaultStream) {
 TEST_F(StreamTest, HostIrGetCurrentStream) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
-  auto get_stream = IrBuilder::create<GetCurrentStream>();
-  auto current_stream = get_stream->stream();
+  hir::Stream* current_stream = IrBuilder::create<hir::Stream>();
+  auto* get_stream = IrBuilder::create<hir::GetCurrentStream>(current_stream);
   auto other_stream = IrBuilder::create<Stream>();
   hic->pushBackTopLevelExprs(get_stream);
   hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
