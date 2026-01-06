@@ -6,15 +6,17 @@
  */
 // clang-format on
 #ifdef NVFUSER_ENABLE_CUTLASS
+#include <nanobind/stl/tuple.h>
 
 #include <bindings.h>
 #include <nvf_cutlass.h>
+#include <tensor_caster.h>
 
 namespace nvfuser::python {
 
 namespace {
 
-void bindGemm(py::module_& cutlass) {
+void bindGemm(nb::module_& cutlass) {
   cutlass.def(
       "mxfp8_scaled_mm",
       [](const torch::Tensor& a,
@@ -62,11 +64,11 @@ void bindGemm(py::module_& cutlass) {
          const torch::Tensor& scales_a,
          const torch::Tensor& scales_b,
          const torch::Tensor& alpha,
-         const torch::Tensor& global_normconst) -> py::tuple {
+         const torch::Tensor& global_normconst) {
         std::pair<torch::Tensor, torch::Tensor> output =
             cutlass_kernels::nvfp4_scaled_mm_blockscale(
                 a_nvfp4, b_nvfp4, scales_a, scales_b, alpha, global_normconst);
-        return py::make_tuple(output.first, output.second);
+        return std::make_tuple(output.first, output.second);
       },
       R"(Computes nvfp4 matmul and blockscale quantization. It returns nvfp4
          output tensor and its blockscale factor.
@@ -79,7 +81,7 @@ void bindGemm(py::module_& cutlass) {
                                     -> tuple(Tensor out_nvfp4, Tensor blockscale))");
 }
 
-void bindGroupedGemm(py::module_& cutlass) {
+void bindGroupedGemm(nb::module_& cutlass) {
   cutlass.def(
       "grouped_mm",
       &cutlass_kernels::grouped_mm,
@@ -109,8 +111,8 @@ void bindGroupedGemm(py::module_& cutlass) {
 
 } // namespace
 
-void bindCutlass(py::module& nvfuser) {
-  py::module_ nvf_cutlass = nvfuser.def_submodule(
+void bindCutlass(nb::module_& nvfuser) {
+  nb::module_ nvf_cutlass = nvfuser.def_submodule(
       "nvf_cutlass", "This submodule contains all cutlass gemms for NvFuser.");
   bindGemm(nvf_cutlass);
   bindGroupedGemm(nvf_cutlass);
