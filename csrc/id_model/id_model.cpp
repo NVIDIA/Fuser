@@ -1345,6 +1345,8 @@ void IdModel::allocateLoopIndexVariables() {
 
     ParallelType ptype = getParallelType(loop_group);
 
+    // This needs to be done before assigning zero or parallel indices
+    // as circular buffer idnexing takes precedence.
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
       // Allocate index variable for each stage of the circular
