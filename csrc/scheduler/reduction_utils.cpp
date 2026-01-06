@@ -129,9 +129,15 @@ TensorView* scheduleReductionTV(
     // Reduction: [Persistent, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
 
-    // static bdimx is required for TMA warp specialization
-    int64_t compute_bdimx = getComputeBdimx(option, rparams->lparams.bdimx());
-    inner_parallel_static(inner_reduce_axis, ParallelType::TIDx, compute_bdimx);
+    reduction_tv->split(
+        inner_reduce_axis, rparams->batches_per_block_inner_reduction, false);
+    reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
+    reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
+
+    // // static bdimx is required for TMA warp specialization
+    // int64_t compute_bdimx = getComputeBdimx(option,
+    // rparams->lparams.bdimx()); inner_parallel_static(inner_reduce_axis,
+    // ParallelType::TIDx, compute_bdimx);
 
     // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
     if (rparams->unroll_factor_iter_dom > 1) {
