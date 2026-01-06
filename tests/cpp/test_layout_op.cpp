@@ -422,7 +422,8 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
   int k = 9 * 16; // note: padded column size needs to be a multiple of 16
-  auto t0 = at::randn({m, k}, options);
+  // auto t0 = at::randn({m, k}, options);
+  auto t0 = at::arange(m * k, options).reshape({m, k}).div(m * k / 100);
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
   // length of 128 + 256 + 384 = 768.
@@ -440,6 +441,7 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   if (true) {
     auto ref_reshaped_inp = t0.view({m, k / 16, 16});
     ref_block_sf = ref_reshaped_inp.amax(-1).div(6.0);
+    // NOTE: needed to cast ref_scaled_out to nvfp4 then back to fp32
     ref_scaled_out =
         (ref_reshaped_inp / ref_block_sf.unsqueeze(-1)).view({m, k});
     ref_block_sf = ref_block_sf.to(at::kFloat8_e4m3fn).to(at::kFloat);
@@ -452,11 +454,11 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
         tv_in, nullptr, /*block_size=*/16, false);
     
     fusion_new_op->addOutput(quantization_results.block_scales);
-    fusion_new_op->addOutput(quantization_results.quantized_tensor);
+    fusion_new_op->addOutput(castOp(DataType::Float, quantization_results.quantized_tensor));
     FusionExecutorCache executor_cache(std::move(fusion_new_op));
     auto outputs_new_op = executor_cache.runFusionWithInputs({t0});
     
-    ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+    ref_block_sf = outputs_new_op[0].as<at::Tensor>();
     ref_scaled_out = outputs_new_op[1].as<at::Tensor>().to(at::kFloat);
   }
 
@@ -479,8 +481,7 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::InnerPersistent),
-          HeuristicIs(SchedulerType::ExprEval)));
+          HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser

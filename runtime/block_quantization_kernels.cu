@@ -386,17 +386,19 @@ __device__ void grouped_block_quantize_to_nvfp4(
       break;
     }
   }
+  // NOTE: col_size and col_idx needs to be divided by block size for scaling factor
+  constexpr nvfuser_index_t BLOCK_SIZE = 16;
   // row idx for current group
   nvfuser_index_t c_row_idx = row_idx - input_offsets[expert_id];
   // compute output group offset for current group
   nvfuser_index_t padded_col_size =
-      (col_size + BLOCK_COL - 1) / BLOCK_COL * BLOCK_COL;
+      (col_size / BLOCK_SIZE + BLOCK_COL - 1) / BLOCK_COL * BLOCK_COL;
   nvfuser_index_t out_group_offset = output_offsets[expert_id] * padded_col_size;
   // compute the offset
   nvfuser_index_t index = outputOffsetAfterSwizzlePadding<
       BLOCK_ROW_OUTER,
       BLOCK_ROW_INNER,
-      BLOCK_COL>(c_row_idx, col_idx, padded_col_size);
+      BLOCK_COL>(c_row_idx, col_idx / BLOCK_SIZE, padded_col_size);
   nvfuser_index_t offset = out_group_offset + index;
   
   block_quantize_to_nvfp4_util<USE_GLOBAL_SCALE>(input, output, block_scales, global_scale, offset);
