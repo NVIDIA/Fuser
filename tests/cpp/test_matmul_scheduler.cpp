@@ -3331,6 +3331,8 @@ class HopperPlusMatmulSchedulerTest
     : public NVFuserFixtureParamTest<HopperPlusMatmulSchedulerTestParams> {
  protected:
   void SetUp() {
+    NVFuserFixtureParamTest::SetUp();
+
     std::tie(
         use_smem_epilogue,
         a_k_inner,
