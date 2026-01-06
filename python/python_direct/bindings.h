@@ -8,52 +8,53 @@
 #pragma once
 
 #include <fusion.h>
-#include <torch/csrc/jit/python/pybind.h>
-#include <torch/csrc/utils/pybind.h>
+#include <nanobind/nanobind.h>
+
+namespace nb = nanobind;
 
 namespace nvfuser::python {
 
-void initNvFuserPythonBindings(PyObject* module);
+void initNvFuserPythonBindings(nb::module_& nvfuser);
 
 // Add bindings for Fusion IR
-void bindFusionIr(py::module& nvfuser);
+void bindFusionIr(nb::module_& nvfuser);
 
 // Add bindings for Internal Fusion and Kernel IR
-void bindInternalIr(py::module& nvfuser);
+void bindInternalIr(nb::module_& nvfuser);
 
 // Add bindings for Enums
-void bindEnums(py::module& nvfuser);
+void bindEnums(nb::module_& nvfuser);
 
 // Add bindings for Fusion and FusionExecutorCache
-void bindRuntime(py::module& nvfuser);
+void bindRuntime(nb::module_& nvfuser);
 
 // Add bindings for LaunchParams, CompileParams, and HeuristicParams
-void bindHeuristicParams(py::module& nvfuser);
+void bindHeuristicParams(nb::module_& nvfuser);
 
 // Add bindings for CPP Fusion Operations
-void bindOperations(py::module& nvfuser);
+void bindOperations(nb::module_& nvfuser);
 
 // Add bindings for CPP Schedule Operators
-void bindScheduleOperators(py::module& nvfuser);
+void bindScheduleOperators(nb::module_& nvfuser);
 
 // Add bindings for MultiDevice features
-void bindMultiDevice(py::module& nvfuser);
+void bindMultiDevice(nb::module_& nvfuser);
 
 // Add bindings for IdModel and ValGraph
-void bindIdModel(py::module& nvfuser);
+void bindIdModel(nb::module_& nvfuser);
 
 // Add bindings for Fusion Profiler
-void bindProfile(py::module& nvfuser);
+void bindProfile(nb::module_& nvfuser);
 
 // Add bindings for LRU Cache
-void bindLRUCache(py::module& nvfuser);
+void bindLRUCache(nb::module_& nvfuser);
 
 // Translate a CPP Fusion to a bindings python function
 std::string translateFusion(Fusion* f);
 
 #ifdef NVFUSER_ENABLE_CUTLASS
 // Add bindings for Cutlass GEMM Operations
-void bindCutlass(py::module& nvfuser);
+void bindCutlass(nb::module_& nvfuser);
 #endif
 
 } // namespace nvfuser::python

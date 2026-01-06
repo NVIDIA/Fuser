@@ -5,10 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/unordered_set.h>
+#include <nanobind/stl/vector.h>
+
 #include <bindings.h>
 #include <direct_utils.h>
 #include <python_common/distributed_tensor.h>
 #include <python_utils.h>
+#include <tensor_caster.h>
 
 #include <fusion.h>
 #include <options.h>
@@ -23,11 +29,11 @@ namespace nvfuser::python {
 
 namespace {
 
-void bindFusion(py::module& nvfuser) {
-  py::class_<FusionGuard>(nvfuser, "FusionGuard")
+void bindFusion(nb::module_& nvfuser) {
+  nb::class_<FusionGuard>(nvfuser, "FusionGuard")
       .def(
-          py::init<Fusion*>(),
-          py::arg("fusion"),
+          nb::init<Fusion*>(),
+          nb::arg("fusion"),
           R"(
 Create a new FusionGuard to manage the active fusion context.
 
@@ -45,8 +51,8 @@ fusion : Fusion
   // template functions in the Fusion class. Templates do not exist in the
   // python language. To bind these functions, you must instantiate a full
   // (explicit) template specialization.
-  py::class_<Fusion, std::shared_ptr<Fusion>>(nvfuser, "Fusion")
-      .def(py::init<>(), R"(
+  nb::class_<Fusion>(nvfuser, "Fusion")
+      .def(nb::init<>(), R"(
 Create a new Fusion.
 
 A Fusion represents a computation graph that can be compiled and executed on CUDA devices.
@@ -77,7 +83,7 @@ bool
       .def(
           "inputs",
           &Fusion::inputs,
-          py::return_value_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the inputs of the fusion.
 
@@ -89,7 +95,7 @@ list of Val
       .def(
           "outputs",
           &Fusion::outputs,
-          py::return_value_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the outputs of the fusion.
 
@@ -100,8 +106,8 @@ list of Val
 )")
       .def(
           "vals",
-          [](Fusion& self) { return self.vals(); },
-          py::return_value_policy::reference,
+          &Fusion::vals,
+          nb::rv_policy::reference_internal,
           R"(
 Return all Vals registered in the fusion.
 
@@ -110,7 +116,7 @@ Returns
 list of Val
     The Vals registered in the fusion.
 )")
-      .def("add_input", &Fusion::addInput, py::arg("input"), R"(
+      .def("add_input", &Fusion::addInput, nb::arg("input"), R"(
 Register a value as an input to the fusion.
 
 Parameters
@@ -128,7 +134,7 @@ Notes
 - The input must not already be registered as an input.
 - The input must not have a definition within the fusion.
 )")
-      .def("add_output", &Fusion::addOutput, py::arg("output"), R"(
+      .def("add_output", &Fusion::addOutput, nb::arg("output"), R"(
 Register a value as an output of the fusion.
 
 Parameters
@@ -151,8 +157,8 @@ Notes
             self.aliasOutputToInput(
                 output, alias_input, AllocationType::ReuseBuffer);
           },
-          py::arg("output"),
-          py::arg("alias_input"),
+          nb::arg("output"),
+          nb::arg("alias_input"),
           R"(
 Alias an output to an input.
 
@@ -183,7 +189,7 @@ the fusion.
             f.printMath(from_outputs_only);
             return ss.str();
           },
-          py::arg("from_outputs_only") = true,
+          nb::arg("from_outputs_only") = true,
           R"(
 Return a string representing the arithmetic expressions in the fusion.
 
@@ -209,7 +215,7 @@ str
             f.printKernel(compile_params);
             return ss.str();
           },
-          py::arg("compile_params") = CompileParams(),
+          nb::arg("compile_params") = CompileParams(),
           R"(
 Lower the fusion and return the generated CUDA kernel as a string.
 
@@ -226,19 +232,21 @@ str
 )");
 }
 
-void bindFusionExecutorCache(py::module& nvfuser) {
-  py::class_<FusionExecutorCache>(nvfuser, "FusionExecutorCache")
+void bindFusionExecutorCache(nb::module_& nvfuser) {
+  nb::class_<FusionExecutorCache>(nvfuser, "FusionExecutorCache")
       .def(
-          py::init([](const Fusion* fusion,
-                      int64_t fusion_id,
-                      bool auto_schedule) {
+          "__init__",
+          [](FusionExecutorCache* self,
+             const Fusion* fusion,
+             int64_t fusion_id,
+             bool auto_schedule) {
             // Make a copy of the fusion for FusionExecutorCache to own.
-            return std::make_unique<FusionExecutorCache>(
+            new (self) FusionExecutorCache(
                 std::make_unique<Fusion>(*fusion), fusion_id, auto_schedule);
-          }),
-          py::arg("fusion"),
-          py::arg("fusion_id") = 0,
-          py::arg("auto_schedule") = true,
+          },
+          nb::arg("fusion"),
+          nb::arg("fusion_id") = 0,
+          nb::arg("auto_schedule") = true,
           R"(
 Create a new FusionExecutorCache.
 
@@ -267,7 +275,7 @@ Examples
       .def(
           "execute",
           [](FusionExecutorCache& self,
-             const py::iterable& iter,
+             const nb::iterable& iter,
              std::optional<int64_t> device,
              std::vector<std::string> _enable_options,
              std::vector<std::string> _disable_options) {
@@ -300,11 +308,11 @@ Examples
 
             return to_tensor_vector(outputs);
           },
-          py::arg("inputs"),
-          py::kw_only(),
-          py::arg("device") = py::none(),
-          py::arg("_enable_options") = py::list(),
-          py::arg("_disable_options") = py::list(),
+          nb::arg("inputs"),
+          nb::kw_only(),
+          nb::arg("device") = nb::none(),
+          nb::arg("_enable_options") = nb::list(),
+          nb::arg("_disable_options") = nb::list(),
           R"(
 Execute the fusion with the given inputs.
 
@@ -334,12 +342,12 @@ list of torch.Tensor
       .def(
           "is_compiled",
           [](FusionExecutorCache& self,
-             const py::iterable& iter,
+             const nb::iterable& iter,
              std::optional<int64_t> device) {
             return self.isCompiled(from_pyiterable(iter, device));
           },
-          py::arg("inputs"),
-          py::arg("device") = 0,
+          nb::arg("inputs"),
+          nb::arg("device") = 0,
           R"(
 Check if a compiled kernel exists for the given input configuration.
 
@@ -359,7 +367,7 @@ bool
           "fusion",
           static_cast<Fusion* (FusionExecutorCache::*)()>(
               &FusionExecutorCache::fusion),
-          py::return_value_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the underlying fusion object.
 
@@ -371,15 +379,15 @@ Fusion
       .def(
           "get_cuda_kernel",
           [](FusionExecutorCache& self,
-             const py::iterable& iter,
+             const nb::iterable& iter,
              bool intrinsic_code,
              std::optional<int64_t> device) {
             return self.getCodeFor(
                 from_pyiterable(iter, device), intrinsic_code);
           },
-          py::arg("inputs"),
-          py::arg("intrinsic_code") = false,
-          py::arg("device") = 0,
+          nb::arg("inputs"),
+          nb::arg("intrinsic_code") = false,
+          nb::arg("device") = 0,
           R"(
 Get the CUDA kernel code for the given input configuration.
 
@@ -398,15 +406,15 @@ str
       .def(
           "get_scheduled_ir",
           [](FusionExecutorCache& self,
-             const py::iterable& iter,
+             const nb::iterable& iter,
              bool tensor_transforms,
              std::optional<int64_t> device) {
             return self.getScheduledIrFor(
                 from_pyiterable(iter, device), tensor_transforms);
           },
-          py::arg("inputs"),
-          py::arg("tensor_transforms") = false,
-          py::arg("device") = 0,
+          nb::arg("inputs"),
+          nb::arg("tensor_transforms") = false,
+          nb::arg("device") = 0,
           R"(
 Get the scheduled IR for the given input configuration.
 
@@ -427,7 +435,7 @@ str
       .def(
           "get_most_recent_scheduled_ir",
           &FusionExecutorCache::getMostRecentScheduledIr,
-          py::arg("tensor_transforms") = false,
+          nb::arg("tensor_transforms") = false,
           R"(
 Get the scheduled IR from the most recent execution.
 
@@ -473,10 +481,10 @@ list of Sharding
 )");
 }
 
-void bindKernelExecutor(py::module& nvfuser) {
-  py::class_<KernelExecutor>(nvfuser, "KernelExecutor")
+void bindKernelExecutor(nb::module_& nvfuser) {
+  nb::class_<KernelExecutor>(nvfuser, "KernelExecutor")
       .def(
-          py::init<int64_t, int64_t, int64_t, int64_t>(),
+          nb::init<int64_t, int64_t, int64_t, int64_t>(),
           R"(
                Create a new KernelExecutor.
 
@@ -507,15 +515,15 @@ void bindKernelExecutor(py::module& nvfuser) {
                >>> executor.compile(fusion)
                >>> outputs = executor.run(inputs)
              )",
-          py::arg("fusion_id") = 0,
-          py::arg("concrete_id") = 0,
-          py::arg("runtime_id") = 0,
-          py::arg("group_id") = 0)
+          nb::arg("fusion_id") = 0,
+          nb::arg("concrete_id") = 0,
+          nb::arg("runtime_id") = 0,
+          nb::arg("group_id") = 0)
       .def(
           "compile",
           [](KernelExecutor& self,
              Fusion* fusion,
-             const py::iterable& args,
+             const nb::iterable& args,
              const LaunchParams& launch_constraints,
              const CompileParams& compile_params,
              SchedulerType scheduler_type) {
@@ -546,15 +554,15 @@ void bindKernelExecutor(py::module& nvfuser) {
               -------
               None
             )",
-          py::arg("fusion"),
-          py::arg("args") = py::list(),
-          py::arg("launch_constraints") = LaunchParams(),
-          py::arg("compile_params") = CompileParams(),
-          py::arg("scheduler_type") = SchedulerType::None)
+          nb::arg("fusion"),
+          nb::arg("args") = nb::list(),
+          nb::arg("launch_constraints") = LaunchParams(),
+          nb::arg("compile_params") = CompileParams(),
+          nb::arg("scheduler_type") = SchedulerType::None)
       .def(
           "run",
           [](KernelExecutor& self,
-             const py::iterable& args,
+             const nb::iterable& args,
              const LaunchParams& launch_constraints,
              const CompileParams& compile_params) {
             KernelArgumentHolder outputs = self.run(
@@ -578,9 +586,9 @@ void bindKernelExecutor(py::module& nvfuser) {
               KernelArgumentHolder
                   The output arguments containing the results.
             )",
-          py::arg("args"),
-          py::arg("launch_constraints") = LaunchParams(),
-          py::arg("compile_params") = CompileParams())
+          nb::arg("args"),
+          nb::arg("launch_constraints") = LaunchParams(),
+          nb::arg("compile_params") = CompileParams())
       .def(
           "is_compiled",
           &KernelExecutor::isCompiled,
@@ -596,7 +604,7 @@ void bindKernelExecutor(py::module& nvfuser) {
 
 } // namespace
 
-void bindRuntime(py::module& nvfuser) {
+void bindRuntime(nb::module_& nvfuser) {
   bindFusion(nvfuser);
   bindFusionExecutorCache(nvfuser);
   bindKernelExecutor(nvfuser);

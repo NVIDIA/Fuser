@@ -816,21 +816,21 @@ def transformer_backward_definition(
         start_indices=[0, 0, 0, 2 * e // h],
         end_indices=[b, s, h, 3 * e // h],
         strides=[1, 1, 1, 1],
-        manual_normalization=0,
+        manual_normalization=False,
     )
     T250 = fd.ops.slice(
         T195,
         start_indices=[0, 0, 0, e // h],
         end_indices=[b, s, h, 2 * e // h],
         strides=[1, 1, 1, 1],
-        manual_normalization=0,
+        manual_normalization=False,
     )
     T256 = fd.ops.slice(
         T195,
         start_indices=[0, 0, 0, 0],
         end_indices=[b, s, h, e // h],
         strides=[1, 1, 1, 1],
-        manual_normalization=0,
+        manual_normalization=False,
     )
     T238 = fd.ops.reshape(T194, new_shape=[b, s, e])
     T262 = fd.ops.reshape(T238, new_shape=[b, s, h, e // h])
@@ -858,7 +858,7 @@ def transformer_backward_definition(
     T274 = fd.ops.permute(T269, dims=[0, 2, 1, 3])
     # Cat before reshape to avoid concatenating along sharded dimensions.
 
-    T290 = fd.ops.cat([T274, T273, T272], dim=3, manual_padding=0)
+    T290 = fd.ops.cat([T274, T273, T272], dim=3, manual_padding=False)
     T291 = fd.ops.reshape(T290, new_shape=[b, s, 3 * e])
     T294 = fd.ops.reshape(T291, new_shape=[b * s, 3 * e])
     T295 = fd.ops.matmul(T294, fd.mha_linear0_weight)

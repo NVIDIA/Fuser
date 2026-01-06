@@ -112,6 +112,7 @@ endif()
 include(cmake/Submodules.cmake)
 # -----------------------------------------------------------------------------
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind)
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 if(NVFUSER_USE_CUTLASS)
@@ -751,7 +752,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
   )
-  add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
+  nanobind_add_module(libnvfuser_direct ${NVFUSER_PYTHON_DIRECT_SRCS})
 
   # setup python API version
   add_custom_command(
@@ -768,29 +769,20 @@ if(BUILD_PYTHON)
     gen_nvfuser_direct_version ALL
     DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
   )
-  add_dependencies(nvf_py_direct_internal gen_nvfuser_direct_version)
+  add_dependencies(libnvfuser_direct gen_nvfuser_direct_version)
 
-  # NOTE: For any future extension, change PYTHON_DIRECT_EXTENSION to another
-  # name other than EXTENSION_NAME.
-  target_compile_definitions(nvf_py_direct_internal PRIVATE
-    "-DTORCH_CUDA_BUILD_MAIN_LIB"
-    "-DC10_BUILD_MAIN_LIB=1"
-    PYTHON_DIRECT_EXTENSION=_C_DIRECT
-  )
-
-  add_library(nvfuser_direct MODULE $<TARGET_OBJECTS:nvf_py_direct_internal>)
-  target_compile_definitions(nvfuser_direct PRIVATE
+  target_compile_definitions(libnvfuser_direct PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
     PYTHON_DIRECT_EXTENSION=_C_DIRECT
   )
 
   if(NOT MSVC)
-    target_compile_options(nvf_py_direct_internal PRIVATE -Wall -Wno-unused-function)
-    target_compile_options(nvf_py_direct_internal PRIVATE -Werror)
+    target_compile_options(libnvfuser_direct PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(libnvfuser_direct PRIVATE -Werror)
 
     # Add function/data sections for dead code elimination
-    target_compile_options(nvf_py_direct_internal PRIVATE
+    target_compile_options(libnvfuser_direct PRIVATE
       "-ffunction-sections"
       "-fdata-sections"
     )
@@ -800,7 +792,7 @@ if(BUILD_PYTHON)
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
 
-  set_target_properties(nvf_py_direct_internal PROPERTIES
+  set_target_properties(libnvfuser_direct PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
@@ -811,7 +803,7 @@ if(BUILD_PYTHON)
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
-  set_target_properties(nvfuser_direct PROPERTIES
+  set_target_properties(libnvfuser_direct PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
     CXX_STANDARD ${NVFUSER_CPP_STANDARD}
@@ -824,36 +816,41 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
-  target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
-  target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
-  target_link_libraries(nvf_py_direct_internal PRIVATE
-    nvfuser_codegen
-    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-    pybind11::pybind11 pybind11::headers
-    CUDA::cupti
-  )
-  if (NVFUSER_USE_CUTLASS)
-    target_link_libraries(nvf_py_direct_internal PRIVATE nvf_cutlass)
+  target_include_directories(libnvfuser_direct PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
+  target_include_directories(libnvfuser_direct PUBLIC ${NVFUSER_PYTHON_COMMON})
+  target_include_directories(libnvfuser_direct SYSTEM PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/nanobind/include
+    ${Python_INCLUDE_DIRS})
+  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+    target_link_libraries(libnvfuser_direct PRIVATE
+      nvfuser_codegen
+      nvf_cutlass
+      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+      CUDA::cupti
+      Python::Module
+    )
+  else()
+    target_link_libraries(libnvfuser_direct PRIVATE
+      nvfuser_codegen
+      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+      CUDA::cupti
+      Python::Module
+    )
   endif()
-
-  target_link_libraries(nvfuser_direct PRIVATE
-    nvf_py_direct_internal
-    Python::Module
-  )
 
   # Add dead code elimination flags to reduce file size
   if(NOT MSVC)
-    target_link_options(nvfuser_direct PRIVATE
+    target_link_options(libnvfuser_direct PRIVATE
       "-Wl,--gc-sections"
       "-Wl,--as-needed"
       $<$<CONFIG:Release>:-s>
     )
   endif()
 
-  set_target_properties(nvfuser_direct PROPERTIES
+  set_target_properties(libnvfuser_direct PROPERTIES
     INSTALL_RPATH "$ORIGIN:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
   )
-  install(TARGETS nvfuser_direct DESTINATION lib)
+  install(TARGETS libnvfuser_direct DESTINATION lib)
 endif()
 
 set(JIT_TEST_SRCS)

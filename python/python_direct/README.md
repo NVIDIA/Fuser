@@ -18,7 +18,7 @@ The Direct Python API maps from CPP to Python directly, so any CPP function can 
 * The python reproducers map directly to Fusion IR, so it will be more verbose. Direct bindings does not have `RecordFunctor` objects to map from Fusion IR to original python API.
 
 ## How to add Fusion IR?
-* Create `py::class_` for IR node.
+* Create `nb:class_` for IR node.
 * `Statement`, `Expr`, `Val`, `IterDomain`, `TensorDomain`, `TensorView`, and `Scalar` exist in `python_direct/ir.cpp`
 * All other nodes from `csrc/ir/internal_nodes.h` go to `python_direct/internal_ir.cpp`
 * Add functions to the IR node's `pyt::class_`. All nodes map CPP `toString` to python `__str__`, so the node is printable. Other functions are usually added to support scheduling.

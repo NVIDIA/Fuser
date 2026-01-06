@@ -5,9 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/vector.h>
+
 #include <bindings.h>
 #include <direct_utils.h>
 #include <python_utils.h>
+#include <tensor_caster.h>
 
 #include <multidevice/communicator.h>
 #include <multidevice/device_mesh.h>
@@ -22,18 +25,16 @@ namespace nvfuser::python {
 
 namespace {
 
-void bindCommunicator(py::module& nvfuser) {
-  // py::nodelete is necessary because Communicator does not have a destructor.
-  // https://pybind11.readthedocs.io/en/stable/advanced/classes.html#non-public-destructors
-  py::class_<Communicator, std::unique_ptr<Communicator, py::nodelete>>
-      communicator(nvfuser, "Communicator", py::module_local());
+void bindCommunicator(nb::module_& nvfuser) {
+  // Communicator is a singleton managed internally
+  nb::class_<Communicator> communicator(nvfuser, "Communicator");
   communicator.def(
       "instance",
       &Communicator::getInstance,
       R"(
 Returns the singleton communicator instance.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   communicator.def(
       "size",
       &Communicator::size,
@@ -70,21 +71,23 @@ Performs a blocking barrier across all ranks.
 )");
 }
 
-void bindDeviceMesh(py::module& nvfuser) {
-  py::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh", py::module_local());
+void bindDeviceMesh(nb::module_& nvfuser) {
+  nb::class_<DeviceMesh> device_mesh(nvfuser, "DeviceMesh");
   device_mesh.def(
-      py::init([](at::Tensor devices) {
-        return std::make_unique<DeviceMesh>(std::move(devices));
-      }),
-      py::arg("devices"),
+      "__init__",
+      [](DeviceMesh* self, at::Tensor devices) {
+        new (self) DeviceMesh(std::move(devices));
+      },
+      nb::arg("devices"),
       R"(
 Create a new DeviceMesh from torch.Tensor.
 )");
   device_mesh.def(
-      py::init([](const std::vector<int64_t>& devices) {
-        return std::make_unique<DeviceMesh>(at::tensor(devices));
-      }),
-      py::arg("devices"),
+      "__init__",
+      [](DeviceMesh* self, const std::vector<int64_t>& devices) {
+        new (self) DeviceMesh(at::tensor(devices));
+      },
+      nb::arg("devices"),
       R"(
 Create a new DeviceMesh from an integer list, for backward compatibility.
 )");
@@ -94,13 +97,13 @@ Create a new DeviceMesh from an integer list, for backward compatibility.
     return ss.str();
   });
   device_mesh
-      .def_property_readonly(
+      .def_prop_ro(
           "size",
           [](const DeviceMesh& self) -> int64_t { return self.size(); },
           R"(
 Returns the number of devices in the mesh.
 )")
-      .def_property_readonly(
+      .def_prop_ro(
           "shape",
           [](const DeviceMesh& self) -> at::IntArrayRef {
             return self.shape();
@@ -112,25 +115,25 @@ Returns the shape of the mesh.
       "shard_tensor",
       [](const DeviceMesh& self, at::Tensor tensor, const int64_t axis)
           -> at::Tensor { return shardTensor1D(tensor, axis, self); },
-      py::arg("tensor"),
-      py::arg("axis"),
+      nb::arg("tensor"),
+      nb::arg("axis"),
       R"(
 Shards the input tensor along `axis`. Returns the sharded tensor.)");
 }
 
-void bindSharding(py::module& nvfuser) {
-  py::class_<Sharding>(nvfuser, "Sharding", py::module_local())
-      .def_property_readonly(
+void bindSharding(nb::module_& nvfuser) {
+  nb::class_<Sharding>(nvfuser, "Sharding")
+      .def_prop_ro(
           "mesh",
           &Sharding::mesh,
           R"(
 Returns the device mesh of the sharding.
 )",
-          py::return_value_policy::reference)
+          nb::rv_policy::reference_internal)
       .def(
           "axis_sharded_on",
           &Sharding::axisShardedOn,
-          py::arg("parallel_type"),
+          nb::arg("parallel_type"),
           R"(
 Returns the axis sharded on the given parallel type.
 
@@ -138,12 +141,12 @@ If the distributed tensor is replicated on that parallel type, returns -1.
 )");
 }
 
-void bindMultiDeviceExecutor(py::module& nvfuser) {
+void bindMultiDeviceExecutor(nb::module_& nvfuser) {
   // Bind params type under the multidevice submodule. We'll alias it to the
   // top-level module in bindMultiDevice to allow direct imports.
-  py::class_<MultiDeviceExecutorParams>(nvfuser, "MultiDeviceExecutorParams")
-      .def(py::init<>())
-      .def_property(
+  nb::class_<MultiDeviceExecutorParams>(nvfuser, "MultiDeviceExecutorParams")
+      .def(nb::init<>())
+      .def_prop_rw(
           "use_allocation_cache",
           [](const MultiDeviceExecutorParams& self) {
             return self.executor.use_allocation_cache;
@@ -151,7 +154,7 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
           [](MultiDeviceExecutorParams& self, bool value) {
             self.executor.use_allocation_cache = value;
           })
-      .def_property(
+      .def_prop_rw(
           "backend_type",
           [](const MultiDeviceExecutorParams& self) {
             return self.lower.communicator_backend;
@@ -159,7 +162,7 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
           [](MultiDeviceExecutorParams& self, CommunicatorBackend value) {
             self.lower.communicator_backend = value;
           })
-      .def_property(
+      .def_prop_rw(
           "offset_stream_indexing_by_rank",
           [](const MultiDeviceExecutorParams& self) {
             return self.lower.offset_stream_indexing_by_rank;
@@ -168,16 +171,18 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
             self.lower.offset_stream_indexing_by_rank = value;
           });
 
-  py::class_<MultiDeviceExecutor> multi_device_executor(
+  nb::class_<MultiDeviceExecutor> multi_device_executor(
       nvfuser, "MultiDeviceExecutor");
   multi_device_executor.def(
-      py::init(
-          [](const Fusion& fusion, const MultiDeviceExecutorParams& params) {
-            return std::make_unique<MultiDeviceExecutor>(
-                std::make_unique<Fusion>(fusion),
-                Communicator::getInstance(),
-                params);
-          }),
+      "__init__",
+      [](MultiDeviceExecutor* self,
+         const Fusion& fusion,
+         const MultiDeviceExecutorParams& params) {
+        new (self) MultiDeviceExecutor(
+            std::make_unique<Fusion>(fusion),
+            Communicator::getInstance(),
+            params);
+      },
       R"(
 Create a new MultiDeviceExecutor.
 
@@ -195,8 +200,8 @@ Examples
 >>> multi_device_executor = MultiDeviceExecutor(fusion, params)
 >>> outputs = multi_device_executor.run(inputs)
 )",
-      py::arg("fusion"),
-      py::arg("params"));
+      nb::arg("fusion"),
+      nb::arg("params"));
   multi_device_executor.def(
       "__str__",
       [](MultiDeviceExecutor& self) {
@@ -209,7 +214,7 @@ Return a string representing the MultiDeviceExecutor.
 )");
   multi_device_executor.def(
       "run",
-      [](MultiDeviceExecutor& self, const py::iterable& args) {
+      [](MultiDeviceExecutor& self, const nb::iterable& args) {
         KernelArgumentHolder outputs = self.runWithInput(from_pyiterable(args));
         return to_tensor_vector(outputs);
       },
@@ -226,13 +231,13 @@ Return a string representing the MultiDeviceExecutor.
               list of Tensor
                   The output tensors containing the results.
             )",
-      py::arg("args"));
+      nb::arg("args"));
 }
 
 } // namespace
 
-void bindMultiDevice(py::module& nvfuser) {
-  py::module_ nvf_multidevice = nvfuser.def_submodule(
+void bindMultiDevice(nb::module_& nvfuser) {
+  nb::module_ nvf_multidevice = nvfuser.def_submodule(
       "multidevice",
       "This submodule contains all multi-device features for NvFuser.");
   bindCommunicator(nvf_multidevice);
@@ -246,8 +251,8 @@ void bindMultiDevice(py::module& nvfuser) {
       [](at::Tensor tensor, TensorView* tv) -> at::Tensor {
         return shardTensor(tensor, tv);
       },
-      py::arg("tensor"),
-      py::arg("tv"),
+      nb::arg("tensor"),
+      nb::arg("tv"),
       R"(
 Shards the input tensor according to the TensorView's parallelization and device mesh.
 
