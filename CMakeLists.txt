@@ -561,6 +561,42 @@ endif()
 
 target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
+# Precompiled Headers for Top nvFuser Headers
+# Post-M8, template instantiation is reduced by 81%, making header parsing
+# a significant fraction of build cost. This PCH targets the top 10 heaviest
+# nvFuser-controllable headers by exclusive parse time (from M9 Task 4 analysis).
+# Enabled by default for Release builds (provides ~50% build time improvement).
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+  option(NVFUSER_USE_POLYMORPHIC_PCH "Use PCH for top nvFuser headers to reduce parse time" ON)
+else()
+  option(NVFUSER_USE_POLYMORPHIC_PCH "Use PCH for top nvFuser headers to reduce parse time" OFF)
+endif()
+
+if(NVFUSER_USE_POLYMORPHIC_PCH)
+  message(STATUS "Enabling PCH for top 10 nvFuser headers")
+  target_precompile_headers(codegen_internal PRIVATE
+    # Top 10 nvFuser headers by exclusive parse time (M9 Task 4 analysis)
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.h"                              # 1675s (27.9m)
+    "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type/type_traits.h"      # 473.6s (7.9m)
+    "${NVFUSER_SRCS_DIR}/ir/base_nodes.h"                                  # 284.5s (4.7m)
+    "${NVFUSER_SRCS_DIR}/scheduler/tools/abstract_tensor.h"                # 162.1s (2.7m)
+    "${NVFUSER_SRCS_DIR}/type.h"                                           # 81.6s (1.4m)
+    "${NVFUSER_SRCS_DIR}/ir/container.h"                                   # 51.6s (0.9m)
+    "${NVFUSER_SRCS_DIR}/serde/fusion_cache_generated.h"                   # 44.1s (0.7m)
+    "${NVFUSER_SRCS_DIR}/iter_visitor.h"                                   # 38.2s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"                              # 33.3s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"                             # 29.6s (0.5m)
+  )
+  # Skip PCH for polymorphic_value.cpp to allow visibility override
+  # (PCH caches type with hidden visibility)
+  set_source_files_properties(
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.cpp"
+    PROPERTIES 
+      SKIP_PRECOMPILE_HEADERS ON
+      COMPILE_OPTIONS "-fvisibility=default"
+  )
+endif()
+
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
@@ -1109,6 +1145,35 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_executable(${TEST_NAME} ${TEST_SRC})
   set_property(TARGET ${TEST_NAME} PROPERTY CXX_STANDARD ${NVFUSER_CPP_STANDARD})
   target_compile_definitions(${TEST_NAME} PRIVATE USE_GTEST)
+  
+  # PCH for test targets: All test executables share a single PCH to avoid
+  # redundant compilation. The first test target (test_nvfuser) creates the PCH,
+  # and all subsequent tests reuse it via REUSE_FROM.
+  # Note: Can't reuse from codegen_internal due to -fPIC flag difference.
+  if(NVFUSER_USE_POLYMORPHIC_PCH)
+    get_property(NVFUSER_TEST_PCH_TARGET GLOBAL PROPERTY NVFUSER_TEST_PCH_TARGET)
+    if(NOT NVFUSER_TEST_PCH_TARGET)
+      # First test target: create the PCH with top 10 nvFuser headers
+      message(STATUS "Creating shared test PCH on target: ${TEST_NAME}")
+      target_precompile_headers(${TEST_NAME} PRIVATE
+        "${NVFUSER_SRCS_DIR}/polymorphic_value.h"
+        "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type/type_traits.h"
+        "${NVFUSER_SRCS_DIR}/ir/base_nodes.h"
+        "${NVFUSER_SRCS_DIR}/scheduler/tools/abstract_tensor.h"
+        "${NVFUSER_SRCS_DIR}/type.h"
+        "${NVFUSER_SRCS_DIR}/ir/container.h"
+        "${NVFUSER_SRCS_DIR}/serde/fusion_cache_generated.h"
+        "${NVFUSER_SRCS_DIR}/iter_visitor.h"
+        "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"
+        "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"
+      )
+      set_property(GLOBAL PROPERTY NVFUSER_TEST_PCH_TARGET ${TEST_NAME})
+    else()
+      # Subsequent test targets: reuse existing PCH
+      target_precompile_headers(${TEST_NAME} REUSE_FROM ${NVFUSER_TEST_PCH_TARGET})
+    endif()
+  endif()
+  
   target_include_directories(${TEST_NAME} PRIVATE "${NVFUSER_ROOT}")
   target_include_directories(${TEST_NAME} SYSTEM PRIVATE
     ${NVFUSER_ROOT}/third_party/googletest/googletest/include
