@@ -184,6 +184,24 @@ class SdpaFwdOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  int64_t bias_input_index() const {
+    return attribute<int64_t>(1);
+  }
+
+  TensorView* bias() const {
+    return bias_input_index() >= 0 ? input(bias_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
+  int64_t mask_input_index() const {
+    return attribute<int64_t>(2);
+  }
+
+  TensorView* mask() const {
+    return mask_input_index() >= 0 ? input(mask_input_index())->as<TensorView>()
+                                   : nullptr;
+  }
+
   Val* dropout_p() const {
     return input(3);
   }
@@ -192,40 +210,12 @@ class SdpaFwdOp : public Expr {
     return input(4);
   }
 
-  Val* scale() const {
-    int64_t scale_idx = attribute<int64_t>(0);
-    if (scale_idx != -1) {
-      return input(scale_idx);
-    }
-    return nullptr;
-  }
-
-  TensorView* bias() const {
-    int64_t bias_idx = attribute<int64_t>(1);
-    if (bias_idx != -1) {
-      return input(bias_idx)->as<TensorView>();
-    }
-    return nullptr;
-  }
-
-  TensorView* mask() const {
-    int64_t mask_idx = attribute<int64_t>(2);
-    if (mask_idx != -1) {
-      return input(mask_idx)->as<TensorView>();
-    }
-    return nullptr;
-  }
-
   int64_t scale_input_index() const {
     return attribute<int64_t>(0);
   }
 
-  int64_t bias_input_index() const {
-    return attribute<int64_t>(1);
-  }
-
-  int64_t mask_input_index() const {
-    return attribute<int64_t>(2);
+  Val* scale() const {
+    return scale_input_index() >= 0 ? input(scale_input_index()) : nullptr;
   }
 
   std::vector<PolymorphicValue> evaluate(
