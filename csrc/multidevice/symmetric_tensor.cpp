@@ -255,9 +255,9 @@ SymmetricTensor::SymmetricTensor(const at::Tensor& local_tensor)
 SymmetricTensor::~SymmetricTensor() {
 #if (CUDA_VERSION >= 13000)
   if (is_multicast_setup_) {
-    if (mc_ptr_) {
-      cuMemUnmap(reinterpret_cast<CUdeviceptr>(mc_ptr_), aligned_size_);
-      cuMemAddressFree(reinterpret_cast<CUdeviceptr>(mc_ptr_), aligned_size_);
+    if (mc_base_ptr_) {
+      cuMemUnmap(mc_base_ptr_, aligned_size_);
+      cuMemAddressFree(mc_base_ptr_, aligned_size_);
     }
     if (mcast_handle_) {
       // On some driver versions, cuMulticastUnbind is sometimes failing with
@@ -431,6 +431,9 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
 
   std::vector<int64_t> strides;
   strides.reserve(sizes.size());
+  NVF_CHECK(
+      aligned_size_ % local_tensor_.element_size() == 0,
+      "Aligned size must be divisible by element size");
   strides.push_back(aligned_size_ / local_tensor_.element_size());
   for (int64_t s : local_tensor_.strides()) {
     strides.push_back(s);
@@ -564,6 +567,7 @@ void SymmetricTensor::setupMulticast(
   NVFUSER_CUDA_SAFE_CALL(cuMemSetAccess(mc_ptr, aligned_size_, &access, 1));
 
   mc_ptr_ = reinterpret_cast<void*>(mc_ptr + offset_diff);
+  mc_base_ptr_ = mc_ptr;
   is_multicast_setup_ = true;
 
   comm.barrier();
