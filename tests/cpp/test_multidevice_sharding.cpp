@@ -19,7 +19,6 @@
 
 namespace nvfuser {
 
-using testing::Contains;
 using testing::Each;
 using testing::ElementsAre;
 using testing::Not;
@@ -1283,4 +1282,5 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 }
+
 } // namespace nvfuser

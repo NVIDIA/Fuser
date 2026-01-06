@@ -335,10 +335,16 @@ void HostIrEvaluator::handle(Communication* communication) {
             communication->type() == CommunicationType::Allgather,
         "Invalid communication type, expected Broadcast or Allgather, got: ",
         communication->type());
+    int64_t root_val =
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication});
+        multicast_handle_cache_.get({output_tensor, communication, root_val});
     postWithCudaBackend(
-        communication, input_tensor, multicast_handle, current_stream);
+        communication,
+        input_tensor,
+        multicast_handle,
+        current_stream,
+        root_val);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
@@ -347,7 +353,8 @@ void HostIrEvaluator::handle(Communication* communication) {
         communicator_->deviceId(),
         backend,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>());
   }
 }
 
@@ -370,8 +377,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       sendPost(p2p_ipc_handle, count, current_stream);
     }
   } else {
-    validateSizesAndStrides(
-        {buffer}, {communication->buffer()}, expr_evaluator_);
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -403,9 +408,12 @@ void HostIrEvaluator::handle(Wait* wait) {
         "supported with cuda backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    int64_t root_val =
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication});
-    waitWithCudaBackend(communication, multicast_handle, current_stream);
+        multicast_handle_cache_.get({output_tensor, communication, root_val});
+    waitWithCudaBackend(
+        communication, multicast_handle, current_stream, root_val);
   } else {
     auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
