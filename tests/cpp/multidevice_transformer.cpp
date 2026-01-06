@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "tests/cpp/multidevice_transformer.h"
+
 #include <unordered_set>
 #include <vector>
 
-#include <fusion.h>
-#include <ir/utils.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/multidevice_transformer.h>
+#include "fusion.h"
+#include "ir/utils.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 namespace {
@@ -222,6 +223,8 @@ MhaResult DistributedTransformer::mha(
       qkv[0],
       qkv[1],
       qkv[2],
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       IrBuilder::create<Val>(kSdpaProb),
       IrBuilder::create<Val>(true),
       IrBuilder::create<Val>(kSdpaScale));

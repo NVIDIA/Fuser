@@ -114,7 +114,7 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId
     }
 
     NVF_ERROR(
-        parallel_type_to_id.try_emplace(parallel_type, id).second,
+        parallel_type_to_id.emplace(parallel_type, id).second,
         "Found multiple loop IterDomains with the same parallel type (",
         parallel_type,
         "): ",

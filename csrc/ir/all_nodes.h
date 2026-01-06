@@ -9,6 +9,7 @@
 
 // All nodes defined in fusion IR.
 #include <ir/base_nodes.h>
+#include <ir/composite_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/internal_nodes.h>

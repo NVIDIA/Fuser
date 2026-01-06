@@ -1343,7 +1343,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         CircularBufferLoopStage::ComputeWarp) {
       Expr* mbarrier_arrive = insertPingPongEpilogueArriveMBarrier(for_loop);
       if (mbarrier_arrive != nullptr) {
-        for_loop->body().push_back(mbarrier_arrive);
+        for_loop->body().pushBack(mbarrier_arrive);
       }
     }
 

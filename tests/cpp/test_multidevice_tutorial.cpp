@@ -8,14 +8,14 @@
 
 #include <torch/torch.h>
 
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/ir.h>
-#include <ir/iostream.h>
-#include <multidevice/communicator.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <tests/cpp/multidevice.h>
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ir.h"
+#include "ir/iostream.h"
+#include "multidevice/communicator.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 
@@ -31,7 +31,7 @@ class MultiDeviceTutorial : public MultiDeviceTest {
       GTEST_SKIP() << "Distributed setting not available. "
                    << "Make sure you are on a node with n>1 GPUs and run "
                    << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
-                      "tutorial_multidevice`";
+                      "test_multidevice_tutorial`";
     }
   }
 
@@ -43,7 +43,7 @@ bool MultiDeviceTutorial::verbose_ = false;
 
 // To run those tests, allocate a node with n>1 GPUs and run:
 //
-// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 tutorial_multidevice
+// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 test_multidevice_tutorial
 //
 // We use a SPMD paradigm, where each host process manages one and only device,
 // and each device executes the same program. Therefore, the number of process
@@ -311,6 +311,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
     std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
@@ -992,7 +993,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   |   tv2[i,...] = Fusion1 (tv1_i)
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
-TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
+TEST_F(MultiDeviceTutorial, HostIrKernelPipelining) {
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
@@ -1068,11 +1069,11 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*outputs=*/std::vector<Val*>({tv2_i}));
 
   // Let us add the different Exprs in the for-loop's body
-  for_loop->body().push_back(set_stream);
-  for_loop->body().push_back(tv0_i->definition());
-  for_loop->body().push_back(tv2_i->definition());
-  for_loop->body().push_back(post_fusion0);
-  for_loop->body().push_back(post_fusion1);
+  for_loop->body().pushBack(set_stream);
+  for_loop->body().pushBack(tv0_i->definition());
+  for_loop->body().pushBack(tv2_i->definition());
+  for_loop->body().pushBack(post_fusion0);
+  for_loop->body().pushBack(post_fusion1);
 
   // The host program consists of the for-loop only
   hic->pushBackTopLevelExprs(for_loop);
@@ -1117,9 +1118,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
   HostIrEvaluator hie(
-      std::move(hic),
-      /*communicator=*/nullptr,
-      {.use_fusion_executor_cache = true});
+      std::move(hic), communicator_, {.use_fusion_executor_cache = true});
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result

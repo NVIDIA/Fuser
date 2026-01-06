@@ -5,16 +5,18 @@
 
 import pytest
 import torch
-from python.direct_utils import is_pre_blackwell
-from python.direct_utils import microarchitecture_is_pre
+from python.direct_utils import microarchitecture_is
 from nvfuser_direct import nvf_cutlass
 
 
+# GPU Compute Capability: https://developer.nvidia.com/cuda/gpus
+# tested on blackwell compute 10.0 (B200 and GB200)
+# doesn't support 12.0 (RTX PRO 6000 and RTX 50XX)
+# Not tested on 10.3 (B300 and GB300)
+# Not tested on 12.1 (DGX Spark)
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0."
+    not microarchitecture_is(10, 0),
+    reason="Does not support blackwell compute 12.0, other arches are not tested.",
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256], [267, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8], [5, 7, 9]])

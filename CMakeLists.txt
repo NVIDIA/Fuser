@@ -293,6 +293,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/composite_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
@@ -1237,8 +1238,8 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
   )
-  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
-  list(APPEND TEST_BINARIES tutorial_multidevice)
+  add_test_without_main(test_multidevice_tutorial "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_multidevice_tutorial)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)

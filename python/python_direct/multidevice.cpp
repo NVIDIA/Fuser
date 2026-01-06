@@ -163,6 +163,14 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
           },
           [](MultiDeviceExecutorParams& self, CommunicatorBackend value) {
             self.lower.communicator_backend = value;
+          })
+      .def_property(
+          "offset_stream_indexing_by_rank",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.lower.offset_stream_indexing_by_rank;
+          },
+          [](MultiDeviceExecutorParams& self, bool value) {
+            self.lower.offset_stream_indexing_by_rank = value;
           });
 
   py::class_<MultiDeviceExecutor> multi_device_executor(

@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/executor.h>
-#include <multidevice/utils.h>
-#include <tests/cpp/utils.h>
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/executor.h"
+#include "multidevice/utils.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -49,7 +49,6 @@ class MultiDeviceTest : public NVFuserTest {
   Communicator* communicator_;
   c10::TensorOptions tensor_options_;
   bool debug_print;
-  bool disable_skip;
 };
 
 // This macro is supposed to be used in a test case of a MultiDeviceTest or its

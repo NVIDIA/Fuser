@@ -97,7 +97,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
         attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale=None
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
         q_grad, k_grad, v_grad = fd.ops.sdpfa_bwd(
@@ -216,7 +216,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
         attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale=None
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
         q_grad, k_grad, v_grad = fd.ops.sdpfa_bwd(

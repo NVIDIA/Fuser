@@ -5,20 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
-#include <cuda_utils.h>
-#include <driver_api.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/communication_executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/communication_executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

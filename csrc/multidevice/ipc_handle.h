@@ -179,7 +179,10 @@ class SymmetricMemoryHandle {
 // Provides efficient one-to-many communication with hardware acceleration
 class SymMemForBroadcast : public SymmetricMemoryHandle {
  public:
-  SymMemForBroadcast(Communication* communication, at::Tensor buffer);
+  SymMemForBroadcast(
+      Communication* communication,
+      int64_t root,
+      at::Tensor buffer);
 
   // Constructor for creating multiple broadcasts (e.g., for allgather)
   SymMemForBroadcast(
@@ -258,14 +261,17 @@ class SymmetricMemoryHandleCache {
   struct KeyType {
     at::Tensor buffer;
     Expr* expr;
+    int64_t root;
 
     bool operator==(const KeyType& other) const {
-      return TensorEqual{}(buffer, other.buffer) && expr == other.expr;
+      return TensorEqual{}(buffer, other.buffer) && expr == other.expr &&
+          root == other.root;
     }
 
     struct Hash {
       std::size_t operator()(const KeyType& key) const {
-        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr));
+        return (TensorHash{}(key.buffer)) ^ (std::hash<Expr*>()(key.expr)) ^
+            (std::hash<int64_t>()(key.root));
       }
     };
   };
