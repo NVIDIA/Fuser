@@ -138,9 +138,11 @@ class SdpaFwdOp : public Expr {
       TensorView* log_sumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
-      Val* query,
-      Val* key,
-      Val* value,
+      TensorView* query,
+      TensorView* key,
+      TensorView* value,
+      TensorView* bias,
+      TensorView* mask,
       Val* dropout_p,
       Val* is_causal,
       Val* scale);
@@ -191,10 +193,39 @@ class SdpaFwdOp : public Expr {
   }
 
   Val* scale() const {
-    if (inputs().size() > 5) {
-      return input(5);
+    int64_t scale_idx = attribute<int64_t>(0);
+    if (scale_idx != -1) {
+      return input(scale_idx);
     }
     return nullptr;
+  }
+
+  TensorView* bias() const {
+    int64_t bias_idx = attribute<int64_t>(1);
+    if (bias_idx != -1) {
+      return input(bias_idx)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  TensorView* mask() const {
+    int64_t mask_idx = attribute<int64_t>(2);
+    if (mask_idx != -1) {
+      return input(mask_idx)->as<TensorView>();
+    }
+    return nullptr;
+  }
+
+  int64_t scale_input_index() const {
+    return attribute<int64_t>(0);
+  }
+
+  int64_t bias_input_index() const {
+    return attribute<int64_t>(1);
+  }
+
+  int64_t mask_input_index() const {
+    return attribute<int64_t>(2);
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -243,7 +274,7 @@ class Scope {
 
   Iterator insert(Iterator pos, Expr* expr);
 
-  Iterator push_back(Expr* e) {
+  Iterator pushBack(Expr* e) {
     return insert(exprs_.end(), e);
   }
 
@@ -1036,7 +1067,8 @@ class BlockQuantizationOp : public Expr {
       Val* input,
       Val* logical_index = nullptr,
       Val* global_scale = nullptr,
-      int64_t block_size = 16);
+      int64_t block_size = 16,
+      bool swizzled_scales = false);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1072,6 +1104,10 @@ class BlockQuantizationOp : public Expr {
 
   const char* getOpString() const override {
     return "BlockQuantizationOp";
+  }
+
+  bool isSwizzledScales() const {
+    return attribute<bool>(2);
   }
 
   std::string toString(int indent_size = 0) const override;

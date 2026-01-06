@@ -9,45 +9,6 @@ FLOAT4_E2M1_MAX = 6.0
 FLOAT8_E4M3_EPS = torch.finfo(torch.float8_e4m3fn).tiny
 FLOAT8_E4M3_MAX = torch.finfo(torch.float8_e4m3fn).max
 
-# Map the 7 values of e2m1 to corresponding positive fp32 value
-kE2M1ToFloatArray = [
-    0.0,
-    0.5,
-    1.0,
-    1.5,
-    2.0,
-    3.0,
-    4.0,
-    6.0,
-]
-
-
-# Convert FP4 into FP32
-def e2m1_to_fp32(int4_value):
-    signBit = int4_value & 0x8
-    int4_absValue = int4_value & 0x7
-    float_result = kE2M1ToFloatArray[int4_absValue]
-    if signBit:
-        float_result = -float_result
-    return float_result
-
-
-# Unpack float4_e2m1fn_x2 into two separate fp32 values
-def unpack_fp4_bytes(a, dtype):
-    assert a.dtype == torch.float4_e2m1fn_x2
-    m, n = a.shape
-    a = a.view(torch.uint8).flatten()
-    upper_half_byte = (a & 0xF0) >> 4
-    lower_half_byte = a & 0x0F
-    upper_half_float = torch.tensor([e2m1_to_fp32(x) for x in upper_half_byte]).to(
-        a.device
-    )
-    lower_half_float = torch.tensor([e2m1_to_fp32(x) for x in lower_half_byte]).to(
-        a.device
-    )
-    out = torch.stack((lower_half_float, upper_half_float), dim=-1).reshape(m, n * 2)
-    return out
-
 
 # restore swizzled on block scaling factor:
 # 1. restore swizzle
@@ -82,23 +43,67 @@ def linear_to_swizzled_128_4(a_sf_linear: torch.Tensor):
     return tmp.transpose(1, 3).reshape(mn_padded, k_padded)
 
 
+def unpack_fp4(x: torch.Tensor) -> torch.Tensor:
+    repeated = x.repeat_interleave(2, dim=1)
+    repeated[:, 0::2] &= 0x0F
+    repeated[:, 1::2] >>= 4
+    return repeated
+
+
+_FP4_LUT = torch.tensor(
+    [
+        0.0,  # 0: 0000 - zero
+        0.5,  # 1: 0001 - smallest positive normal
+        1.0,  # 2: 0010
+        1.5,  # 3: 0011
+        2.0,  # 4: 0100
+        3.0,  # 5: 0101
+        4.0,  # 6: 0110
+        6.0,  # 7: 0111 - largest positive normal
+        -0.0,  # 8: 1000 - negative zero
+        -0.5,  # 9: 1001 - smallest negative normal
+        -1.0,  # 10: 1010
+        -1.5,  # 11: 1011
+        -2.0,  # 12: 1100
+        -3.0,  # 13: 1101
+        -4.0,  # 14: 1110
+        -6.0,  # 15: 1111 - largest negative normal
+    ],
+    dtype=torch.float32,
+)
+
+
+def fp4_to_fp32(fp4: torch.Tensor) -> torch.Tensor:
+    # Convert FP4 indices to their corresponding floating point values
+    # Each index (0-15) represents a 4-bit FP4 value in E2M1 format
+    # Values based on the FP4 E2M1 specification
+    fp4_lut = _FP4_LUT.to(fp4.device)
+    return fp4_lut[fp4.to(torch.long)]
+
+
+def dequantize_fp4(
+    qx: torch.Tensor, sx: torch.Tensor, amax: torch.Tensor
+) -> torch.Tensor:
+    sf = sx.repeat_interleave(16, dim=1).view(torch.float8_e4m3fn).to(torch.float32)
+    dqx = fp4_to_fp32(unpack_fp4(qx))
+    sf = sf[: dqx.shape[0], : dqx.shape[1]]
+    dequant = dqx * sf * (amax / (6.0 * 448))
+    return dequant
+
+
 def dequantize_to_dtype(
     tensor_fp4, tensor_sf, global_scale, dtype, device, block_size=16
 ):
     """Dequantize the fp4 tensor back to high precision."""
     # Two fp4 values are packed into one uint8.
-    assert tensor_fp4.dtype == torch.float4_e2m1fn_x2
     m, packed_k = tensor_fp4.shape
     k = packed_k * 2
-    tensor_f32 = unpack_fp4_bytes(tensor_fp4, dtype)
-    tensor_f32 = tensor_f32.reshape(m, k // block_size, block_size)
     tensor_sf = tensor_sf.view(torch.float8_e4m3fn)
     tensor_sf = swizzled_to_linear_128_4(tensor_sf, m, k)
-    tensor_sf_dtype = tensor_sf.to(torch.float32) / global_scale
-
-    # scale the tensor
-    out = (tensor_f32 * tensor_sf_dtype.unsqueeze(-1)).reshape(m, k)
-    return out
+    out = dequantize_fp4(
+        tensor_fp4.view(torch.uint8), tensor_sf, (6.0 * 448.0) / global_scale
+    )
+    return out.reshape(m, k)
 
 
 # NOTE: This is from pytorch nvfp4 gemm tests.

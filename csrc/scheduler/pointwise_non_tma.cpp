@@ -18,6 +18,7 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+#include "exceptions.h"
 
 namespace nvfuser {
 namespace pointwise {
@@ -203,28 +204,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto index_type = prop.index_type;
   params->cparams.index_type = index_type;
 
-  constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   int64_t max_dtype_size_bit_for_vectorization =
       prop.max_dtype_size_bit_for_vectorization;
   const auto& vectorizable_inputs_outputs = prop.vectorizable_inputs_outputs;
-  auto max_vect_factor = ceilDiv(
-      // Available vectorization based on size of data type
-      (int64_t)kOneHundredTwentyEight / max_dtype_size_bit_for_vectorization,
-      // Reduce max vectorization factor if we have many inputs/outputs to
-      // vectorize as it could start consuming a lot of registers.
-      std::max(
-          (scheduler_utils::lastPow2(
-               (int64_t)vectorizable_inputs_outputs.size()) >>
-           2),
-          (int64_t)1));
-  // Don't vectorize at the cost of getting a full wave on the GPU
   int64_t n_elems = prop.n_elems;
   const auto device_multiprocessor_count = prop.device_multiprocessor_count;
-  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
-    max_vect_factor = std::min(
-        max_vect_factor,
-        ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
-  }
+  constexpr int64_t max_vectorization_size_in_bit = 128;
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -255,169 +240,64 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   // break point.
   int64_t gdim_right = 1;
 
-  TensorView* largest_out = prop.largest_out;
-  auto broadcast_info = HeuristicDataCacheEntry<
-      HeuristicCompileTime::BroadcastMultiples>(
-      data_cache, [&largest_out, &index_type]() {
-        return std::make_unique<scheduler_utils::BroadcastMultipleInformation>(
-            scheduler_utils::getBroadcastMultiples(largest_out, index_type));
-      });
-
-  auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
-  auto& broadcast_bit_multiples = broadcast_info.get().broadcast_multiples;
-  const auto& ref_loop = prop.ref_loop;
-  NVF_ERROR(broadcast_bit_multiples.size() == ref_loop.size());
-
-  int64_t dtype_sum_bit = 0;
-  for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
-    dtype_sum_bit += dataTypeSizeBit(inp->getDataType().value(), index_type);
-  }
-  for (auto out : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    dtype_sum_bit += dataTypeSizeBit(out->getDataType().value(), index_type);
+  // Only calculate break point if there's enough parallelism for 2D scheduling
+  pointwise_utils::BreakPointInfo bp_info;
+  if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
+    bp_info = pointwise_utils::getBreakPoint(
+        fusion,
+        prop,
+        data_cache,
+        /*is_tma =*/false,
+        max_vectorization_size_in_bit /
+            prop.max_dtype_size_bit_for_vectorization,
+        kThreadX);
+  } else {
+    // Use default 1D scheduling (break_point = 0)
+    bp_info.break_point = 0;
+    bp_info.flip_grid_binding = false;
+    bp_info.right_elem_count = 0;
+    bp_info.is_outer_broadcast_dominated = false;
   }
 
-  // Indicates whether the fusion is outer broadcast dominated or not.
-  bool is_outer_broadcast_dominated = false;
-  const auto& elem_counts = prop.elem_counts;
-  { // Figure out break point position. Empty scope, consider moving to a
-    // separate function.
-    //
-    // How much would this transfer cost if it was done as a 1-D schedule
-    int64_t transfer_size_1d_bit = 1;
-
-    for (const auto i : arange(ref_loop.size())) {
-      transfer_size_1d_bit =
-          transfer_size_1d_bit * elem_counts[i] * dtype_sum_bit;
-    }
-
-    // If there isn't very much parallelism available, just use 1D scheduler
-    if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
-      int64_t min_total_transfer_bit = std::numeric_limits<int64_t>::max();
-      int64_t threads_per_warp =
-          (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
-      // Don't check the inner most dimension, scheduler assumes there's always
-      // an rhs
-      for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
-        // If break point is incoherent with view, don't consider breaking here.
-        if (!scheduler_utils::breakIsDisjoint(
-                view_disjoint_sets, break_point_i)) {
-          continue;
-        }
-
-        // Number of elements in the right side of reference tv with
-        // break_point_i
-        int64_t cur_right_elem_count = 1;
-        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
-          cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
-        }
-
-        auto cur_left_elem_count = n_elems / cur_right_elem_count;
-        if (cur_left_elem_count <= 1) {
-          continue;
-        }
-
-        auto lhs_bit_multiple =
-            broadcast_bit_multiples[break_point_i].lhs_multiple;
-        auto rhs_bit_multiple =
-            broadcast_bit_multiples[break_point_i].rhs_multiple;
-
-        // Estimate transfer cost with this break point
-        int64_t cur_transfer_size_bit = 1;
-        int64_t right_transfer_size_bit = 1;
-
-        for (const auto left_i : arange(break_point_i)) {
-          cur_transfer_size_bit =
-              cur_transfer_size_bit * elem_counts[left_i] * lhs_bit_multiple;
-        }
-
-        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
-          right_transfer_size_bit =
-              right_transfer_size_bit * elem_counts[right_i] * rhs_bit_multiple;
-        }
-        cur_transfer_size_bit *= right_transfer_size_bit;
-
-        //  Continue if this break point doesn't save at least 10% of 1D
-        //  scheduling or isn't better than previous break_points found.
-        if (cur_transfer_size_bit >= min_total_transfer_bit ||
-            cur_transfer_size_bit * 10 >= transfer_size_1d_bit * 9) {
-          continue;
-        }
-
-        // Need to be able to parallelize, don't use break if there's not
-        // at least an unrolled warp.
-        if (ceilDiv(cur_right_elem_count, max_vect_factor) <=
-            at::cuda::getCurrentDeviceProperties()->warpSize) {
-          continue;
-        }
-
-        // If outer broadcast, or balanced broadcast:
-        if (lhs_bit_multiple <= rhs_bit_multiple &&
-            // If right transfer size is bigger than half of L2
-            at::cuda::getCurrentDeviceProperties()->l2CacheSize * 8 <
-                right_transfer_size_bit * 2) {
-          // flip BIDx and BIDy bindings
-          flip_grid_binding = true;
-        } else {
-          flip_grid_binding = false;
-        }
-        // Min transfer found, start setting values
-        // Start bdimx with 1 warp, increase if split is divisible
-        int64_t after_vect = ceilDiv(cur_right_elem_count, max_vect_factor);
-        bdimx = std::min(after_vect, threads_per_warp);
-        while (bdimx * 2 <= kThreadX && bdimx * 2 <= after_vect &&
-               after_vect % (bdimx * 2) == 0) {
-          bdimx *= 2;
-        }
-        bdimy = kThreadX / bdimx;
-        auto remainder_left = ceilDiv(cur_left_elem_count, bdimy);
-        auto remainder_right =
-            ceilDiv(cur_right_elem_count, bdimx * max_vect_factor);
-        // Use this break point
-        break_point = static_cast<int>(break_point_i);
-        min_total_transfer_bit = cur_transfer_size_bit;
-        right_elem_count = cur_right_elem_count;
-
-        gdim_left = remainder_left;
-        gdim_right = remainder_right;
-
-        // when lhs byte multiple is smaller than rhs byte multiple,
-        // there is broadcast in the lhs, which is outer broadcast.
-        is_outer_broadcast_dominated = lhs_bit_multiple < rhs_bit_multiple;
-      }
-    }
-  }
-
-  int64_t vectorization_factor = max_vect_factor;
-  // If we have sub-byte data types, we wouldn't want to clamp vectorization
-  // factor to 1, otherwise we could end up with illegal array type with
-  // sub-byte length.
-  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
-  // necessarily need vectorization, but rather just consecutive elements being
-  // handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
-        return dataTypeSizeBit(inp->getDataType().value()) < 8;
-      })) {
-    vectorization_factor = std::max(2l, max_vect_factor);
-  }
-  std::unordered_map<int64_t, int64_t> logical_reorder_map =
+  // Use unified function that handles all constraints internally
+  const int64_t vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      prop.largest_out,
+      data_cache,
+      bp_info.break_point,
+      max_vectorization_size_in_bit,
+      prop.min_dtype_size_bit_for_vectorization,
+      prop.max_dtype_size_bit_for_vectorization,
+      /*n_vectorizable_tensors=*/(int64_t)vectorizable_inputs_outputs.size(),
+      // should use the actual wave count, here just to keep consistency with
+      // the old code.
+      // TODO: check how should we limit the vectorization factor based on the
+      // wave count.
+      /*n_waves=*/n_elems > device_multiprocessor_count * kThreadX ? -1 : 1,
+      /*logical_reorder_map=*/
       pointwise_utils::getLogicalReorderMap(
-          largest_out, prop.has_reshapes, data_cache);
-  vectorization_factor = std::min(
-      vectorization_factor,
-      vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          largest_out,
-          data_cache,
-          break_point,
-          /*max_vectorization_size_in_bit=*/128,
-          logical_reorder_map));
+          prop.largest_out, prop.has_reshapes, data_cache));
   params->vectorization_factor = vectorization_factor;
 
-  // get unroll factor:
+  // Calculate block and grid configuration based on break point
+  auto config = pointwise_utils::getBlockGridConfig(
+      prop, bp_info, vectorization_factor, kThreadX);
 
+  // Extract results
+  break_point = config.break_point;
+  flip_grid_binding = config.flip_grid_binding;
+  right_elem_count = config.right_elem_count;
+  bdimx = config.bdimx;
+  bdimy = config.bdimy;
+  gdim_left = config.gdim_left;
+  gdim_right = config.gdim_right;
+  bool is_outer_broadcast_dominated = config.is_outer_broadcast_dominated;
+  const auto& elem_counts = prop.elem_counts;
+
+  // get unroll factor:
   int64_t total_blocks = break_point > 0
       ? gdim_left * gdim_right
-      : ceilDiv(n_elems / max_vect_factor, kThreadX);
+      : ceilDiv(n_elems / vectorization_factor, kThreadX);
   bool divisible_split = break_point > 0
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
@@ -454,6 +334,11 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    // Get broadcast info for debug output
+    TensorView* largest_out = prop.largest_out;
+    auto broadcast_info_for_debug =
+        scheduler_utils::getBroadcastMultiples(largest_out, index_type);
+
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
@@ -466,11 +351,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
             << "logical_reorder_map: ";
-    for (auto [i, j] : logical_reorder_map) {
+    for (auto [i, j] : pointwise_utils::getLogicalReorderMap(
+             prop.largest_out, prop.has_reshapes, data_cache)) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";
-    for (auto multiple : broadcast_bit_multiples) {
+    for (auto multiple : broadcast_info_for_debug.broadcast_multiples) {
       debug() << "(" << multiple.lhs_multiple << ", " << multiple.rhs_multiple
               << "), ";
     }

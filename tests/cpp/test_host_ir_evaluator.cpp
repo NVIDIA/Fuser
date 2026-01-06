@@ -61,7 +61,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
     auto launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
-        CompileParams(),
+        hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in},
         std::vector<Val*>{out},
         cache_id);
@@ -125,17 +125,17 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
         /*stop=*/IrBuilder::create<Val>(3, DataType::Int));
     {
       auto* y = mul(loop_index, IrBuilder::create<Val>(2, DataType::Int));
-      for_loop->body().push_back(y->definition());
+      for_loop->body().pushBack(y->definition());
       y = add(y, IrBuilder::create<Val>(1, DataType::Int));
-      for_loop->body().push_back(y->definition());
+      for_loop->body().pushBack(y->definition());
       auto* launch_kernel = IrBuilder::create<LaunchKernel>(
           0,
           LaunchParams(),
-          CompileParams(),
+          hic->getKernelExecutor(0).compiledKernel().get(),
           std::vector<Val*>{x, y},
           std::vector<Val*>{x},
           cache_id);
-      for_loop->body().push_back(launch_kernel);
+      for_loop->body().pushBack(launch_kernel);
     }
 
     hic->addInput(x);
@@ -200,11 +200,11 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
     auto* launch_kernel = IrBuilder::create<LaunchKernel>(
         0,
         LaunchParams(),
-        CompileParams(),
+        hic->getKernelExecutor(0).compiledKernel().get(),
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
         cache_id);
-    for_loop->body().push_back(launch_kernel);
+    for_loop->body().pushBack(launch_kernel);
 
     hic->pushBackTopLevelExprs(allocate_out);
     hic->pushBackTopLevelExprs(for_loop);

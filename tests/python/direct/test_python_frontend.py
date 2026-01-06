@@ -25,7 +25,8 @@ from python.direct_utils import (
 
 from python.direct_utils.narrow_precision import (
     pytorch_nvfp4_quantize,
-    unpack_fp4_bytes,
+    fp4_to_fp32,
+    unpack_fp4,
 )
 
 
@@ -102,12 +103,13 @@ def test_define_contiguous_tensor(nvfuser_direct_test):
 
 
 def test_define_noncontiguous_tensor(nvfuser_direct_test):
+    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
+
     def fusion_func(fd: FusionDefinition):
-        inp = fd.define_tensor([2, 3])
+        inp = fd.from_pytorch(in_tensor)
         out = fd.ops.add(inp, inp)
         fd.add_output(out)
 
-    in_tensor = torch.randn(8, device="cuda").as_strided([2, 3], [4, 1])
     out_tensors, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, [in_tensor])
     nvfuser_direct_test.assertEqual(out_tensors[0], in_tensor * 2)
 
@@ -412,8 +414,9 @@ def test_execute_with_tuple_and_list(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
     inputs_with_tuple = [tensor, tuple(new_shape)]
-    # expect to reuse fusion
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs_with_tuple)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs_with_tuple, new_fusion_expected=False
+    )
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
@@ -575,12 +578,12 @@ def test_expand(nvfuser_direct_test):
         t1 = fd.from_pytorch(inputs[1])
 
         t0_b = fd.ops.expand(t0, inputs[1].size())
-        t2 = fd.ops.add(t0_b, t1)
+        t2 = fd.ops.mul(t0_b, t1)
 
         fd.add_output(t2)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    eager_out = inputs[0].expand(inputs[1].size()) + inputs[1]
+    eager_out = inputs[0].expand(inputs[1].size()) * inputs[1]
     nvfuser_direct_test.assertEqual(eager_out, nvf_out[0])
 
 
@@ -1996,7 +1999,9 @@ def test_tensor_shape_with_output_bcast(nvfuser_direct_test):
 
     # Testing Dynamic usage of same Fusion
     inputs = inputs_2
-    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvf_out, _ = nvfuser_direct_test.exec_nvfuser(
+        fusion_func, inputs, new_fusion_expected=False
+    )
     eager_out = prims.broadcast_in_dim(
         torch.sum(inputs[0], dim=-1), inputs[0].size(), [0, 1]
     )
@@ -2697,7 +2702,7 @@ def test_packed_fp4(nvfuser_direct_test):
         fd.add_output(T2)
 
     out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
-    ref = unpack_fp4_bytes(t0_fp4, torch.float32).relu()
+    ref = fp4_to_fp32(unpack_fp4(t0_fp4.view(torch.uint8))).relu()
     nvfuser_direct_test.assertEqual(out[0], ref)
 
 
@@ -2737,3 +2742,24 @@ def test_broadcast_in_dim_no_redundant_set(nvfuser_direct_test):
     # by comparing the IR string representations - they should be identical since
     # broadcast is a no-op in this case
     assert str(fd_bid) == str(fd_exp)
+
+
+def test_expanded_to_size_one(nvfuser_direct_test):
+    """
+    Test expanded to size one, which was failing a false positive assert
+    """
+    inputs = [
+        torch.randint(0, 10, (1, 1), device="cuda"),
+    ]
+
+    def fusion_func(fd: FusionDefinition):
+        tv0 = fd.define_tensor(
+            shape=[1, -1], contiguity=[None, None], dtype=DataType.Int
+        )
+        fd.add_output(tv0)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
+    nvfuser_direct_test.assertEqual(out[0], inputs[0])

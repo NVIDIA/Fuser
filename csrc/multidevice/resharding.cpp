@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <multidevice/resharding.h>
+#include "multidevice/resharding.h"
 
 #include <algorithm>
 #include <ranges>
@@ -14,21 +14,21 @@
 #include <utility>
 #include <vector>
 
-#include <device_lower/utils.h>
-#include <expr_simplifier.h>
-#include <fusion_guard.h>
-#include <instrumentation.h>
-#include <ir/builder.h>
-#include <ir/container.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <statement_guard.h>
-#include <transform_replay.h>
-#include <type.h>
+#include "device_lower/utils.h"
+#include "expr_simplifier.h"
+#include "fusion_guard.h"
+#include "instrumentation.h"
+#include "ir/builder.h"
+#include "ir/container.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "statement_guard.h"
+#include "transform_replay.h"
+#include "type.h"
 
 namespace nvfuser {
 

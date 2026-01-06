@@ -12,12 +12,12 @@ from python.direct_utils import (
     create_sdpa_rng_tensors,
     is_pre_ampere,
 )
-from benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns, Parallelism
 
 
 @pytest.mark.mpi
-def test_grouped_mlp(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_grouped_mlp(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16
@@ -59,9 +59,9 @@ def test_grouped_mlp(multidevice_direct_test):
     gate_w = torch.randn(g, k, n, dtype=torch.bfloat16)
     up_w = torch.randn(g, k, n, dtype=torch.bfloat16)
     down_w = torch.randn(g, n, k, dtype=torch.bfloat16)
-    sharded_gate_w = multidevice_direct_test.shard_tensor(gate_w, -1, mesh)
-    sharded_up_w = multidevice_direct_test.shard_tensor(up_w, -1, mesh)
-    sharded_down_w = multidevice_direct_test.shard_tensor(down_w, -2, mesh)
+    sharded_gate_w = multidevice_test.shard_tensor(gate_w, -1, mesh)
+    sharded_up_w = multidevice_test.shard_tensor(up_w, -1, mesh)
+    sharded_down_w = multidevice_test.shard_tensor(down_w, -2, mesh)
     assert m % g == 0
     group_sizes = [m // g] * g
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
@@ -264,7 +264,7 @@ def transformer_forward_definition(
     S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
     S118 = fd.define_scalar(True, dtype=DataType.Bool)
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
-        T109, T102, T116, S117, S118, None
+        T109, T102, T116, dropout_p=S117, is_causal=S118, scale=None
     )
     T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
     T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
@@ -349,24 +349,12 @@ def transformer_forward_definition(
     fd.add_output(out)
 
 
-def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
+def transformer_forward_multidevice_schedule(
+    fd: FusionDefinition, num_devices: int, parallelism: Parallelism
+):
     mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
     inputs = fd.fusion.inputs()
-    inp = inputs[0]
-    layernorm0_weight = inputs[1]
-    layernorm0_bias = inputs[2]
-    mha_linear0_weight = inputs[3]
-    mha_linear0_bias = inputs[4]
-    mha_linear1_weight = inputs[5]
-    mha_linear1_bias = inputs[6]
-    layernorm1_weight = inputs[7]
-    layernorm1_bias = inputs[8]
-    mlp_linear0_weight = inputs[9]
-    mlp_linear0_bias = inputs[10]
-    mlp_linear1_weight = inputs[11]
-    mlp_linear1_bias = inputs[12]
-
-    for tv in [
+    (
         inp,
         layernorm0_weight,
         layernorm0_bias,
@@ -380,8 +368,14 @@ def transformer_forward_multidevice_schedule(fd: FusionDefinition, num_devices: 
         mlp_linear0_bias,
         mlp_linear1_weight,
         mlp_linear1_bias,
-    ]:
+    ) = inputs
+
+    for tv in inputs:
         tv.set_device_mesh(mesh)
+
+    if parallelism == Parallelism.SEQUENCE_PARALLEL:
+        inp.outer_split(1, num_devices)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
         mha_linear0_weight,
@@ -413,9 +407,14 @@ def _assert_shape_dtype(
     is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=lambda p: p.name,
+)
 @pytest.mark.mpi
-def test_transformer_forward(multidevice_direct_test, benchmark):
-    d = multidevice_direct_test.size
+def test_transformer_forward(multidevice_test, benchmark, parallelism: Parallelism):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     b, s, h, e = 1, 2048, 96, 12288
@@ -426,7 +425,8 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
 
     if h % d != 0:
         pytest.skip(
-            f"We only support even DID split, so the number of heads ({h}) has to be divisible by the number of GPUs ({d})."
+            f"We only support even DID split, so the number of heads ({h}) has \
+            to be divisible by the number of GPUs ({d})."
         )
 
     assert e * 4 % d == 0, (
@@ -435,10 +435,17 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         "error. So I use `assert` instead of `pytest.skip`."
     )
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    if parallelism == Parallelism.SEQUENCE_PARALLEL and s % d != 0:
+        pytest.skip(
+            f"Sequence length {s} must be divisible by the number \
+                    of devices {d} for sequence parallelism."
+        )
+
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
+    inp = torch.testing.make_tensor(b, s, e, dtype=torch.bfloat16, device="cpu")
     mha_linear0_weight = torch.testing.make_tensor(
         e * 3, e, dtype=torch.bfloat16, device="cpu"
     )
@@ -462,24 +469,26 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
     # arguments. They are passed in in the same order as the `define_scalar`s
     # and `define_tensor`s.
     ins = [
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
+        inp.cuda()
+        if parallelism == Parallelism.TENSOR_PARALLEL
+        else multidevice_test.shard_tensor(inp, 1, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear0_bias, 0, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
         torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        multidevice_direct_test.shard_tensor(mlp_linear0_weight, 0, mesh),
-        multidevice_direct_test.shard_tensor(mlp_linear0_bias, 0, mesh),
-        multidevice_direct_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
         torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
     ]
 
     with FusionDefinition() as fd:
         transformer_forward_definition(fd, b, s, h, e)
-        transformer_forward_multidevice_schedule(fd, d)
+        transformer_forward_multidevice_schedule(fd, d, parallelism)
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
@@ -501,21 +510,23 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
         out,
     ) = warmup_fn()
 
-    _assert_shape_dtype(layernorm0_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm0_rstd, [b, s, 1], torch.float32)
+    s_local = s // d if parallelism == Parallelism.SEQUENCE_PARALLEL else s
+
+    _assert_shape_dtype(layernorm0_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm0_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mha_linear0_out, [b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [b, h // d, s], torch.float32)
     ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
     _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
     _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
-    _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
-    _assert_shape_dtype(mha_dropout_mask, [b, s, e], torch.bool)
-    _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
-    _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
+    _assert_shape_dtype(mha_linear1_out, [b, s_local, e], torch.bfloat16)
+    _assert_shape_dtype(mha_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(layernorm1_mean, [b, s_local], torch.float32)
+    _assert_shape_dtype(layernorm1_rstd, [b, s_local, 1], torch.float32)
     _assert_shape_dtype(mlp_linear0_out, [b, s, e * 4 // d], torch.bfloat16)
-    _assert_shape_dtype(mlp_dropout_mask, [b, s, e], torch.bool)
-    _assert_shape_dtype(out, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(mlp_dropout_mask, [b, s_local, e], torch.bool)
+    _assert_shape_dtype(out, [b, s_local, e], torch.bfloat16)
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
@@ -523,7 +534,13 @@ def test_transformer_forward(multidevice_direct_test, benchmark):
 
 
 def transformer_backward_definition(
-    fd: FusionDefinition, batch: int, sequence: int, head: int, hidden: int
+    fd: FusionDefinition,
+    batch: int,
+    sequence: int,
+    head: int,
+    hidden: int,
+    parallelism: Parallelism,
+    num_devices: int,
 ) -> None:
     b, s, h, e = batch, sequence, head, hidden
 
@@ -691,10 +708,10 @@ def transformer_backward_definition(
     T27 = fd.ops.mul(S26, T24)
     T28 = fd.ops.cast(fd.mlp_dropout_mask, dtype=DataType.Float)
     T29 = fd.ops.mul(T25, T23)
-    T30 = fd.ops.mul(T28, T27)
+    mlp_linear1_out_grad = fd.ops.mul(T28, T27)
     S31 = fd.define_scalar(0.0447150, dtype=DataType.Double)
     T32 = fd.ops.mul(S31, T29)
-    T33 = fd.ops.cast(T30, dtype=DataType.BFloat16)
+    T33 = fd.ops.cast(mlp_linear1_out_grad, dtype=DataType.BFloat16)
     T34 = fd.ops.add(T23, T32)
     T38 = fd.ops.reshape(T33, new_shape=[b * s, e])
     S39 = fd.define_scalar(0.797885, dtype=DataType.Double)
@@ -732,7 +749,7 @@ def transformer_backward_definition(
     T78 = fd.ops.cast(fd.mha_linear1_out, dtype=DataType.Float)
     T79 = fd.ops.matmul(T76, fd.mlp_linear0_weight)
     T80 = fd.ops.mul(T78, T77)
-    T85 = fd.ops.reshape(T79, new_shape=[b, s, e])
+    layernorm1_out_grad = fd.ops.reshape(T79, new_shape=[b, s, e])
     T90 = fd.ops.broadcast_in_dim(
         fd.layernorm1_weight, shape=[b, s, e], broadcast_dims=[2]
     )
@@ -742,7 +759,7 @@ def transformer_backward_definition(
     S96 = fd.define_scalar(1.11111, dtype=DataType.Double)
     T97 = fd.ops.mul(T80, S96)
     T98 = fd.ops.cast(fd.inp, dtype=DataType.Float)
-    T99 = fd.ops.cast(T85, dtype=DataType.Float)
+    T99 = fd.ops.cast(layernorm1_out_grad, dtype=DataType.Float)
     T100 = fd.ops.cast(T90, dtype=DataType.Float)
     T105 = fd.ops.broadcast_in_dim(T95, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T106 = fd.ops.add(T98, T97)
@@ -789,8 +806,8 @@ def transformer_backward_definition(
     T185 = fd.ops.add(T184, T183)
     S186 = fd.define_scalar(1.11111, dtype=DataType.Double)
     T187 = fd.ops.mul(S186, T185)
-    T188 = fd.ops.mul(T77, T187)
-    T189 = fd.ops.cast(T188, dtype=DataType.BFloat16)
+    mha_linear1_out_grad = fd.ops.mul(T77, T187)
+    T189 = fd.ops.cast(mha_linear1_out_grad, dtype=DataType.BFloat16)
     T193 = fd.ops.reshape(T189, new_shape=[b * s, e])
     T194 = fd.ops.matmul(T193, fd.mha_linear1_weight)
 
@@ -847,14 +864,14 @@ def transformer_backward_definition(
     T291 = fd.ops.reshape(T290, new_shape=[b, s, 3 * e])
     T294 = fd.ops.reshape(T291, new_shape=[b * s, 3 * e])
     T295 = fd.ops.matmul(T294, fd.mha_linear0_weight)
-    T300 = fd.ops.reshape(T295, new_shape=[b, s, e])
+    layernorm0_out_grad = fd.ops.reshape(T295, new_shape=[b, s, e])
     T305 = fd.ops.broadcast_in_dim(
         fd.layernorm0_weight, shape=[b, s, e], broadcast_dims=[2]
     )
     T310 = fd.ops.broadcast_in_dim(
         fd.layernorm0_mean, shape=[b, s, 1], broadcast_dims=[0, 1]
     )
-    T311 = fd.ops.cast(T300, dtype=DataType.Float)
+    T311 = fd.ops.cast(layernorm0_out_grad, dtype=DataType.Float)
     T312 = fd.ops.cast(T305, dtype=DataType.Float)
     T317 = fd.ops.broadcast_in_dim(T310, shape=[b, s, e], broadcast_dims=[0, 1, 2])
     T318 = fd.ops.mul(T312, T311)
@@ -927,7 +944,9 @@ def transformer_backward_definition(
     T431 = fd.ops.sum(T418, dims=[0, 1], keepdim=False, dtype=DataType.Null)
     T435 = fd.ops.reshape(T419, new_shape=[b * s, e])
     T436 = fd.ops.permute(T294, dims=[1, 0])
-    T437 = fd.ops.sum(T188, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T437 = fd.ops.sum(
+        mha_linear1_out_grad, dims=[0, 1], keepdim=False, dtype=DataType.Null
+    )
     T441 = fd.ops.reshape(T424, new_shape=[b * s, e])
     T442 = fd.ops.permute(T193, dims=[1, 0])
     T443 = fd.ops.sum(T425, dims=[0, 1], keepdim=False, dtype=DataType.Null)
@@ -935,7 +954,9 @@ def transformer_backward_definition(
     T445 = fd.ops.sum(T71, dims=[0, 1], keepdim=False, dtype=DataType.Null)
     T449 = fd.ops.reshape(T426, new_shape=[b * s, e])
     T450 = fd.ops.permute(T76, dims=[1, 0])
-    T451 = fd.ops.sum(T30, dims=[0, 1], keepdim=False, dtype=DataType.Null)
+    T451 = fd.ops.sum(
+        mlp_linear1_out_grad, dims=[0, 1], keepdim=False, dtype=DataType.Null
+    )
     T455 = fd.ops.reshape(T427, new_shape=[b * s, e * 4])
     T456 = fd.ops.permute(T38, dims=[1, 0])
     inp_grad = fd.ops.cast(T428, dtype=DataType.BFloat16)
@@ -964,84 +985,106 @@ def transformer_backward_definition(
     fd.add_output(layernorm0_bias_grad)
     fd.add_output(layernorm0_weight_grad)
     fd.add_output(inp_grad)
-
-
-def transformer_backward_multidevice_schedule(fd: FusionDefinition, num_devices: int):
     mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
     inputs = fd.fusion.inputs()
-    (
-        mlp_linear0_out,
-        out_grad,
-        mlp_dropout_mask,
-        mlp_linear1_weight,
-        mha_dropout_mask,
-        mha_linear1_out,
-        mlp_linear0_weight,
-        layernorm1_weight,
-        layernorm1_mean,
-        inp,
-        layernorm1_rstd,
-        mha_linear1_weight,
-        mha_linear0_out,
-        sdpa_out,
-        sdpa_logsum_exp,
-        sdpa_seed,
-        sdpa_offset,
-        mha_linear0_weight,
-        layernorm0_weight,
-        layernorm0_mean,
-        layernorm0_rstd,
-        layernorm0_bias,
-        layernorm1_bias,
-    ) = inputs
     for tv in inputs:
         tv.set_device_mesh(mesh)
 
     for tv in [
-        mha_linear0_weight,
-        mlp_linear0_weight,
+        fd.mha_linear0_weight,
+        fd.mlp_linear0_weight,
     ]:
         tv.outer_split(0, num_devices)
         tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
-        sdpa_out,
-        sdpa_logsum_exp,
+        fd.sdpa_out,
+        fd.sdpa_logsum_exp,
     ]:
         tv.outer_split(1, num_devices)
         tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     for tv in [
-        mlp_linear0_out,
-        mha_linear0_out,
-        mha_linear1_weight,
-        mlp_linear1_weight,
+        fd.mlp_linear0_out,
+        fd.mha_linear0_out,
+        fd.mha_linear1_weight,
+        fd.mlp_linear1_weight,
     ]:
         tv.outer_split(-1, num_devices)
         tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    if parallelism == Parallelism.SEQUENCE_PARALLEL:
+        for tv in [
+            fd.out_grad,
+            fd.mlp_dropout_mask,
+            fd.mha_dropout_mask,
+            fd.mha_linear1_out,
+            fd.layernorm1_mean,
+            fd.layernorm1_rstd,
+            fd.inp,
+            fd.layernorm0_mean,
+            fd.layernorm0_rstd,
+        ]:
+            tv.outer_split(1, num_devices)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+        # Manually scheduling intermediate tensorviews to avoid
+        # sub-optimal communication. See Issue #5673 for details.
+        for tv in [mha_linear0_weight_grad, mlp_linear0_weight_grad]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(0, num_devices)
+            tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        for tv in [mlp_linear1_out_grad, mha_linear1_out_grad]:
+            tv.set_device_mesh(mesh)
+
+        for tv in [layernorm0_out_grad, layernorm1_out_grad]:
+            tv.set_device_mesh(mesh)
+            tv.outer_split(1, num_devices)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
 
 @pytest.mark.skipif(
     is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=lambda p: p.name,
+)
 @pytest.mark.mpi
-def test_transformer_backward(multidevice_direct_test, benchmark):
-    d = multidevice_direct_test.size
+def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallelism):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(range(d))
 
     b, s, h, e = 1, 2048, 96, 12288
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     mlp_linear0_out = torch.testing.make_tensor(
         b, s, e * 4, dtype=torch.bfloat16, device="cpu"
     )
+    out_grad = torch.testing.make_tensor(b, s, e, dtype=torch.bfloat16, device="cpu")
+    mlp_dropout_mask = torch.testing.make_tensor(
+        b, s, e, dtype=torch.bool, device="cpu"
+    )
     mlp_linear1_weight = torch.testing.make_tensor(
         e, e * 4, dtype=torch.bfloat16, device="cpu"
     )
+    mha_dropout_mask = torch.testing.make_tensor(
+        b, s, e, dtype=torch.bool, device="cpu"
+    )
+    mha_linear1_out = torch.testing.make_tensor(
+        b, s, e, dtype=torch.bfloat16, device="cpu"
+    )
     mlp_linear0_weight = torch.testing.make_tensor(
         e * 4, e, dtype=torch.bfloat16, device="cpu"
+    )
+    layernorm1_mean = torch.testing.make_tensor(b, s, dtype=torch.float32, device="cpu")
+    inp = torch.testing.make_tensor(b, s, e, dtype=torch.bfloat16, device="cpu")
+    layernorm1_rstd = torch.testing.make_tensor(
+        b, s, 1, dtype=torch.float32, device="cpu"
     )
     mha_linear1_weight = torch.testing.make_tensor(
         e, e, dtype=torch.bfloat16, device="cpu"
@@ -1059,44 +1102,56 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
     mha_linear0_weight = torch.testing.make_tensor(
         e * 3, e, dtype=torch.bfloat16, device="cpu"
     )
+    layernorm0_mean = torch.testing.make_tensor(b, s, dtype=torch.float32, device="cpu")
+    layernorm0_rstd = torch.testing.make_tensor(
+        b, s, 1, dtype=torch.float32, device="cpu"
+    )
     sdpa_philox_seed, sdpa_philox_offset = create_sdpa_rng_tensors()
+
+    def maybe_shard_sequence(tensor):
+        if parallelism == Parallelism.SEQUENCE_PARALLEL:
+            return multidevice_test.shard_tensor(tensor, 1, mesh)
+        else:
+            return tensor.cuda()
+
     ins = [
-        multidevice_direct_test.shard_tensor(mlp_linear0_out, -1, mesh),
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
-        multidevice_direct_test.shard_tensor(mlp_linear1_weight, -1, mesh),
-        torch.testing.make_tensor((b, s, e), dtype=torch.bool, device="cuda"),
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        multidevice_direct_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_out, -1, mesh),
+        maybe_shard_sequence(out_grad),
+        maybe_shard_sequence(mlp_dropout_mask),
+        multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        maybe_shard_sequence(mha_dropout_mask),
+        maybe_shard_sequence(mha_linear1_out),
+        multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
-        torch.testing.make_tensor((b, s, e), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
-        multidevice_direct_test.shard_tensor(mha_linear1_weight, -1, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear0_out, -1, mesh),
-        multidevice_direct_test.shard_tensor(sdpa_out, 1, mesh)
+        maybe_shard_sequence(layernorm1_mean),
+        maybe_shard_sequence(inp),
+        maybe_shard_sequence(layernorm1_rstd),
+        multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mha_linear0_out, -1, mesh),
+        multidevice_test.shard_tensor(sdpa_out, 1, mesh)
         .transpose(1, 2)
         .contiguous()
         .transpose(1, 2),
-        multidevice_direct_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
+        multidevice_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
         sdpa_philox_seed,
         sdpa_philox_offset,
-        multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
-        torch.testing.make_tensor((b, s, 1), dtype=torch.float32, device="cuda"),
+        maybe_shard_sequence(layernorm0_mean),
+        maybe_shard_sequence(layernorm0_rstd),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
     ]
 
     with FusionDefinition() as fd:
-        transformer_backward_definition(fd, b, s, h, e)
-        transformer_backward_multidevice_schedule(fd, d)
+        transformer_backward_definition(fd, b, s, h, e, parallelism, d)
 
     # Resize scheduler disabled due to #4890
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: fd.execute(ins, _disable_options=["resize_scheduler"])
     )
+
+    s_local = s // d if parallelism == Parallelism.SEQUENCE_PARALLEL else s
 
     (
         mlp_linear1_weight_grad,
@@ -1125,6 +1180,6 @@ def test_transformer_backward(multidevice_direct_test, benchmark):
     _assert_shape_dtype(mha_linear0_bias_grad, [e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(layernorm0_bias_grad, [e], torch.bfloat16)
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
-    _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
+    _assert_shape_dtype(inp_grad, [b, s_local, e], torch.bfloat16)
 
     benchmark.pedantic(benchmark_fn, rounds=5)

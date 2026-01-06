@@ -1489,8 +1489,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   bool is_concretized = false;
 
-  for (const auto i : arange((int64_t)root_domain.size())) {
-    auto root_id = root_domain.at(i);
+  for (IterDomain* root_id : root_domain) {
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -1529,8 +1528,9 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           consumer->toString(),
           ". Replacement is ",
           maybeMutated(input_id)->toString());
-      NVF_ERROR(
-          input_id->getIterType() != IterType::Symbolic,
+      NVF_ERROR_NE(
+          input_id->getIterType(),
+          IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
 

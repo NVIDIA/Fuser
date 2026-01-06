@@ -1050,7 +1050,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   c10::DeviceGuard dg(compiled_kernel_->device());
   auto stream = at::cuda::getCurrentCUDAStream();
-  at::cuda::jit::initializeCudaContext();
+  executor_utils::initializeCudaContext();
   NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
@@ -1308,6 +1308,13 @@ KernelArgumentHolder KernelExecutor::run(
         CUlaunchAttribute attribute;
         attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
         attribute.value.cooperative = 1;
+        launch_attributes.push_back(attribute);
+      }
+
+      if (kernel_summary.enable_programmatic_dependent_launch) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
+        attribute.value.programmaticStreamSerializationAllowed = 1;
         launch_attributes.push_back(attribute);
       }
 

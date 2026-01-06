@@ -5,9 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "host_ir/jit.h"
+
+#include <cstdint>
 #include <memory>
+#include <ranges>
 #include <unordered_map>
 
+#include <ATen/ATen.h>
+#include <ATen/core/LegacyTypeDispatch.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/llvm_jit_strings.h>
+#include <ATen/native/cuda/jit_utils.h>
+#include <c10/core/DeviceGuard.h>
+#include <c10/core/MemoryFormat.h>
+#include <c10/cuda/CUDAFunctions.h>
+#include <c10/cuda/CUDAStream.h>
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ExecutionEngine/Orc/CompileUtils.h"
 #include "llvm/ExecutionEngine/Orc/IRCompileLayer.h"
@@ -21,56 +34,33 @@
 #include "llvm/Support/TargetSelect.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include <ATen/ATen.h>
-#include <c10/core/MemoryFormat.h>
+#include "driver_api.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor.h"
 
-#include <bfs.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/jit.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <linked_hash_map.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <runtime/fusion_kernel_runtime.h>
-#include <val_graph_visitor.h>
-
-#include <ranges>
+#include "bfs.h"
+#include "expr_evaluator.h"
+#include "fusion_profiler.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/jit_constants.h"
+#include "host_ir/jit_external.h"
+#include "host_ir/jit_tensor_utils.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "linked_hash_map.h"
+#include "ops/all_ops.h"
+#include "polymorphic_value.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/fusion_executor_cache.h"
+#include "runtime/fusion_kernel_runtime.h"
+#include "tensor_metadata.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
 // cacheId, inputTensors, outputTensors
 using main_func_t = void (*)(int64_t, const void**, void**);
-constexpr std::string_view kMainFuncName = "main";
-constexpr std::string_view kTensorSizeFuncName = "tensor_size";
-constexpr std::string_view kTensorStrideFuncName = "tensor_stride";
-constexpr std::string_view kNewTensorFuncName = "new_tensor";
-constexpr std::string_view kDeleteTensorFuncName = "delete_tensor";
-constexpr std::string_view kSetTensorFuncName = "set_tensor";
-constexpr std::string_view kAtEmptyStridedCudaWrapper = "at_empty_strided_cuda";
-constexpr std::string_view kAtTensorType = "at.Tensor";
-constexpr std::string_view kNvtxRangePushFuncName = "nvtx_range_push";
-constexpr std::string_view kNvtxRangePopFuncName = "nvtx_range_pop";
-constexpr std::string_view kLaunchKernelFuncName = "launch_kernel";
-constexpr std::string_view kMatmulFuncName = "matmul";
-constexpr std::string_view kMatmulOutFuncName = "matmul_out";
-constexpr std::string_view kLinearFuncName = "linear";
-constexpr std::string_view kLinearOutFuncName = "linear_out";
-constexpr std::string_view kPermuteFuncName = "permute";
-constexpr std::string_view kReshapeFuncName = "reshape";
-constexpr std::string_view kMainFuncOutputTensorName =
-    "output_aten_tensor_addr";
-constexpr size_t kMaxTensorDim = 8;
-
-llvm::Value* getOrCreateValueForExtent(
-    IterDomain* id,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
-llvm::Value* getOrCreateValue(
-    Val* val,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder);
 
 // Pimpl for HostIrJit
 struct HostIrJitImpl {
@@ -122,7 +112,9 @@ llvm::Type* getInt8PtrType(llvm::LLVMContext& context) {
   return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
 }
 
-llvm::Type* getInt8PtrStaticArrayType(llvm::LLVMContext& context, size_t size) {
+llvm::Type* getInt8PtrStaticArrayType(
+    llvm::LLVMContext& context,
+    int64_t size) {
   return llvm::ArrayType::get(getInt8PtrType(context), size);
 }
 
@@ -141,7 +133,7 @@ llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
 
 llvm::ArrayType* getInt64StaticArrayType(
     llvm::LLVMContext& context,
-    size_t size) {
+    int64_t size) {
   return llvm::ArrayType::get(llvm::Type::getInt64Ty(context), size);
 }
 
@@ -168,44 +160,6 @@ void insertNvtxRangePop(llvm::IRBuilder<>& builder) {
   builder.CreateCall(nvtx_range_pop_func, {});
 }
 
-// Helper function to generate LLVM IR that extracts tensor size for a given
-// dimension
-llvm::Value* createTensorSize(
-    llvm::Value* tensor,
-    int64_t dim,
-    llvm::IRBuilder<>& builder) {
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* tensor_size_func = module->getFunction(kTensorSizeFuncName);
-  llvm::Value* dim_val = builder.getInt64(dim);
-
-  return builder.CreateCall(tensor_size_func, {tensor, dim_val});
-}
-
-// Helper function to generate LLVM IR that extracts tensor stride for a given
-// dimension
-llvm::Value* createTensorStride(
-    llvm::Value* tensor,
-    int64_t dim,
-    llvm::IRBuilder<>& builder) {
-  llvm::Module* module = builder.GetInsertBlock()->getParent()->getParent();
-  llvm::Function* tensor_stride_func =
-      module->getFunction(kTensorStrideFuncName);
-  llvm::Value* dim_val = builder.getInt64(dim);
-
-  return builder.CreateCall(tensor_stride_func, {tensor, dim_val});
-}
-
-// Helper function to register external functions in JIT
-void registerExternalFunction(
-    void* func_ptr,
-    llvm::orc::SymbolMap& symbolMap,
-    llvm::orc::MangleAndInterner& mangler,
-    std::string_view func_name) {
-  auto addr = llvm::orc::ExecutorAddr::fromPtr(func_ptr);
-  symbolMap[mangler(func_name)] =
-      llvm::orc::ExecutorSymbolDef(addr, llvm::JITSymbolFlags::Exported);
-}
-
 // Helper function to print generated LLVM IR after each node is processed
 void printLlvmIr(llvm::Function* func, std::string_view msg) {
   llvm::outs() << "=== LLVM IR After Generating " << msg << " ===\n";
@@ -225,9 +179,15 @@ void checkMemoryLeak(llvm::Module& module) {
             called_func != nullptr,
             "LLVM Lowering Error: called an indirect function");
 
-        // If a function returns a tensor ptr, it's an allocation function
         auto* return_type = called_func->getReturnType();
-        if (return_type == getTensorPtrType(context)) {
+        auto func_name = called_func->getName().str();
+
+        // Note: In opaque pointer mode (default since LLVM 15), all pointers
+        // are evaluated with the same (ptr) type. We need to exclude helper
+        // functions that return data pointers but don't allocate tensors.
+        if (return_type == getTensorPtrType(context) &&
+            func_name != kTensorDataPtrFuncName) {
+          // (new_tensor, set_tensor, reshape, permute, etc.)
           allocated_tensors.insert(call);
           continue;
         }
@@ -262,239 +222,6 @@ void checkMemoryLeak(llvm::Module& module) {
       "Memory leak detected: ",
       allocated_tensors.size(),
       " tensors allocated but not deallocated");
-}
-
-llvm::Value* createValueForBinaryOp(
-    BinaryOp* binary_op,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  auto* lhs = binary_op->lhs();
-  auto* rhs = binary_op->rhs();
-  llvm::Value* lhs_value = getOrCreateValue(lhs, val_to_value, builder);
-  llvm::Value* rhs_value = getOrCreateValue(rhs, val_to_value, builder);
-  if (binary_op->getBinaryOpType() == BinaryOpType::Add) {
-    return builder.CreateAdd(lhs_value, rhs_value);
-  }
-  if (binary_op->getBinaryOpType() == BinaryOpType::Sub) {
-    return builder.CreateSub(lhs_value, rhs_value);
-  }
-  if (binary_op->getBinaryOpType() == BinaryOpType::Mul) {
-    return builder.CreateMul(lhs_value, rhs_value);
-  }
-  if (binary_op->getBinaryOpType() == BinaryOpType::CeilDiv) {
-    // Implement ceilDiv as (a + b - 1) / b
-    llvm::Value* numerator = builder.CreateAdd(lhs_value, rhs_value);
-    llvm::Value* one = builder.getInt64(1);
-    numerator = builder.CreateSub(numerator, one);
-    return builder.CreateUDiv(numerator, rhs_value);
-  }
-  NVF_THROW(
-      "LLVM Lowering Error: Unsupported binary operation type in extent "
-      "calculation: ",
-      binary_op->getBinaryOpType());
-}
-
-llvm::Value* createValueForUnaryOp(
-    UnaryOp* unary_op,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  auto* in = unary_op->in();
-  llvm::Value* in_value = getOrCreateValue(in, val_to_value, builder);
-  if (unary_op->getUnaryOpType() == UnaryOpType::Cast) {
-    return in_value;
-  }
-  if (unary_op->getUnaryOpType() == UnaryOpType::Abs) {
-    llvm::Value* is_negative =
-        builder.CreateICmpSLT(in_value, builder.getInt64(0));
-    llvm::Value* negated = builder.CreateNeg(in_value);
-    return builder.CreateSelect(is_negative, negated, in_value);
-  }
-  if (unary_op->getUnaryOpType() == UnaryOpType::Neg) {
-    return builder.CreateNeg(in_value);
-  }
-  NVF_THROW(
-      "LLVM Lowering Error: Unsupported unary operation type in extent "
-      "calculation: ",
-      unary_op->getUnaryOpType());
-}
-
-llvm::Value* createValue(
-    Val* val,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  if (val->isConst()) {
-    return builder.getInt64(val->value().as<int64_t>());
-  }
-
-  if (Expr* def = val->definition()) {
-    if (auto* binary_op = def->as<BinaryOp>()) {
-      return createValueForBinaryOp(binary_op, val_to_value, builder);
-    }
-
-    if (auto* unary_op = def->as<UnaryOp>()) {
-      return createValueForUnaryOp(unary_op, val_to_value, builder);
-    }
-
-    NVF_THROW(
-        "LLVM Lowering Error: createValueForExtent called with unsupported "
-        "expression type: ",
-        def->getOpString());
-  }
-
-  NVF_THROW(
-      "LLVM Lowering Error: createValueForExtent called with unfounded "
-      "val: ",
-      val->toString());
-}
-
-llvm::Value* getOrCreateValue(
-    Val* val,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  if (auto it = val_to_value.find(val); it != val_to_value.end()) {
-    return it->second;
-  }
-  val_to_value[val] = createValue(val, val_to_value, builder);
-  return val_to_value[val];
-}
-
-llvm::Value* getOrCreateValueForExtent(
-    IterDomain* id,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder) {
-  return getOrCreateValue(id->getMaybeExpandedExtent(), val_to_value, builder);
-}
-
-// Simple permute transformation example:
-// logical domain: [a, b, c, d]
-// original logical sizes: [a, b, c, d]
-// original logical stride: [b*c*d, c*d, d, 1]
-// permute(0,1)
-// allocation domain: [b, a, c, d]
-// refined logical sizes: [a, b, c, d]
-// refined logical stride: [c*d, a*c*d, d, 1]
-// we want to propagate the allocation domain to the logical domain to get:
-// 1. correct order of sizes and strides
-// 2. refined logical sizes (divide out device/expanded broadcast dimensions)
-
-void inferTensorShapesAndStrides(
-    const TensorView* tv,
-    std::unordered_map<Val*, llvm::Value*>& val_to_value,
-    llvm::IRBuilder<>& builder,
-    llvm::SmallVectorImpl<llvm::Value*>& sizes,
-    llvm::SmallVectorImpl<llvm::Value*>& strides) {
-  const std::vector<IterDomain*>& logical_domain = tv->getLogicalDomain();
-  const std::vector<IterDomain*>& allocation_domain =
-      tv->getMaybeAllocationDomain();
-  LinkedHashMap<IterDomain*, llvm::Value*> id_to_allocation_size;
-
-  // push all allocation domains extents in regular order
-  for (auto [i, id] : enumerate(allocation_domain)) {
-    llvm::Value* extent = getOrCreateValueForExtent(id, val_to_value, builder);
-    if (id->isDeviceDim() || id->isBroadcast()) {
-      extent = builder.getInt64(1);
-    }
-    id_to_allocation_size.pushBack(id, extent);
-  }
-
-  // traverse backward from allocation domains to logical domains
-  for (Expr* transform :
-       DependencyCheck::getAllExprsBetween(
-           {logical_domain.begin(), logical_domain.end()},
-           {allocation_domain.begin(), allocation_domain.end()}) |
-           std::views::reverse) {
-    if (auto* split = dynamic_cast<Split*>(transform)) {
-      auto [outer_extent, outer_i] =
-          id_to_allocation_size.erase(split->outer());
-      NVF_ERROR(
-          outer_i != id_to_allocation_size.end() &&
-              outer_i->first == split->inner(),
-          split->toString(),
-          " invalid split: inner is expected to appear immediately after "
-          "outer");
-      auto [inner_extent, inner_i] =
-          id_to_allocation_size.erase(split->inner());
-
-      if (split->inner()->isBroadcast()) {
-        inner_extent = builder.getInt64(1);
-      }
-
-      if (split->outer()->isBroadcast()) {
-        outer_extent = builder.getInt64(1);
-      }
-
-      llvm::Value* in_extent = builder.CreateMul(outer_extent, inner_extent);
-      id_to_allocation_size.insert(inner_i, split->in(), in_extent);
-      // NOTE: we probably need to throw error for merge as it's not handle yet
-    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      const auto [out_extent, out_i] =
-          id_to_allocation_size.erase(merge->out());
-
-      // NOTE: we don't have a protocol to decide which iter domain to pad,
-      // currently we just pad inner value, so dividend is outer value
-      // so inner_extent = (out_extent + outer_extent - 1) / outer_extent, which
-      // is a ceilDiv
-      llvm::Value* outer_extent =
-          getOrCreateValueForExtent(merge->outer(), val_to_value, builder);
-      llvm::Value* minus_one =
-          builder.CreateSub(outer_extent, builder.getInt64(1));
-      llvm::Value* plus_value = builder.CreateAdd(out_extent, minus_one);
-      llvm::Value* inner_extent = builder.CreateUDiv(plus_value, outer_extent);
-
-      id_to_allocation_size.insert(out_i, merge->outer(), outer_extent);
-      id_to_allocation_size.insert(out_i, merge->inner(), inner_extent);
-    }
-  }
-
-  auto ids = std::views::keys(id_to_allocation_size);
-  std::vector<IterDomain*> logical_domain_reordered(ids.begin(), ids.end());
-
-  auto allocation_order =
-      ir_utils::computePermutation(logical_domain, logical_domain_reordered);
-  NVF_ERROR(
-      allocation_order.has_value(),
-      "LLVM Lowering Error: Failed to compute allocation order");
-
-  // Map last level propagated allocation domains to logical domain
-  // we should be able to get the permutation between them
-  llvm::Value* allocation_order_stride = builder.getInt64(1);
-  strides.resize(logical_domain.size());
-  sizes.reserve(logical_domain.size());
-
-  for (int64_t logical_idx : allocation_order.value() | std::views::reverse) {
-    IterDomain* id = logical_domain[logical_idx];
-    if (id->isReduction()) {
-      continue;
-    }
-    if (id->isBroadcast()) {
-      strides[logical_idx] = builder.getInt64(0);
-      continue;
-    }
-    auto [extent, out_i] = id_to_allocation_size.erase(id);
-    strides[logical_idx] = allocation_order_stride;
-    allocation_order_stride =
-        builder.CreateMul(allocation_order_stride, extent);
-  }
-
-  strides.erase(
-      std::remove_if(
-          strides.begin(),
-          strides.end(),
-          [](llvm::Value* stride) { return stride == nullptr; }),
-      strides.end());
-
-  for (IterDomain* id : logical_domain) {
-    if (id->isReduction()) {
-      continue;
-    }
-    sizes.push_back(getOrCreateValueForExtent(id, val_to_value, builder));
-  }
-
-  // Check if sizes and strides are the same size as logical domain
-  const auto logical_ndims =
-      std::ranges::distance(logical_domain | TensorDomain::kNoReductions);
-  NVF_ERROR_EQ(std::ssize(sizes), logical_ndims);
-  NVF_ERROR_EQ(std::ssize(strides), logical_ndims);
 }
 
 void unpackInputs(
@@ -644,6 +371,23 @@ void compileFunctionDeclarations(
       kTensorSizeFuncName,
       module);
 
+  // tensor_stride function: int64_t tensor_stride(at::Tensor* tensor, int64_t
+  // dim)
+  llvm::Function::Create(
+      tensor_size_type, // Same signature as tensor_size
+      llvm::Function::ExternalLinkage,
+      kTensorStrideFuncName,
+      module);
+
+  // tensor_data_ptr function: void* tensor_data_ptr(at::Tensor* tensor)
+  auto* tensor_data_ptr_type =
+      llvm::FunctionType::get(void_ptr_type, {tensor_type}, false);
+  llvm::Function::Create(
+      tensor_data_ptr_type,
+      llvm::Function::ExternalLinkage,
+      kTensorDataPtrFuncName,
+      module);
+
   // new_tensor function: at::Tensor* new_tensor()
   auto* new_tensor_type = llvm::FunctionType::get(tensor_type, {}, false);
   llvm::Function::Create(
@@ -706,23 +450,26 @@ void compileFunctionDeclarations(
       kNvtxRangePopFuncName,
       module);
 
-  // launch_kernel function: void launch_kernel(int64_t cache_id, at::Tensor**
-  // input_tensors, int64_t num_inputs, at::Tensor** output_tensors, int64_t
-  // num_outputs, void* launchKernel, void* hostIrContainer)
-  auto* launch_kernel_type = llvm::FunctionType::get(
+  // launch_kernel_direct function: void launch_kernel_direct(
+  //   void** kernel_args, void* cuda_function_ptr,
+  //   int64_t gdimx, int64_t gdimy, int64_t gdimz,
+  //   int64_t bdimx, int64_t bdimy, int64_t bdimz, int64_t smem)
+  auto* launch_kernel_direct_type = llvm::FunctionType::get(
       void_type,
-      {int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       llvm::PointerType::getUnqual(tensor_type),
-       int64_type,
-       void_ptr_type,
-       void_ptr_type},
+      {void_array_ptr_type, // void** kernel_args
+       void_ptr_type, // cuda_function_ptr
+       int64_type, // gdimx
+       int64_type, // gdimy
+       int64_type, // gdimz
+       int64_type, // bdimx
+       int64_type, // bdimy
+       int64_type, // bdimz
+       int64_type}, // smem
       false);
   llvm::Function::Create(
-      launch_kernel_type,
+      launch_kernel_direct_type,
       llvm::Function::ExternalLinkage,
-      kLaunchKernelFuncName,
+      kLaunchKernelDirectFuncName,
       module);
 
   // matmul_out function: void matmul_out(at::Tensor* out, at::Tensor* a,
@@ -744,19 +491,6 @@ void compileFunctionDeclarations(
       llvm::Function::ExternalLinkage,
       kLinearOutFuncName,
       module);
-
-  // matmul function: at::Tensor* matmul(at::Tensor* a, at::Tensor* b)
-  auto* matmul_type =
-      llvm::FunctionType::get(tensor_type, {tensor_type, tensor_type}, false);
-  llvm::Function::Create(
-      matmul_type, llvm::Function::ExternalLinkage, kMatmulFuncName, module);
-
-  // linear function: at::Tensor* linear(at::Tensor* in, at::Tensor* weight,
-  // at::Tensor* bias)
-  auto* linear_type = llvm::FunctionType::get(
-      tensor_type, {tensor_type, tensor_type, tensor_type}, false);
-  llvm::Function::Create(
-      linear_type, llvm::Function::ExternalLinkage, kLinearFuncName, module);
 
   // permute function: at::Tensor* permute(at::Tensor* in, const int64_t*
   // permutation, int64_t perm_size)
@@ -784,9 +518,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
  public:
   HostIrCompileDispatcher(
       llvm::IRBuilder<>& builder,
-      std::unordered_map<Val*, llvm::Value*>& val_to_value,
-      hir::HostIrContainer* container)
-      : builder_(builder), val_to_value_(val_to_value), container_(container) {}
+      std::unordered_map<Val*, llvm::Value*>& val_to_value)
+      : builder_(builder), val_to_value_(val_to_value) {}
   using OptInDispatch::handle;
 
   void handle(ReshapeOp* vop) final {
@@ -814,12 +547,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
         getInt64StaticArrayType(context, tensor_sizes.size());
     llvm::Value* sizes_array =
         builder_.CreateAlloca(sizes_type, nullptr, "sizes");
-    for (size_t i = 0; i < tensor_sizes.size(); ++i) {
+    for (auto [i, tensor_size] : enumerate(tensor_sizes)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
           sizes_type,
           sizes_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(tensor_sizes[i], gep);
+      builder_.CreateStore(tensor_size, gep);
     }
 
     llvm::Value* sizes_ptr =
@@ -864,12 +597,12 @@ class HostIrCompileDispatcher : public OptInDispatch {
       llvm::Value* perm_array =
           builder_.CreateAlloca(perm_array_type, nullptr, "permutation");
 
-      for (size_t i = 0; i < permutation.value().size(); ++i) {
+      for (auto [i, extent] : enumerate(permutation.value())) {
         llvm::Value* gep = builder_.CreateInBoundsGEP(
             perm_array_type,
             perm_array,
             {builder_.getInt32(0), builder_.getInt32(i)});
-        builder_.CreateStore(builder_.getInt64(permutation.value()[i]), gep);
+        builder_.CreateStore(builder_.getInt64(extent), gep);
       }
 
       llvm::Type* int64_ptr_type = getInt64PtrType(context);
@@ -894,15 +627,8 @@ class HostIrCompileDispatcher : public OptInDispatch {
     llvm::Value* a = getOrDefault(val_to_value_, matmul_op->inA());
     llvm::Value* b = getOrDefault(val_to_value_, matmul_op->inB());
     llvm::Value* out = getOrDefault(val_to_value_, matmul_op->out());
-    if (out != nullptr) {
-      // Output tensor exists, use matmul_out
-      builder_.CreateCall(module->getFunction(kMatmulOutFuncName), {out, a, b});
-      return;
-    }
-    // Output tensor doesn't exist, use matmul which returns a new tensor
-    out = builder_.CreateCall(
-        module->getFunction(kMatmulFuncName), {a, b}, "matmul");
-    val_to_value_[matmul_op->out()] = out;
+    NVF_ERROR(out != nullptr);
+    builder_.CreateCall(module->getFunction(kMatmulOutFuncName), {out, a, b});
   }
 
   void handle(LinearOp* linear_op) final {
@@ -925,16 +651,9 @@ class HostIrCompileDispatcher : public OptInDispatch {
       bias = llvm::ConstantPointerNull::get(
           llvm::cast<llvm::PointerType>(tensor_type));
     }
-    if (out != nullptr) {
-      // Output tensor exists, use linear_out
-      builder_.CreateCall(
-          module->getFunction(kLinearOutFuncName), {out, in, weight, bias});
-      return;
-    }
-    // Output tensor doesn't exist, use linear which returns a new tensor
-    out = builder_.CreateCall(
-        module->getFunction(kLinearFuncName), {in, weight, bias}, "linear");
-    val_to_value_[linear_op->out()] = out;
+    NVF_ERROR(out != nullptr);
+    builder_.CreateCall(
+        module->getFunction(kLinearOutFuncName), {out, in, weight, bias});
   }
 
   void handle(hir::LaunchKernel* launch_kernel) final {
@@ -943,89 +662,99 @@ class HostIrCompileDispatcher : public OptInDispatch {
     auto* void_ptr_type = getInt8PtrType(context);
     auto* void_array_ptr_type = getInt8PtrDynamicArrayType(context);
 
-    // Convert input TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> inputs;
+    // Get index type from CompiledKernel
+    PrimDataType index_type =
+        launch_kernel->compiledKernel()->kernel()->indexType();
+
+    // Pack each input/output argument using LLVM IR
+    llvm::SmallVector<llvm::Value*, 16> packed_buffers;
+
+    // Helper lambda to pack a single Val (tensor or scalar)
+    auto packArgument = [&](Val* val) {
+      if (auto* tv = dynamic_cast<TensorView*>(val)) {
+        // Pack tensor argument
+        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
+        NVF_ERROR(
+            tensor != nullptr, "Tensor not found in val_to_value map: ", val);
+        packed_buffers.push_back(packTensorArgument(
+            tensor, tv, index_type, val_to_value_, builder_));
+      } else {
+        // Pack scalar argument
+        llvm::Value* scalar = getOrDefault(val_to_value_, val);
+        NVF_ERROR(
+            scalar != nullptr, "Scalar not found in val_to_value map: ", val);
+
+        // For scalars, we need to create a stack allocation and get its pointer
+        // The scalar value is already an LLVM value (e.g., i64)
+        // We need to store it in memory and pass a pointer to that memory
+        llvm::Value* scalar_alloca = builder_.CreateAlloca(scalar->getType());
+        builder_.CreateStore(scalar, scalar_alloca);
+
+        // Cast to i8* (void*)
+        llvm::Value* scalar_ptr =
+            builder_.CreateBitCast(scalar_alloca, void_ptr_type);
+        packed_buffers.push_back(scalar_ptr);
+      }
+    };
+
+    // Pack inputs
     for (auto* in : launch_kernel->inputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(in)) {
-        // NOTE: we use getOrDefault for TensorView lookup because we want to
-        // bypass error checking for output tensor it is ok to have a nullptr
-        // for output tensor because it will be created in wrapper in later
-        // stage.
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        inputs.push_back(tensor);
-      } else {
-        inputs.push_back(getOrCreateValue(in, val_to_value_, builder_));
-      }
+      packArgument(in);
     }
 
-    // Convert output TensorViews to void pointers and get tensor pointers
-    llvm::SmallVector<llvm::Value*, 1> outputs;
+    // Pack outputs
     for (auto* out : launch_kernel->outputs()) {
-      if (auto* tv = dynamic_cast<TensorView*>(out)) {
-        llvm::Value* tensor = getOrDefault(val_to_value_, tv);
-        NVF_ERROR(tensor != nullptr)
-        outputs.push_back(tensor);
-      } else {
-        outputs.push_back(getOrCreateValue(out, val_to_value_, builder_));
-      }
+      packArgument(out);
     }
 
-    // Get the cacheId from the main function's first argument
-    llvm::Value* cache_id_arg =
-        getOrCreateValue(launch_kernel->cacheId(), val_to_value_, builder_);
+    // Create kernel_args array (void**)
+    auto* args_array_type =
+        llvm::ArrayType::get(void_ptr_type, packed_buffers.size());
+    llvm::Value* args_array =
+        builder_.CreateAlloca(args_array_type, nullptr, "kernel_args_array");
 
-    // Create arrays to hold tensor pointers
-    auto* input_array_type = getInt8PtrStaticArrayType(context, inputs.size());
-    auto* output_array_type =
-        getInt8PtrStaticArrayType(context, outputs.size());
-
-    llvm::Value* input_array = builder_.CreateAlloca(
-        input_array_type, nullptr, "launch_kernel_inputs");
-    llvm::Value* output_array = builder_.CreateAlloca(
-        output_array_type, nullptr, "launch_kernel_outputs");
-
-    for (size_t i = 0; i < inputs.size(); ++i) {
+    for (auto [i, packed_buffer] : enumerate(packed_buffers)) {
       llvm::Value* gep = builder_.CreateInBoundsGEP(
-          input_array_type,
-          input_array,
+          args_array_type,
+          args_array,
           {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(inputs[i], gep);
+      builder_.CreateStore(packed_buffer, gep);
     }
 
-    for (size_t i = 0; i < outputs.size(); ++i) {
-      llvm::Value* gep = builder_.CreateInBoundsGEP(
-          output_array_type,
-          output_array,
-          {builder_.getInt32(0), builder_.getInt32(i)});
-      builder_.CreateStore(outputs[i], gep);
-    }
+    // Cast to void**
+    llvm::Value* args_array_ptr =
+        builder_.CreateBitCast(args_array, void_array_ptr_type);
 
-    llvm::Value* input_array_ptr =
-        builder_.CreateBitCast(input_array, void_array_ptr_type);
-    llvm::Value* output_array_ptr =
-        builder_.CreateBitCast(output_array, void_array_ptr_type);
+    // Get launch parameters from LaunchParams (compile-time constants)
+    const LaunchParams& lp = launch_kernel->launchParams();
 
-    llvm::Value* num_inputs_constant = builder_.getInt64(inputs.size());
-    llvm::Value* num_outputs_constant = builder_.getInt64(outputs.size());
+    llvm::Value* gdimx = builder_.getInt64(lp.gdimx());
+    llvm::Value* gdimy = builder_.getInt64(lp.gdimy());
+    llvm::Value* gdimz = builder_.getInt64(lp.gdimz());
+    llvm::Value* bdimx = builder_.getInt64(lp.bdimx());
+    llvm::Value* bdimy = builder_.getInt64(lp.bdimy());
+    llvm::Value* bdimz = builder_.getInt64(lp.bdimz());
+    llvm::Value* smem = builder_.getInt64(lp.smem());
 
-    llvm::Value* launch_kernel_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(launch_kernel)),
+    // Get CUDA function pointer from CompiledKernel
+    CUfunction cuda_function =
+        launch_kernel->compiledKernel()->cudaExecutable()->function;
+    llvm::Value* function_ptr = builder_.CreateIntToPtr(
+        builder_.getInt64(reinterpret_cast<uintptr_t>(cuda_function)),
         void_ptr_type);
 
-    llvm::Value* container_ptr = builder_.CreateIntToPtr(
-        builder_.getInt64(reinterpret_cast<uintptr_t>(container_)),
-        void_ptr_type);
-
+    // Call launch_kernel_direct with all parameters
     builder_.CreateCall(
-        module->getFunction(kLaunchKernelFuncName),
-        {cache_id_arg,
-         input_array_ptr,
-         num_inputs_constant,
-         output_array_ptr,
-         num_outputs_constant,
-         launch_kernel_ptr,
-         container_ptr});
+        module->getFunction(kLaunchKernelDirectFuncName),
+        {args_array_ptr,
+         function_ptr,
+         gdimx,
+         gdimy,
+         gdimz,
+         bdimx,
+         bdimy,
+         bdimz,
+         smem});
   }
 
   void handle(kir::Allocate* allocate) final {
@@ -1119,7 +848,6 @@ class HostIrCompileDispatcher : public OptInDispatch {
  private:
   llvm::IRBuilder<>& builder_;
   std::unordered_map<Val*, llvm::Value*>& val_to_value_;
-  hir::HostIrContainer* container_;
 };
 
 void HostIrJitImpl::compile() {
@@ -1141,7 +869,7 @@ void HostIrJitImpl::compile() {
 
   // compile inputs in llvm ir
   unpackInputs(container_.get(), builder, val_to_value);
-  HostIrCompileDispatcher dispatcher(builder, val_to_value, container_.get());
+  HostIrCompileDispatcher dispatcher(builder, val_to_value);
   // compile all top level expressions in host ir container
   for (auto* expr : container_->topLevelExprs()) {
     insertNvtxRangePush(expr->getOpString(), builder);
@@ -1194,205 +922,12 @@ HostIrJitImpl::HostIrJitImpl(
 
 void HostIrJitImpl::registerExternalFunctions() {
   llvm::orc::JITDylib& dest_dynamic_lib = jit_->getMainJITDylib();
-  auto mangler = llvm::orc::MangleAndInterner(
-      dest_dynamic_lib.getExecutionSession(), jit_->getDataLayout());
   dest_dynamic_lib.addGenerator(throwIfError(
       llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(
           jit_->getDataLayout().getGlobalPrefix())));
 
-  // tensor size extraction function
-  void* extract_tensor_size_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
-        NVF_ERROR(tensor != nullptr, kTensorSizeFuncName, " tensor is nullptr");
-        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
-        return tensor->size(dim);
-      });
-
-  // tensor stride extraction function
-  void* extract_tensor_stride_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* tensor, int64_t dim) -> int64_t {
-        NVF_ERROR(
-            tensor != nullptr, kTensorStrideFuncName, " tensor is nullptr");
-        NVF_ERROR(dim >= 0 && dim < tensor->dim(), "dim is out of range");
-        return tensor->stride(dim);
-      });
-
-  // new at::Tensor() wrapper instead of real tensor allocation
-  void* new_tensor_func_ptr = reinterpret_cast<void*>(
-      +[]() -> at::Tensor* { return new at::Tensor(); });
-
-  // copy and return tensor
-  void* set_tensor_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* in) -> at::Tensor* {
-        NVF_ERROR(in != nullptr, kSetTensorFuncName, " in is nullptr");
-        auto* out = new at::Tensor();
-        *out = *in;
-        return out;
-      });
-
-  // delete a newed tensor
-  void* delete_tensor_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* tensor) -> void { delete tensor; });
-
-  // at::native::empty_strided_cuda
-  void* empty_strided_cuda_func_ptr =
-      reinterpret_cast<void*>(+[](const int64_t* sizes,
-                                  int64_t ndim,
-                                  const int64_t* strides,
-                                  int64_t strides_ndim,
-                                  int32_t dtype,
-                                  int64_t device_index,
-                                  at::Tensor* out_tensor) {
-        at::IntArrayRef aten_sizes(sizes, ndim);
-        at::IntArrayRef aten_strides(strides, strides_ndim);
-        auto scalar_type = static_cast<at::ScalarType>(dtype);
-        at::Device device =
-            at::Device(at::kCUDA, static_cast<c10::DeviceIndex>(device_index));
-        *out_tensor = at::native::empty_strided_cuda(
-            aten_sizes,
-            aten_strides,
-            scalar_type,
-            c10::nullopt,
-            device,
-            c10::nullopt);
-      });
-
-  // launch kernel function
-  void* launch_kernel_func_ptr =
-      reinterpret_cast<void*>(+[](int64_t cache_id,
-                                  at::Tensor** input_tensors,
-                                  int64_t num_inputs,
-                                  at::Tensor** output_tensors,
-                                  int64_t num_outputs,
-                                  void* launch_kernel,
-                                  void* container) {
-        auto* launch_kernel_ptr =
-            static_cast<hir::LaunchKernel*>(launch_kernel);
-        auto* container_ptr = static_cast<hir::HostIrContainer*>(container);
-        KernelArgumentHolder input_args, output_args;
-        input_args.setCacheId(cache_id);
-
-        for (int64_t i = 0; i < num_inputs; i++) {
-          input_args.push(*input_tensors[i]);
-        }
-        for (int64_t i = 0; i < num_outputs; i++) {
-          output_args.push(*output_tensors[i]);
-        }
-        input_args.setDeviceIndex();
-        container_ptr->getKernelExecutor(launch_kernel_ptr->groupId())
-            .run(
-                input_args,
-                output_args,
-                launch_kernel_ptr->launchParams(),
-                launch_kernel_ptr->compileParams());
-      });
-
-  // matmul_out function
-  void* matmul_out_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* t_out, at::Tensor* t_a, at::Tensor* t_b) {
-        at::matmul_out(*t_out, *t_a, *t_b);
-      });
-  // matmul function
-  void* matmul_func_ptr =
-      reinterpret_cast<void*>(+[](at::Tensor* a, at::Tensor* b) -> at::Tensor* {
-        return new at::Tensor(at::matmul(*a, *b));
-      });
-
-  // linear function in place
-  void* linear_out_func_ptr = reinterpret_cast<void*>(+[](at::Tensor* out,
-                                                          at::Tensor* in,
-                                                          at::Tensor* weight,
-                                                          at::Tensor* bias) {
-    std::optional<at::Tensor> bias_opt = std::nullopt;
-    if (bias != nullptr) {
-      bias_opt = *bias;
-    }
-    at::linear_out(*out, *in, *weight, bias_opt);
-  });
-
-  // linear function a nd return a new tensor
-  void* linear_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* in, at::Tensor* weight, at::Tensor* bias) -> at::Tensor* {
-        std::optional<at::Tensor> bias_opt = std::nullopt;
-        if (bias != nullptr) {
-          bias_opt = *bias;
-        }
-        return new at::Tensor(at::linear(*in, *weight, bias_opt));
-      });
-
-  // permute a tensor and return a new tensor
-  void* permute_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* in,
-          const int64_t* permutation,
-          int64_t perm_size) -> at::Tensor* {
-        // Convert pointer to vector for permute function
-        std::vector<int64_t> perm_vec(permutation, permutation + perm_size);
-        return new at::Tensor(in->permute(perm_vec));
-      });
-
-  // reshape a tensor and return a new tensor
-  void* reshape_func_ptr = reinterpret_cast<void*>(
-      +[](at::Tensor* in,
-          const int64_t* shape,
-          int64_t shape_size) -> at::Tensor* {
-        // Convert pointer to IntArrayRef for reshape function
-        at::IntArrayRef shape_ref(shape, shape_size);
-        return new at::Tensor(in->reshape(shape_ref));
-      });
-
-  // insert fuser perf scope
-  void* nvtx_range_push_func_ptr = reinterpret_cast<void*>(
-      +[](const char* name) -> void { nvtxRangePush(name); });
-
-  void* nvtx_range_pop_func_ptr =
-      reinterpret_cast<void*>(+[]() -> void { nvtxRangePop(); });
-
-  // Register wrapper functions in JIT
-  llvm::orc::SymbolMap name_to_symbol;
-  registerExternalFunction(
-      extract_tensor_size_func_ptr,
-      name_to_symbol,
-      mangler,
-      kTensorSizeFuncName);
-  registerExternalFunction(
-      extract_tensor_stride_func_ptr,
-      name_to_symbol,
-      mangler,
-      kTensorStrideFuncName);
-  registerExternalFunction(
-      new_tensor_func_ptr, name_to_symbol, mangler, kNewTensorFuncName);
-  registerExternalFunction(
-      delete_tensor_func_ptr, name_to_symbol, mangler, kDeleteTensorFuncName);
-  registerExternalFunction(
-      set_tensor_func_ptr, name_to_symbol, mangler, kSetTensorFuncName);
-  registerExternalFunction(
-      empty_strided_cuda_func_ptr,
-      name_to_symbol,
-      mangler,
-      kAtEmptyStridedCudaWrapper);
-  registerExternalFunction(
-      nvtx_range_push_func_ptr,
-      name_to_symbol,
-      mangler,
-      kNvtxRangePushFuncName);
-  registerExternalFunction(
-      nvtx_range_pop_func_ptr, name_to_symbol, mangler, kNvtxRangePopFuncName);
-  registerExternalFunction(
-      launch_kernel_func_ptr, name_to_symbol, mangler, kLaunchKernelFuncName);
-  registerExternalFunction(
-      matmul_out_func_ptr, name_to_symbol, mangler, kMatmulOutFuncName);
-  registerExternalFunction(
-      matmul_func_ptr, name_to_symbol, mangler, kMatmulFuncName);
-  registerExternalFunction(
-      linear_out_func_ptr, name_to_symbol, mangler, kLinearOutFuncName);
-  registerExternalFunction(
-      linear_func_ptr, name_to_symbol, mangler, kLinearFuncName);
-  registerExternalFunction(
-      permute_func_ptr, name_to_symbol, mangler, kPermuteFuncName);
-  registerExternalFunction(
-      reshape_func_ptr, name_to_symbol, mangler, kReshapeFuncName);
-  throwIfError(
-      dest_dynamic_lib.define(llvm::orc::absoluteSymbols(name_to_symbol)));
+  // Call implementation in jit_external.cpp
+  registerExternalFunctionsImpl(jit_.get(), dest_dynamic_lib);
 }
 
 // NOTE: we delete output tensors created in llvm main function here

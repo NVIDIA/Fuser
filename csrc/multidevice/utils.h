@@ -9,11 +9,8 @@
 
 #include <iosfwd>
 
-#include <compute_at_map.h>
-#include <fusion.h>
-#include <ir/interface_nodes.h>
-#include <scheduler/utils.h>
-#include <visibility.h>
+#include "fusion.h"
+#include "ir/interface_nodes.h"
 
 namespace nvfuser {
 
@@ -86,37 +83,12 @@ std::unordered_map<int64_t, int64_t> reorderParallelizedToFront(TensorView*);
 // device dim as the outer dimension.
 bool isValidDeviceSplit(Expr* expr);
 
-// Helper functions for serializing data to bytes for TCP store
-template <typename T>
-std::vector<uint8_t> toBytes(const T& data) {
-  return std::vector<uint8_t>(
-      reinterpret_cast<const uint8_t*>(&data),
-      reinterpret_cast<const uint8_t*>(&data) + sizeof(T));
-}
-
-template <typename T>
-const T& fromBytes(const std::vector<uint8_t>& bytes) {
-  return *reinterpret_cast<const T*>(bytes.data());
-}
-
-// IPC Utils for sharing file descriptors
-
-// Creates a listening Unix domain socket bound to path.
-// If path starts with '@', it uses the abstract namespace (replaced with \0).
-// Returns the socket file descriptor.
-int createIpcSocket(const std::string& path);
-
-// Connects to the Unix domain socket at path and sends the file descriptor fd.
-// Optionally sends header_data of size header_len along with the FD.
-void sendFd(
-    const std::string& path,
-    int fd,
-    const void* header_data = nullptr,
-    size_t header_len = 0);
-
-// Accepts a connection on the listening socket_fd and receives a file
-// descriptor. Optionally receives header_data of size header_len. Returns the
-// received file descriptor.
-int recvFd(int socket_fd, void* header_data = nullptr, size_t header_len = 0);
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
+// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
+// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv);
 
 } // namespace nvfuser

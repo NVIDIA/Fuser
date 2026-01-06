@@ -10,12 +10,13 @@
 
 #include <vector>
 
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <runtime/executor_abstract.h>
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "runtime/executor_abstract.h"
 
 namespace nvfuser {
 
+// Consider moving this to namespace hir.
 std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
     const SegmentedFusion& segmented_fusion,
     // TODO(#4927): Launch parameters should be passed in at runtime, not

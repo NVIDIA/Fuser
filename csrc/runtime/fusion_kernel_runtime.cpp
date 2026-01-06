@@ -7,10 +7,13 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 
+#include <c10/cuda/CUDAGuard.h>
+
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lowering.h>
+#include <host_ir/passes.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -24,8 +27,6 @@
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
-
-#include <c10/cuda/CUDAGuard.h>
 
 namespace nvfuser {
 
@@ -466,8 +467,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const auto& heuristic_params : schedulers()) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
+
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
+    hir::runPasses(*hic);
+
     if (isOptionEnabled(EnableOption::HostIrJit)) {
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
     } else {

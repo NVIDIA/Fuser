@@ -6,9 +6,8 @@
  */
 // clang-format on
 #include <algorithm>
-#include <complex>
 #include <iterator>
-#include <numeric>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -26,6 +25,7 @@
 
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
+#include <ir/allocation_utils.h>
 #include <ir/cloner.h>
 #include <ir/composite_nodes.h>
 #include <ir/iostream.h>
@@ -33,6 +33,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
 #include <transform_iter.h>
@@ -64,33 +65,6 @@ std::string MatmulOp::toString(int indent_size) const {
 std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
-
-namespace {
-// When the contracting dimension is sharded, each device has a partial
-// matmul output and is followed by an allreduce. For loop split, this is
-// represented as an rfactored reduction. For example, for matmul, the local
-// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}.
-// Unsqueeze the rfactored DID axis to correctly bind with the logical domain.
-// See tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
-int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
-  // Filter out reduction dimensions so the index to `logical` directly maps to
-  // an at::Tensor axis.
-  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
-  int64_t rfactor_did_idx = -1;
-  for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
-    IterDomain* id = logical.at(idx);
-    if (id->isRFactorProduct() && id->isDeviceDim()) {
-      NVF_ERROR(
-          rfactor_did_idx == -1,
-          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
-          logical);
-      rfactor_did_idx = idx;
-    }
-  }
-
-  return rfactor_did_idx;
-}
-} // namespace
 
 std::vector<PolymorphicValue> MatmulOp::evaluate(
     const ExpressionEvaluator& ee,
@@ -214,9 +188,11 @@ SdpaFwdOp::SdpaFwdOp(
     TensorView* log_sumexp,
     TensorView* philox_seed,
     TensorView* philox_offset,
-    Val* query,
-    Val* key,
-    Val* value,
+    TensorView* query,
+    TensorView* key,
+    TensorView* value,
+    TensorView* bias,
+    TensorView* mask,
     Val* dropout_p,
     Val* is_causal,
     Val* scale)
@@ -231,31 +207,61 @@ SdpaFwdOp::SdpaFwdOp(
   addInput(value);
   addInput(dropout_p);
   addInput(is_causal);
+  auto next_index = std::ssize(inputs());
+  int64_t scale_input_index = -1;
   if (scale != nullptr) {
+    scale_input_index = next_index++;
     addInput(scale);
   }
+  int64_t bias_input_index = -1;
+  if (bias != nullptr) {
+    bias_input_index = next_index++;
+    addInput(bias);
+  }
+  int64_t mask_input_index = -1;
+  if (mask != nullptr) {
+    mask_input_index = next_index++;
+    addInput(mask);
+  }
+
+  addDataAttribute(scale_input_index);
+  addDataAttribute(bias_input_index);
+  addDataAttribute(mask_input_index);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SdpaFwdOp)
 
 std::string SdpaFwdOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << attn_out()->toString() << ",\n";
-  indent(ss, indent_size) << logsumexp()->toString() << ",\n";
-  indent(ss, indent_size) << philox_seed()->toString() << ",\n";
-  indent(ss, indent_size) << philox_offset()->toString() << "\n";
-  indent(ss, indent_size + 1) << " = sdpa(" << query()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << key()->toString() << ",\n";
-  indent(ss, indent_size + 1) << "          " << value()->toString() << ",\n";
+  indent(ss, indent_size) << attn_out()->toString() << "," << std::endl;
+  indent(ss, indent_size) << logsumexp()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_seed()->toString() << "," << std::endl;
+  indent(ss, indent_size) << philox_offset()->toString() << std::endl;
   indent(ss, indent_size + 1)
-      << "          dropout_p = " << dropout_p()->toInlineString() << ",\n";
+      << " = sdpa(" << query()->toString() << "," << std::endl;
   indent(ss, indent_size + 1)
-      << "          is_causal = " << is_causal()->toInlineString();
+      << "          " << key()->toString() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "          " << value()->toString() << "," << std::endl;
+  if (bias() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          bias=" << bias()->toString() << "," << std::endl;
+  }
+  if (mask() != nullptr) {
+    indent(ss, indent_size + 1)
+        << "          mask=" << mask()->toString() << "," << std::endl;
+  }
+  indent(ss, indent_size + 1)
+      << "          dropout_p = " << dropout_p()->toInlineString() << ","
+      << std::endl;
+  indent(ss, indent_size + 1)
+      << "          is_causal=" << is_causal()->toInlineString() << ","
+      << std::endl;
   if (scale() != nullptr) {
     indent(ss, indent_size + 1)
-        << ",\n          scale = " << scale()->toInlineString();
+        << "          scale=" << scale()->toInlineString() << "," << std::endl;
   }
-  indent(ss, indent_size + 1) << ")\n";
+  indent(ss, indent_size + 1) << ")" << std::endl;
   return ss.str();
 }
 
@@ -263,23 +269,17 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-namespace spda_meta {
+namespace sdpa_meta {
 
-std::tuple<
-    at::Tensor,
-    at::Tensor,
-    at::Tensor,
-    at::Tensor,
-    c10::SymInt,
-    c10::SymInt,
-    at::Tensor,
-    at::Tensor,
-    at::Tensor>
-_scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
-  const auto sizes = query.sizes();
-  const int batch_size = sizes[0];
-  int num_heads = sizes[1];
-  int seqlen_q = sizes[2];
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+_scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
+  const int batch_size = query.size(0);
+  const int num_heads = query.size(1);
+  const int seqlen_q = query.size(2);
+  const int out_head_dim = value.size(-1);
+
+  auto out = at::empty(
+      {batch_size, num_heads, seqlen_q, out_head_dim}, query.options());
   auto logsumexp = at::empty(
       {batch_size, num_heads, seqlen_q}, query.options().dtype(at::kFloat));
   // Produce defined meta tensors for philox outputs so downstream segments
@@ -290,19 +290,28 @@ _scaled_dot_product_flash_attention_meta(const at::Tensor& query) {
   // https://github.com/pytorch/pytorch/blob/cdc8460f2c76f98ba30556e3f9358e857a2f22f0/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L773-L778
   auto rng_state = at::empty({2}, meta_u64);
   auto rng_offset = at::empty({}, meta_u64);
-  return std::make_tuple(
-      query,
-      logsumexp,
-      at::Tensor(),
-      at::Tensor(),
-      c10::SymInt(seqlen_q),
-      c10::SymInt(seqlen_q),
-      rng_state,
-      rng_offset,
-      at::Tensor());
+
+  return std::make_tuple(out, logsumexp, rng_state, rng_offset);
 }
 
-} // namespace spda_meta
+} // namespace sdpa_meta
+
+namespace {
+
+at::Tensor flattenBatchDims(at::Tensor t) {
+  at::DimVector new_shape({-1});
+  auto non_batch_dims = t.sizes().slice(t.dim() - 3);
+  new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
+  return t.view(new_shape);
+}
+
+at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
+  at::DimVector new_shape(batch_dims);
+  auto non_batch_dims = t.sizes().slice(1);
+  new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
+  return t.view(new_shape);
+}
+} // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     const ExpressionEvaluator& ee,
@@ -310,92 +319,166 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   auto query = inputs.at(0).as<at::Tensor>();
   auto key = inputs.at(1).as<at::Tensor>();
   auto value = inputs.at(2).as<at::Tensor>();
-
+  auto bias = this->bias() != nullptr
+      ? inputs.at(bias_input_index()).as<at::Tensor>()
+      : at::Tensor();
+  auto mask = this->mask() != nullptr
+      ? inputs.at(mask_input_index()).as<at::Tensor>()
+      : at::Tensor();
   const auto dropout_p = inputs.at(3).as<double>();
   const auto is_causal = inputs.at(4).as<bool>();
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool handle_device_dim = false;
-  if (query.dim() == 5) {
-    handle_device_dim = true;
-
-    NVF_CHECK(key.dim() == 5 && value.dim() == 5);
-
-    auto query_domain =
-        TensorDomain::noReductions(this->query()->getLogicalDomain());
-    auto key_domain =
-        TensorDomain::noReductions(this->key()->getLogicalDomain());
-    auto value_domain =
-        TensorDomain::noReductions(this->value()->getLogicalDomain());
-    NVF_CHECK(
-        query_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain.front()->isDeviceDim(),
-        "Only support DID parallelization on outermost axis");
-
-    query = query.squeeze(0);
-    key = key.squeeze(0);
-    value = value.squeeze(0);
-  }
-
-  // Flash attention requires the last dimension to be padded to 8.
-  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = query.size(-1);
-  auto pad_last_dim = [last_dim_size](
-                          at::Tensor inp, int alignment_size) -> at::Tensor {
-    if (last_dim_size % alignment_size == 0) {
-      return inp;
+  auto scale = this->scale() != nullptr
+      ? inputs.at(scale_input_index()).as<double>()
+      : 1.0 / std::sqrt(last_dim_size);
+
+  auto batch_dims = query.sizes().slice(0, query.dim() - 3);
+  NVF_CHECK_GE(batch_dims.size(), 1);
+  query = flattenBatchDims(query);
+  key = flattenBatchDims(key);
+  value = flattenBatchDims(value);
+  NVF_ERROR_EQ(query.dim(), 4);
+  NVF_ERROR_EQ(key.dim(), 4);
+  NVF_ERROR_EQ(value.dim(), 4);
+
+  at::Tensor attn_bias = bias;
+  if (mask.defined()) {
+    NVF_CHECK_EQ(mask.dtype(), at::kBool);
+    auto mask_bias =
+        at::where(mask, 0.0f, -std::numeric_limits<float>::infinity())
+            .to(query.dtype());
+    if (attn_bias.defined()) {
+      // Don't write `attn_bias += mask_bias` because the sum can be a larger
+      // shape than `attn_bias`.
+      attn_bias = attn_bias + mask_bias;
+    } else {
+      attn_bias = mask_bias;
     }
-    auto pad_count = alignment_size - (last_dim_size % alignment_size);
-    auto padded_inp = at::pad(inp, {0, pad_count});
-    return padded_inp;
-  };
-
-  query = pad_last_dim(query, 8);
-  key = pad_last_dim(key, 8);
-  value = pad_last_dim(value, 8);
-
-  // Conmpute scale using original size of last dimension
-  double scale = inputs.size() > 5 ? inputs.back().as<double>()
-                                   : 1.0 / std::sqrt(last_dim_size);
-
-  // ATen reference:
-  // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L680-L681
-  auto
-      [output,
-       log_sumexp,
-       cum_seq_q,
-       cum_seq_k,
-       query_seq_len,
-       key_seq_len,
-       philox_seed,
-       philox_offset,
-       debug_attn_mask] = query.is_meta()
-      ? spda_meta::_scaled_dot_product_flash_attention_meta(query)
-      : at::_scaled_dot_product_flash_attention(
-            query,
-            key,
-            value,
-            dropout_p,
-            is_causal,
-            /*return_debug_mask=*/false,
-            scale);
-
-  // If the inputs were padded, slice the output to restore the original
-  // size
-  if (output.size(-1) != last_dim_size) {
-    output = output.slice(-1, 0, last_dim_size);
+  }
+  if (attn_bias.defined()) {
+    // `attn_bias` is of shape [B, N, H, Q, K]. For triangle attention starting
+    // nodes, B and N are adjacent in stride order and therefore can be
+    // flattened with a `view`. For ending nodes, however, `B` and `N` are no
+    // longer adjacent in stride order due to `mask` being transposed (see
+    // test_alphafold3.py:test_triangle_attention).  `attn_bias` can't be
+    // `flattenBatchDims`ed with a `view`. Therefore, `contiguous()` is
+    // required.
+    attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
-  // Add back the device dim axis for output.
-  if (handle_device_dim) {
-    output = output.unsqueeze(0);
-    log_sumexp = log_sumexp.unsqueeze(0);
+  // 4D SDPA
+  auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
+    if (query.is_meta()) {
+      return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
+    }
+
+    if (attn_bias.defined()) {
+      // This is a functional but suboptimal implementation for testing
+      // triangle attention:
+      // https://docs.nvidia.com/cuda/cuequivariance/api/generated/cuequivariance_torch.triangle_attention.html.
+      //
+      // To accommodate 5D, we combine `bias` and `mask` into `attn_bias`, a
+      // fully-allocated 5D tensor even though `bias` and `mask` have degenerate
+      // dimensions. Then, we flatten all inputs to 4D before running
+      // `at::_scaled_dot_product_attention_math`.
+      //
+      // This is suboptimal because:
+      // 1. Broadcasting `bias` and `mask` outside the kernel wastes GPU memory.
+      // 2. `at::_scaled_dot_product_attention_math` isn't fused. I
+      // didn't use `at::_scaled_dot_product_efficient_attention` because it
+      // comes with various sizes and strides constraints that make testing
+      // hard.
+      NVF_CHECK_EQ(
+          dropout_p,
+          0.0,
+          "at::_scaled_dot_product_attention_math does not output rng_state "
+          "and rng_offset for dropout backprop. So we only use it when "
+          "dropout_p is 0.0.");
+      auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
+      auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
+      auto [out, log_sumexp] = at::_scaled_dot_product_attention_math(
+          query,
+          key,
+          value,
+          attn_bias,
+          dropout_p,
+          is_causal,
+          /*dropout_mask=*/std::nullopt,
+          scale);
+
+      // at::_scaled_dot_product_attention_math produces a contiguous attention
+      // output, but SdpaFwdOp requires the attention output to be in the same
+      // layout as the query input:
+      // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+      // Therefore, we relayout the attention output according to attn_out()'s
+      // allocation domain.
+      NVF_ERROR(out.is_contiguous());
+      const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
+      NVF_CHECK(
+          out_layout.has_value(),
+          "Failed to canonicalize output layout of ",
+          attn_out());
+      const std::optional<std::vector<int64_t>> permutation =
+          ir_utils::computePermutation(
+              attn_out()->getLogicalDomain(), out_layout->allocation_domain());
+      NVF_ERROR(
+          permutation.has_value(),
+          "The allocation domain of a canonicalized layout of ",
+          attn_out(),
+          " is not a permutation of its logical domain.");
+      out = unflattenBatchDim(out, batch_dims);
+      out = out.permute(*permutation)
+                .contiguous()
+                .permute(ir_utils::inversePermutation(*permutation));
+      out = flattenBatchDims(out);
+
+      return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+    }
+
+    // Flash attention require the last dimension to be padded to 8.
+    auto pad_last_dim = [last_dim_size](
+                            at::Tensor inp, int alignment_size) -> at::Tensor {
+      if (last_dim_size % alignment_size == 0) {
+        return inp;
+      }
+      auto pad_count = alignment_size - (last_dim_size % alignment_size);
+      auto padded_inp = at::pad(inp, {0, pad_count});
+      return padded_inp;
+    };
+
+    query = pad_last_dim(query, 8);
+    key = pad_last_dim(key, 8);
+    value = pad_last_dim(value, 8);
+
+    auto
+        [out,
+         log_sumexp,
+         cum_seq_q,
+         cum_seq_k,
+         query_seq_len,
+         key_seq_len,
+         philox_seed,
+         philox_offset,
+         debug_attn_mask] =
+            at::_scaled_dot_product_flash_attention(
+                query,
+                key,
+                value,
+                dropout_p,
+                is_causal,
+                /*return_debug_mask=*/false,
+                scale);
+
+    // If the inputs were padded, slice the output to restore the original size
+    if (out.size(-1) != last_dim_size) {
+      out = out.slice(-1, 0, last_dim_size);
+    }
+    return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+  }();
+
+  if (batch_dims.size() > 1) {
+    output = unflattenBatchDim(output, batch_dims);
+    log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
@@ -1772,7 +1855,8 @@ BlockQuantizationOp::BlockQuantizationOp(
     Val* input,
     Val* logical_index,
     Val* global_scale,
-    int64_t block_size)
+    int64_t block_size,
+    bool swizzled_scales)
     : Expr(passkey) {
   addOutput(output);
   addOutput(output_scales);
@@ -1782,6 +1866,7 @@ BlockQuantizationOp::BlockQuantizationOp(
   }
   addAttribute(logical_index);
   addDataAttribute(block_size);
+  addDataAttribute(swizzled_scales);
 }
 
 std::string BlockQuantizationOp::toString(int indent_size) const {

@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -714,19 +713,6 @@ void propagateReshapeTransforms(Fusion* fusion);
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
 
-// A wrapper for Fusion::rotateLoop that provide more consistent interace
-inline void rotateLoop(
-    TensorView* loop_tv,
-    int64_t axis,
-    std::unordered_set<Statement*> selection) {
-  auto fusion = loop_tv->fusion();
-  if (!fusion->hasManaged("loop_rotation")) {
-    fusion->manage("loop_rotation", LoopRotationParam{});
-  }
-  fusion->getManaged<LoopRotationParam>("loop_rotation")
-      .emplace_back(loop_tv, axis, std::move(selection));
-}
-
 //! Certain tensors may need to be placed on shared or global memory
 //! due to data dependencies caused by resize operations. Create
 //! caches of those tensors so that original operations producing
@@ -881,6 +867,20 @@ void buildAllocationDomainFromLoopIds(TensorView* tv);
 // domain
 void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 
+// Returns the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly,
+// guaranteeing at most a single CTA per SM by requesting the maximum smem per
+// CTA. Results are cached per device to avoid redundant queries. Returns 1 for
+// pre-Hopper devices.
+int64_t getMaxClusterSize();
+
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
+int64_t getMaxActiveClusters(const int64_t cluster_size);
+
 // ============================================================================
 // TMA (Tensor Memory Accelerator) Background
 // For details see doc/dev/tma.md
@@ -915,19 +915,19 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 // ============================================================================
 // Purpose of This Function
 // ============================================================================
-// The TMA pointwise scheduler views tensors as 2D domains: [OuterTmaDomain,
-// InnerTmaDomain]. This function computes the optimal size for the
-// "InnerTmaDomain" dimension of this 2D view, given a flattened tensor of
+// The TMA pointwise scheduler views tensors as 2D domains: [tma_domain_outer,
+// tma_domain_inner]. This function computes the optimal size for the
+// "tma_domain_inner" dimension of this 2D view, given a flattened tensor of
 // total_element items.
 //
 // The transformation flow is:
 //   [total_element]                     # Flattened 1D tensor
-//   -> [OuterTmaDomain, InnerTmaDomain] # Split into 2D TMA domain
+//   -> [tma_domain_outer, tma_domain_inner] # Split into 2D TMA domain
 //
 // Where:
-//   InnerTmaDomain = return value of this function
-//   OuterTmaDomain = total_element / InnerTmaDomain
-//   total_element % InnerTmaDomain == 0
+//   tma_domain_inner = return value of this function
+//   tma_domain_outer = total_element / tma_domain_inner
+//   total_element % tma_domain_inner == 0
 //
 // ============================================================================
 // Parameters
@@ -944,7 +944,7 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   - Therefore, the inner TMA domain size must be at least 2 * 16 bytes,
 //     or (2 * 16 / min_dtype_bytes) elements.
 //
-// target_inner_tma_domain_size (default: 512):
+// tma_domain_inner_target (default: 512):
 //   Target size for the inner TMA domain. The function finds the divisor of
 //   total_element closest to this target that satisfies all constraints.
 //
@@ -956,46 +956,65 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
 //   Example of dimension collapse with 256:
 //     Step 1: [total_element] -> [total_element/256, 256]  # 2D TMA domain
 //     Step 2: Further split both dimensions to create 2D TMA tiles.
-//             After tiling with InnerTmaTile=256:
-//       [total_element/256/OuterTmaTile, OuterTmaTile, 256/256, 256]
-//       = [total_element/256/OuterTmaTile, OuterTmaTile, 1, 256]
+//             After tiling with tma_domain_inner=256:
+//       [total_element/256/tma_domain_outer, tma_domain_outer, 256/256, 256]
+//       = [total_element/256/tma_domain_outer, tma_domain_outer, 1, 256]
 //
-//     Problem: In [..., OuterTmaTile, 1, InnerTmaTile], since the middle
-//     dimension is 1, InnerTmaTile is contiguous with OuterTmaTile in the
-//     original tensor. This effectively creates a single TMA virtual dimension
-//     of size (OuterTmaTile * InnerTmaTile), which is subject to the 256
-//     element limitation and may fail.
-//     Note: It failes when OuterTmaTile * InnerTmaTile > 256, becuase
+//     Problem: In [..., tma_domain_outer, 1, tma_domain_inner], since the
+//     middle dimension is 1, tma_domain_inner is contiguous with
+//     tma_domain_outer in the original tensor. This effectively creates a
+//     single TMA virtual dimension of size (tma_domain_outer *
+//     tma_domain_inner), which is subject to the 256 element limitation and may
+//     fail. Note: It failes when tma_domain_outer * tma_domain_inner > 256,
+//     becuase
 //           MergeTileGroupsByRotation merges contiguous bulk dimensions,
 //           but lacked the 256-element hardware constraint check.
 //
-//   With 512, even if InnerTmaTile=256:
+//   With 512, even if tma_domain_inner=256:
 //     [total_element/512, 512]
-//     -> [total_element/512/OuterTmaTile, OuterTmaTile, 512/256, 256]
-//     = [total_element/512/OuterTmaTile, OuterTmaTile, 2, 256]
+//     -> [total_element/512/tma_domain_outer, tma_domain_outer, 512/256, 256]
+//     = [total_element/512/tma_domain_outer, tma_domain_outer, 2, 256]
 //
 //     We maintain a proper 2D structure with 2 tiles in the inner dimension,
 //     preventing dimension collapse.
 //
-// min_dtype_bytes:
-//   Size in bytes of the smallest data type in TMA-loaded tensors. Used to
+// min_dtype_bits:
+//   Size in bits of the smallest data type in TMA-loaded tensors. Used to
 //   ensure that the innermost TMA box dimension satisfies the 2 x 16-bytes
-//   alignment requirement.
+//   (256-bit) alignment requirement.
 //
 // ============================================================================
 // Returns
 // ============================================================================
 // The size of the inner dimension of the 2D TMA domain. This value:
 //   - Divides total_element evenly
-//   - Is divisible by (2 * 16 / min_dtype_bytes)
-//   - Is as close as possible to target_inner_tma_domain_size
+//   - Is divisible by (256 / min_dtype_bits)
+//   - Is as close as possible to tma_domain_inner_target
 //   - Returns 1 if no suitable divisor exists (signaling TMA is not viable)
 //
 // ============================================================================
-int64_t getInnerTmaDomainSize(
+int64_t getTmaDomainInner(
     int64_t total_element,
-    int64_t target_inner_tma_domain_size = 512,
-    int64_t min_dtype_bytes = 1);
-} // namespace scheduler_utils
+    int64_t tma_domain_inner_target = 512,
+    int64_t min_dtype_bits = 8);
 
+// Calculate register sharing between TMA async threads and computation threads
+// for warp specialization. Returns a pair of (tma_branch_registers,
+// compute_branch_registers).
+//
+// Assumes padded threads keep [tma_branch_registers] registers and all others
+// are moved to computation threads. The granularity is 8. When estimated
+// compute_branch_regs is not divisible by granularity, it is rounded down and
+// tma_branch_registers is recomputed.
+//
+// For example, assuming 256 computation threads, initial register = 168,
+// tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
+// divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded down to
+// 232. re-calculate [tma_branch_registers] using: borrowed registers = (232 -
+// 168) * 256 / 128 = 128. tma_branch_registers = 168 - 128 = 40
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads);
+} // namespace scheduler_utils
 } // namespace nvfuser

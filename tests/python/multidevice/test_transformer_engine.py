@@ -6,7 +6,7 @@ import pytest
 import torch
 import torch.distributed as dist
 import transformer_engine.pytorch as te
-from benchmark_utils import get_benchmark_fns
+from benchmark_utils import get_benchmark_fns, Parallelism
 from enum import auto, Enum
 
 compute_cap = torch.cuda.get_device_capability()
@@ -15,13 +15,6 @@ compute_cap = torch.cuda.get_device_capability()
 class ComputeType(Enum):
     FORWARD = auto()
     BACKWARD = auto()
-
-
-class Parallelism(Enum):
-    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
-    TENSOR_PARALLEL = auto()
-    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
-    SEQUENCE_PARALLEL = auto()
 
 
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
@@ -38,12 +31,12 @@ class Parallelism(Enum):
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
-    ids=["forward", "backward"],
+    ids=lambda t: t.name,
 )
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.parametrize(
     "overlap",

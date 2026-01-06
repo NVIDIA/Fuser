@@ -9,9 +9,11 @@
 
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
+#include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <type.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -713,8 +715,19 @@ TEST_F(NVFuserTest, Translate1Welford) {
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 2);
 
-  // Run an un-translated welford
-  auto runtime2 = run_test(65536);
+  // Run an un-translated welford, use a large inner size to ensure it is not
+  // translated.
+  // Context: cluster reduction only uses register persistence while shared
+  // memory persistence is also used if cluster reduction is not supported.
+  const int64_t sm_per_cluster = scheduler_utils::getMaxClusterSize();
+  const int64_t regs_buffer_count =
+      scheduler_utils::register_file_size_bit / 32;
+  const int64_t smem_buffer_count =
+      ceilDiv(deviceAvailableSharedMemoryBytes(), 4);
+  const int64_t total_elements = sm_per_cluster == 1
+      ? scheduler_utils::roundUpPow2Or8(smem_buffer_count)
+      : regs_buffer_count * sm_per_cluster;
+  auto runtime2 = run_test(total_elements + 1024);
 
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {
@@ -766,8 +779,10 @@ TEST_F(NVFuserTest, Translate2Welford) {
       runtime1->fusionSegments()->groups().size() == 1 &&
       runtime1->fusionSegments()->groups()[0]->exprs().size() > 4);
 
-  // Run an un-translated welford
-  auto runtime2 = run_test(65536);
+  // Run an un-translated welford, use a large inner size to ensure it is not
+  // translated. Cluster reduction uses 16 SMs, can hold up to 32K * 16 = 512K
+  // elements.
+  auto runtime2 = run_test(512 * 1024 + 1024);
   // // Check it was not translated
   bool found_welford = false;
   for (auto group : runtime2->fusionSegments()->groups()) {

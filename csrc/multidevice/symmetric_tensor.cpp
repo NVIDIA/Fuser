@@ -5,12 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/symmetric_tensor.h>
+#include "multidevice/symmetric_tensor.h"
 
-#include <cuda_utils.h>
-#include <driver_api.h>
-#include <multidevice/communicator.h>
-#include <multidevice/utils.h>
+#include <numeric>
+
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/communicator.h"
+#include "multidevice/ipc_utils.h"
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -251,8 +254,6 @@ SymmetricTensor::~SymmetricTensor() {
     }
     if (peer_fd_ >= 0)
       close(peer_fd_);
-    if (pid_fd_ >= 0)
-      close(pid_fd_);
   }
 #endif
 
@@ -274,12 +275,22 @@ SymmetricTensor::~SymmetricTensor() {
   }
 }
 
-void SymmetricTensor::setupRemoteHandles(const std::string& tag) const {
+void SymmetricTensor::setupRemoteHandles(const std::string& tag) {
   if (are_remote_tensors_setup_ == true) {
     return;
   }
   Communicator& comm = Communicator::getInstance();
   CUmemGenericAllocationHandle local_handle = alloc_handles_[my_device_id_];
+  CUdeviceptr local_ptr = remote_ptrs_[my_device_id_];
+
+  CUdeviceptr base_ptr = 0;
+  size_t va_size = 0;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(&base_ptr, &va_size, local_ptr));
+  NVF_CHECK(
+      base_ptr == local_ptr && va_size == aligned_size_,
+      "Local pointer is not aligned with the allocated size. This is needed "
+      "because cuMemMap does not support (for now) mapping a subregion of a "
+      "VMM-backed allocation.");
 
   int shared_fd;
   NVFUSER_CUDA_SAFE_CALL(cuMemExportToShareableHandle(
@@ -421,6 +432,9 @@ void SymmetricTensor::setupContiguousView(const std::string& tag) {
       at::TensorOptions()
           .dtype(local_tensor_.scalar_type())
           .device(at::kCUDA, 0));
+
+  // Remove the old trivial DIDx dimension
+  contiguous_view_ = contiguous_view_.squeeze(1);
 
   is_contiguous_view_setup_ = true;
 }

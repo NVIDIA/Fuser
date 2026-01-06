@@ -678,6 +678,9 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation);
+
 template <typename T>
 std::vector<T> applyPermutation(
     const std::vector<T>& in,
@@ -860,5 +863,10 @@ std::vector<IterDomain*> propagateScatterAllocationDomain(
     const std::vector<IterDomain*>& to_logical_domain);
 
 bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
+
+// Swizzle the block scales output of the block quantization operation.
+// This applies to block quantization to nvfp4.
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API void swizzleBlockScales(TensorView* tv);
 
 } // namespace nvfuser::ir_utils

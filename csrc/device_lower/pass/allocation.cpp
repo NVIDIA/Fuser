@@ -988,7 +988,7 @@ Expr* initializeCircularBufferMbarrier(
 
   Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-  loop->body().push_back(pred_mbarrier_init);
+  loop->body().pushBack(pred_mbarrier_init);
   return loop;
 }
 
@@ -1031,7 +1031,7 @@ Expr* invalidateCircularBufferMbarrier(
   Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-  loop->body().push_back(pred_mbarrier_inval);
+  loop->body().pushBack(pred_mbarrier_inval);
   return loop;
 }
 
@@ -1147,7 +1147,7 @@ class AllocationInserter : public kir::ExprMutator {
          ++init_loop_it) {
       auto id = *init_loop_it;
       kir::ForLoop* new_loop = IrBuilder::create<kir::ForLoop>(id);
-      new_loop->body().push_back(init_expr);
+      new_loop->body().pushBack(init_expr);
       init_expr = new_loop;
     }
     return init_expr;
@@ -1273,7 +1273,7 @@ class AllocationInserter : public kir::ExprMutator {
       Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
 
-      fl->body().push_back(pred_mbarrier_init);
+      fl->body().pushBack(pred_mbarrier_init);
 
       registerInsertBefore(expr, fl, nullptr);
     }
@@ -1305,6 +1305,10 @@ class AllocationInserter : public kir::ExprMutator {
       }
 
       auto out_tv = out->as<TensorView>();
+      // The outputs of schedule operations only exist in Fusion IR.
+      if (ir_utils::isScheduleOp(out_tv)) {
+        continue;
+      }
       auto default_val =
           FusionInfoGuard::current()->tensorInitVal().get(out_tv);
 
@@ -1755,7 +1759,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
       auto first_warp = createFirstWarpITE();
       auto alloc_expr =
           IrBuilder::create<kir::AllocTMem>(region.address, region.num_columns);
-      first_warp->thenBody().push_back(alloc_expr);
+      first_warp->thenBody().pushBack(alloc_expr);
       prologue.push_back(first_warp);
     }
 
@@ -1767,7 +1771,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
           std::vector<Val*>{},
           std::vector<Val*>{},
           kir::Asm::Options{/*volatile=*/true});
-      first_warp->thenBody().push_back(tcgen05_relinquish_expr);
+      first_warp->thenBody().pushBack(tcgen05_relinquish_expr);
       prologue.push_back(first_warp);
 
       // Block sync that makes allocation visible to all threads
@@ -1886,7 +1890,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
                         GpuLower::current()->commonScalarMap().hoistScalar(
                             region->num_columns, for_loops_)},
                     kir::Asm::Options{/*volatile=*/true});
-                first_warp->thenBody().push_back(tcgen05_dealloc_expr);
+                first_warp->thenBody().pushBack(tcgen05_dealloc_expr);
                 registerInsertAfter(expr, first_warp, current_scope);
                 auto block_sync = IrBuilder::create<kir::BlockSync>();
                 registerInsertAfter(expr, block_sync, current_scope);

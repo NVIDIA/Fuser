@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <complex>
 #include <iterator>
-#include <numeric>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -22,6 +22,8 @@
 
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
+#include <ir/allocation_utils.h>
+#include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
@@ -29,6 +31,7 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
+#include <multidevice/utils.h>
 #include <ops/arith.h>
 #include <runtime/allocations.h>
 #include <type.h>
@@ -534,6 +537,9 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::Abs:
       return {abs(in)};
+      break;
+    case UnaryOpType::Ceil:
+      return {ceil(in)};
       break;
     case UnaryOpType::LogicalNot:
       return {!in};
@@ -2598,6 +2604,47 @@ std::string Merge::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Merge)
 
+Partition::Partition(
+    IrBuilderPasskey passkey,
+    IterDomain* component,
+    RaggedIterDomain* ragged,
+    IterDomain* in,
+    TensorView* extents)
+    : Expr(passkey) {
+  addOutput(component);
+  addOutput(ragged);
+  addInput(in);
+  // Note: extents is held as an attribute rather than an input,
+  // despite it's a TensorView. Inputs and outputs in the existing
+  // IterDomain exprs are always IterDomains. Intuitively, they
+  // transform input iteration spaces into output iteration spaces in
+  // some way. Since the extents tensor itself is not transformed in the
+  // Partition expr, it doesn't seem to be considered as an input. Note that in
+  // Split, the split factor is an attribute. However, that said, none
+  // of the existing exprs has tensors as attributes, which makes this
+  // choice less certain with possible implications.
+  addAttribute(extents);
+}
+
+std::string Partition::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Partition: ";
+  ss << in()->toString();
+  ss << " by extents " << extents()->toString();
+  ss << " -> component: ";
+  ss << component()->toString();
+  ss << ", ragged: ";
+  ss << ragged()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Partition::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Partition can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Partition)
+
 Swizzle::Swizzle(
     IrBuilderPasskey passkey,
     IterDomain* out_x,
@@ -3071,5 +3118,71 @@ std::vector<PolymorphicValue> CatOp::evaluate(
   }
   return {at::cat(unpadded_inputs, concat_dim)};
 }
+
+LaunchDependentGridOp::LaunchDependentGridOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  addOutput(output);
+  for (auto input : inputs) {
+    addInput(input);
+  }
+}
+
+std::string LaunchDependentGridOp::toString(int indent_size) const {
+  NVF_CHECK_EQ(outputs().size(), 1);
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = "
+                          << "launchDependentGrid("
+                          << toDelimitedString(inputs()) << ")\n";
+  return ss.str();
+}
+
+std::string LaunchDependentGridOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "LaunchDependentGridOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LaunchDependentGridOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("LaunchDependentGridOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchDependentGridOp)
+
+WaitForPriorGridOp::WaitForPriorGridOp(
+    IrBuilderPasskey passkey,
+    Val* output,
+    std::vector<Val*> inputs)
+    : Expr(passkey) {
+  addOutput(output);
+  for (auto input : inputs) {
+    addInput(input);
+  }
+}
+
+std::string WaitForPriorGridOp::toString(int indent_size) const {
+  NVF_CHECK_EQ(outputs().size(), 1);
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = "
+                          << "waitForPriorGrid(" << toDelimitedString(inputs())
+                          << ")\n";
+  return ss.str();
+}
+
+std::string WaitForPriorGridOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "WaitForPriorGridOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> WaitForPriorGridOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("WaitForPriorGridOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(WaitForPriorGridOp)
 
 } // namespace nvfuser

@@ -9,14 +9,14 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include <dispatch.h>
-#include <expr_evaluator.h>
-#include <host_ir/container.h>
-#include <host_ir/host_ir.h>
-#include <multidevice/communicator.h>
-#include <multidevice/ipc_handle.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/fusion_executor_cache.h>
+#include "dispatch.h"
+#include "expr_evaluator.h"
+#include "host_ir/container.h"
+#include "host_ir/ir.h"
+#include "multidevice/communicator.h"
+#include "multidevice/ipc_handle.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/fusion_executor_cache.h"
 
 namespace nvfuser {
 
@@ -114,6 +114,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(HirAliasSelect*) override;
   void handle(Deallocate*) override;
   void handle(ShardByStream*) override;
+  void handle(SymmetricContiguousView*) override;
   void unhandled(Statement*) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
@@ -137,6 +138,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
   const int64_t my_local_device_index_;
   IpcHandleCache ipc_handle_cache_;
+  SymmetricMemoryHandleCache multicast_handle_cache_;
   // Allocation cache
   std::unordered_map<kir::Allocate*, at::Tensor> allocation_cache_;
 };

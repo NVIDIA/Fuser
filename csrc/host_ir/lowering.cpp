@@ -5,30 +5,31 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <host_ir/host_ir.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/lowering.h>
-#include <host_ir/pass/insert_deallocations.h>
-#include <ir/utils.h>
-#include <multidevice/allocation_utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/utils.h>
-#include <runtime/executor_abstract.h>
-#include <transform_replay.h>
+#include "host_ir/lowering.h"
+
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "host_ir/ir.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/ops.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/propagation.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/utils.h"
+#include "runtime/executor_abstract.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 
 namespace {
 
 struct LoopInfo {
-  hir::ForLoop* loop;
+  hir::ForLoop* loop = nullptr;
 
   // The Scope that owns `loop`. It's one level outer than `loop`'s body scope.
-  Scope* parent_scope;
+  Scope* parent_scope = nullptr;
 
   // The iterator that points to `loop`. This way, we can insert instructions,
   // e.g. Allocate, right before the loop.
@@ -36,7 +37,11 @@ struct LoopInfo {
 };
 
 std::ostream& operator<<(std::ostream& os, const LoopInfo& loop_info) {
-  os << loop_info.loop->toInlineString();
+  if (loop_info.loop == nullptr) {
+    os << "<null>";
+  } else {
+    os << loop_info.loop->toInlineString();
+  }
   return os;
 }
 
@@ -62,6 +67,8 @@ class LoopNest {
     return loop_infos_.back();
   }
 
+  // Returns the scope of the innermost for-loop or the top-level scope if the
+  // loop nest is empty.
   Scope& innermostScope() const {
     return empty() ? top_level_ : innermost().loop->body();
   }
@@ -70,7 +77,7 @@ class LoopNest {
     Scope& parent_scope = innermostScope();
     auto* for_loop = hir::ForLoop::createFromIterDomain(id);
     loop_infos_.push_back(
-        {for_loop, &parent_scope, parent_scope.push_back(for_loop)});
+        {for_loop, &parent_scope, parent_scope.pushBack(for_loop)});
     return for_loop;
   }
 
@@ -148,8 +155,17 @@ void lowerSegment(
     hir::HostIrContainer& hic,
     LoopNest& loop_nest,
     IrCloner& ir_cloner) {
+  Scope& innermost_scope = loop_nest.innermostScope();
+  LoopInfo innermost;
+  if (!loop_nest.empty()) {
+    innermost = loop_nest.innermost();
+  }
+
   switch (group.schedulerType()) {
     case SchedulerType::Communication: {
+      // We can probably unify the processing of a Communication segment and
+      // that of an ExprEval segment. A Communication can only have one output
+      // and that output is always pre-allocated, simplifying the logic a bit.
       auto device_id = Communicator::getInstance().deviceId();
       NVF_ERROR_EQ(
           group.exprs().size(),
@@ -159,24 +175,55 @@ void lowerSegment(
       // without cloning the value again.
       Expr* e = ir_cloner.clone(group.exprs().front());
 
-      for (auto* c : convertSingleOpToCommunication(e, device_id)) {
+      // TODO: `replacement_map` should be associated with the scope so
+      // ShardByStream across segments in the same for-loop can be reused.
+      std::unordered_map<Val*, Val*> replacement_map;
+      for (Expr* c : convertSingleOpToCommunication(e, device_id)) {
         NVF_ERROR(
             c->isA<Communication>(),
             "Exprs in a Communication group should be Communication: ",
             c);
-        // Allocate the recv buffers of communications
         auto* communication = c->as<Communication>();
-        TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(device_id)) {
-          auto* allocate =
-              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-          // TODO: allocation may have to go to the top level. See how
-          // SchedulerType::ExprEval handles allocations.
-          loop_nest.innermostScope().push_back(allocate);
+        TensorView* in = communication->in();
+        TensorView* out = communication->out();
+        if (haveDifferentShardings(
+                in,
+                DomainType::kAllocation,
+                out,
+                DomainType::kLoop,
+                {ParallelType::Stream})) {
+          Val*& sharded_in = replacement_map[in];
+          if (sharded_in == nullptr) {
+            sharded_in =
+                hir::shardByStream(in, innermost.loop->index(), communication);
+            innermost_scope.pushBack(sharded_in->definition());
+          }
         }
-        loop_nest.innermostScope().push_back(communication);
-        auto wait = IrBuilder::create<hir::Wait>(communication);
-        loop_nest.innermostScope().push_back(wait);
+
+        // Allocate the recv buffers of communications
+        auto* allocate =
+            IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+        if (getShardedIterDomain(
+                out, ParallelType::Stream, DomainType::kLoop) != nullptr &&
+            getShardedIterDomain(
+                out, ParallelType::Stream, DomainType::kAllocation) ==
+                nullptr) {
+          innermost.parent_scope->insert(
+              innermost.parent_insertion_point, allocate);
+          auto [i, inserted] = replacement_map.emplace(
+              out,
+              hir::shardByStream(out, innermost.loop->index(), communication));
+          NVF_ERROR(inserted, "The input segmented fusion should be SSA.");
+          innermost_scope.pushBack(i->second->definition());
+        } else {
+          innermost_scope.pushBack(allocate);
+        }
+
+        Expr* new_c = cloneWithNewOperands(c, replacement_map);
+        innermost_scope.pushBack(new_c);
+
+        auto* wait = IrBuilder::create<hir::Wait>(new_c);
+        innermost_scope.pushBack(wait);
       }
       break;
     }
@@ -208,13 +255,10 @@ void lowerSegment(
       // TensorViews.
       if (loop_nest.empty()) {
         for (Expr* e : exprs) {
-          loop_nest.innermostScope().push_back(e);
+          innermost_scope.pushBack(e);
         }
         break;
       }
-
-      auto [for_loop, parent_scope, parent_insertion_point] =
-          loop_nest.innermost();
 
       std::unordered_map<Val*, Val*> replacement_map;
       for (Expr* e : exprs) {
@@ -251,9 +295,9 @@ void lowerSegment(
                   DomainType::kLoop,
                   {ParallelType::Stream})) {
             TensorView* sharded_in =
-                hir::shardByStream(in, for_loop->index(), e);
+                hir::shardByStream(in, innermost.loop->index(), e);
             replacement_map[in] = sharded_in;
-            for_loop->body().push_back(sharded_in->definition());
+            innermost_scope.pushBack(sharded_in->definition());
           }
         }
 
@@ -265,22 +309,20 @@ void lowerSegment(
                   out, ParallelType::Stream, DomainType::kAllocation) ==
               nullptr) {
             auto* allocate =
-                IrBuilder::create<kir::Allocate>(out, MemoryType::Global);
-            parent_scope->insert(parent_insertion_point, allocate);
+                IrBuilder::create<kir::Allocate>(out, out->getMemoryType());
+            innermost.parent_scope->insert(
+                innermost.parent_insertion_point, allocate);
             // Loop is stream parallelized but allocation is not. Therefore,
             // `out` should be allocated outside the loop.
-            //
-            // I use try_emplace here so shardByStream is called only when `out`
-            // is missing.
             TensorView* sharded_out =
-                hir::shardByStream(out, for_loop->index(), e);
+                hir::shardByStream(out, innermost.loop->index(), e);
             replacement_map[out] = sharded_out;
-            for_loop->body().push_back(sharded_out->definition());
+            innermost_scope.pushBack(sharded_out->definition());
           }
         }
 
         Expr* new_e = cloneWithNewOperands(e, replacement_map);
-        for_loop->body().push_back(new_e);
+        innermost_scope.pushBack(new_e);
       }
       break;
     }
@@ -290,22 +332,22 @@ void lowerSegment(
 
       // Allocate the output TensorViews.
       for (auto* out : outs) {
+        auto* out_tv = dynamic_cast<TensorView*>(out);
         NVF_ERROR(
-            out->isA<TensorView>(),
-            "Output must be a TensorView but got ",
-            out);
-        const AliasInfo& alias = aliases.get(out);
+            out_tv != nullptr, "Output must be a TensorView but got: ", out);
+
+        const AliasInfo& alias = aliases.get(out_tv);
         NVF_ERROR_EQ(
             alias.type,
             AllocationType::New,
             "Output ",
-            out->toString(),
+            out_tv,
             " must not be an alias, got ",
             alias);
-        auto* tv = out->as<TensorView>();
+
         auto* allocate =
-            IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-        loop_nest.innermostScope().push_back(allocate);
+            IrBuilder::create<kir::Allocate>(out_tv, out_tv->getMemoryType());
+        innermost_scope.pushBack(allocate);
       }
 
       // Add the LaunchKernel instruction.
@@ -317,11 +359,11 @@ void lowerSegment(
       auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
           group_id,
           launch_params,
-          ke.compiledKernel()->compileParams(),
+          ke.compiledKernel().get(),
           ins,
           outs,
           cache_id);
-      loop_nest.innermostScope().push_back(launch_kernel);
+      innermost_scope.pushBack(launch_kernel);
     }
   } // switch
 } // lowerSegment
@@ -404,8 +446,6 @@ std::unique_ptr<hir::HostIrContainer> lowerSegmentedFusionToHostIr(
 
     prev_ref_loop = std::move(curr_ref_loop);
   }
-
-  OptimizationPass<hir::InsertDeallocations>::runPass(hic.get());
 
   return hic;
 }
