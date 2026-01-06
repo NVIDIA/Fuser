@@ -336,7 +336,7 @@ TEST_F(IntervalAnalysisTest, SerialLoops) {
   Val* offset = IrBuilder::create<Val>(DataType::Index);
   Val* index_plus_offset = add(index, offset);
   // Compute index + offset inside the "for index in id" loop
-  loop->body().push_back(index_plus_offset->definition());
+  loop->body().pushBack(index_plus_offset->definition());
 
   ExpressionEvaluator expr_eval;
   LaunchParams launch_params;
@@ -372,7 +372,7 @@ TEST_F(IntervalAnalysisTest, ParallelLoops) {
   Val* offset = IrBuilder::create<Val>(DataType::Index);
   Val* index_plus_offset = add(index, offset);
   // Compute index + offset inside the "for index in id" loop
-  loop->body().push_back(index_plus_offset->definition());
+  loop->body().pushBack(index_plus_offset->definition());
 
   ExpressionEvaluator expr_eval;
   LaunchParams launch_params;
