@@ -118,7 +118,8 @@ std::vector<int64_t> unshardedSizes(
             " but got ",
             multiplier);
       } else {
-        (*extent_to_multiplier_map)[extent] = multiplier;
+        NVF_ERROR(false, "Extent to multiplier map not found for extent ", extent->toString());
+        // (*extent_to_multiplier_map)[extent] = multiplier;
       }
     }
     unsharded_sizes.at(sharded_axis) *= multiplier;
