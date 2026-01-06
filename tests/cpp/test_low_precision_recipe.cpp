@@ -268,28 +268,12 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
 
   FusionExecutorCache fec(std::move(fusion));
 
-  // Create input tensor using custom CUDA allocation with misalignment
-  size_t element_size = 4;
-  size_t total_elements = m * n;
-  size_t buffer_size =
-      total_elements * element_size + 32; // Extra bytes for misalignment
-
-  // Allocate GPU memory with extra space
-  void* gpu_ptr;
-  cudaMalloc(&gpu_ptr, buffer_size);
-
-  // Create tensor from GPU memory at offset of 4 bytes (misaligned)
-  void* misaligned_ptr = static_cast<char*>(gpu_ptr) + 4;
-  auto input_tensor = at::from_blob(
-      misaligned_ptr,
-      {m, n},
-      at::TensorOptions()
-          .dtype(data_type_to_aten(data_hp_dtype))
-          .device(at::kCUDA));
-
-  // Initialize with random data
-  input_tensor.copy_(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
-                         .to(data_type_to_aten(data_hp_dtype)));
+  // Create misaligned tensor by slicing - this ensures non-vectorizable input
+  auto input_tensor =
+      at::randn({m * n + 1}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype))
+          .index({at::indexing::Slice(1)})
+          .view({m, n});
 
   std::vector<at::Tensor> inputs;
   inputs.push_back(input_tensor);
@@ -329,10 +313,6 @@ TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
   EXPECT_TRUE(baseline_quantized_tensor.allclose(quantized_tensor, rtol, atol))
       << "Quantized tensors do not match within tolerance (rtol=" << rtol
       << ", atol=" << atol << ")";
-
-  // Free allocated memory
-  if (gpu_ptr)
-    cudaFree(gpu_ptr);
 }
 
 // Test class for MXFP8 quantization scheduling validation

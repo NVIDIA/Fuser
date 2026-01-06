@@ -148,7 +148,8 @@ class ReductionTVs {
 //!  BlockQuantizationOp operations.
 class HasBlockQuantizationOps {
  public:
-  using DataType = bool;
+  // using DataType = bool;
+  using DataType = std::vector<BlockQuantizationOp*>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;
 };
