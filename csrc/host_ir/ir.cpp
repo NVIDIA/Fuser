@@ -193,7 +193,10 @@ std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Stream ";
   if (index() == nullptr) {
-    ss << name();
+    // HostIrEvaluator looks up streams by address when index is null.
+    // Print address as identifier. We used to print `name()` but that's often
+    // an integer which would be confusing/ambiguous with the index.
+    ss << static_cast<const void*>(this);
   } else {
     ss << index()->toInlineString();
   }
@@ -226,8 +229,8 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
 
 std::string SetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toInlineString()
-                          << ")" << std::endl;
+  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toString() << ")"
+                          << std::endl;
   return ss.str();
 }
 
@@ -278,7 +281,7 @@ bool Wait::sameAs(const Statement* other) const {
 }
 
 Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
-    : Expr(passkey, {}, {}, {stream}) {
+    : Expr(passkey, {stream}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<HostIrContainer>(),
@@ -435,13 +438,9 @@ std::string ShardByStream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = ShardByStream("
                           << in()->toString()
-                          << ", stream_index = " << stream_index()->toString()
+                          << ", stream_index=" << stream_index()->toString()
                           << ")" << std::endl;
   return ss.str();
-}
-
-std::string ShardByStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 SymmetricContiguousView::SymmetricContiguousView(
