@@ -95,7 +95,6 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   const int64_t n_stages = std::min(smem_limited_stages, iter_limited_stages);
   if (n_stages >= 2 && bdimx == 128) {
     gdimx = sm_count;
-    bdimx = 128; // 4 warps per warp group
     bdimy = n_compute_warp_groups;
     bdimz = 1; // warp specialized kernel requires static CTA shape
     params->n_grouped_rows = n_rows_per_compute_warp_group;
