@@ -9,7 +9,6 @@
 
 #include <sys/types.h>
 #include <unistd.h>
-#include <mutex>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
@@ -43,7 +42,6 @@ MultiDeviceTest::MultiDeviceTest() {
   tensor_options_ =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   debug_print = getNvFuserEnv("MULTIDEVICE_DEBUG_PRINT") != nullptr;
-  disable_skip = getNvFuserEnv("MULTIDEVICE_DISABLE_SKIP") != nullptr;
 }
 
 MultiDeviceTest::~MultiDeviceTest() {
@@ -57,10 +55,9 @@ MultiDeviceTest::~MultiDeviceTest() {
 }
 
 void MultiDeviceTest::SetUp() {
-  // Set the same random seed for all processes.
   NVFuserTest::SetUp();
 
-  if (!disable_skip && !communicator_->is_available()) {
+  if (!communicator_->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
 }

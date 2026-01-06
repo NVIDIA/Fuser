@@ -993,7 +993,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   |   tv2[i,...] = Fusion1 (tv1_i)
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
-TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernelPipelining) {
+TEST_F(MultiDeviceTutorial, HostIrKernelPipelining) {
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
@@ -1118,9 +1118,7 @@ TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernelPipelining) {
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
   HostIrEvaluator hie(
-      std::move(hic),
-      /*communicator=*/nullptr,
-      {.use_fusion_executor_cache = true});
+      std::move(hic), communicator_, {.use_fusion_executor_cache = true});
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
