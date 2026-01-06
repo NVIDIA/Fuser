@@ -1879,7 +1879,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     auto clone_tv = complete_to_segment_map.clone(inp);
     fusion_segment->addInput(clone_tv);
     if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()
-     || inp->isDefinitionType<GroupedBlockQuantizationOp>()) {
+     || (inp->isDefinitionType<GroupedBlockQuantizationOp>() && (inp == inp->definition()->as<GroupedBlockQuantizationOp>()->blockScales())) ) {
       // NOTE: inp is an input to fusion segment.
       //
       // There's no point of replaying allocation domain if we cannot index into
