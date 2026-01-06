@@ -187,8 +187,7 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
     const torch::Tensor& b_ptrs,
     const torch::Tensor& a_scales_ptrs,
     const torch::Tensor& b_scales_ptrs,
-    const torch::Tensor& stride_a,
-    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_ab,
     const torch::Tensor& stride_c,
     const torch::Tensor& layout_sfa,
     const torch::Tensor& layout_sfb,
@@ -263,9 +262,9 @@ void launch_sm100_fp8_blockwise_scaled_group_mm(
 
   typename GemmKernel::MainloopArguments mainloop_args{
       static_cast<const ElementA**>(a_ptrs.data_ptr()),
-      static_cast<StrideA*>(stride_a.data_ptr()),
+      static_cast<StrideA*>(stride_ab.data_ptr()),
       static_cast<const ElementB**>(b_ptrs.data_ptr()),
-      static_cast<StrideB*>(stride_b.data_ptr()),
+      static_cast<StrideB*>(stride_ab.data_ptr()),
       static_cast<const ElementAccumulator**>(a_scales_ptrs.data_ptr()),
       reinterpret_cast<typename ScheduleConfig::LayoutSFA*>(
           layout_sfa.data_ptr()),
@@ -327,8 +326,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& stride_a,
-    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_ab,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets) {
@@ -437,8 +435,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         b_ptrs,
         a_scales_ptrs,
         b_scales_ptrs,
-        stride_a,
-        stride_b,
+        stride_ab,
         stride_c,
         layout_sfa,
         layout_sfb,
@@ -474,8 +471,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         b_ptrs,
         a_scales_ptrs,
         b_scales_ptrs,
-        stride_a,
-        stride_b,
+        stride_ab,
         stride_c,
         layout_sfa,
         layout_sfb,
@@ -510,8 +506,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
         b_ptrs,
         a_scales_ptrs,
         b_scales_ptrs,
-        stride_a,
-        stride_b,
+        stride_ab,
         stride_c,
         layout_sfa,
         layout_sfb,
@@ -532,8 +527,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& stride_a,
-    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_ab,
     const torch::Tensor& stride_c,
     const torch::Tensor& layout_sfa,
     const torch::Tensor& layout_sfb,
@@ -548,8 +542,7 @@ void validateInputsMxfp8ScaledGroupMm(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& stride_a,
-    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_ab,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
@@ -574,11 +567,9 @@ void validateInputsMxfp8ScaledGroupMm(
   NVF_CHECK(
       scales_b.scalar_type() == torch::kFloat32, "scales_b must be float32.");
 
-  NVF_CHECK(stride_a.dim() == 1, "stride_a must be 1D tensor.");
-  NVF_CHECK(stride_a.scalar_type() == torch::kInt64, "stride_a must be int64.");
-
-  NVF_CHECK(stride_b.dim() == 1, "stride_b must be 1D tensor");
-  NVF_CHECK(stride_b.scalar_type() == torch::kInt64, "stride_b must be int64.");
+  NVF_CHECK(stride_ab.dim() == 1, "stride_a must be 1D tensor.");
+  NVF_CHECK(
+      stride_ab.scalar_type() == torch::kInt64, "stride_a must be int64.");
 
   NVF_CHECK(stride_c.dim() == 1, "stride_c must be 1D tensor.");
   NVF_CHECK(stride_c.scalar_type() == torch::kInt64, "stride_c must be int64.");
@@ -616,8 +607,7 @@ void validateInputsMxfp8ScaledGroupMm(
  * @param b              Input tensor B (must be kFloat8_e4m3fn).
  * @param scales_a       Scaling factors for tensor A, float32 per expert group.
  * @param scales_b       Scaling factors for tensor B, float32 per expert group.
- * @param stride_a       Stride information for tensor A (int32).
- * @param stride_b       Stride information for tensor B (int32).
+ * @param stride_ab      Stride information for tensor A and tensor B (int32).
  * @param stride_c       Stride information for output tensor C (int32).
  * @param problem_sizes  2D int32 tensor of shape (num_experts, 3), specifying
  * (M, N, K) for each grouped matrix multiplication problem.
@@ -634,8 +624,7 @@ torch::Tensor mxfp8_scaled_grouped_mm(
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
     const torch::Tensor& scales_b,
-    const torch::Tensor& stride_a,
-    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_ab,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
     const torch::Tensor& expert_offsets,
@@ -652,8 +641,7 @@ torch::Tensor mxfp8_scaled_grouped_mm(
       b,
       scales_a,
       scales_b,
-      stride_a,
-      stride_b,
+      stride_ab,
       stride_c,
       problem_sizes,
       expert_offsets,
@@ -666,8 +654,7 @@ torch::Tensor mxfp8_scaled_grouped_mm(
         b,
         scales_a,
         scales_b,
-        stride_a,
-        stride_b,
+        stride_ab,
         stride_c,
         problem_sizes,
         expert_offsets);
@@ -678,8 +665,7 @@ torch::Tensor mxfp8_scaled_grouped_mm(
         b,
         scales_a,
         scales_b,
-        stride_a,
-        stride_b,
+        stride_ab,
         stride_c,
         problem_sizes,
         expert_offsets);

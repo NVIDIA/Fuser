@@ -225,9 +225,7 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         b_scale_stack[g] = b_scales_tensors[g].t()
     b_scale_stack = b_scale_stack.transpose(1, 2)
 
-    a_strides = torch.full(
-        (num_experts,), a_stack.stride(0), device=device, dtype=torch.int64
-    )
+    ab_strides = torch.full((num_experts,), k_g, device=device, dtype=torch.int64)
     c_strides = torch.full((num_experts,), n_g, device=device, dtype=torch.int64)
 
     c_out = nvf_cutlass.mxfp8_scaled_grouped_mm(
@@ -235,8 +233,7 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         b_stack,
         a_scale_stack,
         b_scale_stack,
-        a_strides,
-        a_strides,
+        ab_strides,
         c_strides,
         problem_sizes,
         expert_offsets[:-1],
