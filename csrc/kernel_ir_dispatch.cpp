@@ -99,7 +99,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
       // If reference is nullptr and there are no expressions, simply insert the
       // expr
       if (info.scope->exprs().empty() && info.reference == nullptr) {
-        info.scope->push_back(info.new_expr);
+        info.scope->pushBack(info.new_expr);
         return;
       }
       if (info.mode == MutationMode::BEFORE) {
