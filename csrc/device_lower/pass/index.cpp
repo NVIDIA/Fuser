@@ -87,7 +87,7 @@ void IndexLowering::pushBack(Expr* expr) {
   if (active_scope_ == nullptr) {
     lowered_exprs_.push_back(expr);
   } else {
-    active_scope_->push_back(expr);
+    active_scope_->pushBack(expr);
   }
 }
 
