@@ -435,21 +435,25 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
+  at::Tensor ref_block_sf;
+  at::Tensor ref_scaled_out;
   // producing reference
-  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
-  FusionGuard fg2(fusion_new_op.get());
-  auto tv_in = makeContigTensor(2);
-  fusion_new_op->addInput(tv_in);
-  auto quantization_results = blockQuantize(
-      tv_in, nullptr, /*block_size=*/16, false);
+  {
+    std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+    FusionGuard fg2(fusion_new_op.get());
+    auto tv_in = makeContigTensor(2);
+    fusion_new_op->addInput(tv_in);
+    auto quantization_results = blockQuantize(
+        tv_in, nullptr, /*block_size=*/16, false);
+    
+    fusion_new_op->addOutput(quantization_results.block_scales);
+    fusion_new_op->addOutput(castOp(DataType::Float, quantization_results.quantized_tensor));
+    FusionExecutorCache executor_cache(std::move(fusion_new_op));
+    auto outputs_new_op = executor_cache.runFusionWithInputs({t0});
+    ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+    ref_scaled_out = outputs_new_op[1].as<at::Tensor>();
+  }
   
-  fusion_new_op->addOutput(quantization_results.block_scales);
-  fusion_new_op->addOutput(castOp(DataType::Float, quantization_results.quantized_tensor));
-  FusionExecutorCache executor_cache(std::move(fusion_new_op));
-  auto outputs_new_op = executor_cache.runFusionWithInputs({t0});
-  
-  auto ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
-  auto ref_scaled_out = outputs_new_op[1].as<at::Tensor>();
 
   std::cout << ref_block_sf[0] << std::endl;
   std::cout << outputs[1].as<at::Tensor>()[0] << std::endl;
