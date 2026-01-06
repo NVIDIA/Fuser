@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "tests/cpp/multidevice.h"
+
 #include <sys/types.h>
 #include <unistd.h>
 #include <mutex>
@@ -12,20 +14,19 @@
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
 #else
-#include <multidevice/c10d_mock.h>
+#include "multidevice/c10d_mock.h"
 #endif
 #include <torch/cuda.h>
 
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <runtime/allocations.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "options.h"
+#include "runtime/allocations.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

@@ -6,24 +6,24 @@
  */
 // clang-format on
 
-#include <cuda_profiler_api.h>
-
 #include <chrono>
+
+#include <cuda_profiler_api.h>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <cuda_utils.h>
-#include <driver_api.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/ipc_utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/communication_executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/ipc_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/communication_executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -80,7 +80,7 @@ class LowerCollectiveCudaAndNcclTest
   at::Tensor runBenchmark(
       MultiDeviceExecutor& executor,
       const std::vector<c10::IValue>& inputs,
-      int64_t msg_size_bytes,
+      int64_t message_size_bytes,
       CommunicatorBackend backend_type,
       const std::string& test_name,
       float bandwidth_multiplier = 1.0f,
@@ -126,11 +126,12 @@ class LowerCollectiveCudaAndNcclTest
     // Print results on rank 0
     if (communicator_->deviceId() == 0) {
       float mean_cpu_time_ms = time_tensor.item<float>();
-      float cpu_bandwidth_gbps = (msg_size_bytes * bandwidth_multiplier /
+      float cpu_bandwidth_gbps = (message_size_bytes * bandwidth_multiplier /
                                   (mean_cpu_time_ms / 1000.0)) /
           1e9;
       std::cout << test_name << " - Backend: " << backend_type
-                << ", Size: " << (msg_size_bytes / (1024.0 * 1024.0)) << " MB"
+                << ", Size: " << (message_size_bytes / (1024.0 * 1024.0))
+                << " MB"
                 << ", Avg CPU time: " << mean_cpu_time_ms << " ms"
                 << ", CPU Bandwidth: " << cpu_bandwidth_gbps << " GB/s"
                 << std::endl;
@@ -177,8 +178,8 @@ class LowerCollectiveCudaAndNcclTest
 };
 
 TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
-  const auto& [msg_size_bytes, protocol_enum] = GetParam();
-  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+  const auto& [message_size_bytes, protocol_enum] = GetParam();
+  const int64_t message_size = message_size_bytes / sizeof(float);
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
 
@@ -190,6 +191,10 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
       (protocol_enum == CommunicationProtocol::kMemcpy ||
        protocol_enum == CommunicationProtocol::kMultimem)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >30 seconds to run in CI: http://nv/e.)";
   }
 
   // cudaMemcpyBatchAsync requires a non-default stream
@@ -219,7 +224,7 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
   in->axis(0)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kMsgSize}, tensor_options_);
+      at::randn({num_devices, message_size}, tensor_options_);
   at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
 
   MultiDeviceExecutorParams params;
@@ -232,7 +237,7 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
   at::Tensor out_tensor = runBenchmark(
       executor,
       {in_tensor},
-      msg_size_bytes,
+      message_size_bytes,
       backend_type,
       "Allgather/" + protocol_str,
       static_cast<float>(communicator_->size()));
@@ -241,10 +246,10 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Allgather) {
 }
 
 TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
-  const auto& [msg_size_bytes, protocol_enum] = GetParam();
+  const auto& [message_size_bytes, protocol_enum] = GetParam();
   const CommunicatorBackend backend_type = getBackend(protocol_enum);
   const std::string protocol_str = getProtocolString(protocol_enum);
-  const int64_t kMsgSize = msg_size_bytes / sizeof(float);
+  const int64_t message_size = message_size_bytes / sizeof(float);
 
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
@@ -254,6 +259,10 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
       (protocol_enum == CommunicationProtocol::kMemcpy ||
        protocol_enum == CommunicationProtocol::kMultimem)) {
     GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  if (message_size_bytes > 32LL * 1024 * 1024) {
+    GTEST_SKIP() << "Takes >5 seconds to run in CI: http://nv/e.)";
   }
 
   // cudaMemcpyBatchAsync requires a non-default stream
@@ -289,7 +298,7 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
       std::move(fusion), Communicator::getInstance(), params);
 
   at::Tensor unsharded_tensor =
-      at::randn({num_devices, kMsgSize}, tensor_options_);
+      at::randn({num_devices, message_size}, tensor_options_);
   const auto device_id = communicator_->deviceId();
   at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
 
@@ -297,7 +306,7 @@ TEST_P(LowerCollectiveCudaAndNcclTest, Broadcast) {
   at::Tensor out_tensor = runBenchmark(
       executor,
       {in_tensor},
-      msg_size_bytes,
+      message_size_bytes,
       backend_type,
       "Broadcast/" + protocol_str,
       1.0f);
@@ -310,14 +319,18 @@ namespace {
 std::string paramToStringLowerCollectiveCudaAndNcclTest(
     const testing::TestParamInfo<std::tuple<int64_t, CommunicationProtocol>>&
         info) {
-  const auto& [msg_size_bytes, protocol_enum] = info.param;
+  const auto& [message_size_bytes, protocol_enum] = info.param;
   std::stringstream ss;
   ss << getProtocolString(protocol_enum) << "_";
-  int64_t size_mb = msg_size_bytes / (1024 * 1024);
+  int64_t size_mb = message_size_bytes / (1024 * 1024);
   if (size_mb >= 1024) {
     ss << (size_mb / 1024) << "GB";
-  } else {
+  } else if (size_mb >= 1) {
     ss << size_mb << "MB";
+  } else if (message_size_bytes >= 1024) {
+    ss << (message_size_bytes / 1024) << "KB";
+  } else {
+    ss << message_size_bytes << "B";
   }
   return ss.str();
 }
