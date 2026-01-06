@@ -50,6 +50,10 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
 
+  // Print fusion IR every run
+  debug() << "Fusion IR in FusionExecutorCache::runFusionWithInputs:" << std::endl;
+  fusion_->print();
+
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
@@ -63,6 +67,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   }
 
   if (!kernel_runtime->isCompiled()) {
+    debug() << "[DEBUG] ===== COMPILING KERNEL =====" << std::endl;
     kernel_runtime->compileFusionParallel(args);
   }
 
@@ -80,6 +85,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
         " failed.");
   }
 
+  debug() << "[DEBUG] ===== EXECUTING KERNEL =====" << std::endl;
   auto outputs = kernel_runtime->runWithInputs(args);
 
   // Kernel time measurement is off by default
