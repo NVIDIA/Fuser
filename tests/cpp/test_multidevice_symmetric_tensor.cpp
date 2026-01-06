@@ -197,6 +197,7 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   communicator_->barrier();
 
   // Setup and get contiguous view of all ranks
+  sym_tensor.setupRemoteHandles();
   sym_tensor.setupContiguousView("test_contiguous");
   at::Tensor contiguous_view = sym_tensor.getContiguousView();
 
