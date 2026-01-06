@@ -153,7 +153,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     // Add the cloned loop into the parent loop body only when the
     // cloned loop contains expressions.
     if (!cloned_loop->body().empty() && !for_loop_stack_.empty()) {
-      for_loop_stack_.back()->body().push_back(cloned_loop);
+      for_loop_stack_.back()->body().pushBack(cloned_loop);
     }
   }
 
@@ -187,19 +187,19 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         // circular buffered TVs (e.g., buffer initialization).
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) > 0) {
-          for_loop_stack_.back()->body().push_back(expr);
+          for_loop_stack_.back()->body().pushBack(expr);
         }
         break;
       }
       case CircularBufferLoopStage::Main: {
-        for_loop_stack_.back()->body().push_back(expr);
+        for_loop_stack_.back()->body().pushBack(expr);
         break;
       }
       case CircularBufferLoopStage::Epilog: {
         // In Epilogue, copy everything except circular buffer load expressions.
         TensorView* out_tv = ir_utils::getTvOutput(expr);
         if (circular_buffer_load_tvs_.count(out_tv) == 0) {
-          for_loop_stack_.back()->body().push_back(expr);
+          for_loop_stack_.back()->body().pushBack(expr);
         }
         break;
       }
@@ -388,7 +388,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         ++it;
         continue;
       }
-      for_loop_stack_.back()->body().push_back(wait);
+      for_loop_stack_.back()->body().pushBack(wait);
       it = raw_mbarriers_to_wait_.erase(it);
     }
   }
@@ -411,7 +411,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       auto& uses = it->second;
       if (uses.empty()) {
         auto arrive = createWarMbarrierArrive(it->first);
-        for_loop_stack_.back()->body().push_back(arrive);
+        for_loop_stack_.back()->body().pushBack(arrive);
         it = war_mbarriers_to_uses_.erase(it);
       } else {
         ++it;
@@ -487,7 +487,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         IrBuilder::create<kir::Predicate>(predicate_val);
     kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
     kir::Continue* cont = IrBuilder::create<kir::Continue>();
-    ite->thenBody().push_back(cont);
+    ite->thenBody().pushBack(cont);
     return ite;
   }
 
@@ -530,7 +530,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       kir::IfThenElse* ite =
           createPersistentShortCircuit(for_loop_stack_.front(), cloned_loop);
       if (ite != nullptr) {
-        for_loop_stack_.back()->body().push_back(ite);
+        for_loop_stack_.back()->body().pushBack(ite);
       }
 
       // In persistent for_loop for ComputeWarp, after continue short-circuit
@@ -545,7 +545,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
           Expr* mbarrier_wait = ping_pong_mbarriers->createMbarrierWait(
               /*next_warp_group=*/false, /*is_epilogue=*/false);
-          for_loop_stack_.back()->body().push_back(mbarrier_wait);
+          for_loop_stack_.back()->body().pushBack(mbarrier_wait);
         }
       }
     }
@@ -560,7 +560,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
           (int64_t)for_loop_stack_.size() > insertion_position_) {
         // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
         // we are within a nested for-loop structure
-        for_loop_stack_.back()->body().push_back(cloned_loop);
+        for_loop_stack_.back()->body().pushBack(cloned_loop);
       } else {
         // mbarrier::arriveExpectTx and TMA load operations occur in prologue
         // and main loops.
@@ -881,7 +881,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         // nested for-loop and handling the cpAsyncBulk in it. In such case, we
         // should wait until we return to top-level for loop and add the
         // mbarrier::arriveExpectTx and new loadStoreOp there.
-        for_loop_stack_.back()->body().push_back(new_ldst);
+        for_loop_stack_.back()->body().pushBack(new_ldst);
       }
     } else if (
         (is_circular_buffer_load_expr && hasCircularBufferLoad() &&
@@ -889,7 +889,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         (!is_circular_buffer_load_expr && hasCircularBufferConsume())) {
       // For non-TMA circular buffer loads, and for computes, we just add it to
       // the cloned loop body.
-      for_loop_stack_.back()->body().push_back(expr);
+      for_loop_stack_.back()->body().pushBack(expr);
     }
 
     updateWarMbarrierUseMap(expr);
@@ -955,7 +955,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (elect_sync_if_then_else_ == nullptr) {
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-      for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
+      for_loop_stack_.back()->body().pushBack(elect_sync_if_then_else_);
     }
     return elect_sync_if_then_else_;
   }
@@ -989,7 +989,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
            it != war_mbarriers_to_wait_.end();) {
         auto wait = it->second;
         if (wait != nullptr) {
-          if_expr->thenBody().push_back(wait);
+          if_expr->thenBody().pushBack(wait);
           it = war_mbarriers_to_wait_.erase(it);
         } else {
           ++it;
@@ -998,8 +998,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
 
     // Arrive expect tx for RAW
-    if_expr->thenBody().push_back(mbarrier_arrive_tx_);
-    if_expr->thenBody().push_back(expr);
+    if_expr->thenBody().pushBack(mbarrier_arrive_tx_);
+    if_expr->thenBody().pushBack(expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -1483,7 +1483,7 @@ kir::ForLoop* createArrivesForWar(kir::ForLoop* circular_buffer_loop) {
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);
     ite = IrBuilder::create<kir::IfThenElse>(predicate);
-    prefetch_loop->body().push_back(ite);
+    prefetch_loop->body().pushBack(ite);
   }
 
   for (auto mbarrier : mbarriers) {
@@ -1494,9 +1494,9 @@ kir::ForLoop* createArrivesForWar(kir::ForLoop* circular_buffer_loop) {
     auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
         /*state=*/nullptr, mbarrier_to_arrive);
     if (ite != nullptr) {
-      ite->thenBody().push_back(prefetch);
+      ite->thenBody().pushBack(prefetch);
     } else {
-      prefetch_loop->body().push_back(prefetch);
+      prefetch_loop->body().pushBack(prefetch);
     }
   }
   return prefetch_loop;
@@ -1609,13 +1609,13 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
       kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
           /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
+      warp_dispatch_ite->thenBody().pushBack(dec_reg_async_warp);
 
       // Increase registers in compute warp group
       kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(increase_num_registers, DataType::Index),
           /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
+      warp_dispatch_ite->elseBody().pushBack(inc_reg_async_warp);
     }
 
     // Load loop:
@@ -1624,16 +1624,16 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         loads,
         CircularBufferLoopStage::AsyncWarp,
         insertion_position);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+    warp_dispatch_ite->thenBody().pushBack(load_loop);
 
     // Terminate the warp group handling Load loop immediately after
     // finishing its work.
     kir::Return* ret = IrBuilder::create<kir::Return>();
-    warp_dispatch_ite->thenBody().push_back(ret);
+    warp_dispatch_ite->thenBody().pushBack(ret);
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+    warp_dispatch_ite->elseBody().pushBack(prefetch_loop);
 
     // If this is a ping-pong hopper, then we need the last warp group to
     // release the mbarriers for the first warp group.
@@ -1642,7 +1642,7 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     if (ping_pong_mbarriers != nullptr) {
       auto ite = ping_pong_mbarriers->createPrefetchIfThenElse();
-      warp_dispatch_ite->elseBody().push_back(ite);
+      warp_dispatch_ite->elseBody().pushBack(ite);
     }
 
     // Compute loop:
@@ -1651,7 +1651,7 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         loads,
         CircularBufferLoopStage::ComputeWarp,
         insertion_position);
-    warp_dispatch_ite->elseBody().push_back(compute_loop);
+    warp_dispatch_ite->elseBody().pushBack(compute_loop);
 
     registerReplace(circular_buffer_loop, warp_dispatch_ite);
   }
@@ -1832,7 +1832,7 @@ class PipelineCircularBufferInserter : private kir::ExprMutator {
                                         .prefetch;
         kir::AsyncWait* cp_async_wait = IrBuilder::create<kir::AsyncWait>(
             AsyncOpType::CpAsync, prefetch_distance - 1);
-        prologue_loop->body().push_back(
+        prologue_loop->body().pushBack(
             IrBuilder::create<kir::AsyncCommit>(AsyncOpType::CpAsync));
         registerInsertBefore(circular_buffer_loop, cp_async_wait);
       }
@@ -2027,7 +2027,7 @@ kir::ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
           ping_pong_mbarrier_index, num_of_arrives);
   Expr* pred_ping_pong_mbarrier_init = ping_pong_mbarrier_init->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-  loop->body().push_back(pred_ping_pong_mbarrier_init);
+  loop->body().pushBack(pred_ping_pong_mbarrier_init);
   return loop;
 }
 
@@ -2039,7 +2039,7 @@ kir::ForLoop* HopperPingPongMbarriers::invalidatePingPongMbarrier() {
       IrBuilder::create<kir::MBarrierInvalidate>(ping_pong_mbarrier_index);
   Expr* pred_ping_pong_mbarrier_inval = ping_pong_mbarrier_inval->withPredicate(
       IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-  loop->body().push_back(pred_ping_pong_mbarrier_inval);
+  loop->body().pushBack(pred_ping_pong_mbarrier_inval);
   return loop;
 }
 
@@ -2080,14 +2080,14 @@ kir::IfThenElse* HopperPingPongMbarriers::createPrefetchIfThenElse() {
   kir::MBarrierArrive* tc_mbarrier_arrive =
       IrBuilder::create<kir::MBarrierArrive>(
           /*state=*/nullptr, tc_mbarrier);
-  ite->thenBody().push_back(tc_mbarrier_arrive);
+  ite->thenBody().pushBack(tc_mbarrier_arrive);
 
   kir::TensorIndex* epilogue_mbarrier = IrBuilder::create<kir::TensorIndex>(
       mbarriers_, GpuLower::current()->kernel()->oneVal());
   kir::MBarrierArrive* epilogue_mbarrier_arrive =
       IrBuilder::create<kir::MBarrierArrive>(
           /*state=*/nullptr, epilogue_mbarrier);
-  ite->thenBody().push_back(epilogue_mbarrier_arrive);
+  ite->thenBody().pushBack(epilogue_mbarrier_arrive);
   return ite;
 }
 

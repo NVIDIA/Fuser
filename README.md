@@ -55,33 +55,20 @@ pip install -r python/requirements.txt
 pip install --no-build-isolation -e python -v
 ```
 
-### Prerequisite Validation
-
-Prerequisites are automatically validated before building. If validation fails, follow the error message instructions.
-
-**Validated**: Python, CMake, Ninja, pybind11, PyTorch (CUDA), System CUDA toolkit, Git submodules, GCC, LLVM
-
-**Skip validation** (for CI or custom setups):
-```bash
-NVFUSER_BUILD_SKIP_VALIDATION=1 pip install --no-build-isolation -e python -v
-```
-
-See `python/setup.py` for all build environment variables.
-
 Supported compilers:
 
 **GCC:**
 
-GCC 13+ is required (C++20 `<format>` header support). Recommended versions:
+We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
+As of 3/2/2025, they are:
 
+- gcc 12.4
 - gcc 13.3
 - gcc 14.2
 
-Note: GCC 12 is not supported due to missing `<format>` header in libstdc++.
-
 **Clang:**
 
-- clang 19+
+- clang 16+
 
 Supported C++ standard:
 
