@@ -9,8 +9,6 @@ import subprocess
 import sys
 import shutil
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Optional
 import setuptools.command.build_ext
 
 
@@ -413,32 +411,6 @@ def get_cmake_bin():
     return "cmake"
 
 
-def get_pip_nccl_include_dir() -> Optional[str]:
-    """
-    Find NCCL include directory from pip-installed nvidia-nccl-cu* package.
-
-    PyTorch's pip package depends on nvidia-nccl-cu* which bundles NCCL headers
-    at {site-packages}/nvidia/nccl/include/nccl.h. This path is needed for
-    compiling nvFuser's distributed support.
-
-    Note: Similar logic exists in tools/prereqs/nccl.py::_get_pip_nccl_paths()
-    for validation. That function returns both include AND lib paths for complete
-    prerequisite checking, while this function only needs the include path to pass
-    to CMake. The duplication is intentional to keep validation and build logic
-    independent.
-
-    Returns:
-        Path to NCCL include directory if found, None otherwise
-    """
-    for site_path in sys.path:
-        if not site_path:
-            continue
-        nccl_include = Path(site_path) / "nvidia" / "nccl" / "include"
-        if (nccl_include / "nccl.h").exists():
-            return str(nccl_include)
-    return None
-
-
 def cmake(config, relative_path):
     from tools.memory import get_available_memory_gb
 
@@ -505,12 +477,6 @@ def cmake(config, relative_path):
         "-B",
         cmake_build_dir,
     ]
-    # Add NCCL include path from pip-bundled nvidia-nccl-cu* package if available
-    # This is needed for compiling distributed support when using pip-installed PyTorch
-    if not config.build_without_distributed:
-        nccl_include = get_pip_nccl_include_dir()
-        if nccl_include:
-            cmd_str.append(f"-DNCCL_INCLUDE_DIR={nccl_include}")
     if config.nvmmh_include_dir:
         cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
     if not config.no_ninja:

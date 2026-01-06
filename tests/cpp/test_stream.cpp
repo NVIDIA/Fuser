@@ -24,10 +24,12 @@
 
 namespace nvfuser {
 
+// The tests in this file verify building blocks for stream parallelism, e.g.,
+// sharding propagation and KernelExecutor. End-to-end tests have been moved to
+// tests/python/direct/test_stream.py because the Python API is sufficient.
 class StreamTest : public NVFuserTest {
  public:
   StreamTest() {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };

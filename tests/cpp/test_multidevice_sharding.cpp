@@ -8,18 +8,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
-using testing::Contains;
 using testing::Each;
 using testing::ElementsAre;
 using testing::Not;
@@ -1283,4 +1282,5 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 }
+
 } // namespace nvfuser
