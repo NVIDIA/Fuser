@@ -1354,7 +1354,7 @@ void IdModel::allocateLoopIndexVariables() {
     if (shouldUseZeroIndex(loop_group, *this) ||
         isParallelTypeDeviceDim(ptype)) {
       loop_index = fusion_->zeroVal();
-    } else if (isParallelTypeThread(ptype)) {
+    } else if (isParallelTypeThread(ptype) || ptype == ParallelType::Stream) {
       loop_index = NamedScalar::getParallelIndex(ptype);
     }
 
