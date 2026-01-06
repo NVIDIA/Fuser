@@ -105,6 +105,9 @@ def test_row_parallel_linear_forward(multidevice_test):
         assert event.input_shapes == [[m, k], [k, n], [m, n]]
 
 
+# The caching allocator in PyTorch can't cache buffers across streams, so we
+# have to reuse streams to avoid repeated cudaMalloc. torch.cuda.Stream() is
+# backed by a stream pool as well but I failed to find a way to set its size.
 class StreamPool:
     def __init__(self):
         self._streams = {}
