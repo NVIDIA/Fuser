@@ -1295,6 +1295,11 @@ namespace {
 // upper limit of the expressive power of this design is as high as the world
 // that a formal language can describe.
 
+} // namespace
+
+// Move PartOf, Composition, and Projection out of anonymous namespace
+// for unity build compatibility (-Werror=subobject-linkage)
+
 // selected = PartOf(what, inner_extent, selected_extent) represents that the
 // selected node is part of `what`. This projection usually comes from merge.
 // For example, if we have
@@ -1343,6 +1348,8 @@ using Composition = std::deque<Args...>;
 
 using Projection = dynamic_type::
     DynamicType<dynamic_type::Containers<Composition, PartOf>, ValGroup>;
+
+namespace {
 
 // Utilities to print the entire abstract syntax tree of a projection.
 std::string print(const Projection& proj);

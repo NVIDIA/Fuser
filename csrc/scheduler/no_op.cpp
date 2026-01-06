@@ -19,10 +19,14 @@
 
 namespace nvfuser {
 
+namespace {
+
 template <typename... Args>
-void vlog(const Args&... args) {
+void noOpVlog(const Args&... args) {
   scheduler_debug_utils::log("[no_op] ", args...);
 }
+
+} // namespace
 
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
