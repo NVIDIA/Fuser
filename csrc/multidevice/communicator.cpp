@@ -378,7 +378,7 @@ c10d::Backend* Communicator::getBackendForTeam(
       "torchrun). Sometimes, this is because Communicator::cleanup has been "
       "accidentally called before this function.");
 
-  CommunicatorBackend b = getBackend(backend);
+  CommunicatorBackend b = backend.value_or(default_backend_);
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);

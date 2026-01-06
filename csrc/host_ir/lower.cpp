@@ -100,8 +100,6 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   // since they are incompatible with MultiDeviceExecutor.
   OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
       fusion.get());
-  OptimizationPass<preseg_passes::FinalizeMultideviceDomainsPass>::runPass(
-      fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
