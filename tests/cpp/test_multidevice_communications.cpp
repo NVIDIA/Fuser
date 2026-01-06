@@ -254,7 +254,7 @@ TEST_P(CommunicationTest, SendRecv) {
     }
 
     auto work = postSingleCommunication(
-        communication, rank, backend, input_tensor, output_tensor, kRoot);
+        communication, rank, backend, input_tensor, output_tensor, sender);
     work->wait();
 
     if (rank == receiver) {
