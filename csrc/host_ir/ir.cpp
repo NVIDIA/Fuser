@@ -262,15 +262,14 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
 
 std::string Wait::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "Wait Communication " << communication()->name()
-                          << std::endl;
-  return ss.str();
+  return toInlineString(indent_size) + "\n";
 }
 
-// TODO: implement better ?
 std::string Wait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "Wait(Communication " << communication()->name()
+                          << ")";
+  return ss.str();
 }
 
 // TODO: implement
@@ -290,13 +289,13 @@ Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
 NVFUSER_DEFINE_CLONE_AND_CREATE(Synchronize)
 
 std::string Synchronize::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "Synchronize " << stream() << std::endl;
-  return ss.str();
+  return toInlineString(indent_size) + "\n";
 }
 
 std::string Synchronize::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "Synchronize(" << stream() << ")";
+  return ss.str();
 }
 
 // TODO: implement
