@@ -116,9 +116,6 @@ class StreamPool:
             self._streams[sid] = s
         return s
 
-    def clear(self):
-        self._streams.clear()
-
 
 def row_parallel_linear_forward_reference(
     inp_shard: torch.Tensor,
