@@ -103,6 +103,7 @@ def test_triangle_updates(direction):
         w_g_out = fd.define_tensor(
             shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
         )
+        # Masking is used in an internal implementation: http://nv/e-4
         mask = fd.define_tensor(
             shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
         )  # [b, i, j]
