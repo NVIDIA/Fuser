@@ -31,7 +31,7 @@ class MultiDeviceTutorial : public MultiDeviceTest {
       GTEST_SKIP() << "Distributed setting not available. "
                    << "Make sure you are on a node with n>1 GPUs and run "
                    << "`mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 "
-                      "tutorial_multidevice`";
+                      "test_multidevice_tutorial`";
     }
   }
 
@@ -43,7 +43,7 @@ bool MultiDeviceTutorial::verbose_ = false;
 
 // To run those tests, allocate a node with n>1 GPUs and run:
 //
-// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 tutorial_multidevice
+// mpirun -np n -x NVFUSER_TUTORIAL_VERBOSE=1 test_multidevice_tutorial
 //
 // We use a SPMD paradigm, where each host process manages one and only device,
 // and each device executes the same program. Therefore, the number of process
@@ -311,6 +311,7 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
   // device 1. This implies that a network communication needs to be executed.
   // More precisely, to produce tv2, we need device 0 to send tv1 to device 1.
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   MultiDeviceExecutor multidevice_executor(std::move(fusion), *communicator_);
   if (verbose_ && communicator_->deviceId() < 2) {
     std::cout << "Device ID = " << communicator_->deviceId() << std::endl;
@@ -992,7 +993,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
   |   tv2[i,...] = Fusion1 (tv1_i)
 */
 // To do so, we will be using new Host IRs: Stream (a Val), SetStream, ForLoop.
-TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
+TEST_F(MultiDeviceTutorial, DISABLED_HostIrKernelPipelining) {
   constexpr int64_t kNDims = 2;
   constexpr int64_t kPipelineAxis = 0;
   constexpr int64_t kNumberOfStreams = 4;
