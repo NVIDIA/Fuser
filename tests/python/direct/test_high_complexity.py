@@ -504,7 +504,7 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 4, 2048, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T42 = fd.ops.mul(T22, T25)
         T43 = fd.ops.cast(T41, dtype=DataType.Float)
@@ -517,7 +517,7 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 4, 2048, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T67 = fd.ops.cast(T44, dtype=DataType.BFloat16)
         T73 = fd.ops.broadcast_in_dim(
@@ -528,14 +528,14 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 28, 2048, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         S90 = fd.define_scalar(1.11111, dtype=DataType.Double)
         T91 = fd.ops.mul(T42, S90)
         T97 = fd.ops.broadcast_in_dim(
             T50, shape=[1, 4, 2048, 128], broadcast_dims=[0, 1, 2, 3]
         )
-        T98 = fd.ops.cat([T67, T66], dim=-1, manual_padding=0)
+        T98 = fd.ops.cat([T67, T66], dim=-1, manual_padding=False)
         T104 = fd.ops.broadcast_in_dim(
             T73, shape=[1, 4, 2048, 128], broadcast_dims=[0, 1, 2, 3]
         )
@@ -553,14 +553,14 @@ def test_cat_qwen2_v2(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 28, 2048, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T130 = fd.ops.cast(T110, dtype=DataType.BFloat16)
         T131 = fd.ops.add(T111, T91)
         T137 = fd.ops.broadcast_in_dim(
             T50, shape=[1, 28, 2048, 128], broadcast_dims=[0, 1, 2, 3]
         )
-        T138 = fd.ops.cat([T130, T129], dim=-1, manual_padding=0)
+        T138 = fd.ops.cat([T130, T129], dim=-1, manual_padding=False)
         T144 = fd.ops.broadcast_in_dim(
             T73, shape=[1, 28, 2048, 128], broadcast_dims=[0, 1, 2, 3]
         )

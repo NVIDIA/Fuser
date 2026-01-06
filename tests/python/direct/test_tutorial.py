@@ -44,7 +44,7 @@ def check_auto_schedule(schedule_fn):
     # NOTE We cannot iterate pybind11 enum directly, so we extract the entries here.
     all_scheduler_heuristics = [
         heuristic
-        for heuristic, _ in SchedulerType.__entries.values()
+        for heuristic, _ in SchedulerType.__members__.items()
         if not SchedulerType.none
     ]
 

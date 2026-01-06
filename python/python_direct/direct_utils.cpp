@@ -6,23 +6,47 @@
  */
 // clang-format on
 
+#include <nanobind/ndarray.h>
+#include <nanobind/stl/complex.h>
+#include <nanobind/stl/optional.h>
+
 #include <direct_utils.h>
+#include <tensor_caster.h>
 #include <algorithm>
 
 namespace nvfuser::python {
 
+namespace {
+
+PolymorphicValue toPolymorphicValue(const nb::handle& obj) {
+  if (nb::isinstance<nb::ndarray<nb::pytorch>>(obj)) {
+    return PolymorphicValue(nb::cast<at::Tensor>(obj));
+  } else if (nb::isinstance<nb::bool_>(obj)) {
+    return PolymorphicValue(nb::cast<bool>(obj));
+  } else if (nb::isinstance<nb::int_>(obj)) {
+    return PolymorphicValue(nb::cast<int64_t>(obj));
+  } else if (nb::isinstance<nb::float_>(obj)) {
+    return PolymorphicValue(nb::cast<double>(obj));
+  } else if (nb::isinstance<std::complex<double>>(obj)) {
+    return PolymorphicValue(nb::cast<std::complex<double>>(obj));
+  }
+  NVF_THROW("Cannot convert provided nb::handle to a PolymorphicValue.");
+}
+
+} // namespace
+
 KernelArgumentHolder from_pyiterable(
-    const py::iterable& iter,
+    const nb::iterable& iter,
     std::optional<int64_t> device) {
   KernelArgumentHolder args;
-  for (py::handle obj : iter) {
+  for (nb::handle obj : iter) {
     // Allows for a Vector of Sizes to be inputed as a list/tuple
-    if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
-      for (py::handle item : obj) {
-        args.push(torch::jit::toIValue(item, c10::AnyType::get()));
+    if (nb::isinstance<nb::list>(obj) || nb::isinstance<nb::tuple>(obj)) {
+      for (nb::handle item : obj) {
+        args.push(toPolymorphicValue(item));
       }
     } else {
-      args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+      args.push(toPolymorphicValue(obj));
     }
   }
 

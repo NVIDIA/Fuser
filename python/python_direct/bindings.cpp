@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/vector.h>
 
 #include <bindings.h>
 #include <direct_utils.h>
@@ -14,8 +18,7 @@
 
 namespace nvfuser::python {
 
-void initNvFuserPythonBindings(PyObject* module) {
-  auto nvfuser = py::handle(module).cast<py::module>();
+void initNvFuserPythonBindings(nb::module_& nvfuser) {
   bindEnums(nvfuser);
   bindHeuristicParams(nvfuser);
   bindFusionIr(nvfuser);
@@ -30,27 +33,27 @@ void initNvFuserPythonBindings(PyObject* module) {
   nvfuser.def(
       "translate_fusion",
       &translateFusion,
-      py::arg("fusion"),
+      nb::arg("fusion"),
       R"(Translate a Fusion to a Python string.)");
   nvfuser.def(
       "compute_tensor_descriptor",
       &computeTensorDescriptor,
-      py::arg("sizes"),
-      py::arg("strides"),
+      nb::arg("sizes"),
+      nb::arg("strides"),
       R"(
     Compute the tensor descriptor for a given shape and stride.
   )");
   nvfuser.def(
       "validate_with_auto_inferred_outputs",
       [](Fusion& fusion,
-         const py::iterable& fusion_outputs,
-         const py::iterable& args) {
+         const nb::iterable& fusion_outputs,
+         const nb::iterable& args) {
         return testValidate(
             &fusion, from_pyiterable(fusion_outputs), from_pyiterable(args));
       },
-      py::arg("fusion"),
-      py::arg("fusion_outputs"),
-      py::arg("args"),
+      nb::arg("fusion"),
+      nb::arg("fusion_outputs"),
+      nb::arg("args"),
       R"(
 Validate the fusion outputs with auto inferred outputs.
 
@@ -69,11 +72,11 @@ None
 )");
   nvfuser.def(
       "get_val_tolerances",
-      [](Fusion& fusion, const py::iterable& args) {
+      [](Fusion& fusion, const nb::iterable& args) {
         return getValTolerances(&fusion, from_pyiterable(args));
       },
-      py::arg("fusion"),
-      py::arg("args"),
+      nb::arg("fusion"),
+      nb::arg("args"),
       R"(
 Get the validation tolerances for the fusion.
 
@@ -93,7 +96,8 @@ list of tuple of float
   bindCutlass(nvfuser);
 #endif
 
-  auto cleanup = []() -> void {
+  /*
+  auto cleanup = [](void*) noexcept {
     auto& c = Communicator::getInstance();
     // In the transition period, both nvfuser and nvfuser_direct may be
     // imported and share one Communicator singleton.  Without the is_available
@@ -102,7 +106,8 @@ list of tuple of float
       c.cleanup();
     }
   };
-  nvfuser.add_object("_cleanup", py::capsule(cleanup));
+  nvfuser.attr("_cleanup") = nb::capsule(nullptr, cleanup);
+  */
 }
 
 } // namespace nvfuser::python

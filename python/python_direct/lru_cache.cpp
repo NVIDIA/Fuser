@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/string.h>
+
 #include <bindings.h>
 #include <lru_cache.h>
 
@@ -74,11 +77,11 @@ std::string LRUCache::stats() const {
   return ss.str();
 }
 
-void bindLRUCache(py::module_& nvfuser) {
-  py::class_<LRUCache>(nvfuser, "LRUCache")
+void bindLRUCache(nb::module_& nvfuser) {
+  nb::class_<LRUCache>(nvfuser, "LRUCache")
       .def(
-          py::init<size_t>(),
-          py::arg("max_fusions"),
+          nb::init<size_t>(),
+          nb::arg("max_fusions"),
           R"(
 Create a new LRUCache.
 
@@ -90,7 +93,7 @@ max_fusions : int
       .def(
           "cache_compile",
           &LRUCache::cacheCompile,
-          py::arg("fusion"),
+          nb::arg("fusion"),
           R"(
 Compile a fusion and its executor cache into the cache.
 
@@ -109,7 +112,7 @@ Returns
 FusionExecutorCache
     The executor cache for the fusion.
 )",
-          py::return_value_policy::reference)
+          nb::rv_policy::reference)
       .def(
           "stats",
           &LRUCache::stats,
