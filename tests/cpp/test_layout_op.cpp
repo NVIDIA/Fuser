@@ -388,42 +388,15 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
   fusion.addInput(offsets);
   fusion.addInput(rounded_offsets);
 
-  bool debug = false;
-
-  if (debug) {
-    auto block_size = IrBuilder::create<Val>(16, DataType::Int);
-    auto remainder = ceilDiv(inp->axis(1)->extent(), block_size);
-
-    auto reshaped_inp =
-        reshape(inp, {inp->axis(0)->extent(), remainder, block_size});
-    auto blocked_sf = max(reshaped_inp, {2});
-    auto scaled_output = reshape(
-        div(reshaped_inp, broadcast(blocked_sf, {false, false, true})),
-        {inp->axis(0)->extent(), inp->axis(1)->extent()});
-    // NOTE: output needs to be casted to DataType::Float4_e2m1fn, skipping that
-    // for simplicity for validation
-    fusion.addOutput(scaled_output);
-
-    auto out_blocked_sf_fp8 = preprocessGroupedMatmulInputSf(
-        blocked_sf,
-        offsets,
-        rounded_offsets,
-        BlockScalingFactorLayout::Block128x4);
-    // NOTE: output needs to be casted to DataType::Float8_e4m3fn, skipping that
-    // for simplicity for validation
-    fusion.addOutput(out_blocked_sf_fp8);
-  } else {
-    auto outs = groupedBlockQuantize(
-        inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
-    fusion.addOutput(castOp(DataType::Float, outs.quantized_tensor));
-    fusion.addOutput(outs.block_scales);
-  }
+  auto outs = groupedBlockQuantize(
+      inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  fusion.addOutput(castOp(DataType::Float, outs.quantized_tensor));
+  fusion.addOutput(outs.block_scales);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   int m = 512;
   int k = 9 * 16; // note: padded column size needs to be a multiple of 16
   auto t0 = at::randn({m, k}, options);
-  // auto t0 = at::arange(m * k, options).reshape({m, k}).div(m * k / 100);
 
   // tokens per group are [100, 150, 262] respectively, so each group would be
   // padded to multiple of 128. Hence the total output row span would cover a
@@ -453,13 +426,6 @@ TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
     ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
     ref_scaled_out = outputs_new_op[1].as<at::Tensor>();
   }
-  
-
-  std::cout << ref_block_sf[0] << std::endl;
-  std::cout << outputs[1].as<at::Tensor>()[0] << std::endl;
-
-  std::cout << ref_scaled_out[0] << std::endl;
-  std::cout << outputs[0].as<at::Tensor>()[0] << std::endl;
 
   // check scaled output
   EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
