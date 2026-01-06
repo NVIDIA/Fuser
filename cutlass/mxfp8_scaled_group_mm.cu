@@ -574,8 +574,7 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
  * memory access pattern for better GPU efficiency. This transformation is done
  * within the kernel.
  */
-void mxfp8_scaled_grouped_mm(
-    torch::Tensor& output,
+torch::Tensor mxfp8_scaled_grouped_mm(
     const torch::Tensor& a,
     const torch::Tensor& b,
     const torch::Tensor& scales_a,
@@ -584,7 +583,15 @@ void mxfp8_scaled_grouped_mm(
     const torch::Tensor& stride_b,
     const torch::Tensor& stride_c,
     const torch::Tensor& problem_sizes,
-    const torch::Tensor& expert_offsets) {
+    const torch::Tensor& expert_offsets,
+    const at::ScalarType out_dtype) {
+  // Calculate output shape and allocate output tensor
+  auto options =
+      at::TensorOptions().dtype(out_dtype).device(at::kCUDA, a.get_device());
+  // A [m, k]
+  // B [g, k, n] --- transpose(-1, -2)
+  torch::Tensor output = at::empty({a.size(0), b.size(2)}, options);
+
   NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor");
   NVF_CHECK(
       problem_sizes.size(1) == 3,
@@ -632,7 +639,7 @@ void mxfp8_scaled_grouped_mm(
       problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32");
   NVF_CHECK(expert_offsets.dim() == 1, "expert_offsets must be 1D tensor");
 
-  if (output.scalar_type() == torch::kHalf) {
+  if (out_dtype == torch::kHalf) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
         output,
         a,
@@ -644,7 +651,7 @@ void mxfp8_scaled_grouped_mm(
         stride_c,
         problem_sizes,
         expert_offsets);
-  } else if (output.scalar_type() == at::ScalarType::BFloat16) {
+  } else if (out_dtype == at::ScalarType::BFloat16) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::bfloat16_t>(
         output,
         a,
@@ -659,6 +666,7 @@ void mxfp8_scaled_grouped_mm(
   } else {
     NVF_THROW("Unsupported output data type of nvfp4 scaled_grouped_mm.");
   }
+  return output;
 }
 
 } // namespace nvfuser::cutlass_kernels
