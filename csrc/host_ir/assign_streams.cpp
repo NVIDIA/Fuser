@@ -30,7 +30,7 @@ void AssignStreams::runPass(Fusion* fusion) {
 
     // We should check that the loop is stream-parallel. This is not necessary
     // at this moment because all loops are stream-parallel. This is also hard
-    // to do becauase hir::ForLoop doesn't point to the source IterDomain.
+    // to do because hir::ForLoop doesn't point to the source IterDomain.
 
     auto* get_current_stream = IrBuilder::create<GetCurrentStream>();
     Stream* main_stream = get_current_stream->stream();
