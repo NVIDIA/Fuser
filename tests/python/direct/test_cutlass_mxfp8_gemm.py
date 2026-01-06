@@ -163,7 +163,7 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
     alignment = 16
 
     # k dimension is multiple of 128 to avoid padding
-    m, n_g, k_g = config
+    m, n, k = config
     tokens_per_expert = list(tokens_per_expert_neg_one)
     tokens_per_expert.append(m - sum(tokens_per_expert))
     num_experts = len(tokens_per_expert)
@@ -183,10 +183,10 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
     for g in range(num_experts):
         m_g = tokens_per_expert[g]
         expert_offsets[g + 1] = expert_offsets[g] + m_g
-        problem_sizes[g][:] = torch.tensor([m_g, n_g, k_g], device=device)
+        problem_sizes[g][:] = torch.tensor([m_g, n, k], device=device)
 
-        a_g = to_fp8(torch.randn((m_g, k_g), device=device))
-        b_g = to_fp8(torch.randn((n_g, k_g), device=device).t())
+        a_g = to_fp8(torch.randn((m_g, k), device=device))
+        b_g = to_fp8(torch.randn((n, k), device=device).t())
         a_tensors.append(a_g)
         b_tensors.append(b_g)
 
@@ -202,11 +202,9 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         baseline_tensors.append(baseline)
 
     a_stack = torch.empty(
-        (expert_offsets[-1], k_g), device=device, dtype=torch.float8_e4m3fn
+        (expert_offsets[-1], k), device=device, dtype=torch.float8_e4m3fn
     )
-    b_stack = torch.empty(
-        (num_experts, n_g, k_g), device=device, dtype=torch.float8_e4m3fn
-    )
+    b_stack = torch.empty((num_experts, n, k), device=device, dtype=torch.float8_e4m3fn)
 
     for g in range(num_experts):
         a_stack[expert_offsets[g] : expert_offsets[g + 1]] = a_tensors[g]
@@ -214,10 +212,10 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
     b_stack = b_stack.transpose(1, 2)
 
     a_scale_stack = torch.empty(
-        (expert_offsets[-1], k_g // 128), device=device, dtype=torch.float32
+        (expert_offsets[-1], k // 128), device=device, dtype=torch.float32
     )
     b_scale_stack = torch.empty(
-        (num_experts, n_g // 128, k_g // 128), device=device, dtype=torch.float32
+        (num_experts, n // 128, k // 128), device=device, dtype=torch.float32
     )
 
     for g in range(num_experts):
@@ -225,8 +223,8 @@ def test_mxfp8_scaled_grouped_mm(config, tokens_per_expert_neg_one, out_dtype):
         b_scale_stack[g] = b_scales_tensors[g].t()
     b_scale_stack = b_scale_stack.transpose(1, 2)
 
-    ab_strides = torch.full((num_experts,), k_g, device=device, dtype=torch.int64)
-    c_strides = torch.full((num_experts,), n_g, device=device, dtype=torch.int64)
+    ab_strides = torch.full((num_experts,), k, device=device, dtype=torch.int64)
+    c_strides = torch.full((num_experts,), n, device=device, dtype=torch.int64)
 
     c_out = nvf_cutlass.mxfp8_scaled_grouped_mm(
         a_stack,
