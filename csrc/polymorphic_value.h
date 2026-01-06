@@ -251,22 +251,9 @@ inline bool isSameNanSensitive(const T& a, const T& b) {
   return a == b;
 }
 
-inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
-  if (a.type() != b.type()) {
-    return false;
-  }
-  if (a.is<at::Tensor>()) {
-    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
-  }
-  if (a.is<double>()) {
-    return isSameNanSensitive(a.as<double>(), b.as<double>());
-  }
-  if (a.is<std::complex<double>>()) {
-    return isSameNanSensitive(
-        a.as<std::complex<double>>(), b.as<std::complex<double>>());
-  }
-  return a == b;
-}
+// Declaration only - implementation in polymorphic_value.cpp
+// Uses operator== which triggers ForAllTypes template instantiation
+NVF_API bool isSame(const PolymorphicValue& a, const PolymorphicValue& b);
 
 inline PolymorphicValue signbit(const PolymorphicValue& a) {
   if (a.is<int64_t>()) {
@@ -322,56 +309,23 @@ inline PolymorphicValue fmod(
       b.type().name());
 }
 
-inline PolymorphicValue ceildiv(
+// Declarations only - implementations in polymorphic_value.cpp
+// These functions use PolymorphicValue operators which trigger ForAllTypes
+NVF_API PolymorphicValue ceildiv(
     const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a.is<int64_t>() && b.is<int64_t>()) {
-    auto aa = a.as<int64_t>();
-    auto bb = b.as<int64_t>();
-    if (bb > 0) {
-      return PolymorphicValue((aa + bb - 1) / bb);
-    } else {
-      return PolymorphicValue((aa + bb + 1) / bb);
-    }
-  }
-  return PolymorphicValue(std::ceil((a / b).as<double>()));
-}
-
-inline PolymorphicValue max(
+    const PolymorphicValue& b);
+NVF_API PolymorphicValue max(
     const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a != a) {
-    return PolymorphicValue(a);
-  }
-  return PolymorphicValue(a > b ? a : b);
-}
-
-inline PolymorphicValue fmax(
+    const PolymorphicValue& b);
+NVF_API PolymorphicValue fmax(
     const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a != a) {
-    return PolymorphicValue(b);
-  }
-  return PolymorphicValue(a < b ? b : a);
-}
-
-inline PolymorphicValue min(
+    const PolymorphicValue& b);
+NVF_API PolymorphicValue min(
     const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a != a) {
-    return PolymorphicValue(a);
-  }
-  return PolymorphicValue(a < b ? a : b);
-}
-
-inline PolymorphicValue fmin(
+    const PolymorphicValue& b);
+NVF_API PolymorphicValue fmin(
     const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a != a) {
-    return PolymorphicValue(b);
-  }
-  return PolymorphicValue(a > b ? b : a);
-}
+    const PolymorphicValue& b);
 
 inline PolymorphicValue gcd(
     const PolymorphicValue& a,
