@@ -543,6 +543,61 @@ void sm100_fp8_blockwise_group_mm_dispatch_shape(
 }
 #endif // defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
 
+void validateInputsMxfp8ScaledGroupMm(
+    const torch::Tensor& a,
+    const torch::Tensor& b,
+    const torch::Tensor& scales_a,
+    const torch::Tensor& scales_b,
+    const torch::Tensor& stride_a,
+    const torch::Tensor& stride_b,
+    const torch::Tensor& stride_c,
+    const torch::Tensor& problem_sizes,
+    const torch::Tensor& expert_offsets,
+    const at::ScalarType out_dtype) {
+  NVF_CHECK(a.dim() == 2, "a must be 2D tensor.");
+  NVF_CHECK(
+      a.scalar_type() == torch::kFloat8_e4m3fn, "a must be kFloat8_e4m3fn.");
+
+  NVF_CHECK(b.dim() == 3, "b must be 3D tensor.");
+  NVF_CHECK(
+      b.scalar_type() == torch::kFloat8_e4m3fn, "b must be kFloat8_e4m3fn.");
+
+  NVF_CHECK(
+      out_dtype == torch::kBFloat16 || out_dtype == torch::kHalf,
+      "The output dtype must be bfloat16 or half.");
+
+  NVF_CHECK(scales_a.dim() == 2, "scales_a must be 2D tensor.");
+  NVF_CHECK(
+      scales_a.scalar_type() == torch::kFloat32, "scales_a must be float32.");
+
+  NVF_CHECK(scales_b.dim() == 3, "scales_b must be 3D tensor.");
+  NVF_CHECK(
+      scales_b.scalar_type() == torch::kFloat32, "scales_b must be float32.");
+
+  NVF_CHECK(stride_a.dim() == 1, "stride_a must be 1D tensor.");
+  NVF_CHECK(stride_a.scalar_type() == torch::kInt64, "stride_a must be int64.");
+
+  NVF_CHECK(stride_b.dim() == 1, "stride_b must be 1D tensor");
+  NVF_CHECK(stride_b.scalar_type() == torch::kInt64, "stride_b must be int64.");
+
+  NVF_CHECK(stride_c.dim() == 1, "stride_c must be 1D tensor.");
+  NVF_CHECK(stride_c.scalar_type() == torch::kInt64, "stride_c must be int64.");
+  NVF_CHECK(
+      expert_offsets.scalar_type() == torch::kInt32,
+      "expert_offsets must be int32.");
+
+  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor.");
+  NVF_CHECK(expert_offsets.dim() == 1, "expert_offsets must be 1D tensor");
+  NVF_CHECK(
+      problem_sizes.size(1) == 3,
+      "problem_sizes must have shape (num_experts, 3).");
+  NVF_CHECK(
+      problem_sizes.size(0) == expert_offsets.size(0),
+      "Number of experts in problem_sizes must match expert_offsets.");
+  NVF_CHECK(
+      problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32.");
+}
+
 /**
  * @brief Performs blockwise grouped matrix multiplication on FP8 quantized
  * inputs, with per-block scaling.
@@ -592,52 +647,17 @@ torch::Tensor mxfp8_scaled_grouped_mm(
   // B [g, k, n] --- transpose(-1, -2)
   torch::Tensor output = at::empty({a.size(0), b.size(2)}, options);
 
-  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor");
-  NVF_CHECK(
-      problem_sizes.size(1) == 3,
-      "problem_sizes must have shape (num_experts, 3)");
-  NVF_CHECK(
-      problem_sizes.size(0) == expert_offsets.size(0),
-      "Number of experts in problem_sizes must match expert_offsets");
-  NVF_CHECK(
-      problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32");
-  NVF_CHECK(
-      a.scalar_type() == torch::kFloat8_e4m3fn, "a must be kFloat8_e4m3fn");
-  NVF_CHECK(
-      b.scalar_type() == torch::kFloat8_e4m3fn, "b must be kFloat8_e4m3fn");
-  NVF_CHECK(
-      output.scalar_type() == torch::kBFloat16 ||
-          output.scalar_type() == torch::kHalf,
-      "output must be bfloat16 or half");
-  NVF_CHECK(
-      scales_a.scalar_type() == torch::kFloat32, "scales_a must be float32");
-  NVF_CHECK(
-      scales_b.scalar_type() == torch::kFloat32, "scales_b must be float32");
-  NVF_CHECK(stride_a.scalar_type() == torch::kInt64, "stride_a must be int64");
-  NVF_CHECK(stride_b.scalar_type() == torch::kInt64, "stride_b must be int64");
-  NVF_CHECK(stride_c.scalar_type() == torch::kInt64, "stride_c must be int64");
-  NVF_CHECK(
-      expert_offsets.scalar_type() == torch::kInt32,
-      "expert_offsets must be int32");
-
-  NVF_CHECK(output.dim() == 2, "output must be 2D tensor");
-  NVF_CHECK(a.dim() == 2, "a must be 2D tensor");
-  NVF_CHECK(b.dim() == 3, "b must be 3D tensor");
-  NVF_CHECK(scales_a.dim() == 2, "scales_a must be 2D tensor");
-  NVF_CHECK(scales_b.dim() == 3, "scales_b must be 3D tensor");
-  NVF_CHECK(stride_a.dim() == 1, "stride_a must be 1D tensor");
-  NVF_CHECK(stride_b.dim() == 1, "stride_b must be 1D tensor");
-  NVF_CHECK(stride_c.dim() == 1, "stride_c must be 1D tensor");
-  NVF_CHECK(problem_sizes.dim() == 2, "problem_sizes must be 2D tensor");
-  NVF_CHECK(
-      problem_sizes.size(1) == 3,
-      "problem_sizes must have shape (num_experts, 3)");
-  NVF_CHECK(
-      problem_sizes.size(0) == expert_offsets.size(0),
-      "Number of experts in problem_sizes must match expert_offsets");
-  NVF_CHECK(
-      problem_sizes.dtype() == torch::kInt32, "problem_sizes must be int32");
-  NVF_CHECK(expert_offsets.dim() == 1, "expert_offsets must be 1D tensor");
+  validateInputsMxfp8ScaledGroupMm(
+      a,
+      b,
+      scales_a,
+      scales_b,
+      stride_a,
+      stride_b,
+      stride_c,
+      problem_sizes,
+      expert_offsets,
+      out_dtype);
 
   if (out_dtype == torch::kHalf) {
     sm100_fp8_blockwise_group_mm_dispatch_shape<cutlass::half_t>(
