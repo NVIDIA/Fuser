@@ -55,7 +55,7 @@ void AssignStreams::runPass(Fusion* fusion) {
     // In the joining loop: synchronize each worker stream
     auto* join_worker_stream = IrBuilder::create<Stream>(join_loop->index());
     auto* sync_worker = IrBuilder::create<Synchronize>(join_worker_stream);
-    join_loop->body().push_back(sync_worker);
+    join_loop->body().pushBack(sync_worker);
 
     it = next_it;
   }
