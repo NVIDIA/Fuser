@@ -1099,11 +1099,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   // The following conditions are those that are known to be
   // unsupported. It may not be a complete list.
 
-  if (fusion->hasManaged("loop_rotation")) {
-    warn("loop rotation is not supported");
-    return false;
-  }
-
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 

@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -713,19 +712,6 @@ void propagateReshapeTransforms(Fusion* fusion);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
-
-// A wrapper for Fusion::rotateLoop that provide more consistent interace
-inline void rotateLoop(
-    TensorView* loop_tv,
-    int64_t axis,
-    std::unordered_set<Statement*> selection) {
-  auto fusion = loop_tv->fusion();
-  if (!fusion->hasManaged("loop_rotation")) {
-    fusion->manage("loop_rotation", LoopRotationParam{});
-  }
-  fusion->getManaged<LoopRotationParam>("loop_rotation")
-      .emplace_back(loop_tv, axis, std::move(selection));
-}
 
 //! Certain tensors may need to be placed on shared or global memory
 //! due to data dependencies caused by resize operations. Create
