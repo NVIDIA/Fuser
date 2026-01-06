@@ -2431,8 +2431,13 @@ TensorView* broadcast_in_dim_fn(
   NVF_CHECK_EQ(input_ndim, std::ssize(nonbroadcast_dims));
 
   std::vector<bool> is_broadcast_dim(output_shape.size(), true);
-  for (auto nonbroadcast_dim : nonbroadcast_dims) {
+  for (int64_t nonbroadcast_dim : nonbroadcast_dims) {
     nonbroadcast_dim = wrapDim(nonbroadcast_dim, std::ssize(output_shape));
+    NVF_CHECK(
+        is_broadcast_dim.at(nonbroadcast_dim),
+        "nonbroadcast_dim (",
+        nonbroadcast_dim,
+        ") is specified more than once.");
     is_broadcast_dim.at(nonbroadcast_dim) = false;
   }
 
