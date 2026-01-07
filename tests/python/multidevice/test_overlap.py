@@ -105,8 +105,26 @@ def test_row_parallel_linear_forward(multidevice_test):
         assert event.input_shapes == [[m, k], [k, n], [m, n]]
 
 
+# The caching allocator in PyTorch can't cache buffers across streams, so we
+# have to reuse streams to avoid repeated cudaMalloc. torch.cuda.Stream() is
+# backed by a stream pool as well but I failed to find a way to set its size.
+class StreamPool:
+    def __init__(self):
+        self._streams = {}
+
+    def get(self, sid: int) -> torch.cuda.Stream:
+        s = self._streams.get(sid)
+        if s is None:
+            s = torch.cuda.Stream()
+            self._streams[sid] = s
+        return s
+
+
 def row_parallel_linear_forward_reference(
-    inp_shard: torch.Tensor, weight_shard: torch.Tensor, num_chunks: int
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    num_chunks: int,
+    stream_pool: StreamPool,
 ) -> torch.Tensor:
     out = torch.empty(
         inp_shard.size(0),
@@ -123,10 +141,10 @@ def row_parallel_linear_forward_reference(
         torch.cuda.current_stream().wait_event(event)
 
     main_stream = torch.cuda.current_stream()
-    worker_streams = [torch.cuda.Stream() for _ in range(num_chunks)]
-    for inp_chunk, out_chunk, worker_stream in zip(
-        inp_chunks, out_chunks, worker_streams
-    ):
+    worker_streams = []
+    for i, (inp_chunk, out_chunk) in enumerate(zip(inp_chunks, out_chunks)):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
         with torch.cuda.stream(worker_stream):
             wait_stream(main_stream)
             torch.matmul(inp_chunk, weight_shard.T, out=out_chunk)
@@ -163,7 +181,8 @@ def test_row_parallel_linear_forward_reference(setup_default_process_group):
     weight_shard = distribute_tensor(
         weight_ref, mesh, placements=[Shard(-1)]
     ).to_local()
-    out = row_parallel_linear_forward_reference(inp_shard, weight_shard, s)
+    stream_pool = StreamPool()
+    out = row_parallel_linear_forward_reference(inp_shard, weight_shard, s, stream_pool)
 
     torch.testing.assert_close(out.cpu(), out_ref)
 
@@ -191,8 +210,11 @@ def test_row_parallel_linear_forward_reference_benchmark(
         weight_ref, mesh, placements=[Shard(-1)]
     ).to_local()
 
+    stream_pool = StreamPool()
     warmup_fn, benchmark_fn = get_benchmark_fns(
-        lambda: row_parallel_linear_forward_reference(inp_shard, weight_shard, s)
+        lambda: row_parallel_linear_forward_reference(
+            inp_shard, weight_shard, s, stream_pool
+        )
     )
     warmup_fn()
     benchmark.pedantic(benchmark_fn, rounds=5)
