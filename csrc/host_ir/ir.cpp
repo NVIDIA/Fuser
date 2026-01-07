@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <host_ir/ir.h>
+#include "host_ir/ir.h"
 
 #include <algorithm>
 #include <memory>
@@ -14,12 +14,12 @@
 #include <string>
 #include <vector>
 
-#include <host_ir/container.h>
-#include <ir/builder.h>
-#include <ir/builder_passkey.h>
-#include <ir/cloner.h>
-#include <ir/iostream.h>
-#include <utils.h>
+#include "host_ir/container.h"
+#include "ir/builder.h"
+#include "ir/builder_passkey.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "utils.h"
 
 namespace nvfuser::hir {
 
@@ -158,10 +158,6 @@ std::string LaunchKernel::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string LaunchKernel::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Can not be printed inline");
-}
-
 Deallocate::Deallocate(IrBuilderPasskey passkey, TensorView* tv)
     : Expr(passkey) {
   addAttribute(tv);
@@ -197,7 +193,10 @@ std::string Stream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Stream ";
   if (index() == nullptr) {
-    ss << name();
+    // HostIrEvaluator looks up streams by address when index is null.
+    // Print address as identifier. We used to print `name()` but that's often
+    // an integer which would be confusing/ambiguous with the index.
+    ss << static_cast<const void*>(this);
   } else {
     ss << index()->toInlineString();
   }
@@ -221,7 +220,7 @@ bool Stream::sameAs(const Statement* other) const {
 }
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
-    : Expr(passkey, {stream}, {}, {stream}) {
+    : Expr(passkey, {stream}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
@@ -230,34 +229,23 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
 
 std::string SetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "SetCurrentStream to " << stream()->toString()
+  indent(ss, indent_size) << "SetCurrentStream(" << stream()->toString() << ")"
                           << std::endl;
   return ss.str();
 }
 
-// TODO: implement better ?
-std::string SetCurrentStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
-}
-
-// TODO: implement
-bool SetCurrentStream::sameAs(const Statement* other) const {
-  return false;
-}
-
-GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey) : Expr(passkey) {
+GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {}, {stream}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
-  auto stream = IrBuilder::createInContainer<Stream>(passkey.ir_container_);
-  addAttribute(stream);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GetCurrentStream)
 
 std::string GetCurrentStream::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "GetCurrentStream into " << stream()->toString()
-                          << std::endl;
+  indent(ss, indent_size) << stream()->toInlineString()
+                          << " = GetCurrentStream()" << std::endl;
   return ss.str();
 }
 
@@ -277,15 +265,14 @@ Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
 
 std::string Wait::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "Wait Communication " << communication()->name()
-                          << std::endl;
-  return ss.str();
+  return toInlineString(indent_size) + "\n";
 }
 
-// TODO: implement better ?
 std::string Wait::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "Wait(Communication " << communication()->name()
+                          << ")";
+  return ss.str();
 }
 
 // TODO: implement
@@ -294,7 +281,7 @@ bool Wait::sameAs(const Statement* other) const {
 }
 
 Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
-    : Expr(passkey, {}, {}, {stream}) {
+    : Expr(passkey, {stream}, {}, {}) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<HostIrContainer>(),
@@ -305,13 +292,13 @@ Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
 NVFUSER_DEFINE_CLONE_AND_CREATE(Synchronize)
 
 std::string Synchronize::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "Synchronize " << stream() << std::endl;
-  return ss.str();
+  return toInlineString(indent_size) + "\n";
 }
 
 std::string Synchronize::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  std::stringstream ss;
+  indent(ss, indent_size) << "Synchronize(" << stream() << ")";
+  return ss.str();
 }
 
 // TODO: implement
@@ -451,13 +438,9 @@ std::string ShardByStream::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = ShardByStream("
                           << in()->toString()
-                          << ", stream_index = " << stream_index()->toString()
+                          << ", stream_index=" << stream_index()->toString()
                           << ")" << std::endl;
   return ss.str();
-}
-
-std::string ShardByStream::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 SymmetricContiguousView::SymmetricContiguousView(

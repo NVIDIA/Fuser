@@ -724,6 +724,33 @@ TEST_F(ExprEvalTest, CatOp) {
   EXPECT_TRUE(at::equal(out, at::cat({t0, t1}, 0)));
 }
 
+TEST_F(ExprEvalTest, UnaryOpCeil) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  ExpressionEvaluator evaluator;
+
+  // Test double values
+  auto* a = IrBuilder::create<Val>(3.2);
+  auto* b = IrBuilder::create<Val>(-3.2);
+  auto* c = IrBuilder::create<Val>(5.0);
+  // Test integer values (ceil of integer is identity)
+  auto* d = IrBuilder::create<Val>(7L);
+  auto* e = IrBuilder::create<Val>(-3L);
+
+  auto* ceil_a = ceil(a);
+  auto* ceil_b = ceil(b);
+  auto* ceil_c = ceil(c);
+  auto* ceil_d = ceil(d);
+  auto* ceil_e = ceil(e);
+
+  EXPECT_EQ(evaluator.evaluate(ceil_a).as<double>(), std::ceil(3.2));
+  EXPECT_EQ(evaluator.evaluate(ceil_b).as<double>(), std::ceil(-3.2));
+  EXPECT_EQ(evaluator.evaluate(ceil_c).as<double>(), std::ceil(5.0));
+  EXPECT_EQ(evaluator.evaluate(ceil_d).as<int64_t>(), 7L);
+  EXPECT_EQ(evaluator.evaluate(ceil_e).as<int64_t>(), -3L);
+}
+
 TEST_F(ExprEvalTest, UnaryOpSignbit) {
   Fusion fusion;
   FusionGuard fg(&fusion);

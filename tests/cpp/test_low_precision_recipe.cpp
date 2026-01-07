@@ -109,6 +109,35 @@ class NVFP4QuantizeTest : public BlackwellBase,
                           public ::testing::WithParamInterface<DataType> {};
 namespace {
 
+void createMXFP8QuantizationFusion(Fusion* fusion, DataType data_hp_dtype) {
+  auto tv_data_hp = makeContigTensor(2, data_hp_dtype);
+  fusion->addInput(tv_data_hp);
+
+  constexpr int64_t fp8_block_size = 32;
+  auto tv_data_hp_reshaped =
+      reshape(tv_data_hp, [](auto& x) { x.split(-1, fp8_block_size); });
+
+  tv_data_hp_reshaped = castOp(DataType::Float, tv_data_hp_reshaped);
+  auto tv_data_hp_abs = abs(tv_data_hp_reshaped);
+  auto tv_data_hp_amax = max(tv_data_hp_abs, {-1});
+
+  static constexpr float max_norm_rcp = 1.0f / 448;
+  auto tv_block_scale = mul(
+      tv_data_hp_amax, IrBuilder::create<Val>(max_norm_rcp, DataType::Float));
+
+  auto tv_block_scale_fp8 = castOp(DataType::Float8_e8m0fnu, tv_block_scale);
+
+  auto tv_unsqueeze = unsqueeze(tv_block_scale_fp8, -1);
+  auto exponent_scale = reciprocal(exp2(tv_unsqueeze));
+  auto tv_data_scaled = mul(tv_data_hp_reshaped, exponent_scale);
+
+  auto tv_data_lp = castOp(DataType::Float8_e4m3fn, tv_data_scaled);
+  tv_data_lp = reshape(tv_data_lp, [](auto& x) { x.merge(-2); });
+
+  fusion->addOutput(tv_block_scale_fp8);
+  fusion->addOutput(tv_data_lp);
+}
+
 void createNVFP4QuantizationFusion(
     Fusion* fusion,
     DataType data_hp_dtype,
@@ -144,7 +173,10 @@ void createNVFP4QuantizationFusion(
 
   auto tv_block_scale_fp32 = castOp(DataType::Float, tv_block_scale_fp8);
   if (use_global_scale) {
-    tv_block_scale_fp32 = div(tv_global_scale, tv_block_scale_fp32);
+    tv_block_scale_fp32 =
+        reciprocal(mul(tv_block_scale_fp32, reciprocal(tv_global_scale)));
+  } else {
+    tv_block_scale_fp32 = reciprocal(tv_block_scale_fp32);
   }
 
   auto tv_block_scale_fp32_unsqueeze = unsqueeze(tv_block_scale_fp32, -1);
@@ -161,6 +193,68 @@ void createNVFP4QuantizationFusion(
   }
 }
 } // namespace
+
+class MXFP8QuantizationTest : public BlackwellBase,
+                              public ::testing::WithParamInterface<
+                                  std::tuple<DataType, std::pair<int, int>>> {};
+
+TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
+  auto data_hp_dtype = std::get<0>(GetParam());
+  auto dimensions = std::get<1>(GetParam());
+  const int m = dimensions.first;
+  const int n = dimensions.second;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  createMXFP8QuantizationFusion(fusion.get(), data_hp_dtype);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(at::randn({m, n}, at::device(at::kCUDA).dtype(at::kFloat))
+                       .to(data_type_to_aten(data_hp_dtype)));
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Using the block quantiation op in nvFuser.
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, data_hp_dtype);
+  fusion_new_op->addInput(tv_in_1);
+
+  auto quantization_results =
+      blockQuantize(tv_in_1, nullptr, 32, false, DataType::Float8_e4m3fn);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  auto baseline_block_scales =
+      outputs_baseline[0].as<at::Tensor>().to(at::kFloat);
+  auto baseline_quantized_tensor =
+      outputs_baseline[1].as<at::Tensor>().to(at::kFloat);
+
+  auto block_scales = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+  auto quantized_tensor = outputs_new_op[1].as<at::Tensor>().to(at::kFloat);
+
+  // Compare block scales - expect exact match
+  EXPECT_TRUE(baseline_block_scales.equal(block_scales))
+      << "Block scales do not match exactly";
+
+  // Compare quantized tensors with tolerance
+  // This is because we cannot exactly reproduce the fast
+  // reciprocal of 2^biased_exp used in the block_quantize_to_mxfp8 runtime
+  // function.
+  constexpr double atol = 0.1;
+  constexpr double rtol = 1;
+
+  EXPECT_TRUE(baseline_quantized_tensor.allclose(quantized_tensor, rtol, atol))
+      << "Quantized tensors do not match within tolerance (rtol=" << rtol
+      << ", atol=" << atol << ")";
+}
 
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
@@ -1199,4 +1293,21 @@ INSTANTIATE_TEST_SUITE_P(
       return name.str();
     });
 
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    MXFP8QuantizationTest,
+    ::testing::Combine(
+        ::testing::Values(DataType::Float, DataType::BFloat16),
+        ::testing::Values(
+            std::make_pair(1024, 1024),
+            std::make_pair(2048, 128),
+            std::make_pair(2048, 2048))),
+    [](const testing::TestParamInfo<std::tuple<DataType, std::pair<int, int>>>&
+           info) {
+      const auto data_type = std::get<0>(info.param);
+      const auto dimensions = std::get<1>(info.param);
+      std::ostringstream name;
+      name << data_type << "_" << dimensions.first << "x" << dimensions.second;
+      return name.str();
+    });
 } // namespace nvfuser

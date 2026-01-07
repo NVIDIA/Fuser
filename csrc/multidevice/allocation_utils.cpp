@@ -5,7 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/allocation_utils.h>
+#include "multidevice/allocation_utils.h"
 
 #include <algorithm>
 #include <optional>
@@ -13,14 +13,14 @@
 #include <unordered_set>
 #include <vector>
 
-#include <exceptions.h>
-#include <ir/allocation_utils.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_nodes.h>
-#include <ir/utils.h>
-#include <linked_hash_map.h>
-#include <multidevice/utils.h>
-#include <utils.h>
+#include "exceptions.h"
+#include "ir/allocation_utils.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "linked_hash_map.h"
+#include "multidevice/utils.h"
+#include "utils.h"
 
 namespace nvfuser {
 

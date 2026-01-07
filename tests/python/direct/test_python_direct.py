@@ -3,12 +3,20 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from nvfuser_direct import FusionDefinition, PythonProfiler, DataType, version
+from nvfuser_direct import (
+    FusionDefinition,
+    PythonProfiler,
+    DataType,
+    version,
+    LruFusionCache,
+    LRUCache,
+)
 import torch
 import pytest
 import io
 import re
 from contextlib import redirect_stdout, redirect_stderr
+from typing import Callable
 
 
 def test_python_version_API():
@@ -556,6 +564,126 @@ def test_fusion_profiler_with_noncodegen_kernels():
             "FusionDefinition did not run correctly with profile enabled! Error: "
             + str(e)
         )
+
+
+def test_lru_fusion_cache_decorator():
+    inputs = [
+        torch.randn(2, 4, device="cuda"),
+        torch.randn(2, 4, device="cuda"),
+    ]
+
+    def create_fd1(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.div(t0, t1)
+        fd.add_output(t2)
+
+    def create_fd2(fd: FusionDefinition):
+        t0 = fd.from_pytorch(inputs[0])
+        t1 = fd.from_pytorch(inputs[1])
+        t2 = fd.ops.div(t1, t0)
+        fd.add_output(t2)
+
+    @LruFusionCache(max_fusions=10)
+    def create_fusion(create_fd: Callable):
+        with FusionDefinition() as fd:
+            create_fd(fd)
+        return fd
+
+    empty_stats = """Max Fusions Allowed: 10
+The fusion cache is empty.\n"""
+    assert create_fusion.stats() == empty_stats
+
+    # Test LRU cache compilation
+    for i in range(5):
+        fd1 = create_fusion(create_fd1)
+        outputs = fd1.execute(inputs)
+        assert torch.allclose(outputs[0], inputs[0] / inputs[1])
+
+        fd2 = create_fusion(create_fd2)
+        outputs = fd2.execute(inputs)
+        assert torch.allclose(outputs[0], inputs[1] / inputs[0])
+        assert fd1.fusion == fd1.fusion
+        assert fd2.fusion == fd2.fusion
+        assert fd1.fusion != fd2.fusion
+
+    expected_stats = """Max Fusions Allowed: 10
+Total Fusions in Cache: 2
+Total Unique Fusions Compiled: 2
+Cache Hits by LRU ordering:
+\t0 -> 4 hits
+\t1 -> 4 hits
+Cache Lookups: 10
+Cache Hits: 8
+Hit Rate: 80%\n"""
+    assert create_fusion.stats() == expected_stats
+
+
+def test_lru_cache():
+    bcast_input = torch.randn(1, 4, device="cuda")
+    full_input = torch.randn(2, 4, device="cuda")
+
+    def nvfuser_fusion_id0(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, -1],
+            contiguity=[None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.sub(T0, T1)
+        fd.add_output(T2)
+
+    # nvfuser_fusion_id1 reverses the input argument order of nvfuser_fusion_id0
+    def nvfuser_fusion_id1(fd: FusionDefinition) -> None:
+        T1 = fd.define_tensor(
+            shape=[-1, -1],
+            contiguity=[True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T0 = fd.define_tensor(
+            shape=[1, -1],
+            contiguity=[None, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[1, 0],
+        )
+        T2 = fd.ops.sub(T0, T1)
+        fd.add_output(T2)
+
+    cache = LRUCache(max_fusions=10)
+
+    with FusionDefinition() as fd0:
+        nvfuser_fusion_id0(fd0)
+
+    assert cache.num_fusions() == 0
+    cache.cache_compile(fd0.fusion)
+    # Check that LRUCache caches the first fusion
+    assert cache.num_fusions() == 1
+
+    with FusionDefinition() as fd1:
+        nvfuser_fusion_id1(fd1)
+
+    assert cache.num_fusions() == 1
+    cache.cache_compile(fd1.fusion)
+    # Check that LRUCache creates a separate entry for second fusion
+    assert cache.num_fusions() == 2
+
+    assert torch.allclose(
+        fd0.execute([bcast_input, full_input])[0], bcast_input - full_input
+    )
+    assert torch.allclose(
+        fd1.execute([full_input, bcast_input])[0], bcast_input - full_input
+    )
 
 
 def test_split_allocation_domain():

@@ -7,19 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <ir/base_nodes.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <multidevice/communicator.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/multidevice.h>
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/Types.hpp>
 #else
-#include <multidevice/c10d_mock.h>
+#include "multidevice/c10d_mock.h"
 #endif
-#include <type.h>
-#include <visibility.h>
+
+#include "ir/base_nodes.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "multidevice/communicator.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/multidevice.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -49,6 +50,18 @@ class Communication : public Expr {
   using Expr::Expr;
   // Only specify `root` for types that have root.
   // Only specify `red_op` for reduction types.
+  Communication(
+      IrBuilderPasskey passkey,
+      CommunicationType type,
+      TensorView* out,
+      TensorView* in,
+      Team team, // All devices involved in this communication. It must include
+                 // `root`. It can be a subset of `root`+`mesh` in case of 2D
+                 // sharding.
+      Val* root,
+      RedOpType red_op = RedOpType::UNUSED,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
   Communication(
       IrBuilderPasskey passkey,
       CommunicationType type,
@@ -95,22 +108,22 @@ class Communication : public Expr {
     return static_cast<int64_t>(team().size());
   }
 
-  DeviceIdxType root() const {
-    return attribute<DeviceIdxType>(2);
+  Val* root() const {
+    return input(1);
   }
 
   RedOpType reduceOp() const {
-    return attribute<RedOpType>(3);
+    return attribute<RedOpType>(2);
   }
 
   CommunicatorBackend backend() const {
-    return attribute<CommunicatorBackend>(4);
+    return attribute<CommunicatorBackend>(3);
   }
 
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
-  int64_t getRootRelativeIndex();
+  int64_t getRootRelativeIndex(DeviceIdxType root_val);
 
  private:
   void validate();
@@ -225,7 +238,8 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     DeviceIdxType my_device_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
-    at::Tensor output_tensor);
+    at::Tensor output_tensor,
+    DeviceIdxType root_index = -1);
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,

@@ -322,6 +322,8 @@ static const char* val_type2string(ValType t) {
       return "TensorDomain";
     case ValType::IterDomain:
       return "IterDomain";
+    case ValType::RaggedIterDomain:
+      return "RaggedIterDomain";
     case ValType::Others:
       return "Scalar";
     case ValType::NamedScalar:
@@ -358,8 +360,6 @@ const char* predicate_type2string(PredicateType t) {
       return "Misaligned";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
-    case PredicateType::LoopRotation:
-      return "LoopRotation";
     case PredicateType::ElectSync:
       return "ElectSync";
     case PredicateType::OneDimTmaLoadExpectArrive:

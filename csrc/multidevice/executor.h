@@ -8,16 +8,17 @@
 #pragma once
 
 #include <c10/core/DeviceType.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/lower.h>
-#include <ir/cloner.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/multidevice.h>
-#include <runtime/fusion_kernel_runtime.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/lower.h"
+#include "ir/cloner.h"
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/multidevice.h"
+#include "runtime/fusion_kernel_runtime.h"
 
 namespace nvfuser {
 

@@ -915,7 +915,7 @@ __device__ __inline__ Array<__e8m0, 2, align> __float2e8m0(
     const Array<float, 2, align>& input) {
   Array<__e8m0, 2, align> result;
   uint16_t& result_scalar = *reinterpret_cast<uint16_t*>(&result);
-  asm("{cvt.rz.satfinite.ue8m0x2.f32 %0, %1, %2;}"
+  asm("{cvt.rp.satfinite.ue8m0x2.f32 %0, %1, %2;}"
       : "=h"(result_scalar)
       : "f"(input[1]), "f"(input[0]));
   return result;

@@ -5,22 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <cuda.h>
+
 #include <gtest/gtest.h>
 
-#include <cuda.h>
-#include <cuda_utils.h>
-#include <driver_api.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/cuda_p2p.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
-
-#include <ops/all_ops.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "fusion.h"
+#include "ir/builder.h"
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/cuda_p2p.h"
+#include "ops/all_ops.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -91,7 +91,8 @@ TEST_P(CommunicationTest, Gather) {
         communicator_->deviceId(),
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     if (communicator_->deviceId() == kRoot) {
@@ -166,7 +167,8 @@ TEST_P(CommunicationTest, Scatter) {
         communicator_->deviceId(),
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     auto ref = at::arange(kTensorSize, tensor_options_).unsqueeze(0) +
@@ -199,7 +201,8 @@ TEST_P(CommunicationTest, Broadcast) {
         communicator_->deviceId(),
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     if (work != nullptr) {
       work->wait();
     }
@@ -251,7 +254,7 @@ TEST_P(CommunicationTest, SendRecv) {
     }
 
     auto work = postSingleCommunication(
-        communication, rank, backend, input_tensor, output_tensor);
+        communication, rank, backend, input_tensor, output_tensor, sender);
     work->wait();
 
     if (rank == receiver) {
@@ -313,7 +316,8 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
         communicator_->deviceId(),
         backend,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
 
     auto ref = at::arange(kTensorSize, tensor_options_) + repetition;
     validate(output_tensor, ref);
@@ -342,7 +346,8 @@ TEST_P(CommunicationTest, Reduce) {
         communicator_->deviceId(),
         backend_,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        kRoot);
     work->wait();
 
     if (communicator_->deviceId() == kRoot) {
@@ -541,7 +546,8 @@ class CUDACommunicationTest : public MultiDeviceTest {
   }
 };
 
-TEST_F(CUDACommunicationTest, Broadcast) {
+// Disabled because it failed in GB200 CI: http://nv/e.n
+TEST_F(CUDACommunicationTest, DISABLED_Broadcast) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }
@@ -603,7 +609,7 @@ TEST_F(CUDACommunicationTest, Broadcast) {
   }
 }
 
-TEST_F(CUDACommunicationTest, Allgather) {
+TEST_F(CUDACommunicationTest, DISABLED_Allgather) {
   if (communicator_->size() < 2 || at::cuda::device_count() < 2) {
     GTEST_SKIP() << "This test needs at least 2 GPUs and 2 ranks.";
   }

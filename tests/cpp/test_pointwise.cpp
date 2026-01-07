@@ -1471,6 +1471,14 @@ int64_t getTmaDomainInner(const FusionExecutorCache& executor_cache) {
       ->tma_domain_inner;
 }
 
+int64_t getVectorizationFactor(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  return runtime->schedulerHeuristics()
+      ->heuristicsList()
+      .at(0)
+      ->as<PointwiseParams>()
+      ->vectorization_factor;
+}
 } // namespace tma_check
 
 // Non-parameterized TMA pointwise test fixture (for TEST_F)
@@ -1970,6 +1978,134 @@ TEST_F(TmaPointwiseTestF, TmaDomainBroadcastIllegal) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({dim0, dim1}, options);
   auto t1 = at::randn({dim0}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_FALSE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, MixedPrecisionBroadcast) {
+  int64_t dim0 = 16384;
+  int64_t dim1 = 16384;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  // tv0 is loaded with tma
+  // tv1 is loaded with vectorization with a factor of 4, 128 bytes
+  // tv2 is loaded with vectorization with a factor of 4, 64 bytes
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  auto tv2 = makeContigTensor(1, DataType::BFloat16);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {false, true});
+  auto tv4 = broadcast(tv2, {false, true});
+  auto tv5 = castOp(DataType::Float, tv4);
+  auto tv6 = add(tv0, tv3);
+  auto tv7 = add(tv6, tv5);
+  fusion->addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0}, options);
+  auto t2 = at::randn({dim0}, options_bf16);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  EXPECT_EQ(tma_check::getVectorizationFactor(executor_cache), 4);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, SplitGridDim1D) {
+  maybeClearAllocator(/*max_bytes=*/0);
+  int64_t dim0 = 32768;
+  int64_t dim1 = 32768;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, DataType::Float);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, SplitGridDim2D) {
+  maybeClearAllocator(/*max_bytes=*/0);
+  // use a large dim0, ensure it is larger than the max grid y dimension
+  // after split by outer tma domain
+  const int64_t max_grid_y_dim =
+      at::cuda::getCurrentDeviceProperties()->maxGridSize[1];
+  int64_t dim0 = max_grid_y_dim * 20;
+  int64_t dim1 = 16;
+  DataType dtype = DataType::BFloat16;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  auto tv2 = makeContigTensor(1, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  auto tv3 = broadcast(tv1, {true, false});
+  auto tv4 = broadcast(tv2, {false, true});
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv3 = maybeCastOp(DataType::Float, tv3);
+  tv4 = maybeCastOp(DataType::Float, tv4);
+  auto tv5 = add(tv0, tv3);
+  auto tv6 = add(tv5, tv4);
+  tv6 = maybeCastOp(dtype, tv6);
+  fusion->addOutput(tv6);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim1}, options);
+  auto t2 = at::randn({dim0}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
+  EXPECT_TRUE(tma_check::hasTmaLoad(executor_cache));
+  // further clear before testValidate to reduce memory usage
+  maybeClearAllocator(/*max_bytes=*/0);
+  testValidate(
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
+  int64_t dim0 = 16384 + 8;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  // tv1 is suitable for TMA, tv0 is not. Then non-TMA version is used.
+  auto tv0 = makeContigTensor(1, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::Float);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion->addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_float =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0}, options);
+  auto t1 = at::randn({dim0}, options_float);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto out_tensors = executor_cache.runFusionWithInputs({t0, t1});

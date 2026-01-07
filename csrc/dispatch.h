@@ -7,12 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <unordered_map>
+
 #include <exceptions.h>
 #include <utils.h>
 #include <visibility.h>
-
-#include <complex>
-#include <unordered_map>
 
 // dispatch.h prevents the need from adding manual dispatch in every class that
 // wants to define how to process a series of nodes. dispatch.h provides 4
@@ -62,6 +61,7 @@ class Val;
 
 #define DISPATCH_FOR_ALL_VALS(f) \
   f(IterDomain);                 \
+  f(RaggedIterDomain);           \
   f(TensorDomain);               \
   f(TensorView);                 \
   f(NamedScalar);
@@ -115,6 +115,7 @@ class Val;
   f(TopKOp);                         \
   f(ScanOp);                         \
   f(Merge);                          \
+  f(Partition);                      \
   f(Swizzle);                        \
   f(Swizzle2D);                      \
   f(Resize);                         \

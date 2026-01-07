@@ -22,6 +22,7 @@
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <transform_rfactor.h>
 #include <transform_view.h>
@@ -130,7 +131,34 @@ IterDomain::IterDomain(
     bool is_padded_dimension,
     bool is_clustered_blocks,
     std::optional<int64_t> padded_to_size)
-    : Val(passkey, ValType::IterDomain),
+    : IterDomain(
+          passkey,
+          ValType::IterDomain,
+          start,
+          extent,
+          expanded_extent,
+          stop_offset,
+          parallel_type,
+          iter_type,
+          is_rfactor_domain,
+          is_padded_dimension,
+          is_clustered_blocks,
+          padded_to_size) {}
+
+IterDomain::IterDomain(
+    IrBuilderPasskey passkey,
+    ValType vtype,
+    Val* start,
+    Val* extent,
+    Val* expanded_extent,
+    Val* stop_offset,
+    ParallelType parallel_type,
+    IterType iter_type,
+    bool is_rfactor_domain,
+    bool is_padded_dimension,
+    bool is_clustered_blocks,
+    std::optional<int64_t> padded_to_size)
+    : Val(passkey, vtype),
       start_(start),
       extent_(extent),
       expanded_extent_(expanded_extent),
@@ -787,6 +815,144 @@ void validateLoopDomain(
 
 } // namespace
 
+RaggedIterDomain::RaggedIterDomain(
+    IrBuilderPasskey passkey,
+    TensorView* extents,
+    IterType iter_type,
+    ParallelType parallel_type)
+    : IterDomain(
+          passkey,
+          ValType::RaggedIterDomain,
+          /*start=*/passkey.ir_container_->zeroVal(),
+          /*extent=*/passkey.ir_container_->oneVal(), // Placeholder
+          /*expanded_extent=*/nullptr,
+          /*stop_offset=*/nullptr,
+          parallel_type,
+          iter_type,
+          /*is_rfactor_domain=*/false,
+          /*is_padded_dimension=*/false,
+          /*is_clustered_blocks=*/false,
+          /*padded_to_size=*/std::nullopt),
+      extents_(extents) {
+  // Extents must be non-null
+  NVF_ERROR(
+      extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
+
+  // Extents must have integer dtype
+  NVF_ERROR_EQ(
+      extents_->dtype(),
+      DataType::Index,
+      "RaggedIterDomain extents must have index type, got ",
+      extents_->dtype());
+
+  // Only IterType::Iteration is supported at this moment
+  NVF_ERROR_EQ(
+      iter_type,
+      IterType::Iteration,
+      "Only IterType::Iteration is supported: ",
+      iter_type);
+}
+
+RaggedIterDomain::RaggedIterDomain(
+    const RaggedIterDomain* src,
+    IrCloner* ir_cloner)
+    : IterDomain(src, ir_cloner), extents_(ir_cloner->clone(src->extents_)) {}
+
+NVFUSER_DEFINE_CLONE(RaggedIterDomain)
+
+bool RaggedIterDomain::sameAs(const Statement* other) const {
+  if (this == other) {
+    return true;
+  }
+
+  if (!other->isA<RaggedIterDomain>()) {
+    return false;
+  }
+
+  auto other_ragged = other->as<RaggedIterDomain>();
+
+  // Compare parent IterDomain properties
+  if (!IterDomain::sameAs(other)) {
+    return false;
+  }
+
+  // Compare extents tensor
+  return extents_->sameAs(other_ragged->extents_);
+}
+
+std::string RaggedIterDomain::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getIterType();
+  ss << getParallelType();
+  ss << name();
+  ss << "Ragged{";
+  ss << "extents=" << extents_->toInlineString();
+  ss << "}";
+  return ss.str();
+}
+
+std::string RaggedIterDomain::toString(int indent_size) const {
+  return toInlineString(indent_size);
+}
+
+std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
+    IterDomain* in,
+    TensorView* extents) {
+  NVF_ERROR(in != nullptr, "partition: input IterDomain is null");
+
+  NVF_ERROR(
+      !in->isA<RaggedIterDomain>(),
+      "partition: input is already RaggedIterDomain, cannot partition again");
+
+  NVF_ERROR_EQ(
+      in->getParallelType(),
+      ParallelType::Serial,
+      "Partitioning of parallelized IterDomain not supported: ",
+      in->toString());
+
+  NVF_ERROR_EQ(
+      in->getIterType(),
+      IterType::Iteration,
+      "partition: only IterType::Iteration is supported, got ",
+      in->getIterType(),
+      " for IterDomain: ",
+      in->toString());
+
+  NVF_ERROR(extents != nullptr, "partition: extents tensor is null");
+
+  NVF_ERROR_EQ(
+      extents->dtype(),
+      DataType::Index,
+      "partition: extents must have Index type, got ",
+      extents->dtype());
+
+  const auto& extents_domain = extents->getLogicalDomain();
+  NVF_ERROR_EQ(
+      extents_domain.size(),
+      1,
+      "partition: extents tensor must be 1D, got ",
+      extents_domain.size(),
+      "D tensor. Multi-dimensional extents not yet supported.");
+
+  auto container = in->container();
+
+  // Create component IterDomain
+  // Component extent = number of components = length of extents tensor
+  auto zero = container->zeroVal(DataType::Index);
+  auto component_extent = extents_domain.at(0)->extent();
+  auto component_id = IterDomainBuilder(zero, component_extent)
+                          .parallel_type(ParallelType::Serial)
+                          .iter_type(IterType::Iteration)
+                          .build();
+
+  auto ragged_id =
+      IrBuilder::create<RaggedIterDomain>(extents, in->getIterType());
+
+  IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
+
+  return {component_id, ragged_id};
+}
+
 TensorDomain::TensorDomain(
     IrBuilderPasskey passkey,
     std::vector<IterDomain*> logical_domain,
@@ -1389,6 +1555,22 @@ void TensorDomain::merge(int64_t axis_o, int64_t axis_i) {
   loop_domain_.erase(loop_domain_.begin() + td_inner_pos);
   loop_domain_.erase(loop_domain_.begin() + td_outer_pos);
   loop_domain_.insert(loop_domain_.begin() + td_outer_pos, merged_id);
+}
+
+// Partition "axis" into component and ragged dimensions. Follow the
+// pattern of TensorDomain::split.
+void TensorDomain::partition(int64_t axis, TensorView* extents) {
+  NVF_ERROR(nDims() > 0, "Tried to do partition on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto [component_id, ragged_id] = RaggedIterDomain::partition(id, extents);
+
+  // Remove the original axis and insert component and ragged dimensions
+  loop_domain_.erase(loop_domain_.begin() + axis);
+  loop_domain_.insert(loop_domain_.begin() + axis, ragged_id);
+  loop_domain_.insert(loop_domain_.begin() + axis, component_id);
 }
 
 // Reorder axes according to map[old_pos] = new_pos

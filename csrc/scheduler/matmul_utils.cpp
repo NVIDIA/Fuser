@@ -19,6 +19,7 @@
 #include <debug.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
+#include <ir/composite_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>

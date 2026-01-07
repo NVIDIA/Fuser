@@ -48,7 +48,6 @@ Val* IndexLowering::lowerSrcIndex(
         tv,
         dst->as<TensorView>(),
         for_loops_,
-        getRotatedLoop(),
         override_index,
         generate_pointer,
         as_type,
@@ -75,7 +74,6 @@ Val* IndexLowering::lowerDstIndex(
     return Index::getConsumerIndex(
         tv,
         for_loops_,
-        getRotatedLoop(),
         override_index,
         generate_pointer,
         as_type,
@@ -89,7 +87,7 @@ void IndexLowering::pushBack(Expr* expr) {
   if (active_scope_ == nullptr) {
     lowered_exprs_.push_back(expr);
   } else {
-    active_scope_->push_back(expr);
+    active_scope_->pushBack(expr);
   }
 }
 
@@ -110,27 +108,6 @@ void IndexLowering::insertAtTopLevel(Expr* expr) {
 void IndexLowering::handle(const kir::IfThenElse* ite) {
   const auto prev_scope = active_scope_;
 
-  // Loop rotation transform loops like
-  //  for i ...
-  //    statement1(i)
-  //    statement2(i)
-  //    statement3(i)
-  //    statement4(i)
-  // into
-  //  statement1(0)
-  //  statement2(0)
-  //  for i ...
-  //    statement3(i)
-  //    statement4(i)
-  //    if LoopRotation:
-  //      statement1(i+1)
-  //      statement2(i+1)
-  // So when we see an `if LoopRotation` during visiting, the last loop is
-  // rotated, and we need to use `i+1` instead of `i` as loop index.
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.insert(for_loops_.back());
-  }
-
   auto new_ite = IrBuilder::create<kir::IfThenElse>(ite->predicate());
   pushBack(new_ite);
 
@@ -147,10 +124,6 @@ void IndexLowering::handle(const kir::IfThenElse* ite) {
   }
 
   active_scope_ = prev_scope;
-
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.erase(for_loops_.back());
-  }
 }
 
 void IndexLowering::handle(const kir::ForLoop* for_loop) {
@@ -177,8 +150,7 @@ void IndexLowering::handle(const RNGOp* rop) {
   NVF_ERROR(out_tv != nullptr, "rand scalar not yet supported");
 
   // TensorIndex for philox subsequence and component.
-  auto philox_index =
-      Index::getLinearLogicalIndex(out_tv, for_loops_, getRotatedLoop());
+  auto philox_index = Index::getLinearLogicalIndex(out_tv, for_loops_);
   philox_index = GpuLower::current()->commonScalarMap().hoistScalar(
       philox_index, for_loops_);
 
@@ -221,13 +193,8 @@ void IndexLowering::handle(const IotaOp* aop) {
 
   // TensorIndex for writing iota output.
   const auto out = lowerDstIndex(out_tv);
-  auto result = Index::iota(
-      out_tv,
-      for_loops_,
-      getRotatedLoop(),
-      aop->start(),
-      aop->step(),
-      aop->dtype());
+  auto result =
+      Index::iota(out_tv, for_loops_, aop->start(), aop->step(), aop->dtype());
   auto lowered =
       IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
@@ -241,7 +208,7 @@ void IndexLowering::handle(const EyeOp* eop) {
 
   // TensorIndex for writing eye output.
   const auto out = lowerDstIndex(out_tv);
-  auto result = Index::eye(out_tv, for_loops_, getRotatedLoop(), eop->dtype());
+  auto result = Index::eye(out_tv, for_loops_, eop->dtype());
   auto lowered =
       IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, result);
 
@@ -320,8 +287,7 @@ void IndexLowering::handle(const GetMetaData* gop) {
 
 void IndexLowering::handle(const TensorConstruct* cop) {
   const auto out = lowerDstIndex(cop->out());
-  auto indices = Index::getConsumerPerDimLogicalIndex(
-      cop->out(), for_loops_, getRotatedLoop());
+  auto indices = Index::getConsumerPerDimLogicalIndex(cop->out(), for_loops_);
   auto in = cop->in();
   for (auto index : indices) {
     in = IrBuilder::getItemExpr(in, index);
@@ -429,7 +395,7 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   // We then multiply and accumulate them using the logical extents of the
   // quantized output tensor to get the linearized index.
   std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
-      bqop->quantizedOutput()->as<TensorView>(), for_loops_, getRotatedLoop());
+      bqop->quantizedOutput()->as<TensorView>(), for_loops_);
 
   auto loop_domain =
       bqop->quantizedOutput()->as<TensorView>()->getLogicalDomain();
@@ -448,16 +414,22 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   }
 
   // As part of runtime validation
-  // make sure that the inner dimension of the input is divisible by 16.
+  // make sure that the inner dimension of the input is divisible by block size.
   auto* inner_id = bqop->in()->as<TensorView>()->getLogicalDomain().back();
   Val* is_divisible = SimplifyingIrBuilder::eqExpr(
       SimplifyingIrBuilder::modExpr(
-          inner_id->extent(), IrBuilder::create<Val>(16)),
+          inner_id->extent(),
+          IrBuilder::create<Val>(bqop->blockSize(), DataType::Index)),
       bqop->fusion()->zeroVal());
 
   NVFUSER_LOWER_VALIDATE(
       is_divisible,
-      "Inner dim of input of Block Quantization is not divisble by 16",
+      "Inner dimension of BlockQuantizationOp input must be divisible by block "
+      "size (",
+      bqop->blockSize(),
+      "), but got extent ",
+      inner_id->extent()->toInlineString(),
+      " in ",
       bqop->toString());
 
   pushBack(IrBuilder::create<BlockQuantizationOp>(
@@ -498,7 +470,6 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             loop->iter_domain(),
             uop->vector_id()->as<IterDomain>(),
             IdMappingMode::LOOP)) {
-      // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
       pushBack(IrBuilder::create<LoadStoreOp>(
           LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
@@ -670,7 +641,7 @@ Val* getEntranceLinIndGridReduce(std::vector<kir::ForLoop*>& for_loops) {
       // already accounted for.
       continue;
     }
-    // TODO: Does this work for shift/gather/loop rotation?
+    // TODO: Does this work for shift/gather?
     linear_index = SimplifyingIrBuilder::addExpr(
         SimplifyingIrBuilder::mulExpr(
             linear_index, loop->iter_domain()->extent()),
@@ -802,8 +773,7 @@ void IndexLowering::handleSerialGridReduction(
   auto work_buffer_tv = IrBuilder::create<TensorView>(
       work_buffer_domain, out_tv->dtype(), MemoryType::Global);
   Val* work_buffer_idx_val = nullptr;
-  for (auto v :
-       Index::getGlobalConsumerStridedIndices(out_tv, for_loops_, {})) {
+  for (auto v : Index::getGlobalConsumerStridedIndices(out_tv, for_loops_)) {
     work_buffer_idx_val = SimplifyingIrBuilder::addExpr(work_buffer_idx_val, v);
   }
 
@@ -1658,8 +1628,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
-    auto [in, _] = Index::getCpAsyncBulkGmemIndex(
-        ldst, mbarrier_index, for_loops_, rotated_loop_);
+    auto [in, _] =
+        Index::getCpAsyncBulkGmemIndex(ldst, mbarrier_index, for_loops_);
 
     // indexing ldst op
     Val* out = lowerDstIndex(
@@ -1679,8 +1649,8 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
-    auto [in, expect_bytes] = Index::getCpAsyncBulkGmemIndex(
-        ldst, mbarrier_index, for_loops_, rotated_loop_);
+    auto [in, expect_bytes] =
+        Index::getCpAsyncBulkGmemIndex(ldst, mbarrier_index, for_loops_);
 
     // arrive and expect_tx mbarrier
     Val* state = IrBuilder::create<Val>(DataType::UInt64);
@@ -1705,8 +1675,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
 void IndexLowering::handleCpAsyncBulkStore(const LoadStoreOp* ldst) {
   auto in = lowerSrcIndex(ldst->in(), ldst->out(), {}, true);
-  auto [out, _] =
-      Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_, rotated_loop_);
+  auto [out, _] = Index::getCpAsyncBulkGmemIndex(ldst, nullptr, for_loops_);
   auto new_ldst =
       IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
           ->withPredicate(ldst->predicate());
@@ -2930,8 +2899,8 @@ void IndexLowering::handle(const PadOp* pad) {
   const auto pad_val = pad->value();
 
   // Build a predicate for where
-  auto consumer_root_indices = Index::getConsumerPerDimLogicalIndex(
-      consumer_tv, for_loops_, getRotatedLoop());
+  auto consumer_root_indices =
+      Index::getConsumerPerDimLogicalIndex(consumer_tv, for_loops_);
   Val* pred = consumer_tv->fusion()->trueVal();
   for (auto padded_axis : pad->getPaddedAxes()) {
     auto consumer_idx = consumer_root_indices.at(padded_axis);
@@ -3013,8 +2982,8 @@ void IndexLowering::handle(
   const auto in = lowerSrcIndex(preprocess_op->in(), preprocess_op->out());
 
   auto* out_tv = preprocess_op->out()->as<TensorView>();
-  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
-      out_tv, for_loops_, getRotatedLoop());
+  std::vector<Val*> logical_index =
+      Index::getConsumerPerDimLogicalIndex(out_tv, for_loops_);
   NVF_ERROR(
       logical_index.size() == 2,
       "only matrices are supported in PreprocessGroupedMatmulInputSf");
