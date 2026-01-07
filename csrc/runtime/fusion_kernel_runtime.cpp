@@ -362,11 +362,11 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputSizes doesn't seem to strictly require a Fusion for
+    // TODO: inferContiguousOutputSizes doesn't seem to strictly require a Fusion for
     // each segment. Consider using the complete fusion instead.
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+        inferContiguousOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -598,7 +598,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = inferOutputSizes(
+    auto group_runtime_outputs = inferContiguousOutputSizes(
         fusion_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values.get());

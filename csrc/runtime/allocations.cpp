@@ -21,11 +21,11 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder inferOutputSizes(
+KernelArgumentHolder inferContiguousOutputSizes(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferOutputSizes");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferContiguousOutputSizes");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
@@ -49,7 +49,7 @@ KernelArgumentHolder inferOutputSizes(
         output->isA<TensorView>(),
         "Cannot allocate outputs that are not tensors.");
     auto output_tv = output->as<TensorView>();
-    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+    const auto& [sizes, strides] = inferContiguousShapeAndStrideOfOutput(output_tv, expr_eval);
     const auto dtype = (output_tv->dtype() == DataType::Index)
         ? data_type_to_aten(arg_index_type)
         : data_type_to_aten(output_tv->dtype());
@@ -150,12 +150,12 @@ std::vector<int64_t> getContiguousStrides(
 }
 
 // Infer the size and stride of each dimension
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferContiguousShapeAndStride(
     const TensorView* tv,
     const std::vector<Val*>& symbolic_sizes,
     const std::vector<bool>& expand_flags,
     const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferContiguousShapeAndStride");
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
@@ -817,7 +817,7 @@ at::Tensor transformFromAllocationToLogical(
   return tensor.permute(dims);
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferContiguousAllocationShapeAndStride(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
   std::vector<Val*> symbolic_sizes;
@@ -855,20 +855,20 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       expand_flags.push_back(false);
     }
   }
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  return inferContiguousShapeAndStride(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
 } // namespace
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferContiguousShapeAndStrideOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferContiguousShapeAndStrideOfOutput");
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into
   // account.
 
-  auto size_stride = inferAllocationShape(tv, expr_eval);
+  auto size_stride = inferContiguousAllocationShapeAndStride(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return size_stride;
   }
@@ -918,7 +918,7 @@ TensorShapeInfo inferTensorShapes(
   }
 
   // Non-alias handling:
-  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  auto allocation_size_stride = inferContiguousAllocationShapeAndStride(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return TensorShapeInfo{
         allocation_size_stride.first,
