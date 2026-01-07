@@ -325,8 +325,12 @@ std::string paramToStringLowerCollectiveCudaAndNcclTest(
   int64_t size_mb = message_size_bytes / (1024 * 1024);
   if (size_mb >= 1024) {
     ss << (size_mb / 1024) << "GB";
-  } else {
+  } else if (size_mb >= 1) {
     ss << size_mb << "MB";
+  } else if (message_size_bytes >= 1024) {
+    ss << (message_size_bytes / 1024) << "KB";
+  } else {
+    ss << message_size_bytes << "B";
   }
   return ss.str();
 }
@@ -337,9 +341,16 @@ INSTANTIATE_TEST_SUITE_P(
     LowerCollectiveCudaAndNcclTest,
     testing::Combine(
         testing::Values(
+            128 * 1024LL, // 128 KB
+            256 * 1024LL, // 256 KB
+            512 * 1024LL, // 512 KB
+            1 * 1024 * 1024LL, // 1 MB
             2 * 1024 * 1024LL, // 2 MB
+            4 * 1024 * 1024LL, // 4 MB
             8 * 1024 * 1024LL, // 8 MB
+            16 * 1024 * 1024LL, // 16 MB
             32 * 1024 * 1024LL, // 32 MB
+            64 * 1024 * 1024LL, // 64 MB
             128 * 1024 * 1024LL, // 128 MB
             256 * 1024 * 1024LL // 256 MB
             ),

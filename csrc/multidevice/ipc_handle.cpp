@@ -329,6 +329,7 @@ SymMemForContiguousView::SymMemForContiguousView(
     hir::SymmetricContiguousView* contig_view) {
   std::string tag = "contig_view_" + std::to_string(contig_view->name());
   sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
+  sym_tensor_->setupRemoteHandles(tag + "_remote_handles");
   sym_tensor_->setupContiguousView(tag);
 
   tensor_ = sym_tensor_->getContiguousView();
