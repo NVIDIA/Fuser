@@ -3,18 +3,22 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
-import torch
 import os
+
+import torch
+import torch.distributed as dist
+from torch.distributed.tensor import distribute_tensor, Shard
 
 import nvfuser_direct as nvfuser
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
+from benchmark_utils import get_benchmark_fns
 
 
 @pytest.mark.mpi
-def test_row_parallel_linear_forward(multidevice_direct_test):
+def test_row_parallel_linear_forward(multidevice_test):
     # This is a port of CollectiveBasedOverlapTest.RowParallelLinear_Forward.
     h, s, t = 2, 3, 6
-    d = multidevice_direct_test.size
+    d = multidevice_test.size
     if (h * 4) % d != 0:
         pytest.skip(
             f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
@@ -81,8 +85,8 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
     weight_ref = torch.randint(-2, 3, (h, h * 4), dtype=torch.int32).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = multidevice_direct_test.shard_tensor(inp_ref, -1, mesh)
-    weight = multidevice_direct_test.shard_tensor(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, -1, mesh)
+    weight = multidevice_test.shard_tensor(weight_ref, -1, mesh)
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
@@ -101,11 +105,121 @@ def test_row_parallel_linear_forward(multidevice_direct_test):
         assert event.input_shapes == [[m, k], [k, n], [m, n]]
 
 
+# The caching allocator in PyTorch can't cache buffers across streams, so we
+# have to reuse streams to avoid repeated cudaMalloc. torch.cuda.Stream() is
+# backed by a stream pool as well but I failed to find a way to set its size.
+class StreamPool:
+    def __init__(self):
+        self._streams = {}
+
+    def get(self, sid: int) -> torch.cuda.Stream:
+        s = self._streams.get(sid)
+        if s is None:
+            s = torch.cuda.Stream()
+            self._streams[sid] = s
+        return s
+
+
+def row_parallel_linear_forward_reference(
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    num_chunks: int,
+    stream_pool: StreamPool,
+) -> torch.Tensor:
+    out = torch.empty(
+        inp_shard.size(0),
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    inp_chunks = inp_shard.chunk(num_chunks)
+    out_chunks = out.chunk(num_chunks)
+
+    main_stream = torch.cuda.current_stream()
+    worker_streams = []
+    for i, (inp_chunk, out_chunk) in enumerate(zip(inp_chunks, out_chunks)):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
+        with torch.cuda.stream(worker_stream):
+            torch.matmul(inp_chunk, weight_shard.T, out=out_chunk)
+            work = dist.all_reduce(out_chunk, op=dist.ReduceOp.SUM, async_op=True)
+            work.wait()
+
+    for worker_stream in worker_streams:
+        main_stream.wait_stream(worker_stream)
+
+    return out
+
+
+@pytest.mark.mpi
+def test_row_parallel_linear_forward_reference(setup_default_process_group):
+    h, s, t = 2, 3, 6
+    d = dist.get_world_size()
+    if (h * 4) % d != 0:
+        pytest.skip(
+            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+        )
+    assert t % s == 0
+
+    torch.manual_seed(0)
+    inp_ref = torch.testing.make_tensor(t, h * 4, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    weight_ref = torch.testing.make_tensor(
+        h, h * 4, dtype=torch.int32, device="cpu"
+    ).to(torch.bfloat16)
+    out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_ref.cuda()).cpu()
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local()
+    weight_shard = distribute_tensor(
+        weight_ref, mesh, placements=[Shard(-1)]
+    ).to_local()
+    stream_pool = StreamPool()
+    out = row_parallel_linear_forward_reference(inp_shard, weight_shard, s, stream_pool)
+
+    torch.testing.assert_close(out.cpu(), out_ref)
+
+
+@pytest.mark.mpi
+@pytest.mark.benchmark
+def test_row_parallel_linear_forward_reference_benchmark(
+    setup_default_process_group, benchmark
+):
+    h, s, t = 8192, 2, 8192
+    d = dist.get_world_size()
+    if (h * 4) % d != 0:
+        pytest.skip(
+            f"Row-parallel linear requires {h * 4} to be divisible by world size {d}."
+        )
+    assert t % s == 0
+
+    torch.manual_seed(0)
+    inp_ref = torch.randn(t, h * 4, dtype=torch.bfloat16)
+    weight_ref = torch.randn(h, h * 4, dtype=torch.bfloat16)
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(-1)]).to_local()
+    weight_shard = distribute_tensor(
+        weight_ref, mesh, placements=[Shard(-1)]
+    ).to_local()
+
+    stream_pool = StreamPool()
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: row_parallel_linear_forward_reference(
+            inp_shard, weight_shard, s, stream_pool
+        )
+    )
+    warmup_fn()
+    benchmark.pedantic(benchmark_fn, rounds=5)
+
+
 @pytest.mark.mpi
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
-    multidevice_direct_test, benchmark, backend_type, s
+    multidevice_test, benchmark, backend_type, s
 ):
     def fusion_definition(fd, m, k, n, s, d) -> list[TensorView]:
         x = fd.define_tensor(
@@ -132,19 +246,19 @@ def test_overlap_allgather_matmul_stream_outermost(
         out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     N_WARMUPS, N_ITERATIONS = 5, 25
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         s, d, m // (s * d), k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_direct_test.shard_tensor(
+    x = multidevice_test.shard_tensor(
         x_unsharded,
         1,
-        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
+        nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
     )
     weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
@@ -176,7 +290,7 @@ def test_overlap_allgather_matmul_stream_outermost(
     "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.cuda]
 )
 def test_overlap_allgather_matmul_shard_outermost(
-    multidevice_direct_test, benchmark, backend_type
+    multidevice_test, benchmark, backend_type
 ):
     def fusion_definition(fd, m, k, n, d) -> list[TensorView]:
         x = fd.define_tensor(
@@ -203,19 +317,19 @@ def test_overlap_allgather_matmul_shard_outermost(
         out.axis(0).parallelize(nvfuser.ParallelType.stream)
 
     N_WARMUPS, N_ITERATIONS = 5, 25
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_direct_test.size
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
     assert m % d == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         d, m // d, k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_direct_test.shard_tensor(
+    x = multidevice_test.shard_tensor(
         x_unsharded,
         0,
-        nvfuser.multidevice.DeviceMesh(range(multidevice_direct_test.size)),
+        nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
     )
     weight = torch.testing.make_tensor(n, k, dtype=torch.bfloat16, device="cuda")
     bias = torch.testing.make_tensor(n, dtype=torch.bfloat16, device="cuda")
@@ -229,6 +343,7 @@ def test_overlap_allgather_matmul_shard_outermost(
     params = nvfuser.multidevice.MultiDeviceExecutorParams()
     params.backend_type = backend_type
     params.use_allocation_cache = True
+    params.offset_stream_indexing_by_rank = True
     multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
 
     # warmup

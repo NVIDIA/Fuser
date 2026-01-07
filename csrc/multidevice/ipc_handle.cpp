@@ -142,10 +142,11 @@ void IpcHandleCache::exchangeHandles(
 
 SymMemForBroadcast::SymMemForBroadcast(
     Communication* communication,
+    int64_t root,
     at::Tensor buffer)
     : SymMemForBroadcast(
           buffer,
-          communication->root(),
+          root,
           "for_Communication" + std::to_string(communication->name())) {}
 
 SymMemForBroadcast::SymMemForBroadcast(
@@ -305,7 +306,7 @@ SymmetricMemoryHandle* SymmetricMemoryHandleCache::get(KeyType key) {
   } else if (auto* comm = dynamic_cast<Communication*>(key.expr)) {
     // Communication (Broadcast/Allgather)
     if (comm->type() == CommunicationType::Broadcast) {
-      handle = std::make_unique<SymMemForBroadcast>(comm, key.buffer);
+      handle = std::make_unique<SymMemForBroadcast>(comm, key.root, key.buffer);
     } else if (comm->type() == CommunicationType::Allgather) {
       handle = std::make_unique<SymMemForAllgather>(comm, key.buffer);
     } else {
@@ -328,6 +329,7 @@ SymMemForContiguousView::SymMemForContiguousView(
     hir::SymmetricContiguousView* contig_view) {
   std::string tag = "contig_view_" + std::to_string(contig_view->name());
   sym_tensor_ = std::make_unique<SymmetricTensor>(in_tensor);
+  sym_tensor_->setupRemoteHandles(tag + "_remote_handles");
   sym_tensor_->setupContiguousView(tag);
 
   tensor_ = sym_tensor_->getContiguousView();

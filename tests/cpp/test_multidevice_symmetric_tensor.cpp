@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <multidevice/symmetric_tensor.h>
-#include <tests/cpp/multidevice.h>
+#include "multidevice/symmetric_tensor.h"
+#include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 
@@ -197,6 +197,7 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
   communicator_->barrier();
 
   // Setup and get contiguous view of all ranks
+  sym_tensor.setupRemoteHandles();
   sym_tensor.setupContiguousView("test_contiguous");
   at::Tensor contiguous_view = sym_tensor.getContiguousView();
 
@@ -225,6 +226,87 @@ TEST_F(SymmetricTensorTest, ContiguousView) {
           << " at offset " << i << " did not match expected value";
     }
   }
+}
+
+TEST_F(SymmetricTensorTest, SmallAllocation) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t world_size = communicator_->size();
+
+  // Allocate a very small tensor (1 element)
+  // This is much smaller than the 2MB granularity
+  at::Tensor local_tensor = SymmetricTensor::allocate(
+      {1}, at::ScalarType::Float, communicator_->device());
+  SymmetricTensor sym_tensor(local_tensor);
+
+  EXPECT_EQ(local_tensor.numel(), 1);
+
+  float local_value = static_cast<float>(rank + 123);
+  local_tensor.fill_(local_value);
+
+  sym_tensor.setupRemoteHandles();
+
+  // Read from all remote tensors
+  for (int64_t peer_rank = 0; peer_rank < world_size; ++peer_rank) {
+    void* peer_ptr = sym_tensor.remoteTensor(peer_rank).data_ptr();
+    EXPECT_NE(peer_ptr, nullptr);
+
+    float peer_value;
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+        &peer_value, peer_ptr, sizeof(float), cudaMemcpyDeviceToHost));
+
+    float expected_value = static_cast<float>(peer_rank + 123);
+    EXPECT_FLOAT_EQ(peer_value, expected_value);
+  }
+}
+
+TEST_F(SymmetricTensorTest, SmallAllocationMulticast) {
+#if (CUDA_VERSION < 13000)
+  GTEST_SKIP() << "Multicast requires CUDA 13.0+";
+#else
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
+
+  const int64_t rank = communicator_->deviceId();
+  const int64_t root = 0;
+
+  // Check multicast support
+  int is_multicast_supported;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &is_multicast_supported, CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED, rank));
+  if (!is_multicast_supported) {
+    GTEST_SKIP() << "Device does not support multicast";
+  }
+
+  // Small tensor (1 int)
+  at::Tensor local_tensor = SymmetricTensor::allocate(
+      {1}, at::ScalarType::Int, communicator_->device());
+  SymmetricTensor sym_tensor(local_tensor);
+
+  // Setup multicast
+  sym_tensor.setupMulticast(root, "test_small_multicast");
+
+  if (rank == root) {
+    void* mc_ptr = sym_tensor.multicastPtr();
+    EXPECT_NE(mc_ptr, nullptr);
+    int val = 42;
+    NVFUSER_CUDA_RT_SAFE_CALL(
+        cudaMemcpy(mc_ptr, &val, sizeof(int), cudaMemcpyHostToDevice));
+  }
+
+  communicator_->barrier();
+
+  const at::Tensor& local = sym_tensor.localTensor();
+  int readback;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &readback, local.data_ptr(), sizeof(int), cudaMemcpyDeviceToHost));
+
+  EXPECT_EQ(readback, 42);
+#endif
 }
 
 } // namespace nvfuser
