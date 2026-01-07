@@ -1060,6 +1060,12 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
 
     b, s, h, e = 1, 2048, 96, 12288
 
+    if parallelism == Parallelism.SEQUENCE_PARALLEL and s % d != 0:
+        pytest.skip(
+            f"Sequence length {s} must be divisible by the number \
+                    of devices {d} for sequence parallelism."
+        )
+
     torch.cuda.set_device(multidevice_test.local_rank)
 
     mlp_linear0_out = torch.testing.make_tensor(
