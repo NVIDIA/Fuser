@@ -1274,23 +1274,24 @@ TensorView* asNested(
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
   NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
 
+  // Get the logical domain of the input, excluding reductions
+  auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto inp_logical_size = std::ranges::distance(inp_logical);
+
   // Only 1D extents tensors are currently supported
   NVF_ERROR_EQ(
-      extents->nDims(),
+      inp_logical_size,
       1,
       "asNested currently only supports 1D extents tensors");
 
-  // Get the logical domain of the input, excluding reductions
-  auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());
-
   // Clone the logical domain to create the root domain for output
   std::vector<IterDomain*> root_domain;
-  root_domain.reserve(inp_logical.size());
+  root_domain.reserve(inp_logical_size);
   for (auto* id : inp_logical) {
     root_domain.push_back(id->cloneWithoutRFactor());
   }
 
-  ragged_dim = wrapDim(ragged_dim, std::ssize(inp_logical));
+  ragged_dim = wrapDim(ragged_dim, inp_logical_size);
 
   // Partition the specified dimension in root domain
   // This replaces one IterDomain with (component_id, ragged_id)
