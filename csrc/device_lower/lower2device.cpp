@@ -23,7 +23,6 @@
 #include <device_lower/pass/inplace_alias.h>
 #include <device_lower/pass/insert_syncs.h>
 #include <device_lower/pass/instrument.h>
-#include <device_lower/pass/loop_rotation.h>
 #include <device_lower/pass/loops.h>
 #include <device_lower/pass/magic_zero.h>
 #include <device_lower/pass/predicate.h>
@@ -84,7 +83,7 @@ class KIRCleaner : public OptOutDispatch {
       dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
-        fl->body().push_back(expr);
+        fl->body().pushBack(expr);
       }
     }
     // The loop is nop when no expr exists in the body
@@ -101,7 +100,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : then_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->thenBody().push_back(expr);
+          ite->thenBody().pushBack(expr);
         }
       }
     }
@@ -115,7 +114,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : else_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->elseBody().push_back(expr);
+          ite->elseBody().pushBack(expr);
         }
       }
     }
@@ -130,7 +129,7 @@ class KIRCleaner : public OptOutDispatch {
       Val* not_pred = SimplifyingIrBuilder::logicalNotExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
-        ite->thenBody().push_back(expr);
+        ite->thenBody().pushBack(expr);
       }
       ite->elseBody().clear();
     }
@@ -223,7 +222,6 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"insertWarAsyncWait", insertWarAsyncWait},
-           {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
            {"IndexLowering", IndexLowering::getIndexedExprs},
            {"fuseWarpReduce", fuseWarpReduce},
