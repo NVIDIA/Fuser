@@ -11,6 +11,26 @@
 
 namespace nvfuser::python {
 
+namespace {
+
+PolymorphicValue toPolymorphicValue(const py::handle& obj) {
+  static py::object torch_Tensor = py::module_::import("torch").attr("Tensor");
+  if (py::isinstance(obj, torch_Tensor)) {
+    return PolymorphicValue(py::cast<at::Tensor>(obj));
+  } else if (py::isinstance<py::bool_>(obj)) {
+    return PolymorphicValue(py::cast<bool>(obj));
+  } else if (py::isinstance<py::int_>(obj)) {
+    return PolymorphicValue(py::cast<int64_t>(obj));
+  } else if (py::isinstance<py::float_>(obj)) {
+    return PolymorphicValue(py::cast<double>(obj));
+  } else if (py::isinstance<std::complex<double>>(obj)) {
+    return PolymorphicValue(py::cast<std::complex<double>>(obj));
+  }
+  NVF_THROW("Cannot convert provided py::handle to a PolymorphicValue.");
+}
+
+} // namespace
+
 KernelArgumentHolder from_pyiterable(
     const py::iterable& iter,
     std::optional<int64_t> device) {
@@ -19,10 +39,10 @@ KernelArgumentHolder from_pyiterable(
     // Allows for a Vector of Sizes to be inputed as a list/tuple
     if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
       for (py::handle item : obj) {
-        args.push(torch::jit::toIValue(item, c10::AnyType::get()));
+        args.push(toPolymorphicValue(item));
       }
     } else {
-      args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+      args.push(toPolymorphicValue(obj));
     }
   }
 
