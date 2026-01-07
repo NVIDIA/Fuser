@@ -488,67 +488,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
-std::string Scope::toString(int indent_size) const {
-  std::stringstream ss;
-  for (auto expr : exprs()) {
-    ss << expr->toString(indent_size);
-  }
-  return ss.str();
-}
-
-Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
-  return exprs_.insert(pos, expr);
-}
-
-Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " before the reference: ",
-      ref,
-      " @ ",
-      (size_t)ref,
-      " however the reference was not found in this scope.");
-  return insert(it, expr);
-}
-
-Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " after the reference: ",
-      ref,
-      " however the reference was not found in this scope.");
-  auto insert_pos = std::next(it);
-  return insert(insert_pos, expr);
-}
-
-void Scope::erase(Iterator pos) {
-  // Remove the scope of the expr if this is the scope
-  [[maybe_unused]] auto expr = *pos;
-  exprs_.erase(pos);
-}
-
-void Scope::erase(Expr* ref) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    erase(it);
-  }
-}
-
-bool Scope::contains(Expr* expr) const {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
-  return it != exprs_.end();
-}
-
-void Scope::clear() {
-  exprs_.clear();
-}
-
 SdpaBwdOp::SdpaBwdOp(
     IrBuilderPasskey passkey,
     TensorView* grad_query,
