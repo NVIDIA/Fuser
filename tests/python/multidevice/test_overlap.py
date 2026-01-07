@@ -135,24 +135,19 @@ def row_parallel_linear_forward_reference(
     inp_chunks = inp_shard.chunk(num_chunks)
     out_chunks = out.chunk(num_chunks)
 
-    def wait_stream(stream: torch.cuda.Stream) -> None:
-        event = torch.cuda.Event()
-        stream.record_event(event)
-        torch.cuda.current_stream().wait_event(event)
-
     main_stream = torch.cuda.current_stream()
     worker_streams = []
     for i, (inp_chunk, out_chunk) in enumerate(zip(inp_chunks, out_chunks)):
         worker_stream = stream_pool.get(i)
         worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
         with torch.cuda.stream(worker_stream):
-            wait_stream(main_stream)
             torch.matmul(inp_chunk, weight_shard.T, out=out_chunk)
             work = dist.all_reduce(out_chunk, op=dist.ReduceOp.SUM, async_op=True)
             work.wait()
 
     for worker_stream in worker_streams:
-        wait_stream(worker_stream)
+        main_stream.wait_stream(worker_stream)
 
     return out
 
