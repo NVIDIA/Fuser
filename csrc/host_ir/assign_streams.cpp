@@ -32,9 +32,9 @@ void AssignStreams::runPass(Fusion* fusion) {
     // at this moment because all loops are stream-parallel. This is also hard
     // to do because hir::ForLoop doesn't point to the source IterDomain.
 
-    auto* get_current_stream = IrBuilder::create<GetCurrentStream>();
-    Stream* main_stream = get_current_stream->stream();
-    hic->topLevel().insert(it, get_current_stream);
+    Stream* main_stream = IrBuilder::create<Stream>();
+    hic->topLevel().insert(
+        it, IrBuilder::create<GetCurrentStream>(main_stream));
 
     // At the beginning of each iteration: set stream and synchronize with main
     // stream
