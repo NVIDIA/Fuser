@@ -185,6 +185,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"p2p_protocol", EnableOption::P2pProtocol},
           {"multicast_protocol", EnableOption::MulticastProtocol},
           {"parallel_serde", EnableOption::ParallelSerde},
+          {"infer-contiguity", EnableOption::InferContiguity},
       };
   return available_options;
 }
