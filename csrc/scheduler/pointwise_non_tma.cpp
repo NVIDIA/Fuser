@@ -18,6 +18,7 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+#include "exceptions.h"
 
 namespace nvfuser {
 namespace pointwise {
@@ -203,28 +204,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto index_type = prop.index_type;
   params->cparams.index_type = index_type;
 
-  constexpr int64_t kOneHundredTwentyEight = 128; // clang tidy
   int64_t max_dtype_size_bit_for_vectorization =
       prop.max_dtype_size_bit_for_vectorization;
   const auto& vectorizable_inputs_outputs = prop.vectorizable_inputs_outputs;
-  auto max_vect_factor = ceilDiv(
-      // Available vectorization based on size of data type
-      (int64_t)kOneHundredTwentyEight / max_dtype_size_bit_for_vectorization,
-      // Reduce max vectorization factor if we have many inputs/outputs to
-      // vectorize as it could start consuming a lot of registers.
-      std::max(
-          (scheduler_utils::lastPow2(
-               (int64_t)vectorizable_inputs_outputs.size()) >>
-           2),
-          (int64_t)1));
-  // Don't vectorize at the cost of getting a full wave on the GPU
   int64_t n_elems = prop.n_elems;
   const auto device_multiprocessor_count = prop.device_multiprocessor_count;
-  if (n_elems < device_multiprocessor_count * kThreadX && max_vect_factor > 1) {
-    max_vect_factor = std::min(
-        max_vect_factor,
-        ceilDiv(n_elems, device_multiprocessor_count * kThreadX));
-  }
+  constexpr int64_t max_vectorization_size_in_bit = 128;
 
   // See pointwise.h to understand what we're doing for this 2D analysis.
   // Ideal break point location
@@ -259,7 +244,13 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   pointwise_utils::BreakPointInfo bp_info;
   if (n_elems * 2 > device_multiprocessor_count * kThreadX) {
     bp_info = pointwise_utils::getBreakPoint(
-        fusion, prop, data_cache, max_vect_factor, kThreadX);
+        fusion,
+        prop,
+        data_cache,
+        /*is_tma =*/false,
+        max_vectorization_size_in_bit /
+            prop.max_dtype_size_bit_for_vectorization,
+        kThreadX);
   } else {
     // Use default 1D scheduling (break_point = 0)
     bp_info.break_point = 0;
@@ -268,9 +259,29 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     bp_info.is_outer_broadcast_dominated = false;
   }
 
+  // Use unified function that handles all constraints internally
+  const int64_t vectorization_factor = vectorize_helper::getVectorizationFactor(
+      runtime_info,
+      prop.largest_out,
+      data_cache,
+      bp_info.break_point,
+      max_vectorization_size_in_bit,
+      prop.min_dtype_size_bit_for_vectorization,
+      prop.max_dtype_size_bit_for_vectorization,
+      /*n_vectorizable_tensors=*/(int64_t)vectorizable_inputs_outputs.size(),
+      // should use the actual wave count, here just to keep consistency with
+      // the old code.
+      // TODO: check how should we limit the vectorization factor based on the
+      // wave count.
+      /*n_waves=*/n_elems > device_multiprocessor_count * kThreadX ? -1 : 1,
+      /*logical_reorder_map=*/
+      pointwise_utils::getLogicalReorderMap(
+          prop.largest_out, prop.has_reshapes, data_cache));
+  params->vectorization_factor = vectorization_factor;
+
   // Calculate block and grid configuration based on break point
   auto config = pointwise_utils::getBlockGridConfig(
-      prop, bp_info, max_vect_factor, kThreadX);
+      prop, bp_info, vectorization_factor, kThreadX);
 
   // Extract results
   break_point = config.break_point;
@@ -283,37 +294,10 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   bool is_outer_broadcast_dominated = config.is_outer_broadcast_dominated;
   const auto& elem_counts = prop.elem_counts;
 
-  int64_t vectorization_factor = max_vect_factor;
-  // If we have sub-byte data types, we wouldn't want to clamp vectorization
-  // factor to 1, otherwise we could end up with illegal array type with
-  // sub-byte length.
-  // NOTE: This is not a perfect solution, as sub-byte data types doesn't
-  // necessarily need vectorization, but rather just consecutive elements being
-  // handled together so we have byte-sized buffer per thread.
-  if (std::ranges::any_of(vectorizable_inputs_outputs, [](TensorView* inp) {
-        return dataTypeSizeBit(inp->getDataType().value()) < 8;
-      })) {
-    vectorization_factor = std::max(2l, max_vect_factor);
-  }
-  std::unordered_map<int64_t, int64_t> logical_reorder_map =
-      pointwise_utils::getLogicalReorderMap(
-          prop.largest_out, prop.has_reshapes, data_cache);
-  vectorization_factor = std::min(
-      vectorization_factor,
-      vectorize_helper::getVectorizationFactor(
-          runtime_info,
-          prop.largest_out,
-          data_cache,
-          break_point,
-          /*max_vectorization_size_in_bit=*/128,
-          logical_reorder_map));
-  params->vectorization_factor = vectorization_factor;
-
   // get unroll factor:
-
   int64_t total_blocks = break_point > 0
       ? gdim_left * gdim_right
-      : ceilDiv(n_elems / max_vect_factor, kThreadX);
+      : ceilDiv(n_elems / vectorization_factor, kThreadX);
   bool divisible_split = break_point > 0
       ? (right_elem_count % (params->vectorization_factor * bdimx) == 0)
       : (n_elems % (params->vectorization_factor * kThreadX) == 0);
@@ -367,7 +351,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
             << "vectorize_factor: " << params->vectorization_factor << std::endl
             << "\n"
             << "logical_reorder_map: ";
-    for (auto [i, j] : logical_reorder_map) {
+    for (auto [i, j] : pointwise_utils::getLogicalReorderMap(
+             prop.largest_out, prop.has_reshapes, data_cache)) {
       debug() << "(" << i << ", " << j << "), ";
     }
     debug() << "\nbroadcast_byte_multiples: ";

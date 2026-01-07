@@ -239,7 +239,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/inplace_alias.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/insert_syncs.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/instrument.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
@@ -268,6 +267,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/ir.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lower_to_communication.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/ops.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/lowering.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/passes.cpp
   ${NVFUSER_SRCS_DIR}/id_model/circular_buffer_indexing.cpp
@@ -293,6 +293,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/composite_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
@@ -323,6 +324,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ops/composite.cpp
   ${NVFUSER_SRCS_DIR}/ops/indexing.cpp
   ${NVFUSER_SRCS_DIR}/ops/normalization.cpp
+  ${NVFUSER_SRCS_DIR}/ops/schedule.cpp
   ${NVFUSER_SRCS_DIR}/ops/utils.cpp
   ${NVFUSER_SRCS_DIR}/options.cpp
   ${NVFUSER_SRCS_DIR}/parallel_dimension_map.cpp
@@ -348,7 +350,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/convert_op_to_communication.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
-  ${NVFUSER_SRCS_DIR}/host_ir/pass/allocate_and_deallocate.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/allocate_and_deallocate.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_scatter_accumulate.cpp
@@ -381,6 +383,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/nvmmh.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_non_tma.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_tma.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
@@ -458,6 +462,8 @@ target_link_libraries(LLVM_JIT INTERFACE ${LLVM_LIBS})
 # Add LLVM JIT related sources
 list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/host_ir/jit.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_external.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/jit_tensor_utils.cpp
 )
 
 # We don't link CUPTI for MSVC
@@ -808,6 +814,7 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/heuristic_params.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/internal_ir.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/lru_cache.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/multidevice.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/cutlass.cpp
@@ -971,7 +978,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_loop_rotation.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_low_precision_recipe.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_math_opt.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mbarrier.cpp
@@ -984,11 +990,13 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_overlap.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_pdl.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_polymorphic_value.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_ragged_iter_domain.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
@@ -1132,6 +1140,31 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 endfunction()
 
+# Special function for tests that MUST be isolated (single source file only)
+# Used for tests with strict initialization ordering requirements (e.g., MPS tests)
+function(add_isolated_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
+  # ENFORCE: Exactly one source file
+  list(LENGTH TEST_SRC SRC_COUNT)
+  if(NOT SRC_COUNT EQUAL 1)
+    message(FATAL_ERROR
+      "${TEST_NAME} is marked as an isolated test and MUST contain exactly ONE source file. "
+      "Found ${SRC_COUNT} files: ${TEST_SRC}. "
+      "Isolated tests cannot have multiple source files to prevent initialization ordering issues.")
+  endif()
+
+  # Verify source file matches test name convention
+  get_filename_component(SRC_BASENAME "${TEST_SRC}" NAME_WE)
+  if(NOT SRC_BASENAME STREQUAL TEST_NAME)
+    message(WARNING
+      "Isolated test ${TEST_NAME} source file basename '${SRC_BASENAME}' doesn't match test name. "
+      "Expected: ${TEST_NAME}.cpp")
+  endif()
+
+  # Call the standard add_test function
+  message(STATUS "Creating isolated test: ${TEST_NAME} with single source: ${TEST_SRC}")
+  add_test("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+endfunction()
+
 if(BUILD_TEST)
   set(TEST_BINARIES)
   add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
@@ -1189,6 +1222,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_host_ir_overlap.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_lower_communication_cuda.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
@@ -1204,14 +1238,30 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
   )
-  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
-  list(APPEND TEST_BINARIES tutorial_multidevice)
+  add_test_without_main(test_multidevice_tutorial "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_multidevice_tutorial)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)
 
   add_test(test_layout_op ${NVFUSER_ROOT}/tests/cpp/test_layout_op.cpp "")
   list(APPEND TEST_BINARIES test_layout_op)
+
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # CRITICAL: test_mps MUST remain as an ISOLATED test binary
+  #
+  # DO NOT add other test source files to this binary. The MPS (Multi-Process
+  # Service) SM affinity tests require creating a CUDA context with special
+  # parameters BEFORE any other CUDA initialization occurs. If other test files
+  # are linked into this binary, their global initializers or test fixtures may
+  # initialize CUDA first, causing MPS tests to fail.
+  #
+  # ENFORCEMENT: Using add_isolated_test() which validates single-source requirement
+  #
+  # See test_mps.cpp header for detailed explanation of these constraints.
+  # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  add_isolated_test(test_mps ${NVFUSER_ROOT}/tests/cpp/test_mps.cpp "CUDA::cuda_driver")
+  list(APPEND TEST_BINARIES test_mps)
 
   set(MATMUL_TEST_SRCS)
   list(APPEND MATMUL_TEST_SRCS
@@ -1342,45 +1392,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
   endif()
 
-  # multidevice transformer and cuda ipc benchmarks
   if(NVFUSER_DISTRIBUTED)
-    # multidevice transformer benchmark
-    set(MULTIDEVICE_BENCHMARK_SRCS)
-    list(APPEND MULTIDEVICE_BENCHMARK_SRCS
-      ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/utils.cpp
-    )
-    add_executable(nvfuser_multidevice_bench ${MULTIDEVICE_BENCHMARK_SRCS})
-    set_target_properties(nvfuser_multidevice_bench PROPERTIES
-      C_STANDARD ${NVFUSER_C_STANDARD}
-      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-      CXX_STANDARD_REQUIRED ON
-      CXX_VISIBILITY_PRESET hidden
-      POSITION_INDEPENDENT_CODE Yes
-      VISIBILITY_INLINES_HIDDEN Yes
-    )
-    target_include_directories(nvfuser_multidevice_bench SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-      ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    )
-    target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
-    target_link_libraries(nvfuser_multidevice_bench PRIVATE
-      GTest::gtest
-      benchmark::benchmark
-      codegen_internal
-    )
-    add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
-
-    if(NOT MSVC)
-      target_compile_options(nvfuser_multidevice_bench PRIVATE
-        -Wall -Wno-unused-function
-        -Werror -Wno-deprecated-copy
-      )
-    endif()
-
     # cuda ipc benchmark
     set(P2P_COMMUNICATION_BENCHMARK_SRCS)
     list(APPEND P2P_COMMUNICATION_BENCHMARK_SRCS
@@ -1440,11 +1452,13 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/fused_welford_impl_outer.cu
   ${NVFUSER_ROOT}/runtime/grid_broadcast.cu
   ${NVFUSER_ROOT}/runtime/grid_reduction.cu
+  ${NVFUSER_ROOT}/runtime/grid_dependency_control.cu
   ${NVFUSER_ROOT}/runtime/grid_sync.cu
   ${NVFUSER_ROOT}/runtime/helpers.cu
   ${NVFUSER_ROOT}/runtime/index_utils.cu
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
+  ${NVFUSER_ROOT}/runtime/multicast.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
   ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu

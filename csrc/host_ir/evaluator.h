@@ -9,14 +9,14 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include <dispatch.h>
-#include <expr_evaluator.h>
-#include <host_ir/container.h>
-#include <host_ir/ir.h>
-#include <multidevice/communicator.h>
-#include <multidevice/ipc_handle.h>
-#include <runtime/executor_abstract.h>
-#include <runtime/fusion_executor_cache.h>
+#include "dispatch.h"
+#include "expr_evaluator.h"
+#include "host_ir/container.h"
+#include "host_ir/ir.h"
+#include "multidevice/communicator.h"
+#include "multidevice/ipc_handle.h"
+#include "runtime/executor_abstract.h"
+#include "runtime/fusion_executor_cache.h"
 
 namespace nvfuser {
 
@@ -114,6 +114,7 @@ class NVF_API HostIrEvaluator final : public OptOutDispatch {
   void handle(HirAliasSelect*) override;
   void handle(Deallocate*) override;
   void handle(ShardByStream*) override;
+  void handle(SymmetricContiguousView*) override;
   void unhandled(Statement*) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

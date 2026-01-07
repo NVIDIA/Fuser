@@ -46,14 +46,11 @@ from torch.distributed.tensor import DTensor
 
 import thunder
 from thunder.dynamo.compiler import thunderfx
-from thunder.benchmarks.layers_for_inference_benchmark import (
+from layers_for_inference_benchmark import (
     GroupedSwiGLU,
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
-    FLOAT4_E2M1_MAX,
-    FLOAT8_E4M3_EPS,
-    FLOAT8_E4M3_MAX,
 )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
@@ -107,24 +104,7 @@ def _register_nvfp4_ops():
         nv_offsets = getnv(offsets, fd, lc_to_nv_map)
         nv_blocksf_offsets = getnv(blockscale_offsets, fd, lc_to_nv_map)
         nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
-        # dynamic shape support has some concretization issue
-        m_size = activation.shape[0]
-        k_size = activation.shape[1]
-        k_tile_size = k_size // 16
-
-        reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
-        scale1 = fd.ops.abs(reshaped_mat1)
-        scale1 = fd.ops.max(scale1, 2)
-        scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
-        scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
-
-        broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
-        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
-        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
-
-        scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
-        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
-        fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+        fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(nv_act)
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
         out = fd.ops.cutlass_nvfp4_grouped_mm(
             fp4_mat1,
@@ -230,6 +210,7 @@ class InferenceBenchmarkConfig:
     attn_implementation: str | None
     thunder_cache: str | None
     enable_thunder_cudagraph: bool
+    debug_moe: bool
 
 
 @dataclass
@@ -263,6 +244,8 @@ class InferenceBenchmark:
     def __init__(self, config: InferenceBenchmarkConfig):
         self.config = config
         self.metrics = InferenceMetrics()
+        # profiler_toggle is used to start/stop profiler for moe debugging
+        self.profiler_toggle = False
 
         # NOTE: Model resides on meta device
         model = self._load_model()
@@ -350,7 +333,41 @@ class InferenceBenchmark:
 
         if self.config.enable_nvfp4:
             _quantize_llama4(model)
-        self.model = self._compile_model(model)
+
+        # If debug_moe is on, we'll only compile the moe section, which is much easier to digest.
+        if self.config.debug_moe:
+            def compile_wrapper(model, jitter):
+                class ModelWrapper(torch.nn.Module):
+
+                    def __init__(self, model, jitter):
+                        super().__init__()
+                        self.model = jitter._compile_model(model)
+                        assert not hasattr(jitter.model, "_backend")
+                        # store a reference to the compiled backend, so we can print the trace later.
+                        if jitter.config.mode == "thunder":
+                            jitter.model._backend = self.model._backend
+                        self.jitter = jitter
+
+                    def forward(self, *args, **kwargs):
+                        if self.jitter.profiler_toggle:
+                            torch.cuda.cudart().cudaProfilerStart()
+                        out = self.model(*args, **kwargs)
+                        if self.jitter.profiler_toggle:
+                            torch.cuda.cudart().cudaProfilerStop()
+                        return out
+
+                return ModelWrapper(model, jitter)
+
+            self.model = model
+            # reuse the `replace` function with compilation.
+            _replace_with_custom_fn_if_matches_filter_with_name(
+                model,
+                lambda model, cur_fqn: compile_wrapper(model, self),
+                lambda model, cur_fqn: isinstance(model, Llama4MoE),
+            )
+        else:
+            self.model = self._compile_model(model)
+
 
     @property
     def _thunder_jit_options(self) -> dict[str, Any]:
@@ -414,12 +431,17 @@ class InferenceBenchmark:
         input_ids = torch.randint(0, self.vocab_size, (batch_size, input_length), device=DEVICE)
         if LooseVersion(transformers.__version__) >= LooseVersion("4.55"):
             # Transformers deprecated HybridChunkedCache in favour of static in 4.55.x
+            # NOTE: tp_size should only reflect tensor parallelism size, not total world size.
+            # If 2D parallelism (data parallel + tensor parallel) is added in the future,
+            # tp_size should be set to the tensor parallelism size only (e.g., WORLD_SIZE // DP_SIZE),
+            # not WORLD_SIZE, so that StaticCache correctly handles sharded KV heads.
             past_key_values = StaticCache(
                 config=self.hf_config,
                 max_batch_size=input_ids.shape[0],
                 max_cache_len=input_ids.shape[1] + self.config.output_length,
                 device=DEVICE,
                 dtype=torch.bfloat16,
+                tp_size=WORLD_SIZE,
             )
         else:
             past_key_values = HybridChunkedCache(
@@ -567,10 +589,12 @@ class InferenceBenchmark:
             # nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<N> ...
             # ```
             # to record only the non-warmup iterations.
-            if is_under_nsys:
+            # Note when debug_moe is on, we'll defer the flag inside the moe wrapper.
+            self.profiler_toggle = is_under_nsys
+            if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStart()
             iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
-            if is_under_nsys:
+            if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStop()
 
             all_metrics.append(iter_metrics)
@@ -764,6 +788,11 @@ Examples:
         action="store_true",
         help="Enable debug dump of thunder trace",
     )
+    parser.add_argument(
+        "--debug-moe",
+        action="store_true",
+        help="Enable debug of MoE, limiting profile and compilation only to the hand written MoE layer",
+    )
     parser.add_argument("--save-results", action="store_true", help="Save results to JSON file")
     parser.add_argument("--output-dir", type=str, default="./results", help="Directory to save results")
     parser.add_argument(
@@ -808,6 +837,7 @@ def main():
         attn_implementation=args.attn_implementation,
         thunder_cache=args.thunder_cache,
         enable_thunder_cudagraph=args.enable_thunder_cudagraph,
+        debug_moe=args.debug_moe,
     )
     benchmark = InferenceBenchmark(config)
 

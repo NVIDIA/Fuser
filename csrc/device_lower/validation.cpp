@@ -615,6 +615,7 @@ class ExprValidator : public OptOutDispatch {
     auto inp_tv = bqop->input(0)->as<TensorView>();
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
     auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+    auto output_dtype = quantized_output->dtype();
 
     NVF_ERROR_EQ(
         inp_tv->getMemoryType(),
@@ -633,6 +634,17 @@ class ExprValidator : public OptOutDispatch {
         MemoryType::Global,
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
+
+    if (output_dtype == DataType::Float8_e4m3fn) {
+      NVF_ERROR(
+          !bqop->hasGlobalScale(),
+          "Global scale is not supported when quantizing to Float8_e4m3fn.");
+
+      NVF_ERROR(
+          !block_scaling_factor->hasAllocation(),
+          "Block scaling factor must not have an allocation domain when "
+          "quantizing to Float8_e4m3fn.");
+    }
 
     if (bqop->hasGlobalScale()) {
       auto global_scale = bqop->globalScale()->as<TensorView>();
@@ -1337,6 +1349,11 @@ class VectorizeValidator : public OptInDispatch {
         if (producer_tv == tv_def->as<IndexSelectOp>()->lookupTv()) {
           break;
         }
+      }
+      // Schedule operations are Fusion IR dependencies that do not appear in
+      // CUDA kernel, so we skip them here.
+      if (ir_utils::isScheduleOp(input->as<TensorView>())) {
+        continue;
       }
       NVF_ERROR(
           producer_tv == nullptr,

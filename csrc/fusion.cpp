@@ -71,6 +71,13 @@ bool Fusion::sameDefinition(const Fusion& other) const {
   if (inputs().size() != other.inputs().size()) {
     return false;
   }
+
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->sameDefinition(other_input)) {
+      return false;
+    }
+  }
+
   if (outputs().size() != other.outputs().size()) {
     return false;
   }

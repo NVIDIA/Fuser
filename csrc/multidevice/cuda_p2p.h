@@ -6,8 +6,10 @@
  */
 // clang-format on
 #pragma once
+
 #include <cuda.h>
-#include <multidevice/ipc_handle.h>
+
+#include "multidevice/ipc_handle.h"
 
 namespace nvfuser {
 
@@ -32,11 +34,13 @@ void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     SymmetricMemoryHandle* multicast_handle,
-    CUstream stream);
+    CUstream stream,
+    int64_t root);
 
 void waitWithCudaBackend(
     Communication* communication,
     SymmetricMemoryHandle* multicast_handle,
-    CUstream stream);
+    CUstream stream,
+    int64_t root);
 
 } // namespace nvfuser

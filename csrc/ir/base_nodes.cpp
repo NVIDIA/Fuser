@@ -10,6 +10,7 @@
 #include <string>
 #include <unordered_map>
 
+#include <device_lower/utils.h>
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -83,6 +84,15 @@ kir::Kernel* Statement::kernel() const {
 }
 
 NVFUSER_DEFINE_CLONE(Val)
+
+void Val::addDependency(Val* dependency) {
+  NVF_ERROR(dependency != nullptr);
+
+  Expr* def = definition();
+  NVF_ERROR(def != nullptr);
+
+  def->addInput(dependency);
+}
 
 const std::vector<Expr*>& Val::uses() const {
   if (vtype_ == ValType::TensorView) {
@@ -366,7 +376,7 @@ template <typename T>
 size_t hashVector(const std::vector<T>& statements) {
   size_t hash = 0;
   for (const auto& s : statements) {
-    hashCombine(hash, s->hash());
+    hashCombine(hash, (s == nullptr) ? 0 : s->hash());
   }
   return hash;
 }
@@ -419,7 +429,10 @@ bool Expr::sameOp(const Expr* other) const {
     return false;
   }
   for (const auto i : arange(attributes().size())) {
-    if (!attribute(i)->sameAs(other->attribute(i))) {
+    if (attribute(i) == nullptr && other->attribute(i) != nullptr) {
+      return false;
+    }
+    if (attribute(i) != nullptr && !attribute(i)->sameAs(other->attribute(i))) {
       return false;
     }
   }
@@ -520,6 +533,9 @@ std::vector<PolymorphicValue> Expr::evaluate(
   std::vector<PolymorphicValue> expr_inputs;
   expr_inputs.reserve(inputs().size());
   for (auto inp : inputs()) {
+    if (ir_utils::isScheduleOp(inp)) {
+      continue;
+    }
     const auto& eval_i = ee.evaluate(inp, known_values);
     if (!eval_i.hasValue()) {
       return {std::monostate{}};

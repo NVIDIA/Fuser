@@ -1814,6 +1814,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // 4, or 8 for Half. We achieve this by having the quantized output tv
     // scheduled to have the inner dimension grouped by 2/4/8.
     auto output = bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    auto output_dtype = output->getDataType();
 
     // Extract group size from the loop domain
     int64_t group_size = 1;
@@ -1848,7 +1849,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     // Build template arguments
     ArgumentBuilder template_args;
-    template_args.arg(bqop->hasGlobalScale()); // HAS_GLOBAL_SCALE
+    // No global scale is required when quantizing to mxfp8
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      template_args.arg(bqop->hasGlobalScale());
+    }
     template_args.arg(group_size); // ITEMS_PER_THREAD
 
     // Build function arguments
@@ -1860,10 +1864,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         bqop->blockScales()->as<kir::TensorIndex>()->view())); // block scales
     func_args.arg(genInline(
         bqop->attributeVal(0))); // linearized index for runtime function
-    func_args.arg(
-        bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      func_args.arg(
+          bqop->hasGlobalScale() ? genInline(bqop->globalScale()) : "{}");
+    }
 
     // Add swizzled allocation domain parameters if needed
+    // This is always skipped when quantizing to mxfp8
     auto block_scales_tv = bqop->blockScales()->as<kir::TensorIndex>()->view();
     if (block_scales_tv->hasAllocation()) {
       auto logical_domain =
@@ -1883,9 +1890,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
+    auto fn_call = output_dtype == DataType::Float4_e2m1fn
+        ? "bq::block_quantize_to_nvfp4"
+        : "bq::block_quantize_to_mxfp8";
+
     // Generate the function call
-    indent() << genCall("bq::block_quantize_to_nvfp4", template_args, func_args)
-             << ";\n";
+    indent() << genCall(fn_call, template_args, func_args) << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
@@ -4671,6 +4681,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                     template_args,
                     func_args)
              << ";\n";
+  }
+
+  void handle(const LaunchDependentGridOp* launch) {
+    indent() << launch->getOpString() << "();\n";
+  }
+
+  void handle(const WaitForPriorGridOp* wait) {
+    indent() << wait->getOpString() << "();\n";
   }
 
  private:

@@ -7,16 +7,17 @@
 // clang-format on
 #pragma once
 
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <ir/base_nodes.h>
-#include <multidevice/communication.h>
-#include <multidevice/multidevice.h>
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "ir/base_nodes.h"
+#include "multidevice/communication.h"
+#include "multidevice/multidevice.h"
 
 namespace nvfuser {
 
 struct HostIrLowerParams {
   CommunicatorBackend communicator_backend = CommunicatorBackend::kNccl;
+  bool offset_stream_indexing_by_rank = false;
 };
 
 class HostIrLower {

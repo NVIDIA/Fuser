@@ -25,6 +25,8 @@ namespace nvfuser {
 // Friends for direct access to split
 class TensorDomain;
 class IterDomain;
+class RaggedIterDomain;
+class TensorView;
 class ReplayTransformations;
 class IndexReferenceReplay;
 class ViewTransform;
@@ -389,6 +391,23 @@ class NVF_API IterDomain : public Val {
   friend TensorDomain;
   friend ReplayTransformations;
   friend IndexReferenceReplay;
+  friend RaggedIterDomain;
+
+  //! Protected constructor for derived classes (e.g., RaggedIterDomain)
+  //! that need to override the ValType
+  IterDomain(
+      IrBuilderPasskey passkey,
+      ValType vtype,
+      Val* start,
+      Val* extent,
+      Val* expanded_extent,
+      Val* stop_offset,
+      ParallelType parallel_type,
+      IterType iter_type,
+      bool is_rfactor_domain,
+      bool is_padded_dimension,
+      bool is_clustered_blocks,
+      std::optional<int64_t> padded_to_size);
 
  private:
   //! Valid range is defined as [start:-stop_offset]
@@ -416,6 +435,68 @@ class NVF_API IterDomain : public Val {
   bool is_padded_dimension_ = false;
   bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
+};
+
+//! RaggedIterDomain represents a dimension with variable extents
+//! (ragged/jagged dimension). Used for PyTorch nested tensors.
+//! Unlike IterDomain, the extent varies per component
+//! and is stored as a TensorView rather than a single Val.
+//!
+//! Key properties:
+//! - extents_: TensorView containing extent for each component (1D, 2D, or N-D)
+//! - Uniform execution properties: ParallelType, IterType apply to all
+//! components
+class NVF_API RaggedIterDomain : public IterDomain {
+ public:
+  //! \param extents TensorView containing component extents (must be integer
+  //! type)
+  //! \param iter_type Iteration type (Iteration, Reduction, etc.)
+  //! Only Iteration is allowed ATM.
+  //! \param parallel_type Parallelization strategy (applies
+  //! uniformly)
+  RaggedIterDomain(
+      IrBuilderPasskey passkey,
+      TensorView* extents,
+      IterType iter_type = IterType::Iteration,
+      ParallelType parallel_type = ParallelType::Serial);
+
+  //! Cloning constructor for IR cloning
+  RaggedIterDomain(const RaggedIterDomain* src, IrCloner* ir_cloner);
+
+  NVFUSER_DECLARE_CLONE
+
+  bool sameAs(const Statement* other) const override;
+
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Accessor for the extents tensor
+  TensorView* extents() const {
+    return extents_;
+  }
+
+  //! Partition an IterDomain into component and ragged dimensions
+  //! Creates a component IterDomain and a RaggedIterDomain based on extents
+  //!
+  //! \param in Input IterDomain to partition (must be regular IterDomain)
+  //! \param extents Extents tensor defining the size of each component (must be
+  //! 1D)
+  //!        Shape: [num_components], values: [extent0, extent1, ...,
+  //!        extent(n-1)]
+  //! \return Pair of (component_id, ragged_id)
+  //!         component_id: IterDomain with extent = num_components
+  //!         ragged_id: RaggedIterDomain with the provided extents
+  //!
+  //! TODO: Support multi-dimensional extents for nested ragged structures
+  static std::pair<IterDomain*, RaggedIterDomain*> partition(
+      IterDomain* in,
+      TensorView* extents);
+
+ private:
+  //! Extent tensor containing all component extents
+  //! Can be 1D, 2D, or N-D depending on nesting structure
+  TensorView* extents_ = nullptr;
 };
 
 //! TensorDomain holds a vector of IterDomains. It holds an IterDomain for every
@@ -711,6 +792,9 @@ class NVF_API TensorDomain : public Val {
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
+
+  // Partition axis into component and ragged dimensions based on extents
+  void partition(int64_t axis, TensorView* extents);
 
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);

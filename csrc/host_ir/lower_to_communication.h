@@ -9,12 +9,12 @@
 
 #include <vector>
 
-#include <ir/allocation_utils.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
-#include <multidevice/communication.h>
-#include <multidevice/multidevice.h>
+#include "ir/allocation_utils.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
+#include "multidevice/communication.h"
+#include "multidevice/multidevice.h"
 
 namespace nvfuser {
 

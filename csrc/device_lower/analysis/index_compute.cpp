@@ -108,7 +108,6 @@ struct IndexingParameters {
 // Initial loop index map for global producer or consumer case.
 IndexingParameters getLinearIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     bool index_producer = false) {
   IndexingParameters index_parameters;
 
@@ -121,10 +120,6 @@ IndexingParameters getLinearIndexParameters(
         GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_domain[loop_idx], IdMappingMode::EXACT);
     loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
-    if (rotated_loops.count(loop) > 0) {
-      loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
-          loop_index_map.at(index_domain), loop->step());
-    }
   }
 
   protectNonPredicateIndexWithMagicZero(
@@ -169,7 +164,6 @@ IndexingParameters getLinearIndexParameters(
 // Initial index parameters for shared and local case
 IndexingParameters getNonGlobalInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     bool index_producer = false,
     const TensorView* producer_tv = nullptr,
@@ -205,7 +199,6 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   std::tie(loop_to_ind_map, zero_loops) = indexMapFromTV(
       alloc_tv,
       loops,
-      rotated_loops,
       alloc_info.init_for_loop,
       !index_producer,
       circular_buffer_loop);
@@ -277,7 +270,6 @@ bool trackUnswitchedDomain(kir::ForLoop* loop) {
 //! the 3 variants.
 IndexingParameters getPredicateInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
     kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
@@ -299,10 +291,6 @@ IndexingParameters getPredicateInitialIndexParameters(
       loop_to_ind_map[fl] = fl->start();
     } else {
       loop_to_ind_map[fl] = fl->index();
-    }
-    if (rotated_loops.count(fl) > 0) {
-      loop_to_ind_map[fl] =
-          SimplifyingIrBuilder::addExpr(loop_to_ind_map.at(fl), fl->step());
     }
   }
 
@@ -424,11 +412,7 @@ IndexingParameters getPredicateInitialIndexParameters(
               ->circularBufferInfo()
               .getCircularBufferOptionsFor(db_loop->iter_domain())
               .prefetch;
-      bool is_same =
-          (rotated_loops.count(db_loop)
-               ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
-                     db_loop->indexOrStartIfTrivial(), db_loop->step()))
-               : cur_index == db_loop->indexOrStartIfTrivial());
+      bool is_same = cur_index == db_loop->indexOrStartIfTrivial();
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index,
@@ -771,7 +755,6 @@ void LoopIndexingAnalysis::constructLoopDomains() {
 
 IndexFromIdGraph getTensorIndexFromIdGraph(
     const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv,
     bool is_global,
@@ -793,16 +776,10 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   }
 
   if (is_global) {
-    index_parameters =
-        getLinearIndexParameters(loop_indexing, rotated_loops, index_producer);
+    index_parameters = getLinearIndexParameters(loop_indexing, index_producer);
   } else {
     index_parameters = getNonGlobalInitialIndexParameters(
-        loop_indexing,
-        rotated_loops,
-        consumer_tv,
-        index_producer,
-        producer_tv,
-        p2c_map);
+        loop_indexing, consumer_tv, index_producer, producer_tv, p2c_map);
   }
 
   IndexCompute indexing(
@@ -924,7 +901,6 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
     const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
     kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
@@ -938,7 +914,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   //  according to loop and unswitch info.
   auto index_parameters = getPredicateInitialIndexParameters(
       loop_indexing,
-      rotated_loops,
       consumer_tv,
       unswitch_or_vec_loop,
       circular_buffer_axis,

@@ -250,11 +250,15 @@ void validateAllocationSizesAndStrides(
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
-        NVF_CHECK_EQ(
-            stride,
-            0,
-            "Expecting an expanded dimension on dimension ",
-            dim_index);
+        // When the runtime size after materialization is 1, a
+        // non-zero stride is harmless
+        if (size != 1) {
+          NVF_CHECK_EQ(
+              stride,
+              0,
+              "Expecting an expanded dimension on dimension ",
+              dim_index);
+        }
       }
       continue;
     }
