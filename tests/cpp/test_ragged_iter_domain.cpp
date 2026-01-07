@@ -361,8 +361,7 @@ TEST_F(RaggedIterDomainTest, AsNestedBasic) {
   EXPECT_NE(nested, data);
   EXPECT_TRUE(nested->isA<TensorView>());
 
-  // Verify nested tensor has 3 dimensions: [component, ragged,
-  // original_dim1]
+  // Verify nested tensor has 3 dimensions: [component, ragged, original_dim1]
   EXPECT_EQ(nested->nDims(), 3);
 
   // First axis should be a regular IterDomain (component)
