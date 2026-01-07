@@ -62,7 +62,7 @@ NVF_API std::tuple<int64_t, int64_t, int64_t> validateInputsNvfp4ScaledMm(
 //   scales_a: Per-block scaling factors for matrix A in FP8_E4M3 format
 //   scales_b: Per-block scaling factors for matrix B in FP8_E4M3 format
 //   alpha: Combined global scaling factor for operands A and B in FP32 format
-//   out_dtype: Output data type (Half, BFloat16, or Float)
+//   out_dtype: Output data type (Half or BFloat16)
 //
 // Returns: Matrix C = alpha * (A @ B) in the specified output dtype
 NVF_API torch::Tensor nvfp4_scaled_mm(
@@ -113,7 +113,7 @@ NVF_API std::tuple<int64_t, int64_t, int64_t> validateInputsMxFp8ScaledMm(
 //   scales_a: Per-block scaling factors for matrix A in FP8_E8M0fnu format
 //   scales_b: Per-block scaling factors for matrix B in FP8_E8M0fnu format
 //   alpha: Combined global scaling factor for operands A and B in FP32 format
-//   out_dtype: Output data type (Half, BFloat16, or Float)
+//   out_dtype: Output data type (Half or BFloat16)
 //
 // Returns: Matrix C = alpha * (A @ B) in the specified output dtype
 NVF_API torch::Tensor mxfp8_scaled_mm(

@@ -35,6 +35,8 @@ def dequantize_mxfp8(tensor_fp8, tensor_sf):
 
 
 def to_fp8(tensor: torch.Tensor) -> torch.Tensor:
+    # The fn suffix means that fp8 is a finite type without infinite support.
+    # Clamp values above 464 to avoid casting values to NaN.
     finfo = torch.finfo(torch.float8_e4m3fn)
     return torch.round(tensor.clamp(min=finfo.min, max=finfo.max)).to(
         dtype=torch.float8_e4m3fn
