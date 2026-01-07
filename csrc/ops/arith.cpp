@@ -16,6 +16,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
+#include <ops/indexing.h>
 #include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
@@ -2749,6 +2750,146 @@ BlockQuantizationResults blockQuantize(
       global_scaling_factor,
       block_size,
       swizzle_scales);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
+}
+
+BlockQuantizationResults groupedBlockQuantize(
+    TensorView* input,
+    TensorView* input_offsets,
+    TensorView* output_offsets,
+    BlockScalingFactorLayout layout,
+    TensorView* global_scaling_factor,
+    int64_t block_size,
+    DataType out_dtype) {
+  NVF_CHECK(
+      out_dtype == DataType::Float4_e2m1fn ||
+          out_dtype == DataType::Float8_e4m3fn,
+      "Currently only output data type of Float4_e2m1fn or Float8_e4m3fn is "
+      "supported");
+  if (out_dtype == DataType::Float4_e2m1fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        16,
+        "Block size must be 16 for Float4_e2m1fn, got ",
+        block_size);
+  } else if (out_dtype == DataType::Float8_e4m3fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        32,
+        "Block size must be 32 for Float8_e4m3fn, got ",
+        block_size);
+    NVF_CHECK(
+        !global_scaling_factor,
+        "global_scaling_factor must be nullptr for Float8_e4m3fn");
+  }
+
+  // Validate input data type
+  // We'll only support FP32 or BF16/FP16
+  NVF_CHECK(
+      input->getDataType().value() == DataType::Float ||
+          input->getDataType().value() == DataType::BFloat16 ||
+          input->getDataType().value() == DataType::Half,
+      "Grouped block quantization expects floating point input but got ",
+      input->getDataType().value());
+
+  // Check that if global_scaling_factor in non-null
+  // then it is a scalar float TensorView
+  if (global_scaling_factor != nullptr) {
+    NVF_CHECK(
+        TensorDomain::noReductions(global_scaling_factor->getLogicalDomain())
+            .empty(),
+        "Global scaling factor for grouped block quantization must be a scalar "
+        "tensor");
+    NVF_CHECK(
+        global_scaling_factor->getDataType().value() == DataType::Float,
+        "Global scaling factor for grouped block quantization must be of float "
+        "data "
+        "type");
+  }
+
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  // Validate input tensor is not zero-dimensional
+  NVF_CHECK(
+      !inp_domain.empty(),
+      "Grouped block quantization does not support zero-dimensional tensors");
+
+  // Create output domain for quantized tensor (same shape as input)
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      out_dtype);
+
+  // Create output blocked scaling factor
+  auto block_scales_dtype = (out_dtype == DataType::Float4_e2m1fn)
+      ? DataType::Float8_e4m3fn
+      : DataType::Float8_e8m0fnu;
+  NVF_ERROR_EQ(inp_domain.size(), 2);
+
+  // This is used for both root and loop domain on output
+  // maps directly to input's logical domain.
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  std::vector<IterDomain*> offset_logical_dom =
+      TensorDomain::noReductions(input_offsets->getLogicalDomain());
+  Val* num_groups = offset_logical_dom[0]->extent();
+
+  // Create the allocation domain of output.
+  std::vector<IterDomain*> out_alloc_dom =
+      layoutAllocationDomain(scales_out_domain, num_groups, layout);
+
+  // Create block scaling factors
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          /*root_domain=*/std::vector<IterDomain*>(),
+          /*logical_domain=*/scales_out_domain,
+          /*allocation=*/out_alloc_dom,
+          /*loop_domain=*/scales_out_domain,
+          /*alternate_loop_domain=*/std::nullopt,
+          /*contiguity=*/
+          TensorDomain::getContiguityFilledWith(out_alloc_dom, true),
+          /*additional_ids=*/std::vector<IterDomain*>(),
+          /*skip_checks=*/true),
+      block_scales_dtype);
+
+  // Create the grouped block quantization operation
+  IrBuilder::create<GroupedBlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      input_offsets,
+      output_offsets,
+      layout,
+      inp_domain[1]->getMaybeExpandedExtent(),
+      num_groups,
+      global_scaling_factor,
+      block_size);
 
   return BlockQuantizationResults(quantized_tensor, block_scales);
 }

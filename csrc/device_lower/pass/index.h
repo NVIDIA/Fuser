@@ -58,6 +58,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const ArgsortOp*) final;
   void handle(const TopKOp*) final;
   void handle(const BlockQuantizationOp*) final;
+  void handle(const GroupedBlockQuantizationOp*) final;
   void handle(const RNGOp*) final;
   void handle(const ReductionOp*) final;
   void handle(const GroupedReductionOp*) final;

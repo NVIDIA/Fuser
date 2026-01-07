@@ -1890,4 +1890,62 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
 
+GroupedBlockQuantizationOp::GroupedBlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g,
+    Val* global_scale,
+    int64_t block_size,
+    Val* row_idx,
+    Val* col_idx)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(output_scales);
+  addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addDataAttribute(block_size);
+  addDataAttribute(layout);
+  if (row_idx != nullptr) {
+    addAttribute(row_idx);
+  }
+  if (col_idx != nullptr) {
+    addAttribute(col_idx);
+  }
+}
+
+std::string GroupedBlockQuantizationOp::toString(int indent_size) const {
+  // FIXME(jiej): update this to print out additional stuff.
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
+                          << quantizedOutput()->toString() << ")\n"
+                          << " = grouped_block_quantize(" << in()->toString()
+                          << ")\n";
+  return ss.str();
+}
+
+std::string GroupedBlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "GroupedBlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedBlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("GroupedBlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedBlockQuantizationOp)
+
 } // namespace nvfuser
