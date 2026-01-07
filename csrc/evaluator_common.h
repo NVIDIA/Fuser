@@ -211,6 +211,8 @@ class PrecomputedValues {
 
   //! Bind concrete value to the given index
   //!  if the index is valid.
+  //! \param ir_node Used to track the original IR node for the index, only
+  //!  used for improving error messages
   void bindValue_(
       int index,
       const PolymorphicValue& value,
