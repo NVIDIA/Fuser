@@ -41,13 +41,6 @@ endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
-# NCCL include directory for distributed builds
-# This can be set by the Python build system when using pip-bundled NCCL
-set(NCCL_INCLUDE_DIR "" CACHE PATH "Directory containing nccl.h header")
-if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
-  message(STATUS "Using NCCL include dir: ${NCCL_INCLUDE_DIR}")
-endif()
-
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
 # on C++20, but we still support a version of CUDA (11) that does not recognize
@@ -300,6 +293,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
+  ${NVFUSER_SRCS_DIR}/ir/composite_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/printer.cpp
   ${NVFUSER_SRCS_DIR}/ir/utils.cpp
@@ -443,29 +437,6 @@ list(APPEND NVFUSER_SRCS
 
 # Add LLVM JIT related dependencies
 set(LLVM_MINIMUM_VERSION "18.1")
-
-# Check for project-local LLVM installations first (no sudo required)
-# This searches .llvm/ directory for version-specific installations
-if(NOT LLVM_DIR)
-  file(GLOB LLVM_CANDIDATES
-    "${CMAKE_SOURCE_DIR}/.llvm/*/lib/cmake/llvm"
-    "${CMAKE_SOURCE_DIR}/third_party/llvm/*/lib/cmake/llvm"
-  )
-  # Sort to get highest version first (assumes version numbers in paths)
-  list(SORT LLVM_CANDIDATES COMPARE NATURAL ORDER DESCENDING)
-  foreach(CANDIDATE ${LLVM_CANDIDATES})
-    if(EXISTS "${CANDIDATE}/LLVMConfig.cmake")
-      # Extract version from path to check if it meets minimum
-      string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" CANDIDATE_VERSION "${CANDIDATE}")
-      if(CANDIDATE_VERSION VERSION_GREATER_EQUAL LLVM_MINIMUM_VERSION)
-        set(LLVM_DIR "${CANDIDATE}" CACHE PATH "Path to LLVM CMake config")
-        message(STATUS "Found project-local LLVM ${CANDIDATE_VERSION} at ${LLVM_DIR}")
-        break()
-      endif()
-    endif()
-  endforeach()
-endif()
-
 find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
@@ -558,10 +529,6 @@ target_include_directories(codegen_internal SYSTEM PUBLIC
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
-# Add NCCL include path for distributed builds (from pip-bundled nvidia-nccl-cu*)
-if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
-  target_include_directories(codegen_internal SYSTEM PRIVATE ${NCCL_INCLUDE_DIR})
-endif()
 target_include_directories(codegen_internal PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
@@ -1271,8 +1238,8 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/multidevice.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_tutorial.cpp
   )
-  add_test_without_main(tutorial_multidevice "${MULTIDEVICE_TUTORIAL_SRCS}" "")
-  list(APPEND TEST_BINARIES tutorial_multidevice)
+  add_test_without_main(test_multidevice_tutorial "${MULTIDEVICE_TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_multidevice_tutorial)
 
   add_test(test_reshape "${NVFUSER_ROOT}/tests/cpp/test_reshape.cpp" "")
   list(APPEND TEST_BINARIES test_reshape)
@@ -1425,45 +1392,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
   endif()
 
-  # multidevice transformer and cuda ipc benchmarks
   if(NVFUSER_DISTRIBUTED)
-    # multidevice transformer benchmark
-    set(MULTIDEVICE_BENCHMARK_SRCS)
-    list(APPEND MULTIDEVICE_BENCHMARK_SRCS
-      ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/multidevice_transformer.cpp
-      ${NVFUSER_ROOT}/tests/cpp/utils.cpp
-    )
-    add_executable(nvfuser_multidevice_bench ${MULTIDEVICE_BENCHMARK_SRCS})
-    set_target_properties(nvfuser_multidevice_bench PROPERTIES
-      C_STANDARD ${NVFUSER_C_STANDARD}
-      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-      CXX_STANDARD_REQUIRED ON
-      CXX_VISIBILITY_PRESET hidden
-      POSITION_INDEPENDENT_CODE Yes
-      VISIBILITY_INLINES_HIDDEN Yes
-    )
-    target_include_directories(nvfuser_multidevice_bench SYSTEM PRIVATE
-      ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
-      ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-      ${CMAKE_SOURCE_DIR}/third_party/googletest/googletest/include
-    )
-    target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
-    target_link_libraries(nvfuser_multidevice_bench PRIVATE
-      GTest::gtest
-      benchmark::benchmark
-      codegen_internal
-    )
-    add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
-
-    if(NOT MSVC)
-      target_compile_options(nvfuser_multidevice_bench PRIVATE
-        -Wall -Wno-unused-function
-        -Werror -Wno-deprecated-copy
-      )
-    endif()
-
     # cuda ipc benchmark
     set(P2P_COMMUNICATION_BENCHMARK_SRCS)
     list(APPEND P2P_COMMUNICATION_BENCHMARK_SRCS

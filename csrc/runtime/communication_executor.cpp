@@ -132,7 +132,8 @@ KernelArgumentHolder CommunicationExecutor::run(
         communicator_->deviceId(),
         backend,
         in_tensor,
-        out_tensor);
+        out_tensor,
+        expr_eval.evaluate(communication->root()).as<int64_t>());
     if (work != nullptr) {
       work->wait();
     }
