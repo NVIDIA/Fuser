@@ -869,10 +869,10 @@ bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
 // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
 NVF_API void swizzleBlockScales(TensorView* tv);
 
-// Infers and resets the contiguity of a TensorView based on the sizes and strides
-// of an actual at::Tensor. The contiguity is computed by comparing consecutive
-// strides in the allocation domain, accounting for broadcast and reduction
-// dimensions.
+// Infers and resets the contiguity of a TensorView based on the sizes and
+// strides of an actual at::Tensor. The contiguity is computed by comparing
+// consecutive strides in the allocation domain, accounting for broadcast and
+// reduction dimensions.
 void resetContiguityFromTensor(TensorView* tv, const at::Tensor& tensor);
 
 } // namespace nvfuser::ir_utils
