@@ -11,6 +11,7 @@
 
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
+#include <ir/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor_kernel_arg.h>
 
@@ -69,7 +70,8 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
 void ArgumentManager::updateWithSegmentOutputs(
     const std::vector<Val*>& group_outputs,
     const KernelArgumentHolder& group_runtime_outputs,
-    const int64_t group_id) {
+    const int64_t group_id,
+    const bool update_contiguity) {
   // Insert graph segment output to tensor map
   NVF_ERROR_EQ(
       std::ssize(group_outputs),
@@ -78,6 +80,12 @@ void ArgumentManager::updateWithSegmentOutputs(
   for (const size_t group_out_i : arange(group_outputs.size())) {
     tensor_map_.emplace(
         group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
+    auto tv = dynamic_cast<TensorView*>(group_outputs[group_out_i]);
+    if (update_contiguity && tv) {
+      const at::Tensor& tensor =
+          group_runtime_outputs[group_out_i].as<at::Tensor>();
+      ir_utils::resetContiguityFromTensor(tv, tensor);
+    }
   }
 
   // Delete args corresponding to vals lastly used in this segment
