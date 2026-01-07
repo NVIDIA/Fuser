@@ -1274,15 +1274,16 @@ TensorView* asNested(
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
   NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
 
+  // Only 1D extents tensors are currently supported
+  NVF_ERROR_EQ(
+      std::ranges::distance(
+          extents->getLogicalDomain() | TensorDomain::kNoReductions),
+      1,
+      "asNested currently only supports 1D extents tensors");
+
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
   auto inp_logical_size = std::ranges::distance(inp_logical);
-
-  // Only 1D extents tensors are currently supported
-  NVF_ERROR_EQ(
-      inp_logical_size,
-      1,
-      "asNested currently only supports 1D extents tensors");
 
   // Clone the logical domain to create the root domain for output
   std::vector<IterDomain*> root_domain;
