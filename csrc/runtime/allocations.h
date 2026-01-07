@@ -64,7 +64,8 @@ NVF_API void setFillAllocationWithNan(bool value);
 void fillTensorWithNan(at::Tensor& t);
 
 // Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferContiguousShapeAndStrideOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferContiguousShapeAndStrideOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval);
 
