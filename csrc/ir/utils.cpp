@@ -1785,36 +1785,39 @@ void resetContiguityFromTensor(TensorView* tv, const at::Tensor& tensor) {
   }
   const auto [sizes, strides] =
       inferAllocationSizesAndStrides(tensor, tv, ExpressionEvaluator());
-  
+
   const auto& alloc = tv->getMaybeAllocationDomain();
-  
+
   // Custom contiguity inference that considers IterDomain information
   std::vector<std::optional<bool>> contiguity(alloc.size(), std::nullopt);
-  
+
   // Single pass from right to left with two dynamic indices:
   // - alloc_idx: iterates through allocation domain
   // - sizes_idx: tracks position in sizes/strides (excludes reductions)
   int64_t sizes_idx = (int64_t)sizes.size() - 1;
   int64_t prev_non_skipped_sizes_idx = -1;
-  
-  for (int64_t alloc_idx = (int64_t)alloc.size() - 1; alloc_idx >= 0; --alloc_idx) {
+
+  for (int64_t alloc_idx = (int64_t)alloc.size() - 1; alloc_idx >= 0;
+       --alloc_idx) {
     auto id = alloc[alloc_idx];
-    
-    // Reduction dimensions: nullopt contiguity (already set), no entry in sizes/strides
+
+    // Reduction dimensions: nullopt contiguity (already set), no entry in
+    // sizes/strides
     if (id->isReduction()) {
       // Don't decrement sizes_idx since reductions have no entry
       continue;
     }
-    
+
     // This dimension has an entry in sizes/strides
     NVF_CHECK(sizes_idx >= 0, "Sizes index out of bounds");
-    
-    // Broadcast dimensions: nullopt contiguity (already set), but has entry in sizes/strides
+
+    // Broadcast dimensions: nullopt contiguity (already set), but has entry in
+    // sizes/strides
     if (id->isBroadcast()) {
-      sizes_idx--;  // Move to next dimension in sizes/strides
+      sizes_idx--; // Move to next dimension in sizes/strides
       continue;
     }
-    
+
     // Non-broadcast, non-reduction dimension
     if (prev_non_skipped_sizes_idx == -1) {
       // This is the rightmost (innermost) non-skipped dimension
@@ -1823,16 +1826,18 @@ void resetContiguityFromTensor(TensorView* tv, const at::Tensor& tensor) {
     } else {
       // A dimension is contiguous if its stride equals the stride of the
       // next dimension multiplied by that dimension's size
-      contiguity[alloc_idx] = (strides[sizes_idx] == 
-                               strides[prev_non_skipped_sizes_idx] * sizes[prev_non_skipped_sizes_idx]);
+      contiguity[alloc_idx] =
+          (strides[sizes_idx] ==
+           strides[prev_non_skipped_sizes_idx] *
+               sizes[prev_non_skipped_sizes_idx]);
     }
-    
+
     prev_non_skipped_sizes_idx = sizes_idx;
-    sizes_idx--;  // Move to next dimension in sizes/strides
+    sizes_idx--; // Move to next dimension in sizes/strides
   }
-  
+
   NVF_CHECK(sizes_idx == -1, "Not all sizes/strides were consumed");
-  
+
   tv->setContiguity(contiguity);
 }
 
