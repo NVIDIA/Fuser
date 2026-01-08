@@ -448,18 +448,8 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* grouped_bqop) {
       grouped_bqop->quantizedOutput()->as<TensorView>(),
       grouped_bqop->fusion()->zeroVal());
 
-  // The GroupedBlockQuantizationOp funnels down to a runtime function.
-  // We pass the index for the block scaling factors output. We compute
-  // the index bases on the logical indices of the quantized output tensor.
-  // Then inside the runtime function, we divide this linearized index by 16
-  // (the block size) to get the index for the scaling factors.
-  // We get the linearized index as follows:
-  // We get the logical indices for the quantized output.
-  // We then multiply and accumulate them using the logical extents of the
-  // quantized output tensor to get the linearized index.
   std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
       grouped_bqop->quantizedOutput()->as<TensorView>(), for_loops_);
-
   NVF_ERROR(
       logical_index.size() == 2,
       "only matrices are supported in GroupedBlockQuantizationOp");

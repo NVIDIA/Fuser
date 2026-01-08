@@ -1926,12 +1926,12 @@ GroupedBlockQuantizationOp::GroupedBlockQuantizationOp(
 }
 
 std::string GroupedBlockQuantizationOp::toString(int indent_size) const {
-  // FIXME(jiej): update this to print out additional stuff.
   std::stringstream ss;
   indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
                           << quantizedOutput()->toString() << ")\n"
                           << " = grouped_block_quantize(" << in()->toString()
-                          << ")\n";
+                          << ",\n " << inputOffsets()->toString() << ",\n "
+                          << outputOffsets()->toString() << ")\n";
   return ss.str();
 }
 

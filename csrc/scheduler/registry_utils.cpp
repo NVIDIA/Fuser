@@ -1090,8 +1090,20 @@ bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
               layout_op, layout_op->outputOffsets(), scheduler_type)) {
         return true;
       }
+    } else if (expr->isA<GroupedBlockQuantizationOp>()) {
+      // The runtime function of GroupedBlockQuantizationOp needs:
+      //   1. Write scale output directly to global memory
+      //   2. Read two offset inputs directly from global memory
+      auto grouped_bop = expr->as<GroupedBlockQuantizationOp>();
+      if (rejectScheduleFusionOutputRequirement(
+              grouped_bop, grouped_bop->out(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->inputOffsets(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->outputOffsets(), scheduler_type)) {
+        return true;
+      }
     }
-    // FIXME: I think I needed to do the same for GroupedBlockQuantizationOp
   }
   return false;
 }

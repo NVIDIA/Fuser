@@ -756,6 +756,8 @@ class ExprValidator : public OptOutDispatch {
         ". Expr: ",
         bqop->toString());
 
+    // [ NOTE: check scheduling requirements for block quantization ]
+    //
     //                   M    K
     //                 │    │
     //                 ▼    ▼
@@ -887,16 +889,9 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    if (output_dtype == DataType::Float8_e4m3fn) {
-      NVF_ERROR(
-          !bqop->hasGlobalScale(),
-          "Global scale is not supported when quantizing to Float8_e4m3fn.");
-
-      NVF_ERROR(
-          !block_scaling_factor->hasAllocation(),
-          "Block scaling factor must not have an allocation domain when "
-          "quantizing to Float8_e4m3fn.");
-    }
+    NVF_ERROR(
+        output_dtype != DataType::Float8_e4m3fn,
+        "output of Float8_e4m3fn is not yet implemented");
 
     if (bqop->hasGlobalScale()) {
       auto global_scale = bqop->globalScale()->as<TensorView>();
@@ -988,43 +983,7 @@ class ExprValidator : public OptOutDispatch {
         ". Expr: ",
         bqop->toString());
 
-    //                   M    K
-    //                 │    │
-    //                 ▼    ▼
-    //              ┌────────────┐
-    //              │   merge    │
-    //              └─────┬──────┘
-    //                    │
-    //                    ▼
-    //                   M*K
-    //               ┌──────────┐
-    //               │  split   ┼──┐
-    //               └─┬────────┘  │
-    //                 ▼           ▼
-    //           (M*K)/4          4(G)
-    //           ┌────────┐
-    //           │ split  ┼────┐
-    //           └─┬──────┘    │
-    //             ▼           ▼
-    //         (M*K)/4        1(U)
-    //     ┌─────────┐
-    //     │  split  │
-    //   ┌─┼         ┼───┐
-    //   │ └─────────┘   │
-    //   ▼               ▼
-    // (M*K)/4/128      128(Tx)
-
-    // Next we check the following scheduling requirements for
-    // GroupedBlockQuantizationOp - the above figure is an example of a valid
-    // schedule.
-    // 1. The Group ID must be derived from the innermost logical IDs
-    // 2. TIDx must follow the Group ID in the schedule -- that is when derived
-    // from the logical domain, group ID must be inner-most, the next
-    // "inner-most" should be TIDx (unless there is an ID with a unit trip
-    // count)
-    // 3. All merges involved from logical domains to group and thread ID must
-    // combine contiguous IDs
-
+    // see [ NOTE: check scheduling requirements for block quantization ]
     auto transform_exprs = DependencyCheck::getAllExprsBetween(
         {quantized_output->getLogicalDomain().begin(),
          quantized_output->getLogicalDomain().end()},
