@@ -46,7 +46,7 @@ struct GlobalBufferInfo {
 //! pushing scalar int 0 as a place-holder.
 //! 2. This API does not allocate output in memory, but only returns the
 //! inferred output sizes. Used in runtime/fusion_executor_cache.cpp.
-KernelArgumentHolder inferOutputSizesAndContiguousStrides(
+KernelArgumentHolder inferOutputShapeAndContiguousStrides(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values = nullptr);
