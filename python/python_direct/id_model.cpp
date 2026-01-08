@@ -30,7 +30,6 @@ void bindIdModelClass(nb::module_& idm) {
       nb::arg("build_graphs") = false,
       nb::arg("allow_self_mapping") = true,
       nb::arg("validate") = false,
-      nb::rv_policy::reference,
       R"(
   Create a new IdModel for the given fusion.
 
@@ -60,7 +59,7 @@ void bindIdModelClass(nb::module_& idm) {
       "maybe_build_graph",
       &IdModel::maybeBuildGraph,
       nb::arg("mode"),
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
       Build a graph if not already built.
       Dependent graphs are also built if not yet done.
@@ -82,7 +81,7 @@ void bindValGraph(nb::module_& idm) {
   val_graph.def(
       "disjoint_val_sets",
       &ValGraph::disjointValSets,
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
     Returns the disjoint val set.
 

@@ -83,7 +83,7 @@ bool
       .def(
           "inputs",
           &Fusion::inputs,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the inputs of the fusion.
 
@@ -95,7 +95,7 @@ list of Val
       .def(
           "outputs",
           &Fusion::outputs,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the outputs of the fusion.
 
@@ -367,7 +367,7 @@ bool
           "fusion",
           static_cast<Fusion* (FusionExecutorCache::*)()>(
               &FusionExecutorCache::fusion),
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the underlying fusion object.
 

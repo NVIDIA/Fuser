@@ -112,7 +112,7 @@ Returns
 FusionExecutorCache
     The executor cache for the fusion.
 )",
-          nb::rv_policy::reference)
+          nb::rv_policy::reference_internal)
       .def(
           "stats",
           &LRUCache::stats,

@@ -67,7 +67,7 @@ bool
       .def(
           "definition",
           &Val::definition,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the definition of this expression.
 
@@ -79,7 +79,7 @@ Expr
       .def(
           "uses",
           &Val::uses,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the uses of this expression.
 
@@ -95,7 +95,7 @@ Expr
           "input",
           &Expr::input,
           nb::arg("index"),
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the input of this expression.
 
@@ -113,7 +113,7 @@ Expr
           "output",
           &Expr::output,
           nb::arg("index"),
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the output of this expression.
 
@@ -150,7 +150,7 @@ bool
       .def(
           "extent",
           &IterDomain::extent,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the extent of this domain.
 
@@ -209,7 +209,7 @@ int
           "size",
           [](TensorView* self, int64_t dim) { return size(self, dim); },
           nb::arg("dim"),
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the size of this tensor.
 
@@ -226,7 +226,7 @@ int
       .def(
           "shape",
           [](TensorView* self) { return shape(self); },
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the shape of this tensor.
 
@@ -264,7 +264,7 @@ bool
       .def(
           "domain",
           &TensorView::domain,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the TensorDomain of this tensor.
 
@@ -281,7 +281,7 @@ TensorDomain
       .def(
           "get_logical_domain",
           &TensorView::getLogicalDomain,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the logical domain of this tensor.
 
@@ -293,7 +293,7 @@ list of IterDomain
       .def(
           "get_loop_domain",
           &TensorView::getLoopDomain,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the loop domain of this tensor.
 
@@ -305,7 +305,7 @@ list of IterDomain
       .def(
           "get_root_domain",
           &TensorView::getRootDomain,
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the root domain of this tensor.
 
@@ -560,7 +560,7 @@ mesh : DeviceMesh
           "axis",
           &TensorView::axis,
           nb::arg("index"),
-          nb::rv_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the iteration domain at the specified axis.
 

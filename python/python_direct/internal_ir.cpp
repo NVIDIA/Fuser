@@ -23,7 +23,7 @@ void bindInternalFusionIr(nb::module_& nvfuser) {
   split.def(
       "outer",
       &Split::outer,
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
 Get the outer of this Split.
 
@@ -35,7 +35,7 @@ IterDomain
   split.def(
       "inner",
       &Split::inner,
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
 Get the inner of this Split.
 
@@ -53,7 +53,7 @@ IterDomain
   merge.def(
       "outer",
       &Merge::outer,
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
 Get the outer of this Merge.
 
@@ -65,7 +65,7 @@ IterDomain
   merge.def(
       "inner",
       &Merge::inner,
-      nb::rv_policy::reference,
+      nb::rv_policy::reference_internal,
       R"(
 Get the inner of this Merge.
 

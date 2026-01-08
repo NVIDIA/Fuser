@@ -133,7 +133,7 @@ void bindSharding(nb::module_& nvfuser) {
           R"(
 Returns the device mesh of the sharding.
 )",
-          nb::rv_policy::reference)
+          nb::rv_policy::reference_internal)
       .def(
           "axis_sharded_on",
           &Sharding::axisShardedOn,
