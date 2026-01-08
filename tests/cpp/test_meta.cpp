@@ -600,8 +600,9 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   at::Tensor scale2_input =
       at::randn({4, 80, 12}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({4}, options_fp32);
+  // problem_sizes uses packed dimensions: M=32, N=80, K/2=96 (not K=192)
   at::Tensor problem_sizes_input = at::tensor(
-      {32, 80, 192, 32, 80, 192, 32, 80, 192, 32, 80, 192},
+      {32, 80, 96, 32, 80, 96, 32, 80, 96, 32, 80, 96},
       options_int).reshape({4, 3});
   at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
   at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
