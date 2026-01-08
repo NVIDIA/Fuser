@@ -2279,7 +2279,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  const auto& [out_shape, _] = inferShapeAndContiguousStrides(out(), ee);
   return {in.expand(out_shape)};
 }
 
@@ -2428,7 +2428,7 @@ std::vector<PolymorphicValue> ReshapeOp::evaluate(
   NVF_ERROR(inputs.size() == 1);
   const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
 
-  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  const auto& [out_shape, _] = inferShapeAndContiguousStrides(out(), ee);
   // TODO: check allocation domain and contiguity.
 
   // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ReshapeOp`
