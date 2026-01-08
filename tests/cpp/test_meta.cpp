@@ -540,33 +540,47 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   FusionGuard fg(fusion.get());
 
   // Choose an example where all M, N, K, and K/2 are different, and CUTLASS
-  // alignment constraints are satisfied:
-  //   M = 128, N = 64, K = 192, K/2 = 96
+  // alignment constraints are satisfied. Also "bigger" shapes tend to be more
+  // robust for TMA/tile constraints:
+  //   num_experts = 4
+  //   m_per_expert = 64  => M = 256
+  //   N = 96
+  //   K = 320, K/2 = 160
+  constexpr int64_t G = 4;
+  constexpr int64_t M_PER_EXPERT = 64;
+  constexpr int64_t M = G * M_PER_EXPERT;
+  constexpr int64_t N = 96;
+  constexpr int64_t K = 320;
+  constexpr int64_t K_DIV_2 = K / 2;   // 160
+  constexpr int64_t K_DIV_16 = K / 16; // 20
+
   // Shapes:
-  //   mat1: [M, K]         = [128, 192] (logical/unpacked shape)
-  //   mat2: [G, K, N]      = [4, 192, 64] (logical/unpacked shape)
-  //   output: [M, N]       = [128, 64]
+  //   mat1: [M, K]         = [256, 320] (logical/unpacked shape)
+  //   mat2: [G, K, N]      = [4, 320, 96] (logical/unpacked shape)
+  //   output: [M, N]       = [256, 96]
   // Note: Packed dtype Float4_e2m1fn_x2 is not allowed in IR. We use the
   // unpacked dtype (Float4_e2m1fn) and the logical K dimension. When binding a
   // packed ATen tensor (K/2), the last dim is adjusted (K/2 -> K).
-  auto mat1 = makeContigConcreteTensor({128, 192}, DataType::Float4_e2m1fn);
+  auto mat1 = makeContigConcreteTensor({M, K}, DataType::Float4_e2m1fn);
   // mat2 is expected as [G, K, N] logically. When binding packed FP4 inputs
   // (Float4_e2m1fn_x2) with shape [G, K/2, N], the evaluator adjusts the K dim
   // (K/2 -> K). We also set a stride order so the adjustment applies to the K
   // dimension even though it isn't the last logical dimension.
   auto mat2 = TensorViewBuilder()
-                  .shape({4, 192, 64})
+                  .shape({G, K, N})
                   .dtype(DataType::Float4_e2m1fn)
                   .contiguity({true, true, true})
                   .strideOrder({2, 0, 1})
                   .build();
-  // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
-  auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
-  auto scale2 = makeContigConcreteTensor({4, 64, 12}, DataType::Float8_e4m3fn);
-  auto alpha = makeContigConcreteTensor({4}, DataType::Float);
-  auto problem_sizes = makeContigConcreteTensor({4, 3}, DataType::Index);
-  auto expert_offsets = makeContigConcreteTensor({4}, DataType::Index);
-  auto sf_offsets = makeContigConcreteTensor({4}, DataType::Index);
+  // Block-scaling factors have last dim K / 16
+  auto scale1 =
+      makeContigConcreteTensor({M, K_DIV_16}, DataType::Float8_e4m3fn);
+  auto scale2 =
+      makeContigConcreteTensor({G, N, K_DIV_16}, DataType::Float8_e4m3fn);
+  auto alpha = makeContigConcreteTensor({G}, DataType::Float);
+  auto problem_sizes = makeContigConcreteTensor({G, 3}, DataType::Index);
+  auto expert_offsets = makeContigConcreteTensor({G}, DataType::Index);
+  auto sf_offsets = makeContigConcreteTensor({G}, DataType::Index);
 
   fusion->addInput(mat1);
   fusion->addInput(mat2);
@@ -601,7 +615,8 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
   // FP4 tensors must be created as UInt8 and viewed as Float4
-  at::Tensor mat1_uint8 = at::randint(0, 256, {128, 96}, options_uint8);
+  at::Tensor mat1_uint8 =
+      at::randint(0, 256, {M, K_DIV_2}, options_uint8);
   at::Tensor mat1_input =
       mat1_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
  
@@ -610,22 +625,31 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // Construct mat2 as a transpose-view of a contiguous [G, N, K/2] tensor so
   // that CutlassNvfp4GroupedMmaOp::evaluate's internal transpose produces a
   // contiguous tensor.
-  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 64, 96}, options_uint8);
+  at::Tensor mat2_base_uint8 =
+      at::randint(0, 256, {G, N, K_DIV_2}, options_uint8);
   at::Tensor mat2_base =
       mat2_base_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
   at::Tensor mat2_input = mat2_base.transpose(-1, -2); // [G, K/2, N]
   // FP8 tensors can be created from FP32 tensors
   at::Tensor scale1_input =
-      at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);
+      at::randn({M, K_DIV_16}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor scale2_input =
-      at::randn({4, 64, 12}, options_fp32).to(at::kFloat8_e4m3fn);
-  at::Tensor alpha_input = at::ones({4}, options_fp32);
-  // problem_sizes uses unpacked dimensions: M=32, N=64, K=192
+      at::randn({G, N, K_DIV_16}, options_fp32).to(at::kFloat8_e4m3fn);
+  at::Tensor alpha_input = at::ones({G}, options_fp32);
+  // problem_sizes uses unpacked dimensions per expert: (m_i, n, k)
   at::Tensor problem_sizes_input = at::tensor(
-      {32, 64, 192, 32, 64, 192, 32, 64, 192, 32, 64, 192},
-      options_int).reshape({4, 3});
-  at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
-  at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
+      {M_PER_EXPERT, N, K,
+       M_PER_EXPERT, N, K,
+       M_PER_EXPERT, N, K,
+       M_PER_EXPERT, N, K},
+      options_int)
+                                     .reshape({G, 3});
+  at::Tensor expert_offsets_input =
+      at::tensor({0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT},
+                 options_int);
+  at::Tensor sf_offsets_input =
+      at::tensor({0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT},
+                 options_int);
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
