@@ -542,13 +542,13 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // Choose an example where all M, N, K, and K/2 are different:
   //   M = 128, N = 80, K = 192, K/2 = 96
   // Shapes:
-  //   mat1: [M, K/2]       = [128, 96]   (packed FP4)
-  //   mat2: [G, N, K/2]    = [4, 80, 96] (packed FP4)
+  //   mat1: [M, K]         = [128, 192]  (unpacked dimensions for fusion)
+  //   mat2: [G, N, K]      = [4, 80, 192] (unpacked dimensions for fusion)
   //   output: [M, N]       = [128, 80]
-  // Note: Use unpacked type Float4_e2m1fn for fusion definition
-  auto mat1 = makeContigConcreteTensor({128, 96}, DataType::Float4_e2m1fn);
+  // Note: Use unpacked type Float4_e2m1fn with UNPACKED dimensions
+  auto mat1 = makeContigConcreteTensor({128, 192}, DataType::Float4_e2m1fn);
   auto mat2 =
-      makeContigConcreteTensor({4, 80, 96}, DataType::Float4_e2m1fn);
+      makeContigConcreteTensor({4, 80, 192}, DataType::Float4_e2m1fn);
   // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
   auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
   auto scale2 = makeContigConcreteTensor({4, 80, 12}, DataType::Float8_e4m3fn);
@@ -600,9 +600,9 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   at::Tensor scale2_input =
       at::randn({4, 80, 12}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({4}, options_fp32);
-  // problem_sizes uses packed dimensions: M=32, N=80, K/2=96 (not K=192)
+  // problem_sizes uses unpacked dimensions: M=32, N=80, K=192
   at::Tensor problem_sizes_input = at::tensor(
-      {32, 80, 96, 32, 80, 96, 32, 80, 96, 32, 80, 96},
+      {32, 80, 192, 32, 80, 192, 32, 80, 192, 32, 80, 192},
       options_int).reshape({4, 3});
   at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
   at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
