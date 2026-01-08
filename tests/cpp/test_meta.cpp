@@ -539,14 +539,18 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // mat1: [M, K/2] = [128, 64] (packed FP4)
-  // mat2: [G, N, K/2] = [4, 128, 64] (packed FP4)
-  // output: [M, N] = [128, 128]
-  auto mat1 = makeContigConcreteTensor({128, 64}, DataType::Float4_e2m1fn_x2);
+  // Choose an example where all M, N, K, and K/2 are different:
+  //   M = 128, N = 80, K = 192, K/2 = 96
+  // Shapes:
+  //   mat1: [M, K/2]       = [128, 96]   (packed FP4)
+  //   mat2: [G, N, K/2]    = [4, 80, 96] (packed FP4)
+  //   output: [M, N]       = [128, 80]
+  auto mat1 = makeContigConcreteTensor({128, 96}, DataType::Float4_e2m1fn_x2);
   auto mat2 =
-      makeContigConcreteTensor({4, 128, 64}, DataType::Float4_e2m1fn_x2);
-  auto scale1 = makeContigConcreteTensor({128, 8}, DataType::Float8_e4m3fn);
-  auto scale2 = makeContigConcreteTensor({4, 128, 8}, DataType::Float8_e4m3fn);
+      makeContigConcreteTensor({4, 80, 96}, DataType::Float4_e2m1fn_x2);
+  // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
+  auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
+  auto scale2 = makeContigConcreteTensor({4, 80, 12}, DataType::Float8_e4m3fn);
   auto alpha = makeContigConcreteTensor({4}, DataType::Float);
   auto problem_sizes = makeContigConcreteTensor({4, 3}, DataType::Index);
   auto expert_offsets = makeContigConcreteTensor({4}, DataType::Index);
@@ -582,13 +586,13 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
-  at::Tensor mat1_input = at::randn({128, 64}, options_fp4);
-  at::Tensor mat2_input = at::randn({4, 128, 64}, options_fp4);
-  at::Tensor scale1_input = at::randn({128, 8}, options_fp8);
-  at::Tensor scale2_input = at::randn({4, 128, 8}, options_fp8);
+  at::Tensor mat1_input = at::randn({128, 96}, options_fp4);
+  at::Tensor mat2_input = at::randn({4, 80, 96}, options_fp4);
+  at::Tensor scale1_input = at::randn({128, 12}, options_fp8);
+  at::Tensor scale2_input = at::randn({4, 80, 12}, options_fp8);
   at::Tensor alpha_input = at::ones({4}, options_fp32);
   at::Tensor problem_sizes_input = at::tensor(
-      {{32, 128, 128}, {32, 128, 128}, {32, 128, 128}, {32, 128, 128}},
+      {{32, 80, 192}, {32, 80, 192}, {32, 80, 192}, {32, 80, 192}},
       options_int);
   at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
   at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
