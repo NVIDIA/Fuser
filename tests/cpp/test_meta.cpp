@@ -590,10 +590,12 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
   // FP4 tensors must be created as UInt8 and viewed as Float4
-  at::Tensor mat1_input =
-      at::randint(0, 256, {128, 96}, options_uint8).view(at::kFloat4_e2m1fn_x2);
+  at::Tensor mat1_input = at::randint(0, 256, {128, 96}, options_uint8)
+                              .view(at::kFloat4_e2m1fn_x2)
+                              .contiguous();
   at::Tensor mat2_input = at::randint(0, 256, {4, 80, 96}, options_uint8)
-                              .view(at::kFloat4_e2m1fn_x2);
+                              .view(at::kFloat4_e2m1fn_x2)
+                              .contiguous();
   // FP8 tensors can be created from FP32 tensors
   at::Tensor scale1_input =
       at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);
