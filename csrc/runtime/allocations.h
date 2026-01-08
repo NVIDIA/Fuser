@@ -46,7 +46,7 @@ struct GlobalBufferInfo {
 //! pushing scalar int 0 as a place-holder.
 //! 2. This API does not allocate output in memory, but only returns the
 //! inferred output sizes. Used in runtime/fusion_executor_cache.cpp.
-KernelArgumentHolder inferContiguousOutputSizes(
+KernelArgumentHolder inferOutputSizesAndContiguousStrides(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values = nullptr);
@@ -65,7 +65,7 @@ void fillTensorWithNan(at::Tensor& t);
 
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferContiguousShapeAndStrideOfOutput(
+inferShapeAndContiguousStrides(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval);
 

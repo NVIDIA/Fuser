@@ -104,7 +104,7 @@ KernelArgumentHolder CutlassExecutor::allocateOutputs(
           "Aliased inputs are not yet supported in CUTLASS fusions");
 
       const auto& [size, stride] =
-          inferContiguousShapeAndStrideOfOutput(tv, expr_eval);
+          inferShapeAndContiguousStrides(tv, expr_eval);
       at::Tensor output_tensor = at::empty_strided(size, stride, options);
 
       outputs.push(output_tensor);

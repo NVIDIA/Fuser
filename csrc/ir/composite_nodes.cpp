@@ -89,7 +89,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
   }
 
   const auto& [sizes, strides] =
-      inferContiguousShapeAndStrideOfOutput(out(), ee);
+      inferShapeAndContiguousStrides(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
 
   if (meta_out.is_contiguous()) {
