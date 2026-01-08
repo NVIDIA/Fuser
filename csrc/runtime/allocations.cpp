@@ -25,7 +25,8 @@ KernelArgumentHolder inferOutputSizesAndContiguousStrides(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferOutputSizesAndContiguousStrides");
+  FUSER_PERF_SCOPE(
+      "fusion_executor::allocations::inferOutputSizesAndContiguousStrides");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;

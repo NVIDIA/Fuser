@@ -362,11 +362,12 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputSizesAndContiguousStrides doesn't seem to strictly require a
-    // Fusion for each segment. Consider using the complete fusion instead.
+    // TODO: inferOutputSizesAndContiguousStrides doesn't seem to strictly
+    // require a Fusion for each segment. Consider using the complete fusion
+    // instead.
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizesAndContiguousStrides(fusion_to_run.get(), group_runtime_inputs);
+    auto group_runtime_outputs = inferOutputSizesAndContiguousStrides(
+        fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
