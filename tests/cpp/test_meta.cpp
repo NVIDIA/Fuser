@@ -539,12 +539,13 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // Choose an example where all M, N, K, and K/2 are different:
-  //   M = 128, N = 80, K = 192, K/2 = 96
+  // Choose an example where all M, N, K, and K/2 are different, and CUTLASS
+  // alignment constraints are satisfied:
+  //   M = 128, N = 64, K = 192, K/2 = 96
   // Shapes:
   //   mat1: [M, K]         = [128, 192] (logical/unpacked shape)
-  //   mat2: [G, N, K]      = [4, 80, 192] (logical/unpacked shape)
-  //   output: [M, N]       = [128, 80]
+  //   mat2: [G, N, K]      = [4, 64, 192] (logical/unpacked shape)
+  //   output: [M, N]       = [128, 64]
   // Note: Packed dtype Float4_e2m1fn_x2 is not allowed in IR. We use the
   // unpacked dtype (Float4_e2m1fn) and the logical K dimension. When binding a
   // packed ATen tensor (K/2), the last dim is adjusted (K/2 -> K).
@@ -552,10 +553,10 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // mat2 must be laid out such that CutlassNvfp4GroupedMmaOp::evaluate can
   // transpose it and pass a contiguous tensor to CUTLASS. Therefore, we allow
   // a non-contiguous binding here.
-  auto mat2 = makeConcreteTensor({4, 80, 192}, DataType::Float4_e2m1fn);
+  auto mat2 = makeConcreteTensor({4, 64, 192}, DataType::Float4_e2m1fn);
   // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
   auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
-  auto scale2 = makeContigConcreteTensor({4, 80, 12}, DataType::Float8_e4m3fn);
+  auto scale2 = makeContigConcreteTensor({4, 64, 12}, DataType::Float8_e4m3fn);
   auto alpha = makeContigConcreteTensor({4}, DataType::Float);
   auto problem_sizes = makeContigConcreteTensor({4, 3}, DataType::Index);
   auto expert_offsets = makeContigConcreteTensor({4}, DataType::Index);
@@ -602,7 +603,7 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // into CUTLASS, which requires the transposed result to be contiguous.
   // Construct mat2 as a transpose-view of a contiguous [G, K/2, N] tensor so
   // that (mat2.transpose(-1, -2)) becomes contiguous.
-  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 96, 80}, options_uint8);
+  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 96, 64}, options_uint8);
   at::Tensor mat2_base =
       mat2_base_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
   at::Tensor mat2_input = mat2_base.transpose(-1, -2); // [G, N, K/2]
@@ -610,11 +611,11 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   at::Tensor scale1_input =
       at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor scale2_input =
-      at::randn({4, 80, 12}, options_fp32).to(at::kFloat8_e4m3fn);
+      at::randn({4, 64, 12}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({4}, options_fp32);
-  // problem_sizes uses unpacked dimensions: M=32, N=80, K=192
+  // problem_sizes uses unpacked dimensions: M=32, N=64, K=192
   at::Tensor problem_sizes_input = at::tensor(
-      {32, 80, 192, 32, 80, 192, 32, 80, 192, 32, 80, 192},
+      {32, 64, 192, 32, 64, 192, 32, 64, 192, 32, 64, 192},
       options_int).reshape({4, 3});
   at::Tensor expert_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
   at::Tensor sf_offsets_input = at::tensor({0, 32, 64, 96}, options_int);
