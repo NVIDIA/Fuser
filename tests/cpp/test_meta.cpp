@@ -579,18 +579,22 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   fusion->addOutput(result);
 
   // Create real inputs with appropriate data types
-  auto options_fp4 =
-      at::TensorOptions().dtype(at::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
-  auto options_fp8 =
-      at::TensorOptions().dtype(at::kFloat8_e4m3fn).device(at::kCUDA, 0);
+  auto options_uint8 =
+      at::TensorOptions().dtype(at::kUInt8).device(at::kCUDA, 0);
   auto options_fp32 =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
-  at::Tensor mat1_input = at::randn({128, 96}, options_fp4);
-  at::Tensor mat2_input = at::randn({4, 80, 96}, options_fp4);
-  at::Tensor scale1_input = at::randn({128, 12}, options_fp8);
-  at::Tensor scale2_input = at::randn({4, 80, 12}, options_fp8);
+  // FP4 tensors must be created as UInt8 and viewed as Float4
+  at::Tensor mat1_input =
+      at::randint(0, 256, {128, 96}, options_uint8).view(at::kFloat4_e2m1fn_x2);
+  at::Tensor mat2_input = at::randint(0, 256, {4, 80, 96}, options_uint8)
+                              .view(at::kFloat4_e2m1fn_x2);
+  // FP8 tensors can be created from FP32 tensors
+  at::Tensor scale1_input =
+      at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);
+  at::Tensor scale2_input =
+      at::randn({4, 80, 12}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({4}, options_fp32);
   at::Tensor problem_sizes_input = at::tensor(
       {32, 80, 192, 32, 80, 192, 32, 80, 192, 32, 80, 192},
