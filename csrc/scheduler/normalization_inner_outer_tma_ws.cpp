@@ -462,16 +462,12 @@ void scheduleOuterReduction(
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::Vectorize);
     }
 
-    // if (rparams->lparams.bdimx() > 1) {
-    //   int64_t compute_bdimx = reduction_scheduler_utils::getComputeBdimx(
-    //       rparams->circular_buffer_options, rparams->lparams.bdimx());
-    //   outer_reduction_tv->split(axisID, compute_bdimx);
-    //   outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
-    // }
-
-    outer_reduction_tv->split(
-        axisID, rparams->batches_per_block_inner_reduction, false);
-    outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+    if (rparams->lparams.bdimx() > 1) {
+      int64_t compute_bdimx = reduction_scheduler_utils::getComputeBdimx(
+          rparams->circular_buffer_options, rparams->lparams.bdimx());
+      outer_reduction_tv->split(axisID, compute_bdimx);
+      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+    }
 
     if (rparams->combined_split_grid_inner_dim) {
       outer_reduction_tv->split(
