@@ -51,6 +51,16 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   params->threads_per_block = threads_per_block;
   params->unroll_factor = unroll_factor;
 
+  // If reduction dim exceeds smem capacity, use grid reduction
+  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
+      props.max_dtype_size_bit_for_vectorization;
+  const int64_t reduction_numel = props.inner_most_dimension_numel;
+
+  if (reduction_numel > smem_elems) {
+    params->grid_reduction = true;
+    params->grid_reduction_split_size = std::gcd(smem_elems, reduction_numel);
+  }
+
   params->tag = "Reduction TMA heuristics";
   params->cparams.index_type = runtime_info.getIndexType();
 
@@ -91,17 +101,30 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   bool has_red_axis = dim_analysis.second;
   NVF_ERROR(has_iter_axis && has_red_axis);
 
-  // Propagate the merges to all TMA TVs
-  TransformPropagator tma_propagator(reduction_tv);
-  SetSelector tma_selector({tma_tvs.begin(), tma_tvs.end()});
-  MaxLogicalDomainInfoSpanningTree(reduction_tv, &tma_selector)
-      .traverse(&tma_propagator);
+  int64_t grid_reduction_offset = rparams->grid_reduction ? 1 : 0;
+  ParallelType iter_parallel_type = ParallelType::BIDx;
 
-  int64_t iter_axis = 0;
-  int64_t inner_reduce_axis = 1;
+  // Handle grid reduction for large reduction dimensions
+  if (rparams->grid_reduction) {
+    // Split reduction axis to fit into smem:
+    // [I, R] -> [I, R/split_size, split_size]
+    reduction_tv->split(1, rparams->grid_reduction_split_size);
+    reduction_tv->axis(1)->parallelize(ParallelType::BIDx);
 
-  // Schedule TMA tvs as [BIDx, Bulk]
-  tma_tvs[0]->axis(iter_axis)->parallelize(ParallelType::BIDx);
+    // Switch iteration axis to BIDy since BIDx is used for reduction iteration
+    iter_parallel_type = ParallelType::BIDy;
+  }
+
+  reduction_tv->axis(0)->parallelize(iter_parallel_type);
+
+  int64_t inner_reduce_axis = 1 + grid_reduction_offset;
+
+  // Propagate iteration, and grid reduction (if any), to all TV's
+  TransformPropagator propagator(reduction_tv);
+  MaxLogicalDomainInfoSpanningTree(reduction_tv).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(reduction_tv);
+
+  // TMA-specific parallelization
   tma_tvs[0]->axis(inner_reduce_axis)->parallelize(ParallelType::Bulk);
   scheduler_utils::parallelizeAllLike(tma_tvs[0], tma_tvs);
 
@@ -111,6 +134,9 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // [I, R] -> [I, R/vect, vect]
   //        -> [I, R/vect/tidx, tidx, vect]
   //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
+  //
+  // With grid reduction, we start from:
+  // [I, R_outer, R_inner] where R_outer is BIDx
 
   // Split 1: Vectorization factor (innermost serial split for TMA)
   reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
@@ -134,9 +160,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
 
   // Serial outer loop (remainder after all splits)
   reduction_tv->axis(inner_reduce_axis)->parallelize(ParallelType::Serial);
-
-  // Parallelize iteration axis
-  reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
 
   // Collect rFactor axes: all reduction axes that are not parallelized with
   // threads (i.e., not TIDx). This includes serial, unswitch, unroll, and vect
