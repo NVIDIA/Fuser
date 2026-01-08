@@ -29,7 +29,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
 
-  // Get target vectorization/unroll factor
   auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(
       props.max_dtype_size_bit_for_vectorization,
       props.vectorize_factor,
@@ -38,7 +37,8 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       props.has_mufu_computation);
 
   // Initialize split factors
-  int64_t vectorization_factor = props.vectorize_factor;
+  int64_t vectorization_factor =
+      std::min(target_vect_unroll, props.vectorize_factor);
   int64_t threads_per_block = 128;
   int64_t unroll_factor = target_vect_unroll / vectorization_factor;
 

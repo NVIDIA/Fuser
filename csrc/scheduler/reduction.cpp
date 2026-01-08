@@ -216,7 +216,7 @@ bool mayUseTma(
 
   // Require reduction dim fits into smem, until we add iteration over large
   // reduction dim.
-  const int64_t smem_elems = dev_prop->sharedMemPerBlockOptin /
+  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
       props.max_dtype_size_bit_for_vectorization;
 
   if (props.inner_most_dimension_numel > smem_elems) {
