@@ -545,9 +545,10 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   //   mat1: [M, K/2]       = [128, 96]   (packed FP4)
   //   mat2: [G, N, K/2]    = [4, 80, 96] (packed FP4)
   //   output: [M, N]       = [128, 80]
-  auto mat1 = makeContigConcreteTensor({128, 96}, DataType::Float4_e2m1fn_x2);
+  // Note: Use unpacked type Float4_e2m1fn for fusion definition
+  auto mat1 = makeContigConcreteTensor({128, 96}, DataType::Float4_e2m1fn);
   auto mat2 =
-      makeContigConcreteTensor({4, 80, 96}, DataType::Float4_e2m1fn_x2);
+      makeContigConcreteTensor({4, 80, 96}, DataType::Float4_e2m1fn);
   // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
   auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
   auto scale2 = makeContigConcreteTensor({4, 80, 12}, DataType::Float8_e4m3fn);
