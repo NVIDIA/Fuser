@@ -21,6 +21,7 @@ namespace nvfuser::python {
 template <typename T>
 std::vector<T> from_pysequence(nb::sequence seq) {
   std::vector<T> result;
+  result.reserve(nb::len(seq));
   std::transform(
       seq.begin(), seq.end(), std::back_inserter(result), [](nb::handle obj) {
         NVF_ERROR(nb::isinstance<T>(obj));

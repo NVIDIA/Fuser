@@ -25,11 +25,15 @@ struct type_caster<at::Tensor> {
       return false;
     }
 
-    // Unpack the C++ tensor from the Python object
-    // THPVariable_Unpack returns 'at::Tensor' (which is a smart pointer
-    // wrapper)
-    value = THPVariable_Unpack(src.ptr());
-    return true;
+    try {
+      // Unpack the C++ tensor from the Python object
+      // THPVariable_Unpack returns 'at::Tensor'
+      value = THPVariable_Unpack(src.ptr());
+      return true;
+    } catch (const std::exception& e) {
+      // Let nanobind handle the exception
+      return false;
+    }
   }
 
   static handle from_cpp(
@@ -39,6 +43,9 @@ struct type_caster<at::Tensor> {
     // Wrap the C++ tensor into a new Python object
     // THPVariable_Wrap creates a new reference (PyObject*)
     PyObject* obj = THPVariable_Wrap(src);
+    if (!obj) {
+      throw std::runtime_error("Failed to wrap at::Tensor to Python object");
+    }
     return handle(obj);
   }
 };
