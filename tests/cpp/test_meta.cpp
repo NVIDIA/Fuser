@@ -580,7 +580,11 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
 
   // Create real inputs with appropriate data types
   auto options_uint8 =
-      at::TensorOptions().dtype(at::kUInt8).device(at::kCUDA, 0);
+      at::TensorOptions().dtype(torch::kUInt8).device(at::kCUDA, 0);
+  auto options_fp4 =
+      at::TensorOptions().dtype(at::kFloat4_e2m1fn_x2).device(at::kCUDA, 0);
+  auto options_fp8 =
+      at::TensorOptions().dtype(at::kFloat8_e4m3fn).device(at::kCUDA, 0);
   auto options_fp32 =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
