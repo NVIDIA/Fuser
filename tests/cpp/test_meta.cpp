@@ -542,13 +542,14 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // Choose an example where all M, N, K, and K/2 are different:
   //   M = 128, N = 80, K = 192, K/2 = 96
   // Shapes:
-  //   mat1: [M, K]         = [128, 192]  (unpacked dimensions for fusion)
-  //   mat2: [G, N, K]      = [4, 80, 192] (unpacked dimensions for fusion)
+  //   mat1: [M, K/2]       = [128, 96]   (packed FP4)
+  //   mat2: [G, K/2, N]    = [4, 96, 80] (packed FP4; will be transposed in op)
   //   output: [M, N]       = [128, 80]
-  // Note: Use unpacked type Float4_e2m1fn with UNPACKED dimensions
-  auto mat1 = makeContigConcreteTensor({128, 192}, DataType::Float4_e2m1fn);
+  // Note: Use unpacked type Float4_e2m1fn for fusion definition (packed types
+  // are not allowed in IR), but keep packed FP4 dimensions.
+  auto mat1 = makeContigConcreteTensor({128, 96}, DataType::Float4_e2m1fn);
   auto mat2 =
-      makeContigConcreteTensor({4, 80, 192}, DataType::Float4_e2m1fn);
+      makeContigConcreteTensor({4, 96, 80}, DataType::Float4_e2m1fn);
   // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
   auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
   auto scale2 = makeContigConcreteTensor({4, 80, 12}, DataType::Float8_e4m3fn);
@@ -593,12 +594,15 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   at::Tensor mat1_uint8 = at::randint(0, 256, {128, 96}, options_uint8);
   at::Tensor mat1_input =
       mat1_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
-  NVF_CHECK(mat1_input.is_contiguous(), "mat1_input is not contiguous!");
-  
-  at::Tensor mat2_uint8 = at::randint(0, 256, {4, 80, 96}, options_uint8);
-  at::Tensor mat2_input =
-      mat2_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
-  NVF_CHECK(mat2_input.is_contiguous(), "mat2_input is not contiguous!");
+ 
+  // IMPORTANT: CutlassNvfp4GroupedMmaOp::evaluate transposes mat2 before calling
+  // into CUTLASS, which requires the transposed result to be contiguous.
+  // Construct mat2 as a transpose-view of a contiguous [G, N, K/2] tensor so
+  // that (mat2.transpose(-1, -2)) becomes contiguous.
+  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 80, 96}, options_uint8);
+  at::Tensor mat2_base =
+      mat2_base_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
+  at::Tensor mat2_input = mat2_base.transpose(-1, -2); // [G, K/2, N]
   // FP8 tensors can be created from FP32 tensors
   at::Tensor scale1_input =
       at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);
