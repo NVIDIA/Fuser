@@ -544,16 +544,22 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   //   M = 128, N = 64, K = 192, K/2 = 96
   // Shapes:
   //   mat1: [M, K]         = [128, 192] (logical/unpacked shape)
-  //   mat2: [G, N, K]      = [4, 64, 192] (logical/unpacked shape)
+  //   mat2: [G, K, N]      = [4, 192, 64] (logical/unpacked shape)
   //   output: [M, N]       = [128, 64]
   // Note: Packed dtype Float4_e2m1fn_x2 is not allowed in IR. We use the
   // unpacked dtype (Float4_e2m1fn) and the logical K dimension. When binding a
   // packed ATen tensor (K/2), the last dim is adjusted (K/2 -> K).
   auto mat1 = makeContigConcreteTensor({128, 192}, DataType::Float4_e2m1fn);
-  // mat2 must be laid out such that CutlassNvfp4GroupedMmaOp::evaluate can
-  // transpose it and pass a contiguous tensor to CUTLASS. Therefore, we allow
-  // a non-contiguous binding here.
-  auto mat2 = makeConcreteTensor({4, 64, 192}, DataType::Float4_e2m1fn);
+  // mat2 is expected as [G, K, N] logically. When binding packed FP4 inputs
+  // (Float4_e2m1fn_x2) with shape [G, K/2, N], the evaluator adjusts the K dim
+  // (K/2 -> K). We also set a stride order so the adjustment applies to the K
+  // dimension even though it isn't the last logical dimension.
+  auto mat2 = TensorViewBuilder()
+                  .shape({4, 192, 64})
+                  .dtype(DataType::Float4_e2m1fn)
+                  .contiguity({true, true, true})
+                  .strideOrder({2, 0, 1})
+                  .build();
   // Block-scaling factors have last dim K / 16 = 192 / 16 = 12
   auto scale1 = makeContigConcreteTensor({128, 12}, DataType::Float8_e4m3fn);
   auto scale2 = makeContigConcreteTensor({4, 64, 12}, DataType::Float8_e4m3fn);
@@ -601,12 +607,13 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
  
   // IMPORTANT: CutlassNvfp4GroupedMmaOp::evaluate transposes mat2 before calling
   // into CUTLASS, which requires the transposed result to be contiguous.
-  // Construct mat2 as a transpose-view of a contiguous [G, K/2, N] tensor so
-  // that (mat2.transpose(-1, -2)) becomes contiguous.
-  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 96, 64}, options_uint8);
+  // Construct mat2 as a transpose-view of a contiguous [G, N, K/2] tensor so
+  // that CutlassNvfp4GroupedMmaOp::evaluate's internal transpose produces a
+  // contiguous tensor.
+  at::Tensor mat2_base_uint8 = at::randint(0, 256, {4, 64, 96}, options_uint8);
   at::Tensor mat2_base =
       mat2_base_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
-  at::Tensor mat2_input = mat2_base.transpose(-1, -2); // [G, N, K/2]
+  at::Tensor mat2_input = mat2_base.transpose(-1, -2); // [G, K/2, N]
   // FP8 tensors can be created from FP32 tensors
   at::Tensor scale1_input =
       at::randn({128, 12}, options_fp32).to(at::kFloat8_e4m3fn);

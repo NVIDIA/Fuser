@@ -1727,8 +1727,10 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
       scale2.is_meta() || alpha.is_meta() || problem_sizes.is_meta() ||
       expert_offsets.is_meta() || sf_offsets.is_meta()) {
     // For nvfp4_scaled_grouped_mm, the output shape is [M, N]
-    // where M = mat1.size(0) and N = mat2.size(1)
-    std::vector<int64_t> result_sizes = {mat1.size(0), mat2.size(1)};
+    // where M = mat1.size(0) and N = mat2.size(2).
+    // Note: CutlassNvfp4GroupedMmaOp expects mat2 to be [G, K/2, N] (packed) at
+    // runtime and transposes it before calling into CUTLASS.
+    std::vector<int64_t> result_sizes = {mat1.size(0), mat2.size(2)};
 
     at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
     auto options =
