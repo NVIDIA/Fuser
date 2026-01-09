@@ -38,11 +38,21 @@ bool isOutputLocal(const Expr* expr) {
       });
 }
 
+IterDomain* getConcreteMappedId(IterDomain* id) {
+  NVF_ERROR(GpuLower::hasCurrent());
+  return GpuLower::current()
+      ->info()
+      .idModel()
+      .idGraph(IdMappingMode::EXACT)
+      .toGroup(id)
+      ->front()
+      ->as<IterDomain>();
+}
+
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
-  auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
-      id, IdMappingMode::EXACT);
+  auto concrete_id = getConcreteMappedId(id);
   if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
     return true;
@@ -59,10 +69,7 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
   for (const auto& pred_id : ids()) {
     // Just sanity check that pred_id is concrete
-    NVF_ERROR(
-        pred_id ==
-        GpuLower::current()->info().caMap().getConcreteMappedID(
-            pred_id, IdMappingMode::EXACT));
+    NVF_ERROR(pred_id == getConcreteMappedId(pred_id));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
   }
@@ -290,8 +297,11 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
-            return gpu_lower->info().caMap().areMapped(
-                loop_id, tv_id, IdMappingMode::EXACT);
+            return gpu_lower->info()
+                .idModel()
+                .idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(loop_id, tv_id);
           });
       if (it == tv->getLoopDomain().end()) {
         continue;
@@ -450,12 +460,10 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (auto consumer_loop : parallelized_consumer_loop_ids) {
-    auto pt = consumer_loop->getParallelType();
-    auto concrete_loop =
-        GpuLower::current()->info().caMap().getConcreteMappedID(
-            consumer_loop, IdMappingMode::EXACT);
-    parallel_concrete_ids_.at(pt) = concrete_loop;
+  for (auto consumer_loop_id : parallelized_consumer_loop_ids) {
+    auto pt = consumer_loop_id->getParallelType();
+    auto concrete_loop_id = getConcreteMappedId(consumer_loop_id);
+    parallel_concrete_ids_.at(pt) = concrete_loop_id;
   }
 }
 
@@ -1015,8 +1023,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     bool first_key_set = false;
 
     for (auto root_id : root_ids) {
-      auto concrete_root_id = gpu_lower->info().caMap().getConcreteMappedID(
-          root_id, IdMappingMode::EXACT);
+      auto concrete_root_id = getConcreteMappedId(root_id);
 
       if (root_id->isBroadcast()) {
         continue;
