@@ -8,6 +8,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <numeric>
+
 #include "fusion.h"
 #include "multidevice/execution_utils.h"
 #include "ops/all_ops.h"
@@ -1281,6 +1284,94 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
   } else {
     EXPECT_FALSE(runtime->isSegmented());
   }
+}
+
+// Test 2D sharding with a 2D mesh
+TEST_F(MultiDeviceTest, ShardTensor2D) {
+  const int64_t d = communicator_->size();
+
+  // Need at least 4 devices for a meaningful 2D mesh (2x2)
+  if (d < 4) {
+    GTEST_SKIP() << "Test requires at least 4 devices, got " << d;
+  }
+
+  // Skip if d is not a perfect square for simplicity
+  int64_t mesh_dim = static_cast<int64_t>(std::sqrt(d));
+  if (mesh_dim * mesh_dim != d) {
+    GTEST_SKIP() << "Test requires a perfect square number of devices, got "
+                 << d;
+  }
+
+  // Create a 2D mesh [mesh_dim, mesh_dim]
+  std::vector<int64_t> device_ids(d);
+  std::iota(device_ids.begin(), device_ids.end(), 0);
+  DeviceMesh mesh(device_ids, {mesh_dim, mesh_dim});
+
+  // Create a tensor that will be sharded along two dimensions
+  // Shape: [mesh_dim * 4, 5, mesh_dim * 6]
+  // We'll shard axis 0 along mesh dimension 0, and axis 2 along mesh dimension
+  // 1
+  at::Tensor unsharded =
+      at::randn({mesh_dim * 4, 5, mesh_dim * 6}, tensor_options_);
+
+  // Shard using the new 2D sharding API
+  at::Tensor sharded = shardTensor(unsharded, {0, 2}, {0, 1}, mesh);
+
+  // Expected shape after sharding: [4, 5, 6]
+  EXPECT_THAT(sharded.sizes(), ElementsAre(4, 5, 6));
+
+  // Verify the content is correct
+  int64_t device_id = communicator_->deviceId();
+  at::Tensor device_index = mesh.multiDimensionalIndexOf(device_id);
+  int64_t mesh_coord_0 = device_index[0].item<int64_t>();
+  int64_t mesh_coord_1 = device_index[1].item<int64_t>();
+
+  // Manually compute expected slice
+  at::Tensor expected =
+      unsharded.slice(0, mesh_coord_0 * 4, (mesh_coord_0 + 1) * 4)
+          .slice(2, mesh_coord_1 * 6, (mesh_coord_1 + 1) * 6);
+
+  EXPECT_TRUE(at::allclose(sharded, expected));
+}
+
+// Test 2D sharding with a 2x3 mesh (non-square)
+TEST_F(MultiDeviceTest, ShardTensor2D_NonSquare) {
+  const int64_t d = communicator_->size();
+
+  // Need exactly 6 devices for a 2x3 mesh
+  if (d != 6) {
+    GTEST_SKIP() << "Test requires exactly 6 devices, got " << d;
+  }
+
+  // Create a 2D mesh [2, 3] for data parallel (2) x tensor parallel (3)
+  std::vector<int64_t> device_ids(d);
+  std::iota(device_ids.begin(), device_ids.end(), 0);
+  DeviceMesh mesh(device_ids, {2, 3});
+
+  // Create a tensor: [batch=8, seq=10, features=12]
+  // Shard batch along mesh dim 0 (data parallel), features along mesh dim 1
+  // (tensor parallel)
+  at::Tensor unsharded = at::randn({8, 10, 12}, tensor_options_);
+
+  // Shard batch (axis 0) along mesh dimension 0, features (axis 2) along mesh
+  // dimension 1
+  at::Tensor sharded = shardTensor(unsharded, {0, 2}, {0, 1}, mesh);
+
+  // Expected shape: [4, 10, 4] (8/2=4, 10 unchanged, 12/3=4)
+  EXPECT_THAT(sharded.sizes(), ElementsAre(4, 10, 4));
+
+  // Verify the content
+  int64_t device_id = communicator_->deviceId();
+  at::Tensor device_index = mesh.multiDimensionalIndexOf(device_id);
+  int64_t dp_coord =
+      device_index[0].item<int64_t>(); // data parallel coordinate
+  int64_t tp_coord =
+      device_index[1].item<int64_t>(); // tensor parallel coordinate
+
+  at::Tensor expected = unsharded.slice(0, dp_coord * 4, (dp_coord + 1) * 4)
+                            .slice(2, tp_coord * 4, (tp_coord + 1) * 4);
+
+  EXPECT_TRUE(at::allclose(sharded, expected));
 }
 
 } // namespace nvfuser

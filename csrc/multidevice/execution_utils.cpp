@@ -9,7 +9,7 @@
 #include "multidevice/execution_utils.h"
 
 #include <algorithm>
-#include <unordered_set>
+#include <numeric>
 #include <vector>
 
 #include "exceptions.h"
@@ -46,6 +46,97 @@ at::Tensor shardTensor(
   // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
   // it's enforced by getShardedLogicalAxis.
   return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+}
+
+at::Tensor shardTensor(
+    at::Tensor tensor,
+    const std::vector<int64_t>& tensor_axes,
+    const std::vector<int64_t>& mesh_axes,
+    const DeviceMesh& mesh,
+    const DeviceIdxType device_id) {
+  NVF_CHECK(
+      tensor_axes.size() == mesh_axes.size(),
+      "tensor_axes and mesh_axes must have the same size. Got ",
+      tensor_axes.size(),
+      " and ",
+      mesh_axes.size());
+
+  // Get the multi-dimensional index of the device in the mesh
+  at::Tensor device_index = mesh.multiDimensionalIndexOf(device_id);
+  NVF_CHECK(
+      device_index.defined(), "Device ", device_id, " is not in mesh ", mesh);
+
+  at::Tensor result = tensor;
+
+  // Shard along each tensor axis according to its corresponding mesh axis
+  // We need to track axis shifts because slicing reduces dimensions
+  std::vector<int64_t> axis_shifts(tensor.dim(), 0);
+
+  // Sort by tensor_axes to handle negative indexing and slicing in order
+  std::vector<size_t> indices(tensor_axes.size());
+  std::iota(indices.begin(), indices.end(), 0);
+  std::sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
+    int64_t axis_a =
+        tensor_axes[a] >= 0 ? tensor_axes[a] : tensor.dim() + tensor_axes[a];
+    int64_t axis_b =
+        tensor_axes[b] >= 0 ? tensor_axes[b] : tensor.dim() + tensor_axes[b];
+    return axis_a < axis_b;
+  });
+
+  for (size_t idx : indices) {
+    int64_t tensor_axis = tensor_axes[idx];
+    int64_t mesh_axis = mesh_axes[idx];
+
+    // Normalize negative axes
+    if (tensor_axis < 0) {
+      tensor_axis += tensor.dim();
+    }
+    if (mesh_axis < 0) {
+      mesh_axis += mesh.rank();
+    }
+
+    NVF_CHECK(
+        tensor_axis >= 0 && tensor_axis < result.dim(),
+        "tensor_axis ",
+        tensor_axes[idx],
+        " is out of bounds for tensor with ",
+        result.dim(),
+        " dimensions");
+
+    NVF_CHECK(
+        mesh_axis >= 0 && mesh_axis < mesh.rank(),
+        "mesh_axis ",
+        mesh_axes[idx],
+        " is out of bounds for mesh with rank ",
+        mesh.rank());
+
+    // Get the coordinate of this device along the mesh axis
+    int64_t mesh_coord = device_index[mesh_axis].item<int64_t>();
+
+    // Get the size of the mesh along this axis
+    int64_t mesh_size = mesh.size(mesh_axis);
+
+    // Calculate the slice for this axis
+    int64_t extent = result.size(tensor_axis);
+    NVF_CHECK(
+        extent % mesh_size == 0,
+        "Tensor axis ",
+        tensor_axes[idx],
+        " with size ",
+        extent,
+        " must be evenly divisible by mesh axis ",
+        mesh_axes[idx],
+        " with size ",
+        mesh_size);
+
+    int64_t stride = extent / mesh_size;
+    int64_t start = mesh_coord * stride;
+    int64_t end = (mesh_coord + 1) * stride;
+
+    result = result.slice(tensor_axis, start, end);
+  }
+
+  return result.contiguous();
 }
 
 std::vector<int64_t> unshardedSizes(

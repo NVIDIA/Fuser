@@ -32,6 +32,20 @@ NVF_API at::Tensor shardTensor(
     const DeviceMesh& mesh,
     DeviceIdxType device_id);
 
+// Shards the input tensor along multiple `tensor_axes`. Each tensor axis is
+// sharded according to the corresponding mesh dimension in `mesh_axes`.
+// `tensor_axes` and `mesh_axes` must have the same size.
+// For example, with a 2D mesh of shape [2, 3]:
+//   - tensor_axes = [0, 2], mesh_axes = [0, 1] means:
+//     - Shard tensor axis 0 across mesh dimension 0 (2 devices)
+//     - Shard tensor axis 2 across mesh dimension 1 (3 devices)
+NVF_API at::Tensor shardTensor(
+    at::Tensor tensor,
+    const std::vector<int64_t>& tensor_axes,
+    const std::vector<int64_t>& mesh_axes,
+    const DeviceMesh& mesh,
+    DeviceIdxType device_id);
+
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used
 // to bind to the TensorView's logical domain. This is to solve #3282 so we can

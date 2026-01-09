@@ -121,6 +121,23 @@ Returns the shape of the mesh.
       py::arg("device_id"),
       R"(
 Shards the input tensor along `axis`. Returns the sharded tensor.)");
+  device_mesh.def(
+      "shard_tensor",
+      [](const DeviceMesh& self,
+         at::Tensor tensor,
+         const std::vector<int64_t>& tensor_axes,
+         const std::vector<int64_t>& mesh_axes,
+         int64_t device_id) -> at::Tensor {
+        return shardTensor(tensor, tensor_axes, mesh_axes, self, device_id);
+      },
+      py::arg("tensor"),
+      py::arg("tensor_axes"),
+      py::arg("mesh_axes"),
+      py::arg("device_id"),
+      R"(
+Shards the input tensor along multiple axes. Each tensor axis in `tensor_axes`
+is sharded according to the corresponding mesh dimension in `mesh_axes`.
+Returns the sharded tensor.)");
 }
 
 void bindSharding(py::module& nvfuser) {

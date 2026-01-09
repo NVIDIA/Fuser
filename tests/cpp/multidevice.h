@@ -40,6 +40,14 @@ class MultiDeviceTest : public NVFuserTest {
       int64_t axis,
       const DeviceMesh& mesh);
 
+  // Shards the input tensor along multiple axes according to multiple mesh
+  // dimensions.
+  at::Tensor shardTensor(
+      at::Tensor tensor,
+      const std::vector<int64_t>& tensor_axes,
+      const std::vector<int64_t>& mesh_axes,
+      const DeviceMesh& mesh);
+
   // Validate the outputs of a fusion against expected outputs.
   static void validate(
       const std::vector<at::Tensor>& expected_outputs,

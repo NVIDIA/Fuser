@@ -529,3 +529,48 @@ def test_sequence_parallel_linear(multidevice_test):
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
 
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1e-3, atol=1e-2)
+
+
+@pytest.mark.mpi
+def test_2d_sharding_helper(multidevice_test):
+    """Test the 2D sharding helper function with a 2D mesh."""
+    d = multidevice_test.size
+    tp_size = 2
+
+    # Skip if d is not divisible by tp_size
+    if d % tp_size != 0:
+        pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
+
+    dp_size = d // tp_size
+    rank = multidevice_test.rank
+
+    # Create 2D mesh: [dp_size, tp_size]
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
+
+    # Get coordinates in 2D mesh
+    dp_rank = rank // tp_size
+    tp_rank = rank % tp_size
+
+    # Create a test tensor: [batch=dp_size*4, seq=10, features=tp_size*6]
+    batch = dp_size * 4
+    seq = 10
+    features = tp_size * 6
+
+    unsharded = torch.randn(batch, seq, features, device="cpu")
+
+    # Use the new 2D sharding helper to shard:
+    # - batch dimension (axis 0) along mesh dimension 0 (data parallel)
+    # - features dimension (axis 2) along mesh dimension 1 (tensor parallel)
+    sharded = multidevice_test.shard_tensor_2d(
+        unsharded, tensor_axes=[0, 2], mesh_axes=[0, 1], mesh=mesh
+    )
+
+    # Expected shape: [4, 10, 6]
+    assert sharded.shape == (4, seq, 6)
+
+    # Verify content matches manual slicing
+    expected = unsharded[
+        dp_rank * 4 : (dp_rank + 1) * 4, :, tp_rank * 6 : (tp_rank + 1) * 6
+    ].cuda()
+
+    torch.testing.assert_close(sharded, expected)

@@ -53,6 +53,36 @@ class MultideviceTest:
         )
         return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
 
+    def shard_tensor_2d(
+        self,
+        t: torch.Tensor,
+        tensor_axes: list[int],
+        mesh_axes: list[int],
+        mesh,
+    ) -> torch.Tensor:
+        """Shard a tensor along multiple dimensions according to a multi-dimensional mesh.
+
+        Args:
+            t: Input tensor (should be on CPU)
+            tensor_axes: List of tensor axes to shard
+            mesh_axes: List of mesh dimensions corresponding to each tensor axis
+            mesh: Device mesh
+
+        Returns:
+            Sharded tensor on GPU
+
+        Example:
+            For a 2D mesh of shape [2, 3] (data parallel x tensor parallel):
+            # Shard batch dim (0) along mesh_y, features dim (2) along mesh_x
+            sharded = shard_tensor_2d(tensor, [0, 2], [0, 1], mesh)
+        """
+        assert t.is_cpu, (
+            "This is not strictly required but it's a general good practice "
+            "for unit tests to create unsharded data on CPU to reduce GPU "
+            "memory footprint."
+        )
+        return mesh.shard_tensor(t, tensor_axes, mesh_axes, self.rank).cuda(self.rank)
+
 
 @pytest.fixture
 def multidevice_test():
