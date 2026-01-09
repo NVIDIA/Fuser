@@ -1803,6 +1803,7 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     is_pre_hopper(), reason="Only supported on Hopper and newer devices."
 )
 def test_warp_specialized_circular_buffering_pointwise():
+    # NOTE: Only a functional test, so high performance is not expected.
     def _definition_func(fd: FusionDefinition, inputs):
         tv0 = fd.from_pytorch(inputs[0])
         tv1 = fd.from_pytorch(inputs[1])
@@ -1837,7 +1838,10 @@ def test_warp_specialized_circular_buffering_pointwise():
         tv3.axis(0).parallelize(ParallelType.grid_x)
         tv4.axis(0).parallelize(ParallelType.grid_x)
 
-        # Set computeAt position
+        # Set computeAt position for circular buffering pipelining
+        # The circular buffer axis is the first serial iterDomain to the left
+        # of computeAt position. The domain is [M [BIDx], N/bid, bid], so the
+        # circular buffer iterDomain is N/bid for computeAt position 2.
         fd.sched.inline_at(reference, pos=2)
 
         # Circular Buffer with TMA loads
