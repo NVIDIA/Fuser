@@ -201,15 +201,12 @@ bool mayUseTma(
   }
 
   // Require the reduction shape is 2D inner reduction: [I, R]
-  if (!props.fastest_dim_reduction) {
+  if (!props.fastest_dim_reduction ||
+      props.total_reduction_numel != props.inner_most_dimension_numel) {
     return false;
   }
 
-  if (props.total_reduction_numel != props.inner_most_dimension_numel) {
-    return false;
-  }
-
-  // Skip TMA for small reductions
+  // For small TMA sizes, the smem indirection is not worth it.
   if (props.total_reduction_numel < 128) {
     return false;
   }

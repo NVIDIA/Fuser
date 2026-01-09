@@ -42,10 +42,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   int64_t threads_per_block = 128;
   int64_t unroll_factor = target_vect_unroll / vectorization_factor;
 
-  NVF_ERROR(
-      vectorization_factor > 1,
-      "TMA reduction requires vectorization_factor > 1");
-
   auto params = std::make_unique<TmaInnerReductionParams>();
   params->vectorization_factor = vectorization_factor;
   params->threads_per_block = threads_per_block;
