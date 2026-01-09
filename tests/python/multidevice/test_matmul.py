@@ -572,26 +572,22 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
         # Input: [b, s, e] (global shape)
         inp = fd.define_tensor([-1, -1, e], dtype=DataType.BFloat16, contiguity=True)
         # First linear layer weights: [4 * e, e] (global shape, column parallel)
-        fc1_weight = fd.define_tensor(
-            [4 * e, e], dtype=DataType.BFloat16, contiguity=True
-        )
+        up_w = fd.define_tensor([4 * e, e], dtype=DataType.BFloat16, contiguity=True)
         # Second linear layer weights: [e, 4 * e] (global shape, row parallel)
-        fc2_weight = fd.define_tensor(
-            [e, 4 * e], dtype=DataType.BFloat16, contiguity=True
-        )
+        down_w = fd.define_tensor([e, 4 * e], dtype=DataType.BFloat16, contiguity=True)
 
         # MLP forward: linear -> linear (no bias, like modern LLMs)
         # First linear (column parallel - expands to 4*e)
-        fc1_out = fd.ops.linear(inp, fc1_weight, None)
+        fc1_out = fd.ops.linear(inp, up_w, None)
 
         # Second linear (row parallel - projects back to e)
-        out = fd.ops.linear(fc1_out, fc2_weight, None)
+        out = fd.ops.linear(fc1_out, down_w, None)
 
         fd.add_output(out)
 
         # Multidevice schedule
         # Set device mesh for all tensors
-        for t in [inp, fc1_weight, fc2_weight]:
+        for t in [inp, up_w, down_w]:
             t.set_device_mesh(mesh)
 
         # Data parallelism: shard batch dimension (use mesh_y)
@@ -600,13 +596,13 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
 
         # Tensor parallelism for first linear (column parallel)
         # Shard output features dimension (use mesh_x)
-        fc1_weight.outer_split(0, tp_size)
-        fc1_weight.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        up_w.outer_split(0, tp_size)
+        up_w.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
         # Tensor parallelism for second linear (row parallel)
         # Shard input features dimension (use mesh_x)
-        fc2_weight.outer_split(-1, tp_size)
-        fc2_weight.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+        down_w.outer_split(-1, tp_size)
+        down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     # Manually shard tensors for 2D mesh
     # Input: shard on batch dimension (dp_rank)
