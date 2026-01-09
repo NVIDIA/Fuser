@@ -236,8 +236,7 @@ void insertDeallocations(hir::HostIrContainer& hic) {
 } // namespace
 
 void AllocateAndDeallocate::runPass(Fusion* fusion) {
-  auto* hic = dynamic_cast<HostIrContainer*>(fusion);
-  NVF_CHECK(hic != nullptr);
+  auto* hic = fusion->as<HostIrContainer>();
 
   FusionGuard fg(hic);
   insertAllocations(*hic);
