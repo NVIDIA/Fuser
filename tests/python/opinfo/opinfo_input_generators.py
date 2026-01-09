@@ -372,8 +372,8 @@ def define_tensor_error_generator(
 
     check_above_size_range = ErrorSample(
         {"shape": [INT64_MAX + 1], "contiguity": [True]},
-        "define_tensor(): incompatible function arguments",
-        TypeError,
+        "Expected nb::isinstance<T>(obj)",
+        RuntimeError,
     )
 
     check_below_size_range = ErrorSample(
@@ -389,8 +389,8 @@ def define_tensor_error_generator(
 
     check_shape_unknown_dtypes = ErrorSample(
         {"shape": [10.0], "contiguity": [True]},
-        "define_tensor(): incompatible function arguments.",
-        TypeError,
+        "Expected nb::isinstance<T>(obj)",
+        RuntimeError,
     )
 
     check_stride_order_duplicate = ErrorSample(
