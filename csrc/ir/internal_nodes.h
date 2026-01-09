@@ -38,6 +38,74 @@ class ViewTransform;
 class IrCloner;
 struct AnalyzeViewResult;
 
+class Scope {
+ public:
+  using ExprList = std::list<Expr*>;
+  using Iterator = ExprList::const_iterator;
+
+  explicit Scope(Expr* owner) : owner_(owner) {}
+
+  std::string toString(int indent_size = 0) const;
+
+  const ExprList& exprs() const {
+    return exprs_;
+  }
+
+  // Used only by MultiDeviceExecutor. Should generally be avoided in favor of
+  // other modifying methods.
+  ExprList& mutableExprs() {
+    return exprs_;
+  }
+
+  Expr* front() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the front of an empty Scope");
+    return exprs_.front();
+  }
+
+  Expr* back() const {
+    NVF_ERROR(
+        !exprs_.empty(), "Attempting to access the back of an empty Scope");
+    return exprs_.back();
+  }
+
+  bool empty() const {
+    return exprs_.empty();
+  }
+
+  int64_t size() const {
+    return std::ssize(exprs_);
+  }
+
+  // Returns an iterator pointing to the inserted expression.
+  Iterator insert(Iterator pos, Expr* expr);
+
+  Iterator pushBack(Expr* e) {
+    return insert(exprs_.end(), e);
+  }
+
+  void clear();
+
+  Expr* owner() const {
+    return owner_;
+  }
+
+  // The following methods perform linear searches over exprs_. Use them only
+  // when necessary, as they do not scale well with large scopes.
+  Iterator insert_before(Expr* ref, Expr* expr);
+  Iterator insert_after(Expr* ref, Expr* expr);
+  void erase(Expr* ref);
+  bool contains(Expr* expr) const;
+
+ private:
+  void erase(Iterator pos);
+
+  ExprList exprs_;
+
+  //! Owner exprssion of this scope, e.g., IfThenElse
+  Expr* owner_ = nullptr;
+};
+
 class NVF_API FullOp : public Expr {
  public:
   using Expr::Expr;
