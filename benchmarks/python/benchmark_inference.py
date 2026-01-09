@@ -209,7 +209,7 @@ class InferenceBenchmarkConfig:
     disable_moe_replacement: bool
     attn_implementation: str | None
     thunder_cache: str | None
-    enable_thunder_cudagraph: bool
+    enable_cudagraph: bool
     debug_moe: bool
 
 
@@ -384,7 +384,7 @@ class InferenceBenchmark:
                 self._mask_transform = SDPAMaskTransform()
             res["transforms"].append(self._mask_transform)
             res["executors"] = [self._mask_transform.get_executor(), *thunder.get_default_executors()]
-        if self.config.enable_thunder_cudagraph:
+        if self.config.enable_cudagraph:
             res["transforms"].append(CUDAGraphTransform())
         if self.config.thunder_cache is not None:
             res["cache"] = self.config.thunder_cache
@@ -396,7 +396,10 @@ class InferenceBenchmark:
             case "eager":
                 return model
             case "inductor":
-                return torch.compile(model, mode="reduce-overhead")
+                if (self.config.enable_cudagraph):
+                    return torch.compile(model, mode="reduce-overhead")
+                else:
+                    return torch.compile(model, mode="default")
             case "thunder":
                 return thunderfx(model, **self._thunder_jit_options)
             case "thunderjit":
@@ -809,7 +812,7 @@ Examples:
         default=None,
         help="Cache option: no caching, same input, constant values, symbolic values. See `cache` argument of `thunder.jit` for more details.",
     )
-    parser.add_argument("--enable-thunder-cudagraph", action="store_true", help="Pass CUDAGraphTransform to Thunder")
+    parser.add_argument("--enable-cudagraph", action="store_true", help="Pass CUDAGraphTransform to Thunder, or use reduce-overhead for torch.compile")
     parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation")
 
     args = parser.parse_args()
@@ -844,7 +847,7 @@ def main():
         disable_moe_replacement=args.disable_moe_replacement,
         attn_implementation=args.attn_implementation,
         thunder_cache=args.thunder_cache,
-        enable_thunder_cudagraph=args.enable_thunder_cudagraph,
+        enable_cudagraph=args.enable_cudagraph,
         debug_moe=args.debug_moe,
     )
     benchmark = InferenceBenchmark(config)
