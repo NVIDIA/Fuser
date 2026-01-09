@@ -2828,6 +2828,14 @@ class TmaReductionAutoTest
       return false;
     }
 
+    // Reduction dim must fit into smem
+    auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    int64_t smem_elems =
+        (dev_prop->sharedMemPerBlockOptin * 8) / dtype_size_bit;
+    if (reduction_size > smem_elems) {
+      return false;
+    }
+
     return true;
   }
 

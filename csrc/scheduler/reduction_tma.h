@@ -27,13 +27,6 @@ class TmaInnerReductionParams : public HeuristicParams {
 
   // Unroll factor on top of TIDx split
   int64_t unroll_factor = 1;
-
-  // Grid reduction: when reduction dim exceeds smem capacity, split and
-  // parallelize outer reduction loop over BIDx, shifting iteration to BIDy
-  bool grid_reduction = false;
-
-  // Split size for grid reduction (fits into smem)
-  int64_t grid_reduction_split_size = 0;
 };
 
 namespace reduction {
