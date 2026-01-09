@@ -320,10 +320,9 @@ Val* convertToVal(
   ops.def(                                                              \
       NAME,                                                             \
       [](TensorView* arg,                                               \
-         nb::sequence dims_py,                                          \
+         const std::vector<int64_t>& dims,                              \
          bool keepdim,                                                  \
          PrimDataType dtype) -> TensorView* {                           \
-        auto dims = from_pysequence<int64_t>(dims_py);                  \
         return static_cast<TensorView* (*)(TensorView*,                 \
                                            const std::vector<int64_t>&, \
                                            bool,                        \

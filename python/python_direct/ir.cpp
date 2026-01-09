@@ -659,14 +659,11 @@ void bindDefineTensor(nb::module_& nvfuser) {
       .def(
           "define_tensor",
           [](nb::sequence shape_py,
-             nb::sequence contiguity_py,
+             const std::vector<std::optional<bool>>& contiguity,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
-             nb::sequence stride_order_py = {}) -> TensorView* {
+             const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             auto shape = from_pysequence<int64_t>(shape_py);
-            auto contiguity =
-                from_pysequence<std::optional<bool>>(contiguity_py);
-            auto stride_order = from_pysequence<int64_t>(stride_order_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(
@@ -691,9 +688,8 @@ void bindDefineTensor(nb::module_& nvfuser) {
              const bool contiguity = false,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
-             nb::sequence stride_order_py = {}) -> TensorView* {
+             const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             auto shape = from_pysequence<int64_t>(shape_py);
-            auto stride_order = from_pysequence<int64_t>(stride_order_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(
@@ -721,13 +717,11 @@ void bindDefineTensor(nb::module_& nvfuser) {
           nb::rv_policy::reference)
       .def(
           "define_tensor",
-          [](nb::sequence sizes_py,
-             nb::sequence strides_py,
+          [](const std::vector<int64_t>& sizes,
+             const std::vector<int64_t>& strides,
              const PrimDataType dtype = DataType::Float,
              const bool static_sizes = false,
              const bool is_cpu = false) -> TensorView* {
-            auto sizes = from_pysequence<int64_t>(sizes_py);
-            auto strides = from_pysequence<int64_t>(strides_py);
             NVF_CHECK(
                 sizes.size() == strides.size(),
                 "The number of sizes does not match the number of strides.",
