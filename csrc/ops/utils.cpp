@@ -331,10 +331,7 @@ RaggedIterDomain* newOutputRaggedIterDomain(
   // equivalent
   RaggedIterDomain* ref_input_id = input_ids.front()->as<RaggedIterDomain>();
 
-  return IrBuilder::create<RaggedIterDomain>(
-      ref_input_id->extents(),
-      ref_input_id->getIterType(),
-      ref_input_id->getParallelType());
+  return IterDomainBuilder(ref_input_id).build()->as<RaggedIterDomain>();
 }
 
 // Adding these pragmas since gcc-12.2.1
