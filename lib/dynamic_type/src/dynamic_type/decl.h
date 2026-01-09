@@ -157,11 +157,91 @@ struct DynamicType {
               AllContainerTypeIdentitiesConstructibleFromInitializerList<
                   ItemT>>;
 
+  // ============================================================================
+  // Switch-based dispatch helpers for dispatch() method.
+  // Replaces ForAllTypes execution loop with direct switch on index().
+  // Return type inference still uses ForAllTypes (to handle void filtering).
+  // ============================================================================
+
+  // Helper macro: try to execute f0 at index I for void return
+#define DISPATCH_EXEC_VOID(I, f0_ref, arg_ref)                                 \
+  case I: {                                                                    \
+    if constexpr ((I) < num_types) {                                           \
+      using T = std::variant_alternative_t<(I), VariantType>;                  \
+      f0_ref(arg_ref.template as<T>());                                        \
+    }                                                                          \
+    break;                                                                     \
+  }
+
+  // Helper macro: try to execute f0 at index I for value/reference return
+#define DISPATCH_EXEC_VALUE(I, f0_ref, arg_ref, ret_ref, result_type)          \
+  case I: {                                                                    \
+    if constexpr ((I) < num_types) {                                           \
+      using T = std::variant_alternative_t<(I), VariantType>;                  \
+      const T& a0 = arg_ref.template as<T>();                                  \
+      if constexpr (std::is_convertible_v<decltype(f0_ref(a0)), result_type>) {\
+        ret_ref = f0_ref(a0);                                                  \
+      } else {                                                                 \
+        DYNAMIC_TYPE_CHECK(                                                    \
+            false, "Result is dynamic but not convertible to result type");    \
+      }                                                                        \
+    }                                                                          \
+    break;                                                                     \
+  }
+
+  // Switch for void return (up to 16 types)
+#define DISPATCH_SWITCH_VOID(f0_ref, arg_ref)                                  \
+  switch (arg_ref.value.index()) {                                             \
+    DISPATCH_EXEC_VOID(0, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(1, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(2, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(3, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(4, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(5, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(6, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(7, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(8, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(9, f0_ref, arg_ref)                                     \
+    DISPATCH_EXEC_VOID(10, f0_ref, arg_ref)                                    \
+    DISPATCH_EXEC_VOID(11, f0_ref, arg_ref)                                    \
+    DISPATCH_EXEC_VOID(12, f0_ref, arg_ref)                                    \
+    DISPATCH_EXEC_VOID(13, f0_ref, arg_ref)                                    \
+    DISPATCH_EXEC_VOID(14, f0_ref, arg_ref)                                    \
+    DISPATCH_EXEC_VOID(15, f0_ref, arg_ref)                                    \
+    default: break;                                                            \
+  }
+
+  // Switch for value/reference return (up to 16 types)
+#define DISPATCH_SWITCH_VALUE(f0_ref, arg_ref, ret_ref, result_type)           \
+  switch (arg_ref.value.index()) {                                             \
+    DISPATCH_EXEC_VALUE(0, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(1, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(2, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(3, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(4, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(5, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(6, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(7, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(8, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(9, f0_ref, arg_ref, ret_ref, result_type)              \
+    DISPATCH_EXEC_VALUE(10, f0_ref, arg_ref, ret_ref, result_type)             \
+    DISPATCH_EXEC_VALUE(11, f0_ref, arg_ref, ret_ref, result_type)             \
+    DISPATCH_EXEC_VALUE(12, f0_ref, arg_ref, ret_ref, result_type)             \
+    DISPATCH_EXEC_VALUE(13, f0_ref, arg_ref, ret_ref, result_type)             \
+    DISPATCH_EXEC_VALUE(14, f0_ref, arg_ref, ret_ref, result_type)             \
+    DISPATCH_EXEC_VALUE(15, f0_ref, arg_ref, ret_ref, result_type)             \
+    default: break;                                                            \
+  }
+
   template <typename FuncT, typename FirstArg, typename... OtherArgs>
   static inline constexpr decltype(auto) dispatch(
       FuncT&& f,
       FirstArg&& arg0,
       OtherArgs&&... args) {
+    static_assert(
+        num_types <= 16,
+        "dispatch() supports max 16 types. Increase switch cases in decl.h.");
+
     // Recursively dispatch on `args`, only leaving arg0 as undispatched
     // argument
     auto f0 = [&](auto&& a0) -> decltype(auto) {
@@ -187,6 +267,7 @@ struct DynamicType {
       // non-void return values can be ignored, but void returning can never
       // pass any information. There is no single best inference strategy that
       // fits all cases, ignoring void seems to be good tradeoff.
+      // NOTE: Return type inference still uses ForAllTypes for void filtering.
       auto get_single_result_type = [](auto t) {
         using T = typename decltype(t)::type;
         using RetT = decltype(f0(std::declval<T>()));
@@ -202,12 +283,8 @@ struct DynamicType {
           DynamicType::for_all_types(get_single_result_type)));
       constexpr bool returns_void = (std::tuple_size_v<result_types> == 0);
       if constexpr (returns_void) {
-        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
-          using T = typename decltype(t)::type;
-          if (arg0.template is<T>()) {
-            f0(arg0.template as<T>());
-          }
-        });
+        // NEW: Use switch dispatch instead of ForAllTypes for execution
+        DISPATCH_SWITCH_VOID(f0, arg0)
         return;
       } else {
         constexpr bool has_single_return_type =
@@ -225,20 +302,8 @@ struct DynamicType {
                 std::reference_wrapper<std::remove_reference_t<result_type>>>,
             result_type>;
         ret_storage_t ret{};
-        DynamicType::for_all_types([&](auto t) -> decltype(auto) {
-          using T = typename decltype(t)::type;
-          if (arg0.template is<T>()) {
-            const T& a0 = arg0.template as<T>();
-            if constexpr (std::
-                              is_convertible_v<decltype(f0(a0)), result_type>) {
-              ret = f0(a0);
-            } else {
-              DYNAMIC_TYPE_CHECK(
-                  false,
-                  "Result is dynamic but not convertible to result type");
-            }
-          }
-        });
+        // NEW: Use switch dispatch instead of ForAllTypes for execution
+        DISPATCH_SWITCH_VALUE(f0, arg0, ret, result_type)
         if constexpr (is_reference) {
           return ret->get();
         } else {
@@ -250,6 +315,11 @@ struct DynamicType {
       return f0(std::forward<FirstArg>(arg0));
     }
   }
+
+#undef DISPATCH_EXEC_VOID
+#undef DISPATCH_EXEC_VALUE
+#undef DISPATCH_SWITCH_VOID
+#undef DISPATCH_SWITCH_VALUE
 
   constexpr DynamicType() = default;
 
