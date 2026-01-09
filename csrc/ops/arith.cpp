@@ -2811,7 +2811,9 @@ BlockQuantizationResults groupedBlockQuantize(
   auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
 
   // Validate input tensor is 2d
-  NVF_ERROR_EQ(inp_domain.size(), 2,
+  NVF_ERROR_EQ(
+      inp_domain.size(),
+      2,
       "Grouped block quantization only supports 2-dimensional tensors");
 
   // Create output domain for quantized tensor (same shape as input)
