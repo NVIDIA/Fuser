@@ -287,6 +287,9 @@ void validateAllocationSizesAndStrides(
             "; dim: ",
             domain_index);
       }
+
+      // When `size=1`, we keep `expected_stride_if_contiguous` from the
+      // previous iteration.
       expected_stride_if_contiguous = stride * size;
     }
   }
