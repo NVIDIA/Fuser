@@ -28,6 +28,10 @@ enum class IdModelEnableOption {
 };
 
 inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
+  if (!isOptionEnabled(EnableOption::IdModel)) {
+    return {};
+  }
+
   std::unordered_set<IdModelEnableOption> opts;
 
   if (!hasEnableOptionArgument(EnableOption::IdModel, "predicate_only")) {
