@@ -1437,7 +1437,6 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_atomic.cu
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
-  ${NVFUSER_ROOT}/runtime/block_layout.cu
   ${NVFUSER_ROOT}/runtime/block_quantization_kernels.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
   ${NVFUSER_ROOT}/runtime/casts.cu
