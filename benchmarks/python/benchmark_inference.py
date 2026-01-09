@@ -457,11 +457,12 @@ class InferenceBenchmark:
         """Load the model based on configuration"""
         model_id = self.config.model_name
 
-        config = Llama4TextConfig.from_dict(
-            json.loads(llama_4_Maverick_17B_128E_cfg_str)
-        )
-
-        if (not self.config.use_hardcoded_model):
+        config = None
+        if self.config.use_hardcoded_model:
+            config = Llama4TextConfig.from_dict(
+                json.loads(llama_4_Maverick_17B_128E_cfg_str)
+            )
+        else:
             config = AutoConfig.from_pretrained(model_id)
 
         if hasattr(config, "text_config"):
