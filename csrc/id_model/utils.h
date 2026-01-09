@@ -30,50 +30,19 @@ enum class IdModelEnableOption {
 inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
   std::unordered_set<IdModelEnableOption> opts;
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
+  if (!hasEnableOptionArgument(EnableOption::IdModel, "predicate_only")) {
     opts.insert(IdModelEnableOption::ConsumerIndex);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
     opts.insert(IdModelEnableOption::ProducerIndex);
   }
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
+  if (!hasEnableOptionArgument(EnableOption::IdModel, "index_only")) {
     opts.insert(IdModelEnableOption::InlinePredicate);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
     opts.insert(IdModelEnableOption::UnswitchPredicate);
   }
 
-  if (hasEnableOptionArgument(EnableOption::IdModel, "loop") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
+  if (!hasEnableOptionArgument(EnableOption::IdModel, "predicate_only") &&
+      !hasEnableOptionArgument(EnableOption::IdModel, "index_only")) {
     opts.insert(IdModelEnableOption::Loop);
-  }
-
-  // Loop requires ConsumerIndex, ProducerIndex, InlinePredicate and
-  // UnswitchPredicate
-  if (opts.find(IdModelEnableOption::Loop) != opts.end()) {
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::ConsumerIndex) != opts.end(),
-        "ConsumerIndex required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::ProducerIndex) != opts.end(),
-        "ProducerIndex required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::InlinePredicate) != opts.end(),
-        "InlinePredicate required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::UnswitchPredicate) != opts.end(),
-        "UnswitchPredicate required for Loop");
   }
 
   return opts;
