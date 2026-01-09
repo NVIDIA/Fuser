@@ -467,9 +467,6 @@ void scheduleInnerPersistentWarpSpecialized(
   reduction_tv->axis(reduction_pos + 2)->parallelize(ParallelType::TIDx);
   reduction_tv->axis(reduction_pos + 2)->padToMultipleOfWarp();
 
-  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
-  reduction_tv->printTransforms();
-
   // Create rfactor tensor to separate thread-local reduction from block
   // reduction This enables a two-stage reduction:
   //   1. Thread-local vectorized reduction (across b and v dimensions)
