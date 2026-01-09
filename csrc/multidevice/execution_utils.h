@@ -67,6 +67,7 @@ NVF_API at::Tensor shardTensor(
 // ExpressionEvaluator, and so on, which is an API overhaul.
 std::vector<int64_t> unshardedSizes(
     const TensorView* tv,
-    c10::IntArrayRef sizes);
+    c10::IntArrayRef sizes,
+    std::unordered_map<Val*, int64_t>* extent_to_multiplier_map = nullptr);
 
 } // namespace nvfuser

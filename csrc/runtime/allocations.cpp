@@ -894,6 +894,7 @@ inferShapeAndContiguousStrides(
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
+  auto* extent_map = expr_eval.getExtentToMultiplierMap();
   // Alias handling:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type != AllocationType::New) {
@@ -910,7 +911,7 @@ TensorShapeInfo inferTensorShapes(
       return TensorShapeInfo{
           tensor.sizes().vec(),
           tensor.strides().vec(),
-          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec(), extent_map)
                         : std::vector<int64_t>(),
       };
     }
@@ -919,7 +920,7 @@ TensorShapeInfo inferTensorShapes(
     return TensorShapeInfo{
         tensor.sizes().vec(),
         tensor.strides().vec(),
-        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec(), extent_map)
                       : std::vector<int64_t>(),
         allocation_size_stride.first,
         allocation_size_stride.second};
@@ -932,7 +933,7 @@ TensorShapeInfo inferTensorShapes(
     return TensorShapeInfo{
         allocation_size_stride.first,
         allocation_size_stride.second,
-        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
+        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first, extent_map)
                       : std::vector<int64_t>(),
     };
   }
@@ -949,7 +950,7 @@ TensorShapeInfo inferTensorShapes(
   return TensorShapeInfo{
       logical_meta_tensor.sizes().vec(),
       logical_meta_tensor.strides().vec(),
-      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
+      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec(), extent_map)
                     : std::vector<int64_t>(),
       allocation_size_stride.first,
       allocation_size_stride.second};

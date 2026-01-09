@@ -146,7 +146,7 @@ void ExpressionEvaluator::bindTensorDomain(
       tv->toString(),
       ", to be bound to a tensor of equal rank.");
 
-  std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes(), getExtentToMultiplierMap());
   adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto& [i, id] : enumerate(logical_domain)) {
