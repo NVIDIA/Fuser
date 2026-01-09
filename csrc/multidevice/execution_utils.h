@@ -32,6 +32,12 @@ NVF_API at::Tensor shardTensor(
     const DeviceMesh& mesh,
     DeviceIdxType device_id);
 
+// Shards the input tensor according to the TensorView's sharding annotation.
+// Returns a shard of the tensor according to the sharding annotation in tv
+// for the current deviceId from Communicator. If tensor is not sharded returns
+// the original tensor.
+NVF_API at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv);
+
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used
 // to bind to the TensorView's logical domain. This is to solve #3282 so we can

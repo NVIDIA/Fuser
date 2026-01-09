@@ -9,11 +9,11 @@
 #include "multidevice/execution_utils.h"
 
 #include <algorithm>
-#include <unordered_set>
 #include <vector>
 
 #include "exceptions.h"
 #include "fusion.h"
+#include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/utils.h"
 
@@ -46,6 +46,19 @@ at::Tensor shardTensor(
   // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
   // it's enforced by getShardedLogicalAxis.
   return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+}
+
+at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
+  if (!isSharded(tv)) {
+    return tensor;
+  }
+  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
+  const auto device_id = Communicator::getInstance().deviceId();
+  return shardTensor(
+      tensor,
+      getShardedLogicalAxis(tv, ParallelType::DIDx),
+      tv->getDeviceMesh(),
+      device_id);
 }
 
 std::vector<int64_t> unshardedSizes(
