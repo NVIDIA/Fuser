@@ -539,11 +539,12 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
     // as well as halo. Currently, halo support has bene removed so we only need
-    // to worry about the expand case which is handled in inferShapeofOutputs.
-    // There used to also be a inferShapeOfIntermediate function before this
-    // commit, but that was safely removed with halo support. This will need to
-    // be revisited when halo support is added again.
-    auto [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
+    // to worry about the expand case which is handled in
+    // inferShapeAndContiguousStrides. There used to also be a
+    // inferShapeOfIntermediateAndContiguousStride function before this commit,
+    // but that was safely removed with halo support. This will need to be
+    // revisited when halo support is added again.
+    auto [sizes, strides] = inferShapeAndContiguousStrides(tv, expr_eval);
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
     auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
