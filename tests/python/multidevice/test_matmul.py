@@ -555,33 +555,18 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
     # Model dimensions similar to GPT-3
     # Using smaller dimensions for testing
     b = dp_size  # batch = dp_size, so each DP rank gets 1 batch
-    s, e = 128, 768  # sequence, embedding
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+    s, e = 5, 3  # sequence, embedding
 
     # Create unsharded reference tensors
-    unsharded_inp = torch.randn(b, s, e, dtype=torch.bfloat16)
-    unsharded_fc1_weight = torch.randn(4 * e, e, dtype=torch.bfloat16)
-    unsharded_fc2_weight = torch.randn(e, 4 * e, dtype=torch.bfloat16)
-
-    # Manually shard tensors for 2D mesh
-    # Input: shard on batch dimension (dp_rank)
-    batch_per_rank = b // dp_size
-    sharded_inp = unsharded_inp[
-        dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank
-    ].cuda()
-
-    # FC1 weight: shard on output features (tp_rank)
-    fc1_out_per_rank = (4 * e) // tp_size
-    sharded_fc1_weight = unsharded_fc1_weight[
-        tp_rank * fc1_out_per_rank : (tp_rank + 1) * fc1_out_per_rank
-    ].cuda()
-
-    # FC2 weight: shard on input features (tp_rank)
-    fc2_in_per_rank = (4 * e) // tp_size
-    sharded_fc2_weight = unsharded_fc2_weight[
-        :, tp_rank * fc2_in_per_rank : (tp_rank + 1) * fc2_in_per_rank
-    ].cuda()
+    inp_ref = torch.testing.make_tensor(b, s, e, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    up_w_ref = torch.testing.make_tensor(4 * e, e, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    down_w_ref = torch.testing.make_tensor(
+        e, 4 * e, dtype=torch.int32, device="cpu"
+    ).to(torch.bfloat16)
 
     with FusionDefinition() as fd:
         # Input: [b, s, e] (global shape)
@@ -623,16 +608,33 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
         fc2_weight.outer_split(-1, tp_size)
         fc2_weight.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-    (out,) = fd.execute([sharded_inp, sharded_fc1_weight, sharded_fc2_weight])
+    # Manually shard tensors for 2D mesh
+    # Input: shard on batch dimension (dp_rank)
+    batch_per_rank = b // dp_size
+    inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
+
+    # FC1 weight: shard on output features (tp_rank)
+    fc1_out_per_rank = (4 * e) // tp_size
+    up_w = up_w_ref[
+        tp_rank * fc1_out_per_rank : (tp_rank + 1) * fc1_out_per_rank
+    ].cuda()
+
+    # FC2 weight: shard on input features (tp_rank)
+    fc2_in_per_rank = (4 * e) // tp_size
+    down_w = down_w_ref[
+        :, tp_rank * fc2_in_per_rank : (tp_rank + 1) * fc2_in_per_rank
+    ].cuda()
+
+    (out,) = fd.execute([inp, up_w, down_w])
 
     # Compute reference output using PyTorch
     # First linear
-    fc1_out_ref = torch.nn.functional.linear(unsharded_inp, unsharded_fc1_weight, None)
+    fc1_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref, None)
     # Second linear
-    expected_out = torch.nn.functional.linear(fc1_out_ref, unsharded_fc2_weight, None)
+    out_ref = torch.nn.functional.linear(fc1_out_ref, down_w_ref, None)
 
     # Expected output should also be sharded on batch dimension
-    expected_out_sharded = expected_out[
+    expected_out_sharded = out_ref[
         dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank
     ]
 
