@@ -345,13 +345,20 @@ IterDomain* newOutputIterDomain(
     const std::optional<IterType> force_iter_type) {
   NVF_ERROR(!input_ids.empty());
 
-  // If any input ID is a RaggedIterDomain, the output should also be ragged
+  // If an input ID is a RaggedIterDomain, the output as well as all
+  // other inputs must be ragged
   bool has_ragged =
       std::any_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
         return id->isA<RaggedIterDomain>();
       });
 
   if (has_ragged) {
+    NVF_ERROR(
+        std::all_of(
+            input_ids.begin(),
+            input_ids.end(),
+            [](IterDomain* id) { return id->isA<RaggedIterDomain>(); }),
+        "All of none input IDs must be ragged");
     NVF_ERROR(
         !force_iter_type.has_value(),
         "force_iter_type not supported for RaggedIterDomain");
