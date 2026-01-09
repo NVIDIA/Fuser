@@ -399,4 +399,6 @@ bool isCopyOnly(Expr* expr);
 bool isCopyOnly(Val* val);
 
 } // namespace lower_utils
+
+bool canUsePresetAllocationDomain(TensorView* tv);
 } // namespace nvfuser
