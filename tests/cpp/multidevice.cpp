@@ -63,14 +63,7 @@ void MultiDeviceTest::SetUp() {
 }
 
 at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
-  return shardTensor(
-      tensor,
-      getShardedLogicalAxis(tv, ParallelType::DIDx),
-      tv->getDeviceMesh());
+  return nvfuser::shardTensor(tensor, tv);
 }
 
 at::Tensor MultiDeviceTest::shardTensor(
