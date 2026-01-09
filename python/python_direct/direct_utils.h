@@ -17,7 +17,12 @@ namespace nb = nanobind;
 
 namespace nvfuser::python {
 
-// Convert a nb::sequence to a vector
+// Nanobind does not convert torch.Size automatically to std::vector. Instead,
+// manually convert nb::sequence to a std::vector
+//
+// >>> import torch
+// >>> type(torch.randn(10,10).shape)
+// <class 'torch.Size'>
 template <typename T>
 std::vector<T> from_pysequence(nb::sequence seq) {
   std::vector<T> result;
