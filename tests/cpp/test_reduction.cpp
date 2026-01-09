@@ -2633,14 +2633,14 @@ TEST_F(ReductionTest, TensorRankLimit) {
 //        rest are reduce dimensions. Inner dimensions should be merged by the
 //        schedule.
 // inner_size: The size of the inner-most dimension.
-using TmaInnerReductionTestParams =
+using TmaInnerReductionManualTestParams =
     std::tuple<int64_t, int64_t>; // <ndims, inner_size>
 
-class TmaInnerReductionTest
-    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
+class TmaInnerReductionManualTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionManualTestParams> {
  protected:
   void SetUp() override {
-    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
+    NVFuserFixtureParamTest<TmaInnerReductionManualTestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
@@ -2649,7 +2649,7 @@ class TmaInnerReductionTest
  private:
   std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
 };
-TEST_P(TmaInnerReductionTest, Basic) {
+TEST_P(TmaInnerReductionManualTest, Basic) {
   [[maybe_unused]] auto dtype = DataType::Float;
   [[maybe_unused]] int64_t dtype_bytes = dataTypeSizeByte(dtype);
   [[maybe_unused]] auto [ndims, inner_size] = GetParam();
@@ -2775,7 +2775,7 @@ TEST_P(TmaInnerReductionTest, Basic) {
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
-    TmaInnerReductionTest,
+    TmaInnerReductionManualTest,
     ::testing::Combine(
         ::testing::Values(2, 3), // ndims
         ::testing::ValuesIn([] { // inner_size
@@ -2785,7 +2785,7 @@ INSTANTIATE_TEST_SUITE_P(
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
         }())),
-    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+    [](const testing::TestParamInfo<TmaInnerReductionManualTestParams>& info) {
       int64_t ndims = std::get<0>(info.param);
       int64_t inner_size = std::get<1>(info.param);
       return "ndim_" + std::to_string(ndims) + "_inner_size_" +
@@ -2801,14 +2801,14 @@ bool isTmaParams(const FusionExecutorCache& executor_cache) {
 } // namespace tma_reduction_check
 
 // <dtype, reduction_size>
-using TmaReductionAutoTestParams = std::tuple<DataType, int64_t>;
+using TmaInnerReductionTestParams = std::tuple<DataType, int64_t>;
 
-class TmaReductionAutoTest
-    : public NVFuserFixtureParamTest<TmaReductionAutoTestParams> {
+class TmaInnerReductionTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
  protected:
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-    NVFuserFixtureParamTest<TmaReductionAutoTestParams>::SetUp();
+    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
     enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
   }
@@ -2844,7 +2844,7 @@ class TmaReductionAutoTest
 };
 
 // Test basic sum reduction with auto-scheduled TMA
-TEST_P(TmaReductionAutoTest, Sum) {
+TEST_P(TmaInnerReductionTest, Sum) {
   auto dtype = std::get<0>(GetParam());
   auto reduction_size = std::get<1>(GetParam());
   constexpr int64_t iter_size = 1024;
@@ -2878,7 +2878,7 @@ TEST_P(TmaReductionAutoTest, Sum) {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    TmaReductionAutoTest,
+    TmaInnerReductionTest,
     ::testing::Combine(
         testing::Values(DataType::Float, DataType::BFloat16),
         testing::ValuesIn([] {
@@ -2888,7 +2888,7 @@ INSTANTIATE_TEST_SUITE_P(
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
         }())),
-    [](const testing::TestParamInfo<TmaReductionAutoTestParams>& info) {
+    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
       auto dtype = std::get<0>(info.param);
       auto reduction_size = std::get<1>(info.param);
       std::ostringstream os;
