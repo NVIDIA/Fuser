@@ -233,11 +233,10 @@ void validateAllocationSizesAndStrides(
        std::ssize(strides)});
 
   int64_t expected_stride_if_contiguous = 1;
-  auto dim_index = static_cast<int64_t>(sizes.size());
+  auto dim_index = std::ssize(sizes);
   // Go backwards because it's easier to compute the expected stride this way.
-  for (auto domain_index = static_cast<int64_t>(alloc_dom.size()) - 1;
-       domain_index >= 0;
-       domain_index--) {
+  for (auto domain_index :
+       arange(std::ssize(alloc_dom)) | std::views::reverse) {
     IterDomain* alloc_id = alloc_dom[domain_index];
     if (alloc_id->isReduction()) {
       continue;
@@ -269,25 +268,27 @@ void validateAllocationSizesAndStrides(
     }
 
     NVF_CHECK(contiguity[domain_index].has_value());
-    if (*contiguity[domain_index]) {
-      NVF_CHECK_EQ(
-          stride,
-          expected_stride_if_contiguous,
-          "TensorView ",
-          tv->toString(),
-          "'s stride mismatch with contiguity info. ",
-          " allocation domain: ",
-          ir_utils::toString(alloc_dom),
-          ": sizes: ",
-          sizes,
-          ": strides: ",
-          strides,
-          "; contiguity: ",
-          toDelimitedString(contiguity),
-          "; dim: ",
-          domain_index);
+    if (size > 1) {
+      if (*contiguity[domain_index]) {
+        NVF_CHECK_EQ(
+            stride,
+            expected_stride_if_contiguous,
+            "TensorView ",
+            tv->toString(),
+            "'s stride mismatch with contiguity info. ",
+            " allocation domain: ",
+            ir_utils::toString(alloc_dom),
+            ": sizes: ",
+            sizes,
+            ": strides: ",
+            strides,
+            "; contiguity: ",
+            toDelimitedString(contiguity),
+            "; dim: ",
+            domain_index);
+      }
+      expected_stride_if_contiguous = stride * size;
     }
-    expected_stride_if_contiguous = stride * size;
   }
 }
 
