@@ -595,7 +595,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     //
     // clang-format off
     // ```
-    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
+    // const auto& [sizes, strides] = inferShapeAndContiguousStrides(out_tv, expr_evaluator_);
     // if (strides == t.strides()) {
     //   expr_evaluator_.bind(out_tv, t);
     // } else {
