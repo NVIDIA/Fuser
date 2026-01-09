@@ -499,16 +499,20 @@ class InferenceBenchmark:
         """
         # Prefill phase - process the entire prompt
         with timer() as prefill_timer:
+            torch.cuda.nvtx.range_push("prefill")
             first_token = self.prefill(input_ids, past_key_values)
+            torch.cuda.nvtx.range_pop()
         prefill_time = prefill_timer()
         generated_tokens = [first_token]
 
         # Decode phase - generate remaining tokens one by one
         next_token = first_token
         with timer() as decode_timer:
-            for _ in range(max_new_tokens - 1):
+            for idx in range(max_new_tokens - 1):
+                torch.cuda.nvtx.range_push("decode:" + str(idx))
                 next_token = self.decode_one_token(next_token, past_key_values)
                 generated_tokens.append(next_token)
+                torch.cuda.nvtx.range_pop()
 
         total_decode_time = decode_timer()
 
@@ -566,12 +570,14 @@ class InferenceBenchmark:
         print(f"\nWarming up with {self.config.warmup_iterations} iterations...")
         input_ids, past_key_values = self.generate_batch()
 
-        for _ in tqdm(range(self.config.warmup_iterations), disable=LOCAL_RANK != 0):
+        for idx in tqdm(range(self.config.warmup_iterations), disable=LOCAL_RANK != 0):
             past_key_values.reset()
             # Use output_length to warm up sufficiently. Otherwise, Thunder's
             # first-run latency is terribly slow due to lack of dynamic shape
             # support.
+            torch.cuda.nvtx.range_push("warmup:" + str(idx))
             _ = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
+            torch.cuda.nvtx.range_pop()
 
         print(f"\nRunning {self.config.num_iterations} benchmark iterations...")
         all_metrics = []
@@ -593,7 +599,9 @@ class InferenceBenchmark:
             self.profiler_toggle = is_under_nsys
             if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStart()
+            torch.cuda.nvtx.range_push("step:" + str(idx))
             iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
+            torch.cuda.nvtx.range_pop()
             if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStop()
 
