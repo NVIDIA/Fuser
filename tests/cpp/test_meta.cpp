@@ -536,6 +536,13 @@ TEST_F(MetaTest, Matmul1D) {
 // Test CutlassNvfp4GroupedMmaOp with meta device
 TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
+  // NVFP4 CUTLASS grouped MMA relies on SM100+ kernels (Blackwell) and TMA.
+  // On older GPUs the CUTLASS kernel may compile but fail at runtime when
+  // initializing TMA descriptors (e.g., status 801).
+  if (!deviceMajorMinorCheck(10)) {
+    GTEST_SKIP() << "CutlassNvfp4GroupedMma requires SM100+ (compute capability >= 10.0)";
+  }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
