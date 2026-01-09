@@ -28,6 +28,7 @@
 #include <runtime/executor_params.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/reduction_tma.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -2632,14 +2633,14 @@ TEST_F(ReductionTest, TensorRankLimit) {
 //        rest are reduce dimensions. Inner dimensions should be merged by the
 //        schedule.
 // inner_size: The size of the inner-most dimension.
-using TmaInnerReductionTestParams =
+using TmaInnerReductionManualTestParams =
     std::tuple<int64_t, int64_t>; // <ndims, inner_size>
 
-class TmaInnerReductionTest
-    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
+class TmaInnerReductionManualTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionManualTestParams> {
  protected:
   void SetUp() override {
-    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
+    NVFuserFixtureParamTest<TmaInnerReductionManualTestParams>::SetUp();
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
@@ -2648,7 +2649,7 @@ class TmaInnerReductionTest
  private:
   std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
 };
-TEST_P(TmaInnerReductionTest, Basic) {
+TEST_P(TmaInnerReductionManualTest, Basic) {
   [[maybe_unused]] auto dtype = DataType::Float;
   [[maybe_unused]] int64_t dtype_bytes = dataTypeSizeByte(dtype);
   [[maybe_unused]] auto [ndims, inner_size] = GetParam();
@@ -2774,7 +2775,7 @@ TEST_P(TmaInnerReductionTest, Basic) {
 }
 INSTANTIATE_TEST_SUITE_P(
     ,
-    TmaInnerReductionTest,
+    TmaInnerReductionManualTest,
     ::testing::Combine(
         ::testing::Values(2, 3), // ndims
         ::testing::ValuesIn([] { // inner_size
@@ -2784,11 +2785,115 @@ INSTANTIATE_TEST_SUITE_P(
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
         }())),
-    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+    [](const testing::TestParamInfo<TmaInnerReductionManualTestParams>& info) {
       int64_t ndims = std::get<0>(info.param);
       int64_t inner_size = std::get<1>(info.param);
       return "ndim_" + std::to_string(ndims) + "_inner_size_" +
           std::to_string(inner_size);
+    });
+
+namespace tma_reduction_check {
+bool isTmaParams(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
+  return hparams->isA<TmaInnerReductionParams>();
+}
+} // namespace tma_reduction_check
+
+// <dtype, reduction_size>
+using TmaInnerReductionTestParams = std::tuple<DataType, int64_t>;
+
+class TmaInnerReductionTest
+    : public NVFuserFixtureParamTest<TmaInnerReductionTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<TmaInnerReductionTestParams>::SetUp();
+    enable_options_guard_ = std::make_unique<EnableOptionsGuard>();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaReduction);
+  }
+
+  // Check if we expect TMA to be used based on mayUseTma() conditions
+  bool expectTmaUsed(DataType dtype, int64_t reduction_size) {
+    // Skip TMA for small reductions
+    if (reduction_size < 128) {
+      return false;
+    }
+
+    // TMA requires 16-byte alignment (vectorize_factor > 1)
+    int64_t dtype_size_bit = dataTypeSizeBit(dtype);
+    int64_t dtype_bytes = dtype_size_bit / 8;
+    int64_t min_elems_for_alignment = 16 / dtype_bytes;
+    if (reduction_size % min_elems_for_alignment != 0) {
+      return false;
+    }
+
+    // Reduction dim must fit into smem
+    auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    int64_t smem_elems =
+        (dev_prop->sharedMemPerBlockOptin * 8) / dtype_size_bit;
+    if (reduction_size > smem_elems) {
+      return false;
+    }
+
+    return true;
+  }
+
+ private:
+  std::unique_ptr<EnableOptionsGuard> enable_options_guard_;
+};
+
+// Test basic sum reduction with auto-scheduled TMA
+TEST_P(TmaInnerReductionTest, Sum) {
+  auto dtype = std::get<0>(GetParam());
+  auto reduction_size = std::get<1>(GetParam());
+  constexpr int64_t iter_size = 1024;
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+
+  auto tv0_cast = maybeCastOp(DataType::Float, tv0);
+  auto tv1 = sum(tv0_cast, {1});
+  fusion.addOutput(tv1);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({iter_size, reduction_size}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+
+  if (expectTmaUsed(dtype, reduction_size)) {
+    EXPECT_TRUE(tma_reduction_check::isTmaParams(executor_cache))
+        << "Expected TMA scheduler for reduction_size=" << reduction_size;
+  }
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaInnerReductionTest,
+    ::testing::Combine(
+        testing::Values(DataType::Float, DataType::BFloat16),
+        testing::ValuesIn([] {
+          std::vector<int64_t> vals(
+              Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
+          // Add some irregular numbers
+          vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
+          return vals;
+        }())),
+    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+      auto dtype = std::get<0>(info.param);
+      auto reduction_size = std::get<1>(info.param);
+      std::ostringstream os;
+      os << dtype << "_" << reduction_size;
+      return os.str();
     });
 
 } // namespace nvfuser

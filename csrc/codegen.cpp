@@ -2000,12 +2000,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
 
-    auto fn_call = output_dtype == DataType::Float4_e2m1fn
-        ? "bq::grouped_block_quantize_to_nvfp4"
-        : "bq::grouped_block_quantize_to_mxfp8";
+    NVF_ERROR(
+        output_dtype == DataType::Float4_e2m1fn,
+        "only nvfp4 output is implemented");
 
     // Generate the function call
-    indent() << genCall(fn_call, template_args, func_args) << ";\n";
+    indent() << genCall(
+                    "bq::grouped_block_quantize_to_nvfp4",
+                    template_args,
+                    func_args)
+             << ";\n";
   }
 
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
