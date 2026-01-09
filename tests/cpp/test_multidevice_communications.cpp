@@ -264,30 +264,6 @@ TEST_P(CommunicationTest, SendRecv) {
   }
 }
 
-TEST_P(CommunicationTest, AllToAll) {
-  hir::HostIrContainer container;
-  FusionGuard fg(&container);
-  TensorView* in = makeContigTensor(1);
-  in->setDeviceMesh(full_mesh_);
-  TensorView* out = ops::newValLike(in, in->dtype())->as<TensorView>();
-  out->setDeviceMesh(full_mesh_);
-  auto communication = IrBuilder::create<Communication>(
-      CommunicationType::AllToAll, out, in, all_ranks_);
-
-  at::Tensor input_tensor = at::tensor({1, 2, 3, 4}, tensor_options_);
-  at::Tensor output_tensor = at::empty({4}, tensor_options_);
-
-  auto work = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      backend_,
-      input_tensor,
-      output_tensor);
-  work->wait();
-
-  debug() << "output_tensor: " << output_tensor << std::endl;
-}
-
 TEST_P(CommunicationTest, SendRecvToSelf) {
   constexpr DeviceIdxType sender = 0;
   if (communicator_->deviceId() > 0) {

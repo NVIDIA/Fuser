@@ -347,7 +347,7 @@ inferAndValidateAllocationSizesAndStrides(
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
 
-  bool skip_validation = true;
+  bool skip_validation = false;
 
   // Skip validation for block scales of BlockQuantizationOp with
   // swizzled scales.

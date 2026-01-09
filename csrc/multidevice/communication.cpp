@@ -630,10 +630,48 @@ c10::intrusive_ptr<c10d::Work> postAllToAll(
       " contiguity: ",
       communication->out()->domain()->getContiguityString());
 
-  auto flattened_input_tensor = viewAsCompact(input_tensor);
+  // input_tv = [DIDx(d), n/d, m, ...]
+  // output_tv = [n, DIDx(d), m/d, ...]
+  // `n`: gathered dimension
+  // `m`: scattered dimension
+  // For alltoall correctness, we split `m` and reorder as [DIDx(d), d, n/d,
+  // m/d, ...] such that alltoall_base splits across the `d` dimension.
+
+  int64_t d = communication->team_size();
+  auto input_sizes = input_tensor.sizes();
+
+  NVF_CHECK(
+      input_sizes.at(1) % d == 0,
+      "Scattered dimension must be divisible by the team size");
+
+  std::vector<int64_t> input_reshape_sizes(
+      input_sizes.begin(), input_sizes.end());
+  input_reshape_sizes.at(1) = d;
+  input_reshape_sizes.insert(
+      input_reshape_sizes.begin() + 2, input_sizes.at(1) / d);
+  auto reshaped_input = input_tensor.reshape(input_reshape_sizes);
+
+  std::vector<int64_t> permute_dims(input_reshape_sizes.size());
+  std::iota(permute_dims.begin(), permute_dims.end(), 0);
+  std::swap(permute_dims[0], permute_dims[1]);
+
+  auto reordered_input = reshaped_input.permute(permute_dims).contiguous();
+
+  if (my_device_index == 0) {
+    debug() << "Permuted input: " << reordered_input.sizes() << std::endl;
+    debug() << "Permuted input tensor: \n" << reordered_input << std::endl;
+  }
+
+  auto flattened_input_tensor = viewAsCompact(reordered_input);
+  if (my_device_index == 0) {
+    debug() << "Flattened input: " << flattened_input_tensor.sizes()
+            << std::endl;
+    debug() << "Flattened input tensor: \n"
+            << flattened_input_tensor << std::endl;
+  }
   auto flattened_output_tensor = viewAsCompact(output_tensor);
 
-  // alltoall_bases requires even splits of the input and output tensors.
+  // alltoall_base requires even splits of the input and output tensors.
   auto input_splits = at::tensor_split(
       flattened_input_tensor, communication->team_size(), /*dim=*/0);
   auto output_splits = at::tensor_split(
@@ -728,7 +766,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
           output_tensor);
     case CommunicationType::SendRecv:
       return postSendRecv(
-          communication, my_device_index, backend, input_tensor, output_tensor);
+          communication,
+          my_device_index,
+          root_index,
+          backend,
+          input_tensor,
+          output_tensor);
     case CommunicationType::AllToAll:
       return postAllToAll(
           communication, my_device_index, backend, input_tensor, output_tensor);
