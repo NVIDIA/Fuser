@@ -2196,8 +2196,8 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
   const float kEps = 1e-6;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
-  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
-  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
@@ -2308,4 +2308,71 @@ INSTANTIATE_TEST_SUITE_P(
       os << dtype << "_" << x << "_" << y;
       return os.str();
     });
+
+TEST_F(TmaPersistentTestF, KernelReuse) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create an RMS norm fusion that will use inner persistent scheduler
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  // Helper to get the number of compiled kernel runtimes
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    if (runtime_map.empty()) {
+      return 0;
+    }
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // Helper to run fusion with given dimensions and return the runtime
+  auto runAndValidate = [&](int64_t outer_dim,
+                            int64_t inner_dim) -> FusionKernelRuntime* {
+    auto input = at::randn({outer_dim, inner_dim}, options);
+    auto weight = at::randn({inner_dim}, options);
+    auto outputs = executor_cache.runFusionWithInputs({input, weight});
+    testValidate(
+        executor_cache.fusion(), outputs, {input, weight}, __LINE__, __FILE__);
+    return executor_cache.getMostRecentKernelRuntime();
+  };
+
+  // First run with specific dimensions that will produce launch config A
+  auto first_runtime = runAndValidate(2048, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Second run with different outer dimension - should reuse the kernel
+  auto second_runtime = runAndValidate(2048 + 8, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+  EXPECT_EQ(first_runtime, second_runtime);
+
+  // Third run with slightly smaller inner dimension - should reuse the kernel
+  auto third_runtime = runAndValidate(2048 + 8, 4096 - 8);
+  EXPECT_EQ(first_runtime, third_runtime);
+
+  // Fourth run with slightly larger inner dimension - should NOT reuse the
+  // kernel
+  auto fourth_runtime = runAndValidate(2048 + 8, 4096 + 8);
+  EXPECT_NE(first_runtime, fourth_runtime);
+  EXPECT_EQ(numRuntimes(), 2);
+}
+
 } // namespace nvfuser

@@ -186,6 +186,7 @@ class CompiledKernel : public CompiledKernelBase {
   NVF_API CompiledKernel(
       Fusion* fusion,
       CompileParams compile_params,
+      const LaunchParams& launch_params,
       c10::Device device,
       SchedulerType scheduler_type,
       int64_t fusion_id,
@@ -199,6 +200,7 @@ class CompiledKernel : public CompiledKernelBase {
   NVF_API CompiledKernel(
       Fusion* fusion,
       CompileParams compile_params,
+      const LaunchParams& launch_params,
       c10::Device device,
       SchedulerType scheduler_type = SchedulerType::None,
       int64_t fusion_id = 0,
