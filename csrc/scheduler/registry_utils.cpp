@@ -1096,7 +1096,7 @@ bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
       //   2. Read two offset inputs directly from global memory
       auto grouped_bop = expr->as<GroupedBlockQuantizationOp>();
       if (rejectScheduleFusionOutputRequirement(
-              grouped_bop, grouped_bop->out(), scheduler_type) ||
+              grouped_bop, grouped_bop->blockScales(), scheduler_type) ||
           rejectScheduleFusionInputRequirement(
               grouped_bop, grouped_bop->inputOffsets(), scheduler_type) ||
           rejectScheduleFusionInputRequirement(

@@ -2810,10 +2810,9 @@ BlockQuantizationResults groupedBlockQuantize(
 
   auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
 
-  // Validate input tensor is not zero-dimensional
-  NVF_CHECK(
-      !inp_domain.empty(),
-      "Grouped block quantization does not support zero-dimensional tensors");
+  // Validate input tensor is 2d
+  NVF_ERROR_EQ(inp_domain.size(), 2,
+      "Grouped block quantization only supports 2-dimensional tensors");
 
   // Create output domain for quantized tensor (same shape as input)
   std::vector<IterDomain*> quantized_out_domain;
@@ -2834,7 +2833,6 @@ BlockQuantizationResults groupedBlockQuantize(
   auto block_scales_dtype = (out_dtype == DataType::Float4_e2m1fn)
       ? DataType::Float8_e4m3fn
       : DataType::Float8_e8m0fnu;
-  NVF_ERROR_EQ(inp_domain.size(), 2);
 
   // This is used for both root and loop domain on output
   // maps directly to input's logical domain.
