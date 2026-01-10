@@ -453,10 +453,40 @@ def test_binary(multidevice_test):
 def test_alltoall(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-    k, m, n = 2, 3, 5
+    k, m, n = 3, 40, 56
+
+    assert (
+        m % d == 0 and n % d == 0
+    ), "Sharded dimensions must be divisible by the team size"
 
     with FusionDefinition() as fd:
-        inp = fd.define_tensor((k, d * m, d * n), contiguity=True, dtype=DataType.Half)
+        inp = fd.define_tensor((k, m, n), contiguity=True, dtype=DataType.Half)
+        # Ideally, we could have exposed and split the allocation domain of
+        # alltoall input and output, as follows:
+        #   Input of shape [k, m, n] sharded on n
+        #   Output of shape [k, m, n] sharded on m
+        #
+        # Where d is an outer split from `n` and d* is an outer_split from `m`:
+        #   input           [b, m, DIDx(d), n/d]
+        #   alltoall_input  [d*, b, m/d*, DIDx(d), n/d]
+        #     d* is reordered outermost. `alltoall_single` will slice on the
+        #     outermost dimension.
+        #   alltoall_output [d, b, DIDx(d*), m/d*, n/d]
+        #     d is gathered back. AllToAll places data from each device in
+        #     memory in order of rank.
+        #   output          [b, DIDx(d*), m/d, n]
+        #     Same as sharding original input along row dimension instead of
+        #     column.
+        #
+        # However, tensors corresponding to allocation domains with non-adjacent
+        # splits fail stride validation. To avoid this, I permute the gathered
+        # and scattered dimensions to be outermost in that order. `postAllToAll`
+        # will split the scattered dimension and reorder as
+        # [DIDx(d), d, n/d, m/d, k] and make it contiguous. The output will be
+        # [DIDx(d*), n, m, k]. This avoids the non-adjacent split in output and
+        # avoids exposing the non-adjacent split of `m` in input to the fusion
+        # definition. I am using `permute` instead of setting the allocation
+        # domain to avoid another copy.
         all2all_inp = fd.ops.permute(inp, dims=[2, 1, 0])
         all2all_out = fd.ops.set(all2all_inp)
         out = fd.ops.permute(all2all_out, dims=[2, 1, 0])
@@ -472,38 +502,21 @@ def test_alltoall(multidevice_test):
         all2all_inp.outer_split(0, d)
         all2all_inp.axis(0).parallelize(
             nvfuser.ParallelType.mesh_x
-        )  # [k, d*m, DIDx(d), n]
-        print("all2all_inp domain: ", all2all_inp.domain())
+        )  # [DIDx(d), n, d * m, k]
 
-        print("all2all_out domain: ", all2all_out.domain())
         all2all_out.set_device_mesh(mesh)
         all2all_out.outer_split(1, d)
         all2all_out.axis(1).parallelize(
             nvfuser.ParallelType.mesh_x
         )  # [d * n, DIDx(d), m, k]
         all2all_out.set_allocation_domain(all2all_out.get_loop_domain(), True)
-        print(all2all_out.domain())
 
         out.set_device_mesh(mesh)
         out.outer_split(1, d)
         out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
         out.set_allocation_domain(out.get_loop_domain(), True)
-        print(out.domain())
-        # print ("Fusion: \n", fd.fusion.print_transforms())
 
-    in_tensor = torch.arange(k * d * m * d * n, dtype=torch.float16).reshape(
-        k, d * m, d * n
-    )
+    in_tensor = torch.randn(k, m, n, dtype=torch.float16)
     sharded = multidevice_test.shard_tensor(in_tensor, 2, mesh)
     (all2all_inp, all2all_out, out) = fd.execute([sharded])
-    # if multidevice_test.rank == 0:
-    #     print("in_tensor: \n", in_tensor)
-    #     print("sharded: \n", sharded)
-    #     print("all2all_inp flattened: \n", all2all_inp.as_strided((sharded.numel(),), (1,)))
-    #     print(
-    #         "all2all_out flattened: \n",
-    #         all2all_out.as_strided((sharded.numel(),), (1,)),
-    #     )
-    #     print(out)
-    #     print (multidevice_test.shard_tensor(in_tensor, 1, mesh))
     torch.testing.assert_close(out, multidevice_test.shard_tensor(in_tensor, 1, mesh))

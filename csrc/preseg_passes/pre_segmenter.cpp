@@ -86,7 +86,7 @@ namespace nvfuser::preseg_passes {
 
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<DecomposeReshardingsPass>::runPass(fusion);
-  // OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
+  OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
 
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);

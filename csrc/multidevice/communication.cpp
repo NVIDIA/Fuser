@@ -657,18 +657,7 @@ c10::intrusive_ptr<c10d::Work> postAllToAll(
 
   auto reordered_input = reshaped_input.permute(permute_dims).contiguous();
 
-  if (my_device_index == 0) {
-    debug() << "Permuted input: " << reordered_input.sizes() << std::endl;
-    debug() << "Permuted input tensor: \n" << reordered_input << std::endl;
-  }
-
   auto flattened_input_tensor = viewAsCompact(reordered_input);
-  if (my_device_index == 0) {
-    debug() << "Flattened input: " << flattened_input_tensor.sizes()
-            << std::endl;
-    debug() << "Flattened input tensor: \n"
-            << flattened_input_tensor << std::endl;
-  }
   auto flattened_output_tensor = viewAsCompact(output_tensor);
 
   // alltoall_base requires even splits of the input and output tensors.

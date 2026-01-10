@@ -419,9 +419,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
               CommunicationType::SendRecv, p_logical_id, c_logical_id);
         } else {
           fill_communication_info(
-              CommunicationType::AllToAll,
-              c2p_map.at(c_logical_id),
-              c_logical_id);
+              CommunicationType::AllToAll, nullptr, nullptr);
         }
       }
     } else {
@@ -483,10 +481,12 @@ Layout getCommunicationLayout(
   // For the following communication types, the sharded_id does not have to be
   // outermost in allocation domain. Nonetheless, `tv` still needs to be
   // contiguous and therefore .contiguous() at the beginning of this function.
+  // TODO(prmishra): Fix the layout for AllToAll.
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||
-      type == CommunicationType::SendRecv) {
+      type == CommunicationType::SendRecv ||
+      type == CommunicationType::AllToAll) {
     return layout;
   }
 
@@ -563,10 +563,10 @@ std::vector<Expr*> convertSingleOpToCommunication(
     output_tv->setMemoryType(MemoryType::Global);
   }
 
-  // NVF_ERROR(
-  //     isCommunicationLayoutCompliant(e),
-  //     "Resharding on an inner axis is not lowerable ",
-  //     e->toString());
+  NVF_ERROR(
+      isCommunicationLayoutCompliant(e),
+      "Resharding on an inner axis is not lowerable ",
+      e->toString());
 
   CommunicationInfo communication_info = getCommunicationInfo(e);
 
