@@ -49,9 +49,13 @@ import thunder
 from thunder.dynamo.compiler import thunderfx
 from layers_for_inference_benchmark import (
     GroupedSwiGLU,
+    NVFP4InferenceSwiGLU,
+    NVFP4InferenceLinear,
+    SwiGLU,
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
+    nvfuser_f16a_nvfp4weight_scaled_mm,
 )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
@@ -126,6 +130,7 @@ def _register_nvfp4_ops():
     """Register nvfp4 custom operations with Thunder."""
     # Register f16a_nvfp4weight_scaled_grouped_mm with nvfuser translator
     _nvfp4_grouped_mm_symbol = _register_custom_op(nvfuser_f16a_nvfp4weight_scaled_grouped_mm)
+    _nvfp4_scaled_mm_symbol = _register_custom_op(nvfuser_f16a_nvfp4weight_scaled_mm)
 
     def nvfp4_grouped_mm_translator(
         activation,
@@ -165,7 +170,39 @@ def _register_nvfp4_ops():
         )
         return out
 
+    def nvfp4_scaled_mm_translator(
+        activation,
+        fp4_weight,
+        weight_scaling_factor,
+        weight_global_scale,
+        *,
+        fd,
+        lc_to_nv_map,
+    ):
+        from nvfuser_direct import DataType
+        from thunder.executors.nvfuserex_impl import getnv
+
+        nv_act = getnv(activation, fd, lc_to_nv_map)
+        nv_fp4_w = getnv(fp4_weight, fd, lc_to_nv_map)
+        nv_sf_w = getnv(weight_scaling_factor, fd, lc_to_nv_map)
+        nv_alpha = getnv(weight_global_scale, fd, lc_to_nv_map)
+
+        quantized_activation, activation_scale = fd.ops.nv_block_quantize(nv_act, nv_alpha, True, 16)
+        out, _, _ = fd.ops.scaled_mm(
+            quantized_activation,
+            nv_fp4_w,
+            activation_scale,
+            nv_sf_w,
+            nv_alpha,
+            bias=None,
+            beta=None,
+            dtype=DataType.BFloat16,
+        )
+        return out
+
+
     _register_nvfuser_translator(_nvfp4_grouped_mm_symbol, nvfp4_grouped_mm_translator)
+    _register_nvfuser_translator(_nvfp4_scaled_mm_symbol, nvfp4_scaled_mm_translator)
 
 
 # The logic is based on https://github.com/pytorch/ao/blob/b34c1037/torchao/quantization/quant_api.py#L230
@@ -226,6 +263,26 @@ def _quantize_llama4(model: nn.Module) -> None:
         lambda model, cur_fqn: isinstance(model, GroupedSwiGLU),
     )
 
+    _replace_with_custom_fn_if_matches_filter_with_name(
+        model,
+        NVFP4InferenceSwiGLU.from_swiglu,
+        lambda model, cur_fqn: isinstance(model, SwiGLU),
+    )
+
+    # Find and return all submodules of the model that are instances of Llama4MoE
+    def _find_llama4moe_recursive(module):
+        found = []
+        for child in module.children():
+            if isinstance(child, Llama4MoE):
+                found.append(child)
+            found.extend(_find_llama4moe_recursive(child))
+        return found
+
+    llama4moe_module = _find_llama4moe_recursive(model)
+    assert len(llama4moe_module) == 1, f"Expected exactly one Llama4MoE module, found {len(llama4moe_module)}"
+
+    # Quantize the gate projection layer
+    llama4moe_module[0].gate = NVFP4InferenceLinear.from_linear(llama4moe_module[0].gate)
 
 @contextmanager
 def timer():
