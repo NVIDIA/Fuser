@@ -25,7 +25,7 @@ std::string toString(const ReductionParams* rparams) {
      << (rparams->project_persistent_buffers ? "Project Persistent Buffers // "
                                              : "");
 
-  if (rparams->schedule_3D) {
+  if (rparams->schedule_3d) {
     ss << "3D Schedule // "
        << "Outer Reduction: "
        << (rparams->cross_block_outer_reduction ? "cross block / " : "")

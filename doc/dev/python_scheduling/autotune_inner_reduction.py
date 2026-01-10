@@ -105,7 +105,7 @@ class AutotuneInnerReduction:
         grid_x_limit = 2147483647
         grid_y_limit = 65535
 
-        reduction_params.schedule_3D = False
+        reduction_params.schedule_3d = False
         reduction_params.fastest_dim = True
         reduction_params.cross_block_inner_reduction = True
         reduction_params.block_dim_inner_reduction = ParallelType.block_x

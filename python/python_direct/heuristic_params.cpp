@@ -201,7 +201,7 @@ void bindHeuristicParams(py::module& nvfuser) {
           &ReductionParams::project_persistent_buffers,
           R"(Project persistent buffers back to inputs.
               )")
-      .def_readwrite("schedule_3D", &ReductionParams::schedule_3D, R"(
+      .def_readwrite("schedule_3d", &ReductionParams::schedule_3d, R"(
                 Use 3D scheduling for patterns like [reduction, iteration, reduction].
               )")
       .def_readwrite("flip_grid", &ReductionParams::flip_grid, R"(

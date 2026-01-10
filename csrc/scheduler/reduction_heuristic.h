@@ -36,7 +36,7 @@ class ReductionParams : public HeuristicParams {
 
   // Are we treating the scheduling as 3 dimensional, can be useful for patterns
   // like [reduction, iteration, reduction].
-  bool schedule_3D = false;
+  bool schedule_3d = false;
 
   // For outer reductions we may want to swap the gdimx and gdimy bindings to
   // amortize the cost of the final cleanup in grid reductions.
@@ -195,7 +195,7 @@ class ReductionParams : public HeuristicParams {
         other->fastest_dim == fastest_dim &&
         other->persistent_kernel == persistent_kernel &&
         other->project_persistent_buffers == project_persistent_buffers &&
-        other->schedule_3D == schedule_3D && other->flip_grid == flip_grid &&
+        other->schedule_3d == schedule_3d && other->flip_grid == flip_grid &&
         other->cross_block_inner_reduction == cross_block_inner_reduction &&
         other->cross_grid_inner_reduction == cross_grid_inner_reduction &&
         other->unroll_factor_inner_reduction == unroll_factor_inner_reduction &&
@@ -263,7 +263,7 @@ class ReductionParams : public HeuristicParams {
     } else {
       ss << "Circular buffer: not used\n";
     }
-    if (schedule_3D) {
+    if (schedule_3d) {
       ss << "3D Schedule\n"
          << "Outer Reduction: ";
       if (cross_block_outer_reduction) {
@@ -348,7 +348,7 @@ class ReductionParams : public HeuristicParams {
     size_t attr_hash = static_cast<size_t>(fastest_dim) << (bits - 1) ^
         static_cast<size_t>(persistent_kernel) << (bits - 2) ^
         static_cast<size_t>(project_persistent_buffers) << (bits - 3) ^
-        static_cast<size_t>(schedule_3D) << (bits - 4) ^
+        static_cast<size_t>(schedule_3d) << (bits - 4) ^
         static_cast<size_t>(flip_grid) << (bits - 5) ^
         static_cast<size_t>(cross_block_inner_reduction) << (bits - 6) ^
         static_cast<size_t>(cross_grid_inner_reduction) << (bits - 7) ^
