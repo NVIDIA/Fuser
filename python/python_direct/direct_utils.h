@@ -29,6 +29,12 @@ std::vector<T> from_pysequence(nb::sequence seq) {
   result.reserve(nb::len(seq));
   std::transform(
       seq.begin(), seq.end(), std::back_inserter(result), [](nb::handle obj) {
+        // Get value from Thunder Proxy
+        if (nb::hasattr(obj, "value")) {
+          nb::object value = obj.attr("value");
+          NVF_ERROR(nb::isinstance<T>(value));
+          return nb::cast<T>(value);
+        }
         NVF_ERROR(nb::isinstance<T>(obj));
         return nb::cast<T>(obj);
       });
