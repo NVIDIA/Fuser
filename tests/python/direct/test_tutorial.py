@@ -1797,3 +1797,90 @@ def test_tutorial_scheduling_layer_norm_with_profiling():
     assert prof.profile.fusion_id >= 0
     assert len(prof.profile.kernel_profiles) > 0
     assert prof.profile.kernel_profiles[0].scheduler == "user"
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_warp_specialized_circular_buffering_pointwise():
+    # NOTE: Only a functional test, so high performance is not expected.
+    def _definition_func(fd: FusionDefinition, inputs):
+        tv0 = fd.from_pytorch(inputs[0])
+        tv1 = fd.from_pytorch(inputs[1])
+        tv2 = fd.ops.add(tv0, tv1)
+        fd.add_output(tv2)
+
+    def _schedule_func(fd: FusionDefinition):
+        # Parameters
+        number_of_stages = 4
+        prefetch_distance = 1
+        bulk_inner_dim = 128
+
+        tv_inputs = list(filter(lambda v: v.is_tensor(), fd.fusion.inputs()))
+        assert len(tv_inputs) == 2
+        tv0, tv1 = tv_inputs
+
+        # Use TMA to load TV0 into shared memory
+        tv3 = tv0.cache_after(LoadStoreOpType.tma)
+        tv3.set_memory_type(MemoryType.shared)
+
+        tv4 = tv1.cache_after(LoadStoreOpType.tma)
+        tv4.set_memory_type(MemoryType.shared)
+
+        tv_outputs = list(filter(lambda v: v.is_tensor(), fd.fusion.outputs()))
+        assert len(tv_outputs) == 1
+        reference = tv_outputs[0]
+
+        # [M, N] -> [M, N/bid, bid]
+        reference.split(-1, bulk_inner_dim)
+        fd.sched.transform_like(reference)
+
+        tv3.axis(0).parallelize(ParallelType.grid_x)
+        tv4.axis(0).parallelize(ParallelType.grid_x)
+
+        # Set computeAt position for circular buffering pipelining
+        # The circular buffer axis is the first serial iterDomain to the left
+        # of computeAt position. The domain is [M [BIDx], N/bid, bid], so the
+        # circular buffer iterDomain is N/bid for computeAt position 2.
+        fd.sched.inline_at(reference, pos=2)
+
+        # Circular Buffer with TMA loads
+        tv3.axis(2).parallelize(ParallelType.tma)
+        tv4.axis(2).parallelize(ParallelType.tma)
+        fd.sched.warp_specialize(
+            tv3, number_of_stages, prefetch_distance, ParallelType.block_y
+        )
+        fd.sched.warp_specialize(
+            tv4, number_of_stages, prefetch_distance, ParallelType.block_y
+        )
+
+        # Split reference to parallelize TMA tile
+        reference.split(-1, bulk_inner_dim)
+        reference.axis(0).parallelize(ParallelType.grid_x)
+        reference.axis(-1).parallelize(ParallelType.block_x)
+
+    # Inputs
+    tensor_outer_dim = 128
+    tensor_inner_dim = 1024
+    t0 = torch.randn(
+        tensor_outer_dim,
+        tensor_inner_dim,
+        dtype=torch.float,
+        device=torch.device("cuda:0"),
+    )
+    t1 = torch.randn(
+        tensor_outer_dim,
+        tensor_inner_dim,
+        dtype=torch.float,
+        device=torch.device("cuda:0"),
+    )
+    inputs = [t0, t1]
+
+    with FusionDefinition() as fd:
+        _definition_func(fd, inputs)
+        _schedule_func(fd)
+
+    outputs = fd.manual_execute(inputs)
+    warp_specialization_if_stmt = "if ((((nvfuser_index_t)threadIdx.y) >= 1LL)) {"
+    assert warp_specialization_if_stmt in fd.fusion.print_kernel()
+    assert torch.allclose(outputs[0], t0 + t1)
