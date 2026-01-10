@@ -87,7 +87,11 @@ class FusionInspector : private IterVisitor {
     // TIDx and its size is a multiple of warp size (32).
     auto is_static_warp_reduction = [](TensorView* out,
                                        bool has_warp_specialization) {
-      if (!has_warp_specialization) {
+      // Check if bdimx is statically known in launch params
+      bool has_static_bdimx = GpuLower::hasCurrent() &&
+          GpuLower::current()->launchParams().hasDim(ParallelType::TIDx);
+
+      if (!has_warp_specialization && !has_static_bdimx) {
         return false;
       }
 
@@ -97,10 +101,19 @@ class FusionInspector : private IterVisitor {
       for (auto ld : out->getLoopDomain()) {
         if (ld->isReduction()) {
           reduction_count++;
-          if (ld->getParallelType() == ParallelType::TIDx &&
-              ld->extent()->isConst() &&
-              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
-            has_valid_tidx_reduction = true;
+          if (ld->getParallelType() == ParallelType::TIDx) {
+            // Get extent either from launch params or from the const extent
+            std::optional<int64_t> extent;
+            if (has_static_bdimx) {
+              extent = GpuLower::current()->launchParams().getDim(
+                  ParallelType::TIDx);
+            } else if (ld->extent()->isConst()) {
+              extent = ld->extent()->value().as<int64_t>();
+            }
+
+            if (extent.has_value() && extent.value() % kThreadsPerWarp == 0) {
+              has_valid_tidx_reduction = true;
+            }
           }
         }
       }

@@ -64,7 +64,8 @@ class GpuLower : public NonCopyable {
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   NVF_API explicit GpuLower(
       Fusion* fusion,
-      const CompileParams& cparams = CompileParams());
+      const CompileParams& cparams = CompileParams(),
+      const LaunchParams& lparams = LaunchParams());
 
   NVF_API kir::Kernel* kernel() const;
 
@@ -81,6 +82,10 @@ class GpuLower : public NonCopyable {
 
   const PrimDataType& indexType() const {
     return cparams_.index_type.value();
+  }
+
+  const LaunchParams& launchParams() const {
+    return lparams_;
   }
 
   const auto& minDeviceVersion() const {
@@ -391,6 +396,7 @@ class GpuLower : public NonCopyable {
   kir::KernelPerformanceProfile profile_;
   std::unordered_set<Split*> divisible_splits_;
   CompileParams cparams_;
+  LaunchParams lparams_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
   std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};

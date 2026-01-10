@@ -1087,8 +1087,11 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
-  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  // For case contig_1_dtype_float_batch_2048_hidden_8192
+  // the performance is 59.7% SOL uisng concrete inputs
+  // for symbolic inputs, the performance is 59.1% SOL
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
