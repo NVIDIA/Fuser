@@ -54,6 +54,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::SendRecv:
       os << "SendRecv";
       break;
+    case CommunicationType::AllToAll:
+      os << "AllToAll";
+      break;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
   }
@@ -152,6 +155,7 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Allgather:
     case CommunicationType::Allreduce:
     case CommunicationType::ReduceScatter:
+    case CommunicationType::AllToAll:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
@@ -169,6 +173,7 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::Scatter:
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
+    case CommunicationType::AllToAll:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
@@ -605,6 +610,71 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
         /*tag=*/0);
   }
 }
+
+c10::intrusive_ptr<c10d::Work> postAllToAll(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
+
+  // input_tv = [DIDx(d), n/d, m, ...]
+  // output_tv = [n, DIDx(d), m/d, ...]
+  // `n`: gathered dimension
+  // `m`: scattered dimension
+  // For alltoall correctness, we split `m` and reorder as [DIDx(d), d, n/d,
+  // m/d, ...] such that alltoall_base splits across the `d` dimension.
+
+  int64_t d = communication->team_size();
+  auto input_sizes = input_tensor.sizes();
+
+  NVF_CHECK(
+      input_sizes.at(1) % d == 0,
+      "Scattered dimension must be divisible by the team size");
+
+  std::vector<int64_t> input_reshape_sizes(
+      input_sizes.begin(), input_sizes.end());
+  input_reshape_sizes.at(1) = d;
+  input_reshape_sizes.insert(
+      input_reshape_sizes.begin() + 2, input_sizes.at(1) / d);
+  auto reshaped_input = input_tensor.reshape(input_reshape_sizes);
+
+  std::vector<int64_t> permute_dims(input_reshape_sizes.size());
+  std::iota(permute_dims.begin(), permute_dims.end(), 0);
+  std::swap(permute_dims[0], permute_dims[1]);
+
+  auto reordered_input = reshaped_input.permute(permute_dims).contiguous();
+
+  auto flattened_input_tensor = viewAsCompact(reordered_input);
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
+
+  // alltoall_base requires even splits of the input and output tensors.
+  auto input_splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  auto output_splits = at::tensor_split(
+      flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize(input_splits, output_splits);
+
+  std::vector<int64_t> empty_split_sizes;
+  return backend->alltoall_base(
+      flattened_output_tensor,
+      flattened_input_tensor,
+      empty_split_sizes,
+      empty_split_sizes,
+      /*options=*/{});
+}
 } // namespace
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
@@ -691,6 +761,9 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
           backend,
           input_tensor,
           output_tensor);
+    case CommunicationType::AllToAll:
+      return postAllToAll(
+          communication, my_device_index, backend, input_tensor, output_tensor);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;
