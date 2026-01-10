@@ -34,9 +34,7 @@
 
 namespace nvfuser {
 
-class ViewTransform;
 class IrCloner;
-struct AnalyzeViewResult;
 
 class Scope {
  public:
