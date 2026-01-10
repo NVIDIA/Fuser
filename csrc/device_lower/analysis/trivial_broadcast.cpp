@@ -125,6 +125,17 @@ void ConcretizedBroadcastDomains::handle(BlockQuantizationOp* bq) {
   }
 }
 
+// GroupedBlockQuantizationOp introduces broadcast domains in the block scales
+// output
+void ConcretizedBroadcastDomains::handle(GroupedBlockQuantizationOp* bq) {
+  auto out = bq->blockScales()->as<TensorView>();
+  auto bcast_id = out->getLogicalDomain().back();
+  if (bcast_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        bcast_id, std::unordered_set<IterDomain*>({bcast_id}));
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 

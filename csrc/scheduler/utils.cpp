@@ -1354,17 +1354,18 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     // TODO: we might need to explicitly promote offsets to global memory
     // We expect offsets to remain in global memory, so we do not add it to
     // cache
-    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
-      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
-        return false;
+    auto isGroupOffsets = [tv](Expr* use) {
+      if (auto op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+        return tv == op->inputOffsets() || tv == op->outputOffsets();
+      } else if (auto op = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
+        return tv == op->inputOffsets() || tv == op->outputOffsets();
       }
-      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
-      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+      return false;
     };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
       if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
-          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
+          !isGroupOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1408,7 +1409,11 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
             ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
         (output->definition()->isA<BlockQuantizationOp>() &&
          output->definition()->as<BlockQuantizationOp>()->blockScales() ==
-             output)) {
+             output) ||
+        (output->definition()->isA<GroupedBlockQuantizationOp>() &&
+         output->definition()
+                 ->as<GroupedBlockQuantizationOp>()
+                 ->blockScales() == output)) {
       continue;
     }
     if (!output->uses().empty()) {

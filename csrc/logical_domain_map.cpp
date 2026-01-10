@@ -141,14 +141,33 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     // as it's extent is reduced by a factor of the block size
     // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
     // Make sure the producer isn't the global scale.
-    if (consumer_tv ==
-            consumer_tv->definition()
-                ->as<BlockQuantizationOp>()
-                ->blockScales() &&
-        producer_tv !=
-            consumer_tv->definition()
-                ->as<BlockQuantizationOp>()
-                ->globalScale()) {
+    Val* block_scales =
+        consumer_tv->definition()->as<BlockQuantizationOp>()->blockScales();
+    Val* global_scale =
+        consumer_tv->definition()->as<BlockQuantizationOp>()->globalScale();
+
+    if (consumer_tv == block_scales && producer_tv != global_scale) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      auto last_logical_dim = producer_logical.size() - 1;
+      non_mapping_ids.insert(producer_logical.at(last_logical_dim));
+      // We are mapping everything but the last ID.
+      has_consumer_id = true;
+    }
+  } else if (
+      auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(
+          consumer_tv->definition())) {
+    if (producer_tv != grouped_bqop->in()) {
+      auto producer_logical =
+          TensorDomain::noReductions(producer_tv->getLogicalDomain());
+      non_mapping_ids.insert(producer_logical.begin(), producer_logical.end());
+      // we are not mapping anything, `has_consumer_id` doesn't matter.
+      has_consumer_id = false;
+    } else if (consumer_tv == grouped_bqop->blockScales()) {
+      // We don't map the inner-most dimension of the block scaling factors
+      // as it's extent is reduced by a factor of the block size
+      // for example [i0, i1] => [i0, i1/16] where 16 is the block size.
+      // Make sure the producer isn't the global scale.
       auto producer_logical =
           TensorDomain::noReductions(producer_tv->getLogicalDomain());
       auto last_logical_dim = producer_logical.size() - 1;
@@ -1387,7 +1406,8 @@ void ComputeAtLogicalDomainMapBuilder::mapPointwiseLikeOp(Expr* expr) {
     NVF_ERROR(
         expr->isA<WelfordOp>() || expr->isA<GroupedReductionOp>() ||
             expr->isA<GroupedWelfordOp>() || expr->isA<TopKOp>() ||
-            expr->isA<BlockQuantizationOp>(),
+            expr->isA<BlockQuantizationOp>() ||
+            expr->isA<GroupedBlockQuantizationOp>(),
         "Unknown multi-output Expr type ",
         expr->getOpString(),
         " is found");

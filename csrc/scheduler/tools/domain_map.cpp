@@ -66,6 +66,13 @@ bool canIgnoreIndexedInputDomainID(
           input_tv == layout->outputOffsets()) {
         continue;
       }
+    } else if (auto layout = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
+      // since we don't index into offsets, scheduler doesn't need to cover
+      // offset TVs ID.
+      if (input_tv == layout->inputOffsets() ||
+          input_tv == layout->outputOffsets()) {
+        continue;
+      }
     } else {
       // If the input TV is used by any other ops
       return false;
@@ -420,6 +427,12 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
          output_tv ==
              output_tv->definition()
                  ->as<BlockQuantizationOp>()
+                 ->blockScales()) ||
+        (output_tv->definition() &&
+         output_tv->definition()->isA<GroupedBlockQuantizationOp>() &&
+         output_tv ==
+             output_tv->definition()
+                 ->as<GroupedBlockQuantizationOp>()
                  ->blockScales())) {
       continue;
     }
