@@ -77,6 +77,7 @@ class Scope {
     return std::ssize(exprs_);
   }
 
+  // Returns an iterator pointing to the inserted expression.
   Iterator insert(Iterator pos, Expr* expr);
 
   Iterator pushBack(Expr* e) {
