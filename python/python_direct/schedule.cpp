@@ -5,6 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/stl/unique_ptr.h>
+#include <nanobind/stl/unordered_set.h>
+#include <nanobind/stl/vector.h>
+
 #include <bindings.h>
 #include <direct_utils.h>
 #include <options.h>
@@ -19,7 +25,7 @@ namespace nvfuser::python {
 
 namespace {
 
-void bindTensorviewScheduleOps(py::module_& schedule) {
+void bindTensorviewScheduleOps(nb::module_& schedule) {
   schedule.def(
       "bounded_transform_backward",
       [](TensorView* from,
@@ -52,10 +58,10 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       -------
       None
       )",
-      py::arg("from"),
-      py::arg("pos"),
-      py::arg("to"),
-      py::arg("propagate_parallel_type") = false);
+      nb::arg("from"),
+      nb::arg("pos"),
+      nb::arg("to"),
+      nb::arg("propagate_parallel_type") = false);
 
   schedule.def(
       "transform_like",
@@ -91,8 +97,8 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       -------
       None
     )",
-      py::arg("reference_tv"),
-      py::arg("selected_tensors") = std::vector<TensorView*>());
+      nb::arg("reference_tv"),
+      nb::arg("selected_tensors") = std::vector<TensorView*>());
 
   schedule.def(
       "parallelize_like",
@@ -130,11 +136,11 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
           -------
           None
         )",
-      py::arg("reference_tv"),
-      py::arg("pos") = -1,
-      py::arg("selected_tensors") = std::vector<TensorView*>(),
-      py::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
-      py::arg("propagate_padding") = true);
+      nb::arg("reference_tv"),
+      nb::arg("pos") = -1,
+      nb::arg("selected_tensors") = std::vector<TensorView*>(),
+      nb::arg("selected_parallel_types") = std::unordered_set<ParallelType>(),
+      nb::arg("propagate_padding") = true);
 
   schedule.def(
       "inline_most",
@@ -157,13 +163,13 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
           -------
           None
         )",
-      py::arg("selected_tensors") = std::vector<TensorView*>());
+      nb::arg("selected_tensors") = std::vector<TensorView*>());
 
   schedule.def(
       "can_schedule",
       [](Fusion* fusion,
          SchedulerType scheduler_type,
-         const py::iterable& inputs) {
+         const nb::iterable& inputs) {
         // Enable collection of messages from canScheduleRejectReason
         DebugDumpOptionsGuard debug_dump_options_guard;
         DebugDumpOptionsGuard::getCurOptions().set(
@@ -181,9 +187,9 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
             Schedule::canSchedule(scheduler_type, fusion, runtime_info);
         return std::make_tuple(can_schedule, ss.str());
       },
-      py::arg("fusion"),
-      py::arg("scheduler_type"),
-      py::arg("inputs"),
+      nb::arg("fusion"),
+      nb::arg("scheduler_type"),
+      nb::arg("inputs"),
       R"(
           Check if a scheduler can schedule the given fusion with the provided inputs.
 
@@ -206,7 +212,7 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
 
   schedule.def(
       "find_compatible_schedulers",
-      [](Fusion* fusion, const py::iterable& inputs) {
+      [](Fusion* fusion, const nb::iterable& inputs) {
         // Create runtime info from inputs
         auto args = from_pyiterable(inputs);
         SchedulerRuntimeInfo runtime_info(fusion, args);
@@ -223,8 +229,8 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
 
         return compatible_schedulers;
       },
-      py::arg("fusion"),
-      py::arg("inputs"),
+      nb::arg("fusion"),
+      nb::arg("inputs"),
       R"(
           Find all schedulers compatible with the given fusion and inputs.
 
@@ -245,7 +251,7 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       "compute_heuristics",
       [](Fusion* fusion,
          SchedulerType scheduler_type,
-         const py::iterable& inputs) {
+         const nb::iterable& inputs) {
         auto args = from_pyiterable(inputs);
         SchedulerRuntimeInfo runtime_info(fusion, args);
         NVF_ERROR(
@@ -256,9 +262,9 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
             SchedulerEntry::makeSchedulerInstance(scheduler_type);
         return scheduler_instance->computeHeuristics(fusion, runtime_info);
       },
-      py::arg("fusion"),
-      py::arg("scheduler_type"),
-      py::arg("inputs"),
+      nb::arg("fusion"),
+      nb::arg("scheduler_type"),
+      nb::arg("inputs"),
       R"(
           Compute the heuristics for the specified scheduler type.
 
@@ -285,14 +291,14 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       "schedule",
       [](Fusion* fusion,
          SchedulerType scheduler_type,
-         const py::iterable& inputs) {
+         const nb::iterable& inputs) {
         auto args = from_pyiterable(inputs);
         return SchedulerEntry::scheduleWith(
             fusion, scheduler_type, args, /*validate_scheduler=*/true);
       },
-      py::arg("fusion"),
-      py::arg("scheduler_type"),
-      py::arg("inputs"),
+      nb::arg("fusion"),
+      nb::arg("scheduler_type"),
+      nb::arg("inputs"),
       R"(
           Schedule the fusion with the specified scheduler type.
 
@@ -324,9 +330,9 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
             SchedulerEntry::makeSchedulerInstance(scheduler_type);
         scheduler_instance->schedule(fusion, heuristic_params);
       },
-      py::arg("fusion"),
-      py::arg("scheduler_type"),
-      py::arg("heuristic_params"),
+      nb::arg("fusion"),
+      nb::arg("scheduler_type"),
+      nb::arg("heuristic_params"),
       R"(
           Schedule the fusion with the specified scheduler type.
 
@@ -347,8 +353,8 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
 
 } // namespace
 
-void bindScheduleOperators(py::module& nvfuser) {
-  py::module_ nvf_schedule = nvfuser.def_submodule(
+void bindScheduleOperators(nb::module_& nvfuser) {
+  nb::module_ nvf_schedule = nvfuser.def_submodule(
       "schedule",
       "This submodule contains all schedule operators for NvFuser.");
   bindTensorviewScheduleOps(nvf_schedule);

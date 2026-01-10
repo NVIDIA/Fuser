@@ -10,15 +10,12 @@
 
 namespace nvfuser::python {
 
-// For all nodes, use multiple inheritance to disable destructor with
-// std::unique_ptr<Statement, py::nodelete>. This class will
-// disable memory management because it is handled automatically by IrContainer.
+// For all nodes, memory management is handled automatically by IrContainer.
 
 namespace {
 
-void bindInternalFusionIr(py::module& nvfuser) {
-  py::class_<Split, Expr, std::unique_ptr<Split, py::nodelete>> split(
-      nvfuser, "Split");
+void bindInternalFusionIr(nb::module_& nvfuser) {
+  nb::class_<Split, Expr> split(nvfuser, "Split");
   split.def(
       "__str__",
       [](Split* self) { return self->toString(/*indent_size=*/0); },
@@ -26,6 +23,7 @@ void bindInternalFusionIr(py::module& nvfuser) {
   split.def(
       "outer",
       &Split::outer,
+      nb::rv_policy::reference_internal,
       R"(
 Get the outer of this Split.
 
@@ -37,6 +35,7 @@ IterDomain
   split.def(
       "inner",
       &Split::inner,
+      nb::rv_policy::reference_internal,
       R"(
 Get the inner of this Split.
 
@@ -46,8 +45,7 @@ IterDomain
     The inner of this Split.
 )");
 
-  py::class_<Merge, Expr, std::unique_ptr<Merge, py::nodelete>> merge(
-      nvfuser, "Merge");
+  nb::class_<Merge, Expr> merge(nvfuser, "Merge");
   merge.def(
       "__str__",
       [](Merge* self) { return self->toString(/*indent_size=*/0); },
@@ -55,6 +53,7 @@ IterDomain
   merge.def(
       "outer",
       &Merge::outer,
+      nb::rv_policy::reference_internal,
       R"(
 Get the outer of this Merge.
 
@@ -66,6 +65,7 @@ IterDomain
   merge.def(
       "inner",
       &Merge::inner,
+      nb::rv_policy::reference_internal,
       R"(
 Get the inner of this Merge.
 
@@ -75,22 +75,19 @@ IterDomain
     The inner of this Merge.
 )");
 
-  py::class_<BroadcastOp, Expr, std::unique_ptr<BroadcastOp, py::nodelete>>
-      broadcast(nvfuser, "BroadcastOp");
+  nb::class_<BroadcastOp, Expr> broadcast(nvfuser, "BroadcastOp");
   broadcast.def(
       "__str__",
       [](BroadcastOp* self) { return self->toString(/*indent_size=*/0); },
       "Convert the BroadcastOp to a string representation.");
 
-  py::class_<ReshapeOp, Expr, std::unique_ptr<ReshapeOp, py::nodelete>> reshape(
-      nvfuser, "ReshapeOp");
+  nb::class_<ReshapeOp, Expr> reshape(nvfuser, "ReshapeOp");
   reshape.def(
       "__str__",
       [](ReshapeOp* self) { return self->toString(/*indent_size=*/0); },
       "Convert the ReshapeOp to a string representation.");
 
-  py::class_<SqueezeOp, Expr, std::unique_ptr<SqueezeOp, py::nodelete>> squeeze(
-      nvfuser, "SqueezeOp");
+  nb::class_<SqueezeOp, Expr> squeeze(nvfuser, "SqueezeOp");
   squeeze.def(
       "__str__",
       [](SqueezeOp* self) { return self->toString(/*indent_size=*/0); },
@@ -99,7 +96,7 @@ IterDomain
 
 } // namespace
 
-void bindInternalIr(py::module& nvfuser) {
+void bindInternalIr(nb::module_& nvfuser) {
   bindInternalFusionIr(nvfuser);
 }
 

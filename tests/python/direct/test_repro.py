@@ -1869,7 +1869,7 @@ def test_issue3292(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0, 0],
             end_indices=[5, 1, 7, 5, 64],
             strides=[1, 1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T108 = fd.ops.reshape(T50, new_shape=[5, 7, 5, 64])
         T136 = fd.ops.slice(
@@ -1877,17 +1877,17 @@ def test_issue3292(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[5, 7, 5, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T152 = fd.ops.slice(
             T108,
             start_indices=[0, 0, 0, 32],
             end_indices=[5, 7, 5, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T153 = fd.ops.neg(T152)
-        T154 = fd.ops.cat([T153, T136], dim=-1, manual_padding=0)
+        T154 = fd.ops.cat([T153, T136], dim=-1, manual_padding=False)
         T161 = fd.ops.mul(T108, T108)
         T168 = fd.ops.mul(T154, T154)
         T169 = fd.ops.add(T161, T168)
@@ -1896,26 +1896,26 @@ def test_issue3292(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[5, 7, 5, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T201 = fd.ops.slice(
             T108,
             start_indices=[0, 0, 0, 32],
             end_indices=[5, 7, 5, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T202 = fd.ops.neg(T201)
-        T203 = fd.ops.cat([T202, T185], dim=-1, manual_padding=0)
+        T203 = fd.ops.cat([T202, T185], dim=-1, manual_padding=False)
         T205 = fd.ops.mul(T203, T203)
         T222 = fd.ops.slice(
             T108,
             start_indices=[0, 0, 0, 0],
             end_indices=[5, 7, 5, 0],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
-        T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=0)
+        T223 = fd.ops.cat([T169, T222], dim=-1, manual_padding=False)
         fd.add_output(T223)
 
     nvf_out, _ = nvfuser_direct_test.exec_nvfuser(fusion_func, inputs)
@@ -2019,7 +2019,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 64, 16384, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T21 = fd.ops.cast(T20, dtype=DataType.Float)
         T27 = fd.ops.broadcast_in_dim(
@@ -2035,7 +2035,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 64, 16384, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T52 = fd.ops.mul(T35, T21)
         S53 = fd.define_scalar(0, dtype=DataType.Int)
@@ -2047,7 +2047,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 64, 16384, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T76 = fd.ops.cast(T51, dtype=DataType.Float)
         S77 = fd.define_scalar(0.00000, dtype=DataType.Double)
@@ -2066,7 +2066,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 64, 16384, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T122 = fd.ops.mul(T35, T88)
         T123 = fd.ops.cast(T105, dtype=DataType.Float)
@@ -2076,7 +2076,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 64, 16384, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T141 = fd.ops.add(T93, T123)
         T142 = fd.ops.neg(T124)
@@ -2095,7 +2095,7 @@ def test_issue4444(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 64, 16384, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T187 = fd.ops.add(T155, T169)
         T194 = fd.ops.reshape(T4, new_shape=[1, 8, 8, 16384, 128])
@@ -2118,7 +2118,7 @@ def test_issue4444(nvfuser_direct_test):
             T220, shape=[1, 8, 1, 16384, 128], broadcast_dims=[1, 3, 4]
         )
         T242 = fd.ops.reshape(T221, new_shape=[1, 8, 8, 16384, 128])
-        T243 = fd.ops.cat([T242, T235, T228], dim=2, manual_padding=0)
+        T243 = fd.ops.cat([T242, T235, T228], dim=2, manual_padding=False)
         T244 = fd.ops.permute(T243, dims=[0, 3, 1, 2, 4])
         T249 = fd.ops.reshape(T244, new_shape=[1, 16384, 10240])
         T253 = fd.ops.reshape(T249, new_shape=[16384, 10240])
@@ -3368,14 +3368,14 @@ def test_loop_promotion_cyclic_war(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 40, 4096, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T160 = fd.ops.slice(
             T92,
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 40, 4096, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T161 = fd.ops.cast(T160, dtype=DataType.Float)
         T162 = fd.ops.neg(T161)
@@ -3386,14 +3386,14 @@ def test_loop_promotion_cyclic_war(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 40, 4096, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T196 = fd.ops.slice(
             T111,
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 40, 4096, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T197 = fd.ops.cast(T196, dtype=DataType.Float)
         T198 = fd.ops.neg(T197)
@@ -3401,9 +3401,9 @@ def test_loop_promotion_cyclic_war(nvfuser_direct_test):
         S200 = fd.define_scalar(1.00000, dtype=DataType.Double)
         T201 = fd.ops.add(S200, T95)
         T202 = fd.ops.mul(T128, T40)
-        T203 = fd.ops.cat([T163, T144], dim=-1, manual_padding=0)
+        T203 = fd.ops.cat([T163, T144], dim=-1, manual_padding=False)
         T204 = fd.ops.mul(T164, T40)
-        T205 = fd.ops.cat([T199, T180], dim=-1, manual_padding=0)
+        T205 = fd.ops.cat([T199, T180], dim=-1, manual_padding=False)
         T206 = fd.ops.reciprocal(T201)
         T207 = fd.ops.cast(T203, dtype=DataType.Float)
         T208 = fd.ops.cast(T205, dtype=DataType.Float)
@@ -3596,9 +3596,9 @@ def test_reshape_cancellation(nvfuser_direct_test):
             start_indices=[0, 0, 0, 3072],
             end_indices=[1, 2048, 4, 4608],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
-        T42 = fd.ops.cat([T24, T17], dim=-1, manual_padding=0)
+        T42 = fd.ops.cat([T24, T17], dim=-1, manual_padding=False)
         T43 = fd.ops.neg(T25)
         T50 = fd.ops.reshape(T41, new_shape=[1, 2048, 4, 6, 256])
         T56 = fd.ops.reshape(T42, new_shape=[1, 2048, 24, 64])
@@ -3616,7 +3616,7 @@ def test_reshape_cancellation(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 2048, 24, 256],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T95 = fd.ops.mul(T64, T5)
         T111 = fd.ops.slice(
@@ -3624,14 +3624,14 @@ def test_reshape_cancellation(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 2048, 4, 1536],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
-        T112 = fd.ops.cat([T78, T71], dim=-1, manual_padding=0)
+        T112 = fd.ops.cat([T78, T71], dim=-1, manual_padding=False)
         T113 = fd.ops.cast(T94, dtype=DataType.Float)
         T114 = fd.ops.add(T6, T95)
         T121 = fd.ops.reshape(T111, new_shape=[1, 2048, 4, 6, 256])
         T127 = fd.ops.reshape(T112, new_shape=[1, 2048, 24, 64])
-        T128 = fd.ops.cat([T114, T113], dim=-1, manual_padding=0)
+        T128 = fd.ops.cat([T114, T113], dim=-1, manual_padding=False)
         T134 = fd.ops.reshape(T121, new_shape=[1, 2048, 24, 256])
         T135 = fd.ops.cast(T127, dtype=DataType.Float)
         T136 = fd.ops.permute(T128, dims=[0, 2, 1, 3])
@@ -3640,13 +3640,13 @@ def test_reshape_cancellation(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 2048, 24, 256],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T153 = fd.ops.mul(T135, T5)
         T154 = fd.ops.cast(T136, dtype=DataType.BFloat16)
         T155 = fd.ops.cast(T152, dtype=DataType.Float)
         T156 = fd.ops.add(T7, T153)
-        T157 = fd.ops.cat([T156, T155], dim=-1, manual_padding=0)
+        T157 = fd.ops.cat([T156, T155], dim=-1, manual_padding=False)
         T158 = fd.ops.permute(T136, dims=[0, 1, 3, 2])
         T159 = fd.ops.permute(T157, dims=[0, 2, 1, 3])
         fd.add_output(T159)
@@ -3773,14 +3773,14 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 4096, 16, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T45 = fd.ops.slice(
             T13,
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 4096, 16, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T46 = fd.ops.mul(T3, T29)
         T47 = fd.ops.mul(T3, T45)
@@ -3789,21 +3789,21 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 4096, 16, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T79 = fd.ops.slice(
             T47,
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 4096, 16, 64],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T95 = fd.ops.slice(
             T46,
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 4096, 16, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T96 = fd.ops.neg(T63)
         T112 = fd.ops.slice(
@@ -3811,7 +3811,7 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 64],
             end_indices=[1, 4096, 16, 128],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T113 = fd.ops.neg(T79)
         T120 = fd.ops.broadcast_in_dim(
@@ -3839,14 +3839,14 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0],
             end_indices=[1, 4096, 2048],
             strides=[1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T219 = fd.ops.slice(
             T4,
             start_indices=[0, 0, 2048],
             end_indices=[1, 4096, 4096],
             strides=[1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T220 = fd.ops.add(T167, T154)
         T221 = fd.ops.add(T193, T180)
@@ -3879,14 +3879,14 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 1, 0],
             end_indices=[1, 4096, 16, 2, 64],
             strides=[1, 1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T327 = fd.ops.slice(
             T286,
             start_indices=[0, 0, 0, 1, 0],
             end_indices=[1, 4096, 16, 2, 64],
             strides=[1, 1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T328 = fd.ops.cast(T287, dtype=DataType.Half)
         T329 = fd.ops.cast(T288, dtype=DataType.Half)
@@ -3896,7 +3896,7 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0, 0],
             end_indices=[1, 4096, 16, 1, 64],
             strides=[1, 1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T350 = fd.ops.squeeze(T308, dims=[3], squeeze_expanded=False)
         T369 = fd.ops.slice(
@@ -3904,7 +3904,7 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0, 0],
             end_indices=[1, 4096, 16, 1, 64],
             strides=[1, 1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T370 = fd.ops.squeeze(T327, dims=[3], squeeze_expanded=False)
         T375 = fd.ops.reshape(T328, new_shape=[1, 4096, 2048])
@@ -3914,9 +3914,9 @@ def test_reduction_reference_missing_input_ids(nvfuser_direct_test):
         T387 = fd.ops.neg(T350)
         T388 = fd.ops.squeeze(T369, dims=[3], squeeze_expanded=False)
         T389 = fd.ops.neg(T370)
-        T390 = fd.ops.cat([T385, T380, T375], dim=2, manual_padding=0)
-        T391 = fd.ops.cat([T387, T386], dim=-1, manual_padding=0)
-        T392 = fd.ops.cat([T389, T388], dim=-1, manual_padding=0)
+        T390 = fd.ops.cat([T385, T380, T375], dim=2, manual_padding=False)
+        T391 = fd.ops.cat([T387, T386], dim=-1, manual_padding=False)
+        T392 = fd.ops.cat([T389, T388], dim=-1, manual_padding=False)
         T393 = fd.ops.cast(T390, dtype=DataType.Float)
         T394 = fd.ops.mul(T256, T45)
         T395 = fd.ops.mul(T257, T29)
@@ -4232,8 +4232,8 @@ def test_domain_map_hang(nvfuser_direct_test):
         S49 = fd.define_scalar(0, dtype=DataType.Int)
         T50 = fd.ops.where(T45, S48, S49)
         T51 = fd.ops.cast(T50, dtype=DataType.Int)
-        T52 = fd.ops.cat([T46, T46], dim=-1, manual_padding=0)
-        T53 = fd.ops.cat([T47, T47], dim=-1, manual_padding=0)
+        T52 = fd.ops.cat([T46, T46], dim=-1, manual_padding=False)
+        T53 = fd.ops.cat([T47, T47], dim=-1, manual_padding=False)
         T54 = fd.ops.add(T18, T51)
         T55 = fd.ops.cos(T52)
         T56 = fd.ops.sin(T52)
@@ -4316,28 +4316,28 @@ def test_domain_map_hang(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 32, 4096, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T219 = fd.ops.slice(
             T181,
             start_indices=[0, 0, 0, 32],
             end_indices=[1, 32, 4096, 80],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T235 = fd.ops.slice(
             T182,
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 32, 4096, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T251 = fd.ops.slice(
             T182,
             start_indices=[0, 0, 0, 32],
             end_indices=[1, 32, 4096, 80],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T252 = fd.ops.cast(T203, dtype=DataType.Float)
         T268 = fd.ops.slice(
@@ -4345,14 +4345,14 @@ def test_domain_map_hang(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 32, 4096, 16],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T284 = fd.ops.slice(
             T203,
             start_indices=[0, 0, 0, 16],
             end_indices=[1, 32, 4096, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T285 = fd.ops.cast(T284, dtype=DataType.Float)
         T286 = fd.ops.neg(T285)
@@ -4363,22 +4363,22 @@ def test_domain_map_hang(nvfuser_direct_test):
             start_indices=[0, 0, 0, 0],
             end_indices=[1, 32, 4096, 16],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T320 = fd.ops.slice(
             T235,
             start_indices=[0, 0, 0, 16],
             end_indices=[1, 32, 4096, 32],
             strides=[1, 1, 1, 1],
-            manual_normalization=0,
+            manual_normalization=False,
         )
         T321 = fd.ops.cast(T320, dtype=DataType.Float)
         T322 = fd.ops.neg(T321)
         T323 = fd.ops.cast(T322, dtype=DataType.BFloat16)
         T324 = fd.ops.mul(T252, T98)
-        T325 = fd.ops.cat([T287, T268], dim=-1, manual_padding=0)
+        T325 = fd.ops.cat([T287, T268], dim=-1, manual_padding=False)
         T326 = fd.ops.mul(T288, T98)
-        T327 = fd.ops.cat([T323, T304], dim=-1, manual_padding=0)
+        T327 = fd.ops.cat([T323, T304], dim=-1, manual_padding=False)
         S328 = fd.define_scalar(0.0447150, dtype=DataType.Double)
         T329 = fd.ops.mul(S328, T187)
         T330 = fd.ops.cast(T325, dtype=DataType.Float)
@@ -4392,8 +4392,8 @@ def test_domain_map_hang(nvfuser_direct_test):
         T338 = fd.ops.mul(S337, T334)
         T339 = fd.ops.cast(T335, dtype=DataType.BFloat16)
         T340 = fd.ops.cast(T336, dtype=DataType.BFloat16)
-        T341 = fd.ops.cat([T339, T219], dim=-1, manual_padding=0)
-        T342 = fd.ops.cat([T340, T251], dim=-1, manual_padding=0)
+        T341 = fd.ops.cat([T339, T219], dim=-1, manual_padding=False)
+        T342 = fd.ops.cat([T340, T251], dim=-1, manual_padding=False)
         T343 = fd.ops.tanh(T338)
         T344 = fd.ops.cast(T341, dtype=DataType.Float)
         T345 = fd.ops.cast(T342, dtype=DataType.Float)
