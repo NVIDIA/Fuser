@@ -1209,6 +1209,14 @@ TensorView* newForReduction(
             " of tensor ",
             tv);
       }
+      NVF_CHECK(
+          !id->isA<RaggedIterDomain>(),
+          "Cannot reduce a RaggedIterDomain. Reduction of ragged dimensions is "
+          "not supported. "
+          "Tried to reduce ID = ",
+          id,
+          " of tensor ",
+          tv);
       new_id = IterDomainBuilder(id)
                    // If the domain is being reduced, but it's coming in as an
                    // expanded extent, we need to realize the expand.
