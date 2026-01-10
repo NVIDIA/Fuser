@@ -23,7 +23,7 @@ PolymorphicValue toPolymorphicValue(const py::handle& obj) {
     return PolymorphicValue(py::cast<int64_t>(obj));
   } else if (py::isinstance<py::float_>(obj)) {
     return PolymorphicValue(py::cast<double>(obj));
-  } else if (py::isinstance<std::complex<double>>(obj)) {
+  } else if (PyComplex_Check(obj.ptr())) {
     return PolymorphicValue(py::cast<std::complex<double>>(obj));
   }
   NVF_THROW("Cannot convert provided py::handle to a PolymorphicValue.");
