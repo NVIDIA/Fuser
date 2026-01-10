@@ -56,9 +56,8 @@ bool validateReductionGrouping(
   NVF_ERROR(inputs.size() == outputs.size());
   NVF_ERROR(!inputs.empty());
 
-  auto fusion = dynamic_cast<Fusion*>(outputs[0]->container());
-  NVF_ERROR(
-      fusion != nullptr, "Grouping of reductions must be done within a Fusion");
+  auto fusion = outputs[0]->container()->as<Fusion>(
+      "Grouping of reductions must be done within a Fusion");
 
   ExactLogicalDomainMap exact_map(fusion);
 

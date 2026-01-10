@@ -138,23 +138,23 @@ class PolymorphicBase {
   // Replacement for static_cast<T*>(ptr): ptr->as<T>()
   // (checked in DEBUG builds)
   template <class T>
-  T* as() {
+  T* as(std::string debug_msg = "") {
 #if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
-    NVF_ERROR(downcast_ptr != nullptr);
+    NVF_ERROR(downcast_ptr != nullptr, debug_msg);
 #endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
-  const T* as() const {
+  const T* as(std::string debug_msg = "") const {
 #if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
-    NVF_ERROR(downcast_ptr != nullptr);
+    NVF_ERROR(downcast_ptr != nullptr, debug_msg);
 #endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
