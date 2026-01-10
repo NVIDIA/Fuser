@@ -406,7 +406,7 @@ void bindCircularBuffering(py::module_& schedule) {
 
         Parameters
         ----------
-        tensor : TensorView
+        tv : TensorView
             The TensorView to apply warp specialization circular buffering to.
         number_of_stages : int
             The number of stages in the circular buffer.
@@ -415,9 +415,12 @@ void bindCircularBuffering(py::module_& schedule) {
         parallel_type : ParallelType
             The parallel type to apply warp specialization to.
         num_registers : tuple of int, optional
-            The number of registers to use for the warp specialization.
+            A tuple specifying the number of registers for (async_warps, compute_warps).
+            Both values must be between 24 and 256 (inclusive), multiples of 8, and
+            the first value must be <= the second value. If not provided, register
+            sharing is disabled.
       )",
-      py::arg("tensor"),
+      py::arg("tv"),
       py::arg("number_of_stages"),
       py::arg("prefetch_distance"),
       py::arg("parallel_type"),
