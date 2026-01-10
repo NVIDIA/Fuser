@@ -229,22 +229,20 @@ __global__ void nvfuser_pointwise_f0_c1_r0_g0(Tensor<float, 3, 3> T0, Tensor<flo
   i2 = i0 / 8;
   nvfuser_index_t i3;
   i3 = i0 % 8;
-  nvfuser_index_t i4;
-  i4 = ((nvfuser_index_t)threadIdx.x) + (128 * ((nvfuser_index_t)blockIdx.x));
-  if ((i4 < 64)) {
+  if ((((nvfuser_index_t)threadIdx.x) < 64)) {
     Array<float, 1, 1> T4;
     T4[0] = 0;
     T4[0]
-       = T1[((((T1.alloc_stride[0LL] * i1) + (T1.alloc_stride[1LL] * i2)) + (T1.alloc_stride[2LL] * i3)) + ((4 * T1.alloc_stride[0LL]) * ((nvfuser_index_t)blockIdx.x)))];
+       = T1[(((T1.alloc_stride[0LL] * i1) + (T1.alloc_stride[1LL] * i2)) + (T1.alloc_stride[2LL] * i3))];
     Array<float, 1, 1> T3;
     T3[0] = 0;
     T3[0]
-       = T0[((((T0.alloc_stride[0LL] * i1) + (T0.alloc_stride[1LL] * i2)) + (T0.alloc_stride[2LL] * i3)) + ((4 * T0.alloc_stride[0LL]) * ((nvfuser_index_t)blockIdx.x)))];
+       = T0[(((T0.alloc_stride[0LL] * i1) + (T0.alloc_stride[1LL] * i2)) + (T0.alloc_stride[2LL] * i3))];
     Array<float, 1, 1> T5;
     T5[0]
       = T3[0]
       + T4[0];
-    T2[i4]
+    T2[((nvfuser_index_t)threadIdx.x)]
        = T5[0];
   }
 }\n"""
