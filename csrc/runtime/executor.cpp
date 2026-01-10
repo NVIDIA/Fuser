@@ -242,6 +242,7 @@ void KernelExecutor::compile(
   compiled_kernel_ = std::make_unique<CompiledKernel>(
       fusion,
       compile_params,
+      launch_constraints,
       device,
       scheduler_type,
       fusion_id_,
@@ -1609,6 +1610,7 @@ void KernelExecutor::deserialize(
   compiled_kernel_ = std::make_unique<CompiledKernel>(
       _fusion,
       compile_params,
+      LaunchParams(),
       device,
       scheduler_type,
       fusion_id,

@@ -205,7 +205,10 @@ void dumpExprsIfEnabled(
   }
 }
 
-GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
+GpuLower::GpuLower(
+    Fusion* fusion,
+    const CompileParams& cparams,
+    const LaunchParams& lparams)
     : passes_(
           // Passes will be executed in the order they are added here
           // Each pass is a pair of (name, function), where the name will be
@@ -234,7 +237,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"KIRCleaner", KIRCleaner::cleanUp},
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
-      cparams_(cparams) {
+      cparams_(cparams),
+      lparams_(lparams) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
     fusion->printMath();
   }

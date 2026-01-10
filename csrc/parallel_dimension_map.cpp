@@ -159,10 +159,15 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   if (dim_map_.at(pt)->isConstScalar()) {
     return dim_map_.at(pt)->value().as<int64_t>();
   }
-  // Return -1 for dynamic dimensions, this disables register sharing on
-  // dynamic dimensions since we can't guarantee the number of threads is
-  // divisible by 128. We may allow this in the future and delegate this
-  // check to a point where the launch parameters are known.
+  // If dimension is dynamic but we have launch parameters available,
+  // use the actual launch parameter value
+  if (GpuLower::hasCurrent() &&
+      GpuLower::current()->launchParams().hasDim(pt)) {
+    return GpuLower::current()->launchParams().getDim(pt);
+  }
+  // Return -1 for dynamic dimensions when launch parameters are not known,
+  // this disables register sharing on dynamic dimensions since we can't
+  // guarantee the number of threads is divisible by 128.
   return -1;
 }
 
