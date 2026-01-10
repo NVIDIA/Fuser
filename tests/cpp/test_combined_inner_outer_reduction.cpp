@@ -1820,4 +1820,35 @@ TEST_F(CombinedSchedulerTest, IllegalSizeToUseTMA) {
   EXPECT_FALSE(heuristic_params->as<ReductionParams>()->tma_warp_specialized);
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Avoid using shared memory persistent buffers when cached inputs are not
+// persistent, to avoid the inefficient data path: gmem (input) → regs (cached
+// input) → smem (persistent buffer) → regs (computation), where the regs → smem
+// → regs path is redundant. The performance of this test is increased
+// from 50.5% SOL to 61.6% SOL on GB200.
+TEST_F(CombinedSchedulerTest, CachedInputsAreNotPersistentFusedReshape) {
+  auto dtype = DataType::Float;
+  constexpr auto dim0 = 2;
+  constexpr auto dim1 = 1024;
+  constexpr auto dim2 = 8192;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(3, dtype);
+  fusion->addInput(tv0);
+  auto tv1 = reshape(tv0, {dim0, dim1, dim2}, {dim0 * dim1, dim2});
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv1, tv3);
+  auto tv5 = sum(tv1, {0});
+  fusion->addOutput(tv4);
+  fusion->addOutput(tv5);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1, dim2}, options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
