@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# ------------------------------------------------------------------------------
+# C++ Compiler Handler
+# ------------------------------------------------------------------------------
+
+macro(handle_compiler)
+  # Always found (we're already running CMake)
+  set(Compiler_FOUND TRUE)
+  set(Compiler_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
+
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_GNU_VERSION_MIN})
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_Clang_VERSION_MIN})
+  endif()
+
+  # Mark compiler as optional to allow builds with any compiler.
+  # Only GNU and Clang have version requirements - other compilers get SUCCESS status.
+  # Python report will show warnings for unknown/old compilers without failing the build.
+  set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
+  set_dependency_report_status(Compiler)
+endmacro()
