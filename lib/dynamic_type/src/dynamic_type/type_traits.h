@@ -549,209 +549,27 @@ constexpr auto remove_void_from_tuple([[maybe_unused]] std::tuple<Ts...> t) {
   }
 }
 
-// For example:
-static_assert(
-    remove_void_from_tuple(
-        std::make_tuple(Void{}, 1, Void{}, true, Void{}, 3.5, Void{})) ==
-    std::make_tuple(1, true, 3.5));
+// Example usage (tested in unit tests, not static_assert to avoid compile-time cost):
+// remove_void_from_tuple(std::make_tuple(Void{}, 1, Void{}, true)) == std::make_tuple(1, true)
 
 } // namespace dynamic_type
 
 namespace dynamic_type {
 
-namespace belongs_to_impl {
+// =============================================================================
+// belongs_to - Check if T belongs to the given type list Ts.
+// Uses fold expression for compile-time efficiency (replaces tuple-based impl).
+// =============================================================================
 
-// Given a tuple of Ts, return a tuple with the same size as Ts. The tuple
-// contains either true or void. (true if T is the same as the corresponding
-// type in Ts, void otherwise). For example, if T = int, Ts is (int, float,
-// bool), then the return type is (true, void, void).
 template <typename T, typename... Ts>
-auto get_match_tuple() {
-  auto true_or_void = [](auto x) {
-    using U = typename decltype(x)::type;
-    if constexpr (std::is_same_v<T, U>) {
-      return true;
-    } else {
-      return;
-    }
-  };
-  return ForAllTypes<Ts...>{}(true_or_void);
-}
-
-} // namespace belongs_to_impl
-
-// Check if T belongs to the given type list Ts. For example
-// belongs_to<int, int, float, bool> is true, but
-// belongs_to<int, float, bool> is false.
-template <typename T, typename... Ts>
-constexpr bool belongs_to =
-    (std::tuple_size_v<decltype(remove_void_from_tuple(
-         belongs_to_impl::get_match_tuple<T, Ts...>()))> > 0);
+constexpr bool belongs_to = (... || std::is_same_v<T, Ts>);
 
 // For example:
+// belongs_to<int, int, float, bool> is true, but
+// belongs_to<int, float, bool> is false.
 
 static_assert(belongs_to<int, float, double, int>);
 static_assert(!belongs_to<int, float, double, long>);
-
-} // namespace dynamic_type
-
-namespace dynamic_type {
-
-// =============================================================================
-// DEPRECATED: cartesian_product and any_check
-// These functions are retained for backward compatibility but should not be
-// used in new code. Use fold expressions with TypeList instead (7-14x faster).
-// See DynamicType::TypeListT and the fold expression helpers in this file.
-// =============================================================================
-
-// Take the cartesion product of two tuples.
-// For example:
-// cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
-// DEPRECATED: Use fold expressions over TypeList instead.
-template <typename Tuple>
-[[deprecated("Use fold expressions over TypeList instead for 7-14x faster compile times")]]
-constexpr auto cartesian_product(Tuple t) {
-  return fast_apply(
-      [](auto... ts) constexpr {
-        return std::make_tuple(std::make_tuple(ts)...);
-      },
-      t);
-}
-
-template <typename Tuple1, typename... OtherTuples>
-[[deprecated("Use fold expressions over TypeList instead for 7-14x faster compile times")]]
-constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
-  // Suppress deprecation warnings for recursive calls within this deprecated function
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-  auto c_first = cartesian_product(first);
-  auto c_others = cartesian_product(others...);
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-  // cat one item in c_first with all the items in c_others
-  auto cat_one_first_all_others = [c_others](auto first_item) {
-    return fast_apply(
-        [first_item](auto... other_item) constexpr {
-          return std::make_tuple(std::tuple_cat(first_item, other_item)...);
-        },
-        c_others);
-  };
-  return fast_apply(
-      [cat_one_first_all_others](auto... first_items) constexpr {
-        return std::tuple_cat(cat_one_first_all_others(first_items)...);
-      },
-      c_first);
-}
-
-// For example (suppress deprecation warnings for these tests):
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true)) ==
-    std::make_tuple(std::make_tuple(1.0), std::make_tuple(true)));
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f),
-        std::make_tuple(1.0, 4),
-        std::make_tuple(true, 2.0f),
-        std::make_tuple(true, 4)));
-
-static_assert(
-    cartesian_product(
-        std::make_tuple(1.0, true),
-        std::make_tuple(2.0f, 4),
-        std::make_tuple(std::size_t(0), nullptr)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f, std::size_t(0)),
-        std::make_tuple(1.0, 2.0f, nullptr),
-        std::make_tuple(1.0, 4, std::size_t(0)),
-        std::make_tuple(1.0, 4, nullptr),
-        std::make_tuple(true, 2.0f, std::size_t(0)),
-        std::make_tuple(true, 2.0f, nullptr),
-        std::make_tuple(true, 4, std::size_t(0)),
-        std::make_tuple(true, 4, nullptr)));
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-
-} // namespace dynamic_type
-
-namespace dynamic_type {
-
-// Can I find an x from tuple1 and a y from tuple2 such that f(x, y) is
-// true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
-// DEPRECATED: Use fold expressions over TypeList instead.
-template <typename... Tuples, typename Fun>
-[[deprecated("Use fold expressions over TypeList instead for 7-14x faster compile times")]]
-constexpr bool any_check(Fun f, Tuples... tuples) {
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-  auto c = cartesian_product(tuples...);
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
-  return fast_apply(
-      [f](auto... candidates) constexpr {
-        return any(fast_apply(f, candidates)...);
-      },
-      c);
-}
-
-// For example (suppress deprecation warnings for these tests):
-#if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-#elif defined(__GNUC__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#endif
-
-static_assert(
-    any_check([](auto x) constexpr { return x > 0; }, std::make_tuple(1, -1)));
-static_assert(!any_check(
-    [](auto x) constexpr { return x > 0; },
-    std::make_tuple(-2, -1)));
-
-static_assert(any_check(
-    [](auto x, auto y) constexpr { return (x + y) > 0; },
-    std::make_tuple(2.0, 1),
-    std::make_tuple(-2, -1)));
-static_assert(!any_check(
-    [](auto x, auto y) constexpr { return (x + y) > 0; },
-    std::make_tuple(1.0, 1),
-    std::make_tuple(-2, -1)));
-
-#if defined(__clang__)
-#pragma clang diagnostic pop
-#elif defined(__GNUC__)
-#pragma GCC diagnostic pop
-#endif
 
 } // namespace dynamic_type
 

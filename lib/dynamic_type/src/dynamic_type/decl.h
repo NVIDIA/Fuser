@@ -966,21 +966,39 @@ std::ostream& operator<<(std::ostream& os, const DT& dt);
 // overloaded, and the automatically defined version by the compiler usually
 // does what we want.
 
-// Check that, whether there exist two different types T and U, where both T and
-// U are contained in the type list of dynamic type DT, and T == U is defined.
+// =============================================================================
+// has_cross_type_equality - Check if any two different types T and U in DT's
+// type list have T == U defined.
+// Uses nested fold expressions for compile-time efficiency.
+// =============================================================================
+
+// Helper: check if T == U is defined for cross-types (T != U)
+template <typename T, typename U>
+constexpr bool cross_type_eq_defined =
+    !std::is_same_v<T, U> && (opcheck<T> == opcheck<U>);
+
+// Inner fold: check if T has equality with any other type in Us...
+template <typename T, typename... Us>
+constexpr bool t_has_cross_eq_with_any() {
+  return (... || cross_type_eq_defined<T, Us>);
+}
+
+// Outer fold: check all types in Ts... against all types
+template <typename... Ts>
+constexpr bool any_cross_type_equality() {
+  return (... || t_has_cross_eq_with_any<Ts, Ts...>());
+}
+
+// Unpack TypeList to get types
+template <typename... Ts>
+constexpr bool any_cross_type_equality_impl(TypeList<Ts...>) {
+  return any_cross_type_equality<Ts...>();
+}
+
+// Final helper for DynamicType
 template <typename DT>
 constexpr bool has_cross_type_equality =
-    any(remove_void_from_tuple(DT::for_all_types([](auto t) {
-      using T = typename decltype(t)::type;
-      return any(remove_void_from_tuple(DT::for_all_types([](auto u) {
-        using U = typename decltype(u)::type;
-        if constexpr (std::is_same_v<T, U>) {
-          return;
-        } else {
-          return opcheck<T> == opcheck<U>;
-        }
-      })));
-    })));
+    any_cross_type_equality_impl(typename DT::TypeListT{});
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
