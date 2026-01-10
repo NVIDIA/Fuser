@@ -1375,7 +1375,7 @@ std::string print(const std::monostate&) {
 }
 
 std::string print(const Projection& proj) {
-  return Projection::dispatch(
+  return Projection::dispatch<std::string>(
       [&](const auto& proj) { return print(proj); }, proj);
 }
 
@@ -1400,7 +1400,7 @@ bool related(const std::monostate&, const ValGroup& to) {
 }
 
 bool related(const Projection& proj, const ValGroup& to) {
-  return Projection::dispatch(
+  return Projection::dispatch<bool>(
       [&](const auto& proj) { return related(proj, to); }, proj);
 }
 
@@ -1430,7 +1430,7 @@ Val* extent(const std::monostate&) {
 }
 
 Val* extent(const Projection& proj) {
-  return Projection::dispatch(
+  return Projection::dispatch<Val*>(
       [&](const auto& proj) { return extent(proj); }, proj);
 }
 
@@ -1696,7 +1696,7 @@ Projection propagate(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return Projection::dispatch(
+  return Projection::dispatch<Projection>(
       [&](const auto& proj) {
         return propagate(proj, id_graph, eg, direction);
       },
@@ -1757,7 +1757,7 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Projection& proj,
     const ValGroups& domain) {
-  return Projection::dispatch(
+  return Projection::dispatch<Val*>(
       [&](const auto& proj) {
         return proveLinearAndGetStrideAfterPropagation(proj, domain);
       },
@@ -2039,7 +2039,7 @@ Projection simplify(Projection projection) {
   auto simplified = projection;
   do {
     projection = simplified;
-    simplified = Projection::dispatch(
+    simplified = Projection::dispatch<Projection>(
         [&](const auto& projection) { return simplify(projection); },
         projection);
   } while (simplified.type() != projection.type() || simplified != projection);

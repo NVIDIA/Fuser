@@ -102,7 +102,7 @@ DT& operator*(const DT& x) {
             opcheck<std::decay_t<RHS>>)) {                                     \
       return (DT)x op y;                                                       \
     } else {                                                                   \
-      return DT::dispatch(                                                     \
+      return DT::template dispatch<return_type>(                               \
           [](auto&& x, auto&& y) -> decltype(auto) {                           \
             using X = decltype(x);                                             \
             using Y = decltype(y);                                             \

@@ -315,6 +315,8 @@ TEST_F(DynamicTypeTest, MemberFunctions) {
   EXPECT_EQ((jj->*&J::noexcept_true_qualifiers)(), "noexcept(true) qualifiers");
 }
 
+// NOTE: operator->() was removed from DynamicType for compile-time performance.
+// This test now uses explicit as<T>() access instead of operator->().
 TEST_F(DynamicTypeTest, ArrowOp) {
   int num_dtor_calls = 0;
   struct S {
@@ -329,7 +331,8 @@ TEST_F(DynamicTypeTest, ArrowOp) {
   EXPECT_EQ(num_dtor_calls, 0);
   using IntSVec = DynamicType<Containers<std::vector>, int, S*>;
   IntSVec x(&s);
-  EXPECT_EQ(x->aaa, 12);
+  // Use explicit as<S*>() instead of operator->()
+  EXPECT_EQ(x.as<S*>()->aaa, 12);
 
   using Pointer =
       DynamicType<NoContainers, S*, std::shared_ptr<S>, std::unique_ptr<S>>;
@@ -338,14 +341,15 @@ TEST_F(DynamicTypeTest, ArrowOp) {
   auto s3 = std::make_unique<S>(78, num_dtor_calls);
   Pointer ptr;
   ptr = &s1;
-  EXPECT_EQ(ptr->aaa, 34);
+  // Use explicit as<T>() for each pointer type
+  EXPECT_EQ(ptr.as<S*>()->aaa, 34);
   ptr = s2;
-  EXPECT_EQ(ptr->aaa, 56);
+  EXPECT_EQ(ptr.as<std::shared_ptr<S>>()->aaa, 56);
   s2 = nullptr;
   EXPECT_EQ(num_dtor_calls, 0);
   ptr = std::move(s3);
   EXPECT_EQ(num_dtor_calls, 1);
-  EXPECT_EQ(ptr->aaa, 78);
+  EXPECT_EQ(ptr.as<std::unique_ptr<S>>()->aaa, 78);
   EXPECT_EQ(num_dtor_calls, 1);
   ptr = {};
   EXPECT_EQ(num_dtor_calls, 2);

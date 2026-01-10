@@ -1127,7 +1127,7 @@ AbstractTensor MmaSwizzler::scheduleMmaOutputAllocation(AbstractTensor t) {
 
   // Assume last 2 dims, for example [M64, N24] or [M64, N24, R]
   NVF_ERROR(t.size() >= 2);
-  bool has_reduction = t[-1]->isReduction();
+  bool has_reduction = t[-1].as<IterDomain*>()->isReduction();
 
   int64_t m_pos = has_reduction ? -3 : -2;
   int64_t n_pos = has_reduction ? -2 : -1;
@@ -2473,9 +2473,9 @@ std::pair<int64_t, int64_t> analyzeSwizzleSharedMemory(
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
-      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-2].as<IterDomain*>()->extent()->evaluate().as<int64_t>();
   const int64_t tile_size_y =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-1].as<IterDomain*>()->extent()->evaluate().as<int64_t>();
 
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit
@@ -2717,7 +2717,7 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
   AbstractTensor swizzle_domain(shared_mem_tv->getLoopDomain());
   // Extract the constant sizes of the swizzled tile
   const int64_t inner_dim_size =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-1].as<IterDomain*>()->extent()->evaluate().as<int64_t>();
 
   auto dtype = shared_mem_tv->getDataType().value();
   const int64_t B128_elements = 128 / dataTypeSizeByte(dtype);

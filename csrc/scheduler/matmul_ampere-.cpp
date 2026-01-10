@@ -56,9 +56,9 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
   // Extract the constant sizes of the swizzled tile
   const int64_t tile_size_x =
-      swizzle_domain[-2]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-2].as<IterDomain*>()->extent()->evaluate().as<int64_t>();
   const int64_t tile_size_y =
-      swizzle_domain[-1]->extent()->evaluate().as<int64_t>();
+      swizzle_domain[-1].as<IterDomain*>()->extent()->evaluate().as<int64_t>();
 
   // Only tested for (1) ldmatrix access with sizeof(T) == 16bit (i.e.
   // half/bfloat16) and (2) epilogue general access with sizeof(T) == 32bit

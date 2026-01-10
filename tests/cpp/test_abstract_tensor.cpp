@@ -38,7 +38,7 @@ class AbstractTensorTest : public NVFuserTest {
 TEST_F(AbstractTensorTest, UseAbstractIdAsIdPtr) {
   auto id0 = newID();
   AbstractTensor v({id0});
-  v[0]->parallelize(ParallelType::TIDx);
+  v[0].as<IterDomain*>()->parallelize(ParallelType::TIDx);
   EXPECT_EQ(id0->getParallelType(), ParallelType::TIDx);
 }
 
@@ -428,7 +428,7 @@ TEST_F(AbstractTensorTest, Flatten) {
   ASSERT_EQ(v.size(), 3);
   EXPECT_EQ(v[0], id0);
   EXPECT_EQ(v[2], id3);
-  auto merge = dynamic_cast<Merge*>(v[1]->definition());
+  auto merge = dynamic_cast<Merge*>(v[1].as<IterDomain*>()->definition());
   ASSERT_NE(merge, nullptr);
   EXPECT_EQ(merge->inner(), id2);
   EXPECT_EQ(merge->outer(), id1);

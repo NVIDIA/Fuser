@@ -159,8 +159,7 @@ struct DynamicType {
 
   // ============================================================================
   // Switch-based dispatch helpers for dispatch() method.
-  // Replaces ForAllTypes execution loop with direct switch on index().
-  // Return type inference still uses ForAllTypes (to handle void filtering).
+  // Uses explicit return type template parameter - no inference overhead.
   // ============================================================================
 
   // Helper macro: try to execute f0 at index I for void return
@@ -181,6 +180,23 @@ struct DynamicType {
       const T& a0 = arg_ref.template as<T>();                                  \
       if constexpr (std::is_convertible_v<decltype(f0_ref(a0)), result_type>) {\
         ret_ref = f0_ref(a0);                                                  \
+      } else {                                                                 \
+        DYNAMIC_TYPE_CHECK(                                                    \
+            false, "Result is dynamic but not convertible to result type");    \
+      }                                                                        \
+    }                                                                          \
+    break;                                                                     \
+  }
+
+  // Helper macro: try to execute f0 at index I for DynamicType return
+#define DISPATCH_EXEC_DYNAMIC(I, f0_ref, arg_ref, ret_ref)                     \
+  case I: {                                                                    \
+    if constexpr ((I) < num_types) {                                           \
+      using T = std::variant_alternative_t<(I), VariantType>;                  \
+      const T& a0 = arg_ref.template as<T>();                                  \
+      using CallRetT = decltype(f0_ref(a0));                                   \
+      if constexpr (!std::is_void_v<CallRetT>) {                               \
+        ret_ref = DynamicType(f0_ref(a0));                                     \
       } else {                                                                 \
         DYNAMIC_TYPE_CHECK(                                                    \
             false, "Result is dynamic but not convertible to result type");    \
@@ -233,8 +249,41 @@ struct DynamicType {
     default: break;                                                            \
   }
 
-  template <typename FuncT, typename FirstArg, typename... OtherArgs>
-  static inline constexpr decltype(auto) dispatch(
+  // Switch for DynamicType return (up to 16 types)
+#define DISPATCH_SWITCH_DYNAMIC(f0_ref, arg_ref, ret_ref)                      \
+  switch (arg_ref.value.index()) {                                             \
+    DISPATCH_EXEC_DYNAMIC(0, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(1, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(2, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(3, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(4, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(5, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(6, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(7, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(8, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(9, f0_ref, arg_ref, ret_ref)                         \
+    DISPATCH_EXEC_DYNAMIC(10, f0_ref, arg_ref, ret_ref)                        \
+    DISPATCH_EXEC_DYNAMIC(11, f0_ref, arg_ref, ret_ref)                        \
+    DISPATCH_EXEC_DYNAMIC(12, f0_ref, arg_ref, ret_ref)                        \
+    DISPATCH_EXEC_DYNAMIC(13, f0_ref, arg_ref, ret_ref)                        \
+    DISPATCH_EXEC_DYNAMIC(14, f0_ref, arg_ref, ret_ref)                        \
+    DISPATCH_EXEC_DYNAMIC(15, f0_ref, arg_ref, ret_ref)                        \
+    default: break;                                                            \
+  }
+
+  // ============================================================================
+  // dispatch() - Requires explicit return type template parameter.
+  //
+  // Usage:
+  //   dispatch<ReturnT>(lambda, dynamicArg1, dynamicArg2, ...)
+  //
+  // ReturnT can be:
+  //   - void: No return value
+  //   - DynamicType: Wrap result in DynamicType
+  //   - Any other type: Direct return (int64_t, bool, std::string, etc.)
+  // ============================================================================
+  template <typename ReturnT, typename FuncT, typename FirstArg, typename... OtherArgs>
+  static inline constexpr ReturnT dispatch(
       FuncT&& f,
       FirstArg&& arg0,
       OtherArgs&&... args) {
@@ -253,46 +302,25 @@ struct DynamicType {
               std::forward<decltype(a0)>(a0),
               std::forward<decltype(others)>(others)...);
         };
-        return dispatch(f_others, std::forward<OtherArgs>(args)...);
+        return dispatch<ReturnT>(f_others, std::forward<OtherArgs>(args)...);
       }
     };
+
     // Does arg0 need dispatch?
     if constexpr (std::is_same_v<std::decay_t<FirstArg>, DynamicType>) {
-      // Infer return result: if f always returns the same type, then we return
-      // the same type as well. Otherwise, we return DynamicType assuming that
-      // DynamicType is the common holder of these types. Void is treated
-      // specially here: if for some case the function returns some type, and
-      // for other cases the function returns void, then we ignore void and use
-      // the cases with return value for inference. We decide to do this because
-      // non-void return values can be ignored, but void returning can never
-      // pass any information. There is no single best inference strategy that
-      // fits all cases, ignoring void seems to be good tradeoff.
-      // NOTE: Return type inference still uses ForAllTypes for void filtering.
-      auto get_single_result_type = [](auto t) {
-        using T = typename decltype(t)::type;
-        using RetT = decltype(f0(std::declval<T>()));
-        if constexpr (!std::is_void_v<RetT>) {
-          return std::type_identity<RetT>{};
-        } else {
-          // return void instead of std::type_identity<void> so that we can use
-          // remove_void_from_tuple to remove it.
-          return;
-        }
-      };
-      using result_types = decltype(remove_void_from_tuple(
-          DynamicType::for_all_types(get_single_result_type)));
-      constexpr bool returns_void = (std::tuple_size_v<result_types> == 0);
-      if constexpr (returns_void) {
-        // NEW: Use switch dispatch instead of ForAllTypes for execution
+      // Dispatch based on explicit return type
+      if constexpr (std::is_void_v<ReturnT>) {
+        // Void return path
         DISPATCH_SWITCH_VOID(f0, arg0)
         return;
+      } else if constexpr (std::is_same_v<std::decay_t<ReturnT>, DynamicType>) {
+        // DynamicType return path - wrap results
+        DynamicType ret{};
+        DISPATCH_SWITCH_DYNAMIC(f0, arg0, ret)
+        return ret;
       } else {
-        constexpr bool has_single_return_type =
-            are_all_same<result_types>::value;
-        using result_type = std::conditional_t<
-            has_single_return_type,
-            typename std::tuple_element_t<0, result_types>::type,
-            DynamicType>;
+        // Direct type return path (int64_t, bool, std::string, references, etc.)
+        using result_type = ReturnT;
         // Needs to wrap reference as optional<reference_wrapper<T>> because
         // C++ does not allow rebinding a reference.
         constexpr bool is_reference = std::is_reference_v<result_type>;
@@ -302,7 +330,6 @@ struct DynamicType {
                 std::reference_wrapper<std::remove_reference_t<result_type>>>,
             result_type>;
         ret_storage_t ret{};
-        // NEW: Use switch dispatch instead of ForAllTypes for execution
         DISPATCH_SWITCH_VALUE(f0, arg0, ret, result_type)
         if constexpr (is_reference) {
           return ret->get();
@@ -312,14 +339,41 @@ struct DynamicType {
       }
     } else {
       // No need to dispatch arg0, just perfectly forwarding it.
-      return f0(std::forward<FirstArg>(arg0));
+      if constexpr (std::is_void_v<ReturnT>) {
+        f0(std::forward<FirstArg>(arg0));
+        return;
+      } else {
+        using f0_return_t = decltype(f0(std::forward<FirstArg>(arg0)));
+        if constexpr (std::is_void_v<f0_return_t>) {
+          // Lambda returns void but we need a return value
+          f0(std::forward<FirstArg>(arg0));
+          if constexpr (std::is_reference_v<ReturnT>) {
+            // Can't default-construct a reference; this is a type mismatch error
+            DYNAMIC_TYPE_CHECK(
+                false, "Lambda returned void but reference return type expected");
+            // Unreachable, but needed for compilation
+            return *static_cast<std::remove_reference_t<ReturnT>*>(nullptr);
+          } else {
+            return ReturnT{};
+          }
+        } else {
+          return f0(std::forward<FirstArg>(arg0));
+        }
+      }
     }
   }
 
+  // NOTE: dispatch_deduce() has been removed for compile-time performance.
+  // It was previously used for operator->() and SFINAE checks but:
+  // - operator->() was removed (use .as<T>() instead)
+  // - SFINAE checks now use pure constexpr any_check()
+
 #undef DISPATCH_EXEC_VOID
 #undef DISPATCH_EXEC_VALUE
+#undef DISPATCH_EXEC_DYNAMIC
 #undef DISPATCH_SWITCH_VOID
 #undef DISPATCH_SWITCH_VALUE
+#undef DISPATCH_SWITCH_DYNAMIC
 
   constexpr DynamicType() = default;
 
@@ -408,7 +462,7 @@ struct DynamicType {
 
   template <typename T, typename = std::enable_if_t<can_cast_to<T>>>
   explicit constexpr operator T() const {
-    return dispatch(
+    return dispatch<T>(
         [](auto x) -> decltype(auto) {
           using X = decltype(x);
           if constexpr (opcheck<X>.canCastTo(opcheck<T>)) {
@@ -452,19 +506,11 @@ struct DynamicType {
   // we overload based on the underlying type, we will get a runtime error,
   // because it is not possible to assign SomeType{} to an int.
 
-  constexpr decltype(auto) operator->() {
-    return dispatch(
-        [](auto&& x) -> decltype(auto) {
-          using X = decltype(x);
-          using XD = std::decay_t<X>;
-          if constexpr (std::is_pointer_v<XD>) {
-            return (std::decay_t<X>)(x);
-          } else if constexpr (opcheck<XD>->value()) {
-            return std::forward<X>(x).operator->();
-          }
-        },
-        *this);
-  }
+  // NOTE: operator->() was removed because:
+  // 1. It required dispatch_deduce() which is expensive at compile time
+  // 2. nvFuser production code doesn't use it (uses .as<T>() instead)
+  // 3. For pointer access, use: dt.as<T*>()->member
+  // 4. For smart pointers, use: dt.as<std::shared_ptr<T>>()->member
 
   template <typename IndexT>
   static constexpr bool has_square_bracket = any_check(
@@ -738,6 +784,23 @@ struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
 template <typename T>
 constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
 
+// Helper to get type identities tuple - uses if constexpr for lazy evaluation
+template <typename T, bool is_dt>
+struct get_type_identities {
+  // Non-DynamicType case: wrap single type in tuple
+  using type = std::tuple<std::type_identity<T>>;
+};
+
+template <typename T>
+struct get_type_identities<T, true> {
+  // DynamicType case: use its TypeIdentitiesAsTuple
+  using type = typename T::TypeIdentitiesAsTuple;
+};
+
+template <typename T>
+using get_type_identities_t =
+    typename get_type_identities<std::decay_t<T>, is_dynamic_type_v<std::decay_t<T>>>::type;
+
 // Declaration macro for binary operators - implementation in impl.h
 #define DEFINE_BINARY_OP_DECL(opname, op, func_name, return_type, check_existence) \
   template <typename X, typename Y, typename RetT>                             \
@@ -751,16 +814,6 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
     }                                                                          \
     return false;                                                              \
   }                                                                            \
-  template <typename RetT>                                                     \
-  constexpr auto opname##_is_valid = [](auto&& x, auto&& y) {                  \
-    using X = decltype(x);                                                     \
-    using Y = decltype(y);                                                     \
-    if constexpr (opname##_type_compatible<X, Y, RetT>()) {                    \
-      return std::true_type{};                                                 \
-    } else {                                                                   \
-      return;                                                                  \
-    }                                                                          \
-  };                                                                           \
   template <typename LHS, typename RHS>                                        \
   constexpr bool opname##_defined() {                                          \
     constexpr bool lhs_is_dt = is_dynamic_type_v<std::decay_t<LHS>>;           \
@@ -779,9 +832,18 @@ constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
       return opname##_defined<DT, DT>();                                       \
     } else {                                                                   \
       if constexpr (check_existence) {                                         \
-        using should_define_t = decltype(DT::dispatch(                         \
-            opname##_is_valid<DT>, std::declval<LHS>(), std::declval<RHS>())); \
-        return std::is_same_v<should_define_t, std::true_type>;                \
+        /* Pure constexpr check using any_check - no dispatch_deduce needed */ \
+        /* Uses get_type_identities_t for lazy evaluation to avoid           */ \
+        /* instantiating TypeIdentitiesAsTuple on non-DynamicType types.     */ \
+        using lhs_types = get_type_identities_t<LHS>;                          \
+        using rhs_types = get_type_identities_t<RHS>;                          \
+        return any_check(                                                      \
+            [](auto lhs_t, auto rhs_t) constexpr {                             \
+              using L = typename decltype(lhs_t)::type;                        \
+              using R = typename decltype(rhs_t)::type;                        \
+              return opname##_type_compatible<L, R, DT>();                     \
+            },                                                                 \
+            lhs_types{}, rhs_types{});                                         \
       } else {                                                                 \
         return true;                                                           \
       }                                                                        \

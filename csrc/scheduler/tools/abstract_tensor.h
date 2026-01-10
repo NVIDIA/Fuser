@@ -67,7 +67,8 @@ struct DispatchSplit {
       inner_result.reserve(in.size());
       for (auto i : arange(in.size())) {
         auto [outer, inner] =
-            AbstractId::dispatch((*this), in[i], factor, inner_split);
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), in[i], factor, inner_split);
         outer_result.emplace_back(outer);
         inner_result.emplace_back(inner);
       }
@@ -119,7 +120,8 @@ struct DispatchMerge {
       std::vector<AbstractId> result;
       result.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
-        result.emplace_back(AbstractId::dispatch((*this), lhs[i], rhs[i]));
+        result.emplace_back(
+            AbstractId::dispatch<AbstractId>((*this), lhs[i], rhs[i]));
       }
       return result;
     } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
@@ -127,7 +129,8 @@ struct DispatchMerge {
       result.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
         result.emplace_back(
-            AbstractId::dispatch((*this), lhs[i], std::forward<RHS>(rhs)));
+            AbstractId::dispatch<AbstractId>(
+                (*this), lhs[i], std::forward<RHS>(rhs)));
       }
       return result;
     } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
@@ -135,7 +138,8 @@ struct DispatchMerge {
       result.reserve(rhs.size());
       for (auto i : arange(rhs.size())) {
         result.emplace_back(
-            AbstractId::dispatch((*this), std::forward<LHS>(lhs), rhs[i]));
+            AbstractId::dispatch<AbstractId>(
+                (*this), std::forward<LHS>(lhs), rhs[i]));
       }
       return result;
     } else {
@@ -198,7 +202,8 @@ struct DispatchSwizzle {
       result_y.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] =
-            AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, lhs[i], rhs[i]);
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -209,8 +214,9 @@ struct DispatchSwizzle {
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
+        auto [out_x, out_y] =
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -221,8 +227,9 @@ struct DispatchSwizzle {
       result_x.reserve(rhs.size());
       result_y.reserve(rhs.size());
       for (auto i : arange(rhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
+        auto [out_x, out_y] =
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -283,7 +290,8 @@ struct DispatchLegacySwizzle {
       result_y.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
         auto [out_x, out_y] =
-            AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, lhs[i], rhs[i]);
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -294,8 +302,9 @@ struct DispatchLegacySwizzle {
       result_x.reserve(lhs.size());
       result_y.reserve(lhs.size());
       for (auto i : arange(lhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
+        auto [out_x, out_y] =
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -306,8 +315,9 @@ struct DispatchLegacySwizzle {
       result_x.reserve(rhs.size());
       result_y.reserve(rhs.size());
       for (auto i : arange(rhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
+        auto [out_x, out_y] =
+            AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+                (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
         result_x.emplace_back(out_x);
         result_y.emplace_back(out_y);
       }
@@ -334,7 +344,7 @@ struct DispatchParallelize {
       }
     } else if constexpr (std::is_same_v<IN, std::vector<AbstractId>>) {
       for (auto& aid : in) {
-        AbstractId::dispatch((*this), parallel_type, aid);
+        AbstractId::dispatch<void>((*this), parallel_type, aid);
       }
     } else {
       NVF_CHECK(false, "Unsupported type in AbstractTensor::parallelize");
@@ -663,7 +673,8 @@ class AbstractTensorWithInfo {
       int64_t axis,
       ParallelType parallel_type) {
     axis = wrapDim(axis, (int64_t)domain_.size());
-    AbstractId::dispatch(DispatchParallelize{}, parallel_type, domain_[axis]);
+    AbstractId::dispatch<void>(
+        DispatchParallelize{}, parallel_type, domain_[axis]);
     return *this;
   }
 
@@ -674,8 +685,9 @@ class AbstractTensorWithInfo {
     NVF_ERROR(domain_.size() == info_.size());
 
     axis = wrapDim(axis, (int64_t)domain_.size());
-    auto [outer, inner] = AbstractId::dispatch(
-        DispatchSplit{}, domain_[axis], factor, inner_split);
+    auto [outer, inner] =
+        AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+            DispatchSplit{}, domain_[axis], factor, inner_split);
     std::swap(domain_[axis], inner);
     domain_.insert(domain_.begin() + axis, outer);
 
@@ -700,8 +712,8 @@ class AbstractTensorWithInfo {
     axis_o = wrapDim(axis_o, (int64_t)domain_.size());
     axis_i = wrapDim(axis_i, (int64_t)domain_.size());
 
-    auto output =
-        AbstractId::dispatch(DispatchMerge{}, domain_[axis_o], domain_[axis_i]);
+    auto output = AbstractId::dispatch<AbstractId>(
+        DispatchMerge{}, domain_[axis_o], domain_[axis_i]);
     // axis_o is the outer input of this merge but does not
     // automatically mean it's an outer domain in this AbstractTensorWithInfo.
     auto domain_outer_pos = axis_o < axis_i ? axis_o : axis_i;
@@ -792,8 +804,9 @@ class AbstractTensorWithInfo {
     x = wrapDim(x, (int64_t)domain_.size());
     y = wrapDim(y, (int64_t)domain_.size());
 
-    auto [out_x, out_y] = AbstractId::dispatch(
-        DispatchSwizzle{}, swizzle_type, domain_[x], domain_[y]);
+    auto [out_x, out_y] =
+        AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+            DispatchSwizzle{}, swizzle_type, domain_[x], domain_[y]);
 
     std::swap(domain_[x], out_x);
     std::swap(domain_[y], out_y);
@@ -817,8 +830,9 @@ class AbstractTensorWithInfo {
     x = wrapDim(x, (int64_t)domain_.size());
     y = wrapDim(y, (int64_t)domain_.size());
 
-    auto [out_x, out_y] = AbstractId::dispatch(
-        DispatchLegacySwizzle{}, swizzle_type, domain_[x], domain_[y]);
+    auto [out_x, out_y] =
+        AbstractId::dispatch<std::pair<AbstractId, AbstractId>>(
+            DispatchLegacySwizzle{}, swizzle_type, domain_[x], domain_[y]);
 
     std::swap(domain_[x], out_x);
     std::swap(domain_[y], out_y);

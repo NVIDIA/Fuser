@@ -39,19 +39,23 @@ TEST_F(DynamicTypeTest, DispatchBasic) {
   EXPECT_TRUE(one.is<std::string>());
   EXPECT_TRUE(two.is<int64_t>());
 
-  auto concated_result11 = IntOrStr::dispatch(concat, "0", one, one, "3");
+  auto concated_result11 =
+      IntOrStr::dispatch<std::string>(concat, "0", one, one, "3");
   static_assert(std::is_same_v<decltype(concated_result11), std::string>);
   EXPECT_EQ(concated_result11, "0113");
 
-  auto concated_result12 = IntOrStr::dispatch(concat, "0", one, two, "3");
+  auto concated_result12 =
+      IntOrStr::dispatch<std::string>(concat, "0", one, two, "3");
   static_assert(std::is_same_v<decltype(concated_result12), std::string>);
   EXPECT_EQ(concated_result12, "0123");
 
-  auto concated_result21 = IntOrStr::dispatch(concat, "0", two, one, "3");
+  auto concated_result21 =
+      IntOrStr::dispatch<std::string>(concat, "0", two, one, "3");
   static_assert(std::is_same_v<decltype(concated_result21), std::string>);
   EXPECT_EQ(concated_result21, "0213");
 
-  auto concated_result22 = IntOrStr::dispatch(concat, "0", two, two, "3");
+  auto concated_result22 =
+      IntOrStr::dispatch<std::string>(concat, "0", two, two, "3");
   static_assert(std::is_same_v<decltype(concated_result22), std::string>);
   EXPECT_EQ(concated_result22, "0223");
 }
@@ -83,22 +87,26 @@ TEST_F(DynamicTypeTest, DispatchArgumentPerfectForwarding) {
   EXPECT_TRUE(two.is<int64_t>());
 
   std::string concated_result11;
-  IntOrStr::dispatch(concat, concated_result11, NonCopyable{}, one, one, "3");
+  IntOrStr::dispatch<void>(
+      concat, concated_result11, NonCopyable{}, one, one, "3");
   static_assert(std::is_same_v<decltype(concated_result11), std::string>);
   EXPECT_EQ(concated_result11, "113");
 
   std::string concated_result12;
-  IntOrStr::dispatch(concat, concated_result12, NonCopyable{}, one, two, "3");
+  IntOrStr::dispatch<void>(
+      concat, concated_result12, NonCopyable{}, one, two, "3");
   static_assert(std::is_same_v<decltype(concated_result12), std::string>);
   EXPECT_EQ(concated_result12, "123");
 
   std::string concated_result21;
-  IntOrStr::dispatch(concat, concated_result21, NonCopyable{}, two, one, "3");
+  IntOrStr::dispatch<void>(
+      concat, concated_result21, NonCopyable{}, two, one, "3");
   static_assert(std::is_same_v<decltype(concated_result21), std::string>);
   EXPECT_EQ(concated_result21, "213");
 
   std::string concated_result22;
-  IntOrStr::dispatch(concat, concated_result22, NonCopyable{}, two, two, "3");
+  IntOrStr::dispatch<void>(
+      concat, concated_result22, NonCopyable{}, two, two, "3");
   static_assert(std::is_same_v<decltype(concated_result22), std::string>);
   EXPECT_EQ(concated_result22, "223");
 }
@@ -117,22 +125,22 @@ TEST_F(DynamicTypeTest, DispatchReturnsDynamicType) {
   static_assert(one.is<int64_t>());
   static_assert(two.is<float>());
 
-  auto r11 = IntOrFloat::dispatch(add, one, one);
+  auto r11 = IntOrFloat::dispatch<IntOrFloat>(add, one, one);
   static_assert(std::is_same_v<decltype(r11), IntOrFloat>);
   EXPECT_TRUE(r11.is<int64_t>());
   EXPECT_EQ(r11, 2);
 
-  auto ce_r11 = IntOrFloat::dispatch(add, one, one);
+  auto ce_r11 = IntOrFloat::dispatch<IntOrFloat>(add, one, one);
   static_assert(std::is_same_v<decltype(ce_r11), IntOrFloat>);
   EXPECT_TRUE(ce_r11.is<int64_t>());
   EXPECT_EQ(ce_r11, 2);
 
-  auto r12 = IntOrFloat::dispatch(add, one, two);
+  auto r12 = IntOrFloat::dispatch<IntOrFloat>(add, one, two);
   static_assert(std::is_same_v<decltype(r12), IntOrFloat>);
   EXPECT_TRUE(r12.is<float>());
   EXPECT_EQ(r12, 3.0f);
 
-  auto ce_r12 = IntOrFloat::dispatch(add, one, two);
+  auto ce_r12 = IntOrFloat::dispatch<IntOrFloat>(add, one, two);
   static_assert(std::is_same_v<decltype(ce_r12), IntOrFloat>);
   EXPECT_TRUE(ce_r12.is<float>());
   EXPECT_EQ(ce_r12, 3.0f);
@@ -154,13 +162,13 @@ TEST_F(DynamicTypeTest, DispatchReturnsReference) {
 
   std::vector<int> a = {0, 1, 2, 3};
 
-  auto& r1 = IntOrFloat::dispatch(add, a, one, 1);
+  auto& r1 = IntOrFloat::dispatch<int&>(add, a, one, 1);
   static_assert(std::is_same_v<decltype(r1), int&>);
   EXPECT_EQ(r1, 2);
   EXPECT_EQ(&r1, &a[2]);
 
   EXPECT_THAT(
-      [&]() { IntOrFloat::dispatch(add, a, two, 1); },
+      [&]() { IntOrFloat::dispatch<int&>(add, a, two, 1); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Result is dynamic but not convertible to result type")));
+          "Lambda returned void but reference return type expected")));
 }
