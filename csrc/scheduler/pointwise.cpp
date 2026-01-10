@@ -295,25 +295,30 @@ bool PointWiseScheduler::canScheduleRunTime(
   // These are requirements of the current implementation of the
   // Block Quantization Op runtime function.
 
-  auto has_block_quantization_ops =
+  auto block_quantization_ops =
       HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
           data_cache,
           [fusion]() {
-            return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+            return std::make_unique<std::vector<BlockQuantizationOp*>>(
+                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion));
           })
           .get();
 
-  if (has_block_quantization_ops) {
+  if (!block_quantization_ops.empty()) {
     auto heuristics = computeHeuristics(fusion, runtime_info, data_cache);
     auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
-      scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Block Quantization Op requires vectorization factor to be at least "
-          "2.");
-      return false;
+      for (auto op : block_quantization_ops) {
+        if (op->quantizedOutput()->getDataType() != DataType::Float8_e4m3fn) {
+          scheduler_debug_utils::canScheduleRejectReason(
+              schedulerType(),
+              "Block Quantization Op requires vectorization factor to be at "
+              "least "
+              "2 for quantizing to NVFP4");
+          return false;
+        }
+      }
     }
 
     if (pparams->split_grid_y_dim) {
