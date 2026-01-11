@@ -5,22 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/inlining.h>
 #include <algorithm>
 #include <bit>
 #include <unordered_map>
+
+#include <gtest/gtest.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

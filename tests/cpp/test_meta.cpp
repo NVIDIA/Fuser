@@ -6,19 +6,20 @@
  */
 // clang-format on
 
-#include <fusion.h>
-#include <gtest/gtest.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-
 #include <array>
 #include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
+
+#include <gtest/gtest.h>
+
+#include "fusion.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

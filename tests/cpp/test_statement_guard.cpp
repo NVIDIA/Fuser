@@ -8,12 +8,12 @@
 
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <statement_guard.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "statement_guard.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ir/iostream.h>
-#include <ops/alias.h>
-#include <tests/cpp/utils.h>
+#include "ir/iostream.h"
+#include "ops/alias.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

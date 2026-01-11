@@ -6,13 +6,14 @@
  */
 // clang-format on
 
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <string.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include <cstring>
 #include <exception>
 #include <utility>
+
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

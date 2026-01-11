@@ -10,7 +10,7 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <linked_hash_map.h>
+#include "linked_hash_map.h"
 
 namespace {
 class CopyableKey {

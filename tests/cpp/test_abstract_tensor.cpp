@@ -8,9 +8,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-
-#include <scheduler/tools/abstract_tensor.h>
+#include "scheduler/tools/abstract_tensor.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

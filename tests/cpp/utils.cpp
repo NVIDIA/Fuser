@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "tests/cpp/utils.h"
+
 #include <algorithm>
 #include <ranges>
 #include <regex>
@@ -13,15 +15,15 @@
 #include <string_view>
 
 #include <ATen/cuda/CUDAContextLight.h>
+
 #include <c10/core/Allocator.h>
 #include <c10/core/CachingDeviceAllocator.h>
 #include <c10/core/GradMode.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 
-#include <exceptions.h>
-#include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-#include <tests/cpp/utils.h>
+#include "exceptions.h"
+#include "ops/all_ops.h"
+#include "scheduler/mma_utils.h"
 
 namespace nvfuser {
 

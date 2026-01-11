@@ -8,17 +8,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/interface_nodes.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <type.h>
+#include "fusion.h"
+#include "ir/interface_nodes.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
 
 namespace nvfuser {
 

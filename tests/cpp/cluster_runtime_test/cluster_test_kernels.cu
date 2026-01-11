@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <cuda_utils.h>
-#include <tests/cpp/cluster_runtime_test/cluster_test_helper.h>
+#include "cuda_utils.h"
+#include "tests/cpp/cluster_runtime_test/cluster_test_helper.h"
 
 namespace nvfuser {
 // copied from runtime/memory.cu to avoid too many includes
@@ -39,9 +39,11 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 // must include mbarrier.cu before cluster.cu
 // since mbarrier is used in cluster.cu
 // clang-format off
-#include <runtime/mbarrier.cu>
-#include <runtime/cluster.cu>
+#include "runtime/mbarrier.cu"
+#include "runtime/cluster.cu"
+
 // clang-format on
+
 template <typename T, int BLOCK_SIZE, int CLUSTER_SIZE>
 __global__ void storeSharedRemoteTestKernel(T* input, T* output) {
 #if (defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 900))
