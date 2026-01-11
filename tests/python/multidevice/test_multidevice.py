@@ -31,31 +31,25 @@ def test_pointwise(multidevice_test):
     num_devices = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
 
-    def _definition(fd: FusionDefinition):
-        t0 = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
-        t1 = fd.ops.relu(t0)
+    with FusionDefinition() as fd:
+        # Definition
+        inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
+        t1 = fd.ops.relu(inp)
         t2 = fd.ops.add(t1, t1)
         fd.add_output(t2)
 
-    def _multidevice_schedule(fd: FusionDefinition):
-        for t in fd.fusion.vals():
-            if t.is_tensor():
-                t.set_device_mesh(mesh)
+        for t in [inp, t1, t2]:
+            t.set_device_mesh(mesh)
 
-        for t in fd.fusion.inputs():
-            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-    unsharded_input = torch.randn(num_devices, 4)
-    sharded_input = multidevice_test.shard_tensor_1d(unsharded_input, 0, mesh)
+    inp_ref = torch.randn(num_devices, 4)
+    inp = multidevice_test.shard_tensor(inp_ref, inp)
 
-    with FusionDefinition() as fd:
-        _definition(fd)
-        _multidevice_schedule(fd)
-
-    (output,) = fd.execute([sharded_input])
-    (output_sharding,) = fd.fec.get_output_shardings()
-    torch.testing.assert_close(output.cpu(), unsharded_input.relu() * 2)
-    assert output_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
+    (out,) = fd.execute([inp])
+    (out_sharding,) = fd.fec.get_output_shardings()
+    torch.testing.assert_close(out.cpu(), inp_ref.relu() * 2)
+    assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
 class QkvFormat(Enum):
