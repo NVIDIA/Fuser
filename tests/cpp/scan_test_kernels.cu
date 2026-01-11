@@ -9,13 +9,16 @@
 // Define nvfuser_index_t at global scope for runtime files
 using nvfuser_index_t = int64_t;
 
-#include "tests/cpp/scan_test_helper.h"
+#include <tests/cpp/scan_test_helper.h>
 
 // Need to be included before scan because of dependencies
-
 namespace nvf {
-#include "runtime/index_utils.cu"
+#include <runtime/index_utils.cu>
 } // namespace nvf
+
+#include <runtime/cub_utils.cu>
+
+#include <runtime/scan.cu>
 
 // Standard C++ headers
 #include <cstdint>
@@ -25,9 +28,6 @@ namespace nvf {
 
 // Test framework headers
 #include <gtest/gtest.h>
-
-#include "runtime/cub_utils.cu"
-#include "runtime/scan.cu"
 
 namespace nvfuser {
 

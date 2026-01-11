@@ -9,14 +9,17 @@
 // Define nvfuser_index_t at global scope for runtime files
 using nvfuser_index_t = int64_t;
 
-#include "tests/cpp/topk_test_helper.h"
+#include <tests/cpp/topk_test_helper.h>
 
 // Need to be included before argsort because of the dependency
 // from argsort
-
 namespace nvf {
-#include "runtime/index_utils.cu"
+#include <runtime/index_utils.cu>
 } // namespace nvf
+
+#include <runtime/cub_utils.cu>
+
+#include <runtime/topk.cu>
 
 // Standard C++ headers
 #include <cstdint>
@@ -27,9 +30,6 @@ namespace nvf {
 
 // Test framework headers
 #include <gtest/gtest.h>
-
-#include "runtime/cub_utils.cu"
-#include "runtime/topk.cu"
 
 namespace nvfuser {
 

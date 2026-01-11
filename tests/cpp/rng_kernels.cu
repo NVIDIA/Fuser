@@ -10,6 +10,8 @@
 // (except raw headers). Compiling dynamic_type.h with nvcc is not supported.
 // Compiling pytorch with nvcc is not supported either.
 
+#include <tests/cpp/rng_helper.h>
+
 #include <cassert>
 #include <cstdint>
 #include <type_traits>
@@ -20,8 +22,6 @@
 #include <curand.h>
 #include <curand_kernel.h>
 #include <curand_philox4x32_x.h>
-
-#include "tests/cpp/rng_helper.h"
 
 namespace nvfuser {
 

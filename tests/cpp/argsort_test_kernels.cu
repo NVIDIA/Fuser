@@ -10,14 +10,17 @@
 using nvfuser_index_t = int64_t;
 
 // nvFuser headers
-#include "tests/cpp/argsort_test_helper.h"
+#include <tests/cpp/argsort_test_helper.h>
 
 // Need to be included before argsort because of the dependency
 // from argsort
-
 namespace nvf {
-#include "runtime/index_utils.cu"
+#include <runtime/index_utils.cu>
 } // namespace nvf
+
+#include <runtime/cub_utils.cu>
+
+#include <runtime/argsort.cu>
 
 // Standard C++ headers
 #include <cstdint>
@@ -27,9 +30,6 @@ namespace nvf {
 #include <cuda_runtime.h>
 
 #include <gtest/gtest.h>
-
-#include "runtime/argsort.cu"
-#include "runtime/cub_utils.cu"
 
 namespace nvfuser {
 
