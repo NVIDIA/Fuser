@@ -29,7 +29,7 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   return max_index + 1;
 }
 
-at::Tensor shardTensor(
+at::Tensor shardTensor1D(
     at::Tensor tensor,
     const int64_t axis,
     const DeviceMesh& mesh,
@@ -54,7 +54,7 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
   }
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const auto device_id = Communicator::getInstance().deviceId();
-  return shardTensor(
+  return shardTensor1D(
       tensor,
       getShardedLogicalAxis(tv, ParallelType::DIDx),
       tv->getDeviceMesh(),

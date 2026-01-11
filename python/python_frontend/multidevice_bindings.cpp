@@ -71,7 +71,7 @@ void bindDeviceMesh(py::module& nvfuser) {
          at::Tensor tensor,
          const int64_t axis,
          int64_t device_id) -> at::Tensor {
-        return shardTensor(tensor, axis, self, device_id);
+        return shardTensor1D(tensor, axis, self, device_id);
       },
       py::arg("tensor"),
       py::arg("axis"),

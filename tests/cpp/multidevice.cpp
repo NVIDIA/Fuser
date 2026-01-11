@@ -71,7 +71,7 @@ at::Tensor MultiDeviceTest::shardTensor(
     const int64_t axis,
     const DeviceMesh& mesh) {
   const auto device_id = communicator_->deviceId();
-  return nvfuser::shardTensor(tensor, axis, mesh, device_id);
+  return nvfuser::shardTensor1D(tensor, axis, mesh, device_id);
 }
 
 // testValidate doesn't work out of the box due to #2906, so I had to manually

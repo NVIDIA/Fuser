@@ -26,7 +26,8 @@ int64_t requestedNumberOfDevices(Fusion*);
 
 // Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
 // is determined by `mesh` and `device_id`. Returns the sharded tensor.
-NVF_API at::Tensor shardTensor(
+// This function assumes the mesh is 1D.
+NVF_API at::Tensor shardTensor1D(
     at::Tensor tensor,
     int64_t axis,
     const DeviceMesh& mesh,

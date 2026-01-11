@@ -46,7 +46,7 @@ def test_pointwise(multidevice_test):
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded_input = torch.randn(num_devices, 4)
-    sharded_input = multidevice_test.shard_tensor(unsharded_input, 0, mesh)
+    sharded_input = multidevice_test.shard_tensor_1d(unsharded_input, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -253,7 +253,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     q, k, v = [make_unsharded_tensor().requires_grad_() for _ in range(3)]
     out_grad = make_unsharded_tensor()
     sharded_q, sharded_k, sharded_v, sharded_out_grad = [
-        multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
+        multidevice_test.shard_tensor_1d(t, 1, mesh) for t in [q, k, v, out_grad]
     ]
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
@@ -293,7 +293,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
         # Use the default rtol for bfloat16 and a relaxed atol.
         torch.testing.assert_close(
             actual,
-            multidevice_test.shard_tensor(expected, 1, mesh),
+            multidevice_test.shard_tensor_1d(expected, 1, mesh),
             rtol=1.6e-2,
             atol=1e-2,
         )
@@ -331,7 +331,7 @@ def test_privatize_squeeze(multidevice_test):
         _multidevice_schedule(fd)
 
     unsharded = torch.randn(d * 3, 5, 6, dtype=torch.bfloat16)
-    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor_1d(unsharded, 0, mesh)
     out1, out2 = fd.execute([sharded])
     torch.testing.assert_close(out1.cpu(), unsharded.to(torch.float).sum(0))
     torch.testing.assert_close(out2, sharded.to(torch.float).sum(1))
@@ -355,7 +355,7 @@ def test_inner_reduction(multidevice_test):
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.ones(d * 3, 5)
-    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor_1d(unsharded, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -389,7 +389,7 @@ def test_insert_resharding_after(multidevice_test):
         _multidevice_schedule(fd)
 
     unsharded = torch.randn(d * 3, 5)
-    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor_1d(unsharded, 0, mesh)
     (out,) = fd.execute([sharded])
     torch.testing.assert_close(out.cpu(), unsharded.relu())
 
@@ -413,7 +413,7 @@ def test_welford(multidevice_test):
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(b, s, e)
-    sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
+    sharded = multidevice_test.shard_tensor_1d(unsharded, 1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -442,8 +442,8 @@ def test_binary(multidevice_test):
 
     x = torch.randn(d * 2, 3, dtype=torch.float16)
     y = torch.randn(d * 2, 3, dtype=torch.float16)
-    (z,) = fd.execute([x.cuda(), multidevice_test.shard_tensor(y, 0, mesh)])
+    (z,) = fd.execute([x.cuda(), multidevice_test.shard_tensor_1d(y, 0, mesh)])
 
     torch.testing.assert_close(
-        z, multidevice_test.shard_tensor(x.float() + y.float(), 0, mesh)
+        z, multidevice_test.shard_tensor_1d(x.float() + y.float(), 0, mesh)
     )

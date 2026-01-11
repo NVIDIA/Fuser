@@ -88,11 +88,13 @@ def test_column_parallel_linear(multidevice_test):
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
+    sharded_weight_tensor = multidevice_test.shard_tensor_1d(
         unsharded_weight_tensor, 0, mesh
     )
     unsharded_bias_tensor = torch.randn(d * e)
-    sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
+    sharded_bias_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_bias_tensor, 0, mesh
+    )
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -104,7 +106,9 @@ def test_column_parallel_linear(multidevice_test):
     unsharded_out_tensor = torch.nn.functional.linear(
         inp_tensor.cpu(), unsharded_weight_tensor, unsharded_bias_tensor
     )
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
 
@@ -134,8 +138,8 @@ def test_row_parallel_linear(multidevice_test):
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
 
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -175,8 +179,8 @@ def test_row_parallel_linear_with_bias(multidevice_test):
     unsharded_weight = torch.randn(e, d * e)
     bias = torch.randn(e)
 
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -220,8 +224,8 @@ def test_linear_reduce_scatter(multidevice_test):
     unsharded_inp = torch.randint(-2, 3, (b, d * s, d * e)).to(torch.bfloat16)
     unsharded_weight = torch.randint(-2, 3, (e, d * e)).to(torch.bfloat16)
     bias = torch.randint(-2, 3, (e,)).to(torch.bfloat16)
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -238,7 +242,7 @@ def test_linear_reduce_scatter(multidevice_test):
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
     torch.testing.assert_close(
         out,
-        multidevice_test.shard_tensor(unsharded_out, 1, mesh),
+        multidevice_test.shard_tensor_1d(unsharded_out, 1, mesh),
     )
 
 
@@ -274,7 +278,7 @@ def test_column_parallel_matmul(multidevice_test):
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(e, d * e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
+    sharded_weight_tensor = multidevice_test.shard_tensor_1d(
         unsharded_weight_tensor, -1, mesh
     )
 
@@ -286,7 +290,9 @@ def test_column_parallel_matmul(multidevice_test):
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.matmul(inp_tensor.cpu(), unsharded_weight_tensor)
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
         out_tensor, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
@@ -333,8 +339,8 @@ def test_row_parallel_matmul(multidevice_test):
     b, s = 1, 4
     unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
     unsharded_weight = torch.randn(d * e, e, dtype=torch.half)
-    sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    sharded_weight = multidevice_test.shard_tensor(unsharded_weight, 0, mesh)
+    sharded_inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    sharded_weight = multidevice_test.shard_tensor_1d(unsharded_weight, 0, mesh)
 
     expected_out = torch.matmul(unsharded_inp, unsharded_weight)
 
@@ -372,7 +378,7 @@ def test_column_parallel_grouped_mm(multidevice_test):
     m = 32
     inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
     w = torch.randn(g, n, k, dtype=torch.bfloat16)
-    sharded_w = multidevice_test.shard_tensor(w, 1, mesh)
+    sharded_w = multidevice_test.shard_tensor_1d(w, 1, mesh)
     group_sizes = [5, 7, 9, 11]
     assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
@@ -386,7 +392,7 @@ def test_column_parallel_grouped_mm(multidevice_test):
     (out,) = fd.execute([inp, sharded_w, offsets])
 
     torch.testing.assert_close(
-        out, multidevice_test.shard_tensor(expected_out, -1, mesh)
+        out, multidevice_test.shard_tensor_1d(expected_out, -1, mesh)
     )
 
 
@@ -417,9 +423,9 @@ def test_row_parallel_grouped_mm(multidevice_test):
 
     m = 32
     inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16)
-    sharded_inp = multidevice_test.shard_tensor(inp, -1, mesh)
+    sharded_inp = multidevice_test.shard_tensor_1d(inp, -1, mesh)
     w = torch.randint(-2, 3, (g, n, k), dtype=torch.bfloat16)
-    sharded_w = multidevice_test.shard_tensor(w, -1, mesh)
+    sharded_w = multidevice_test.shard_tensor_1d(w, -1, mesh)
     group_sizes = [5, 7, 9, 11]
     assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
@@ -464,9 +470,9 @@ def test_issue4729(multidevice_test):
     x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
     y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
     w_ref = torch.randint(-2, 3, (2, d * 3), dtype=torch.bfloat16)
-    x = multidevice_test.shard_tensor(x_ref, -1, mesh)
-    y = multidevice_test.shard_tensor(y_ref, -1, mesh)
-    w = multidevice_test.shard_tensor(w_ref, -1, mesh)
+    x = multidevice_test.shard_tensor_1d(x_ref, -1, mesh)
+    y = multidevice_test.shard_tensor_1d(y_ref, -1, mesh)
+    w = multidevice_test.shard_tensor_1d(w_ref, -1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -512,9 +518,9 @@ def test_sequence_parallel_linear(multidevice_test):
     unsharded_inp_tensor = torch.randn(b, s, e)
     unsharded_weight_tensor = torch.randn(e, e)
     unsharded_bias_tensor = torch.randn(e)
-    inp_tensor = multidevice_test.shard_tensor(unsharded_inp_tensor, 1, mesh)
-    weight_tensor = multidevice_test.shard_tensor(unsharded_weight_tensor, 0, mesh)
-    bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
+    inp_tensor = multidevice_test.shard_tensor_1d(unsharded_inp_tensor, 1, mesh)
+    weight_tensor = multidevice_test.shard_tensor_1d(unsharded_weight_tensor, 0, mesh)
+    bias_tensor = multidevice_test.shard_tensor_1d(unsharded_bias_tensor, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -526,6 +532,8 @@ def test_sequence_parallel_linear(multidevice_test):
     unsharded_out_tensor = torch.nn.functional.linear(
         unsharded_inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
     )
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
 
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1e-3, atol=1e-2)

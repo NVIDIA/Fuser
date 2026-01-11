@@ -114,7 +114,7 @@ Returns the shape of the mesh.
          at::Tensor tensor,
          const int64_t axis,
          int64_t device_id) -> at::Tensor {
-        return shardTensor(tensor, axis, self, device_id);
+        return shardTensor1D(tensor, axis, self, device_id);
       },
       py::arg("tensor"),
       py::arg("axis"),
@@ -244,6 +244,49 @@ void bindMultiDevice(py::module& nvfuser) {
   bindDeviceMesh(nvf_multidevice);
   bindSharding(nvf_multidevice);
   bindMultiDeviceExecutor(nvf_multidevice);
+
+  // Standalone shard_tensor function that takes TensorView
+  nvf_multidevice.def(
+      "shard_tensor",
+      [](at::Tensor tensor, TensorView* tv) -> at::Tensor {
+        return shardTensor(tensor, tv);
+      },
+      py::arg("tensor"),
+      py::arg("tv"),
+      R"(
+Shards the input tensor according to the TensorView's parallelization and device mesh.
+
+This function automatically:
+- Determines the sharding axis from the TensorView's DIDx parallelization
+- Extracts the device mesh from the TensorView
+- Uses the current rank from the Communicator singleton
+- Returns the original tensor if the TensorView is not sharded
+
+Parameters
+----------
+tensor : torch.Tensor
+    The unsharded tensor to shard
+tv : TensorView
+    The TensorView that defines the sharding pattern (must have device mesh
+    and DIDx parallelization if sharded)
+
+Returns
+-------
+torch.Tensor
+    The sharded tensor for the current device
+
+Examples
+--------
+>>> mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
+>>> with nvfuser.FusionDefinition() as fd:
+...     inp_tv = fd.define_tensor([-1, -1])
+...     inp_tv.set_device_mesh(mesh)
+...     inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+...     # ... rest of fusion definition
+>>>
+>>> unsharded_tensor = torch.randn(num_devices, 4)
+>>> sharded_tensor = nvfuser.multidevice.shard_tensor(unsharded_tensor, inp_tv)
+)");
 }
 
 } // namespace nvfuser::python
