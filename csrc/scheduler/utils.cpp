@@ -1168,30 +1168,36 @@ std::pair<bool, bool> canonicalizeReduction(
 
   // Merge all reductions and all non-reductions, and reorder them to
   // [DIDs..., merged non-reduction, merged reduction]
-  auto merge_inner_into_outer =
-      [](TensorView* tv, int64_t outer_axis, int64_t& inner_axis) -> void {
-    if (inner_axis >= 0) {
-      tv->merge(outer_axis, inner_axis);
+  const auto num_device_dims = numDeviceDims(tv);
+
+  // Merges all non-device IterDomains that satisfy the predicate from back to
+  // front. Returns the index of the last merged IterDomain, or -1 if no
+  // IterDomains were merged.
+  auto merge_all = [&](auto pred) -> int64_t {
+    int64_t merged = -1;
+    for (int64_t i :
+         arange(num_device_dims, tv->nDims()) | std::views::reverse) {
+      if (pred(tv->axis(i))) {
+        if (merged >= 0) {
+          tv->merge(i, merged);
+        }
+        merged = i;
+      }
     }
-    inner_axis = outer_axis;
+    return merged;
   };
 
-  int64_t merged_reduction = -1;
-  int64_t merged_non_reduction = -1;
-  const auto num_device_dims = numDeviceDims(tv);
-  for (int64_t i : arange(num_device_dims, tv->nDims()) | std::views::reverse) {
-    if (tv->axis(i)->isReduction()) {
-      merge_inner_into_outer(tv, i, merged_reduction);
-    } else {
-      merge_inner_into_outer(tv, i, merged_non_reduction);
-    }
-  }
+  bool has_reduction = merge_all(std::mem_fn(&IterDomain::isReduction)) >= 0;
 
+  int64_t merged_non_reduction =
+      merge_all(std::not_fn(std::mem_fn(&IterDomain::isReduction)));
+  bool has_non_reduction = false;
   if (merged_non_reduction >= 0) {
+    has_non_reduction = true;
     tv->reorder({{merged_non_reduction, num_device_dims}});
   }
 
-  return {merged_non_reduction >= 0, merged_reduction >= 0};
+  return {has_non_reduction, has_reduction};
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
