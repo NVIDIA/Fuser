@@ -533,31 +533,25 @@ def test_sequence_parallel_linear(multidevice_test):
 
 @pytest.mark.mpi
 def test_data_and_tensor_parallel_mlp(multidevice_test):
-    # Build a GPT-3 style MLP with data and tensor parallelism. Verify numerics similar to other tests.
+    # Build a GPT-3 style MLP with data and tensor parallelism.
     d = multidevice_test.size
     tp_size = 2
 
-    # Skip if d is not divisible by tp_size
     if d % tp_size != 0:
         pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
 
     dp_size = d // tp_size
     rank = multidevice_test.rank
 
-    # Create 2D mesh: [dp_size, tp_size]
     # mesh_y (dim 0) for data parallelism, mesh_x (dim 1) for tensor parallelism
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
 
-    # Get coordinates in 2D mesh
-    dp_rank = rank // tp_size  # Which data parallel group
-    tp_rank = rank % tp_size  # Which tensor parallel group
+    dp_rank = rank // tp_size
+    tp_rank = rank % tp_size
 
-    # Model dimensions similar to GPT-3
-    # Using smaller dimensions for testing
-    b = dp_size  # batch = dp_size, so each DP rank gets 1 batch
-    s, e = 5, 3  # sequence, embedding
+    b = dp_size
+    s, e = 5, 3
 
-    # Create unsharded reference tensors
     inp_ref = torch.testing.make_tensor(b, s, e, dtype=torch.int32, device="cpu").to(
         torch.float
     )
@@ -569,70 +563,41 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
     ).to(torch.float)
 
     with FusionDefinition() as fd:
-        # Input: [b, s, e] (global shape)
         inp = fd.define_tensor([-1, -1, e], contiguity=True)
-        # First linear layer weights: [4 * e, e] (global shape, column parallel)
         up_w = fd.define_tensor([4 * e, e], contiguity=True)
-        # Second linear layer weights: [e, 4 * e] (global shape, row parallel)
         down_w = fd.define_tensor([e, 4 * e], contiguity=True)
+        up_out = fd.ops.linear(inp, up_w)
+        down_out = fd.ops.linear(up_out, down_w)
+        fd.add_output(down_out)
 
-        # MLP forward: linear -> linear (no bias, like modern LLMs)
-        # First linear (column parallel - expands to 4*e)
-        fc1_out = fd.ops.linear(inp, up_w, None)
-
-        # Second linear (row parallel - projects back to e)
-        out = fd.ops.linear(fc1_out, down_w, None)
-
-        fd.add_output(out)
-
-        # Multidevice schedule
-        # Set device mesh for all tensors
         for t in [inp, up_w, down_w]:
             t.set_device_mesh(mesh)
 
-        # Data parallelism: shard batch dimension (use mesh_y)
         inp.outer_split(0, dp_size)
         inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
-
-        # Tensor parallelism for first linear (column parallel)
-        # Shard output features dimension (use mesh_x)
         up_w.outer_split(0, tp_size)
         up_w.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
-
-        # Tensor parallelism for second linear (row parallel)
-        # Shard input features dimension (use mesh_x)
         down_w.outer_split(-1, tp_size)
         down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-    # Manually shard tensors for 2D mesh
-    # Input: shard on batch dimension (dp_rank)
+    # TODO: Use shard_tensor when it's ready.
     batch_per_rank = b // dp_size
     inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
 
-    # FC1 weight: shard on output features (tp_rank)
-    fc1_out_per_rank = (4 * e) // tp_size
-    up_w = up_w_ref[
-        tp_rank * fc1_out_per_rank : (tp_rank + 1) * fc1_out_per_rank
-    ].cuda()
+    hidden_per_rank = (4 * e) // tp_size
+    up_w = up_w_ref[tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank].cuda()
 
-    # FC2 weight: shard on input features (tp_rank)
-    fc2_in_per_rank = (4 * e) // tp_size
     down_w = down_w_ref[
-        :, tp_rank * fc2_in_per_rank : (tp_rank + 1) * fc2_in_per_rank
+        :, tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank
     ].cuda()
 
     (out,) = fd.execute([inp, up_w, down_w])
 
-    # Compute reference output using PyTorch
-    # First linear
-    fc1_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref, None)
-    # Second linear
-    out_ref = torch.nn.functional.linear(fc1_out_ref, down_w_ref, None)
+    up_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref, None)
+    down_out_ref = torch.nn.functional.linear(up_out_ref, down_w_ref, None)
 
-    # Expected output should also be sharded on batch dimension
-    expected_out_sharded = out_ref[
+    expected_out = down_out_ref[
         dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank
     ]
 
-    # Compare outputs
-    torch.testing.assert_close(out.cpu(), expected_out_sharded, rtol=1e-2, atol=1e-1)
+    torch.testing.assert_close(out.cpu(), expected_out)
