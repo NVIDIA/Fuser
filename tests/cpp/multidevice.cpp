@@ -62,18 +62,6 @@ void MultiDeviceTest::SetUp() {
   }
 }
 
-at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
-  return nvfuser::shardTensor(tensor, tv);
-}
-
-at::Tensor MultiDeviceTest::shardTensor(
-    at::Tensor tensor,
-    const int64_t axis,
-    const DeviceMesh& mesh) {
-  const auto device_id = communicator_->deviceId();
-  return nvfuser::shardTensor1D(tensor, axis, mesh, device_id);
-}
-
 // testValidate doesn't work out of the box due to #2906, so I had to manually
 // specify the absolute tolerances. The atols passed in are tuned for bfloat,
 // the least precise dtype. They can probably be made stricter for other

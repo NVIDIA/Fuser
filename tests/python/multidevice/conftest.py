@@ -66,7 +66,7 @@ class MultideviceTest:
             "for unit tests to create unsharded data on CPU to reduce GPU "
             "memory footprint."
         )
-        return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
+        return mesh.shard_tensor(t, dim).cuda(self.rank)
 
     def shard_tensor(self, t: torch.Tensor, tv) -> torch.Tensor:
         """Shard tensor using TensorView's parallelization and device mesh.

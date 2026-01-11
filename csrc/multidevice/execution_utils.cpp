@@ -32,8 +32,8 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
 at::Tensor shardTensor1D(
     at::Tensor tensor,
     const int64_t axis,
-    const DeviceMesh& mesh,
-    const DeviceIdxType device_id) {
+    const DeviceMesh& mesh) {
+  const auto device_id = Communicator::getInstance().deviceId();
   auto i = mesh.linearIndexOf(device_id);
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
@@ -53,15 +53,13 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     return tensor;
   }
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
-  const auto device_id = Communicator::getInstance().deviceId();
   // This function still assumes the mesh is 1D at this very moment. But the
   // plan is to support multi-dimensional meshes here and leave shardTensor1D
   // for 1D meshes only and eventually deprecated.
   return shardTensor1D(
       tensor,
       getShardedLogicalAxis(tv, ParallelType::DIDx),
-      tv->getDeviceMesh(),
-      device_id);
+      tv->getDeviceMesh());
 }
 
 std::vector<int64_t> unshardedSizes(

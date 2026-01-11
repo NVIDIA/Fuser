@@ -110,15 +110,10 @@ Returns the shape of the mesh.
 )");
   device_mesh.def(
       "shard_tensor",
-      [](const DeviceMesh& self,
-         at::Tensor tensor,
-         const int64_t axis,
-         int64_t device_id) -> at::Tensor {
-        return shardTensor1D(tensor, axis, self, device_id);
-      },
+      [](const DeviceMesh& self, at::Tensor tensor, const int64_t axis)
+          -> at::Tensor { return shardTensor1D(tensor, axis, self); },
       py::arg("tensor"),
       py::arg("axis"),
-      py::arg("device_id"),
       R"(
 Shards the input tensor along `axis`. Returns the sharded tensor.)");
 }

@@ -67,15 +67,10 @@ void bindDeviceMesh(py::module& nvfuser) {
       "Returns the size of the mesh.");
   device_mesh.def(
       "shard_tensor",
-      [](const DeviceMesh& self,
-         at::Tensor tensor,
-         const int64_t axis,
-         int64_t device_id) -> at::Tensor {
-        return shardTensor1D(tensor, axis, self, device_id);
-      },
+      [](const DeviceMesh& self, at::Tensor tensor, const int64_t axis)
+          -> at::Tensor { return shardTensor1D(tensor, axis, self); },
       py::arg("tensor"),
-      py::arg("axis"),
-      py::arg("device_id"));
+      py::arg("axis"));
 }
 
 void bindDistributedTensor(py::module& nvfuser) {
