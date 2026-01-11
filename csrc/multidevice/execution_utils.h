@@ -37,6 +37,8 @@ NVF_API at::Tensor shardTensor1D(
 // Returns a shard of the tensor according to the sharding annotation in tv
 // for the current deviceId from Communicator. If tensor is not sharded returns
 // the original tensor.
+//
+// This function will eventually support multi-dimensional meshes.
 NVF_API at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv);
 
 // Given a TensorView and the shape of a sharded tensor of which certain

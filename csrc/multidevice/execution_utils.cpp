@@ -54,6 +54,9 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
   }
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const auto device_id = Communicator::getInstance().deviceId();
+  // This function still assumes the mesh is 1D at this very moment. But the
+  // plan is to support multi-dimensional meshes here and leave shardTensor1D
+  // for 1D meshes only and eventually deprecated.
   return shardTensor1D(
       tensor,
       getShardedLogicalAxis(tv, ParallelType::DIDx),
