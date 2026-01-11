@@ -74,7 +74,7 @@ class SymmetricTensor {
   [[maybe_unused]] CUmemGenericAllocationHandle mcast_handle_{};
   [[maybe_unused]] CUdevice cu_dev_{};
   void* mc_ptr_{nullptr};
-  CUdeviceptr mc_base_ptr_{0};
+  [[maybe_unused]] CUdeviceptr mc_base_ptr_{0};
   [[maybe_unused]] int exporter_rank_{-1};
   [[maybe_unused]] int peer_fd_{-1};
   bool is_contiguous_view_setup_ = false;
