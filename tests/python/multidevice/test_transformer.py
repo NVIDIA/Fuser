@@ -7,12 +7,13 @@ import torch
 import torch.nn.functional as F
 
 import nvfuser_direct as nvfuser
+from . import Parallelism
+from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition
 from python.direct_utils import (
     create_sdpa_rng_tensors,
     is_pre_ampere,
 )
-from benchmark_utils import get_benchmark_fns, Parallelism
 
 
 @pytest.mark.mpi

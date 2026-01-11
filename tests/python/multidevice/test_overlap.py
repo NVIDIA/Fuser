@@ -10,8 +10,8 @@ import torch.distributed as dist
 from torch.distributed.tensor import distribute_tensor, Shard
 
 import nvfuser_direct as nvfuser
+from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
-from benchmark_utils import get_benchmark_fns
 
 
 def row_parallel_linear_forward(h, mesh, num_chunks):
