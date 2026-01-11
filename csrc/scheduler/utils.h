@@ -155,14 +155,6 @@ inline std::optional<int64_t> mergeDims(
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
-// Merge all reduction to the right side and returns total number of
-// reduction axes.
-int64_t mergeReduction(TensorView* tv);
-
-// merge all non-reduction axes to the left side and returns total number of
-// iteration axes.
-int64_t mergeNonReduction(TensorView* tv);
-
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
 // Position `pos` means selecting all the dimensions [0, 1, ..., pos - 1]. pos =
@@ -377,7 +369,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 // Merges tensor view to the form:
 // [IterationDomain, ReductionDomain] Returns if <iteration dimensions,
 // reduction dimensions>
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
     bool schedule_3D = false);
