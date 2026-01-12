@@ -1167,16 +1167,23 @@ std::pair<bool, bool> canonicalizeReduction(
   }
 
   // Merge all reductions and all non-reductions, and reorder them to
-  // [DIDs..., merged non-reduction, merged reduction]
-  const auto num_device_dims = numDeviceDims(tv);
+  // [DIDs/Streams..., merged non-reduction, merged reduction]
+  //
+  // First, we reorder parallelized IterDomains to the front. At this stage of
+  // scheduling, they can only be DIDs or Streams.
+  std::unordered_map<int64_t, int64_t> reorder_map =
+      reorderParallelizedToFront(tv);
+  const auto num_parallel_dims = std::ssize(reorder_map);
 
-  // Merges all non-device IterDomains that satisfy the predicate from back to
-  // front. Returns the index of the last merged IterDomain, or -1 if no
-  // IterDomains were merged.
+  // Then, we merge all reduction IterDomains.
+  //
+  // This helper function merges all non-parallel IterDomains that satisfy the
+  // predicate from back to front. Returns the index of the last merged
+  // IterDomain, or -1 if no IterDomains were merged.
   auto merge_all = [&](auto pred) -> int64_t {
     int64_t merged = -1;
     for (int64_t i :
-         arange(num_device_dims, tv->nDims()) | std::views::reverse) {
+         arange(num_parallel_dims, tv->nDims()) | std::views::reverse) {
       if (pred(tv->axis(i))) {
         if (merged >= 0) {
           tv->merge(i, merged);
@@ -1189,12 +1196,16 @@ std::pair<bool, bool> canonicalizeReduction(
 
   bool has_reduction = merge_all(std::mem_fn(&IterDomain::isReduction)) >= 0;
 
+  // Then, we merge all non-reduction IterDomains.
   int64_t merged_non_reduction =
       merge_all(std::not_fn(std::mem_fn(&IterDomain::isReduction)));
+
+  // Finally, we put the merged non-reduction IterDomain right after the
+  // parallel IterDomains.
   bool has_non_reduction = false;
   if (merged_non_reduction >= 0) {
     has_non_reduction = true;
-    tv->reorder({{merged_non_reduction, num_device_dims}});
+    tv->reorder({{merged_non_reduction, num_parallel_dims}});
   }
 
   return {has_non_reduction, has_reduction};

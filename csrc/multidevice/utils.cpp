@@ -277,10 +277,12 @@ int64_t rankOfParallelType(ParallelType parallel_type) {
   switch (parallel_type) {
     case ParallelType::Stream:
       return 0;
-    case ParallelType::DIDx:
-    case ParallelType::DIDy:
     case ParallelType::DIDz:
       return 1;
+    case ParallelType::DIDy:
+      return 2;
+    case ParallelType::DIDx:
+      return 3;
     default:
       // I could assign other types an arbitrary rank but I prefer NVF_THROW to
       // catch unexpected changes in the future.
