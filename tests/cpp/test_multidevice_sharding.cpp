@@ -999,7 +999,8 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
   FusionGuard fg(fusion.get());
 
   int64_t d = communicator_->size();
-  int64_t b = 1, s = 2048, h = 96, e = 12288;
+  // e = h * 8 to exercise vectorization.
+  int64_t b = 1, s = 2048, h = 96, e = h * 8;
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   if (h % d != 0) {
@@ -1045,7 +1046,7 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
       at::cat({sharded_inputs[0], sharded_inputs[1], sharded_inputs[2]}, -1)
           .view({b, s, 3 * e / d})
           .sum(c10::IntArrayRef({0, 1}));
-  EXPECT_TRUE(at::allclose(nvf_out, ref_out, 1e-3, 1e-3));
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
 
