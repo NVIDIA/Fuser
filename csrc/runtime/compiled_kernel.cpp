@@ -58,7 +58,6 @@
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
-#include <nvfuser_resources/block_layout.h>
 #include <nvfuser_resources/block_quantization_kernels.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
@@ -1086,11 +1085,8 @@ std::string _getStructuredCode(
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
   }
-  if (has_block_layout) {
-    code += nvfuser_resources::block_layout_cu;
-  }
 
-  if (has_block_quantize_op) {
+  if (has_block_layout || has_block_quantize_op) {
     code += nvfuser_resources::block_quantization_kernels_cu;
   }
 
