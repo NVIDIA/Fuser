@@ -82,7 +82,7 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
 
   // Merge all iteration and reduction dimensions into canonical form [I, R]
   auto dim_analysis =
-      scheduler_utils::canonicalDimReduction(fusion, reduction_tv, false);
+      scheduler_utils::canonicalizeReduction(fusion, reduction_tv, false);
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
   NVF_ERROR(has_iter_axis && has_red_axis);

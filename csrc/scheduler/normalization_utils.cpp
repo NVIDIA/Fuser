@@ -1536,7 +1536,7 @@ TensorView* scheduleReductionGeneral(
     groupReductions(reduction_tvs, false);
   }
 
-  auto dim_analysis = scheduler_utils::canonicalDimReduction(
+  auto dim_analysis = scheduler_utils::canonicalizeReduction(
       fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3d);
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
