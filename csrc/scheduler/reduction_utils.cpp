@@ -48,13 +48,13 @@ TensorView* scheduleReductionTV(
         "DIDx should only appear outermost in loop, but found: ",
         reduction_tv->getLoopDomain());
     NVF_ERROR(
-        !rparams->schedule_3D,
+        !rparams->schedule_3d,
         "Mixing multi-GPU and 3D schedule is not supported");
   }
   const int iter_axis = (sharded_id != nullptr) ? 1 : 0;
-  const int outer_reduce_axis = rparams->schedule_3D ? 1 : 0;
+  const int outer_reduce_axis = rparams->schedule_3d ? 1 : 0;
   const int inner_reduce_axis =
-      rparams->schedule_3D ? 2 : (sharded_id != nullptr) + has_iter_axis;
+      rparams->schedule_3d ? 2 : (sharded_id != nullptr) + has_iter_axis;
 
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
@@ -274,7 +274,7 @@ TensorView* scheduleReductionTV(
     }
   }
   // Outer reduction axis
-  if (!rparams->tma_warp_specialized && rparams->schedule_3D) {
+  if (!rparams->tma_warp_specialized && rparams->schedule_3d) {
     if (rparams->persistent_kernel) {
       // Persistent Format:
       // [Grid Split, persistent buffer, unroll, thread dim]

@@ -1151,10 +1151,10 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D) {
+    bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (schedule_3D) {
+  if (schedule_3d) {
     NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(

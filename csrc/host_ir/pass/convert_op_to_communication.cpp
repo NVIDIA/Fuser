@@ -26,8 +26,7 @@ namespace nvfuser::hir_pass {
 
 void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
-  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
-  NVF_CHECK(hic, "Expected HostIrContainer");
+  auto* hic = fusion->as<hir::HostIrContainer>();
   DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
 
   auto handle_top_level_expr = [&](Expr* top_level_expr,
