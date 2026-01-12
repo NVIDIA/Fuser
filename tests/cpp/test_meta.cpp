@@ -645,25 +645,21 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
       at::randn({G, N, K_DIV_16}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({G}, options_fp32);
   // problem_sizes uses unpacked dimensions per expert: (m_i, n, k)
+  const std::vector<int64_t> problem_sizes_vec{M_PER_EXPERT, N, K,
+                                               M_PER_EXPERT, N, K,
+                                               M_PER_EXPERT, N, K,
+                                               M_PER_EXPERT, N, K};
   at::Tensor problem_sizes_input =
-      at::tensor(std::vector<int64_t>{M_PER_EXPERT, N, K,
-                                      M_PER_EXPERT, N, K,
-                                      M_PER_EXPERT, N, K,
-                                      M_PER_EXPERT, N, K},
-                 options_int)
+      at::tensor(problem_sizes_vec, options_int)
           .reshape({G, 3});
+  const std::vector<int64_t> expert_offsets_vec{
+      0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT};
   at::Tensor expert_offsets_input =
-      at::tensor(std::vector<int64_t>{0,
-                                      M_PER_EXPERT,
-                                      2 * M_PER_EXPERT,
-                                      3 * M_PER_EXPERT},
-                 options_int);
+      at::tensor(expert_offsets_vec, options_int);
+  const std::vector<int64_t> sf_offsets_vec{
+      0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT};
   at::Tensor sf_offsets_input =
-      at::tensor(std::vector<int64_t>{0,
-                                      M_PER_EXPERT,
-                                      2 * M_PER_EXPERT,
-                                      3 * M_PER_EXPERT},
-                 options_int);
+      at::tensor(sf_offsets_vec, options_int);
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
