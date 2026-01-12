@@ -15,6 +15,7 @@
 #include <tests/cpp/utils.h>
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -540,7 +541,8 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   // On older GPUs the CUTLASS kernel may compile but fail at runtime when
   // initializing TMA descriptors (e.g., status 801).
   if (!deviceMajorMinorCheck(10)) {
-    GTEST_SKIP() << "CutlassNvfp4GroupedMma requires SM100+ (compute capability >= 10.0)";
+    GTEST_SKIP() << "CutlassNvfp4GroupedMma requires SM100+ (compute "
+                    "capability >= 10.0)";
   }
 
   auto fusion = std::make_unique<Fusion>();
@@ -558,7 +560,7 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   constexpr int64_t M = G * M_PER_EXPERT;
   constexpr int64_t N = 96;
   constexpr int64_t K = 320;
-  constexpr int64_t K_DIV_2 = K / 2;   // 160
+  constexpr int64_t K_DIV_2 = K / 2; // 160
   constexpr int64_t K_DIV_16 = K / 16; // 20
 
   // Shapes:
@@ -622,16 +624,14 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   auto options_int = at::TensorOptions().dtype(at::kInt).device(at::kCUDA, 0);
 
   // FP4 tensors must be created as UInt8 and viewed as Float4
-  at::Tensor mat1_uint8 =
-      at::randint(0, 256, {M, K_DIV_2}, options_uint8);
-  at::Tensor mat1_input =
-      mat1_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
- 
-  // IMPORTANT: CutlassNvfp4GroupedMmaOp::evaluate transposes mat2 before calling
-  // into CUTLASS, which requires the transposed result to be contiguous.
-  // Construct mat2 as a transpose-view of a contiguous [G, N, K/2] tensor so
-  // that CutlassNvfp4GroupedMmaOp::evaluate's internal transpose produces a
-  // contiguous tensor.
+  at::Tensor mat1_uint8 = at::randint(0, 256, {M, K_DIV_2}, options_uint8);
+  at::Tensor mat1_input = mat1_uint8.contiguous().view(at::kFloat4_e2m1fn_x2);
+
+  // IMPORTANT: CutlassNvfp4GroupedMmaOp::evaluate transposes mat2 before
+  // calling into CUTLASS, which requires the transposed result to be
+  // contiguous. Construct mat2 as a transpose-view of a contiguous [G, N, K/2]
+  // tensor so that CutlassNvfp4GroupedMmaOp::evaluate's internal transpose
+  // produces a contiguous tensor.
   at::Tensor mat2_base_uint8 =
       at::randint(0, 256, {G, N, K_DIV_2}, options_uint8);
   at::Tensor mat2_base =
@@ -644,19 +644,32 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
       at::randn({G, N, K_DIV_16}, options_fp32).to(at::kFloat8_e4m3fn);
   at::Tensor alpha_input = at::ones({G}, options_fp32);
   // problem_sizes uses unpacked dimensions per expert: (m_i, n, k)
-  at::Tensor problem_sizes_input = at::tensor(
-      {M_PER_EXPERT, N, K,
-       M_PER_EXPERT, N, K,
-       M_PER_EXPERT, N, K,
-       M_PER_EXPERT, N, K},
-      options_int)
-                                     .reshape({G, 3});
-  at::Tensor expert_offsets_input =
-      at::tensor({0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT},
-                 options_int);
-  at::Tensor sf_offsets_input =
-      at::tensor({0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT},
-                 options_int);
+  const std::vector<int64_t> problem_sizes_vec{
+      // expert 0
+      M_PER_EXPERT,
+      N,
+      K,
+      // expert 1
+      M_PER_EXPERT,
+      N,
+      K,
+      // expert 2
+      M_PER_EXPERT,
+      N,
+      K,
+      // expert 3
+      M_PER_EXPERT,
+      N,
+      K,
+  };
+  at::Tensor problem_sizes_input =
+      at::tensor(problem_sizes_vec, options_int).reshape({G, 3});
+  const std::vector<int64_t> expert_offsets_vec{
+      0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT};
+  at::Tensor expert_offsets_input = at::tensor(expert_offsets_vec, options_int);
+  const std::vector<int64_t> sf_offsets_vec{
+      0, M_PER_EXPERT, 2 * M_PER_EXPERT, 3 * M_PER_EXPERT};
+  at::Tensor sf_offsets_input = at::tensor(sf_offsets_vec, options_int);
 
   // CUDA path
   ExpressionEvaluator ee_cuda;
