@@ -14,6 +14,7 @@ This script only formats output and provides help text.
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Dict
@@ -51,19 +52,27 @@ except ImportError:
 class Colors:
     """ANSI color codes for terminal output"""
 
-    RESET = "\033[m"
-    BOLD = "\033[1m"
+    _codes = {
+        'RESET': "\033[m",
+        'BOLD': "\033[1m",
 
-    # Regular colors
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    CYAN = "\033[36m"
-    WHITE = "\033[37m"
+        # Regular colors
+        'GREEN': "\033[32m",
+        'YELLOW': "\033[33m",
+        'CYAN': "\033[36m",
+        'WHITE': "\033[37m",
 
-    # Bold colors
-    BOLD_RED = "\033[1;31m"
-    BOLD_GREEN = "\033[1;32m"
-    BOLD_WHITE = "\033[1;37m"
+        # Bold colors
+        'BOLD_RED': "\033[1;31m",
+        'BOLD_GREEN': "\033[1;32m",
+        'BOLD_WHITE': "\033[1;37m",
+    }
+
+    def __init__(self):
+        use_colors = os.environ.get("NVFUSER_BUILD_DISABLE_COLOR") is None
+
+        for name, code in self._codes.items():
+            setattr(self, name, code if use_colors else "")
 
 
 class DependencyReporter:
