@@ -1545,4 +1545,5 @@ message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+message(STATUS "  ENABLE_PCH                         : ${ENABLE_PCH}")
 message(STATUS "******** End of Nvfuser configuration summary ********")
