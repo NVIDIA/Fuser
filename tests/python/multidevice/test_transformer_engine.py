@@ -3,10 +3,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
+
 import torch
 import torch.distributed as dist
+
 import transformer_engine.pytorch as te
-from benchmark_utils import get_benchmark_fns, Parallelism
+
+from . import Parallelism
+from .benchmark_utils import get_benchmark_fns
 from enum import auto, Enum
 
 compute_cap = torch.cuda.get_device_capability()
@@ -31,12 +35,12 @@ class ComputeType(Enum):
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
-    ids=["forward", "backward"],
+    ids=lambda t: t.name,
 )
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.parametrize(
     "overlap",

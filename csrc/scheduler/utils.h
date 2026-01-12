@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -381,7 +380,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 std::pair<bool, bool> canonicalDimReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D = false);
+    bool schedule_3d = false);
 
 // Return a list of tensor views that are outputs of reduction operations,
 // excluding resharding reduce expressions. If multiple outputs of an expression
@@ -713,19 +712,6 @@ void propagateReshapeTransforms(Fusion* fusion);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
-
-// A wrapper for Fusion::rotateLoop that provide more consistent interace
-inline void rotateLoop(
-    TensorView* loop_tv,
-    int64_t axis,
-    std::unordered_set<Statement*> selection) {
-  auto fusion = loop_tv->fusion();
-  if (!fusion->hasManaged("loop_rotation")) {
-    fusion->manage("loop_rotation", LoopRotationParam{});
-  }
-  fusion->getManaged<LoopRotationParam>("loop_rotation")
-      .emplace_back(loop_tv, axis, std::move(selection));
-}
 
 //! Certain tensors may need to be placed on shared or global memory
 //! due to data dependencies caused by resize operations. Create

@@ -5652,7 +5652,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
 
         // Check tv1 logical indices
         auto actual_tv1_logial_indices =
-            Index::getConsumerPerDimLogicalIndex(tv1, for_loops_, {});
+            Index::getConsumerPerDimLogicalIndex(tv1, for_loops_);
         ASSERT_EQ(actual_tv1_logial_indices.size(), 1);
         EXPECT_TRUE(actual_tv1_logial_indices[0]->sameAs(tv1_logical_index))
             << "Validation failure of " << tv1->toString() << " as consumer"

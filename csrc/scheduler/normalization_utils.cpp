@@ -1537,7 +1537,7 @@ TensorView* scheduleReductionGeneral(
   }
 
   auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3d);
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
 
@@ -1645,7 +1645,7 @@ void schedulePersistentKernel(
   // and encourages compiler issuing memory load instructions together. It
   // improves performance with cuda-13.0.
   bool unroll_persistent_cached_inputs = rparams->vectorize_inner_reduction &&
-      rparams->fastest_dim && !rparams->schedule_3D;
+      rparams->fastest_dim && !rparams->schedule_3d;
   if (unroll_persistent_cached_inputs) {
     for (const auto& [cached_input, input_idx] : cached_inputs) {
       if (std::ranges::find(persistent_buffers, cached_input) ==

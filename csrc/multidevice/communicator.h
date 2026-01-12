@@ -19,7 +19,6 @@
 #include "multidevice/c10d_mock.h"
 #endif
 
-#include "exceptions.h"
 #include "multidevice/multidevice.h"
 #include "visibility.h"
 
@@ -138,10 +137,6 @@ class NVF_API Communicator {
   // returns the device index corresponding to a rank
   DeviceIdxType rankToDiD(RankType rank) const {
     return static_cast<DeviceIdxType>(rank);
-  }
-
-  CommunicatorBackend getBackend(std::optional<CommunicatorBackend> backend) {
-    return backend.value_or(default_backend_);
   }
 
   bool is_available_;

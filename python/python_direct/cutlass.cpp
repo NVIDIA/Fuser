@@ -16,6 +16,26 @@ namespace {
 
 void bindGemm(py::module_& cutlass) {
   cutlass.def(
+      "mxfp8_scaled_mm",
+      [](const torch::Tensor& a,
+         const torch::Tensor& b,
+         const torch::Tensor& scales_a,
+         const torch::Tensor& scales_b,
+         const torch::Tensor& alpha,
+         at::ScalarType out_dtype) -> torch::Tensor {
+        return cutlass_kernels::mxfp8_scaled_mm(
+            a, b, scales_a, scales_b, alpha, out_dtype);
+      },
+      R"(Computes mxfp8 matmul and returns bf16 or fp16 output tensor.
+         mxfp8_scaled_mm(Tensor a,
+                         Tensor b,
+                         Tensor scales_a,
+                         Tensor scales_b,
+                         Tensor alpha,
+                         DataType out_dtype)
+                         -> Tensor output)");
+
+  cutlass.def(
       "nvfp4_scaled_mm",
       [](const torch::Tensor& a,
          const torch::Tensor& b,
@@ -26,7 +46,7 @@ void bindGemm(py::module_& cutlass) {
         return cutlass_kernels::nvfp4_scaled_mm(
             a, b, scales_a, scales_b, alpha, out_dtype);
       },
-      R"(Computes nvfp4 matmul and returns bf16, fp16, or fp32 output tensor.
+      R"(Computes nvfp4 matmul and returns bf16 or fp16 output tensor.
          nvfp4_scaled_mm(Tensor a,
                          Tensor b,
                          Tensor scales_a,

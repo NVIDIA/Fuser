@@ -7,17 +7,18 @@ import torch
 import torch.nn.functional as F
 
 import nvfuser_direct as nvfuser
+from . import Parallelism
+from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition
 from python.direct_utils import (
     create_sdpa_rng_tensors,
     is_pre_ampere,
 )
-from benchmark_utils import get_benchmark_fns, Parallelism
 
 
 @pytest.mark.mpi
-def test_grouped_mlp(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_grouped_mlp(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16
@@ -59,9 +60,9 @@ def test_grouped_mlp(multidevice_direct_test):
     gate_w = torch.randn(g, k, n, dtype=torch.bfloat16)
     up_w = torch.randn(g, k, n, dtype=torch.bfloat16)
     down_w = torch.randn(g, n, k, dtype=torch.bfloat16)
-    sharded_gate_w = multidevice_direct_test.shard_tensor(gate_w, -1, mesh)
-    sharded_up_w = multidevice_direct_test.shard_tensor(up_w, -1, mesh)
-    sharded_down_w = multidevice_direct_test.shard_tensor(down_w, -2, mesh)
+    sharded_gate_w = multidevice_test.shard_tensor(gate_w, -1, mesh)
+    sharded_up_w = multidevice_test.shard_tensor(up_w, -1, mesh)
+    sharded_down_w = multidevice_test.shard_tensor(down_w, -2, mesh)
     assert m % g == 0
     group_sizes = [m // g] * g
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
@@ -264,7 +265,7 @@ def transformer_forward_definition(
     S117 = fd.define_scalar(0.100000, dtype=DataType.Double)
     S118 = fd.define_scalar(True, dtype=DataType.Bool)
     sdpa_out, sdpa_logsum_exp, sdpa_seed, sdpa_offset = fd.ops.sdpfa_fwd(
-        T109, T102, T116, S117, S118, None
+        T109, T102, T116, dropout_p=S117, is_causal=S118, scale=None
     )
     T123 = fd.ops.permute(sdpa_out, dims=[0, 2, 1, 3])
     T124 = fd.ops.stride_order(T123, stride_order=[3, 2, 1, 0])
@@ -410,13 +411,11 @@ def _assert_shape_dtype(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
-def test_transformer_forward(
-    multidevice_direct_test, benchmark, parallelism: Parallelism
-):
-    d = multidevice_direct_test.size
+def test_transformer_forward(multidevice_test, benchmark, parallelism: Parallelism):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     b, s, h, e = 1, 2048, 96, 12288
@@ -443,7 +442,7 @@ def test_transformer_forward(
                     of devices {d} for sequence parallelism."
         )
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
@@ -473,18 +472,18 @@ def test_transformer_forward(
     ins = [
         inp.cuda()
         if parallelism == Parallelism.TENSOR_PARALLEL
-        else multidevice_direct_test.shard_tensor(inp, 1, mesh),
+        else multidevice_test.shard_tensor(inp, 1, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear0_bias, 0, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
         torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
-        multidevice_direct_test.shard_tensor(mlp_linear0_weight, 0, mesh),
-        multidevice_direct_test.shard_tensor(mlp_linear0_bias, 0, mesh),
-        multidevice_direct_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_bias, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
         torch.testing.make_tensor(e, dtype=torch.bfloat16, device="cuda"),
     ]
 
@@ -1053,18 +1052,22 @@ def transformer_backward_definition(
 @pytest.mark.parametrize(
     "parallelism",
     [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
-    ids=["tp", "sp"],
+    ids=lambda p: p.name,
 )
 @pytest.mark.mpi
-def test_transformer_backward(
-    multidevice_direct_test, benchmark, parallelism: Parallelism
-):
-    d = multidevice_direct_test.size
+def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallelism):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(range(d))
 
     b, s, h, e = 1, 2048, 96, 12288
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    if parallelism == Parallelism.SEQUENCE_PARALLEL and s % d != 0:
+        pytest.skip(
+            f"Sequence length {s} must be divisible by the number \
+                    of devices {d} for sequence parallelism."
+        )
+
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     mlp_linear0_out = torch.testing.make_tensor(
         b, s, e * 4, dtype=torch.bfloat16, device="cpu"
@@ -1114,32 +1117,32 @@ def test_transformer_backward(
 
     def maybe_shard_sequence(tensor):
         if parallelism == Parallelism.SEQUENCE_PARALLEL:
-            return multidevice_direct_test.shard_tensor(tensor, 1, mesh)
+            return multidevice_test.shard_tensor(tensor, 1, mesh)
         else:
             return tensor.cuda()
 
     ins = [
-        multidevice_direct_test.shard_tensor(mlp_linear0_out, -1, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_out, -1, mesh),
         maybe_shard_sequence(out_grad),
         maybe_shard_sequence(mlp_dropout_mask),
-        multidevice_direct_test.shard_tensor(mlp_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mlp_linear1_weight, -1, mesh),
         maybe_shard_sequence(mha_dropout_mask),
         maybe_shard_sequence(mha_linear1_out),
-        multidevice_direct_test.shard_tensor(mlp_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mlp_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         maybe_shard_sequence(layernorm1_mean),
         maybe_shard_sequence(inp),
         maybe_shard_sequence(layernorm1_rstd),
-        multidevice_direct_test.shard_tensor(mha_linear1_weight, -1, mesh),
-        multidevice_direct_test.shard_tensor(mha_linear0_out, -1, mesh),
-        multidevice_direct_test.shard_tensor(sdpa_out, 1, mesh)
+        multidevice_test.shard_tensor(mha_linear1_weight, -1, mesh),
+        multidevice_test.shard_tensor(mha_linear0_out, -1, mesh),
+        multidevice_test.shard_tensor(sdpa_out, 1, mesh)
         .transpose(1, 2)
         .contiguous()
         .transpose(1, 2),
-        multidevice_direct_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
+        multidevice_test.shard_tensor(sdpa_log_sumexp, 1, mesh),
         sdpa_philox_seed,
         sdpa_philox_offset,
-        multidevice_direct_test.shard_tensor(mha_linear0_weight, 0, mesh),
+        multidevice_test.shard_tensor(mha_linear0_weight, 0, mesh),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         maybe_shard_sequence(layernorm0_mean),
         maybe_shard_sequence(layernorm0_rstd),

@@ -46,13 +46,12 @@ HostIrEvaluator::HostIrEvaluator(
       communicator_(communicator),
       params_(params),
       expr_evaluator_(),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      my_local_device_index_(
+          communicator_ == nullptr ? 0 : communicator_->local_rank()),
       ipc_handle_cache_(expr_evaluator_),
       multicast_handle_cache_() {
   const DeviceIdxType device_index =
-      (communicator_ != nullptr && communicator_->is_available())
-      ? communicator_->deviceId()
-      : 0;
+      communicator_ == nullptr ? 0 : communicator_->deviceId();
   if (isDebugDumpEnabled(DebugDumpOption::HostIr) && device_index == 0) {
     container_->print(debug());
   }
@@ -147,16 +146,12 @@ c10::cuda::CUDAStream HostIrEvaluator::getCUDAStream(Stream* stream) {
     NVF_ERROR(value.hasValue() && value.is<int64_t>());
     stream_key = value.as<int64_t>();
   }
-  if (streams_.find(stream_key) == streams_.end()) {
-    auto i = (communicator_ != nullptr && communicator_->is_available())
-        ? communicator_->deviceId()
-        : 0;
-    streams_.insert(
-        {stream_key,
-         c10::cuda::getStreamFromPool(
-             /*isHighPriority=*/false, static_cast<c10::DeviceIndex>(i))});
+
+  auto it = streams_.find(stream_key);
+  if (it == streams_.end()) {
+    it = streams_.emplace(stream_key, c10::cuda::getStreamFromPool()).first;
   }
-  return streams_.at(stream_key);
+  return it->second;
 }
 
 void HostIrEvaluator::handle(SetCurrentStream* set_current_stream) {
@@ -340,10 +335,16 @@ void HostIrEvaluator::handle(Communication* communication) {
             communication->type() == CommunicationType::Allgather,
         "Invalid communication type, expected Broadcast or Allgather, got: ",
         communication->type());
+    int64_t root_val =
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication});
+        multicast_handle_cache_.get({output_tensor, communication, root_val});
     postWithCudaBackend(
-        communication, input_tensor, multicast_handle, current_stream);
+        communication,
+        input_tensor,
+        multicast_handle,
+        current_stream,
+        root_val);
   } else {
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), backend_type);
@@ -352,7 +353,8 @@ void HostIrEvaluator::handle(Communication* communication) {
         communicator_->deviceId(),
         backend,
         input_tensor,
-        output_tensor);
+        output_tensor,
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>());
   }
 }
 
@@ -375,8 +377,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       sendPost(p2p_ipc_handle, count, current_stream);
     }
   } else {
-    validateSizesAndStrides(
-        {buffer}, {communication->buffer()}, expr_evaluator_);
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -408,9 +408,12 @@ void HostIrEvaluator::handle(Wait* wait) {
         "supported with cuda backend, got: ",
         communication->type());
     at::Tensor output_tensor = getKnownTensorOrUndefined(communication->out());
+    int64_t root_val =
+        expr_evaluator_.evaluate(communication->root()).as<int64_t>();
     SymmetricMemoryHandle* multicast_handle =
-        multicast_handle_cache_.get({output_tensor, communication});
-    waitWithCudaBackend(communication, multicast_handle, current_stream);
+        multicast_handle_cache_.get({output_tensor, communication, root_val});
+    waitWithCudaBackend(
+        communication, multicast_handle, current_stream, root_val);
   } else {
     auto i = works_.find(expr);
     NVF_ERROR(i != works_.end(), "no wait req");
@@ -592,7 +595,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     //
     // clang-format off
     // ```
-    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
+    // const auto& [sizes, strides] = inferShapeAndContiguousStrides(out_tv, expr_evaluator_);
     // if (strides == t.strides()) {
     //   expr_evaluator_.bind(out_tv, t);
     // } else {

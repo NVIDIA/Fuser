@@ -1208,10 +1208,10 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 std::pair<bool, bool> canonicalDimReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D) {
+    bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (!schedule_3D) {
+  if (!schedule_3d) {
     // We coalesce all reduction axes to the right;
     bool has_red_axis = mergeReduction(tv) > 0;
 

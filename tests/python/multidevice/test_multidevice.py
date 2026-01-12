@@ -13,12 +13,12 @@ from python.direct_utils import is_pre_ampere
 
 
 @pytest.mark.mpi
-def test_sizes_and_ranks(multidevice_direct_test):
+def test_sizes_and_ranks(multidevice_test):
     size, rank, local_size, local_rank = (
-        multidevice_direct_test.size,
-        multidevice_direct_test.rank,
-        multidevice_direct_test.local_size,
-        multidevice_direct_test.local_rank,
+        multidevice_test.size,
+        multidevice_test.rank,
+        multidevice_test.local_size,
+        multidevice_test.local_rank,
     )
     assert size > 0
     assert rank >= 0 and rank < size
@@ -27,8 +27,8 @@ def test_sizes_and_ranks(multidevice_direct_test):
 
 
 @pytest.mark.mpi
-def test_pointwise(multidevice_direct_test):
-    num_devices = multidevice_direct_test.size
+def test_pointwise(multidevice_test):
+    num_devices = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
 
     def _definition(fd: FusionDefinition):
@@ -46,7 +46,7 @@ def test_pointwise(multidevice_direct_test):
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded_input = torch.randn(num_devices, 4)
-    sharded_input = multidevice_direct_test.shard_tensor(unsharded_input, 0, mesh)
+    sharded_input = multidevice_test.shard_tensor(unsharded_input, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -69,8 +69,8 @@ class QkvFormat(Enum):
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
-def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
-    d, b, s, h, e = multidevice_direct_test.size, 2, 1024, 12, 768
+def test_sdpa(multidevice_test, qkv_format: QkvFormat):
+    d, b, s, h, e = multidevice_test.size, 2, 1024, 12, 768
 
     if h % d != 0:
         pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
@@ -97,7 +97,7 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
         attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale=None
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
         q_grad, k_grad, v_grad = fd.ops.sdpfa_bwd(
@@ -124,7 +124,7 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
             t.set_device_mesh(mesh)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     def make_unsharded_tensor() -> torch.Tensor:
         return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
@@ -139,7 +139,7 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
         expected_out.backward(out_grad)
         expected_q_grad, expected_k_grad, expected_v_grad = q.grad, k.grad, v.grad
 
-    rank = multidevice_direct_test.rank
+    rank = multidevice_test.rank
 
     # Head-parallelize Q, K, V or the attention output of an SDPA.
     def head_parallelize(t: torch.Tensor) -> torch.Tensor:
@@ -188,8 +188,8 @@ def test_sdpa(multidevice_direct_test, qkv_format: QkvFormat):
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
 @pytest.mark.mpi
-def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
-    d = multidevice_direct_test.size
+def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     h, e = 12, 768
     if h % d != 0:
@@ -216,7 +216,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
         dropout_p = fd.define_scalar(0.0, dtype=DataType.Double)
         is_causal = fd.define_scalar(True, dtype=DataType.Bool)
         attn, log_sumexp, seed, offset = fd.ops.sdpfa_fwd(
-            q, k, v, dropout_p, is_causal, scale=None
+            q, k, v, dropout_p=dropout_p, is_causal=is_causal
         )
 
         q_grad, k_grad, v_grad = fd.ops.sdpfa_bwd(
@@ -245,7 +245,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
 
     b, s = 2, 1024
 
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     def make_unsharded_tensor() -> torch.Tensor:
         return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cpu")
@@ -253,7 +253,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
     q, k, v = [make_unsharded_tensor().requires_grad_() for _ in range(3)]
     out_grad = make_unsharded_tensor()
     sharded_q, sharded_k, sharded_v, sharded_out_grad = [
-        multidevice_direct_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
+        multidevice_test.shard_tensor(t, 1, mesh) for t in [q, k, v, out_grad]
     ]
 
     with torch.nn.attention.sdpa_kernel(SDPBackend.FLASH_ATTENTION):
@@ -293,7 +293,7 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
         # Use the default rtol for bfloat16 and a relaxed atol.
         torch.testing.assert_close(
             actual,
-            multidevice_direct_test.shard_tensor(expected, 1, mesh),
+            multidevice_test.shard_tensor(expected, 1, mesh),
             rtol=1.6e-2,
             atol=1e-2,
         )
@@ -306,8 +306,8 @@ def test_sdpa_loop_split(multidevice_direct_test, qkv_format: QkvFormat):
 
 
 @pytest.mark.mpi
-def test_privatize_squeeze(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_privatize_squeeze(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
@@ -331,17 +331,17 @@ def test_privatize_squeeze(multidevice_direct_test):
         _multidevice_schedule(fd)
 
     unsharded = torch.randn(d * 3, 5, 6, dtype=torch.bfloat16)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
     out1, out2 = fd.execute([sharded])
     torch.testing.assert_close(out1.cpu(), unsharded.to(torch.float).sum(0))
     torch.testing.assert_close(out2, sharded.to(torch.float).sum(1))
 
 
 @pytest.mark.mpi
-def test_inner_reduction(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_inner_reduction(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-    torch.cuda.set_device(multidevice_direct_test.local_rank)
+    torch.cuda.set_device(multidevice_test.local_rank)
 
     def _definition(fd: FusionDefinition) -> None:
         inp = fd.define_tensor((-1, -1), dtype=DataType.Float)
@@ -355,7 +355,7 @@ def test_inner_reduction(multidevice_direct_test):
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.ones(d * 3, 5)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -366,8 +366,8 @@ def test_inner_reduction(multidevice_direct_test):
 
 
 @pytest.mark.mpi
-def test_insert_resharding_after(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_insert_resharding_after(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
@@ -389,14 +389,14 @@ def test_insert_resharding_after(multidevice_direct_test):
         _multidevice_schedule(fd)
 
     unsharded = torch.randn(d * 3, 5)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
     (out,) = fd.execute([sharded])
     torch.testing.assert_close(out.cpu(), unsharded.relu())
 
 
 @pytest.mark.mpi
-def test_welford(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_welford(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     b, s, e = 1, 2048, 12288
 
@@ -413,7 +413,7 @@ def test_welford(multidevice_direct_test):
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(b, s, e)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 1, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -425,8 +425,8 @@ def test_welford(multidevice_direct_test):
 
 
 @pytest.mark.mpi
-def test_binary(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_binary(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     with FusionDefinition() as fd:
@@ -442,8 +442,8 @@ def test_binary(multidevice_direct_test):
 
     x = torch.randn(d * 2, 3, dtype=torch.float16)
     y = torch.randn(d * 2, 3, dtype=torch.float16)
-    (z,) = fd.execute([x.cuda(), multidevice_direct_test.shard_tensor(y, 0, mesh)])
+    (z,) = fd.execute([x.cuda(), multidevice_test.shard_tensor(y, 0, mesh)])
 
     torch.testing.assert_close(
-        z, multidevice_direct_test.shard_tensor(x.float() + y.float(), 0, mesh)
+        z, multidevice_test.shard_tensor(x.float() + y.float(), 0, mesh)
     )
