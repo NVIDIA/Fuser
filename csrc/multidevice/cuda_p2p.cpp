@@ -300,7 +300,9 @@ void postBroadcastWithCudaBackend(
           numAttrs,
           (cudaStream_t)stream));
 #else
-      NVF_THROW("cudaMemcpyBatchAsync backend is not supported for CUDA version < 12.8");
+      NVF_THROW(
+          "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+          "12.8");
 #endif
     } else {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -441,7 +443,9 @@ void postAllgatherWithCudaBackend(
         numAttrs,
         (cudaStream_t)stream));
 #else
-    NVF_THROW("cudaMemcpyBatchAsync backend is not supported for CUDA version < 12.8");
+    NVF_THROW(
+        "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+        "12.8");
 #endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
