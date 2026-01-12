@@ -106,7 +106,7 @@ list of Val
 )")
       .def(
           "vals",
-          [](Fusion& self) { return self.vals(); },
+          &Fusion::vals,
           nb::rv_policy::reference_internal,
           R"(
 Return all Vals registered in the fusion.
