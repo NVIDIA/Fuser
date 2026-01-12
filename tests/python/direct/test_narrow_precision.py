@@ -14,6 +14,8 @@ from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
+    is_pre_blackwell,
+    microarchitecture_is_pre,
     is_blackwell,
     microarchitecture_is,
     linear_to_swizzled_128_4,
@@ -63,7 +65,9 @@ def quantize_to_mxfp8_e4m3(tensor: torch.Tensor):
     return quantized_tensor
 
 
-@pytest.mark.skipif(not is_blackwell(), reason="Only supported on blackwell.")
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
 def test_nv_quantization_to_mxfp8(nvfuser_direct_test, dtype):
     x = torch.rand((1024, 1024), dtype=dtype, device="cuda")
@@ -170,7 +174,9 @@ def extract_te_nvfp4_metadata(input_tensor):
     return quantized_data, scale_inv, global_scale
 
 
-@pytest.mark.skipif(not is_blackwell(), reason="Only supported on blackwell.")
+@pytest.mark.skipif(
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
 @pytest.mark.parametrize("swizzle_scales", [True, False])
 @pytest.mark.parametrize("sizes", [[1024, 1024], [1, 1024]])
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32])
@@ -606,8 +612,10 @@ def test_cutlass_nvfp4_grouped_mm(
 
 
 @pytest.mark.skipif(
-    not microarchitecture_is(10, 0),
-    reason="Does not support blackwell compute 12.0, other arches are not tested.",
+    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+)
+@pytest.mark.skipif(
+    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float])
 def test_fp4_vectorization(
