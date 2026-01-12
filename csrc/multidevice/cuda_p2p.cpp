@@ -268,6 +268,7 @@ void postBroadcastWithCudaBackend(
       launchMulticastKernel(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION >= 12080
       std::vector<void*> dsts(world_size);
       std::vector<const void*> srcs(world_size, src_ptr);
       std::vector<size_t> counts(world_size, count);
@@ -289,7 +290,6 @@ void postBroadcastWithCudaBackend(
       }
       NVF_CHECK(
           stream != 0, "cudaMemcpyBatchAsync does not support default stream");
-#if CUDA_VERSION >= 13000
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
           dsts.data(),
           srcs.data(),
@@ -300,17 +300,7 @@ void postBroadcastWithCudaBackend(
           numAttrs,
           (cudaStream_t)stream));
 #else
-      size_t failIdx = 0;
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
-          dsts.data(),
-          srcs.data(),
-          counts.data(),
-          world_size,
-          attributes.data(),
-          attrsIdxs.data(),
-          numAttrs,
-          &failIdx,
-          (cudaStream_t)stream));
+      NVF_THROW("cudaMemcpyBatchAsync backend is not supported for CUDA version < 12.8");
 #endif
     } else {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -419,6 +409,7 @@ void postAllgatherWithCudaBackend(
         count,
         stream);
   } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION >= 12080
     std::vector<void*> dsts(world_size);
     std::vector<const void*> srcs(world_size, src_ptr);
     std::vector<size_t> counts(world_size, count);
@@ -440,7 +431,6 @@ void postAllgatherWithCudaBackend(
     }
     NVF_CHECK(
         stream != 0, "cudaMemcpyBatchAsync does not support default stream");
-#if CUDA_VERSION >= 13000
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
         dsts.data(),
         srcs.data(),
@@ -451,17 +441,7 @@ void postAllgatherWithCudaBackend(
         numAttrs,
         (cudaStream_t)stream));
 #else
-    size_t failIdx = 0;
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyBatchAsync(
-        dsts.data(),
-        srcs.data(),
-        counts.data(),
-        world_size,
-        attributes.data(),
-        attrsIdxs.data(),
-        numAttrs,
-        &failIdx,
-        (cudaStream_t)stream));
+    NVF_THROW("cudaMemcpyBatchAsync backend is not supported for CUDA version < 12.8");
 #endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
