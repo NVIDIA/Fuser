@@ -2373,6 +2373,15 @@ TEST_F(TmaPersistentTestF, KernelReuse) {
   auto fourth_runtime = runAndValidate(2048 + 8, 4096 + 8);
   EXPECT_NE(first_runtime, fourth_runtime);
   EXPECT_EQ(numRuntimes(), 2);
+
+  // Fifth run with different inner dimension - should not reuse the kernel
+  // 1280 after vectorization of 8 is 160, after persistent batch size of 2 is
+  // 80, it requires 80 threads current heuristic pads to 96 threads and won't
+  // use warp specialized version. to use warp specialized version, it should
+  // pad to 128 threads.
+  auto fifth_runtime = runAndValidate(2048, 1280);
+  EXPECT_NE(first_runtime, fifth_runtime);
+  EXPECT_EQ(numRuntimes(), 3);
 }
 
 } // namespace nvfuser
