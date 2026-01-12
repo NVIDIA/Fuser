@@ -166,10 +166,10 @@ bool ForLoop::isUnrolled() const {
   if (isUnrollRequired() && !isUnrollable()) {
     if (!isTrivial()) {
       TORCH_WARN(
-          "Unroll required but not possible. Register allocation disabled. "
+          "Unroll required but not possible. Register allocation disabled.\n"
           "Loop index: ",
           index()->toString(),
-          ", ",
+          "\nLoop:\n",
           toString());
     }
     return false;
