@@ -1221,6 +1221,7 @@ void queryTargetGPUVersion(
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
     CompileParams compile_params,
+    const LaunchParams& launch_params,
     c10::Device device,
     SchedulerType scheduler_type,
     int64_t fusion_id,
@@ -1237,7 +1238,8 @@ NVF_API CompiledKernel::CompiledKernel(
           runtime_id,
           group_id),
       compile_params_(compile_params),
-      lowered_(std::make_unique<GpuLower>(fusion, compile_params)) {
+      lowered_(
+          std::make_unique<GpuLower>(fusion, compile_params, launch_params)) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
   // TODO: No hooks can be sent because this is in the constructor
@@ -1266,6 +1268,7 @@ NVF_API CompiledKernel::CompiledKernel(
 NVF_API CompiledKernel::CompiledKernel(
     Fusion* fusion,
     CompileParams compile_params,
+    const LaunchParams& launch_params,
     c10::Device device,
     SchedulerType scheduler_type,
     int64_t fusion_id,
@@ -1275,6 +1278,7 @@ NVF_API CompiledKernel::CompiledKernel(
     : CompiledKernel(
           fusion,
           compile_params,
+          launch_params,
           device,
           scheduler_type,
           fusion_id,
