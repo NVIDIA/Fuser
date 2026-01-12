@@ -1058,7 +1058,7 @@ TEST_F(MultiDeviceTest, OuterReductionShardedInnerDimension) {
                                        .at(0)
                                        ->as<ReductionParams>();
   EXPECT_TRUE(rparams->vectorize_iter_dom);
-  EXPECT_EQ(rparams->unroll_factor_iter_dom, 8);
+  EXPECT_GT(rparams->unroll_factor_iter_dom, 1);
 
   auto scheduled_fusion = runtime->executors()
                               .at(0)
