@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <algorithm>
-#include <iostream>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
@@ -17,7 +16,7 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/evaluator.h>
-#include <host_ir/host_ir.h>
+#include <host_ir/ir.h>
 #include <host_ir/lower.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
@@ -37,6 +36,7 @@ using testing::ElementsAre;
 using HirLowerStreamTest = NVFuserTest;
 
 TEST_F(HirLowerStreamTest, InputsAreNotStreamParallelized) {
+  GTEST_SKIP() << "Inputs can now be stream parallelized";
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv = makeContigTensor(2);
@@ -508,6 +508,7 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
 using MultiDeviceExecutorLowerStreamTest = NVFuserTest;
 
 TEST_F(MultiDeviceExecutorLowerStreamTest, InputsAreNotStreamParallelized) {
+  GTEST_SKIP() << "Inputs can now be stream parallelized";
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv = makeContigTensor(2);

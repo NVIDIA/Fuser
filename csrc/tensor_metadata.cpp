@@ -18,7 +18,6 @@
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
 
-#include <iterator>
 #include <ranges>
 
 namespace nvfuser {
@@ -234,11 +233,10 @@ void validateAllocationSizesAndStrides(
        std::ssize(strides)});
 
   int64_t expected_stride_if_contiguous = 1;
-  auto dim_index = static_cast<int64_t>(sizes.size());
+  auto dim_index = std::ssize(sizes);
   // Go backwards because it's easier to compute the expected stride this way.
-  for (auto domain_index = static_cast<int64_t>(alloc_dom.size()) - 1;
-       domain_index >= 0;
-       domain_index--) {
+  for (auto domain_index :
+       arange(std::ssize(alloc_dom)) | std::views::reverse) {
     IterDomain* alloc_id = alloc_dom[domain_index];
     if (alloc_id->isReduction()) {
       continue;
@@ -251,11 +249,15 @@ void validateAllocationSizesAndStrides(
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
-        NVF_CHECK_EQ(
-            stride,
-            0,
-            "Expecting an expanded dimension on dimension ",
-            dim_index);
+        // When the runtime size after materialization is 1, a
+        // non-zero stride is harmless
+        if (size != 1) {
+          NVF_CHECK_EQ(
+              stride,
+              0,
+              "Expecting an expanded dimension on dimension ",
+              dim_index);
+        }
       }
       continue;
     }
@@ -266,25 +268,30 @@ void validateAllocationSizesAndStrides(
     }
 
     NVF_CHECK(contiguity[domain_index].has_value());
-    if (*contiguity[domain_index]) {
-      NVF_CHECK_EQ(
-          stride,
-          expected_stride_if_contiguous,
-          "TensorView ",
-          tv->toString(),
-          "'s stride mismatch with contiguity info. ",
-          " allocation domain: ",
-          ir_utils::toString(alloc_dom),
-          ": sizes: ",
-          sizes,
-          ": strides: ",
-          strides,
-          "; contiguity: ",
-          toDelimitedString(contiguity),
-          "; dim: ",
-          domain_index);
+    if (size > 1) {
+      if (*contiguity[domain_index]) {
+        NVF_CHECK_EQ(
+            stride,
+            expected_stride_if_contiguous,
+            "TensorView ",
+            tv->toString(),
+            "'s stride mismatch with contiguity info. ",
+            " allocation domain: ",
+            ir_utils::toString(alloc_dom),
+            ": sizes: ",
+            sizes,
+            ": strides: ",
+            strides,
+            "; contiguity: ",
+            toDelimitedString(contiguity),
+            "; dim: ",
+            domain_index);
+      }
+
+      // When `size=1`, we keep `expected_stride_if_contiguous` from the
+      // previous iteration.
+      expected_stride_if_contiguous = stride * size;
     }
-    expected_stride_if_contiguous = stride * size;
   }
 }
 
@@ -343,8 +350,30 @@ inferAndValidateAllocationSizesAndStrides(
     ExpressionEvaluator ee) {
   auto [allocation_sizes, allocation_strides] =
       inferAllocationSizesAndStrides(tensor, tv, ee);
-  // Only validate final sizes and strides when we have a non-empty tensor.
-  if (tensor.numel() != 0) {
+
+  bool skip_validation = false;
+
+  // Skip validation for block scales of BlockQuantizationOp with
+  // swizzled scales.
+  if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<BlockQuantizationOp>();
+    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
+  }
+
+  // Skip validation for scale input to ScaledMmaOp as it will be swizzled.
+  if (tv->uses().size() == 1 && tv->uses().at(0)->isA<ScaledMmaOp>()) {
+    auto scaled_mma = tv->uses().at(0)->as<ScaledMmaOp>();
+    // Only skip validation for scale inputs, not data inputs
+    if (tv == scaled_mma->scale1() || tv == scaled_mma->scale2()) {
+      skip_validation = true;
+    }
+  }
+
+  // Only validate final sizes and strides when we have a non-empty tensor
+  // or the tensor is a scale input to the scaledMmaOp
+  if (tensor.numel() != 0 && !skip_validation) {
     validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};

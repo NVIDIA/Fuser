@@ -20,7 +20,6 @@
 #include <type.h>
 
 #include <cctype>
-#include <iostream>
 #include <regex>
 
 namespace nvfuser::kir {
@@ -1738,8 +1737,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
     int64_t bdimy,
     int64_t bdimz) const {
   auto out_tv = ir_utils::getTvOutput(this);
-  auto kernel = dynamic_cast<kir::Kernel*>(container());
-  NVF_ERROR(kernel != nullptr);
+  auto kernel = container()->as<kir::Kernel>();
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {

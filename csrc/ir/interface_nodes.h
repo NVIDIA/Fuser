@@ -7,8 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
+#include <complex>
+#include <limits>
+#include <sstream>
 
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/builder_passkey.h>
 #include <ir/internal_base_nodes.h>
@@ -17,12 +20,6 @@
 #include <multidevice/device_mesh.h>
 #include <type.h>
 #include <visibility.h>
-
-#include <torch/csrc/jit/ir/ir.h>
-
-#include <complex>
-#include <limits>
-#include <sstream>
 
 //! Nodes in here are intended to be "user facing" users in this sense being
 //! those that want to be able to generate CUDA code.
@@ -392,6 +389,8 @@ class NVF_API TensorView : public Val {
 
   NVFUSER_DECLARE_CLONE
 
+  bool sameDefinition(const Val* other) const override;
+
   std::string toString(int indent_size = 0) const override;
 
   std::string toInlineString(int indent_size = 0) const override;
@@ -619,6 +618,14 @@ class NVF_API TensorView : public Val {
   TensorView* merge(int64_t axis) {
     return merge(axis, axis + 1);
   }
+
+  // Partition "axis" into component and ragged dimensions based on extents
+  // The extents tensor directly specifies the size of each component:
+  //   Shape: [num_components], values: [extent0, extent1, ..., extent(n-1)]
+  // Returns this TensorView with the axis replaced by component and ragged dims
+  // e.g. partition(0, extents) on tv[id{N}] results in:
+  //   tv[id{num_components}, ragged_id{extents}]
+  TensorView* partition(int64_t axis, TensorView* extents);
 
   // Flatten the axis from `from` to `to` into a single axis.
   // Both `from` and `to` are inclusive.
@@ -903,7 +910,7 @@ class NVF_API TensorView : public Val {
   }
 
   //! A helper function to maintain the consistency of schedules of
-  //! multiple outputs wheen doing rfactor on multi-output reduction ops.
+  //! multiple outputs when doing rfactor on multi-output reduction ops.
   TensorView* multiOutputRFactorHelper(
       TensorView* tv,
       const std::vector<int64_t>& axes);

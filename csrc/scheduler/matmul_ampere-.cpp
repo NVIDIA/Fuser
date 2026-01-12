@@ -1300,20 +1300,6 @@ void AmpereMinus::setUpCircularBuffering() {
       safely_apply_circular_buffering(bcr);
     }
   }
-
-  if (params_->circular_buffer_options.circular_buffer_smem_read &&
-      params_->circular_buffer_options.circular_buffer_smem_write) {
-    // rotate Kg loop
-    // This assumes we have a single main loop. If there were multiple main
-    // loops, then we would need to rotate each of them separately.
-    std::unordered_set<Statement*> all_smem_loads;
-    all_smem_loads.insert(acrs_.begin(), acrs_.end());
-    all_smem_loads.insert(bcrs_.begin(), bcrs_.end());
-    scheduler_utils::rotateLoop(
-        mma_results_.front(),
-        num_device_and_batch_dims_ + 2 + num_splitk_dims_,
-        all_smem_loads);
-  }
 }
 
 void AmpereMinus::setOperandSmemLoadAndCacheOps(

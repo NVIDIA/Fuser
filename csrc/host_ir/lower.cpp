@@ -5,25 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <host_ir/lower.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
-#include <host_ir/pass/stream_parallel_type.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <runtime/fusion_kernel_runtime.h>
+#include "host_ir/lower.h"
+
 #include <limits>
+
+#include "device_lower/utils.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/pass/convert_op_to_communication.h"
+#include "host_ir/pass/stream_parallel_type.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "runtime/fusion_kernel_runtime.h"
 
 namespace nvfuser {
 
@@ -96,10 +98,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   // Note: passes run before PreSegmenter optimization passes.
   // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
   // since they are incompatible with MultiDeviceExecutor.
-  preseg_passes::OptimizationPass<
-      preseg_passes::DecomposeReshardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+      fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
@@ -165,10 +165,12 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   for (auto tv : hic->allTvs()) {
-    // set all host tensors to global memory type. This must be the case by
-    // definition of a host tensor, and setting the memory type to global is
-    // also required to avoid Allocate HIR nodes to throw
-    tv->setMemoryType(MemoryType::Global);
+    // set all host tensors to global or symmetric memory type. This must be the
+    // case by definition of a host tensor, and setting the memory type to
+    // global is also required to avoid Allocate HIR nodes to throw
+    if (tv->getMemoryType() != MemoryType::Symmetric) {
+      tv->setMemoryType(MemoryType::Global);
+    }
   }
 
   hir_pass::StreamParallelType(params_).runPass(hic.get());

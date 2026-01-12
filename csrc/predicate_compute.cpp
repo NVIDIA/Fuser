@@ -731,7 +731,6 @@ OneDimTmaPredicateInfo PredicateCompute::OneDimTmaLoadExpectArrive(
   auto pval_inline = getInlinePredicate(
       expr,
       current_loops,
-      /*rotated_loop_=*/std::unordered_set<kir::ForLoop*>{},
       /*thread_pred=*/nullptr,
       PredicateType::Inline);
   // We want to merge [pval_inline] with [pval_elect_sync].
@@ -835,7 +834,6 @@ Val* PredicateCompute::getElectSyncPredicate(
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<kir::ForLoop*>& loops,
-    const std::unordered_set<kir::ForLoop*>& rotated_loops,
     Val* thread_pred,
     PredicateType pred_type) {
   DEBUG_PRINT_SCOPE(
@@ -889,8 +887,7 @@ Val* PredicateCompute::getInlinePredicate(
     pred_info_vec =
         gpu_lower->tensorIndexer().getPredicates(out_tv, expr, loops);
   } else {
-    pred_info_vec = Index::getReferenceRootPredicates(
-        out_tv, loops, rotated_loops, nullptr);
+    pred_info_vec = Index::getReferenceRootPredicates(out_tv, loops, nullptr);
   }
 
   std::vector<Val*> preds;
@@ -993,8 +990,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     ref_pred_info = gpu_lower->tensorIndexer().getPredicates(
         out_tv, tv_expr, for_loops_, unrolled_loop_);
   } else {
-    ref_pred_info = Index::getReferenceRootPredicates(
-        out_tv, for_loops_, rotated_loop_, unrolled_loop_);
+    ref_pred_info =
+        Index::getReferenceRootPredicates(out_tv, for_loops_, unrolled_loop_);
   }
 
   // If RootPredicateInfo has a static predicate that is more
@@ -1153,27 +1150,6 @@ void UnswitchPredicate::openLoop(kir::ForLoop* fl) {
 void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
   FUSER_PERF_SCOPE("GpuLower::Lower::UnswitchPredicate::openIte");
 
-  // Loop rotation transform loops like
-  //  for i ...
-  //    statement1(i)
-  //    statement2(i)
-  //    statement3(i)
-  //    statement4(i)
-  // into
-  //  statement1(0)
-  //  statement2(0)
-  //  for i ...
-  //    statement3(i)
-  //    statement4(i)
-  //    if LoopRotation:
-  //      statement1(i+1)
-  //      statement2(i+1)
-  // So when we see an `if LoopRotation` during visiting, the last loop is
-  // rotated, and we need to use `i+1` instead of `i` as loop index.
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.insert(for_loops_.back());
-  }
-
   // only expand the ite thenBody
   for (auto expr : ite->thenBody().exprs()) {
     if (ir_utils::isTvOp(expr) || isTensorIndexOp(expr)) {
@@ -1183,10 +1159,6 @@ void UnswitchPredicate::openIte(kir::IfThenElse* ite) {
     } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       openLoop(for_loop);
     }
-  }
-
-  if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
-    rotated_loop_.erase(for_loops_.back());
   }
 }
 

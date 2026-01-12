@@ -12,18 +12,28 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include "ir/internal_nodes.h"
 #include "ir/utils.h"
+#include "type.h"
 namespace nvfuser {
 
 using testing::Contains;
 using testing::UnorderedElementsAre;
-using PersistentBufferTest = NVFuserTest;
+
+class PersistentBufferTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -1293,24 +1303,30 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion.get(), runtime_info);
-  EXPECT_FALSE(
-      heuristic_params->as<ReductionParams>()->smem_persistent_buffers.empty());
+  // shared memory persistent is used for Ampere and lower architectures.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_FALSE(heuristic_params->as<ReductionParams>()
+                     ->smem_persistent_buffers.empty());
+  }
+
   scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
-  // Shared memory access should be vectorized.
-  // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
-  // "std::get: wrong index for variant" when trying to evaluate index with:
-  // `expr_eval.evaluate(ti->index()).as<int64_t>();`
-  for (auto tv : fusion->allTvs()) {
-    if (tv->getMemoryType() == MemoryType::Shared) {
-      // check self
-      EXPECT_TRUE(isVectorized(tv));
-      // check consumers
-      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-        EXPECT_TRUE(isVectorized(consumer));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    // Shared memory access should be vectorized.
+    // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
+    // "std::get: wrong index for variant" when trying to evaluate index with:
+    // `expr_eval.evaluate(ti->index()).as<int64_t>();`
+    for (auto tv : fusion->allTvs()) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        // check self
+        EXPECT_TRUE(isVectorized(tv));
+        // check consumers
+        for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+          EXPECT_TRUE(isVectorized(consumer));
+        }
       }
     }
   }
@@ -1434,12 +1450,14 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // check segmentation, if not segmented, further check shared memory
   // persistence
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_EQ(is_segmented, runtime->isSegmented());
-  if (!is_segmented) {
-    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
-    ASSERT_TRUE(params->isA<ReductionParams>());
-    ASSERT_TRUE(
-        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    ASSERT_EQ(is_segmented, runtime->isSegmented());
+    if (!is_segmented) {
+      auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+      ASSERT_TRUE(params->isA<ReductionParams>());
+      ASSERT_TRUE(
+          params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+    }
   }
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -1519,30 +1537,32 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto cg_outputs =
       executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  if (has_enough_regs_smem) {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
-    Fusion* scheduled_fusion = runtime->executors()
-                                   .back()
-                                   ->as<KernelExecutor>()
-                                   ->compiledKernel()
-                                   ->kernel();
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    if (has_enough_regs_smem) {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+      Fusion* scheduled_fusion = runtime->executors()
+                                     .back()
+                                     ->as<KernelExecutor>()
+                                     ->compiledKernel()
+                                     ->kernel();
 
-    if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
-      bool has_smem_tv = false;
-      for (auto tv : scheduled_fusion->allTvs()) {
-        if (tv->getMemoryType() == MemoryType::Shared) {
-          has_smem_tv = true;
-          break;
+      if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
+        bool has_smem_tv = false;
+        for (auto tv : scheduled_fusion->allTvs()) {
+          if (tv->getMemoryType() == MemoryType::Shared) {
+            has_smem_tv = true;
+            break;
+          }
         }
+        EXPECT_TRUE(has_smem_tv);
       }
-      EXPECT_TRUE(has_smem_tv);
+    } else {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          Contains(HeuristicIs(SchedulerType::Reduction)));
     }
-  } else {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        Contains(HeuristicIs(SchedulerType::Reduction)));
   }
   testValidate(
       &fusion_copy,
@@ -1969,4 +1989,323 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
 
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
 }
+
+namespace tma_check {
+bool isTmaParams(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
+  return hparams->isA<InnerNormTmaParams>();
+}
+} // namespace tma_check
+
+class TmaPersistentTestF : public PersistentBufferTest {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PersistentBufferTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
+// Test TMA-based inner persistent reduction with manual scheduling
+// This test demonstrates how to manually schedule a persistent buffer kernel
+// using TMA (Tensor Memory Accelerator) for efficient data loading.
+// Pattern: input -> cast -> reduction -> broadcast -> add -> cast -> output
+TEST_F(TmaPersistentTestF, TmaInnerPersistent) {
+  DataType dtype = DataType::BFloat16;
+  int x = 1024;
+  int y = 10240;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create fusion: tv0 -> tv1(cast) -> tv2(sum) -> tv3(bcast) -> tv4(add) ->
+  // tv5(cast)
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0); // tv1 is the persistent buffer
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+
+  // Option to test with auto-scheduler (set to true to compare)
+  bool is_auto_schedule = false;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+
+  // Project persistent buffer tv1 to inputs.
+  // This replaces all uses of tv1 (except the first use in the reduction path)
+  // with tv1 recomputed from the fusion inputs.
+  // clang-format off
+  //
+  // Before projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) -> T4 = T3 + T1
+  //                    └────────────────────────────────────────────┘
+  //
+  // After projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) ┐
+  //            |                                            ├─> T4 = T3 + T6 -> T5(output)
+  //            └─> T6(cast, recomputed from T0) ──────────┘
+  //
+  // After scheduling (adding T8 bulk load, T9 register cache, T10 rfactor):
+  //   T0 -> T8(bulk) -> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //         |                                                 ├─> T4 -> T9 -> T5
+  //         └─> T6 (recomputed cast) ───────────────────────┘
+  //
+  // Transform Propagation Challenge:
+  // Transformations from T10(reference_tv) cannot reach T3:
+  //   - Path through T0: blocked by unscheduled bulk domain in T8
+  //   - Path through T2: blocked by reduced domain in T2
+  //
+  // Solution - Add dummy output T7 = T6 + T1:
+  //   T0 -> T8(bulk) ──┬─> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //                    │    │                                    ├─> T4 -> T9 -> T5
+  //                    └─> T6 ────────────────────────────────> ─┘
+  //                         │
+  //                         └────┴─> T7 = T6 + T1 (dummy output)
+  //
+  // The dummy output creates a propagation path: T10 -> T1 -> T7 -> T6 -> T4
+  // This allows transforms to flow from the reference_tv to the entire fusion.
+  // Note: T7 is removed after transform propagation but before inlining.
+  // clang-format on
+  std::vector<TensorView*> dummy_outputs;
+  if (dtype == DataType::BFloat16) {
+    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+        fusion_ptr.get(),
+        scheduler_utils::persistentBuffers(fusion_ptr.get()),
+        /*project_to_inputs=*/true);
+
+    for (auto output : dummy_outputs) {
+      fusion.addOutput(output);
+    }
+  }
+
+  // Cache input tv0 in shared memory using TMA load (CpAsyncBulk)
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache output tv5 in registers to enable vectorized write to global memory
+  tv5->cacheBefore();
+
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+
+  // Use the reduction tensor tv2 as the starting point for scheduling
+  // Its transformations will be propagated to all non-TMA tensors
+  TensorView* reduction_tv = tv2;
+
+  // Scheduling parameters
+  struct TmaInnerPersistentParams {
+    int64_t vectorization_factor = 1; // Elements per vectorized memory access
+    int64_t bdimx = 1; // Number of threads per block (TIDx)
+  };
+  TmaInnerPersistentParams params;
+  params.vectorization_factor =
+      128 / dataTypeSizeBit(dtype); // 128 bits / element size
+  params.bdimx = 128; // Use 128 threads per block for reduction
+
+  // Schedule TMA load: [I, R]
+  // - No transformation is needed as we assume each block handles one row
+  // - axis(0): parallelize with BIDx (each block handles one batch)
+  // - axis(1): parallelize with Bulk (TMA async copy entire reduction
+  // dimension)
+  reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reduction_tv->axis(1)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
+  // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
+  reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+
+  // Schedule the reduction domain: [I, R] -> [I, R/v/x, us, x, v]
+  // Split R into multiple dimensions for efficient reduction:
+  //   - v: vectorization factor (elements processed per vector instruction)
+  //   - x: thread dimension (bdimx threads cooperate on reduction)
+  //   - us: unswitch dimension (for loop optimization)
+  int64_t rpos = 1;
+  reduction_tv->split(rpos, params.vectorization_factor);
+  reduction_tv->split(rpos, params.bdimx);
+  reduction_tv->split(rpos, 1);
+  reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
+  reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
+
+  // Create rfactor tv to separate thread-local vectorized reduction from block
+  // reduction rfactor axes: {rpos, vectorize_pos} = {1, 4} corresponding to
+  // R/v/x and v dimensions
+  int64_t vectorize_pos = rpos + 3;
+  auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
+
+  // Propagate transformations from reference_tv to all non-TMA tensors
+  // TMA tensors keep their simple [BIDx, Bulk] schedule
+  std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
+      fusion_ptr.get(), {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator non_tma_propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&non_tma_propagator);
+
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // Vectorize output write to global memory
+  tv5->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+
+  // Remove dummy outputs before inlining (they were only needed for scheduling)
+  for (auto output : dummy_outputs) {
+    fusion.removeOutput(output);
+  }
+
+  // Inline all tensors to minimize register usage
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs = ke.run({t0}, {}, {});
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}
+
+// Base class for parameterized TMA inner persistent tests using TEST_P
+// <dtype, dim_0, dim_1>
+using TmaPersistentTestParams = std::tuple<DataType, int64_t, int64_t>;
+class TmaPersistentTestP
+    : public NVFuserFixtureParamTest<TmaPersistentTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentLayerNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv2 = makeContigConcreteTensor({y}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  auto res = layer_norm(tv0, 1, tv1, tv2, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, res.output);
+  fusion.addOutput(output);
+  fusion.addOutput(res.mean);
+  fusion.addOutput(res.invstd);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+  auto t2 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(
+      &unscheduled_fusion_copy, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentSoftmax) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  fusion.addInput(tv0);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto res = softmax(tv0, 1);
+  auto output = maybeCastOp(DataType::BFloat16, res);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaPersistentTestP,
+    ::testing::Combine(
+        testing::Values(DataType::BFloat16),
+        testing::Values(
+            deviceSMCount() / 2, // small batch, can't do grid stride loop
+            2048), // batch size, less or larger than sm count
+        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+    [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
+      auto dtype = std::get<0>(info.param);
+      auto x = std::get<1>(info.param);
+      auto y = std::get<2>(info.param);
+      std::ostringstream os;
+      os << dtype << "_" << x << "_" << y;
+      return os.str();
+    });
 } // namespace nvfuser

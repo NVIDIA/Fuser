@@ -10,7 +10,7 @@
 #include <array>
 #include <complex>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -45,6 +45,7 @@ namespace nvfuser {
 enum class ValType {
   TensorDomain,
   IterDomain,
+  RaggedIterDomain,
   TensorView,
   NamedScalar,
   Predicate,
@@ -58,7 +59,6 @@ enum class ValType {
 // Unswitch corresponds with UnswitchPredicate::get
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
-// LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
 // OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
 // load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
@@ -69,7 +69,6 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation,
   ElectSync,
   OneDimTmaLoadExpectArrive,
   OneDimTmaWaitParity,
@@ -695,6 +694,10 @@ std::unordered_set<ParallelType> allParallelTypes();
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
 
+std::unordered_set<ParallelType> deviceParallelTypes();
+
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
+
 static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::BIDx,
     ParallelType::BIDy,
@@ -718,7 +721,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
     ParallelType::DIDy,
     ParallelType::DIDz};
 
-enum class MemoryType { Local, Shared, Global, Tensor };
+enum class MemoryType { Local, Shared, Global, Tensor, Symmetric };
 
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {

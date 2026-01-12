@@ -6,8 +6,9 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
-#include <runtime/fusion_executor_cache.h>
+#include "runtime/fusion_executor_cache.h"
 
 namespace nvfuser {
 
@@ -95,4 +96,9 @@ class DistributedTransformer {
   const double kSdpaProb;
   static constexpr double kSdpaScale = 1e-3;
 };
+
+void shardBetween(
+    const std::vector<TensorView*>& from,
+    const std::vector<TensorView*>& to,
+    TensorView* ref);
 } // namespace nvfuser

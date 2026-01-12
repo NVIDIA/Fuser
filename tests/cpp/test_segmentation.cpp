@@ -10,8 +10,8 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <optimization_pass.h>
 #include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -670,7 +670,7 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
 
 TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
   // Disable mark aliases prepare pass, which might insert more segment_set
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   auto fusion = std::make_unique<Fusion>();
@@ -1000,6 +1000,50 @@ TEST_F(SegmentationTest, ForwardFull) {
     }
     EXPECT_TRUE(full_op_found) << "Each segment has its own FullOp";
   }
+}
+
+TEST_F(SegmentationTest, ReshapeWithCrossSegmentExtent) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv_a = makeSymbolicTensor(3);
+  auto tv_b = makeSymbolicTensor(4);
+  fusion.addInput(tv_a);
+  fusion.addInput(tv_b);
+
+  auto tv_a_sum = sum(tv_a, {0, 1});
+  fusion.addOutput(tv_a_sum);
+
+  auto batch = size(tv_b, 0);
+  auto n_head = size(tv_b, 1);
+  auto seq_len = size(tv_b, 2);
+  auto head_dim = size(tv_b, 3);
+
+  auto tv_a_reshaped = reshape(tv_a, {batch, n_head, seq_len, head_dim});
+
+  auto tv_a_permuted = permute(tv_a_reshaped, {0, 2, 1, 3});
+  fusion.addOutput(tv_a_permuted);
+
+  int64_t batch_size = 16;
+  int64_t seq_len_val = 128;
+  int64_t n_head_val = 12;
+  int64_t head_dim_val = 64;
+  int64_t hidden_val = n_head_val * head_dim_val;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t_a = at::randn({batch_size, seq_len_val, hidden_val}, options);
+  at::Tensor t_b =
+      at::randn({batch_size, n_head_val, seq_len_val, head_dim_val}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t_a, t_b});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(3));
+
+  testValidate(
+      executor_cache.fusion(), outputs, {t_a, t_b}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

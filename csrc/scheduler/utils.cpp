@@ -16,6 +16,7 @@
 
 #include <bfs.h>
 #include <contiguity.h>
+#include <cuda_utils.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
 #include <id_model/schedule.h>
@@ -26,8 +27,11 @@
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/allocation_utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor_utils.h>
+#include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/registry.h>
@@ -41,6 +45,19 @@
 
 namespace nvfuser {
 namespace scheduler_utils {
+
+// Minimal PTX code for a no-op kernel, used for occupancy queries
+const char* noopPtx = R"(
+.version 8.0
+.target sm_90
+.address_size 64
+
+.entry noopKernel()
+{
+  ret;
+}
+
+)";
 
 // Returns number of "valid" dimensions. e.g. if tv has
 // [I1, R2, I3, I4, R3{1}]
@@ -239,9 +256,13 @@ std::optional<int64_t> mergeDims(
   return inner;
 }
 
+namespace {
+
+// Merge all reduction to the right side and returns total number of
+// reduction axes.
 int64_t mergeReduction(TensorView* tv) {
   int prev_i = -1;
-  int64_t num_merged = 0;
+  int64_t num_merges = 0;
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (!tv->axis(i)->isReduction()) {
       continue;
@@ -251,16 +272,18 @@ int64_t mergeReduction(TensorView* tv) {
     } else {
       tv->merge(i, prev_i);
       prev_i = i;
-      num_merged++;
+      num_merges++;
     }
   }
   if (prev_i != 0) {
     tv->reorder({{prev_i, 0}});
   }
 
-  return prev_i == -1 ? 0 : num_merged + 1;
+  return prev_i == -1 ? 0 : num_merges + 1;
 }
 
+// Merge all non-reduction axes to the left side and returns total number of
+// iteration axes.
 int64_t mergeNonReduction(TensorView* tv) {
   bool has_device_dim = false;
   int prev_i = -1;
@@ -295,6 +318,8 @@ int64_t mergeNonReduction(TensorView* tv) {
 
   return prev_i == -1 ? 0 : num_merged + 1;
 }
+
+} // namespace
 
 void parallelizeAllLike(
     TensorView* reference_tv,
@@ -353,6 +378,10 @@ void parallelizeAllLike(
           tv->axis(i)->padToMultipleOfWarp(
               reference_id->getMaybeSizeAfterPadding());
         }
+      }
+      // propagate clustered blocks
+      if (reference_id->isClusteredBlockDim()) {
+        tv->axis(i)->setClusteredBlocks();
       }
     }
   }
@@ -1184,13 +1213,13 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
   return persistent_buffer_size_bit;
 }
 
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D) {
+    bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (!schedule_3D) {
+  if (!schedule_3d) {
     // We coalesce all reduction axes to the right;
     bool has_red_axis = mergeReduction(tv) > 0;
 
@@ -1380,8 +1409,14 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
         // the output of ScatterOp must on the global memory due to the random
         // or atomic access. Similarly, PreprocessGroupedMatmulInputSf requires
         // direct write to global memory because of random access.
+        // The output of block quantization has to be in global memory. This is
+        // because this op is implemented via a runtime function that write the
+        // scaling factors to global memory.
         output->definition()
-            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>()) {
+            ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
+        (output->definition()->isA<BlockQuantizationOp>() &&
+         output->definition()->as<BlockQuantizationOp>()->blockScales() ==
+             output)) {
       continue;
     }
     if (!output->uses().empty()) {
@@ -3331,6 +3366,274 @@ void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion) {
     }
     buildAllocationDomainFromLoopIds(tv);
   }
+}
+
+// Get the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly.
+// Results are cached to avoid redundant queries.
+int64_t getMaxClusterSize() {
+  // return 1 for pre-Hopper devices
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return 1;
+  }
+
+  // Cache the result per device to avoid repeated queries
+  thread_local int64_t cached_result = 0;
+
+  if (cached_result != 0) {
+    return cached_result;
+  }
+
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/at::cuda::current_device()));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+
+  // max non portable cluster size is 16 on H100 and GB200 while portable
+  // cluster size is 8
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  // block size is set to 128, its value does not matter for the query as the
+  // max shared memory size is used to ensure 1 CTA per SM.
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 128));
+
+  // Set up launch configuration for occupancy query
+  CUlaunchConfig config{0};
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
+  config.gridDimX = 1;
+  config.gridDimY = 1;
+  config.gridDimZ = 1;
+  config.sharedMemBytes = maxDynamicSmemSize;
+  config.hStream = nullptr;
+
+  int max_cluster_size;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxPotentialClusterSize(&max_cluster_size, func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+
+  cached_result = (int64_t)max_cluster_size;
+  return cached_result;
+}
+
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
+int64_t getMaxActiveClusters(const int64_t cluster_size) {
+  // We can use a cluster size up to 16, indexed from 1 to 16.
+  thread_local std::array<int64_t, 17> cached_results;
+
+  if (cluster_size < 1 || cluster_size > 16) {
+    return 0L;
+  }
+
+  if (cached_results.at(cluster_size) != 0L) {
+    return cached_results.at(cluster_size);
+  }
+
+  executor_utils::initializeCudaContext();
+
+  CUmodule module;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleLoadData(&module, noopPtx));
+  CUfunction func;
+  NVFUSER_CUDA_SAFE_CALL(cuModuleGetFunction(&func, module, "noopKernel"));
+
+  int max_smem_opt_in;
+  NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+      &max_smem_opt_in,
+      CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK_OPTIN,
+      /*device=*/at::cuda::current_device()));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES, max_smem_opt_in));
+  NVFUSER_CUDA_SAFE_CALL(cuFuncSetAttribute(
+      func, CU_FUNC_ATTRIBUTE_NON_PORTABLE_CLUSTER_SIZE_ALLOWED, 1));
+
+  size_t maxDynamicSmemSize;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyAvailableDynamicSMemPerBlock(
+      &maxDynamicSmemSize, func, /*numBlocks*/ 1, /*blockSize*/ 1));
+
+  int32_t max_active_blocks;
+  NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
+      &max_active_blocks, func, /*blockSize=*/1, maxDynamicSmemSize));
+
+  CUlaunchConfig config{0};
+  CUlaunchAttribute attribute[1];
+  attribute[0].id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
+  attribute[0].value.clusterDim.x = (uint32_t)cluster_size;
+  attribute[0].value.clusterDim.y = 1;
+  attribute[0].value.clusterDim.z = 1;
+
+  config.numAttrs = 1;
+  config.attrs = attribute;
+  config.blockDimX = 128;
+  config.blockDimY = 1;
+  config.blockDimZ = 1;
+
+  config.sharedMemBytes = maxDynamicSmemSize;
+
+  config.gridDimX = (unsigned int)cluster_size;
+  config.gridDimY = (unsigned int)max_active_blocks;
+  config.gridDimZ = 1;
+
+  int num_clusters;
+  NVFUSER_CUDA_SAFE_CALL(
+      cuOccupancyMaxActiveClusters(&num_clusters, func, &config));
+
+  NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
+
+  cached_results.at(cluster_size) = (int64_t)num_clusters;
+  return cached_results.at(cluster_size);
+}
+
+// Computes the size of the inner TMA domain dimension for 2D TMA operations.
+//
+// Purpose: Split the problem [I0 = total_element] into 2D TMA domain
+//          [tma_domain_outer, tma_domain_inner]
+//          where tma_domain_inner = return value
+//          and tma_domain_outer = total_element / tma_domain_inner
+//
+// Parameters:
+//   total_element: Total number of elements in the flattened problem space
+//   tma_domain_inner_target: Desired size for tma_domain_inner
+//   min_dtype_bits: Minimum data type size in bits across all TMA inputs
+//
+// Returns: The computed tma_domain_inner size, or 1 if no valid size exists
+//
+int64_t getTmaDomainInner(
+    int64_t total_element,
+    int64_t tma_domain_inner_target,
+    int64_t min_dtype_bits) {
+  // ========== TMA Hardware Alignment Constraints ==========
+  // 1. TMA without interleave: Innermost TMA tile byte size must be divisible
+  //    by 16 bytes = 128 bits (hardware alignment requirement)
+  // 2. 2D TMA requirement: Need at least 2 tiles along the inner dimension to
+  //    maintain proper 2D structure (prevents dimension collapse to 1D)
+  // 3. Combined constraint: tma_domain_inner ≥ 2 * 16 bytes = 256 bits
+  //    → tma_domain_inner ≥ (256 / min_dtype_bits) elements
+  //
+  // Example: For float32 (32 bits): min_size = 256/32 = 8 elements
+
+  // align_bits: TMA tile alignment requirement (2 * 16 bytes = 256 bits)
+  constexpr int64_t align_bits = 2 * 16 * 8; // 256 bits
+
+  // min_size: Minimum elements required in tma_domain_inner to satisfy
+  // constraints Ensures (min_size * min_dtype_bits) ≥ 256 bits for 2 aligned
+  // tiles
+  const int64_t min_size = align_bits / min_dtype_bits;
+  NVF_ERROR(
+      total_element % min_size == 0,
+      "total_element must be divisible by min_size to satisfy 2D TMA "
+      "alignment requirements, but got ",
+      total_element,
+      " % ",
+      min_size,
+      " = ",
+      total_element % min_size);
+
+  // ========== Fast Path: Check Target Size ==========
+  // If tma_domain_inner_target is a valid divisor of total_element,
+  // use it directly as the optimal tma_domain_inner size
+  if (total_element % tma_domain_inner_target == 0) {
+    return tma_domain_inner_target;
+  }
+
+  // ========== Search Algorithm: Find Optimal Divisor ==========
+  // Goal: Find a divisor of total_element that:
+  //   1. Is closest to tma_domain_inner_target
+  //   2. Satisfies min_size divisibility constraint (for TMA alignment)
+  //   3. Is less than total_element (to create valid 2D split
+  //      [tma_domain_outer, tma_domain_inner])
+  //
+  // best_divisible_size: Best candidate found so far for tma_domain_inner
+  // Initialize to 1 (sentinel value indicating no suitable divisor found)
+  int64_t best_divisible_size = 1;
+
+  // best_diff: Distance between best candidate and target size
+  int64_t best_diff = std::abs(best_divisible_size - tma_domain_inner_target);
+
+  // Helper lambda to update the best candidate tma_domain_inner size.
+  // Only updates if:
+  // - candidate < total_element (ensures valid 2D split:
+  //   [tma_domain_outer, tma_domain_inner])
+  // - candidate is closer to tma_domain_inner_target than current best
+  auto update_best = [&](int64_t candidate) {
+    if (candidate >= total_element) {
+      return;
+    }
+    int64_t diff = std::abs(candidate - tma_domain_inner_target);
+    if (diff < best_diff) {
+      best_divisible_size = candidate;
+      best_diff = diff;
+    }
+  };
+
+  // Efficient divisor search using sqrt optimization:
+  // For any divisor i of total_element, we also get total_element/i.
+  // We only need to check up to sqrt(total_element) to find all divisor pairs.
+  // Both divisors in each pair are evaluated as candidates for
+  // tma_domain_inner.
+  int64_t limit =
+      static_cast<int64_t>(std::sqrt(static_cast<double>(total_element)));
+
+  // Important: Check ALL divisors, not just multiples of min_size.
+  // Even if divisor i is not divisible by min_size, its complement
+  // total_element/i might be.
+  //
+  // Example: total_element=8184, target=512, min_size=8
+  // - If we only check multiples of 8, we'd miss i=11
+  // - But 8184/11=744, which IS divisible by 8 (744 % 8 == 0)
+  // - This gives us 744 (diff=232) instead of suboptimal 88 (diff=424)
+  for (int64_t i = 1; i <= limit; i++) {
+    if (total_element % i == 0) {
+      int64_t f1 = i;
+      int64_t f2 = total_element / i;
+      // Check both divisors of the pair if they satisfy min_size constraint
+      if (f1 % min_size == 0) {
+        update_best(f1);
+      }
+      if (f2 % min_size == 0) {
+        update_best(f2);
+      }
+    }
+  }
+  return best_divisible_size;
+}
+
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads) {
+  constexpr int64_t reg_per_async_thread = 32L;
+  constexpr int64_t regs_granularity = 8L;
+  int64_t tma_branch_regs = reg_per_async_thread;
+  int64_t compute_branch_regs = reg_per_thread +
+      (reg_per_thread - tma_branch_regs) * padded_threads / computation_threads;
+  if (compute_branch_regs % regs_granularity != 0) {
+    compute_branch_regs -= compute_branch_regs % regs_granularity;
+    tma_branch_regs = reg_per_thread -
+        (compute_branch_regs - reg_per_thread) * computation_threads /
+            padded_threads;
+  }
+  compute_branch_regs =
+      std::min(compute_branch_regs, scheduler_utils::max_registers_per_thread);
+  return std::make_pair(tma_branch_regs, compute_branch_regs);
 }
 
 } // namespace scheduler_utils

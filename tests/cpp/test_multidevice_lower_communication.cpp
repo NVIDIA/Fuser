@@ -5,18 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
-#include <runtime/communication_executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "cuda_utils.h"
+#include "driver_api.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/communication_executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -768,5 +769,106 @@ INSTANTIATE_TEST_SUITE_P(
       ss << (enable_host_ir_lowering ? "_HostIr" : "_NonHostIr");
       return ss.str();
     }));
+
+class LowerCollectiveCudaTest : public MultiDeviceTest {
+ protected:
+  bool isMulticastSupported() {
+    const int64_t local_rank = communicator_->local_rank();
+    int is_multicast_supported = 0;
+    NVFUSER_CUDA_SAFE_CALL(cuDeviceGetAttribute(
+        &is_multicast_supported,
+        CU_DEVICE_ATTRIBUTE_MULTICAST_SUPPORTED,
+        static_cast<int>(local_rank)));
+    return is_multicast_supported != 0;
+  }
+};
+
+TEST_F(LowerCollectiveCudaTest, Allgather) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  in->setDeviceMesh(mesh);
+  out->setDeviceMesh(mesh);
+  in->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  at::Tensor in_tensor = shardTensor(unsharded_tensor, in);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor out_tensor;
+  for (int i = 0; i < 10; ++i) {
+    out_tensor = executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+  }
+
+  EXPECT_TRUE(at::allclose(out_tensor, unsharded_tensor));
+}
+
+TEST_F(LowerCollectiveCudaTest, Broadcast) {
+  constexpr int64_t kMsgSize = 2097152 / sizeof(float); // 2MB
+
+  if (!communicator_->is_available() || communicator_->size() < 2) {
+    GTEST_SKIP() << "This test needs at least 2 ranks.";
+  }
+
+  if (!isMulticastSupported()) {
+    GTEST_SKIP() << "Device does not support Multicast; skipping.";
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto num_devices = communicator_->size();
+  TensorView* in = makeContigTensor(2);
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+  out->setMemoryType(MemoryType::Symmetric);
+
+  auto mesh = DeviceMesh::createForNumDevices(num_devices);
+  constexpr DeviceIdxType kRoot = 0;
+  in->setDeviceMesh({kRoot});
+  out->setDeviceMesh(mesh);
+
+  MultiDeviceExecutorParams params;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.executor.use_allocation_cache = true;
+  MultiDeviceExecutor executor(
+      std::move(fusion), Communicator::getInstance(), params);
+
+  at::Tensor unsharded_tensor =
+      at::randn({num_devices, kMsgSize}, tensor_options_);
+  const auto device_id = communicator_->deviceId();
+  at::Tensor in_tensor = unsharded_tensor.slice(0, device_id, device_id + 1);
+
+  at::Tensor out_tensor =
+      executor.runWithInput({in_tensor})[0].as<at::Tensor>();
+
+  EXPECT_TRUE(
+      at::allclose(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
+}
 
 } // namespace nvfuser

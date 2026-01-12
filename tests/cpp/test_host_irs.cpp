@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <iostream>
-
 #include <gtest/gtest.h>
 
 #include <c10/cuda/CUDAStream.h>
@@ -18,6 +16,7 @@
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
+#include <multidevice/symmetric_tensor.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <runtime/executor_kernel_arg.h>
@@ -430,7 +429,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
-  for_loop->body().push_back(post_on_stream);
+  for_loop->body().pushBack(post_on_stream);
 
   hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
@@ -568,8 +567,8 @@ TEST_F(StreamTest, HostIrDefaultStream) {
 TEST_F(StreamTest, HostIrGetCurrentStream) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
-  auto get_stream = IrBuilder::create<GetCurrentStream>();
-  auto current_stream = get_stream->stream();
+  hir::Stream* current_stream = IrBuilder::create<hir::Stream>();
+  auto* get_stream = IrBuilder::create<hir::GetCurrentStream>(current_stream);
   auto other_stream = IrBuilder::create<Stream>();
   hic->pushBackTopLevelExprs(get_stream);
   hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
@@ -1141,9 +1140,9 @@ TEST_F(IfThenElseTest, HostIr) {
       std::vector<Val*>({input_buffer}),
       std::vector<Val*>({output_buffer}));
 
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->elseBody().push_back(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->elseBody().pushBack(add_one_to_buffer);
 
   hic->addInput(input_bool);
   hic->addOutput(input_buffer);
@@ -1215,7 +1214,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   tv0->setMemoryType(MemoryType::Global);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
 
-  for_loop->body().push_back(allocate);
+  for_loop->body().pushBack(allocate);
 
   hic->pushBackTopLevelExprs(for_loop);
   hic->addOutput(tv0);
@@ -1225,6 +1224,32 @@ TEST_F(AllocationTest, inHostForLoop) {
   auto outputs = hie.runWithInput({});
 
   EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
+}
+
+TEST_F(AllocationTest, SymmetricMemory) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  const std::vector<int64_t> sizes = {size0, size1};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* tv = makeContigConcreteTensor(sizes);
+  tv->setMemoryType(MemoryType::Symmetric);
+  auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Symmetric);
+  hic->addOutput(tv);
+  hic->pushBackTopLevelExprs(allocate);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto output = hie.runWithInput({})[0].as<at::Tensor>();
+
+  EXPECT_EQ(output.sizes(), sizes);
+  EXPECT_EQ(output.strides(), std::vector<int64_t>({size1, 1}));
+  EXPECT_EQ(output.dtype(), at::kFloat);
+
+  // Validate symmetric memory properties
+  auto validation_error = SymmetricTensor::validate(output);
+  EXPECT_TRUE(validation_error.empty()) << validation_error;
 }
 
 using HirAliasSelectHostIrTest = NVFuserTest;

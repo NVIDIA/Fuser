@@ -9,10 +9,10 @@
 
 #include <list>
 
-#include <fusion.h>
-#include <host_ir/host_ir.h>
-#include <ir/internal_nodes.h>
-#include <runtime/executor.h>
+#include "fusion.h"
+#include "host_ir/ir.h"
+#include "ir/internal_nodes.h"
+#include "runtime/executor.h"
 
 namespace nvfuser::hir {
 

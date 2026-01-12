@@ -28,8 +28,7 @@ namespace nvfuser {
 
 DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
-  DynamicTransformInitialInfo cloned_info(
-      static_cast<Fusion*>(ir_cloner.container()));
+  DynamicTransformInitialInfo cloned_info(ir_cloner.container()->as<Fusion>());
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
   for (const auto tv : dynamic_reshaped_tvs_) {
     cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
@@ -1489,8 +1488,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   bool is_concretized = false;
 
-  for (const auto i : arange((int64_t)root_domain.size())) {
-    auto root_id = root_domain.at(i);
+  for (IterDomain* root_id : root_domain) {
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -1529,8 +1527,9 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           consumer->toString(),
           ". Replacement is ",
           maybeMutated(input_id)->toString());
-      NVF_ERROR(
-          input_id->getIterType() != IterType::Symbolic,
+      NVF_ERROR_NE(
+          input_id->getIterType(),
+          IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
 

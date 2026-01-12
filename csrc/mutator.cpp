@@ -134,6 +134,31 @@ void OptOutMutator::mutate(IterDomain* id) {
   }
 }
 
+void OptOutMutator::mutate(RaggedIterDomain* id) {
+  // Mutate the extents TensorView
+  auto mutated_extents = maybeMutated(id->extents());
+
+  // Check if anything changed
+  if (mutated_extents->sameAs(id->extents())) {
+    return;
+  }
+
+  // Create a new RaggedIterDomain with mutated extents
+  auto new_id = IrBuilder::createInContainer<RaggedIterDomain>(
+      id->container(),
+      mutated_extents->as<TensorView>(),
+      id->getIterType(),
+      id->getParallelType());
+
+  // Register the mutation
+  registerMutation(id, new_id);
+
+  // Preserve definition if it exists
+  if (Expr* def = id->definition()) {
+    mutateExprOutputsOnly(def);
+  }
+}
+
 void OptOutMutator::mutate(TensorDomain* td) {
   bool mutated = false;
 

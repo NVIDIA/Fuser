@@ -232,6 +232,24 @@ Returns
 list of Val
     The shape of this tensor.
 )")
+      .def(
+          "dtype",
+          [](TensorView* self) -> PrimDataType {
+            DataType dt = self->dtype();
+            NVF_CHECK(
+                std::holds_alternative<PrimDataType>(dt.type),
+                "Expected PrimDataType but got type: ",
+                dt);
+            return std::get<PrimDataType>(dt.type);
+          },
+          R"(
+Get the data type of this tensor.
+
+Returns
+-------
+DataType
+    The data type of this tensor.
+)")
       .def("has_root", &TensorView::hasRoot, R"(
 Check if this tensor has a root domain.
 
@@ -367,6 +385,52 @@ inner_split : bool, optional
     If True, the factor determines the size of the inner domain.
     If False, the factor determines the size of the outer domain.
     Default is True.
+
+Returns
+-------
+      TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "inner_split",
+          [](TensorView* self, int64_t axis, int64_t factor) {
+            return self->split(axis, factor, true);
+          },
+          py::arg("axis"),
+          py::arg("factor"),
+          py::return_value_policy::reference,
+          R"(
+Split an axis into inner-first order (alias of split with inner_split=True).
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by (inner size).
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
+)")
+      .def(
+          "outer_split",
+          [](TensorView* self, int64_t axis, int64_t factor) {
+            return self->split(axis, factor, false);
+          },
+          py::arg("axis"),
+          py::arg("factor"),
+          py::return_value_policy::reference,
+          R"(
+Split an axis into outer-first order (alias of split with inner_split=False).
+
+Parameters
+----------
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by (outer size).
 
 Returns
 -------

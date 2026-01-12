@@ -46,6 +46,14 @@ namespace nvfuser {
 //! Warp specialization padded threads count
 constexpr int64_t kWarpSpecializationPaddedThreads = 128;
 
+//! TMA hardware limit: maximum elements per dimension in a TMA box
+constexpr int64_t kMaxElementsPerTmaBoxDim = 256;
+
+//! In general TMA terminology, "box" is the dense rectangular region loaded,
+//! while "tile" is a potentially strided subset. The pointwise scheduler uses
+//! dense tiles (tile = box), so we use "tile" terminology for consistency.
+constexpr int64_t kMaxElementsPerTmaTileDim = kMaxElementsPerTmaBoxDim;
+
 //! shared memory alignment in bytes
 //! TMA requires 128 bytes alignment, other usage doesn't have such requirement,
 //! but still align to 128 bytes for simplicity and robustness.
@@ -131,23 +139,15 @@ class PolymorphicBase {
   // (checked in DEBUG builds)
   template <class T>
   T* as() {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
-    auto downcast_ptr = static_cast<T*>(this);
-#else
     auto downcast_ptr = dynamic_cast<T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
   const T* as() const {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
-    auto downcast_ptr = static_cast<const T*>(this);
-#else
     auto downcast_ptr = dynamic_cast<const T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 

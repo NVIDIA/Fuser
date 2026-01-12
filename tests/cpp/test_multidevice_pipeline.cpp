@@ -5,41 +5,39 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <iostream>
 
-#include <torch/csrc/jit/codegen/cuda/interface.h>
+#include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/multidevice.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
+#include "codegen.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/multidevice.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
 
 namespace nvfuser {
 
@@ -289,7 +287,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        do_reduction,
        sharded_dim,
        use_fusion_executor_cache] = GetParam();
-  if (!disable_skip && !communicator_->isBackendAvailable(backend)) {
+  if (!communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator_->setDefaultBackend(backend);

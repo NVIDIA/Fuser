@@ -539,11 +539,12 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
     // as well as halo. Currently, halo support has bene removed so we only need
-    // to worry about the expand case which is handled in inferShapeofOutputs.
-    // There used to also be a inferShapeOfIntermediate function before this
-    // commit, but that was safely removed with halo support. This will need to
-    // be revisited when halo support is added again.
-    auto [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
+    // to worry about the expand case which is handled in
+    // inferShapeAndContiguousStrides. There used to also be a
+    // inferShapeOfIntermediateAndContiguousStride function before this commit,
+    // but that was safely removed with halo support. This will need to be
+    // revisited when halo support is added again.
+    auto [sizes, strides] = inferShapeAndContiguousStrides(tv, expr_eval);
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
     auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
@@ -1050,7 +1051,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   c10::DeviceGuard dg(compiled_kernel_->device());
   auto stream = at::cuda::getCurrentCUDAStream();
-  at::cuda::jit::initializeCudaContext();
+  executor_utils::initializeCudaContext();
   NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
@@ -1080,8 +1081,12 @@ KernelArgumentHolder KernelExecutor::run(
         executor_entry->launch_params, compile_params);
   }
 
-  // TODO: Why does this need to be stored in the class?
-  launch_params_ = executor_entry->launch_params;
+  LaunchParams launch_params = executor_entry->launch_params;
+
+  // The local executor_entry may point to temporary_executor_entry which is
+  // stack-allocated. We must store a copy of the launch params for future use
+  // in testing and benchmarking through KernelExecutor::lastLaunchParams
+  last_launch_params_ = launch_params;
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
@@ -1211,7 +1216,7 @@ KernelArgumentHolder KernelExecutor::run(
   computeArgs(*executor_entry, args);
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
-    launch_params_.print();
+    launch_params.print();
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::KernelArgs)) {
@@ -1240,15 +1245,15 @@ KernelArgumentHolder KernelExecutor::run(
       NVFUSER_CUDA_SAFE_CALL(cuOccupancyMaxActiveBlocksPerMultiprocessor(
           &blocks_per_sm,
           compiled_kernel_->cudaExecutable()->function,
-          launch_params_.nThreads(),
-          launch_params_.smem()));
+          launch_params.nThreads(),
+          launch_params.smem()));
 
       const int64_t device_id =
           static_cast<unsigned char>(compiled_kernel_->device().index());
       const auto prop =
           at::cuda::getDeviceProperties((c10::DeviceIndex)device_id);
       const int64_t warps_per_sm =
-          ceilDiv(blocks_per_sm * launch_params_.nThreads(), prop->warpSize);
+          ceilDiv(blocks_per_sm * launch_params.nThreads(), prop->warpSize);
 
       const int hw_max_warps =
           prop->maxThreadsPerMultiProcessor / prop->warpSize;
@@ -1268,13 +1273,13 @@ KernelArgumentHolder KernelExecutor::run(
     {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernelEx");
       CUlaunchConfig config = {};
-      config.gridDimX = launch_params_.gdimx();
-      config.gridDimY = launch_params_.gdimy();
-      config.gridDimZ = launch_params_.gdimz();
-      config.blockDimX = launch_params_.bdimx();
-      config.blockDimY = launch_params_.bdimy();
-      config.blockDimZ = launch_params_.bdimz();
-      config.sharedMemBytes = launch_params_.smem();
+      config.gridDimX = launch_params.gdimx();
+      config.gridDimY = launch_params.gdimy();
+      config.gridDimZ = launch_params.gdimz();
+      config.blockDimX = launch_params.bdimx();
+      config.blockDimY = launch_params.bdimy();
+      config.blockDimZ = launch_params.bdimz();
+      config.sharedMemBytes = launch_params.smem();
       config.hStream = stream;
 
       std::vector<CUlaunchAttribute> launch_attributes;
@@ -1285,7 +1290,7 @@ KernelArgumentHolder KernelExecutor::run(
         // __cluster_dims__ compile-time specification.
         CUlaunchAttribute attribute;
         attribute.id = CU_LAUNCH_ATTRIBUTE_CLUSTER_DIMENSION;
-        attribute.value.clusterDim.x = launch_params_.gdimx();
+        attribute.value.clusterDim.x = launch_params.gdimx();
         attribute.value.clusterDim.y = 1;
         attribute.value.clusterDim.z = 1;
         launch_attributes.push_back(attribute);
@@ -1304,6 +1309,13 @@ KernelArgumentHolder KernelExecutor::run(
         CUlaunchAttribute attribute;
         attribute.id = CU_LAUNCH_ATTRIBUTE_COOPERATIVE;
         attribute.value.cooperative = 1;
+        launch_attributes.push_back(attribute);
+      }
+
+      if (kernel_summary.enable_programmatic_dependent_launch) {
+        CUlaunchAttribute attribute;
+        attribute.id = CU_LAUNCH_ATTRIBUTE_PROGRAMMATIC_STREAM_SERIALIZATION;
+        attribute.value.programmaticStreamSerializationAllowed = 1;
         launch_attributes.push_back(attribute);
       }
 

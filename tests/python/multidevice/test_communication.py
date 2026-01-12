@@ -10,8 +10,8 @@ from nvfuser_direct import DataType, FusionDefinition
 
 
 @pytest.mark.mpi
-def test_allgather(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_allgather(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
@@ -25,11 +25,11 @@ def test_allgather(multidevice_direct_test):
 
         for inp in fd.fusion.inputs():
             inp.set_device_mesh(mesh)
-            inp.split(0, d, inner_split=False)
+            inp.outer_split(0, d)
             inp.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d * 4)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -40,8 +40,8 @@ def test_allgather(multidevice_direct_test):
 
 
 @pytest.mark.mpi
-def test_allgather_expanded_broadcast(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_allgather_expanded_broadcast(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     with FusionDefinition() as fd:
@@ -56,14 +56,14 @@ def test_allgather_expanded_broadcast(multidevice_direct_test):
         expanded.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded_inp = torch.randn(d)
-    inp = multidevice_direct_test.shard_tensor(unsharded_inp, 0, mesh)
+    inp = multidevice_test.shard_tensor(unsharded_inp, 0, mesh)
     (out,) = fd.execute([inp])
     torch.testing.assert_close(out.cpu(), unsharded_inp.unsqueeze(-1).expand(-1, 3))
 
 
 @pytest.mark.mpi
-def test_allreduce(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_allreduce(multidevice_test):
+    d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
     def _definition(fd: FusionDefinition):
@@ -74,14 +74,14 @@ def test_allreduce(multidevice_direct_test):
     def _multidevice_schedule(fd: FusionDefinition):
         for inp in fd.fusion.inputs():
             inp.set_device_mesh(mesh)
-            inp.split(1, d, inner_split=False)
+            inp.outer_split(1, d)
             inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 2
     k = d * 3
     n = 5
     unsharded = torch.randn(m, k, n)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 1, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -92,8 +92,8 @@ def test_allreduce(multidevice_direct_test):
 
 
 @pytest.mark.mpi
-def test_reduce_scatter(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_reduce_scatter(multidevice_test):
+    d = multidevice_test.size
 
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
@@ -109,11 +109,11 @@ def test_reduce_scatter(multidevice_direct_test):
 
         for out in fd.fusion.outputs():
             out.set_device_mesh(mesh)
-            out.split(-1, d, inner_split=False)
+            out.outer_split(-1, d)
             out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d, d * 4)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -121,13 +121,13 @@ def test_reduce_scatter(multidevice_direct_test):
 
     (output,) = fd.execute([sharded])
     torch.testing.assert_close(
-        output, multidevice_direct_test.shard_tensor(unsharded.sum(0), 0, mesh)
+        output, multidevice_test.shard_tensor(unsharded.sum(0), 0, mesh)
     )
 
 
 @pytest.mark.mpi
-def test_reduce_scatter_noncontiguous(multidevice_direct_test):
-    d = multidevice_direct_test.size
+def test_reduce_scatter_noncontiguous(multidevice_test):
+    d = multidevice_test.size
 
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
 
@@ -150,11 +150,11 @@ def test_reduce_scatter_noncontiguous(multidevice_direct_test):
 
         for out in fd.fusion.outputs():
             out.set_device_mesh(mesh)
-            out.split(-1, d, inner_split=False)
+            out.outer_split(-1, d)
             out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     unsharded = torch.randn(d, 3, d * 4)
-    sharded = multidevice_direct_test.shard_tensor(unsharded, 0, mesh)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     with FusionDefinition() as fd:
         _definition(fd)
@@ -162,5 +162,5 @@ def test_reduce_scatter_noncontiguous(multidevice_direct_test):
 
     (output,) = fd.execute([sharded])
     torch.testing.assert_close(
-        output, multidevice_direct_test.shard_tensor(unsharded.sum(0), 1, mesh)
+        output, multidevice_test.shard_tensor(unsharded.sum(0), 1, mesh)
     )

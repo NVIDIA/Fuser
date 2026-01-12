@@ -160,6 +160,12 @@ class NVF_API Fusion : public IrContainer {
 
   void clear() noexcept;
 
+  // Hash the fusion. This is used to identify the fusion in the cache.
+  size_t hash() const;
+
+  // Check if the definition of this fusion is the same as the other fusion.
+  bool sameDefinition(const Fusion& other) const;
+
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
   void removeExpr(Expr* expr) override;
@@ -318,8 +324,6 @@ class NVF_API Fusion : public IrContainer {
   //   T& data = fusion.getManaged<T>(name); // lvalue
   // To check existence:
   //   bool has_data = fusion.hasManaged(name);
-  // Note that special names, such as "loop_rotation", are reserved as lowering
-  // options.
   //
   // The managed data can be any type. To retrieve managed data, you always need
   // to specify the actual type of the data. For the data whose type already

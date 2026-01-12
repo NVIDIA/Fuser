@@ -625,8 +625,8 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         merged_roles.erase(merged_roles.begin());
       }
 
-      const int64_t num_clusters =
-          matmul_utils::getMaxActiveClusters(params_->cluster_dims);
+      const int64_t num_clusters = scheduler_utils::getMaxActiveClusters(
+          params_->cluster_dims.m * params_->cluster_dims.n);
       if (isCooperative()) {
         // outer, cga_m, cga_n
         tv->split(num_device_dims_, num_clusters);

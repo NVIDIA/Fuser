@@ -8,13 +8,15 @@
 
 #include <scheduler/pointwise.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <instrumentation.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/pointwise_non_tma.h>
 #include <scheduler/pointwise_tma.h>
+#include <scheduler/pointwise_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
-
 #include <ranges>
 
 namespace nvfuser {
@@ -268,22 +270,151 @@ bool PointWiseScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
+  // The block scales output of the Block Quantization Op
+  // should be a segment output as it is written to the global
+  // memory.
+  if (registry_utils::hasNonTerminalBlockQuantizeOp(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "no support for block quantization where block scales is not a fusion "
+        "output");
+    return false;
+  }
+
   return true;
 }
+
+bool PointWiseScheduler::canScheduleRunTime(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FUSER_PERF_SCOPE("PointWiseScheduler::canScheduleRunTime");
+  // Check if the fusion has a Block Quantization Op
+  // If so, ensure that the vectorization factor is at least 2
+  // and that the grid y dimension is not split.
+  // These are requirements of the current implementation of the
+  // Block Quantization Op runtime function.
+
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+          })
+          .get();
+
+  if (has_block_quantization_ops) {
+    auto heuristics = computeHeuristics(fusion, runtime_info, data_cache);
+    auto pparams = static_cast<const PointwiseParams*>(heuristics.get());
+    NVF_ERROR(pparams != nullptr);
+    if (pparams->vectorization_factor < 2) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op requires vectorization factor to be at least "
+          "2.");
+      return false;
+    }
+
+    if (pparams->split_grid_y_dim) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(),
+          "Block Quantization Op is not supported when splitting grid y "
+          "dimension. This is because this will create a serial ID with an "
+          "extent > 1. The runtime function implementing block quantization "
+          "will currently not be able to handle that.");
+      return false;
+    }
+  }
+  return true;
+}
+
+namespace {
+
+// TODO: Refine this function to check contiguity, broadcasts, reshapes, etc.
+bool mayHaveTmaCompatibleInputs(
+    const pointwise_utils::FusionRuntimeProperties& prop) {
+  for (auto tv : prop.vectorizable_inputs_outputs) {
+    if (!tv->isFusionInput()) {
+      continue;
+    }
+    // If the minimum dtype size is suitable, then all other dtypes are
+    // suitable.
+    auto dtype_bits = prop.min_dtype_size_bit_for_vectorization;
+
+    // Note: The actual element count should consider the breakpoint and be
+    // computed individually for each input. Here, the largest output is used
+    // as a conservative estimate. If the largest output fails these checks,
+    // then no input is suitable for TMA since all inputs are smaller than or
+    // equal to the largest output in a pointwise fusion.
+    auto elem_count = prop.n_elems;
+
+    // Condition 1: We only support 2D TMA, which requires at least 2 tiles in
+    // the inner dimension, each with  at least 16 bytes. This imposes a minimum
+    // inner TMA domain size of 2 * 16 bytes. Additionally, skip if the inner
+    // TMA domain size equals the total element count, as this would mean the
+    // outer TMA domain is 1, which is not a valid 2D TMA configuration.
+    const int64_t tma_domain_inner_min = 2 * 128 / dtype_bits;
+    if (elem_count % tma_domain_inner_min != 0 ||
+        elem_count == tma_domain_inner_min) {
+      continue;
+    }
+
+    // TODO: Add checks for reshape, contiguity, allocation domain, etc.
+    // TODO: Add performance checks:
+    //   - Skip if input size is too small
+    //   - Skip if inner TMA domain size is too small
+
+    // Passed all preliminary checks, may be suitable for TMA
+    return true;
+  }
+  return false;
+}
+
+// Preliminary check to determine if TMA can be used for this fusion. This
+// serves as a fast path to avoid computing full heuristics if TMA is clearly
+// not applicable. Passing this check does not guarantee that TMA will be used;
+// the final decision is made during heuristics computation.
+bool mayUseTma(const pointwise_utils::FusionRuntimeProperties& prop) {
+  // Hardware requirement: Don't use TMA for pre-Hopper GPUs
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    return false;
+  }
+  // Check if there are TMA-compatible inputs
+  if (!mayHaveTmaCompatibleInputs(prop)) {
+    return false;
+  }
+  return true;
+}
+} // namespace
 
 std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("PointWiseScheduler::computeHeuristics");
-  bool use_tma = false;
+
+  auto prop_opt = pointwise_utils::getFusionRuntimeProperties(
+      fusion, runtime_info, data_cache);
+  // Return default parameters if the fusion is zero-dimensional or zero-size
+  if (!prop_opt.has_value()) {
+    auto pwise_params = std::make_unique<PointwiseParams>();
+    pwise_params->tag = "Pointwise heuristics";
+    pwise_params->cparams.index_type = runtime_info.getIndexType();
+    return pwise_params;
+  }
+  const auto& prop = prop_opt.value();
+
+  bool use_tma = mayUseTma(prop) && isOptionEnabled(EnableOption::TmaPointwise);
   std::unique_ptr<HeuristicParams> pparams = nullptr;
   if (use_tma) {
     pparams = pointwise::tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
-  } else {
+        fusion, runtime_info, data_cache, prop);
+  }
+  // Fallback to non-TMA scheduler if TMA is not applicable
+  if (pparams == nullptr) {
     pparams = pointwise::non_tma::getPointwiseHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, prop);
   }
   NVF_ERROR(pparams != nullptr);
   return pparams;

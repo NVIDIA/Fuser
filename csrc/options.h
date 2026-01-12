@@ -70,7 +70,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
-  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
+  HostIrLowering, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
@@ -86,7 +86,6 @@ enum class DebugDumpOption {
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
-  LoopRotation, //! Print loop rotation log
   Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
@@ -104,7 +103,6 @@ enum class EnableOption {
   CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
-  GreedyScheduler, //! Enable the grreedy scheduler
   IdModel, //! Enable IdModel
   IdModelExtraValidation, //! Enable extra error checking when building IdModel
   IoToLowerPrecision, //! Enable castInputOutputToLowerPrecision. #1889 explains
@@ -120,12 +118,18 @@ enum class EnableOption {
   WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  TmaPointwise, //! Enable TMA pointwise kernel
+  TmaInnerPersistent, //! Enable TMA inner persistent kernel
+  TmaReduction, //! Enable TMA reduction kernel
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   HostIrJit, //! Enable Host IR JIT compilation with LLVM
   InsertReshardingAfter, //! Insert resharding set after the expression
   FastMath, //! Enable fast math optimizations (--use_fast_math)
   P2pProtocol, //! Prescribe P2P protocol: put|get
+  MulticastProtocol, //! Prescribe multicast protocol:
+                     //! memcpy|multimem|batch_memcpy
+  ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -140,6 +144,7 @@ enum class DisableOption {
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
+  GreedyScheduler, //! Disable the greedy scheduler
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
   IdModel, //! Disable IdModel
@@ -150,7 +155,6 @@ enum class DisableOption {
   NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
-  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
   PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different

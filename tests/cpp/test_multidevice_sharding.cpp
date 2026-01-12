@@ -8,18 +8,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/execution_utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/optimization_pass.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
-using testing::Contains;
 using testing::Each;
 using testing::ElementsAre;
 using testing::Not;
@@ -1105,8 +1104,7 @@ TEST_F(MultiDeviceTest, AllocationPermutationOfLoop) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1144,8 +1142,7 @@ TEST_F(MultiDeviceTest, PointwiseSchedulerReordering) {
   // Disable the pass to verify we can run a fusion where allocation domain
   // is a permutation of loop domain. This pass can currently not be modified
   // due to other issues listed in #4381.
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -1183,8 +1180,7 @@ TEST_F(MultiDeviceTest, ReshapeAllocationPermutation) {
     reorderParallelizedToFront(tv);
   }
 
-  preseg_passes::OptimizationPassGuard<
-      preseg_passes::FinalizeMultideviceDomainsPass>
+  OptimizationPassGuard<preseg_passes::FinalizeMultideviceDomainsPass>
       optimization_guard(false);
 
   at::Tensor input = at::randn({s, h, e / h}, tensor_options_);
@@ -1286,4 +1282,5 @@ TEST_F(MultiDeviceTest, MultipleIncompatibleReshapes) {
     EXPECT_FALSE(runtime->isSegmented());
   }
 }
+
 } // namespace nvfuser

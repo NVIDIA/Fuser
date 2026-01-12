@@ -7,10 +7,13 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 
+#include <c10/cuda/CUDAGuard.h>
+
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lowering.h>
+#include <host_ir/passes.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -24,8 +27,6 @@
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
-
-#include <c10/cuda/CUDAGuard.h>
 
 namespace nvfuser {
 
@@ -77,8 +78,7 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-      fusion.get());
+  OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
     const auto& communicator = Communicator::getInstance();
@@ -362,11 +362,12 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputSizes doesn't seem to strictly require a Fusion for
-    // each segment. Consider using the complete fusion instead.
+    // TODO: inferOutputShapeAndContiguousStrides doesn't seem to strictly
+    // require a Fusion for each segment. Consider using the complete fusion
+    // instead.
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
+        fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -467,8 +468,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const auto& heuristic_params : schedulers()) {
       launch_params_per_segment.push_back(heuristic_params->lparams);
     }
+
     std::unique_ptr<hir::HostIrContainer> hic = lowerSegmentedFusionToHostIr(
         *segmented_fusion_, launch_params_per_segment, executors_);
+    hir::runPasses(*hic);
+
     if (isOptionEnabled(EnableOption::HostIrJit)) {
       hij_ = std::make_unique<HostIrJit>(std::move(hic));
     } else {
@@ -595,7 +599,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = inferOutputSizes(
+    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
         fusion_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values.get());

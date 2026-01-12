@@ -58,7 +58,6 @@
 #include <nvfuser_resources/basic_type_traits.h>
 #include <nvfuser_resources/bf16_support.h>
 #include <nvfuser_resources/bit.h>
-#include <nvfuser_resources/block_layout.h>
 #include <nvfuser_resources/block_quantization_kernels.h>
 #include <nvfuser_resources/block_reduction.h>
 #include <nvfuser_resources/block_sync_atomic.h>
@@ -77,6 +76,7 @@
 #include <nvfuser_resources/fused_welford_impl.h>
 #include <nvfuser_resources/fused_welford_impl_outer.h>
 #include <nvfuser_resources/grid_broadcast.h>
+#include <nvfuser_resources/grid_dependency_control.h>
 #include <nvfuser_resources/grid_reduction.h>
 #include <nvfuser_resources/grid_sync.h>
 #include <nvfuser_resources/helpers.h>
@@ -137,6 +137,7 @@ std::string kernelPreamble() {
   ss << nvfuser_resources::welford_cu;
   ss << nvfuser_resources::warp_cu;
   ss << nvfuser_resources::memory_cu;
+  ss << nvfuser_resources::grid_dependency_control_cu;
   ss << nvfuser_resources::fused_welford_helper_cu;
   ss << nvfuser_resources::fused_reduction_cu;
   ss << nvfuser_resources::fused_welford_impl_cu;
@@ -744,19 +745,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
     std::optional<int64_t> opt_block_size = std::nullopt) {
   FUSER_PERF_SCOPE("executor_utils::NVRTC");
 
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  executor_utils::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -887,19 +876,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
     compiled_kernel->ptx_filename = buffer->ptx_filename()->str();
   }
 
-  at::cuda::jit::initializeCudaContext();
-
-  // The above initialization works in some cases. However, it seems to
-  // occasionally fail to initialize a primary context. Here we check for that
-  // and if we detect that no context exists, we create one manually.
-  int device = 0;
-  cudaGetDevice(&device);
-  if (!at::detail::getCUDAHooks().hasPrimaryContext((c10::DeviceIndex)device)) {
-    // CUDA>=12 creates a context when cudaSetDevice is called. However, before
-    // cu12, that context is not necessarily created. In that case, we create
-    // one here implicitly. See https://github.com/NVIDIA/Fuser/issues/429
-    cudaFree(nullptr);
-  }
+  executor_utils::initializeCudaContext();
 
   const auto prop = at::cuda::getCurrentDeviceProperties();
 
@@ -1108,11 +1085,8 @@ std::string _getStructuredCode(
   if (has_topk) {
     code += nvfuser_resources::topk_cu;
   }
-  if (has_block_layout) {
-    code += nvfuser_resources::block_layout_cu;
-  }
 
-  if (has_block_quantize_op) {
+  if (has_block_layout || has_block_quantize_op) {
     code += nvfuser_resources::block_quantization_kernels_cu;
   }
 
