@@ -398,5 +398,11 @@ bool isCopyOnly(Expr* expr);
 // on it.
 bool isCopyOnly(Val* val);
 
+// Get a ID group of a given iter domain and return the concrete ID of
+// the group, which is just the first ID.
+IterDomain* getConcreteMappedId(
+    IterDomain* id,
+    IdMappingMode mode = IdMappingMode::EXACT);
+
 } // namespace lower_utils
 } // namespace nvfuser

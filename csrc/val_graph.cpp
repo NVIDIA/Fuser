@@ -87,6 +87,14 @@ const ValGroup& ValGraph::toGroup(Val* val) const {
   return disjoint_set_it->second;
 }
 
+bool ValGraph::areMapped(Val* val1, Val* val2) const {
+  return toGroup(val1) == toGroup(val2);
+}
+
+bool ValGraph::areMapped(Expr* expr1, Expr* expr2) const {
+  return toGroup(expr1) == toGroup(expr2);
+}
+
 std::vector<ValGroup> ValGraph::outputGroups(const ExprGroup& expr) const {
   std::vector<ValGroup> output_groups;
   for (auto id_output : expr->front()->outputs()) {

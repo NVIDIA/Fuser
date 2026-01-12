@@ -2244,6 +2244,17 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
+IterDomain* getConcreteMappedId(IterDomain* id, IdMappingMode mode) {
+  NVF_ERROR(GpuLower::hasCurrent());
+  return GpuLower::current()
+      ->info()
+      .idModel()
+      .idGraph(IdMappingMode::EXACT)
+      .toGroup(id)
+      ->front()
+      ->as<IterDomain>();
+}
+
 } // namespace lower_utils
 
 } // namespace nvfuser
