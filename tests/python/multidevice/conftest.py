@@ -95,9 +95,7 @@ class MultideviceTest:
         )
 
         sharded = nvfuser.multidevice.shard_tensor(t, tv)
-        if sharded.is_cpu:
-            sharded = sharded.cuda(self.local_rank)
-        return sharded
+        return sharded.cuda(self.local_rank)
 
 
 @pytest.fixture
