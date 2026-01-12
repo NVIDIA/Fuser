@@ -1895,8 +1895,6 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   std::vector<AllocationInfo*> waiting_to_push_;
 };
 
-} // namespace
-
 // Use allocation info map to find aliases, i.e. allocations that are properly
 // sized and parallelized so that they can be re-used without any
 // synchronization.
@@ -2116,6 +2114,8 @@ void assignSharedMemoryAllocations(
         " was not assigned an address");
   }
 }
+
+} // namespace
 
 // Entry point for all memory re-use including unsynced aliasing as well as
 // insertion of requested syncs and memory allocation with reclamation.

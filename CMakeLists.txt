@@ -14,6 +14,12 @@ set(CMAKE_INSTALL_MESSAGE LAZY)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# EXPERIMENTAL: Enable unity builds globally to reduce clean build time
+# Unity builds combine multiple .cpp files, reducing redundant header parsing
+# Note: Third-party libraries (flatbuffers, benchmark) are excluded below
+set(CMAKE_UNITY_BUILD ON)
+set(CMAKE_UNITY_BUILD_BATCH_SIZE 12)
+
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
@@ -40,6 +46,13 @@ if(NVFUSER_DISTRIBUTED)
 endif()
 
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
+
+# NCCL include directory for distributed builds
+# This can be set by the Python build system when using pip-bundled NCCL
+set(NCCL_INCLUDE_DIR "" CACHE PATH "Directory containing nccl.h header")
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  message(STATUS "Using NCCL include dir: ${NCCL_INCLUDE_DIR}")
+endif()
 
 # We try to update which C++ standard we use together in lockstep across all
 # built libraries, and these variables control which that is. Generally we are
@@ -95,7 +108,19 @@ set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
 # CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
 string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
 include(cmake/FlatBuffers.cmake)
+# Disable unity builds for third-party flatbuffers (has static function naming conflicts)
+set_target_properties(flatbuffers PROPERTIES UNITY_BUILD OFF)
+set_target_properties(flatc PROPERTIES UNITY_BUILD OFF)
 include(cmake/Dependencies.cmake)
+# Disable unity builds for other third-party libraries
+set_target_properties(gtest PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gtest_main PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gmock PROPERTIES UNITY_BUILD OFF)
+set_target_properties(gmock_main PROPERTIES UNITY_BUILD OFF)
+if(TARGET benchmark)
+  set_target_properties(benchmark PROPERTIES UNITY_BUILD OFF)
+  set_target_properties(benchmark_main PROPERTIES UNITY_BUILD OFF)
+endif()
 
 # set CUDA_ARCH for cu tests.
 if(TORCH_CUDA_ARCH_LIST)
@@ -439,6 +464,29 @@ list(APPEND NVFUSER_SRCS
 
 # Add LLVM JIT related dependencies
 set(LLVM_MINIMUM_VERSION "18.1")
+
+# Check for project-local LLVM installations first (no sudo required)
+# This searches .llvm/ directory for version-specific installations
+if(NOT LLVM_DIR)
+  file(GLOB LLVM_CANDIDATES
+    "${CMAKE_SOURCE_DIR}/.llvm/*/lib/cmake/llvm"
+    "${CMAKE_SOURCE_DIR}/third_party/llvm/*/lib/cmake/llvm"
+  )
+  # Sort to get highest version first (assumes version numbers in paths)
+  list(SORT LLVM_CANDIDATES COMPARE NATURAL ORDER DESCENDING)
+  foreach(CANDIDATE ${LLVM_CANDIDATES})
+    if(EXISTS "${CANDIDATE}/LLVMConfig.cmake")
+      # Extract version from path to check if it meets minimum
+      string(REGEX MATCH "([0-9]+\\.[0-9]+\\.[0-9]+)" CANDIDATE_VERSION "${CANDIDATE}")
+      if(CANDIDATE_VERSION VERSION_GREATER_EQUAL LLVM_MINIMUM_VERSION)
+        set(LLVM_DIR "${CANDIDATE}" CACHE PATH "Path to LLVM CMake config")
+        message(STATUS "Found project-local LLVM ${CANDIDATE_VERSION} at ${LLVM_DIR}")
+        break()
+      endif()
+    endif()
+  endforeach()
+endif()
+
 find_package(LLVM REQUIRED CONFIG)
 if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
   message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
@@ -531,6 +579,10 @@ target_include_directories(codegen_internal SYSTEM PUBLIC
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
+# Add NCCL include path for distributed builds (from pip-bundled nvidia-nccl-cu*)
+if(NVFUSER_DISTRIBUTED AND NCCL_INCLUDE_DIR)
+  target_include_directories(codegen_internal SYSTEM PRIVATE ${NCCL_INCLUDE_DIR})
+endif()
 target_include_directories(codegen_internal PUBLIC
   "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
@@ -1170,6 +1222,7 @@ endfunction()
 if(BUILD_TEST)
   set(TEST_BINARIES)
   add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  # Unity build settings inherited from global CMAKE_UNITY_BUILD
   list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})

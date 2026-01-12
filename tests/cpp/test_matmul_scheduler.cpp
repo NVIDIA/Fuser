@@ -25,7 +25,7 @@
 
 namespace nvfuser {
 
-namespace {
+// Test fixtures moved out of anonymous namespace for unity build compatibility
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
   MatmulSchedulerTest() : optimization_guard_(false) {}
@@ -52,6 +52,8 @@ class MatmulSchedulerTestWithLayout
     MatmulSchedulerTest::SetUp();
   }
 };
+
+namespace {
 
 using PrecisionsDesc = std::tuple<PrimDataType, PrimDataType, PrimDataType>;
 
@@ -3232,7 +3234,7 @@ INSTANTIATE_TEST_SUITE_P(
     AllocationDomainTest,
     testing::Combine(testing::Bool(), testing::Bool()));
 
-#undef NVFUSER_TEST_CUDA_ARCH_GUARD
+// Note: Removed #undef NVFUSER_TEST_CUDA_ARCH_GUARD for unity build compatibility
 
 TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);

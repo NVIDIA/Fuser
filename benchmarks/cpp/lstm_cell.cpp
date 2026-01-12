@@ -22,7 +22,7 @@ using namespace nvfuser;
 
 // TODO: add LSTM function to composite operations
 // Function Signature: cy, hy = lstm(x, cx)
-static void setupFusion(Fusion* fusion) {
+static void setupLstmCellFusion(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   TensorView* tvs[16];
@@ -45,7 +45,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(lstm_result.hidden);
 }
 
-static KernelArgumentHolder setupInputs(int hidden_features, int batch_size) {
+static KernelArgumentHolder setupLstmCellInputs(int hidden_features, int batch_size) {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -81,7 +81,7 @@ static void NvFuserScheduler_LstmCell_SetupFusion(
     benchmark::State& benchmark_state) {
   for (auto _ : benchmark_state) {
     Fusion fusion;
-    setupFusion(&fusion);
+    setupLstmCellFusion(&fusion);
   }
 }
 
@@ -98,8 +98,8 @@ static void NvFuserScheduler_LstmCell_AutoSchedule(
     // Setup (not included in the measurement)
     benchmark_state.PauseTiming();
     Fusion fusion;
-    setupFusion(&fusion);
-    KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
+    setupLstmCellFusion(&fusion);
+    KernelArgumentHolder args = setupLstmCellInputs(kHiddenFeatures, kBatchSize);
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
@@ -119,10 +119,10 @@ static void NvFuserScheduler_LstmCell_Lower(benchmark::State& benchmark_state) {
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupLstmCellFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
+  KernelArgumentHolder args = setupLstmCellInputs(kHiddenFeatures, kBatchSize);
 
   SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
@@ -143,10 +143,10 @@ static void NvFuserScheduler_LstmCell_Compile(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupLstmCellFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
+  KernelArgumentHolder args = setupLstmCellInputs(kHiddenFeatures, kBatchSize);
 
   SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
@@ -167,10 +167,10 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupLstmCellFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupLstmCellInputs(hidden_features, batch_size);
 
   // outputs
   KernelArgumentHolder outputs;
@@ -204,10 +204,10 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupLstmCellFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupLstmCellInputs(hidden_features, batch_size);
 
   // outputs
   std::vector<at::Tensor> outputs;
@@ -242,10 +242,10 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   Fusion fusion;
 
   // setup fusion
-  setupFusion(&fusion);
+  setupLstmCellFusion(&fusion);
 
   // inputs
-  KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
+  KernelArgumentHolder args = setupLstmCellInputs(hidden_features, batch_size);
 
   // outputs
   KernelArgumentHolder outputs;

@@ -3645,7 +3645,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
-#undef NVFUSER_TEST_CUDA_ARCH_GUARD
+// Note: Removed #undef NVFUSER_TEST_CUDA_ARCH_GUARD for unity build compatibility
 
 INSTANTIATE_TEST_SUITE_P(
     ,

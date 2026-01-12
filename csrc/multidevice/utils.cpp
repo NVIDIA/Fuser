@@ -45,7 +45,7 @@ std::ostream& operator<<(std::ostream& os, DomainType domain_type) {
 
 namespace {
 
-const std::vector<IterDomain*>& getDomainOf(
+const std::vector<IterDomain*>& utilsGetDomainOf(
     const TensorView* tv,
     DomainType domain_type) {
   switch (domain_type) {
@@ -234,7 +234,7 @@ IterDomain* getShardedIterDomain(
     const TensorView* tv,
     const ParallelType parallel_type,
     const DomainType domain_type) {
-  const auto& domain = getDomainOf(tv, domain_type);
+  const auto& domain = utilsGetDomainOf(tv, domain_type);
 
   for (IterDomain* id : domain | TensorDomain::kNoReductions) {
     if (id->getParallelType() == parallel_type) {

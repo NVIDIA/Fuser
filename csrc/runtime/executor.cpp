@@ -577,7 +577,7 @@ void validateIndexType(
       compile_params.index_type.value());
 }
 
-void validateCooperativeLaunch(
+void executorValidateCooperativeLaunch(
     CUfunction kernel,
     const LaunchParams& launch_params,
     int64_t device_index) {

@@ -94,7 +94,7 @@ std::string toString(const PolymorphicValue& v) {
       }
       const std::string& fieldname = type.fields.at(i).name;
       ss << fieldname << "=";
-      ss << toString(hdl->*(fieldname));
+      ss << PolymorphicValue_functions::toString(hdl->*(fieldname));
     }
     ss << "}";
   } else {
