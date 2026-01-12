@@ -32,6 +32,8 @@ endif()
 
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+option(ENABLE_PCH "Enable precompiled headers" OFF)
+
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
 
@@ -566,8 +568,10 @@ target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
-target_precompile_headers(codegen_internal PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
-target_precompile_headers(nvfuser_codegen REUSE_FROM codegen_internal)
+if(ENABLE_PCH)
+  target_precompile_headers(codegen_internal PRIVATE ${NVFUSER_SRCS_DIR}/pch.hpp)
+  target_precompile_headers(nvfuser_codegen REUSE_FROM codegen_internal)
+endif()
 
 if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
@@ -1145,7 +1149,9 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
 
   # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
-  target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
+  if(ENABLE_PCH)
+    target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
+  endif()
   set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_compile_options("${TEST_NAME}" PRIVATE -fPIC)
 endfunction()
@@ -1383,7 +1389,9 @@ if(BUILD_NVFUSER_BENCHMARK)
   )
 
   # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
-  target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
+  if(ENABLE_PCH)
+    target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
+  endif()
   set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
   target_compile_options(nvfuser_bench PRIVATE -fPIC)
 

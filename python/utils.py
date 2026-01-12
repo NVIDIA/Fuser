@@ -36,6 +36,7 @@ class BuildConfig:
     extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
     cutlass_max_jobs: int = 0
+    enable_pch: bool = False
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -279,6 +280,8 @@ def override_build_config_from_env(config):
         config.cutlass_max_jobs = int(os.getenv("NVFUSER_CUTLASS_MAX_JOBS"))
     if "NVFUSER_BUILD_NVMMH_INCLUDE_DIR" in os.environ:
         config.nvmmh_include_dir = os.getenv("NVFUSER_BUILD_NVMMH_INCLUDE_DIR")
+    if "NVFUSER_BUILD_ENABLE_PCH" in os.environ:
+        config.enable_pch = get_env_flag_bool("NVFUSER_BUILD_ENABLE_PCH")
 
 
 def get_default_install_prefix():
@@ -474,6 +477,7 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
+        f"-DENABLE_PCH={on_or_off(config.enable_pch)}",
         "-B",
         cmake_build_dir,
     ]
