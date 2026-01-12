@@ -224,7 +224,7 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   }
 
   auto rparams = std::make_unique<ReductionParams>();
-  rparams->schedule_3D = false;
+  rparams->schedule_3d = false;
   rparams->fastest_dim = true;
   rparams->cross_block_inner_reduction = true;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
@@ -628,9 +628,9 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
 
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
 
-  rparams->schedule_3D = total_reduction_numel != inner_most_dimension_numel;
+  rparams->schedule_3d = total_reduction_numel != inner_most_dimension_numel;
   // Outer reduction domain
-  if (rparams->schedule_3D) {
+  if (rparams->schedule_3d) {
     rparams->cross_grid_outer_reduction = grodim > 1;
     if (bdimz > 1) {
       rparams->block_dim_outer_reduction = ParallelType::TIDz;
@@ -703,7 +703,7 @@ std::unique_ptr<ReductionParams> inner3dReductionHeuristic(
 
   // If 3d, check if it's supported by the scheduler, otherwise force 1D
   // schedule
-  if (rparams->schedule_3D) {
+  if (rparams->schedule_3d) {
     if (rparams->multiple_reds_per_blk &&
         (rparams->cross_grid_inner_reduction ||
          rparams->cross_grid_outer_reduction)) {
@@ -1382,12 +1382,12 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 
   if (isSharded(reduction_tv)) {
     NVF_ERROR(
-        !rparams->schedule_3D,
+        !rparams->schedule_3d,
         "Multidevice nvFuser does not support 3D reduction schedules");
   }
 
-  auto dim_analysis = scheduler_utils::canonicalDimReduction(
-      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3D);
+  auto dim_analysis = scheduler_utils::canonicalizeReduction(
+      fusion, reduction_tv, rparams->fastest_dim && rparams->schedule_3d);
 
   bool has_iter_axis = dim_analysis.first;
   bool has_red_axis = dim_analysis.second;
