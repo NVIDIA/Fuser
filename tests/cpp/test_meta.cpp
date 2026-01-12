@@ -645,18 +645,11 @@ TEST_F(MetaTest, CutlassNvfp4GroupedMma) {
   at::Tensor alpha_input = at::ones({G}, options_fp32);
   // problem_sizes uses unpacked dimensions per expert: (m_i, n, k)
   const std::vector<int64_t> problem_sizes_vec{
-      M_PER_EXPERT,
-      N,
-      K,
-      M_PER_EXPERT,
-      N,
-      K,
-      M_PER_EXPERT,
-      N,
-      K,
-      M_PER_EXPERT,
-      N,
-      K};
+      M_PER_EXPERT, N, K, // expert 0
+      M_PER_EXPERT, N, K, // expert 1
+      M_PER_EXPERT, N, K, // expert 2
+      M_PER_EXPERT, N, K, // expert 3
+  };
   at::Tensor problem_sizes_input =
       at::tensor(problem_sizes_vec, options_int).reshape({G, 3});
   const std::vector<int64_t> expert_offsets_vec{
