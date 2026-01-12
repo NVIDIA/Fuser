@@ -26,7 +26,6 @@ class TorchRequirement(VersionRequirement):
     - Torch_CUDA_constraint_found: Torch's CUDA version (if mismatch)
     - Torch_CUDA_constraint_required: System's CUDA Toolkit version (if mismatch)
 
-    Minimum version: 2.0+ (defined in CMake)
     Special: Also validates CUDA version constraint
     """
 
@@ -124,7 +123,7 @@ class TorchRequirement(VersionRequirement):
         Args:
             platform_info: Platform detection dict from detect_platform()
         """
-        version_min = self.version_required or "2.0"
+        version_min = self.version_required
 
         print(f"PyTorch {version_min}+ Required")
         print()
