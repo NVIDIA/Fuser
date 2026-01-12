@@ -372,7 +372,7 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D = false);
+    bool schedule_3d = false);
 
 // Return a list of tensor views that are outputs of reduction operations,
 // excluding resharding reduce expressions. If multiple outputs of an expression
