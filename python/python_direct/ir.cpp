@@ -654,6 +654,35 @@ std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
   return {un_packed_shape, DataType::Float4_e2m1fn};
 }
 
+namespace {
+
+// Nanobind does not convert torch.Size automatically to std::vector. Instead,
+// manually convert nb::sequence to a std::vector
+//
+// >>> import torch
+// >>> type(torch.randn(10,10).shape)
+// <class 'torch.Size'>
+std::vector<int64_t> get_shape_from_pysequence(nb::sequence seq) {
+  std::vector<int64_t> result;
+  result.reserve(nb::len(seq));
+  try {
+    std::transform(
+        seq.begin(), seq.end(), std::back_inserter(result), [](nb::handle obj) {
+          // Get value from Thunder Proxy
+          if (nb::hasattr(obj, "value")) {
+            nb::object value = obj.attr("value");
+            return nb::cast<int64_t>(value);
+          }
+          return nb::cast<int64_t>(obj);
+        });
+  } catch (...) {
+    throw nb::type_error("define_tensor(): incompatible function arguments");
+  }
+  return result;
+}
+
+} // namespace
+
 void bindDefineTensor(nb::module_& nvfuser) {
   nvfuser
       .def(
@@ -663,7 +692,7 @@ void bindDefineTensor(nb::module_& nvfuser) {
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
-            auto shape = from_pysequence<int64_t>(shape_py);
+            auto shape = get_shape_from_pysequence(shape_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(
@@ -689,7 +718,7 @@ void bindDefineTensor(nb::module_& nvfuser) {
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
-            auto shape = from_pysequence<int64_t>(shape_py);
+            auto shape = get_shape_from_pysequence(shape_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(

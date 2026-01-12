@@ -17,30 +17,6 @@ namespace nb = nanobind;
 
 namespace nvfuser::python {
 
-// Nanobind does not convert torch.Size automatically to std::vector. Instead,
-// manually convert nb::sequence to a std::vector
-//
-// >>> import torch
-// >>> type(torch.randn(10,10).shape)
-// <class 'torch.Size'>
-template <typename T>
-std::vector<T> from_pysequence(nb::sequence seq) {
-  std::vector<T> result;
-  result.reserve(nb::len(seq));
-  std::transform(
-      seq.begin(), seq.end(), std::back_inserter(result), [](nb::handle obj) {
-        // Get value from Thunder Proxy
-        if (nb::hasattr(obj, "value")) {
-          nb::object value = obj.attr("value");
-          NVF_ERROR(nb::isinstance<T>(value));
-          return nb::cast<T>(value);
-        }
-        NVF_ERROR(nb::isinstance<T>(obj));
-        return nb::cast<T>(obj);
-      });
-  return result;
-}
-
 // Convert a nb::iterable to a KernelArgumentHolder
 nvfuser::KernelArgumentHolder from_pyiterable(
     const nb::iterable& iter,
