@@ -12,6 +12,7 @@
 #include "host_ir/evaluator.h"
 #include "host_ir/pass/stream_parallel_type.h"
 #include "ir/all_nodes.h"
+#include "multidevice/symmetric_tensor.h"
 #include "ops/all_ops.h"
 #include "preseg_passes/reorder_sharded_axis.h"
 #include "tests/cpp/multidevice.h"

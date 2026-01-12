@@ -256,9 +256,13 @@ std::optional<int64_t> mergeDims(
   return inner;
 }
 
+namespace {
+
+// Merge all reduction to the right side and returns total number of
+// reduction axes.
 int64_t mergeReduction(TensorView* tv) {
   int prev_i = -1;
-  int64_t num_merged = 0;
+  int64_t num_merges = 0;
   for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
     if (!tv->axis(i)->isReduction()) {
       continue;
@@ -268,16 +272,18 @@ int64_t mergeReduction(TensorView* tv) {
     } else {
       tv->merge(i, prev_i);
       prev_i = i;
-      num_merged++;
+      num_merges++;
     }
   }
   if (prev_i != 0) {
     tv->reorder({{prev_i, 0}});
   }
 
-  return prev_i == -1 ? 0 : num_merged + 1;
+  return prev_i == -1 ? 0 : num_merges + 1;
 }
 
+// Merge all non-reduction axes to the left side and returns total number of
+// iteration axes.
 int64_t mergeNonReduction(TensorView* tv) {
   bool has_device_dim = false;
   int prev_i = -1;
@@ -312,6 +318,8 @@ int64_t mergeNonReduction(TensorView* tv) {
 
   return prev_i == -1 ? 0 : num_merged + 1;
 }
+
+} // namespace
 
 void parallelizeAllLike(
     TensorView* reference_tv,
@@ -1205,13 +1213,13 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
   return persistent_buffer_size_bit;
 }
 
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D) {
+    bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (!schedule_3D) {
+  if (!schedule_3d) {
     // We coalesce all reduction axes to the right;
     bool has_red_axis = mergeReduction(tv) > 0;
 

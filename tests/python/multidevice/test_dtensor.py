@@ -3,13 +3,15 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import pytest
+
 import torch
 import torch.distributed as dist
-from fusion_definition_wrapper import FusionDefinitionWrapper
-from linear import LinearFunction
-from nvfuser_direct import FusionDefinition, DataType
+
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Shard, Replicate
+from .fusion_definition_wrapper import FusionDefinitionWrapper
+from .linear import LinearFunction
+from nvfuser_direct import FusionDefinition, DataType
 
 
 @pytest.mark.mpi

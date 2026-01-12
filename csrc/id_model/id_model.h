@@ -134,6 +134,11 @@ class NVF_API IdModel : public PolymorphicBase {
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
+  IdModel(const IdModel&) = delete;
+  IdModel& operator=(const IdModel&) = delete;
+  IdModel(IdModel&&) noexcept = default;
+  IdModel& operator=(IdModel&&) noexcept = default;
+
   bool hasIdGraph(IdMappingMode mode) const {
     return id_graphs_.find(mode) != id_graphs_.end();
   }
