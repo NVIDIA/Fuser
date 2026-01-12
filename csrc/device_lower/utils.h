@@ -11,7 +11,6 @@
 #include <exceptions.h>
 #include <visibility.h>
 
-#include <compute_at_map.h>
 #include <ir/all_nodes.h>
 #include <kernel_ir.h>
 #include <parallel_type_bitmap.h>
@@ -400,9 +399,7 @@ bool isCopyOnly(Val* val);
 
 // Get a ID group of a given iter domain and return the concrete ID of
 // the group, which is just the first ID.
-IterDomain* getConcreteMappedId(
-    IterDomain* id,
-    IdMappingMode mode = IdMappingMode::EXACT);
+IterDomain* getConcreteMappedId(IterDomain* id, IdMappingMode mode);
 
 } // namespace lower_utils
 } // namespace nvfuser

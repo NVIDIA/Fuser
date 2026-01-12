@@ -2249,7 +2249,7 @@ IterDomain* getConcreteMappedId(IterDomain* id, IdMappingMode mode) {
   return GpuLower::current()
       ->info()
       .idModel()
-      .idGraph(IdMappingMode::EXACT)
+      .idGraph(mode)
       .toGroup(id)
       ->front()
       ->as<IterDomain>();

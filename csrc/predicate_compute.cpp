@@ -20,8 +20,6 @@
 #include <ops/arith.h>
 #include <transform_iter.h>
 
-#include <device_lower/utils.h>
-
 namespace nvfuser {
 
 namespace {
@@ -42,7 +40,7 @@ bool isOutputLocal(const Expr* expr) {
 } // namespace
 
 bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
-  auto concrete_id = lower_utils::getConcreteMappedId(id);
+  auto concrete_id = lower_utils::getConcreteMappedId(id, IdMappingMode::EXACT);
   if (std::find(ids_.begin(), ids_.end(), concrete_id) == ids_.end()) {
     ids_.push_back(concrete_id);
     return true;
@@ -59,7 +57,9 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
   for (const auto& pred_id : ids()) {
     // Just sanity check that pred_id is concrete
-    NVF_ERROR(pred_id == lower_utils::getConcreteMappedId(pred_id));
+    NVF_ERROR(
+        pred_id ==
+        lower_utils::getConcreteMappedId(pred_id, IdMappingMode::EXACT));
     auto new_pred = SimplifyingIrBuilder::ltExpr(index, pred_id->extent());
     pred = SimplifyingIrBuilder::logicalAndExpr(pred, new_pred);
   }
@@ -451,7 +451,8 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   // Find the corresponding concrete id for each parallel type
   for (auto consumer_loop_id : parallelized_consumer_loop_ids) {
     auto pt = consumer_loop_id->getParallelType();
-    auto concrete_loop_id = lower_utils::getConcreteMappedId(consumer_loop_id);
+    auto concrete_loop_id = lower_utils::getConcreteMappedId(
+        consumer_loop_id, IdMappingMode::EXACT);
     parallel_concrete_ids_.at(pt) = concrete_loop_id;
   }
 }
@@ -1012,7 +1013,8 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     bool first_key_set = false;
 
     for (auto root_id : root_ids) {
-      auto concrete_root_id = lower_utils::getConcreteMappedId(root_id);
+      auto concrete_root_id =
+          lower_utils::getConcreteMappedId(root_id, IdMappingMode::EXACT);
 
       if (root_id->isBroadcast()) {
         continue;

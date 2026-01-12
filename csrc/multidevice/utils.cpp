@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "compute_at_map.h"
 #include "device_lower/utils.h"
 #include "expr_simplifier.h"
 #include "instrumentation.h"

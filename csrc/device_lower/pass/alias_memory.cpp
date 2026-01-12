@@ -39,8 +39,7 @@ namespace nvfuser {
 namespace {
 // Alias used for std::transform
 IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->info().caMap().getConcreteMappedID(
-      id, IdMappingMode::EXACT);
+  return lower_utils::getConcreteMappedId(id, IdMappingMode::EXACT);
 }
 
 //! Checks that the current loop nest is realizing a serial
@@ -144,7 +143,7 @@ bool isSerialBroadcastResolution(
   for (auto serial_loop_logical :
        ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
     if (!producer_exact_concrete_logical_ids.count(
-            GpuLower::current()->info().caMap().getConcreteMappedID(
+            lower_utils::getConcreteMappedId(
                 serial_loop_logical, IdMappingMode::EXACT))) {
       return true;
     }
@@ -1411,10 +1410,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           return false;
         }
       } else {
-        if (!FusionInfoGuard::current()->caMap().areMapped(
-                alloc_domains[id_it],
-                reuse_domains[id_it],
-                IdMappingMode::EXACT)) {
+        if (!FusionInfoGuard::current()
+                 ->idModel()
+                 .idGraph(IdMappingMode::EXACT)
+                 .areMapped(alloc_domains[id_it], reuse_domains[id_it])) {
           return false;
         }
       }
