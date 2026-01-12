@@ -18,8 +18,6 @@ class PythonRequirement(VersionRequirement):
     - NVFUSER_REQUIREMENT_Python_STATUS: Validation status
     - NVFUSER_REQUIREMENT_Python_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_Python_OPTIONAL: Whether Python is optional
-
-    Minimum version: 3.8+ (defined in CMake)
     """
 
     def __init__(self, cmake_vars: Dict):
@@ -56,7 +54,7 @@ class PythonRequirement(VersionRequirement):
         Args:
             platform_info: Platform detection dict from detect_platform()
         """
-        version_min = self.version_required or "3.8"
+        version_min = self.version_required
 
         print(f"Python {version_min}+ Required")
         print()
