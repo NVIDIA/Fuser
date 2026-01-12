@@ -30,6 +30,7 @@ try:
         Pybind11Requirement,
         CompilerRequirement,
         NinjaRequirement,
+        NVMMHRequirement,
     )
 
     HELP_AVAILABLE = True
@@ -100,6 +101,7 @@ class DependencyReporter:
             self.requirements.append(TorchRequirement(cmake_vars))
             self.requirements.append(Pybind11Requirement(cmake_vars))
             self.requirements.append(LLVMRequirement(cmake_vars))
+            self.requirements.append(NVMMHRequirement(cmake_vars))
 
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""

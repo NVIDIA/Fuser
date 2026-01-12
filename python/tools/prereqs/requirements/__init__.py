@@ -12,6 +12,7 @@ from .pybind11 import Pybind11Requirement
 from .compiler import CompilerRequirement
 from .git_submodules import GitSubmodulesRequirement
 from .ninja import NinjaRequirement
+from .nvmmh import NVMMHRequirement
 
 __all__ = [
     # Base classes
@@ -28,4 +29,5 @@ __all__ = [
     "CompilerRequirement",
     "GitSubmodulesRequirement",
     "NinjaRequirement",
+    "NVMMHRequirement",
 ]

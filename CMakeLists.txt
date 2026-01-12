@@ -66,6 +66,7 @@ include(cmake/deps/handle_cuda_toolkit.cmake)
 include(cmake/deps/handle_torch.cmake)
 include(cmake/deps/handle_pybind11.cmake)
 include(cmake/deps/handle_llvm.cmake)
+include(cmake/deps/handle_nvmmh.cmake)
 
 # Initialize success flag
 set(NVFUSER_DEPENDENCIES_OK TRUE)
@@ -82,6 +83,7 @@ handle_python()
 handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
+handle_nvmmh() # Must come AFTER python to query correct site-packages
 
 if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
   stop_capture(DEP_LOGS)
@@ -103,28 +105,6 @@ if(NOT NVFUSER_DEPENDENCIES_OK)
 endif()
 
 # -----------------------------------------------------------------------------
-
-# --------------------------
-# nvMatmulHeuristics support
-# --------------------------
-set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
-if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
-  find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
-    PATHS
-    /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
-    $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include
-  )
-endif()
-
-if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
-  set(NVMMH_FOUND TRUE)
-  string(APPEND CMAKE_CXX_FLAGS " -DHAS_NVMMH=1")
-else()
-  set(NVMMH_FOUND FALSE)
-  message(WARNING "nvMatmulHeuristics headers not found – building without nvMatmulHeuristics support")
-endif()
-# --------------------------
-
 
 include(cmake/FlatBuffers.cmake)
 include(cmake/Dependencies.cmake)
@@ -1564,8 +1544,6 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-if (NVMMH_FOUND)
-  message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
-endif()
+message(STATUS "  NVMMH_FOUND                        : ${NVMMH_FOUND}")
 message(STATUS "******** End of Nvfuser configuration summary ********")
 message(STATUS "")
