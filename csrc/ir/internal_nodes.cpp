@@ -2476,7 +2476,7 @@ ReshapeOp::ReshapeOp(IrBuilderPasskey passkey, Val* out, Val* in)
 
 std::string ReshapeOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = view( "
+  indent(ss, indent_size) << out()->toString() << " = reshape( "
                           << in()->toString() << " )\n";
   return ss.str();
 }
