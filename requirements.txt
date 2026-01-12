@@ -1,2 +1,3 @@
 pybind11[global]
 ninja
+nvidia-matmul-heuristics
