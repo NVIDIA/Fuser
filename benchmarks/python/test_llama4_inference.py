@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+import pytest
+#from dataclasses import dataclass
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
+
+from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
+
+
+@pytest.mark.parametrize("input_length", [4096])
+@pytest.mark.parametrize("output_length", [4])
+@pytest.mark.parametrize("mode", ["thunder", "inductor"])
+@pytest.mark.parametrize("enable_nvfp4", [False, True])
+@pytest.mark.parametrize("enable_cudagraph", [False, True])
+@pytest.mark.pointwise
+def test_pointwise_mul_baseline_benchmark(
+    benchmark,
+    input_length: int,
+    output_length: int,
+    mode: str,
+    enable_nvfp4: bool,
+    enable_cudagraph: bool,
+):
+    if mode == "inductor" and enable_nvfp4:
+        pytest.skip("nvfp4 is not supported by inductor yet.")
+
+    if mode == "thunder" and enable_nvfp4 and enable_cudagraph:
+        pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
+
+    pytest.skip(f"skipping everything {input_length=}, {output_length=}, {mode=}, {enable_nvfp4=}, {enable_cudagraph=}")
+
+    config = InferenceBenchmarkConfig(
+        model_name='meta-llama/Llama-4-Maverick-17B-128E',
+        batch_size=1,
+        input_length=input_length,
+        output_length=output_length,
+        num_layers=2,
+        num_iterations=5,
+        warmup_iterations=5,
+        mode=mode,
+        enable_nvfp4=enable_nvfp4,
+        fx_report_folder=None,
+        enable_nv_linear=True,
+        disable_moe_replacement=False,
+        attn_implementation=None,
+        thunder_cache=None,
+        enable_cudagraph=enable_cudagraph,
+        debug_moe=False,
+        use_hardcoded_model=True,                                                             )
+    benchmark = InferenceBenchmark(config)
+    
+    benchmark.run_benchmark()
+    benchmark.print_results()
