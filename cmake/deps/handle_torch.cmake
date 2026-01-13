@@ -87,7 +87,7 @@ macro(handle_torch)
       # Torch might not have CUDA support or query failed
       set(Torch_CUDA_constraint_status "not_available")
     endif()
-  elseif(NOT CUDAToolkit_FOUND)
+  else()
     # Can't validate if CUDAToolkit wasn't found
     set(Torch_CUDA_constraint_status "not_available")
   endif()
