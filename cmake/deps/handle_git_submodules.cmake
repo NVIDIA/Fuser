@@ -5,25 +5,55 @@
 # ------------------------------------------------------------------------------
 # Git Submodules Handler
 # ------------------------------------------------------------------------------
-#
-# Validates that git submodules have been initialized and updated.
-# Currently checks for third_party/googletest as a representative submodule.
-# All submodules should be initialized with: git submodule update --init --recursive
 
 macro(handle_git_submodules)
   message("")
-  message("Finding GitSubmodules...")
+  message("Checking Git Submodules...")
 
-  # Check if third_party/googletest exists and is populated
-  # This serves as a proxy for all submodules being properly initialized
-  set(test_file "${CMAKE_SOURCE_DIR}/third_party/googletest/CMakeLists.txt")
+  # Find git executable
+  find_package(Git QUIET)
 
-  if(EXISTS "${test_file}")
-    set(GitSubmodules_FOUND TRUE)
-    set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "SUCCESS")
-  else()
-    set(GitSubmodules_FOUND FALSE)
-    set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "NOT_FOUND")
-    set(NVFUSER_DEPENDENCIES_OK FALSE)
+  if(NOT GIT_FOUND)
+    message(WARNING "Git not found - cannot check submodule status")
+    set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "UNKNOWN")
+    return()
   endif()
+
+  # Use 'git submodule status' which only reads state, never modifies
+  # This command shows:
+  # - (no prefix) = submodule is initialized and up to date
+  # - '-' prefix = submodule is not initialized
+  # - '+' prefix = submodule is initialized but checked out to different commit than expected
+  # - 'U' prefix = submodule has merge conflicts
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" submodule status
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    OUTPUT_VARIABLE SUBMODULE_STATUS
+    ERROR_VARIABLE SUBMODULE_ERROR
+    RESULT_VARIABLE SUBMODULE_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+  )
+
+  if(NOT SUBMODULE_RESULT EQUAL 0)
+    message(WARNING "Failed to check git submodule status: ${SUBMODULE_ERROR}")
+    set(GitSubmodules_FOUND FALSE)
+    set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "ERROR")
+    return()
+  endif()
+
+  # Parse the output to check for uninitialized submodules (lines starting with '-')
+  string(REGEX MATCH "^-" HAS_UNINITIALIZED_SUBMODULES "${SUBMODULE_STATUS}")
+  string(REGEX MATCH "\n-" HAS_UNINITIALIZED_SUBMODULES_MULTILINE "${SUBMODULE_STATUS}")
+
+  if(HAS_UNINITIALIZED_SUBMODULES OR HAS_UNINITIALIZED_SUBMODULES_MULTILINE)
+    set(GitSubmodules_FOUND FALSE)
+    message(STATUS "Git submodules: NOT initialized")
+    message(STATUS "  Run: git submodule update --init --recursive")
+  else()
+    set(GitSubmodules_FOUND TRUE)
+    message(STATUS "Git submodules: initialized")
+  endif()
+
+  # Use common status function
+  set_dependency_report_status(GitSubmodules)
 endmacro()

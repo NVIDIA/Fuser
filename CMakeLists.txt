@@ -67,6 +67,7 @@ include(cmake/deps/handle_torch.cmake)
 include(cmake/deps/handle_pybind11.cmake)
 include(cmake/deps/handle_llvm.cmake)
 include(cmake/deps/handle_nvmmh.cmake)
+include(cmake/deps/handle_git_submodules.cmake)
 
 # Initialize success flag
 set(NVFUSER_DEPENDENCIES_OK TRUE)
@@ -84,6 +85,7 @@ handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
 handle_nvmmh() # Must come AFTER python to query correct site-packages
+handle_git_submodules()
 
 if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
   stop_capture(DEP_LOGS)

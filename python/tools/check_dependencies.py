@@ -31,6 +31,7 @@ try:
         CompilerRequirement,
         NinjaRequirement,
         NVMMHRequirement,
+        GitSubmodulesRequirement,
     )
 
     HELP_AVAILABLE = True
@@ -95,6 +96,7 @@ class DependencyReporter:
         self.requirements = []
         if HELP_AVAILABLE:
             self.requirements.append(NinjaRequirement(cmake_vars))
+            self.requirements.append(GitSubmodulesRequirement(cmake_vars))
             self.requirements.append(CompilerRequirement(cmake_vars))
             self.requirements.append(PythonRequirement(cmake_vars))
             self.requirements.append(CUDAToolkitRequirement(cmake_vars))

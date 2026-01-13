@@ -41,3 +41,6 @@ set(NVFUSER_REQUIREMENT_LLVM_VERSION_MIN "18.1")
 # NVMMH
 set(NVFUSER_REQUIREMENT_NVMMH_OPTIONAL "TRUE")
 
+# Git Submodules (required for build)
+# No version requirement - just checks if submodules are initialized
+

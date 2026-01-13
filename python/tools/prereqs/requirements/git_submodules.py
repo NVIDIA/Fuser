@@ -27,7 +27,7 @@ class GitSubmodulesRequirement(BooleanRequirement):
             cmake_vars: Dictionary of all CMake variables
         """
         # Define dependency name and CMake variable names for this requirement
-        name = "GitSubmodules"
+        name = "Submodule status"
         found_var = "GitSubmodules_FOUND"
         status_var = "NVFUSER_REQUIREMENT_GitSubmodules_STATUS"
         optional_var = "NVFUSER_REQUIREMENT_GitSubmodules_OPTIONAL"
