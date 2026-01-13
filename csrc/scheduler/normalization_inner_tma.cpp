@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ranges>
 
 #include <exceptions.h>
 #include <iter_visitor.h>
@@ -124,6 +125,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     CircularBufferOptions circular_buffer_options{
         .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
     params->circular_buffer_options = circular_buffer_options;
+    params->is_circular_buffer_regs_cached = true;
     // Set launch parameters
     params->lparams = LaunchParams(
         gdimx,
@@ -216,6 +218,15 @@ ScheduleSetupResult setupPersistentSchedule(
       // Create register cache for vectorized smem->reg loads
       auto regs_cache = tv->cacheAfter();
       result.smem2reg_tvs.push_back(regs_cache);
+
+      // If regs cache is enabled, no need to further recompute from smem as
+      // we want to cache all tma loaded buffers to regs to immediately release
+      // the shared memory barrier to launch the next TMA load. Note that, this
+      // increased register usage.
+      if (params->is_circular_buffer_regs_cached) {
+        continue;
+      }
+
       // recompute cached_tv for each consumer, so it is no longer
       // persistent similar to project to inputs, here we are projecting to
       // the shared memory buffer.
@@ -548,6 +559,20 @@ void scheduleInnerPersistentWarpSpecialized(
           exclude_tvs.insert(gp_tv);
         }
       }
+    }
+  }
+
+  // Further cache TMA loaded buffer to regs to release shared memory barrier
+  // to launch the next TMA load. Inline position is same as TMA loaded tvs.
+  if (params->is_circular_buffer_regs_cached) {
+    for (auto tv : setup.smem2reg_tvs) {
+      if (std::ranges::none_of(tv->getLoopDomain(), [](const IterDomain* id) {
+            return id->getParallelType() == ParallelType::BIDx;
+          })) {
+        continue;
+      }
+      inlineSelectedAt({tv}, tv, pos_after_bidx);
+      exclude_tvs.insert(tv);
     }
   }
 
