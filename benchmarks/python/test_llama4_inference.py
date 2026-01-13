@@ -2,7 +2,11 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark, _register_nvfp4_ops
+from .benchmark_inference import (
+    InferenceBenchmarkConfig,
+    InferenceBenchmark,
+    _register_nvfp4_ops,
+)
 
 
 @pytest.mark.parametrize("input_length", [4096])
