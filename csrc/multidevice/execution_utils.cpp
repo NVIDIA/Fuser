@@ -9,11 +9,11 @@
 #include "multidevice/execution_utils.h"
 
 #include <algorithm>
-#include <unordered_set>
 #include <vector>
 
 #include "exceptions.h"
 #include "fusion.h"
+#include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/utils.h"
 
@@ -29,11 +29,11 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   return max_index + 1;
 }
 
-at::Tensor shardTensor(
+at::Tensor shardTensor1D(
     at::Tensor tensor,
     const int64_t axis,
-    const DeviceMesh& mesh,
-    const DeviceIdxType device_id) {
+    const DeviceMesh& mesh) {
+  const auto device_id = Communicator::getInstance().deviceId();
   auto i = mesh.linearIndexOf(device_id);
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
@@ -46,6 +46,22 @@ at::Tensor shardTensor(
   // MultiDeviceTest.ShardTensor_InnerSplit). We currently disallow that and
   // it's enforced by getShardedLogicalAxis.
   return tensor.slice(axis, i * stride, (i + 1) * stride).contiguous();
+}
+
+at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
+  if (!isSharded(tv)) {
+    return tensor;
+  }
+
+  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
+  const DeviceMesh& mesh = tv->getDeviceMesh();
+
+  // This function still assumes the mesh is 1D at this very moment. But the
+  // plan is to support multi-dimensional meshes here and leave shardTensor1D
+  // for 1D meshes only and eventually deprecated.
+  NVF_ERROR_EQ(mesh.rank(), 1);
+  return shardTensor1D(
+      tensor, getShardedLogicalAxis(tv, ParallelType::DIDx), mesh);
 }
 
 std::vector<int64_t> unshardedSizes(
