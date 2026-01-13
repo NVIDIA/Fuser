@@ -30,7 +30,7 @@ namespace nvfuser {
 class StreamTest : public NVFuserTest {
  public:
   StreamTest() {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

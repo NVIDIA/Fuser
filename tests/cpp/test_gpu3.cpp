@@ -63,7 +63,7 @@ class Gpu3Test : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -3398,7 +3398,7 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);

@@ -56,7 +56,7 @@ class TransposeTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
  private:
@@ -1351,7 +1351,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
 TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   // The issue is not specific to TensorIndexer but just make sure the
   // fix works with it
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
