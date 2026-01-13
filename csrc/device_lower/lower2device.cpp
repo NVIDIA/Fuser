@@ -300,22 +300,15 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-        options.setBuildTensorIndexer(true);
-        if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-          options.setInlinePredicate(true);
-        }
+        options.setTensorIndexer(true);
         continue;
       }
     } else if (expr->isA<MmaOp>()) {
-      options.setBuildTensorIndexer(true);
+      options.setTensorIndexer(true);
       continue;
     } else if (
         expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
-      options.setProducerIndex(true);
-      options.setConsumerIndex(true);
-      options.setInlinePredicate(true);
-      options.setUnswitchPredicate(true);
-      options.setLoop(true);
+      options.setTensorIndexer(true);
       continue;
     } else if (auto reshape = dynamic_cast<ReshapeOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
@@ -369,10 +362,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
                       return consumer_expanded_root_ids.count(input);
                     });
               })) {
-        options.setProducerIndex(true);
-        options.setConsumerIndex(true);
-        options.setInlinePredicate(true);
-        options.setUnswitchPredicate(true);
+        options.setTensorIndexer(true);
       }
     }
   }
@@ -382,7 +372,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     if (tv->getMemoryType() == MemoryType::Tensor ||
         !ir_utils::hasRootToLoopLinearTransformations(tv)) {
-      options.setBuildTensorIndexer(true);
+      options.setTensorIndexer(true);
     }
   }
 
@@ -391,9 +381,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // Index::getConsumerIndex)
   if (!TensorIndexer::isSupported(fusion)) {
     // Do not disable building of TensorIndexer as it may be still used
-    options.setIndex(false);
-    options.setPredicate(false);
-    options.setLoop(false);
+    options.setTensorIndexer(false);
   }
 
   return options;
@@ -461,14 +449,12 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
-  if (idModelOptions().buildIdModel()) {
-    info().set(std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/false));
-    info().idModel().validateAndPropagatePType();
-  }
+  info().set(std::make_unique<IdModel>(
+      fusion_,
+      /*build_graphs=*/true,
+      /*allow_self_mapping=*/false,
+      /*validate=*/false));
+  info().idModel().validateAndPropagatePType();
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
@@ -578,12 +564,10 @@ void GpuLower::analysis(Fusion* fusion) {
   info().caMap().allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (idModelOptions().loop()) {
+  if (idModelOptions().isTensorIndexerEnabled()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
     info().idModel().allocateLoopIndexVariables();
-  }
 
-  if (idModelOptions().buildTensorIndexer()) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
     non_divisible_predicate_info_ =
         std::make_unique<NonDivisiblePredicateInfo>(fusion_);
@@ -663,7 +647,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
 Val* GpuLower::getLoopIndexVariable(
     IterDomain* id,
     CircularBufferLoopStage stage) const {
-  if (idModelOptions().loop()) {
+  if (idModelOptions().isTensorIndexerEnabled()) {
     return info().idModel().getLoopIndexVariable(id, stage);
   } else {
     return info().caMap().getIndexVariable(id, stage);
