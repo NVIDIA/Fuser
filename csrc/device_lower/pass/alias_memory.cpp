@@ -37,10 +37,6 @@
 namespace nvfuser {
 
 namespace {
-// Alias used for std::transform
-IterDomain* exactConcreteId(IterDomain* id) {
-  return lower_utils::getConcreteMappedId(id);
-}
 
 //! Checks that the current loop nest is realizing a serial
 //! broadcast so that each index of producer buffer can be visited
