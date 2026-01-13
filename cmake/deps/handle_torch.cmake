@@ -67,7 +67,7 @@ macro(handle_torch)
       string(REGEX MATCH "^([0-9]+\\.[0-9]+)" torch_cuda_major_minor "${torch_cuda_version}")
 
       # Check if regex succeeded
-      if(NOT torch_cuda_major_minor)
+      if(NOT torch_cuda_major_minor OR torch_cuda_major_minor STREQUAL "")
         # Regex failed - unable to parse version
         set(Torch_CUDA_constraint_status "not_available")
         message(WARNING "Unable to parse Torch CUDA version: ${torch_cuda_version}")
