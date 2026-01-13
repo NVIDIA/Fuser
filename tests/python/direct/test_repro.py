@@ -4534,12 +4534,34 @@ def test_shared_memory_usage(nvfuser_direct_test):
         fd.add_output(T51)
 
     inputs = [
-        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
-        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor(
+            (16, 24578),
+            dtype=torch.bfloat16,
+            device="cuda:0",
+            low=LOW_VAL,
+            high=HIGH_VAL,
+        ),
+        torch.testing.make_tensor(
+            (16, 24578),
+            dtype=torch.bfloat16,
+            device="cuda:0",
+            low=LOW_VAL,
+            high=HIGH_VAL,
+        ),
         torch.testing.make_tensor((16, 24578), dtype=torch.bool, device="cuda:0"),
-        torch.testing.make_tensor((16, 1), dtype=torch.float32, device="cuda:0"),
-        torch.testing.make_tensor((16, 24578), dtype=torch.bfloat16, device="cuda:0"),
-        torch.testing.make_tensor((24578,), dtype=torch.bfloat16, device="cuda:0"),
+        torch.testing.make_tensor(
+            (16, 1), dtype=torch.float32, device="cuda:0", low=LOW_VAL, high=HIGH_VAL
+        ),
+        torch.testing.make_tensor(
+            (16, 24578),
+            dtype=torch.bfloat16,
+            device="cuda:0",
+            low=LOW_VAL,
+            high=HIGH_VAL,
+        ),
+        torch.testing.make_tensor(
+            (24578,), dtype=torch.bfloat16, device="cuda:0", low=LOW_VAL, high=HIGH_VAL
+        ),
     ]
     nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs, validate_results=True)
 
