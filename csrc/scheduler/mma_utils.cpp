@@ -17,6 +17,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 
+#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <id_model/id_model.h>
