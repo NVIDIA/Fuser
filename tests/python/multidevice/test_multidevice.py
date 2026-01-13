@@ -464,8 +464,6 @@ def test_alltoall(multidevice_test):
         all2all_inp = fd.ops.permute(inp, dims=[2, 1, 0])
         all2all_out = fd.ops.set(all2all_inp)
         out = fd.ops.permute(all2all_out, dims=[2, 1, 0])
-        fd.add_output(all2all_inp)
-        fd.add_output(all2all_out)
         fd.add_output(out)
 
         inp.set_device_mesh(mesh)
@@ -492,5 +490,5 @@ def test_alltoall(multidevice_test):
 
     in_tensor = torch.randn(k, m, n, dtype=torch.float16)
     sharded = multidevice_test.shard_tensor(in_tensor, inp)
-    (all2all_inp, all2all_out, out) = fd.execute([sharded])
+    (out,) = fd.execute([sharded])
     torch.testing.assert_close(out.cpu(), multidevice_test.shard_tensor(in_tensor, out))
