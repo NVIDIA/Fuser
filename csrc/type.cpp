@@ -360,8 +360,6 @@ const char* predicate_type2string(PredicateType t) {
       return "Misaligned";
     case PredicateType::ReductionWrite:
       return "ReductionWrite";
-    case PredicateType::LoopRotation:
-      return "LoopRotation";
     case PredicateType::ElectSync:
       return "ElectSync";
     case PredicateType::OneDimTmaLoadExpectArrive:

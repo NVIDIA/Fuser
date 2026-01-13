@@ -983,9 +983,7 @@ std::string RaggedIterDomain::toString(int indent_size) const {
 }
 
 IterDomain* RaggedIterDomain::cloneWithoutRFactor(bool map_with_original) {
-  // Create a new RaggedIterDomain with the same extents and properties
-  auto cloned = IrBuilder::create<RaggedIterDomain>(
-      extents_, getIterType(), getParallelType());
+  auto cloned = IterDomainBuilder(this).resetRfactor().build();
 
   // Optionally map the clone with the original in the Exact graph
   if (map_with_original) {

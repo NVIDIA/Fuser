@@ -21,8 +21,6 @@
 
 namespace nvfuser {
 
-using SDPATest = NVFuserTest;
-
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
 // Note: Flash Attention is only supported on Ampere and above.
@@ -229,6 +227,8 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
   }
 }
 
+using SDPATest = NVFuserTest;
+
 TEST_F(SDPATest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
@@ -249,6 +249,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -308,6 +310,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -366,6 +370,8 @@ TEST_F(SDPATest, CausalAttn) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -423,6 +429,8 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -762,6 +770,8 @@ TEST_F(SDPATest, AttnProgram) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -814,6 +824,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -901,6 +913,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -1107,6 +1121,8 @@ TEST_F(SDPATest, ComputeAt) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);

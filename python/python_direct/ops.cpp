@@ -10,6 +10,7 @@
 #include <bindings.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
+#include <utils.h>
 
 namespace nvfuser::python {
 
@@ -2418,46 +2419,31 @@ TensorView* expand_fn(TensorView* arg, ShapeType generic_new_shape) {
 
 template <class ShapeType>
 TensorView* broadcast_in_dim_fn(
-    TensorView* arg,
+    TensorView* input,
     ShapeType generic_output_shape,
-    std::vector<int64_t>& broadcast_dims) {
+    const std::vector<int64_t>& nonbroadcast_dims) {
   std::vector<Val*> output_shape = SequenceAsVector(generic_output_shape);
-  NVF_CHECK(
-      output_shape.size() >= broadcast_dims.size(),
-      "broadcast_dims vector size is too big for output shape!");
+  NVF_CHECK_GE(output_shape.size(), nonbroadcast_dims.size());
 
-  const auto arg_ndims = static_cast<size_t>(std::ranges::distance(
-      arg->getLoopDomain() | TensorDomain::kNoReductions));
-  NVF_CHECK(
-      output_shape.size() >= broadcast_dims.size(),
-      "The new shape is expected to be greater-then-or-equal to the input: ",
-      output_shape.size(),
-      " vs ",
-      arg_ndims);
-  NVF_CHECK(
-      arg_ndims == broadcast_dims.size(),
-      "The broadcast dimensions should match the input dimensions: ",
-      arg_ndims,
-      " vs ",
-      broadcast_dims.size(),
-      ". arg = ",
-      arg->toString());
+  const auto input_ndim = std::ranges::distance(
+      input->getLogicalDomain() | TensorDomain::kNoReductions);
+  NVF_CHECK_GE(std::ssize(output_shape), input_ndim);
+  NVF_CHECK_EQ(input_ndim, std::ssize(nonbroadcast_dims));
 
   std::vector<bool> is_broadcast_dim(output_shape.size(), true);
-  for (const auto idx : arange(broadcast_dims.size())) {
-    if (idx > 0) {
-      NVF_CHECK(
-          broadcast_dims[idx - 1] < broadcast_dims[idx],
-          "Broadcast dimension is not greater than the previous value.");
-    }
+  for (int64_t nonbroadcast_dim : nonbroadcast_dims) {
+    nonbroadcast_dim = wrapDim(nonbroadcast_dim, std::ssize(output_shape));
     NVF_CHECK(
-        broadcast_dims[idx] < static_cast<int>(output_shape.size()),
-        "Invalid broadcast_dims value.");
-    is_broadcast_dim.at(broadcast_dims[idx]) = false;
+        is_broadcast_dim.at(nonbroadcast_dim),
+        "nonbroadcast_dim (",
+        nonbroadcast_dim,
+        ") is specified more than once.");
+    is_broadcast_dim.at(nonbroadcast_dim) = false;
   }
 
-  auto bcast_output = broadcast(arg, is_broadcast_dim);
-  return expand(bcast_output, output_shape);
+  TensorView* output = broadcast(input, is_broadcast_dim);
+  output = expand(output, output_shape);
+  return output;
 }
 
 template <class ShapeType>
@@ -3370,6 +3356,8 @@ void bindSdpaOps(py::module_& ops) {
       [](TensorView* query,
          TensorView* key,
          TensorView* value,
+         TensorView* bias,
+         TensorView* mask,
          ScalarVariant dropout_p,
          ScalarVariant is_causal,
          ScalarVariant scale) -> decltype(auto) {
@@ -3377,6 +3365,8 @@ void bindSdpaOps(py::module_& ops) {
             query,
             key,
             value,
+            bias,
+            mask,
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
             convertToVal(scale));
@@ -3385,6 +3375,8 @@ void bindSdpaOps(py::module_& ops) {
       py::arg("query"),
       py::arg("key"),
       py::arg("value"),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("mask").none(true) = py::none(),
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("scale").none(true) = py::none(),
@@ -3394,11 +3386,15 @@ Scaled Dot Product Flash Attention Forward.
 Parameters
 ----------
 query : TensorView
-    The query tensor.
+    The query tensor with shape [N*, H, Q, E].
 key : TensorView
-    The key tensor.
+    The key tensor with shape [N*, H, K, E].
 value : TensorView
-    The value tensor.
+    The value tensor with shape [N*, H, K, Ev].
+bias : TensorView, optional
+    Additive attention bias with shape broadcastable to [N*, H, Q, K]. Default is None.
+mask : TensorView, optional
+    Additional additive mask with shape broadcastable to [N*, H, Q, K]. Default is None.
 dropout_p : Val, optional
     The dropout probability. Default is None.
 is_causal : Val, optional
