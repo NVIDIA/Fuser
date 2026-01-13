@@ -26,7 +26,7 @@ macro(handle_compiler)
 
   set_dependency_report_status(Compiler)
 
-  # Cacheing variables to enable incremental build.
+  # Caching variables to enable incremental build.
   # Without this is cross compiling we end up having to blow build directory
   # and rebuild from scratch.
   if(CMAKE_CROSSCOMPILING)
