@@ -22,6 +22,8 @@ macro(handle_compiler)
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_Clang_VERSION_MIN})
     set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE) # Not optional - we have defined version constraints
+  else()
+    message(WARNING "Unknown compiler '${CMAKE_CXX_COMPILER_ID}' - cannot validate")
   endif()
 
   set_dependency_report_status(Compiler)
