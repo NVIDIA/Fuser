@@ -2,9 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-#from dataclasses import dataclass
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
-
 from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
 
 
@@ -14,7 +12,7 @@ from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
 @pytest.mark.parametrize("enable_nvfp4", [False, True])
 @pytest.mark.parametrize("enable_cudagraph", [False, True])
 @pytest.mark.pointwise
-def test_pointwise_mul_baseline_benchmark(
+def test_llama4_inference_benchmark(
     benchmark,
     input_length: int,
     output_length: int,
@@ -27,8 +25,6 @@ def test_pointwise_mul_baseline_benchmark(
 
     if mode == "thunder" and enable_nvfp4 and enable_cudagraph:
         pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
-
-    pytest.skip(f"skipping everything {input_length=}, {output_length=}, {mode=}, {enable_nvfp4=}, {enable_cudagraph=}")
 
     config = InferenceBenchmarkConfig(
         model_name='meta-llama/Llama-4-Maverick-17B-128E',
