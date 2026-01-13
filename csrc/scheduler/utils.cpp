@@ -1167,23 +1167,22 @@ std::pair<bool, bool> canonicalizeReduction(
   }
 
   // Merge all reductions and all non-reductions, and reorder them to
-  // [DIDs/Streams..., merged non-reduction, merged reduction]
+  // [DIDs/Streams..., merged non-reduction, merged reduction]. Merging happens
+  // incrementally -- first the parallel IterDomains, then the non-reductions,
+  // then the reductions.
   //
-  // First, we reorder parallelized IterDomains to the front. At this stage of
-  // scheduling, they can only be DIDs or Streams.
+  // At this stage of scheduling, they can only be DIDs or Streams.
   std::unordered_map<int64_t, int64_t> reorder_map =
       reorderParallelizedToFront(tv);
-  const auto num_parallel_dims = std::ssize(reorder_map);
+  auto num_ordered_dims = std::ssize(reorder_map);
 
-  // Then, we merge all reduction IterDomains.
-  //
-  // This helper function merges all non-parallel IterDomains that satisfy the
+  // This helper function merges not-yet-ordered IterDomains that satisfy the
   // predicate from back to front. Returns the index of the last merged
   // IterDomain, or -1 if no IterDomains were merged.
   auto merge_all = [&](auto pred) -> int64_t {
     int64_t merged = -1;
     for (int64_t i :
-         arange(num_parallel_dims, tv->nDims()) | std::views::reverse) {
+         arange(num_ordered_dims, tv->nDims()) | std::views::reverse) {
       if (pred(tv->axis(i))) {
         if (merged >= 0) {
           tv->merge(i, merged);
@@ -1194,21 +1193,21 @@ std::pair<bool, bool> canonicalizeReduction(
     return merged;
   };
 
-  bool has_reduction = merge_all(std::mem_fn(&IterDomain::isReduction)) >= 0;
-
-  // Then, we merge all non-reduction IterDomains.
   int64_t merged_non_reduction =
-      merge_all(std::not_fn(std::mem_fn(&IterDomain::isReduction)));
-
-  // Finally, we put the merged non-reduction IterDomain right after the
-  // parallel IterDomains.
-  bool has_non_reduction = false;
+      merge_all([](IterDomain* id) { return !id->isReduction(); });
   if (merged_non_reduction >= 0) {
-    has_non_reduction = true;
-    tv->reorder({{merged_non_reduction, num_parallel_dims}});
+    tv->reorder({{merged_non_reduction, num_ordered_dims}});
+    num_ordered_dims++;
   }
 
-  return {has_non_reduction, has_reduction};
+  int64_t merged_reduction = merge_all([](IterDomain* id) { return true; });
+  if (merged_reduction >= 0) {
+    tv->reorder({{merged_reduction, num_ordered_dims}});
+    num_ordered_dims++;
+  }
+
+  NVF_ERROR_EQ(num_ordered_dims, tv->nDims(), "Did not merge all IterDomains.");
+  return {merged_non_reduction >= 0, merged_reduction >= 0};
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
