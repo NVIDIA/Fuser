@@ -2244,12 +2244,12 @@ bool isCopyOnly(Val* val) {
   return true;
 }
 
-IterDomain* getConcreteMappedId(IterDomain* id, IdMappingMode mode) {
+IterDomain* getConcreteMappedId(IterDomain* id) {
   NVF_ERROR(GpuLower::hasCurrent());
   return GpuLower::current()
       ->info()
       .idModel()
-      .idGraph(mode)
+      .idGraph(IdMappingMode::EXACT)
       .toGroup(id)
       ->front()
       ->as<IterDomain>();
