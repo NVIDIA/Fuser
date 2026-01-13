@@ -38,7 +38,7 @@ TensorView* scheduleReductionTV(
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
-  const int64_t num_device_dims = numDeviceDims(reduction_tv);
+  const int64_t num_device_dims = scheduler_utils::numDeviceDims(reduction_tv);
   const int iter_axis = num_device_dims;
   const auto [outer_reduce_axis, inner_reduce_axis] =
       [&]() -> std::tuple<int, int> {
@@ -1300,7 +1300,7 @@ FusionRuntimeProperties getFusionRuntimeProperties(
   // based on non-device/non-reduction domain size and accounts for device
   // dimensions during scheduling.
   // TODO (priya): We should make this consistent across all schedulers
-  int64_t num_device_dims = numDeviceDims(reduced_tv);
+  int64_t num_device_dims = scheduler_utils::numDeviceDims(reduced_tv);
   int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, no_device_break_point);

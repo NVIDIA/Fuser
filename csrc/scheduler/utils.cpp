@@ -43,8 +43,7 @@
 #include <type.h>
 #include <val_graph_visitor.h>
 
-namespace nvfuser {
-namespace scheduler_utils {
+namespace nvfuser::scheduler_utils {
 
 // Minimal PTX code for a no-op kernel, used for occupancy queries
 const char* noopPtx = R"(
@@ -3608,5 +3607,11 @@ std::pair<int64_t, int64_t> getRegisterSharing(
   return std::make_pair(tma_branch_regs, compute_branch_regs);
 }
 
-} // namespace scheduler_utils
-} // namespace nvfuser
+int64_t numDeviceDims(const TensorView* tv) {
+  return std::count_if(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isDeviceDim() && !id->isReduction(); });
+}
+
+} // namespace nvfuser::scheduler_utils

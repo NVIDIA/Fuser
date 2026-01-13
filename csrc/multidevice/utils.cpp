@@ -218,13 +218,6 @@ IterDomain* getShardedIterDomain(
   return nullptr;
 }
 
-int64_t numDeviceDims(const TensorView* tv) {
-  return std::count_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      [](IterDomain* id) { return id->isDeviceDim() && !id->isReduction(); });
-}
-
 std::unordered_set<IterDomain*> getInputsInTargetDomain(
     const std::vector<IterDomain*>& loop_id,
     const std::vector<IterDomain*>& target_domain) {

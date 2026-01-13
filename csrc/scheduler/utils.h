@@ -1008,5 +1008,9 @@ std::pair<int64_t, int64_t> getRegisterSharing(
     int64_t reg_per_thread,
     int64_t computation_threads,
     int64_t padded_threads);
+
+// Returns number of device dimensions in a TensorView's loop domain.
+int64_t numDeviceDims(const TensorView*);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
