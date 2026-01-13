@@ -441,9 +441,6 @@ def test_transformer_forward(multidevice_test, benchmark, parallelism: Paralleli
             f"Sequence length {s} must be divisible by the number \
                     of devices {d} for sequence parallelism."
         )
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     # To reduce memory footprint, create unsharded data on CPU and copy only
     # the needed slice to GPU.
     inp = torch.testing.make_tensor(b, s, e, dtype=torch.bfloat16, device="cpu")
@@ -1066,9 +1063,6 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
             f"Sequence length {s} must be divisible by the number \
                     of devices {d} for sequence parallelism."
         )
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     mlp_linear0_out = torch.testing.make_tensor(
         b, s, e * 4, dtype=torch.bfloat16, device="cpu"
     )

@@ -13,17 +13,9 @@
 #include <utility>
 #include <vector>
 
-#include "device_lower/utils.h"
-#include "expr_simplifier.h"
-#include "instrumentation.h"
-#include "ir/container.h"
+#include "compute_at_map.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
-#include "ir/iostream.h"
-#include "ir/utils.h"
-#include "logical_domain_map.h"
-#include "ops/all_ops.h"
-#include "statement_guard.h"
 #include "transform_replay.h"
 #include "type.h"
 
@@ -254,15 +246,18 @@ int64_t rankOfParallelType(ParallelType parallel_type) {
   // expected to be parallelized on only Stream and DIDs. To make the order
   // convenient for schedulers, we put Stream first, DIDs second, and Serial
   // last. Stream is before DIDs so we can inline computation and communication
-  // into the same host for-loop. The best order between DIDs is unclear. We'll
-  // decide that when we support 2D sharding, e.g., https://nv/nvfuser-cp
+  // into the same host for-loop. The best order between DIDs is not yet clear.
+  // For now, I'm going with DIDz < DIDy < DIDx as it works with
+  // https://nv/nvfuser-cp
   switch (parallel_type) {
     case ParallelType::Stream:
       return 0;
-    case ParallelType::DIDx:
-    case ParallelType::DIDy:
     case ParallelType::DIDz:
       return 1;
+    case ParallelType::DIDy:
+      return 2;
+    case ParallelType::DIDx:
+      return 3;
     default:
       // I could assign other types an arbitrary rank but I prefer NVF_THROW to
       // catch unexpected changes in the future.

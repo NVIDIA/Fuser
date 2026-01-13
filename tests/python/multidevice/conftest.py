@@ -21,6 +21,8 @@ class MultideviceTest:
 
         self._communicator = nvfuser.multidevice.Communicator.instance()
 
+        torch.cuda.set_device(self._communicator.local_rank())
+
         # This way, when individual tests create unsharded input, each rank
         # receives the same data.
         torch.manual_seed(0)

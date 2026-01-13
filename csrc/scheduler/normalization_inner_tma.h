@@ -43,6 +43,9 @@ class InnerNormTmaParams : public HeuristicParams {
   // Use TMA to load non-persistent buffers
   bool tma_load_non_persistent_buffers = false;
 
+  // Further cache TMA loaded buffer to regs
+  bool is_circular_buffer_regs_cached = false;
+
   // Number of rows per block
   int64_t n_grouped_rows = 1;
 
@@ -63,7 +66,8 @@ class InnerNormTmaParams : public HeuristicParams {
         other->tma_load_non_persistent_buffers ==
         tma_load_non_persistent_buffers &&
         other->n_grouped_rows == n_grouped_rows &&
-        other->circular_buffer_options == circular_buffer_options;
+        other->circular_buffer_options == circular_buffer_options &&
+        other->is_circular_buffer_regs_cached == is_circular_buffer_regs_cached;
   }
 
   std::string toString() const override {
@@ -73,6 +77,8 @@ class InnerNormTmaParams : public HeuristicParams {
        << "Vectorization factor: " << vectorization_factor << "\n"
        << (project_persistent_buffers ? "Project Persistent Buffers\n" : "")
        << (vectorize_load_smem_to_regs ? "Vectorize load smem to regs\n" : "")
+       << (is_circular_buffer_regs_cached ? "Cache TMA loaded buffer to regs\n"
+                                          : "")
        << "Persistent batch size: " << persistent_batch_size << "\n"
        << (pre_load_ldg_tvs ? "Pre-load ldg tvs\n" : "")
        << (tma_load_non_persistent_buffers ? "TMA load non-persistent buffers\n"
@@ -98,7 +104,8 @@ class InnerNormTmaParams : public HeuristicParams {
         static_cast<size_t>(tma_load_non_persistent_buffers) << (bits - 6) ^
         static_cast<size_t>(n_grouped_rows) << (bits - 7) ^
         static_cast<size_t>(circular_buffer_options.stage) << (bits - 8) ^
-        static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9);
+        static_cast<size_t>(circular_buffer_options.prefetch) << (bits - 9) ^
+        static_cast<size_t>(is_circular_buffer_regs_cached) << (bits - 10);
     return attr_hash;
   }
 
