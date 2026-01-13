@@ -1275,11 +1275,13 @@ TensorView* asNested(
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
   NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
 
-  // Only 1D offset tensors are currently supported
-  NVF_ERROR_EQ(
+  // Offsets can be N-D tensors for nested ragged structures
+  // The partition operation will handle multi-dimensional offsets correctly
+  NVF_ERROR(
+      offsets->nDims() >= 1,
+      "asNested requires offsets to be at least 1D, got ",
       offsets->nDims(),
-      1,
-      "asNested currently only supports 1D offset tensors");
+      "D");
 
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());

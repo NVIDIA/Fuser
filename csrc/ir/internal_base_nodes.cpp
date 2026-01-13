@@ -927,36 +927,49 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       offsets->dtype());
 
   const auto& offsets_domain = offsets->getLogicalDomain();
-  NVF_ERROR_EQ(
-      offsets_domain.size(),
-      1,
-      "partition: offsets tensor must be 1D, got ",
-      offsets_domain.size(),
-      "D tensor. Multi-dimensional offsets not yet supported.");
+  NVF_ERROR(
+      !offsets_domain.empty(),
+      "partition: offsets tensor must have at least one dimension");
 
   auto container = in->container();
 
-  // Compute extents from offsets: extents[i] = offsets[i+1] - offsets[i]
-  // offsets_left = offsets[:-1]   (all but last element)
-  // offsets_right = offsets[1:]   (all but first element)
+  // Compute extents from offsets: extents[..., i] = offsets[..., i+1] - offsets[..., i]
+  // For N-D offsets, we slice along the last dimension:
+  // offsets_left = offsets[..., :-1]   (all but last element along last dim)
+  // offsets_right = offsets[..., 1:]   (all but first element along last dim)
 
-  auto offsets_len = offsets_domain[0]->extent();
+  // Get the extent of the last dimension (which defines the number of components)
+  auto last_dim_idx = std::ssize(offsets_domain) - 1;
+  auto offsets_len = offsets_domain[last_dim_idx]->extent();
 
   auto zero = container->zeroVal(DataType::Index);
   auto one = container->oneVal(DataType::Index);
   auto len_minus_one = sub(offsets_len, one);
 
-  // Slice offsets[:-1]
-  Slice left_slice;
-  left_slice.start = zero;
-  left_slice.stop = len_minus_one;
-  auto offsets_left = slice(offsets, {left_slice});
+  // Build slice specifications for all dimensions
+  // All dimensions except the last use full range (:), last dimension uses [:-1] and [1:]
+  std::vector<Slice> left_slices(offsets_domain.size());
+  std::vector<Slice> right_slices(offsets_domain.size());
 
-  // Slice offsets[1:]
-  Slice right_slice;
-  right_slice.start = one;
-  right_slice.stop = offsets_len;
-  auto offsets_right = slice(offsets, {right_slice});
+  // For all dimensions except the last, use full range
+  for (size_t i = 0; i < offsets_domain.size() - 1; i++) {
+    left_slices[i].start = zero;
+    left_slices[i].stop = offsets_domain[i]->extent();
+    right_slices[i].start = zero;
+    right_slices[i].stop = offsets_domain[i]->extent();
+  }
+
+  // For the last dimension, slice [:-1] and [1:]
+  left_slices[last_dim_idx].start = zero;
+  left_slices[last_dim_idx].stop = len_minus_one;
+  right_slices[last_dim_idx].start = one;
+  right_slices[last_dim_idx].stop = offsets_len;
+
+  // Slice offsets[..., :-1]
+  auto offsets_left = slice(offsets, left_slices);
+
+  // Slice offsets[..., 1:]
+  auto offsets_right = slice(offsets, right_slices);
 
   // Compute extents: extents = offsets_right - offsets_left
   auto extents = sub(offsets_right, offsets_left);

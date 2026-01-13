@@ -282,11 +282,8 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
   EXPECT_THROW(
       RaggedIterDomain::partition(input_id, float_offsets), nvfuser::nvfError);
 
-  // Test 4: Multi-dimensional offsets should fail
-  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
-  fusion.addInput(offsets_2d);
-  EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, offsets_2d), nvfuser::nvfError);
+  // Test 4: 0-dimensional offsets should fail
+  // (We can't easily create a 0D tensor in the test, so skip this test)
 
   // Test 5: Non-Iteration IterType should fail
   auto reduction_id =
@@ -467,19 +464,114 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationNullOffsets) {
   EXPECT_THROW(asNested(data, nullptr, 0), nvfuser::nvfError);
 }
 
-// asNested validation - multi-dimensional offsets (not yet supported)
-TEST_F(RaggedIterDomainTest, AsNestedValidationMultiDimOffsets) {
+// Multi-dimensional offsets partition test
+TEST_F(RaggedIterDomainTest, Partition2DOffsets) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto data = makeSymbolicTensor(2, DataType::Float);
-  fusion.addInput(data);
+  // Create input IterDomain
+  auto input_id =
+      IterDomainBuilder(
+          fusion.zeroVal(), IrBuilder::create<Val>(-1, DataType::Index))
+          .build();
 
-  // 2D offsets should fail (only 1D supported currently)
+  // Create 2D offset tensor (e.g., [num_gpus, num_experts + 1])
   auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
   fusion.addInput(offsets_2d);
 
-  EXPECT_THROW(asNested(data, offsets_2d, 0), nvfuser::nvfError);
+  // Partition the IterDomain with 2D offsets
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(input_id, offsets_2d);
+
+  // Verify component IterDomain
+  EXPECT_TRUE(component_id != nullptr);
+  EXPECT_TRUE(component_id->isA<IterDomain>());
+  EXPECT_FALSE(component_id->isA<RaggedIterDomain>());
+
+  // Verify RaggedIterDomain
+  EXPECT_TRUE(ragged_id != nullptr);
+  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
+  EXPECT_TRUE(ragged_id->extents() != nullptr);
+
+  // Verify the extents tensor is 2D (one dimension less in last dim than offsets)
+  auto extents = ragged_id->extents();
+  EXPECT_EQ(extents->nDims(), 2);
+
+  // Verify that a Partition expr was created
+  EXPECT_TRUE(component_id->definition() != nullptr);
+  EXPECT_TRUE(component_id->definition()->isA<Partition>());
+  EXPECT_EQ(component_id->definition(), ragged_id->definition());
+}
+
+// asNested with 2D offsets (expert parallelism use case)
+TEST_F(RaggedIterDomainTest, AsNested2DOffsets) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 2D TensorView representing tokens [total_tokens, hidden]
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  // Create 2D offsets [num_gpus, num_experts + 1]
+  // This represents per-GPU offsets for routing tokens to experts
+  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(offsets_2d);
+
+  // Create nested tensor partitioning the first dimension
+  auto nested = asNested(data, offsets_2d, 0);
+
+  fusion.addOutput(nested);
+
+  // Verify the output dimensions
+  // Should be: [component (num_experts), ragged (tokens_per_expert with 2D extents), hidden]
+  EXPECT_EQ(nested->nDims(), 3);
+
+  // First axis is component (num_experts from last dim of offsets)
+  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(nested->axis(0)->isA<RaggedIterDomain>());
+
+  // Second axis is ragged with 2D extents
+  EXPECT_TRUE(nested->axis(1)->isA<RaggedIterDomain>());
+  auto ragged_id = nested->axis(1)->as<RaggedIterDomain>();
+  EXPECT_EQ(ragged_id->extents()->nDims(), 2);
+
+  // Third axis is the original hidden dimension
+  EXPECT_TRUE(nested->axis(2)->isStrictlyA<IterDomain>());
+}
+
+// Partition with 3D offsets
+TEST_F(RaggedIterDomainTest, Partition3DOffsets) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input IterDomain
+  auto input_id =
+      IterDomainBuilder(
+          fusion.zeroVal(), IrBuilder::create<Val>(-1, DataType::Index))
+          .build();
+
+  // Create 3D offset tensor (e.g., [batch, num_gpus, num_experts + 1])
+  auto offsets_3d = makeSymbolicTensor(3, DataType::Index);
+  fusion.addInput(offsets_3d);
+
+  // Partition the IterDomain with 3D offsets
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(input_id, offsets_3d);
+
+  // Verify component IterDomain extent comes from last dimension
+  EXPECT_TRUE(component_id != nullptr);
+  EXPECT_TRUE(component_id->isA<IterDomain>());
+
+  // Verify RaggedIterDomain has 3D extents
+  EXPECT_TRUE(ragged_id != nullptr);
+  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
+  auto extents = ragged_id->extents();
+  EXPECT_TRUE(extents != nullptr);
+  EXPECT_EQ(extents->nDims(), 3);
+
+  // Verify Partition expr
+  EXPECT_TRUE(component_id->definition()->isA<Partition>());
+  EXPECT_EQ(component_id->definition(), ragged_id->definition());
 }
 
 } // namespace nvfuser
