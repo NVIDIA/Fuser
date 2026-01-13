@@ -7,7 +7,7 @@ import torch
 from nvfuser_direct import FusionDefinition, ParallelType, DataType
 
 
-def test_matmul(nvfuser_direct_test):
+def test_matmul():
     c = 3
 
     with FusionDefinition() as fd:
@@ -46,7 +46,7 @@ def test_matmul(nvfuser_direct_test):
         assert event.input_shapes == [[5, 7], [7, 2], [5, 2]]
 
 
-def test_two_matmuls_inlinable(nvfuser_direct_test):
+def test_two_matmuls_inlinable():
     c = 3
 
     with FusionDefinition() as fd:
@@ -97,7 +97,7 @@ def test_two_matmuls_inlinable(nvfuser_direct_test):
         assert event.input_shapes[0][0] == 2
 
 
-def test_two_matmuls_not_inlinable(nvfuser_direct_test):
+def test_two_matmuls_not_inlinable():
     c = 3
 
     with FusionDefinition() as fd:
