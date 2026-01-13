@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <compute_at_map.h>
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/expr_sort.h>

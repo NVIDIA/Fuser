@@ -114,6 +114,10 @@ class NVF_API ValGraph {
     return groups;
   }
 
+  bool areMapped(Val* val1, Val* val2) const;
+
+  bool areMapped(Expr* expr1, Expr* expr2) const;
+
   // Return output/input Val groups of provided expr
   // Note that the same ValGroup can show up multiple times, so the
   // output type cannot be VectorOfUniqueEntries
