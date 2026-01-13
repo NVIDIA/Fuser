@@ -529,3 +529,73 @@ def test_sequence_parallel_linear(multidevice_test):
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
 
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1e-3, atol=1e-2)
+
+
+@pytest.mark.mpi
+def test_data_and_tensor_parallel_mlp(multidevice_test):
+    # Build a GPT-3 style MLP with data and tensor parallelism.
+    d = multidevice_test.size
+    tp_size = 2
+
+    if d % tp_size != 0:
+        pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
+
+    dp_size = d // tp_size
+    rank = multidevice_test.rank
+
+    # mesh_y (dim 0) for data parallelism, mesh_x (dim 1) for tensor parallelism
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
+
+    dp_rank = rank // tp_size
+    tp_rank = rank % tp_size
+
+    batch_per_rank = 7
+    b = dp_size * batch_per_rank
+    s, e = 5, 3
+
+    inp_ref = torch.testing.make_tensor(b, s, e, dtype=torch.int32, device="cpu").to(
+        torch.float
+    )
+    up_w_ref = torch.testing.make_tensor(4 * e, e, dtype=torch.int32, device="cpu").to(
+        torch.float
+    )
+    down_w_ref = torch.testing.make_tensor(
+        e, 4 * e, dtype=torch.int32, device="cpu"
+    ).to(torch.float)
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, -1, e], contiguity=True)
+        up_w = fd.define_tensor([4 * e, e], contiguity=True)
+        down_w = fd.define_tensor([e, 4 * e], contiguity=True)
+        up_out = fd.ops.linear(inp, up_w)
+        down_out = fd.ops.linear(up_out, down_w)
+        fd.add_output(down_out)
+
+        for t in [inp, up_w, down_w]:
+            t.set_device_mesh(mesh)
+
+        inp.outer_split(0, dp_size)
+        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        up_w.outer_split(0, tp_size)
+        up_w.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        down_w.outer_split(-1, tp_size)
+        down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    # TODO: Use shard_tensor when it's ready.
+    inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
+    hidden_per_rank = (4 * e) // tp_size
+    up_w = up_w_ref[tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank].cuda()
+    down_w = down_w_ref[
+        :, tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank
+    ].cuda()
+
+    (out,) = fd.execute([inp, up_w, down_w])
+
+    up_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref, None)
+    down_out_ref = torch.nn.functional.linear(up_out_ref, down_w_ref, None)
+
+    expected_out = down_out_ref[
+        dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank
+    ]
+
+    torch.testing.assert_close(out.cpu(), expected_out)
