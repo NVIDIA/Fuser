@@ -13,17 +13,9 @@
 #include <utility>
 #include <vector>
 
-#include "device_lower/utils.h"
-#include "expr_simplifier.h"
-#include "instrumentation.h"
-#include "ir/container.h"
+#include "compute_at_map.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
-#include "ir/iostream.h"
-#include "ir/utils.h"
-#include "logical_domain_map.h"
-#include "ops/all_ops.h"
-#include "statement_guard.h"
 #include "transform_replay.h"
 #include "type.h"
 
