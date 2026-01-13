@@ -111,13 +111,12 @@ include(cmake/Submodules.cmake)
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
-set(CUTLASS_STATUS "N/A")
 if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
-  message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
-  set(CUTLASS_STATUS "DISABLED")
+  message(WARNING "CUTLASS Support DISABLED: Requires CUDA 12.8+")
+  set(NVFUSER_USE_CUTLASS FALSE)
 else()
   add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
-  set(CUTLASS_STATUS "ENABLED")
+  set(NVFUSER_USE_CUTLASS TRUE)
   add_subdirectory(cutlass)
 endif()
 
@@ -463,7 +462,7 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
-if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+if (NVFUSER_USE_CUTLASS)
   target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
   target_compile_definitions(codegen_internal PRIVATE "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
@@ -472,13 +471,13 @@ target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
-if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+if (NVFUSER_USE_CUTLASS)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
 endif()
 
 # Conditionally link CUTLASS using generator expression to avoid export issues
 target_link_libraries(nvfuser_codegen PRIVATE
-  $<$<AND:$<BOOL:${BUILD_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
+  $<$<AND:$<BOOL:${NVFUSER_USE_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
@@ -677,7 +676,7 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  if (NVFUSER_USE_CUTLASS)
     target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
 
@@ -808,21 +807,14 @@ if(BUILD_PYTHON)
 
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
-    target_link_libraries(nvf_py_direct_internal PRIVATE
-      nvfuser_codegen
-      nvf_cutlass
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-      CUDA::cupti
-    )
-  else()
-    target_link_libraries(nvf_py_direct_internal PRIVATE
-      nvfuser_codegen
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-      CUDA::cupti
-    )
+  target_link_libraries(nvf_py_direct_internal PRIVATE
+    nvfuser_codegen
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+    CUDA::cupti
+  )
+  if (NVFUSER_USE_CUTLASS)
+    target_link_libraries(nvf_py_direct_internal PRIVATE nvf_cutlass)
   endif()
 
   target_link_libraries(nvfuser_direct PRIVATE
@@ -1180,7 +1172,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  if (NVFUSER_USE_CUTLASS)
     list(APPEND MATMUL_TEST_SRCS
       ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     )
@@ -1456,7 +1448,7 @@ file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuse
 
 message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
-message(STATUS "  BUILD_CUTLASS: ${CUTLASS_STATUS}")
+message(STATUS "  NVFUSER_USE_CUTLASS                : ${NVFUSER_USE_CUTLASS}")
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
