@@ -44,7 +44,7 @@ void HostIrContainer::insertExprBefore(Scope::Iterator position, Expr* e) {
 
 Scope::Iterator HostIrContainer::pushBackTopLevelExprs(Expr* e) {
   assertInContainer(e, "Cannot add expr, ");
-  return top_level_.push_back(e);
+  return top_level_.pushBack(e);
 }
 
 bool HostIrContainer::hasKernelExecutor(int64_t group_id) const {

@@ -40,7 +40,7 @@ struct AnalyzeViewResult;
 class IterDomainBuilder {
  public:
   // Match legacy constructor
-  IterDomainBuilder(Val* _start, Val* _extent);
+  IterDomainBuilder(Val* start, Val* extent);
 
   // Grab all the parameters from id to set the IterDomainBuilder
   IterDomainBuilder(const IterDomain* id);
@@ -52,15 +52,16 @@ class IterDomainBuilder {
   // Resets is_rfactor_domain
   IterDomainBuilder& resetRfactor();
 
-  IterDomainBuilder& start(Val* _start);
-  IterDomainBuilder& extent(Val* _extent);
-  IterDomainBuilder& expanded_extent(Val* _expanded_extent);
-  IterDomainBuilder& stop_offset(Val* _stop_offset);
-  IterDomainBuilder& parallel_type(ParallelType _parallel_type);
-  IterDomainBuilder& iter_type(IterType _iter_type);
-  IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
-  IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
-  IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
+  IterDomainBuilder& start(Val* start);
+  IterDomainBuilder& extent(Val* extent);
+  IterDomainBuilder& expanded_extent(Val* expanded_extent);
+  IterDomainBuilder& stop_offset(Val* stop_offset);
+  IterDomainBuilder& parallel_type(ParallelType parallel_type);
+  IterDomainBuilder& iter_type(IterType iter_type);
+  IterDomainBuilder& is_rfactor_domain(bool is_rfactor_domain);
+  IterDomainBuilder& is_padded_dimension(bool is_padded_dimension);
+  IterDomainBuilder& padded_to_size(std::optional<int64_t> padded_to_size);
+  IterDomainBuilder& ragged_extents(TensorView* ragged_extents);
 
   IterDomain* build() const;
 
@@ -79,6 +80,9 @@ class IterDomainBuilder {
   bool is_padded_dimension_ = false;
   bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
+
+  // For RaggedIterDomain: stores the extents tensor
+  TensorView* ragged_extents_ = nullptr;
 };
 
 //! Simply a representation of an annotated 1D iterable from start to extent.
@@ -122,7 +126,7 @@ class NVF_API IterDomain : public Val {
   //!
   //! When map_with_original is true, the clone of the original is
   //! mapped in the Exact graph.
-  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
+  virtual IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
@@ -448,6 +452,8 @@ class NVF_API IterDomain : public Val {
 //! components
 class NVF_API RaggedIterDomain : public IterDomain {
  public:
+  RaggedIterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args);
+
   //! \param extents TensorView containing component extents (must be integer
   //! type)
   //! \param iter_type Iteration type (Iteration, Reduction, etc.)
@@ -477,21 +483,39 @@ class NVF_API RaggedIterDomain : public IterDomain {
   }
 
   //! Partition an IterDomain into component and ragged dimensions
-  //! Creates a component IterDomain and a RaggedIterDomain based on offsets
+  //! Creates a component IterDomain and a RaggedIterDomain based on extents
   //!
   //! \param in Input IterDomain to partition (must be regular IterDomain)
-  //! \param offsets Offset tensor defining partition boundaries
-  //!        Shape [..., num_components + 1], offsets along last dimension
-  //!        Extents computed as: extents[..., i] = offsets[..., i+1] - offsets[..., i]
-  //!        1D example: Shape [num_components + 1], values [0, off1, off2, ..., total]
-  //!        2D example: Shape [outer_dim, num_components + 1], e.g., [num_gpus, num_experts + 1]
+  //! \param extents Extents tensor defining the size of each component
+  //!        1D example: Shape [num_components], values [extent0, extent1, ...,
+  //!        extent(n-1)]
+  //!        2D example: Shape [outer_dim, num_components], e.g., [num_gpus, num_experts]
   //!
   //! \return Pair of (component_id, ragged_id)
   //!         component_id: IterDomain with extent = num_components (from last dim of offsets)
-  //!         ragged_id: RaggedIterDomain with N-D extents tensor (same shape as offsets minus 1 in last dim)
+  //!         ragged_id: RaggedIterDomain with N-D extents tensor (same shape as extents in last dim)
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
-      TensorView* offsets);
+      TensorView* extents);
+
+  //! Combine a component IterDomain with a RaggedIterDomain to flatten
+  //! This is the inverse of partition, creating a regular IterDomain
+  //!
+  //! \param component Component IterDomain (extent = num_components)
+  //! \param ragged RaggedIterDomain with variable extents per component
+  //! \return Regular IterDomain with extent = sum of all component extents
+  //!
+  //! This operation flattens the ragged structure back into a single dimension.
+  //! Example: component extent=3, ragged extents=[127, 0, 198]
+  //!          -> output extent = 325 (= 127 + 0 + 198)
+  //!
+  //! Note: We use "combine" instead of "merge" to differentiate from the
+  //! regular IterDomain::merge operation which only works with regular
+  //! IterDomains.
+  static IterDomain* combine(IterDomain* component, RaggedIterDomain* ragged);
+
+  //! Override cloneWithoutRFactor to preserve RaggedIterDomain type
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false) override;
 
  private:
   //! Extent tensor containing all component extents
@@ -643,6 +667,8 @@ class NVF_API TensorDomain : public Val {
 
   bool hasSymbolicAxis() const;
 
+  bool hasRaggedIterDomain() const;
+
   std::optional<int64_t> getReductionAxis() const;
 
   // The input logical domain. The root domain of a consumer should equal the
@@ -793,8 +819,8 @@ class NVF_API TensorDomain : public Val {
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
 
-  // Partition axis into component and ragged dimensions based on offsets
-  void partition(int64_t axis, TensorView* offsets);
+  // Partition axis into component and ragged dimensions based on extents
+  void partition(int64_t axis, TensorView* extents);
 
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);

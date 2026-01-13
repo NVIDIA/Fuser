@@ -214,7 +214,7 @@ TEST_F(ClusterReductionTest, InvalidClusterSize) {
   FusionGuard fg(fusion_ptr.get());
   const int64_t vect = 8, bdimx = 128, persistent_batch = 2;
   // set an illegal cluster size to trigger the error
-  const int64_t cluster_size = 17;
+  const int64_t cluster_size = scheduler_utils::getMaxClusterSize() + 1;
   const int64_t reduction_size = vect * bdimx * persistent_batch * cluster_size;
   DataType dtype = DataType::BFloat16;
   auto tv0 = makeContigTensor(2, dtype);

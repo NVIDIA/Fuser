@@ -142,6 +142,12 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
       "Unsupported input tensor to reshape as its axes may be partial: ",
       inp_tv->toString());
 
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Reshape operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   auto static_reshape_output = tryStaticReshape(inp_tv, inp_dom, new_sizes);
   if (static_reshape_output) {
     return static_reshape_output;
@@ -238,6 +244,12 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
       "Invalid end_dim ",
       end_dim);
   NVF_CHECK(start_dim <= end_dim, "start_dim must be <= end_dim");
+
+  NVF_CHECK(
+      !x->domain()->hasRaggedIterDomain(),
+      "Flatten operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      x->toString());
 
   if (start_dim == end_dim) {
     return x;
@@ -518,6 +530,11 @@ TensorView* pad(
     const std::vector<Val*>& pad_widths,
     Val* value,
     std::optional<IterType> iter_type_opt) {
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Padding a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
+
   DataType dt = inp->getDataType().value();
   if (!value) {
     // Create a zero of the appropriate type
@@ -623,6 +640,14 @@ TensorView* cat(
     std::optional<IterType> iter_type_opt,
     bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
+
+  NVF_CHECK(
+      std::ranges::none_of(
+          inputs,
+          [](TensorView* inp_tv) {
+            return inp_tv->domain()->hasRaggedIterDomain();
+          }),
+      "Concat with a tensor with RaggedIterDomain not supported");
 
   const auto dtype = inputs.at(0)->getDataType().value();
 
@@ -783,7 +808,12 @@ TensorView* slice(
   NVF_CHECK_EQ(
       ndims,
       std::ssize(ranges),
-      "The range vector must have the same number of Slice descriptors.")
+      "The range vector must have the same number of Slice descriptors.");
+
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Slicing a tensor with RaggedIterDomain not supported: ",
+      inp->toString());
 
   ExpressionEvaluator expr_eval;
 
@@ -1038,8 +1068,7 @@ TensorView* broadcast(
                                .iter_type(IterType::Broadcast)
                                .build());
     } else {
-      out_domain.push_back(
-          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
+      out_domain.push_back(inp_domain[iinp]->cloneWithoutRFactor());
       iinp++;
     }
     ibdim++;
@@ -1058,6 +1087,12 @@ TensorView* broadcast(
 
 TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Expand operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp->toString());
 
   NVF_CHECK_GE(expanded_sizes.size(), inp_domain.size());
 
@@ -1181,6 +1216,12 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
 TensorView* repeat(
     TensorView* inp_tv,
     const std::vector<int64_t>& repeat_times) {
+  NVF_CHECK(
+      !inp_tv->domain()->hasRaggedIterDomain(),
+      "Repeat operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      inp_tv->toString());
+
   const auto ndims =
       TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
 
@@ -1270,35 +1311,39 @@ TensorView* repeat(
 
 TensorView* asNested(
     TensorView* data,
-    TensorView* offsets,
+    TensorView* extents,
     int64_t ragged_dim) {
   NVF_ERROR(data != nullptr, "asNested: data tensor is null");
-  NVF_ERROR(offsets != nullptr, "asNested: offsets tensor is null");
+  NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
 
-  // Offsets can be N-D tensors for nested ragged structures
-  // The partition operation will handle multi-dimensional offsets correctly
-  NVF_ERROR(
-      offsets->nDims() >= 1,
-      "asNested requires offsets to be at least 1D, got ",
-      offsets->nDims(),
-      "D");
+  NVF_ERROR_GE(
+      std::ranges::distance(
+          extents->getLogicalDomain() | TensorDomain::kNoReductions),
+      1,
+      "asNested currently only supports 1D extents tensors");
+
+  NVF_CHECK(
+      !data->domain()->hasRaggedIterDomain(),
+      "Multiple level of nesting is not supported: ",
+      data->toString());
 
   // Get the logical domain of the input, excluding reductions
-  auto inp_logical = TensorDomain::noReductions(data->getLogicalDomain());
+  auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto inp_logical_size = std::ranges::distance(inp_logical);
 
   // Clone the logical domain to create the root domain for output
   std::vector<IterDomain*> root_domain;
-  root_domain.reserve(inp_logical.size());
+  root_domain.reserve(inp_logical_size);
   for (auto* id : inp_logical) {
     root_domain.push_back(id->cloneWithoutRFactor());
   }
 
-  ragged_dim = wrapDim(ragged_dim, std::ssize(inp_logical));
+  ragged_dim = wrapDim(ragged_dim, inp_logical_size);
 
   // Partition the specified dimension in root domain
   // This replaces one IterDomain with (component_id, ragged_id)
   auto [component_id, ragged_id] =
-      RaggedIterDomain::partition(root_domain.at(ragged_dim), offsets);
+      RaggedIterDomain::partition(root_domain.at(ragged_dim), extents);
 
   // Build the logical domain: replace ragged_dim with component and ragged
   std::vector<IterDomain*> logical_domain;
