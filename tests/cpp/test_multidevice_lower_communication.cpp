@@ -575,10 +575,10 @@ TEST_P(LowerCollectiveTest, ReduceScatterNoncontig) {
 
   at::Tensor unsharded_in_tensor =
       at::randint(2, {5, d * 3, d * 7}, tensor_options_);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
 
   at::Tensor expected_output =
-      shardTensor(unsharded_in_tensor.sum(1), -1, mesh);
+      shardTensor1D(unsharded_in_tensor.sum(1), -1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -614,7 +614,7 @@ TEST_P(LowerCollectiveTest, AllreduceNoncontig) {
   fusion->addOutput(tv1);
 
   at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -655,7 +655,7 @@ TEST_P(LowerCollectiveTest, Allgather_CompliantAllocation) {
   fusion->addOutput(tv1);
 
   at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options_);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 0, mesh).t();
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 0, mesh).t();
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -697,7 +697,7 @@ TEST_P(LowerCollectiveTest, Allgather_NonCompliantAllocation) {
   fusion->addOutput(tv1);
 
   at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options_);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
@@ -737,7 +737,7 @@ TEST_P(LowerCollectiveTest, Allgather_NoncontiguousOutput) {
   in->axis(1)->parallelize(ParallelType::DIDx);
 
   at::Tensor unsharded_in_tensor = at::randn({2, d * 3}, tensor_options_);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  at::Tensor in_tensor = shardTensor1D(unsharded_in_tensor, 1, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =

@@ -13,17 +13,9 @@
 #include <utility>
 #include <vector>
 
-#include "device_lower/utils.h"
-#include "expr_simplifier.h"
-#include "instrumentation.h"
-#include "ir/container.h"
+#include "compute_at_map.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
-#include "ir/iostream.h"
-#include "ir/utils.h"
-#include "logical_domain_map.h"
-#include "ops/all_ops.h"
-#include "statement_guard.h"
 #include "transform_replay.h"
 #include "type.h"
 
@@ -64,32 +56,14 @@ const std::vector<IterDomain*>& getDomainOf(
 } // namespace
 
 bool isSharded(const TensorView* tv) {
-  bool is_sharded = false;
-  for (IterDomain* id : tv->getLoopDomain()) {
-    if (!id->isDeviceDim()) {
-      continue;
+  std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
+      mapDeviceAndStreamParallelTypeToId(tv->getLoopDomain());
+  for (ParallelType parallel_type : kParallelTypeDIDs) {
+    if (parallel_type_to_id.count(parallel_type) > 0) {
+      return true;
     }
-
-    // Reduction dimensions are not materialized in the concrete tensor, so we
-    // don't consider rDIDx{i0} sharded. For example,
-    //
-    //   ```
-    //   [iDIDx{i0}, iS{i1}] => [rDIDx{i0}, iS{i1}]
-    //   ```
-    //
-    // is considered an allreduce and the output is replicated.
-    if (id->isReduction()) {
-      continue;
-    }
-
-    // Only one axis can be sharded on DIDx.
-    NVF_ERROR(
-        !is_sharded,
-        "Multiple IterDomains parallelized on DIDx in TensorView ",
-        tv);
-    is_sharded = true;
   }
-  return is_sharded;
+  return false;
 }
 
 std::unordered_map<ParallelType, IterDomain*> mapDeviceAndStreamParallelTypeToId(

@@ -87,10 +87,11 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    if (!GpuLower::current()->info().caMap().areMapped(
-            innermost_loop->iter_domain(),
-            innermost_loop_id,
-            IdMappingMode::EXACT)) {
+    if (!GpuLower::current()
+             ->info()
+             .idModel()
+             .idGraph(IdMappingMode::EXACT)
+             .areMapped(innermost_loop->iter_domain(), innermost_loop_id)) {
       return false;
     }
 
@@ -100,12 +101,13 @@ class WelfordVectorizer : public kir::ExprMutator {
     // enable when it's mapped with a vectorized ID.
     const auto& exact_set = GpuLower::current()
                                 ->info()
-                                .caMap()
-                                .getIdSets(IdMappingMode::EXACT)
-                                .getDisjointSetOf(innermost_loop_id);
+                                .idModel()
+                                .idGraph(IdMappingMode::EXACT)
+                                .toGroup(innermost_loop_id);
     // If none of IterDomains is vectorized, don't vectorize the WelfordOp
-    if (std::none_of(exact_set.begin(), exact_set.end(), [&](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Vectorize;
+    if (std::ranges::none_of(*exact_set, [&](Val* v) {
+          return v->as<IterDomain>()->getParallelType() ==
+              ParallelType::Vectorize;
         })) {
       return false;
     }
@@ -542,8 +544,11 @@ class WelfordVectorizer : public kir::ExprMutator {
                 wop_out->getLoopDomain().begin(),
                 wop_out->getLoopDomain().end(),
                 [&](auto wop_loop_id) {
-                  return GpuLower::current()->info().caMap().areMapped(
-                      tv_loop_id, wop_loop_id, IdMappingMode::LOOP);
+                  return GpuLower::current()
+                      ->info()
+                      .idModel()
+                      .idGraph(IdMappingMode::LOOP)
+                      .areMapped(tv_loop_id, wop_loop_id);
                 })) {
           return false;
         }
