@@ -549,7 +549,8 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
     dp_rank = rank // tp_size
     tp_rank = rank % tp_size
 
-    b = dp_size
+    batch_per_rank = 7
+    b = dp_size * batch_per_rank
     s, e = 5, 3
 
     inp_ref = torch.testing.make_tensor(b, s, e, dtype=torch.int32, device="cpu").to(
@@ -581,12 +582,9 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
         down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     # TODO: Use shard_tensor when it's ready.
-    batch_per_rank = b // dp_size
     inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
-
     hidden_per_rank = (4 * e) // tp_size
     up_w = up_w_ref[tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank].cuda()
-
     down_w = down_w_ref[
         :, tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank
     ].cuda()
