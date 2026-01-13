@@ -107,7 +107,7 @@ endif()
 # -----------------------------------------------------------------------------
 
 include(cmake/FlatBuffers.cmake)
-include(cmake/Dependencies.cmake)
+include(cmake/Submodules.cmake)
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 

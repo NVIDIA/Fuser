@@ -22,4 +22,14 @@ macro(handle_compiler)
   # Python report will show warnings for unknown/old compilers without failing the build.
   set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
   set_dependency_report_status(Compiler)
+
+  # Cacheing variables to enable incremental build.
+  # Without this is cross compiling we end up having to blow build directory
+  # and rebuild from scratch.
+  if(CMAKE_CROSSCOMPILING)
+    if(COMPILE_HAVE_STD_REGEX)
+      set(RUN_HAVE_STD_REGEX 0 CACHE INTERNAL "Cache RUN_HAVE_STD_REGEX output for cross-compile.")
+    endif()
+  endif()
+
 endmacro()

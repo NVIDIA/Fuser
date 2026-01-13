@@ -2,12 +2,20 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+# -----------------------------------------------------------------------------
+# gtest
+# -----------------------------------------------------------------------------
+
 # For gtest, we will simply embed it into our test binaries, so we will not need to install it.
 set(INSTALL_GTEST OFF CACHE BOOL "Install gtest." FORCE)
 set(BUILD_GMOCK ON CACHE BOOL "Build gmock." FORCE)
 set(gtest_hide_internal_symbols ON CACHE BOOL "Use symbol visibility" FORCE)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/third_party/googletest)
+
+# -----------------------------------------------------------------------------
+# benchmark
+# -----------------------------------------------------------------------------
 
 # We will not need to test benchmark lib itself.
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable benchmark testing as we don't need it.")
@@ -26,11 +34,3 @@ else()
   set_property(TARGET benchmark PROPERTY IMPORTED_LOCATION ${BENCHMARK_LIBRARY})
 endif()
 
-# Cacheing variables to enable incremental build.
-# Without this is cross compiling we end up having to blow build directory
-# and rebuild from scratch.
-if(CMAKE_CROSSCOMPILING)
-  if(COMPILE_HAVE_STD_REGEX)
-    set(RUN_HAVE_STD_REGEX 0 CACHE INTERNAL "Cache RUN_HAVE_STD_REGEX output for cross-compile.")
-  endif()
-endif()
