@@ -45,12 +45,10 @@ macro(handle_git_submodules)
     else()
       message(WARNING "Failed to check git submodule status: ${SUBMODULE_ERROR}")
       set(GitSubmodules_FOUND FALSE)
-      set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "ERROR")
     endif()
   else()
     message(WARNING "Git not found - cannot check submodule status")
     set(GitSubmodules_FOUND FALSE)
-    set(NVFUSER_REQUIREMENT_GitSubmodules_STATUS "UNKNOWN")
   endif()
 
   # Use common status function
