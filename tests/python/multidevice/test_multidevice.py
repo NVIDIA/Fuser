@@ -451,8 +451,15 @@ def test_reduction_with_2d_mesh(multidevice_test):
     dp_rank = rank // tp_size
     tp_rank = rank % tp_size
 
-    inp_ref = torch.arange(d).reshape(dp_size, tp_size).to(torch.float)
+    rows_per_rank, cols_per_rank = 2, 3
+    rows, cols = dp_size * rows_per_rank, tp_size * cols_per_rank
+    inp_ref = torch.arange(rows * cols).reshape(rows, cols).to(torch.float)
     out_ref = inp_ref.sum([-1])
-    inp = inp_ref[dp_rank : dp_rank + 1, tp_rank : tp_rank + 1].cuda()
+    inp = inp_ref[
+        dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank,
+        tp_rank * cols_per_rank : (tp_rank + 1) * cols_per_rank,
+    ].cuda()
     (out,) = fd.execute([inp])
-    torch.testing.assert_close(out.cpu(), out_ref[dp_rank : dp_rank + 1])
+    torch.testing.assert_close(
+        out.cpu(), out_ref[dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank]
+    )
