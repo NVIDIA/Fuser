@@ -11,18 +11,15 @@ macro(handle_compiler)
   set(Compiler_FOUND TRUE)
   set(Compiler_VERSION "${CMAKE_CXX_COMPILER_VERSION}")
 
-  # Mark compiler as optional to allow builds with any compiler.
-  # Only GNU and Clang have version requirements - other compilers get SUCCESS status.
-  # Python report will show warnings for unknown/old compilers without failing the build.
-  set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
-
+  set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE)
   if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_GNU_VERSION_MIN})
-    set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE) # Not optional - we have defined version constraints
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     set(NVFUSER_REQUIREMENT_Compiler_VERSION_MIN ${NVFUSER_REQUIREMENT_Clang_VERSION_MIN})
-    set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL FALSE) # Not optional - we have defined version constraints
   else()
+    # We do not have minimum version requirements for other compilers,
+    # set optional to true to allow the build to continue in those cases.
+    set(NVFUSER_REQUIREMENT_Compiler_OPTIONAL TRUE)
     message(WARNING "Unknown compiler '${CMAKE_CXX_COMPILER_ID}' - cannot validate")
   endif()
 
