@@ -57,5 +57,7 @@ class NVMMHRequirement(BooleanRequirement):
         print("    pip install nvidia-matmul-heuristics")
         print()
         print("  Note: This is an optional dependency. nvFuser will build without it,")
-        print("        but matmul operations may not have access to optimized heuristics.")
+        print(
+            "        but matmul operations may not have access to optimized heuristics."
+        )
         print()

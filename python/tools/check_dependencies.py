@@ -55,19 +55,19 @@ class Colors:
     """ANSI color codes for terminal output"""
 
     _codes = {
-        'RESET': "\033[m",
-        'BOLD': "\033[1m",
+        "RESET": "\033[m",
+        "BOLD": "\033[1m",
 
         # Regular colors
-        'GREEN': "\033[32m",
-        'YELLOW': "\033[33m",
-        'CYAN': "\033[36m",
-        'WHITE': "\033[37m",
+        "GREEN": "\033[32m",
+        "YELLOW": "\033[33m",
+        "CYAN": "\033[36m",
+        "WHITE": "\033[37m",
 
         # Bold colors
-        'BOLD_RED': "\033[1;31m",
-        'BOLD_GREEN': "\033[1;32m",
-        'BOLD_WHITE': "\033[1;37m",
+        "BOLD_RED": "\033[1;31m",
+        "BOLD_GREEN": "\033[1;32m",
+        "BOLD_WHITE": "\033[1;37m",
     }
 
     def __init__(self):

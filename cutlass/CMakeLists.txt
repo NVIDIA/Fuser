@@ -69,5 +69,3 @@ if(CUTLASS_MAX_JOBS GREATER 0)
   set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
 endif()
 install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
-
-
