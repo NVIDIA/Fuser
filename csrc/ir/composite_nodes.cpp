@@ -88,7 +88,7 @@ std::vector<PolymorphicValue> MatmulOp::evaluate(
     matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
   }
 
-  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
+  const auto& [sizes, strides] = inferShapeAndContiguousStrides(out(), ee);
   auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
 
   if (meta_out.is_contiguous()) {
@@ -486,67 +486,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // computed in non-nested tensor directly. debug_attn_mask is ignored
   // since `return_debug_mask=false`.
   return {output, log_sumexp, philox_seed, philox_offset};
-}
-
-std::string Scope::toString(int indent_size) const {
-  std::stringstream ss;
-  for (auto expr : exprs()) {
-    ss << expr->toString(indent_size);
-  }
-  return ss.str();
-}
-
-Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
-  return exprs_.insert(pos, expr);
-}
-
-Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " before the reference: ",
-      ref,
-      " @ ",
-      (size_t)ref,
-      " however the reference was not found in this scope.");
-  return insert(it, expr);
-}
-
-Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  NVF_ERROR(
-      it != exprs_.end(),
-      "Tried to insert ",
-      expr,
-      " after the reference: ",
-      ref,
-      " however the reference was not found in this scope.");
-  auto insert_pos = std::next(it);
-  return insert(insert_pos, expr);
-}
-
-void Scope::erase(Iterator pos) {
-  // Remove the scope of the expr if this is the scope
-  [[maybe_unused]] auto expr = *pos;
-  exprs_.erase(pos);
-}
-
-void Scope::erase(Expr* ref) {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
-  if (it != exprs_.end()) {
-    erase(it);
-  }
-}
-
-bool Scope::contains(Expr* expr) const {
-  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
-  return it != exprs_.end();
-}
-
-void Scope::clear() {
-  exprs_.clear();
 }
 
 SdpaBwdOp::SdpaBwdOp(
@@ -1713,7 +1652,6 @@ std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVFUSER_CUTLASS_KERNEL_ENABLED
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& scale1 = inputs[2].as<at::Tensor>();
@@ -1722,6 +1660,31 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   const auto& problem_sizes = inputs[5].as<at::Tensor>();
   const auto& expert_offsets = inputs[6].as<at::Tensor>();
   const auto& sf_offsets = inputs[7].as<at::Tensor>();
+
+  // Meta-device fast path outside of torch version guard
+  if (mat1.is_meta() || mat2.is_meta() || scale1.is_meta() ||
+      scale2.is_meta() || alpha.is_meta() || problem_sizes.is_meta() ||
+      expert_offsets.is_meta() || sf_offsets.is_meta()) {
+    // For nvfp4_scaled_grouped_mm, the output shape is [M, N]
+    // where M = mat1.size(0) and N = mat2.size(2).
+    // Note: CutlassNvfp4GroupedMmaOp expects mat2 to be [G, K/2, N] (packed) at
+    // runtime and transposes it before calling into CUTLASS.
+    std::vector<int64_t> result_sizes = {mat1.size(0), mat2.size(2)};
+
+    at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+    auto options =
+        mat1.options().device(c10::Device(c10::kMeta)).dtype(out_dtype);
+    at::Tensor result = at::empty(result_sizes, options);
+
+    if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+        rfactor_did_idx != -1) {
+      result = result.unsqueeze(rfactor_did_idx);
+    }
+
+    return {result};
+  }
+
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
   NVF_CHECK(
       mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 &&
       mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);

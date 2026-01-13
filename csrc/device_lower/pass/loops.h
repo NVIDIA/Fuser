@@ -10,7 +10,6 @@
 
 #include <exceptions.h>
 
-#include <compute_at_map.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>

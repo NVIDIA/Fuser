@@ -160,6 +160,48 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
       py::arg("selected_tensors") = std::vector<TensorView*>());
 
   schedule.def(
+      "inline_at",
+      [](TensorView* reference_tv,
+         int64_t pos,
+         bool best_effort,
+         const std::vector<TensorView*>& selected_tensors) {
+        if (selected_tensors.empty()) {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for all tensors in the current fusion.
+          inlineAllAt(reference_tv, pos, best_effort);
+        } else {
+          // Inline to the position corresponding to the reference position in
+          // the reference tensor for selected tensors in the current fusion.
+          std::unordered_set<TensorView*> selected_tv_set(
+              selected_tensors.begin(), selected_tensors.end());
+          inlineSelectedAt(selected_tv_set, reference_tv, pos, best_effort);
+        }
+      },
+      R"(
+        Inline operations at a specific position for the selected tensors.
+        If selected_tensors is empty, inlines all operations.
+
+        Parameters
+        ----------
+        reference_tv : TensorView
+            The reference TensorView whose position will be used for inlining.
+        pos : int, optional
+            The position to inline at. -1 means the last position.
+        best_effort : bool, optional
+            Whether to try to inline even if the exact position is not possible (default: False).
+        selected_tensors : List[TensorView], optional
+            List of TensorViews to inline. If empty, inlines all operations.
+
+        Returns
+        -------
+        None
+      )",
+      py::arg("reference_tv"),
+      py::arg("pos") = -1,
+      py::arg("best_effort") = false,
+      py::arg("selected_tensors") = std::vector<TensorView*>());
+
+  schedule.def(
       "can_schedule",
       [](Fusion* fusion,
          SchedulerType scheduler_type,
@@ -345,6 +387,46 @@ void bindTensorviewScheduleOps(py::module_& schedule) {
         )");
 }
 
+void bindCircularBuffering(py::module_& schedule) {
+  schedule.def(
+      "warp_specialize",
+      [](TensorView* tv,
+         int64_t number_of_stages,
+         int64_t prefetch_distance,
+         ParallelType parallel_type,
+         std::optional<std::pair<int64_t, int64_t>> num_registers) {
+        CircularBufferType circular_buffer_type = (num_registers.has_value())
+            ? WarpSpecialized(parallel_type, num_registers.value())
+            : WarpSpecialized(parallel_type);
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      },
+      R"(
+        Apply warp specialization circular buffering to the given TensorView.
+
+        Parameters
+        ----------
+        tv : TensorView
+            The TensorView to apply warp specialization circular buffering to.
+        number_of_stages : int
+            The number of stages in the circular buffer.
+        prefetch_distance : int
+            The prefetch distance for the circular buffer.
+        parallel_type : ParallelType
+            The parallel type to apply warp specialization to.
+        num_registers : tuple of int, optional
+            A tuple specifying the number of registers for (async_warps, compute_warps).
+            Both values must be between 24 and 256 (inclusive), multiples of 8, and
+            the first value must be <= the second value. If not provided, register
+            sharing is disabled.
+      )",
+      py::arg("tv"),
+      py::arg("number_of_stages"),
+      py::arg("prefetch_distance"),
+      py::arg("parallel_type"),
+      py::arg("num_registers") = py::none());
+}
+
 } // namespace
 
 void bindScheduleOperators(py::module& nvfuser) {
@@ -352,6 +434,7 @@ void bindScheduleOperators(py::module& nvfuser) {
       "schedule",
       "This submodule contains all schedule operators for NvFuser.");
   bindTensorviewScheduleOps(nvf_schedule);
+  bindCircularBuffering(nvf_schedule);
 }
 
 } // namespace nvfuser::python
