@@ -26,15 +26,6 @@ macro(handle_torch)
       # Direct find_package call
       find_package(Torch ${MAYBE_REQUIRED})
 
-      # Set CUDA_ARCH for cu tests
-      if(TORCH_CUDA_ARCH_LIST)
-        set(ARCH_FLAGS)
-        cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
-        list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
-      endif()
-
-      # CXX flags necessary for https://github.com/pytorch/pytorch/issues/98093
-      string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
     else()
       set(Torch_FOUND FALSE)
     endif()
@@ -44,6 +35,18 @@ macro(handle_torch)
 
   # Use common status function for basic version check
   set_dependency_report_status(Torch)
+
+  if(Torch_FOUND)
+    # Set CUDA_ARCH for cu tests
+    if(TORCH_CUDA_ARCH_LIST)
+      set(ARCH_FLAGS)
+      cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
+      list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
+    endif()
+
+    # CXX flags necessary for https://github.com/pytorch/pytorch/issues/98093
+    string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
+  endif()
 
   # Additional validation: Check CUDA constraint
   # This must happen AFTER set_dependency_status since we need Torch to be found
