@@ -31,9 +31,6 @@ def test_linear_logical_split(multidevice_test):
 
     d = multidevice_test.size
     rank = multidevice_test.rank
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     b, s, e = 2, 1024, 768
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e, device="cuda")
@@ -83,8 +80,6 @@ def test_column_parallel_linear(multidevice_test):
             t.outer_split(0, d)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e)
@@ -132,8 +127,6 @@ def test_row_parallel_linear(multidevice_test):
             t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     b, s = 2, 1024
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
@@ -171,8 +164,6 @@ def test_row_parallel_linear_with_bias(multidevice_test):
             t.set_device_mesh(mesh)
             t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
 
     b, s = 2, 3
     unsharded_inp = torch.randn(b, s, d * e)
@@ -218,8 +209,6 @@ def test_linear_reduce_scatter(multidevice_test):
         # Scatter
         out.outer_split(1, d)
         out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
 
     unsharded_inp = torch.randint(-2, 3, (b, d * s, d * e)).to(torch.bfloat16)
     unsharded_weight = torch.randint(-2, 3, (e, d * e)).to(torch.bfloat16)
@@ -272,8 +261,6 @@ def test_column_parallel_matmul(multidevice_test):
         # Shard N -> axis(-2)
         out.outer_split(-2, d)
         out.axis(-3).parallelize(nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
 
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
@@ -333,8 +320,6 @@ def test_row_parallel_matmul(multidevice_test):
         # out = [i{M}, i{N}, r{d}]
         local_out.set_device_mesh(mesh)
         local_out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
 
     b, s = 1, 4
     unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
@@ -512,8 +497,6 @@ def test_sequence_parallel_linear(multidevice_test):
         inp.set_device_mesh(mesh)
         inp.outer_split(1, d)
         inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
 
     unsharded_inp_tensor = torch.randn(b, s, e)
     unsharded_weight_tensor = torch.randn(e, e)
