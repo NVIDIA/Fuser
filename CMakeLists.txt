@@ -78,6 +78,7 @@ endif()
 
 # Handle each dependency explicitly
 handle_compiler()
+handle_git_submodules()
 handle_ninja()
 handle_cuda_toolkit()
 handle_python()
@@ -85,7 +86,6 @@ handle_torch() # Must come AFTER python and cudatoolkit.
 handle_pybind11()
 handle_llvm()
 handle_nvmmh() # Must come AFTER python to query correct site-packages
-handle_git_submodules()
 
 if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
   stop_capture(DEP_LOGS)
@@ -106,9 +106,9 @@ if(NOT NVFUSER_DEPENDENCIES_OK)
   message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
 endif()
 
+# Setup submodule related logic
 include(cmake/Submodules.cmake)
 # -----------------------------------------------------------------------------
-
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
