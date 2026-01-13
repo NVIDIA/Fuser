@@ -23,16 +23,17 @@ The naive approach of checking `ragged->definition()` for a Partition expression
 ```cpp
 // tv0: [i0] - regular tensor
 auto result = asNested(tv0, 0, extents);  // Creates Partition expression
-// result.ragged: RaggedIterDomain with Partition definition
-// result.component: Component IterDomain
+// result->getLogicalDomain()[0], result->getLogicalDomain()[1] = partition(result->getRootDomain()[0], extents);
 
 auto tv1 = set(tv0);  // Propagates IterDomains
 // tv1 has a RaggedIterDomain, but it's a clone without Partition definition
 
-combine(result.component, tv1->getRaggedDomain());  // How do we validate?
+combine(tv1->getLogicalDomain()[0], tv1->getLogicalDomain()[1]);  // How do we validate?
 ```
 
 ## Design Alternatives
+
+Several design alternatives are considered, among which Option 3 is the current choice as it is the simplest approach, although it is not ideal in terms of completeness of validation.
 
 ### Option 1: Store Component Pointer in RaggedIterDomain
 
