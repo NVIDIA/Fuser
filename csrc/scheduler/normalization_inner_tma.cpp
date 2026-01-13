@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <ranges>
 
 #include <exceptions.h>
 #include <iter_visitor.h>
@@ -562,12 +563,16 @@ void scheduleInnerPersistentWarpSpecialized(
   }
 
   // Further cache TMA loaded buffer to regs to release shared memory barrier
-  // to launch the next TMA load.
+  // to launch the next TMA load. Inline position is same as TMA loaded tvs.
   if (params->is_circular_buffer_regs_cached) {
     for (auto tv : setup.smem2reg_tvs) {
-      if (ir_utils::getSoleProducerTv(tv)->nDims() >= pos_after_bidx + 1) {
-        tv_inline_pos_map.emplace(tv, pos_after_bidx);
+      if (std::ranges::none_of(tv->getLoopDomain(), [](const IterDomain* id) {
+            return id->getParallelType() == ParallelType::BIDx;
+          })) {
+        continue;
       }
+      inlineSelectedAt({tv}, tv, pos_after_bidx);
+      exclude_tvs.insert(tv);
     }
   }
 
