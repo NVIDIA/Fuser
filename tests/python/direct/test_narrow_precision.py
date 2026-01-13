@@ -16,6 +16,8 @@ from python.direct_utils import (
     pytorch_nvfp4_quantize,
     is_pre_blackwell,
     microarchitecture_is_pre,
+    is_blackwell,
+    microarchitecture_is,
     linear_to_swizzled_128_4,
     round_up,
     activation_scale_to_nvfp4,
@@ -241,10 +243,8 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0),
+    reason="Does not support blackwell compute 12.0, other arches are not tested.",
 )
 @pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
@@ -323,9 +323,7 @@ def test_scaled_mm(
     torch.testing.assert_close(outputs[0], ref_outputs, rtol=1e-1, atol=1e-2)
 
 
-@pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
+@pytest.mark.skipif(not is_blackwell(), reason="Only supported on blackwell.")
 @pytest.mark.parametrize("config", [[1024, 1024, 1024]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
 def test_scaled_mm_nv_quantized(
@@ -454,10 +452,8 @@ def test_scaled_mm_nv_quantized(
 
 
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0),
+    reason="Does not support blackwell compute 12.0, other arches are not tested.",
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
@@ -661,10 +657,8 @@ def test_fp4_vectorization(
 #     1. inputs data needs to be changed from `torch.testing.make_tensor` to `torch.randn`;
 #     2. output errors are much more relaxed.
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0),
+    reason="Does not support blackwell compute 12.0, other arches are not tested.",
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
