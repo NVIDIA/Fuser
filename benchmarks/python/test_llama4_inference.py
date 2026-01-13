@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
+from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark, _register_nvfp4_ops
 
 
 @pytest.mark.parametrize("input_length", [4096])
@@ -24,6 +24,9 @@ def test_llama4_inference_benchmark(
     if mode == "thunder" and enable_nvfp4 and enable_cudagraph:
         pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
 
+    if enable_nvfp4:
+        _register_nvfp4_ops()
+
     config = InferenceBenchmarkConfig(
         model_name="meta-llama/Llama-4-Maverick-17B-128E",
         batch_size=1,
@@ -43,7 +46,7 @@ def test_llama4_inference_benchmark(
         debug_moe=False,
         use_hardcoded_model=True,
     )
-    benchmark = InferenceBenchmark(config)
+    inference_benchmark = InferenceBenchmark(config)
 
-    benchmark.run_benchmark()
-    benchmark.print_results()
+    inference_benchmark.run_benchmark()
+    inference_benchmark.print_results()
