@@ -298,14 +298,10 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
 
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
-          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setTensorIndexer(true);
         continue;
       }
-    } else if (expr->isA<MmaOp>()) {
-      options.setTensorIndexer(true);
-      continue;
     } else if (
         expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
       options.setTensorIndexer(true);
@@ -367,20 +363,10 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     }
   }
 
-  // If a tensor does not have a nice root->logical/allocation->loop
-  // linear transformation history, use TensorIndexer
-  for (auto tv : fusion->allTvs()) {
-    if (tv->getMemoryType() == MemoryType::Tensor ||
-        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
-      options.setTensorIndexer(true);
-    }
-  }
-
   // If not supported, disable use of TensorIndexer by default. It is
   // still used if explicitly opted-in (see, for example,
   // Index::getConsumerIndex)
   if (!TensorIndexer::isSupported(fusion)) {
-    // Do not disable building of TensorIndexer as it may be still used
     options.setTensorIndexer(false);
   }
 
@@ -567,11 +553,12 @@ void GpuLower::analysis(Fusion* fusion) {
   if (idModelOptions().isTensorIndexerEnabled()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
     info().idModel().allocateLoopIndexVariables();
-
-    tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
-    non_divisible_predicate_info_ =
-        std::make_unique<NonDivisiblePredicateInfo>(fusion_);
   }
+
+  tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
+
+  non_divisible_predicate_info_ =
+      std::make_unique<NonDivisiblePredicateInfo>(fusion_);
 
   // Detects all exprssions that don't need predicates. Depends on
   // nonDivisibleSplitInfo.
