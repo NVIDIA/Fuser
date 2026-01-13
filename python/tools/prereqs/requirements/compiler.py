@@ -24,9 +24,6 @@ class CompilerRequirement(VersionRequirement):
 
     Note: CMake exports "GNU" or "Clang" as the name, but variables are prefixed with "Compiler_"
 
-    Minimum versions:
-    - GNU: 13+ (C++20 with <format>)
-    - Clang: 19+ (C++20 with <format>)
     """
 
     def __init__(self, cmake_vars: Dict):
@@ -69,7 +66,7 @@ class CompilerRequirement(VersionRequirement):
             platform_info: Platform detection dict from detect_platform()
         """
         # Use the version requirement that was set during initialization
-        version_min = self.version_required or "13.1"
+        version_min = self.version_required
 
         print(f"{self.name} {version_min}+ Required")
         print()

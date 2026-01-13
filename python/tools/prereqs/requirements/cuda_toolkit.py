@@ -18,8 +18,6 @@ class CUDAToolkitRequirement(VersionRequirement):
     - NVFUSER_REQUIREMENT_CUDAToolkit_STATUS: Validation status
     - NVFUSER_REQUIREMENT_CUDAToolkit_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_CUDAToolkit_OPTIONAL: Whether CUDA is optional
-
-    Minimum version: 12.6+ (defined in CMake)
     """
 
     def __init__(self, cmake_vars: Dict):
@@ -56,7 +54,7 @@ class CUDAToolkitRequirement(VersionRequirement):
         Args:
             platform_info: Platform detection dict from detect_platform()
         """
-        version_min = self.version_required or "12.6"
+        version_min = self.version_required
 
         print(f"CUDA Toolkit {version_min}+ Required")
         print()

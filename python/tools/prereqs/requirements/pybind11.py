@@ -18,8 +18,6 @@ class Pybind11Requirement(VersionRequirement):
     - NVFUSER_REQUIREMENT_pybind11_STATUS: Validation status
     - NVFUSER_REQUIREMENT_pybind11_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_pybind11_OPTIONAL: Whether pybind11 is optional
-
-    Minimum version: 2.0+ (defined in CMake)
     """
 
     def __init__(self, cmake_vars: Dict):
@@ -56,7 +54,7 @@ class Pybind11Requirement(VersionRequirement):
         Args:
             platform_info: Platform detection dict from detect_platform()
         """
-        version_min = self.version_required or "2.0"
+        version_min = self.version_required
 
         print(f"pybind11 {version_min}+ Required")
         print()

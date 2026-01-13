@@ -18,8 +18,6 @@ class LLVMRequirement(VersionRequirement):
     - NVFUSER_REQUIREMENT_LLVM_STATUS: Validation status
     - NVFUSER_REQUIREMENT_LLVM_VERSION_MIN: Minimum required version
     - NVFUSER_REQUIREMENT_LLVM_OPTIONAL: Whether LLVM is optional
-
-    Minimum version: 18.1+ (defined in CMake)
     """
 
     def __init__(self, cmake_vars: Dict):
@@ -58,7 +56,7 @@ class LLVMRequirement(VersionRequirement):
         """
         import re
 
-        version_min = self.version_required or "18.1"
+        version_min = self.version_required
 
         # Parse version to recommend a specific patch version
         try:
