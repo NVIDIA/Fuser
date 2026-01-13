@@ -5,23 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <memory>
+
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <options.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul_heuristic_plugin.h>
-#include <scheduler/matmul_heuristic_plugin_api.h>
-#include <scheduler/mma_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <memory>
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "options.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul_heuristic_plugin.h"
+#include "scheduler/matmul_heuristic_plugin_api.h"
+#include "scheduler/mma_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

@@ -5,21 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <device_lower/lower2device.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/executor.h>
-#include <runtime/executor_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <gtest/gtest.h>
+
+#include "csrc/exceptions.h"
+#include "device_lower/lower2device.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/executor.h"
+#include "runtime/executor_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

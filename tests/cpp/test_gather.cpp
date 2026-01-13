@@ -5,22 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/core/ScalarType.h>
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
+#include <c10/core/ScalarType.h>
 
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 using testing::UnorderedElementsAre;

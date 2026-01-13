@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <val_graph_visitor.h>
+#include "csrc/exceptions.h"
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "val_graph_visitor.h"
 
 namespace nvfuser {
 

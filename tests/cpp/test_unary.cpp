@@ -5,15 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
 #include <limits>
 
-#include <fusion.h>
-#include <ops/arith.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include <gtest/gtest.h>
+
+#include "fusion.h"
+#include "ops/arith.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

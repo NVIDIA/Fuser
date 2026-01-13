@@ -13,24 +13,24 @@
 #include <unordered_map>
 #include <vector>
 
-#include <gtest/gtest.h>
-
 #include <ATen/cuda/CUDAContextLight.h>
 
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/pass/magic_zero.h>
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <kernel_ir_dispatch.h>
-#include <runtime/allocations.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <runtime/fusion_kernel_runtime.h>
-#include <scheduler/registry.h>
-#include <transform_replay.h>
+#include <gtest/gtest.h>
+
+#include "codegen.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/pass/magic_zero.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "kernel_ir_dispatch.h"
+#include "runtime/allocations.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "runtime/fusion_kernel_runtime.h"
+#include "scheduler/registry.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 

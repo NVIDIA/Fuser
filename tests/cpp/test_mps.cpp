@@ -75,20 +75,22 @@
 #include <cstdlib>
 #include <iostream>
 
+#include <cuda.h>
+
 #include <gtest/gtest.h>
 
-#include <cuda.h>
-#include <cuda_utils.h>
-#include <fusion.h>
-#include <ir/interface_nodes.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <runtime/executor_utils.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "cuda_utils.h"
+#include "fusion.h"
+#include "ir/interface_nodes.h"
+#include "ops/all_ops.h"
+#include "options.h"
+#include "runtime/executor_utils.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 // This test requires CUDA 13.0+ for CUctxCreateParams
+
 #if CUDA_VERSION >= 13000
 
 namespace {

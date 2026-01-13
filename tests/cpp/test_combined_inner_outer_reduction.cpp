@@ -5,30 +5,32 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-
-#include <grouped_reduction.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDACachingAllocator.h>
-#include <c10/cuda/CUDAStream.h>
 #include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <thread>
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/cuda/CUDAStream.h>
+
+#include "csrc/exceptions.h"
+#include "grouped_reduction.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
