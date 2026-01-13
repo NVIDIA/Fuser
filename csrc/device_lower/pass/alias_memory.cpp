@@ -37,11 +37,6 @@
 namespace nvfuser {
 
 namespace {
-// Alias used for std::transform
-IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->info().caMap().getConcreteMappedID(
-      id, IdMappingMode::EXACT);
-}
 
 //! Checks that the current loop nest is realizing a serial
 //! broadcast so that each index of producer buffer can be visited
@@ -135,7 +130,7 @@ bool isSerialBroadcastResolution(
       std::inserter(
           producer_exact_concrete_logical_ids,
           producer_exact_concrete_logical_ids.begin()),
-      exactConcreteId);
+      lower_utils::getConcreteMappedId);
 
   // Check if serial loop logicals indexes any exact logical id's that
   //  is not within the set of producer's logical exact id's. These
@@ -144,8 +139,7 @@ bool isSerialBroadcastResolution(
   for (auto serial_loop_logical :
        ir_utils::filterByType<IterDomain>(serial_loop_logicals)) {
     if (!producer_exact_concrete_logical_ids.count(
-            GpuLower::current()->info().caMap().getConcreteMappedID(
-                serial_loop_logical, IdMappingMode::EXACT))) {
+            lower_utils::getConcreteMappedId(serial_loop_logical))) {
       return true;
     }
   }
@@ -1411,10 +1405,10 @@ class ReusableAllocationFinder : private kir::IrVisitor {
           return false;
         }
       } else {
-        if (!FusionInfoGuard::current()->caMap().areMapped(
-                alloc_domains[id_it],
-                reuse_domains[id_it],
-                IdMappingMode::EXACT)) {
+        if (!FusionInfoGuard::current()
+                 ->idModel()
+                 .idGraph(IdMappingMode::EXACT)
+                 .areMapped(alloc_domains[id_it], reuse_domains[id_it])) {
           return false;
         }
       }
