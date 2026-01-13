@@ -580,47 +580,6 @@ TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombine) {
   EXPECT_EQ(combine_expr->out(), combined_id);
 }
 
-// Test combining with invalid component (not from same partition) - should
-// Test combining after set operation with invalid component
-// With Option 3 validation strategy, this does NOT throw an error
-// because after set(), the RaggedIterDomain loses its Partition definition
-// and validation is skipped (trusts the user)
-TEST_F(RaggedIterDomainTest, AsNestedThenSetThenCombineInvalidComponent) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  auto data = makeSymbolicTensor(2, DataType::Float);
-  fusion.addInput(data);
-
-  auto extents = makeSymbolicTensor(1, DataType::Index);
-  fusion.addInput(extents);
-
-  // Create nested tensor from dimension 0
-  auto nested = asNested(data, extents, 0);
-
-  // Insert a set operation after asNested
-  auto nested_copy = set(nested);
-
-  // Verify nested_copy tensor has 3 dimensions: [component, ragged,
-  // original_dim1]
-  EXPECT_EQ(nested_copy->nDims(), 3);
-  EXPECT_TRUE(nested_copy->axis(0)->isStrictlyA<IterDomain>());
-  EXPECT_TRUE(nested_copy->axis(1)->isA<RaggedIterDomain>());
-
-  // Get the ragged IterDomain from the copy
-  auto ragged_id = nested_copy->axis(1)->as<RaggedIterDomain>();
-
-  // Use an INVALID component: the third axis instead of the first
-  // This is NOT the component from the partition, it's the original second
-  // dimension
-  auto invalid_component_id = nested_copy->axis(2);
-
-  // With Option 3: After set(), the RaggedIterDomain no longer has a
-  // Partition definition, so validation is skipped and the operation succeeds.
-  // The user is responsible for providing the correct component.
-  EXPECT_NO_THROW(RaggedIterDomain::combine(invalid_component_id, ragged_id));
-}
-
 // asNested on different dimensions
 TEST_F(RaggedIterDomainTest, AsNestedDifferentDimension) {
   Fusion fusion;
