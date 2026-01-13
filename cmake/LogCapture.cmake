@@ -41,8 +41,8 @@ function(message)
         set(_argv_copy ${ARGV})
         list(REMOVE_AT _argv_copy 0)
         string(JOIN " " msg_content ${_argv_copy})
-        # Use a delimiter (|||) to separate type from content
-        set_property(GLOBAL APPEND PROPERTY GLOBAL_LOG_BUFFER "${type}|||${msg_content}")
+        # Use a delimiter (<<<DELIM>>>) to separate type from content
+        set_property(GLOBAL APPEND PROPERTY GLOBAL_LOG_BUFFER "${type}<<<DELIM>>>${msg_content}")
     elseif(SUPPRESS_MESSAGE_OUTPUT)
         # SUPPRESS MODE: Block all non-critical messages (already handled errors above)
         # Do nothing
@@ -72,9 +72,9 @@ function(dump_captured_logs log_list)
             _message("")
         else()
             # Split "TYPE|||CONTENT"
-            string(FIND "${entry}" "|||" pos)
+            string(FIND "${entry}" "<<<DELIM>>>" pos)
             string(SUBSTRING "${entry}" 0 ${pos} type)
-            math(EXPR content_start "${pos} + 3")
+            math(EXPR content_start "${pos} + 11")
             string(SUBSTRING "${entry}" ${content_start} -1 content)
 
             # Print using the original type (STATUS, WARNING, etc.)
