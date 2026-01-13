@@ -66,8 +66,12 @@ macro(handle_torch)
       # Extract major.minor from Torch CUDA version
       string(REGEX MATCH "^([0-9]+\\.[0-9]+)" torch_cuda_major_minor "${torch_cuda_version}")
 
-      # Compare major.minor versions
-      if(NOT torch_cuda_major_minor STREQUAL cuda_toolkit_version)
+      # Check if regex succeeded
+      if(NOT torch_cuda_major_minor)
+        # Regex failed - unable to parse version
+        set(Torch_CUDA_constraint_status "not_available")
+        message(WARNING "Unable to parse Torch CUDA version: ${torch_cuda_version}")
+      elseif(NOT torch_cuda_major_minor STREQUAL cuda_toolkit_version)
         # Version mismatch
         set(Torch_CUDA_constraint_status "mismatch")
         set(Torch_CUDA_constraint_found "${torch_cuda_major_minor}")
