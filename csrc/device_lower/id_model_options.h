@@ -16,7 +16,8 @@ namespace nvfuser {
 class IdModelOptions {
  public:
   IdModelOptions()
-      : consumer_index_(
+      : build_id_model_(!isOptionDisabled(DisableOption::IdModel)),
+        consumer_index_(
             isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)),
         producer_index_(
             isIdModelOptionEnabled(IdModelEnableOption::ProducerIndex)),
@@ -25,6 +26,15 @@ class IdModelOptions {
         unswitch_predicate_(
             isIdModelOptionEnabled(IdModelEnableOption::UnswitchPredicate)),
         loop_(isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+    ensureConsistency();
+  }
+
+  bool buildIdModel() const {
+    return build_id_model_;
+  }
+
+  void setBuildIdModel(bool b) {
+    build_id_model_ = b;
     ensureConsistency();
   }
 
@@ -96,7 +106,8 @@ class IdModelOptions {
     auto bool2str = [](bool b) { return b ? "true" : "false"; };
 
     std::stringstream ss;
-    ss << "build_tensor_indexer=" << bool2str(build_tensor_indexer_)
+    ss << "build_id_model=" << bool2str(build_id_model_)
+       << ", build_tensor_indexer=" << bool2str(build_tensor_indexer_)
        << ", consumer_index=" << bool2str(consumer_index_)
        << ", producer_index=" << bool2str(producer_index_)
        << ", inline_predicate=" << bool2str(inline_predicate_)
@@ -107,11 +118,23 @@ class IdModelOptions {
 
  private:
   void ensureConsistency() {
-    build_tensor_indexer_ = build_tensor_indexer_ || consumer_index_ ||
-        producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
+    if (!build_id_model_) {
+      build_tensor_indexer_ = false;
+      consumer_index_ = false;
+      producer_index_ = false;
+      inline_predicate_ = false;
+      unswitch_predicate_ = false;
+      loop_ = false;
+    } else {
+      // TensorIndexer is required if these options are enabled
+      build_tensor_indexer_ = build_tensor_indexer_ || consumer_index_ ||
+          producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
+    }
   }
 
  private:
+  // Build IdModel
+  bool build_id_model_ = true;
   // Build TensorIndexer
   bool build_tensor_indexer_ = false;
   // Globally enables consumer indexing.
