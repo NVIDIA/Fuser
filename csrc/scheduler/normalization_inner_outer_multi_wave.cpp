@@ -162,6 +162,9 @@ void getHeuristics(
     int64_t reg_per_thread =
         getEstimatedRegisterUsage(inner_vect * inner_batch);
     int64_t threads_per_sm = getThreadsPerSMGivenRegPerThread(reg_per_thread);
+    // limit threads per sm by hardware limitation
+    threads_per_sm = std::min(
+        threads_per_sm, (int64_t)dev_prop->maxThreadsPerMultiProcessor);
     int64_t blocks_per_sm =
         getBlocksPerSM(threads_per_sm, threads_per_block, dev_prop->warpSize);
     int64_t gdimy = blocks_per_sm * device_multiprocessor_count;
