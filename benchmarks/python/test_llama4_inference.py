@@ -27,7 +27,7 @@ def test_llama4_inference_benchmark(
         pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
 
     config = InferenceBenchmarkConfig(
-        model_name='meta-llama/Llama-4-Maverick-17B-128E',
+        model_name="meta-llama/Llama-4-Maverick-17B-128E",
         batch_size=1,
         input_length=input_length,
         output_length=output_length,
@@ -43,8 +43,9 @@ def test_llama4_inference_benchmark(
         thunder_cache=None,
         enable_cudagraph=enable_cudagraph,
         debug_moe=False,
-        use_hardcoded_model=True,                                                             )
+        use_hardcoded_model=True,
+    )
     benchmark = InferenceBenchmark(config)
-    
+
     benchmark.run_benchmark()
     benchmark.print_results()
