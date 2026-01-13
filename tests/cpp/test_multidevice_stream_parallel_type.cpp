@@ -53,7 +53,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input = at::rand({4, communicator_->size()}, options);
-  at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
+  at::Tensor input = shardTensor1D(unsharded_input, /*axis=*/1, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
@@ -91,7 +91,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input = at::rand({4, communicator_->size(), 8}, options);
-  at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
+  at::Tensor input = shardTensor1D(unsharded_input, /*axis=*/1, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
@@ -132,11 +132,12 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input =
       at::rand({4, communicator_->size(), communicator_->size(), 8}, options);
-  at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
+  at::Tensor input = shardTensor1D(unsharded_input, /*axis=*/1, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
-  auto expected_output = shardTensor(unsharded_input.sum(1), /*axis=*/1, mesh);
+  auto expected_output =
+      shardTensor1D(unsharded_input.sum(1), /*axis=*/1, mesh);
   EXPECT_TRUE(at::allclose(output, expected_output, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << expected_output;
 }
@@ -302,8 +303,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   auto t0_unsharded = at::randn({S, D, M / S, K / D}, tensor_options);
   auto t1_unsharded = at::randn({D, K / D, N}, tensor_options);
-  auto t0 = shardTensor(t0_unsharded, /*axis=*/1, mesh);
-  auto t1 = shardTensor(t1_unsharded, /*axis=*/0, mesh);
+  auto t0 = shardTensor1D(t0_unsharded, /*axis=*/1, mesh);
+  auto t1 = shardTensor1D(t1_unsharded, /*axis=*/0, mesh);
 
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
@@ -375,8 +376,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   auto t0_unsharded = at::randn({S, D, D, M / (S * D), K / D}, tensor_options);
   auto t1_unsharded = at::randn({D, K / D, N}, tensor_options);
-  auto t0 = shardTensor(t0_unsharded, /*axis=*/1, mesh);
-  auto t1 = shardTensor(t1_unsharded, /*axis=*/0, mesh);
+  auto t0 = shardTensor1D(t0_unsharded, /*axis=*/1, mesh);
+  auto t1 = shardTensor1D(t1_unsharded, /*axis=*/0, mesh);
 
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
@@ -387,7 +388,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   auto t2_unreduced =
       at::sum(t2_unreduced_unsharded, {1}); // {S, D, M / (S * D), N}
   auto t2_ref =
-      shardTensor(t2_unreduced, /*axis=*/1, mesh); // {S, M / (S * D), N}
+      shardTensor1D(t2_unreduced, /*axis=*/1, mesh); // {S, M / (S * D), N}
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
@@ -444,7 +445,7 @@ TEST_P(StreamParallelBackendTest, AllgatherP2p) {
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input =
       at::rand({communicator_->size(), kTensorSize}, options);
-  at::Tensor input = shardTensor(unsharded_input, /*axis=*/0, mesh);
+  at::Tensor input = shardTensor1D(unsharded_input, /*axis=*/0, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
@@ -600,8 +601,8 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   auto t0_unsharded = at::randn({D, D, M / D, K / D}, tensor_options);
   auto t1_unsharded = at::randn({D, K / D, N}, tensor_options);
-  auto t0 = shardTensor(t0_unsharded, /*axis=*/0, mesh);
-  auto t1 = shardTensor(t1_unsharded, /*axis=*/0, mesh);
+  auto t0 = shardTensor1D(t0_unsharded, /*axis=*/0, mesh);
+  auto t1 = shardTensor1D(t1_unsharded, /*axis=*/0, mesh);
 
   auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
 
@@ -609,7 +610,7 @@ TEST_P(RSMatmulTest, ReduceScatterP2p) {
   auto t2_unreduced_unsharded =
       at::matmul(t0_unsharded, t1b_unsharded); // {D, D, M / D, N}
   auto t2_unreduced = at::sum(t2_unreduced_unsharded, {0}); // {D, M / D, N}
-  auto t2_ref = shardTensor(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
+  auto t2_ref = shardTensor1D(t2_unreduced, /*axis=*/0, mesh); // {M / D, N}
   EXPECT_TRUE(at::allclose(t2_ref, t2, 1e-1, 1e-1))
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
