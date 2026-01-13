@@ -104,19 +104,14 @@ if(NOT NVFUSER_DEPENDENCIES_OK)
   message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
 endif()
 
+include(cmake/Submodules.cmake)
 # -----------------------------------------------------------------------------
 
-include(cmake/FlatBuffers.cmake)
-include(cmake/Submodules.cmake)
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
-if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
-  message(WARNING "CUTLASS Support DISABLED: Requires CUDA 12.8+")
-  set(NVFUSER_USE_CUTLASS FALSE)
-else()
+if(NVFUSER_USE_CUTLASS)
   add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
-  set(NVFUSER_USE_CUTLASS TRUE)
   add_subdirectory(cutlass)
 endif()
 
