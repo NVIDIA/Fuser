@@ -54,6 +54,7 @@ jobs:
           cd python
 
           # Run cmake build
+          git submodule update --init --recursive
           python setup.py --cmake-only
 
           # Generate csrc/serde/fusion_cache_generated.h

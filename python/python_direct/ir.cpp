@@ -5,9 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/complex.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/string.h>
+#include <nanobind/stl/unordered_map.h>
+#include <nanobind/stl/variant.h>
+#include <nanobind/stl/vector.h>
 #include <ranges>
 
 #include <bindings.h>
+#include <direct_utils.h>
 #include <python_utils.h>
 
 // size and shape operations are a part of TensorView bindings but not a
@@ -21,23 +28,20 @@
 
 namespace nvfuser::python {
 
-// For all nodes, use multiple inheritance to disable destructor with
-// std::unique_ptr<Statement, py::nodelete>. This class will
-// disable memory management because it is handled automatically by IrContainer.
+// For all nodes, memory management is handled automatically by IrContainer.
 
 namespace {
 
-void bindBaseNodes(py::module& nvfuser) {
+void bindBaseNodes(nb::module_& nvfuser) {
   // Statement
-  py::class_<Statement, std::unique_ptr<Statement, py::nodelete>>(
-      nvfuser, "Statement")
+  nb::class_<Statement>(nvfuser, "Statement")
       .def(
           "__str__",
           [](Statement* self) { return self->toString(); },
           R"(Get string representation of Statement.)");
 
   // Val
-  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(nvfuser, "Val")
+  nb::class_<Val, Statement>(nvfuser, "Val")
       .def(
           "is_symbolic",
           &Val::isSymbolic,
@@ -63,6 +67,7 @@ bool
       .def(
           "definition",
           &Val::definition,
+          nb::rv_policy::reference_internal,
           R"(
 Get the definition of this expression.
 
@@ -74,6 +79,7 @@ Expr
       .def(
           "uses",
           &Val::uses,
+          nb::rv_policy::reference_internal,
           R"(
 Get the uses of this expression.
 
@@ -84,13 +90,12 @@ Expr
 )");
 
   // Expr
-  py::class_<Expr, Statement, std::unique_ptr<Expr, py::nodelete>>(
-      nvfuser, "Expr")
+  nb::class_<Expr, Statement>(nvfuser, "Expr")
       .def(
           "input",
           &Expr::input,
-          py::arg("index"),
-          py::return_value_policy::reference,
+          nb::arg("index"),
+          nb::rv_policy::reference_internal,
           R"(
 Get the input of this expression.
 
@@ -107,8 +112,8 @@ Expr
       .def(
           "output",
           &Expr::output,
-          py::arg("index"),
-          py::return_value_policy::reference,
+          nb::arg("index"),
+          nb::rv_policy::reference_internal,
           R"(
 Get the output of this expression.
 
@@ -124,10 +129,9 @@ Expr
 )");
 }
 
-void bindInternalBaseNodes(py::module& nvfuser) {
+void bindInternalBaseNodes(nb::module_& nvfuser) {
   // IterDomain
-  py::class_<IterDomain, Val, std::unique_ptr<IterDomain, py::nodelete>>(
-      nvfuser, "IterDomain")
+  nb::class_<IterDomain, Val>(nvfuser, "IterDomain")
       .def(
           "__str__",
           [](IterDomain* self) { return self->toString(/*indent_size=*/0); },
@@ -146,6 +150,7 @@ bool
       .def(
           "extent",
           &IterDomain::extent,
+          nb::rv_policy::reference_internal,
           R"(
 Get the extent of this domain.
 
@@ -157,7 +162,7 @@ Val
       .def(
           "parallelize",
           &IterDomain::parallelize,
-          py::arg("parallel_type"),
+          nb::arg("parallel_type"),
           R"(
 Set the parallel type of this domain.
 
@@ -173,22 +178,20 @@ across CUDA threads and blocks.
 )");
 
   // TensorDomain
-  py::class_<TensorDomain, Val, std::unique_ptr<TensorDomain, py::nodelete>>(
-      nvfuser, "TensorDomain")
+  nb::class_<TensorDomain, Val>(nvfuser, "TensorDomain")
       .def(
           "__str__",
           [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
           "Convert the TensorDomain to a string representation.");
 }
 
-void bindInterfaceNodes(py::module& nvfuser) {
-  py::class_<TensorView, Val, std::unique_ptr<TensorView, py::nodelete>>(
-      nvfuser, "TensorView")
+void bindInterfaceNodes(nb::module_& nvfuser) {
+  nb::class_<TensorView, Val>(nvfuser, "TensorView")
       .def(
           "__str__",
           [](TensorView* self) { return self->toString(/*indent_size=*/0); },
           "Convert the TensorView to a string representation.")
-      .def_property_readonly(
+      .def_prop_ro(
           "ndim",
           [](TensorView* self) {
             return std::ranges::distance(
@@ -205,8 +208,8 @@ int
       .def(
           "size",
           [](TensorView* self, int64_t dim) { return size(self, dim); },
-          py::arg("dim"),
-          py::return_value_policy::reference,
+          nb::arg("dim"),
+          nb::rv_policy::reference_internal,
           R"(
 Get the size of this tensor.
 
@@ -223,7 +226,7 @@ int
       .def(
           "shape",
           [](TensorView* self) { return shape(self); },
-          py::return_value_policy::reference,
+          nb::rv_policy::reference_internal,
           R"(
 Get the shape of this tensor.
 
@@ -261,6 +264,7 @@ bool
       .def(
           "domain",
           &TensorView::domain,
+          nb::rv_policy::reference_internal,
           R"(
 Get the TensorDomain of this tensor.
 
@@ -277,6 +281,7 @@ TensorDomain
       .def(
           "get_logical_domain",
           &TensorView::getLogicalDomain,
+          nb::rv_policy::reference_internal,
           R"(
 Get the logical domain of this tensor.
 
@@ -288,6 +293,7 @@ list of IterDomain
       .def(
           "get_loop_domain",
           &TensorView::getLoopDomain,
+          nb::rv_policy::reference_internal,
           R"(
 Get the loop domain of this tensor.
 
@@ -299,6 +305,7 @@ list of IterDomain
       .def(
           "get_root_domain",
           &TensorView::getRootDomain,
+          nb::rv_policy::reference_internal,
           R"(
 Get the root domain of this tensor.
 
@@ -310,11 +317,11 @@ list of IterDomain
       .def(
           "cache_after",
           &TensorView::cacheAfter,
-          py::arg("op_type") = LoadStoreOpType::Set,
-          py::arg("cache_op") = CacheOp::Unspecified,
-          py::arg("propagate_allocation_domain") = true,
-          py::arg("cached_uses") = py::list(),
-          py::return_value_policy::reference,
+          nb::arg("op_type") = LoadStoreOpType::Set,
+          nb::arg("cache_op") = CacheOp::Unspecified,
+          nb::arg("propagate_allocation_domain") = true,
+          nb::arg("cached_uses") = nb::list(),
+          nb::rv_policy::reference,
           R"(
       Cache the TensorView after the specified operation.
 
@@ -333,8 +340,8 @@ list of IterDomain
       .def(
           "cache_before",
           &TensorView::cacheBefore,
-          py::arg("op_type") = LoadStoreOpType::Set,
-          py::return_value_policy::reference,
+          nb::arg("op_type") = LoadStoreOpType::Set,
+          nb::rv_policy::reference,
           R"(
       Cache the TensorView before the specified operation.
 
@@ -351,7 +358,7 @@ list of IterDomain
       .def(
           "set_memory_type",
           &TensorView::setMemoryType,
-          py::arg("memory_type"),
+          nb::arg("memory_type"),
           R"(
       Set the memory type for the TensorView.
 
@@ -368,10 +375,10 @@ list of IterDomain
           "split",
           static_cast<TensorView* (TensorView::*)(int64_t, int64_t, bool)>(
               &TensorView::split),
-          py::arg("axis"),
-          py::arg("factor"),
-          py::arg("inner_split") = true,
-          py::return_value_policy::reference,
+          nb::arg("axis"),
+          nb::arg("factor"),
+          nb::arg("inner_split") = true,
+          nb::rv_policy::reference,
           R"(
 Split an axis into two axes.
 
@@ -396,9 +403,9 @@ Returns
           [](TensorView* self, int64_t axis, int64_t factor) {
             return self->split(axis, factor, true);
           },
-          py::arg("axis"),
-          py::arg("factor"),
-          py::return_value_policy::reference,
+          nb::arg("axis"),
+          nb::arg("factor"),
+          nb::rv_policy::reference,
           R"(
 Split an axis into inner-first order (alias of split with inner_split=True).
 
@@ -419,9 +426,9 @@ TensorView
           [](TensorView* self, int64_t axis, int64_t factor) {
             return self->split(axis, factor, false);
           },
-          py::arg("axis"),
-          py::arg("factor"),
-          py::return_value_policy::reference,
+          nb::arg("axis"),
+          nb::arg("factor"),
+          nb::rv_policy::reference,
           R"(
 Split an axis into outer-first order (alias of split with inner_split=False).
 
@@ -441,9 +448,9 @@ TensorView
           "merge",
           static_cast<TensorView* (TensorView::*)(int64_t, int64_t)>(
               &TensorView::merge),
-          py::arg("axis_o"),
-          py::arg("axis_i"),
-          py::return_value_policy::reference,
+          nb::arg("axis_o"),
+          nb::arg("axis_i"),
+          nb::rv_policy::reference,
           R"(
 Merge two axes into one axis.
 
@@ -464,8 +471,8 @@ TensorView
           [](TensorView* self, std::unordered_map<int64_t, int64_t>& old2new) {
             return self->reorder(old2new);
           },
-          py::arg("old2new") = py::dict(),
-          py::return_value_policy::reference,
+          nb::arg("old2new") = nb::dict(),
+          nb::rv_policy::reference,
           R"(
 Reorder the axes of this tensor.
 
@@ -484,9 +491,9 @@ TensorView
           [](TensorView* self, int64_t x, int64_t y) {
             return self->swizzle(SwizzleType::XOR, x, y);
           },
-          py::return_value_policy::reference,
-          py::arg("x"),
-          py::arg("y"),
+          nb::rv_policy::reference,
+          nb::arg("x"),
+          nb::arg("y"),
           R"(
 Swizzle the axes of this tensor.
 
@@ -506,8 +513,8 @@ TensorView
           "rfactor",
           static_cast<TensorView* (TensorView::*)(const std::vector<int64_t>&)>(
               &TensorView::rFactor),
-          py::arg("axes"),
-          py::return_value_policy::reference,
+          nb::arg("axes"),
+          nb::rv_policy::reference,
           R"(
 Perform an rfactor transformation on the specified axes.
 
@@ -525,8 +532,8 @@ The newly created rfactor tensor.
           "set_allocation_domain",
           static_cast<void (TensorView::*)(std::vector<IterDomain*>, bool)>(
               &TensorView::setAllocationDomain),
-          py::arg("new_allocation_domain"),
-          py::arg("new_contiguity"),
+          nb::arg("new_allocation_domain"),
+          nb::arg("new_contiguity"),
           R"(
 Set the allocation domain of this tensor.
 
@@ -540,7 +547,7 @@ new_contiguity : bool
       .def(
           "set_device_mesh",
           &TensorView::setDeviceMesh,
-          py::arg("mesh"),
+          nb::arg("mesh"),
           R"(
 Set the device mesh of this tensor.
 
@@ -552,8 +559,8 @@ mesh : DeviceMesh
       .def(
           "axis",
           &TensorView::axis,
-          py::arg("index"),
-          py::return_value_policy::reference,
+          nb::arg("index"),
+          nb::rv_policy::reference_internal,
           R"(
 Get the iteration domain at the specified axis.
 
@@ -647,15 +654,45 @@ std::tuple<std::vector<int64_t>, PrimDataType> translatePackedDtype(
   return {un_packed_shape, DataType::Float4_e2m1fn};
 }
 
-void bindDefineTensor(py::module& nvfuser) {
+namespace {
+
+// Nanobind does not convert torch.Size automatically to std::vector. Instead,
+// manually convert nb::sequence to a std::vector
+//
+// >>> import torch
+// >>> type(torch.randn(10,10).shape)
+// <class 'torch.Size'>
+std::vector<int64_t> get_shape_from_pysequence(nb::sequence seq) {
+  std::vector<int64_t> result;
+  result.reserve(nb::len(seq));
+  try {
+    std::transform(
+        seq.begin(), seq.end(), std::back_inserter(result), [](nb::handle obj) {
+          // Get value from Thunder Proxy
+          if (nb::hasattr(obj, "value")) {
+            nb::object value = obj.attr("value");
+            return nb::cast<int64_t>(value);
+          }
+          return nb::cast<int64_t>(obj);
+        });
+  } catch (...) {
+    throw nb::type_error("define_tensor(): incompatible function arguments");
+  }
+  return result;
+}
+
+} // namespace
+
+void bindDefineTensor(nb::module_& nvfuser) {
   nvfuser
       .def(
           "define_tensor",
-          [](const std::vector<int64_t>& shape,
+          [](nb::sequence shape_py,
              const std::vector<std::optional<bool>>& contiguity,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
+            auto shape = get_shape_from_pysequence(shape_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(
@@ -667,20 +704,21 @@ void bindDefineTensor(py::module& nvfuser) {
                   new_shape, contiguity, new_dtype, is_cpu, stride_order);
             }
           },
-          py::arg("shape"),
-          py::arg("contiguity"),
-          py::arg("dtype") = DataType::Float,
-          py::arg("is_cpu") = false,
-          py::arg("stride_order") = py::list(),
-          py::return_value_policy::reference)
+          nb::arg("shape"),
+          nb::arg("contiguity"),
+          nb::arg("dtype") = DataType::Float,
+          nb::arg("is_cpu") = false,
+          nb::arg("stride_order") = nb::list(),
+          nb::rv_policy::reference)
       .def(
           "define_tensor",
-          [](const std::vector<int64_t>& shape,
+          [](nb::sequence shape_py,
              // Contiguity for non-broadcast dimensions.
              const bool contiguity = false,
              const PrimDataType dtype = DataType::Float,
              const bool is_cpu = false,
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
+            auto shape = get_shape_from_pysequence(shape_py);
             verifyShape(shape);
             if (!isPackedType(dtype)) {
               return defineTensor(
@@ -700,12 +738,12 @@ void bindDefineTensor(py::module& nvfuser) {
                   stride_order);
             }
           },
-          py::arg("shape"),
-          py::arg("contiguity") = false,
-          py::arg("dtype") = DataType::Float,
-          py::arg("is_cpu") = false,
-          py::arg("stride_order") = py::list(),
-          py::return_value_policy::reference)
+          nb::arg("shape"),
+          nb::arg("contiguity") = false,
+          nb::arg("dtype") = DataType::Float,
+          nb::arg("is_cpu") = false,
+          nb::arg("stride_order") = nb::list(),
+          nb::rv_policy::reference)
       .def(
           "define_tensor",
           [](const std::vector<int64_t>& sizes,
@@ -740,30 +778,30 @@ void bindDefineTensor(py::module& nvfuser) {
                   stride_order);
             }
           },
-          py::arg("sizes"),
-          py::arg("strides"),
-          py::arg("dtype") = DataType::Float,
-          py::arg("static_sizes") = false,
-          py::arg("is_cpu") = false,
-          py::return_value_policy::reference);
+          nb::arg("sizes"),
+          nb::arg("strides"),
+          nb::arg("dtype") = DataType::Float,
+          nb::arg("static_sizes") = false,
+          nb::arg("is_cpu") = false,
+          nb::rv_policy::reference);
 }
 
-void bindDefineScalar(py::module& nvfuser) {
+void bindDefineScalar(nb::module_& nvfuser) {
   // The symbolic define_scalar must come before the constant version because of
-  // pybind11 rules for overload resolution. Essentially, overload functions are
-  // tried in the order they were registered with pybind11. If the order is
+  // nanobind rules for overload resolution. Essentially, overload functions are
+  // tried in the order they were registered with nanobind. If the order is
   // reversed, the PrimDataType is cast to its corresponding Enum integer and
   // used as a Fusion contant.
   //
   // Reference:
-  // https://pybind11.readthedocs.io/en/stable/advanced/functions.html#overload-resolution-order
+  // https://nanobind.readthedocs.io/en/latest/api_core.html#overload-resolution
   nvfuser.def(
       "define_scalar",
       [](PrimDataType dtype = DataType::Double) {
         return IrBuilder::create<Val>(std::monostate{}, dtype);
       },
-      py::arg("dtype") = DataType::Double,
-      py::return_value_policy::reference);
+      nb::arg("dtype") = DataType::Double,
+      nb::rv_policy::reference);
   nvfuser.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
@@ -777,14 +815,14 @@ void bindDefineScalar(py::module& nvfuser) {
                 : std::get<PrimDataType>(getDataType(cast_value).type));
         return IrBuilder::create<Val>(cast_value, value_dtype);
       },
-      py::arg("value"),
-      py::arg("dtype") = std::nullopt,
-      py::return_value_policy::reference);
+      nb::arg("value").none(),
+      nb::arg("dtype") = std::nullopt,
+      nb::rv_policy::reference);
 }
 
 } // namespace
 
-void bindFusionIr(py::module& nvfuser) {
+void bindFusionIr(nb::module_& nvfuser) {
   bindBaseNodes(nvfuser);
   bindInternalBaseNodes(nvfuser);
   bindInterfaceNodes(nvfuser);

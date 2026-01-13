@@ -5,9 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <nanobind/stl/complex.h>
+#include <nanobind/stl/optional.h>
+#include <nanobind/stl/tuple.h>
+#include <nanobind/stl/variant.h>
+#include <nanobind/stl/vector.h>
 #include <ranges>
 
 #include <bindings.h>
+#include <direct_utils.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <utils.h>
@@ -27,7 +33,7 @@ Val* convertToVal(
   if (std::holds_alternative<Val*>(value)) {
     Val* v = std::get<Val*>(value);
     NVF_ERROR(
-        dtype == std::nullopt ||
+        dtype == std::nullopt || v == nullptr ||
         std::get<PrimDataType>(v->dtype().type) == dtype.value());
     return std::get<Val*>(value);
   }
@@ -51,16 +57,19 @@ Val* convertToVal(
 }
 
 #define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME, DOCSTRING)      \
-  ops.def(NAME, [](ScalarVariant v) -> Val* {                          \
-    return static_cast<Val* (*)(Val*)>(OP_NAME)(convertToVal(v));      \
-  });                                                                  \
+  ops.def(                                                             \
+      NAME,                                                            \
+      [](ScalarVariant v) -> Val* {                                    \
+        return static_cast<Val* (*)(Val*)>(OP_NAME)(convertToVal(v));  \
+      },                                                               \
+      nb::rv_policy::reference);                                       \
   ops.def(                                                             \
       NAME,                                                            \
       [](TensorView* tv) -> TensorView* {                              \
         return static_cast<TensorView* (*)(TensorView*)>(OP_NAME)(tv); \
       },                                                               \
       DOCSTRING,                                                       \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)       \
   ops.def(                                                               \
@@ -69,21 +78,21 @@ Val* convertToVal(
         return static_cast<Val* (*)(Val*, Val*)>(OP_NAME)(               \
             convertToVal(lhs), convertToVal(rhs));                       \
       },                                                                 \
-      py::return_value_policy::reference);                               \
+      nb::rv_policy::reference);                                         \
   ops.def(                                                               \
       NAME,                                                              \
       [](TensorView* lhs, ScalarVariant rhs) -> TensorView* {            \
         return static_cast<TensorView* (*)(TensorView*, Val*)>(OP_NAME)( \
             lhs, convertToVal(rhs));                                     \
       },                                                                 \
-      py::return_value_policy::reference);                               \
+      nb::rv_policy::reference);                                         \
   ops.def(                                                               \
       NAME,                                                              \
       [](ScalarVariant lhs, TensorView* rhs) -> TensorView* {            \
         return static_cast<TensorView* (*)(Val*, TensorView*)>(OP_NAME)( \
             convertToVal(lhs), rhs);                                     \
       },                                                                 \
-      py::return_value_policy::reference);                               \
+      nb::rv_policy::reference);                                         \
   ops.def(                                                               \
       NAME,                                                              \
       [](TensorView* lhs, TensorView* rhs) -> TensorView* {              \
@@ -91,7 +100,7 @@ Val* convertToVal(
             OP_NAME)(lhs, rhs);                                          \
       },                                                                 \
       DOCSTRING,                                                         \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_TERNARY_OP(NAME, OP_NAME, DOCSTRING)            \
   ops.def(                                                                     \
@@ -100,7 +109,7 @@ Val* convertToVal(
         return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
             convertToVal(arg1), convertToVal(arg2), convertToVal(arg3));       \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -110,7 +119,7 @@ Val* convertToVal(
             TensorView* (*)(TensorView*, TensorView*, TensorView*)>(OP_NAME)(  \
             arg1, arg2, arg3);                                                 \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -119,7 +128,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(TensorView*, TensorView*, Val*)>(   \
             OP_NAME)(arg1, arg2, convertToVal(arg3));                          \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -128,7 +137,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(TensorView*, Val*, TensorView*)>(   \
             OP_NAME)(arg1, convertToVal(arg2), arg3);                          \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -137,7 +146,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(Val*, TensorView*, TensorView*)>(   \
             OP_NAME)(convertToVal(arg1), arg2, arg3);                          \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -146,7 +155,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(Val*, Val*, TensorView*)>(OP_NAME)( \
             convertToVal(arg1), convertToVal(arg2), arg3);                     \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -155,7 +164,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*)>(OP_NAME)( \
             arg1, convertToVal(arg2), convertToVal(arg3));                     \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -165,7 +174,7 @@ Val* convertToVal(
             convertToVal(arg1), arg2, convertToVal(arg3));                     \
       },                                                                       \
       DOCSTRING,                                                               \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_THRESHOLD_LIKE_OP(NAME, OP_NAME, DOCSTRING)     \
   ops.def(                                                                     \
@@ -174,7 +183,7 @@ Val* convertToVal(
         return static_cast<Val* (*)(Val*, Val*, Val*)>(OP_NAME)(               \
             convertToVal(arg1), convertToVal(arg2), convertToVal(arg3));       \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -184,7 +193,7 @@ Val* convertToVal(
             arg1, convertToVal(arg2), convertToVal(arg3));                     \
       },                                                                       \
       DOCSTRING,                                                               \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_TERNARY_WITH_ALPHA_OP(NAME, OP_NAME, DOCSTRING) \
   ops.def(                                                                     \
@@ -199,7 +208,7 @@ Val* convertToVal(
             convertToVal(arg3),                                                \
             convertToVal(arg4));                                               \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -210,7 +219,7 @@ Val* convertToVal(
             TensorView* (*)(TensorView*, TensorView*, TensorView*, Val*)>(     \
             OP_NAME)(arg1, arg2, arg3, convertToVal(arg4));                    \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -221,7 +230,7 @@ Val* convertToVal(
             TensorView* (*)(TensorView*, TensorView*, Val*, Val*)>(OP_NAME)(   \
             arg1, arg2, convertToVal(arg3), convertToVal(arg4));               \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -231,7 +240,7 @@ Val* convertToVal(
         return static_cast<TensorView* (*)(TensorView*, Val*, Val*, Val*)>(    \
             OP_NAME)(arg1, convertToVal(arg2), arg3, convertToVal(arg4));      \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -242,7 +251,7 @@ Val* convertToVal(
             TensorView* (*)(Val*, TensorView*, TensorView*, Val*)>(OP_NAME)(   \
             convertToVal(arg1), arg2, arg3, convertToVal(arg4));               \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -253,7 +262,7 @@ Val* convertToVal(
             OP_NAME)(                                                          \
             convertToVal(arg1), convertToVal(arg2), arg3, convertToVal(arg4)); \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](TensorView* arg1,                                                     \
@@ -264,7 +273,7 @@ Val* convertToVal(
             OP_NAME)(                                                          \
             arg1, convertToVal(arg2), convertToVal(arg3), convertToVal(arg4)); \
       },                                                                       \
-      py::return_value_policy::reference);                                     \
+      nb::rv_policy::reference);                                               \
   ops.def(                                                                     \
       NAME,                                                                    \
       [](ScalarVariant arg1,                                                   \
@@ -276,7 +285,7 @@ Val* convertToVal(
             convertToVal(arg1), arg2, convertToVal(arg3), convertToVal(arg4)); \
       },                                                                       \
       DOCSTRING,                                                               \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_REDUCTION_OP(NAME, OP_NAME, DOCSTRING)   \
   ops.def(                                                              \
@@ -290,9 +299,9 @@ Val* convertToVal(
                                            DataType)>(OP_NAME)(         \
             arg, dims, /*keepdim=*/false, dtype);                       \
       },                                                                \
-      py::arg("arg"),                                                   \
-      py::arg("dtype") = DataType::Null,                                \
-      py::return_value_policy::reference);                              \
+      nb::arg("arg"),                                                   \
+      nb::arg("dtype") = DataType::Null,                                \
+      nb::rv_policy::reference);                                        \
   ops.def(                                                              \
       NAME,                                                             \
       [](TensorView* arg, int dim, bool keepdim, PrimDataType dtype)    \
@@ -303,11 +312,11 @@ Val* convertToVal(
                                            DataType)>(OP_NAME)(         \
             arg, {dim}, keepdim, dtype);                                \
       },                                                                \
-      py::arg("arg"),                                                   \
-      py::arg("dim"),                                                   \
-      py::arg("keepdim") = false,                                       \
-      py::arg("dtype") = DataType::Null,                                \
-      py::return_value_policy::reference);                              \
+      nb::arg("arg"),                                                   \
+      nb::arg("dim"),                                                   \
+      nb::arg("keepdim") = false,                                       \
+      nb::arg("dtype") = DataType::Null,                                \
+      nb::rv_policy::reference);                                        \
   ops.def(                                                              \
       NAME,                                                             \
       [](TensorView* arg,                                               \
@@ -320,12 +329,12 @@ Val* convertToVal(
                                            DataType)>(OP_NAME)(         \
             arg, dims, keepdim, dtype);                                 \
       },                                                                \
-      py::arg("arg"),                                                   \
-      py::arg("dims"),                                                  \
-      py::arg("keepdim") = false,                                       \
-      py::arg("dtype") = DataType::Null,                                \
+      nb::arg("arg"),                                                   \
+      nb::arg("dims"),                                                  \
+      nb::arg("keepdim") = false,                                       \
+      nb::arg("dtype") = DataType::Null,                                \
       DOCSTRING,                                                        \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
 #define NVFUSER_DIRECT_BINDING_SCAN_OP(NAME, OP_NAME, OP_TYPE, DOCSTRING) \
   ops.def(                                                                \
@@ -336,13 +345,13 @@ Val* convertToVal(
             TensorView* (*)(TensorView*, int64_t, BinaryOpType, Val*)>(   \
             OP_NAME)(arg, dim, op_type, init);                            \
       },                                                                  \
-      py::arg("arg"),                                                     \
-      py::arg("dim"),                                                     \
-      py::arg("init").none(true) = py::none(),                            \
+      nb::arg("arg"),                                                     \
+      nb::arg("dim"),                                                     \
+      nb::arg("init").none(true) = nb::none(),                            \
       DOCSTRING,                                                          \
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 
-void bindUnaryOps(py::module_& ops) {
+void bindUnaryOps(nb::module_& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP(
       "abs",
       abs,
@@ -1141,7 +1150,7 @@ Val or TensorView
 )")
 }
 
-void bindBinaryOps(py::module_& ops) {
+void bindBinaryOps(nb::module_& ops) {
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "add",
       add,
@@ -1591,9 +1600,12 @@ Val or TensorView
     Greatest common divisor of each pair of elements.
 )")
   // complex does not support (TV, Val) and (Val, TV) argument combinations.
-  ops.def("complex", [](Val* lhs, Val* rhs) -> Val* {
-    return static_cast<Val* (*)(Val*, Val*)>(complex)(lhs, rhs);
-  });
+  ops.def(
+      "complex",
+      [](Val* lhs, Val* rhs) -> Val* {
+        return static_cast<Val* (*)(Val*, Val*)>(complex)(lhs, rhs);
+      },
+      nb::rv_policy::reference);
   ops.def(
       "complex",
       [](TensorView* lhs, TensorView* rhs) -> TensorView* {
@@ -1613,10 +1625,10 @@ Returns
 Val or TensorView
     A complex number.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 };
 
-void bindTernaryOps(py::module_& ops) {
+void bindTernaryOps(nb::module_& ops) {
   NVFUSER_DIRECT_BINDING_TERNARY_OP("lerp", lerp, R"(
 Element-wise linear interpolation.
 
@@ -1695,7 +1707,7 @@ Val or TensorView
 )")
 }
 
-void bindReductionOps(py::module_& ops) {
+void bindReductionOps(nb::module_& ops) {
   NVFUSER_DIRECT_BINDING_REDUCTION_OP(
       "max",
       max,
@@ -1796,10 +1808,10 @@ TensorView
          bool keepdim) -> TensorView* {
         return variance(arg, dims, correction, keepdim);
       },
-      py::arg("arg"),
-      py::arg("dims"),
-      py::arg("correction") = 1,
-      py::arg("keepdim") = false,
+      nb::arg("arg"),
+      nb::arg("dims"),
+      nb::arg("correction") = 1,
+      nb::arg("keepdim") = false,
       R"(
 Reduce a tensor by computing the variance along specified dimensions.
 
@@ -1819,7 +1831,7 @@ Returns
 TensorView
     A tensor containing the variance along the specified dimensions.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "var_mean",
       [](TensorView* arg,
@@ -1829,10 +1841,10 @@ TensorView
         VarMeanResult output = variance_mean(arg, dims, correction, keepdim);
         return std::make_tuple(output.var, output.mean);
       },
-      py::arg("arg"),
-      py::arg("dims"),
-      py::arg("correction") = 1,
-      py::arg("keepdim") = false,
+      nb::arg("arg"),
+      nb::arg("dims"),
+      nb::arg("correction") = 1,
+      nb::arg("keepdim") = false,
       R"(
 Reduce a tensor by computing the mean and variance along specified dimensions.
 
@@ -1852,15 +1864,15 @@ Returns
 tuple
     A tuple containing the variance and mean along the specified dimensions.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "welford",
       [](TensorView* arg, const std::vector<int64_t>& dims) -> decltype(auto) {
         WelfordResult output = WelfordRaw(arg, dims);
         return std::make_tuple(output.avg, output.var_sum, output.n);
       },
-      py::arg("arg"),
-      py::arg("dims"),
+      nb::arg("arg"),
+      nb::arg("dims"),
       R"(
 Reduce a tensor by computing the mean and variance along specified dimensions.
 
@@ -1876,10 +1888,10 @@ Returns
 tuple
     A tuple containing the mean, variance, and count along the specified dimensions.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindScanOps(py::module_& ops) {
+void bindScanOps(nb::module_& ops) {
   // cumsum (prefix sum) along a dimension
   NVFUSER_DIRECT_BINDING_SCAN_OP(
       "cumsum",
@@ -1961,24 +1973,24 @@ TensorView
 )");
 }
 
-void bindCastOps(py::module_& ops) {
+void bindCastOps(nb::module_& ops) {
   ops.def(
       "cast",
       [](TensorView* arg, PrimDataType dtype) -> TensorView* {
         return static_cast<TensorView* (*)(DataType, TensorView*)>(castOp)(
             dtype, arg);
       },
-      py::arg("arg"),
-      py::arg("dtype"),
-      py::return_value_policy::reference);
+      nb::arg("arg"),
+      nb::arg("dtype"),
+      nb::rv_policy::reference);
   ops.def(
       "cast",
       [](ScalarVariant arg, PrimDataType dtype) -> Val* {
         return static_cast<Val* (*)(DataType, Val*)>(castOp)(
             dtype, convertToVal(arg));
       },
-      py::arg("arg"),
-      py::arg("dtype"),
+      nb::arg("arg"),
+      nb::arg("dtype"),
       R"(
 Cast a scalar value to a different data type.
 
@@ -1994,10 +2006,10 @@ Returns
 Val
     A new scalar value with the specified data type.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindCompositeOps(py::module_& ops) {
+void bindCompositeOps(nb::module_& ops) {
   ops.def(
       "triu",
       [](TensorView* arg, int64_t diagonal) -> TensorView* {
@@ -2005,8 +2017,8 @@ void bindCompositeOps(py::module_& ops) {
             IrBuilder::create<nvfuser::Val>(diagonal, DataType::Int);
         return triu(arg, diagonal_val);
       },
-      py::arg("arg"),
-      py::arg("diagonal") = 0,
+      nb::arg("arg"),
+      nb::arg("diagonal") = 0,
       R"(
 Get the upper triangular part of a tensor.
 
@@ -2021,15 +2033,15 @@ Returns
 TensorView
     The upper triangular part of the tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindMatmulOps(py::module_& ops) {
+void bindMatmulOps(nb::module_& ops) {
   ops.def(
       "matmul",
       static_cast<TensorView* (*)(TensorView*, TensorView*)>(matmul),
-      py::arg("arg1"),
-      py::arg("arg2"),
+      nb::arg("arg1"),
+      nb::arg("arg2"),
       R"(
 The matrix product of two tensors.
 
@@ -2043,7 +2055,7 @@ Returns
 TensorView
     The result of the matrix multiplication.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "linear",
       [](TensorView* arg1, TensorView* arg2, TensorView* bias) -> TensorView* {
@@ -2051,9 +2063,9 @@ TensorView
             TensorView* (*)(TensorView*, TensorView*, TensorView*)>(linear)(
             arg1, arg2, bias);
       },
-      py::arg("arg1"),
-      py::arg("arg2"),
-      py::arg("bias").none(true) = py::none(),
+      nb::arg("arg1"),
+      nb::arg("arg2"),
+      nb::arg("bias").none(true) = nb::none(),
       R"(
 Applies an affine linear transformation to the incoming data:
 output = arg1 @ transpose(arg2) + bias.
@@ -2070,7 +2082,7 @@ Returns
 TensorView
     The result of the affine linear transformation.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "grouped_mm",
       [](TensorView* mat1,
@@ -2080,9 +2092,9 @@ TensorView
         ScaledTensorView scaled_out = grouped_mm(mat1, mat2, offsets);
         return scaled_out.tv;
       },
-      py::arg("mat1"),
-      py::arg("mat2"),
-      py::arg("offsets"),
+      nb::arg("mat1"),
+      nb::arg("mat2"),
+      nb::arg("offsets"),
       R"(
 Grouped matrix multiplication.
 
@@ -2103,7 +2115,7 @@ Returns
 TensorView
     Result of grouped matrix multiplication
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "grouped_mm",
       [](TensorView* mat1,
@@ -2148,18 +2160,18 @@ TensorView
         }
         return std::make_tuple(output, std::nullopt, std::nullopt);
       },
-      py::arg("mat1"),
-      py::arg("mat2"),
-      py::arg("offsets"),
-      py::arg("scale1"),
-      py::arg("scale2"),
-      py::arg("alpha").none(true) = py::none(),
-      py::arg("bias").none(true) = py::none(),
-      py::arg("beta").none(true) = py::none(),
-      py::arg("dtype") = DataType::BFloat16,
-      py::arg("output_block_scale_size") = 0,
-      py::arg("output_block_scale_dtype") = DataType::BFloat16,
-      py::arg("output_gamma") = false,
+      nb::arg("mat1"),
+      nb::arg("mat2"),
+      nb::arg("offsets"),
+      nb::arg("scale1"),
+      nb::arg("scale2"),
+      nb::arg("alpha").none(true) = nb::none(),
+      nb::arg("bias").none(true) = nb::none(),
+      nb::arg("beta").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::BFloat16,
+      nb::arg("output_block_scale_size") = 0,
+      nb::arg("output_block_scale_dtype") = DataType::BFloat16,
+      nb::arg("output_gamma") = false,
       R"(
 Scaled Grouped matrix multiplication.
 
@@ -2213,7 +2225,7 @@ Returns
 tuple
     A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "cutlass_nvfp4_grouped_mm",
       [](TensorView* mat1,
@@ -2265,16 +2277,16 @@ Returns
 TensorView
     Result of grouped matrix multiplication
 )",
-      py::arg("mat1"),
-      py::arg("mat2"),
-      py::arg("scale1"),
-      py::arg("scale2"),
-      py::arg("alpha"),
-      py::arg("problem_sizes"),
-      py::arg("expert_offsets"),
-      py::arg("sf_offsets"),
-      py::arg("dtype") = DataType::BFloat16,
-      py::return_value_policy::reference);
+      nb::arg("mat1"),
+      nb::arg("mat2"),
+      nb::arg("scale1"),
+      nb::arg("scale2"),
+      nb::arg("alpha"),
+      nb::arg("problem_sizes"),
+      nb::arg("expert_offsets"),
+      nb::arg("sf_offsets"),
+      nb::arg("dtype") = DataType::BFloat16,
+      nb::rv_policy::reference);
   ops.def(
       "scaled_mm",
       [](TensorView* mat1,
@@ -2318,17 +2330,17 @@ TensorView
         }
         return std::make_tuple(output, std::nullopt, std::nullopt);
       },
-      py::arg("mat1"),
-      py::arg("mat2"),
-      py::arg("scale1"),
-      py::arg("scale2"),
-      py::arg("alpha").none(true) = py::none(),
-      py::arg("bias").none(true) = py::none(),
-      py::arg("beta").none(true) = py::none(),
-      py::arg("dtype") = DataType::BFloat16,
-      py::arg("output_block_scale_size") = 0,
-      py::arg("output_block_scale_dtype") = DataType::BFloat16,
-      py::arg("output_gamma") = false,
+      nb::arg("mat1"),
+      nb::arg("mat2"),
+      nb::arg("scale1"),
+      nb::arg("scale2"),
+      nb::arg("alpha").none(true) = nb::none(),
+      nb::arg("bias").none(true) = nb::none(),
+      nb::arg("beta").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::BFloat16,
+      nb::arg("output_block_scale_size") = 0,
+      nb::arg("output_block_scale_dtype") = DataType::BFloat16,
+      nb::arg("output_gamma") = false,
       R"(
 Scaled matrix multiplication.
 
@@ -2367,7 +2379,7 @@ Returns
 tuple
     A tuple containing the result of matrix multiplication, output block scale tensor, and output gamma tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
 template <class ITERABLE>
@@ -2375,8 +2387,8 @@ std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
   std::vector<Val*> args;
   size_t idx = 0;
   for (const auto& item : values) {
-    if (py::isinstance<py::int_>(item)) {
-      auto int_value = py::cast<int64_t>(item);
+    if (nb::isinstance<nb::int_>(item)) {
+      auto int_value = nb::cast<int64_t>(item);
       NVF_CHECK(
           !shape_check || int_value >= -1,
           "The value ",
@@ -2386,8 +2398,8 @@ std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
           " was neither symbolic(-1), zero_element(0), broadcast(1), or "
           "static(>1).");
       args.emplace_back(IrBuilder::create<Val>(int_value, DataType::Int));
-    } else if (py::isinstance<Val>(item)) {
-      args.emplace_back(py::cast<Val*>(item));
+    } else if (nb::isinstance<Val>(item)) {
+      args.emplace_back(nb::cast<Val*>(item));
     } else {
       NVF_CHECK(
           false,
@@ -2402,8 +2414,8 @@ std::vector<Val*> define_vector_fn(ITERABLE& values, bool shape_check) {
 template <class ShapeType>
 std::vector<Val*> SequenceAsVector(ShapeType shape, bool shape_check = true) {
   static_assert(
-      std::is_same_v<ShapeType, py::list> ||
-      std::is_same_v<ShapeType, py::tuple>);
+      std::is_same_v<ShapeType, nb::list> ||
+      std::is_same_v<ShapeType, nb::tuple>);
   return define_vector_fn<ShapeType>(shape, /*shape_check=*/shape_check);
 }
 
@@ -2516,14 +2528,14 @@ TensorView* slice_fn(
   return slice(arg, vec_slice, manual_normalization);
 }
 
-void bindMetadataOps(py::module_& ops) {
+void bindMetadataOps(nb::module_& ops) {
   ops.def(
       "broadcast",
       [](TensorView* arg, std::vector<bool>& is_broadcast_dim) -> TensorView* {
         return broadcast(arg, is_broadcast_dim);
       },
-      py::arg("arg"),
-      py::arg("is_broadcast_dim"),
+      nb::arg("arg"),
+      nb::arg("is_broadcast_dim"),
       R"(
 Broadcast a tensor to a new shape.
 
@@ -2538,20 +2550,20 @@ Returns
 TensorView
     The broadcasted tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<py::list>,
-      py::arg("arg"),
-      py::arg("shape"),
-      py::arg("broadcast_dims"),
-      py::return_value_policy::reference);
+      broadcast_in_dim_fn<nb::list>,
+      nb::arg("arg"),
+      nb::arg("shape"),
+      nb::arg("broadcast_dims"),
+      nb::rv_policy::reference);
   ops.def(
       "broadcast_in_dim",
-      broadcast_in_dim_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("shape"),
-      py::arg("broadcast_dims"),
+      broadcast_in_dim_fn<nb::tuple>,
+      nb::arg("arg"),
+      nb::arg("shape"),
+      nb::arg("broadcast_dims"),
       R"(
 Broadcast a tensor to a new shape.
 
@@ -2568,12 +2580,12 @@ Returns
 TensorView
     The broadcasted tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "reshape",
-      reshape_fn<py::list>,
-      py::arg("arg"),
-      py::arg("new_shape"),
+      reshape_fn<nb::list>,
+      nb::arg("arg"),
+      nb::arg("new_shape"),
       R"(
 Reshape a tensor to a new shape.
 
@@ -2588,12 +2600,12 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "reshape",
-      reshape_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("new_shape"),
+      reshape_fn<nb::tuple>,
+      nb::arg("arg"),
+      nb::arg("new_shape"),
       R"(
 Reshape a tensor to a new shape.
 
@@ -2608,7 +2620,7 @@ Returns
 TensorView
     The reshaped tensor.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "permute",
       [](TensorView* arg, std::vector<int64_t>& dims) -> TensorView* {
@@ -2621,8 +2633,8 @@ TensorView
             "as input!");
         return permute(arg, dims);
       },
-      py::arg("arg"),
-      py::arg("dims"),
+      nb::arg("arg"),
+      nb::arg("dims"),
       R"(
 Permute a tensor.
 
@@ -2637,12 +2649,12 @@ Returns
 TensorView
     The permuted tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "expand",
-      expand_fn<py::list>,
-      py::arg("arg"),
-      py::arg("shape"),
+      expand_fn<nb::list>,
+      nb::arg("arg"),
+      nb::arg("shape"),
       R"(
 Expand a tensor to a new shape.
 
@@ -2657,12 +2669,12 @@ Returns
 TensorView
     The expanded tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "expand",
-      expand_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("shape"),
+      expand_fn<nb::tuple>,
+      nb::arg("arg"),
+      nb::arg("shape"),
       R"(
 Expand a tensor to a new shape.
 
@@ -2677,7 +2689,7 @@ Returns
 TensorView
     The expanded tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "squeeze",
       [](TensorView* arg,
@@ -2685,10 +2697,10 @@ TensorView
          const bool squeeze_expanded) -> TensorView* {
         return squeeze(arg, dims, squeeze_expanded);
       },
-      py::arg("arg"),
-      py::arg("dims"),
-      py::arg("squeeze_expanded") = false,
-      py::return_value_policy::reference,
+      nb::arg("arg"),
+      nb::arg("dims"),
+      nb::arg("squeeze_expanded") = false,
+      nb::rv_policy::reference,
       R"(
 Reduce a tensor by removing specified dimensions.
 
@@ -2705,24 +2717,24 @@ Returns
 TensorView
     The squeezed tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "slice",
-      slice_fn<py::list>,
-      py::arg("arg"),
-      py::arg("start_indices"),
-      py::arg("end_indices"),
-      py::arg("strides") = py::none(),
-      py::arg("manual_normalization") = false,
-      py::return_value_policy::reference);
+      slice_fn<nb::list>,
+      nb::arg("arg"),
+      nb::arg("start_indices"),
+      nb::arg("end_indices"),
+      nb::arg("strides") = nb::none(),
+      nb::arg("manual_normalization") = false,
+      nb::rv_policy::reference);
   ops.def(
       "slice",
-      slice_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("start_indices"),
-      py::arg("end_indices"),
-      py::arg("strides") = py::none(),
-      py::arg("manual_normalization") = false,
+      slice_fn<nb::tuple>,
+      nb::arg("arg"),
+      nb::arg("start_indices"),
+      nb::arg("end_indices"),
+      nb::arg("strides") = nb::none(),
+      nb::arg("manual_normalization") = false,
       R"(
 Slice a tensor.
 
@@ -2741,15 +2753,15 @@ Returns
 TensorView
     The sliced tensor.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindTensorUtilityOps(py::module_& ops) {
+void bindTensorUtilityOps(nb::module_& ops) {
   ops.def(
       "size",
       [](TensorView* arg, int64_t dim) -> Val* { return size(arg, dim); },
-      py::arg("arg"),
-      py::arg("dim"),
+      nb::arg("arg"),
+      nb::arg("dim"),
       R"(
 Get the size of a tensor.
 
@@ -2764,11 +2776,11 @@ Returns
 int
     The size of the dimension.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "shape",
       [](TensorView* arg) { return shape(arg); },
-      py::return_value_policy::reference,
+      nb::rv_policy::reference,
       R"(
 Get the shape of a tensor.
 
@@ -2797,8 +2809,8 @@ list of Val
         output->setAllocationDomain(allocation_domain, /*new_contiguity=*/true);
         return output;
       },
-      py::arg("arg"),
-      py::arg("stride_order"),
+      nb::arg("arg"),
+      nb::arg("stride_order"),
       R"(
 Create a copy of a tensor with a new memory layout.
 
@@ -2813,7 +2825,7 @@ Returns
 TensorView
     The tensor with a new memory layout.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
 template <class ShapeType>
@@ -2829,16 +2841,16 @@ TensorView* pad_fn(
   return pad(arg, pad_widths, convertToVal(value));
 }
 
-void bindIndexingOps(py::module_& ops) {
+void bindIndexingOps(nb::module_& ops) {
   ops.def(
       "index_select",
       [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
         return indexSelect(arg, dim, index);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("dim"),
-      py::return_value_policy::reference,
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("dim"),
+      nb::rv_policy::reference,
       R"(
 Select elements from a tensor along a specified dimension.
 
@@ -2859,10 +2871,10 @@ TensorView
       [](TensorView* arg, Val* index, int64_t dim) -> TensorView* {
         return select(arg, dim, index);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("dim"),
-      py::return_value_policy::reference,
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("dim"),
+      nb::rv_policy::reference,
       R"(
 Select elements from a tensor along a specified dimension.
 
@@ -2902,10 +2914,10 @@ TensorView
             dim);
         return scatter(arg, dim, index, src);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("src"),
-      py::arg("dim"),
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("src"),
+      nb::arg("dim"),
       R"(
 Scatter a tensor.
 
@@ -2925,7 +2937,7 @@ Returns
 TensorView
     The scattered tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "scatter",
       [](TensorView* arg, TensorView* index, Val* src, int64_t dim)
@@ -2942,10 +2954,10 @@ TensorView
             dim);
         return scatter(arg, dim, index, src);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("src"),
-      py::arg("dim"),
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("src"),
+      nb::arg("dim"),
       R"(
 Scatter a tensor.
 
@@ -2965,7 +2977,7 @@ Returns
 TensorView
     The scattered tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "gather",
       [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
@@ -2987,9 +2999,9 @@ TensorView
             dim);
         return gather(arg, dim, index);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("dim"),
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("dim"),
       R"(
 Gather values from arg tensor along dim at positions given by index.
 
@@ -3015,20 +3027,20 @@ TensorView
     the element at position `(i...,j,k...)` is equal to
     `arg[i,...,index[i,...,j,k,...],k,...]`.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "pad",
-      pad_fn<py::list>,
-      py::arg("arg"),
-      py::arg("pad_widths"),
-      py::arg("value").none(true) = py::none(),
-      py::return_value_policy::reference);
+      pad_fn<nb::list>,
+      nb::arg("arg"),
+      nb::arg("pad_widths"),
+      nb::arg("value").none(true) = nb::none(),
+      nb::rv_policy::reference);
   ops.def(
       "pad",
-      pad_fn<py::tuple>,
-      py::arg("arg"),
-      py::arg("pad_widths"),
-      py::arg("value").none(true) = py::none(),
+      pad_fn<nb::tuple>,
+      nb::arg("arg"),
+      nb::arg("pad_widths"),
+      nb::arg("value").none(true) = nb::none(),
       R"(
 Pad a tensor.
 
@@ -3046,7 +3058,7 @@ Returns
 TensorView
     The padded tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "take_along_axis",
       [](TensorView* arg, TensorView* index, int64_t dim) -> TensorView* {
@@ -3069,9 +3081,9 @@ TensorView
             dim);
         return takeAlongAxis(arg, index, dim);
       },
-      py::arg("arg"),
-      py::arg("index"),
-      py::arg("dim"),
+      nb::arg("arg"),
+      nb::arg("index"),
+      nb::arg("dim"),
       R"(
 Index arg in dim at positions given by index.
 
@@ -3095,7 +3107,7 @@ TensorView
     element at position `(i...,j,k...)` is equal to
     `arg[i,...,index[i,...,j,k,...],k,...]`.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "cat",
       [](std::vector<TensorView*> tensors,
@@ -3104,10 +3116,10 @@ TensorView
         return cat(
             tensors, dim, /*iter_type_opt=*/std::nullopt, manual_padding);
       },
-      py::arg("tensors"),
-      py::arg("dim") = 0,
-      py::arg("manual_padding") = false,
-      py::return_value_policy::reference);
+      nb::arg("tensors"),
+      nb::arg("dim") = 0,
+      nb::arg("manual_padding") = false,
+      nb::rv_policy::reference);
   ops.def(
       "embedding_fwd",
       [](TensorView* input,
@@ -3126,13 +3138,13 @@ TensorView
             scale_grad_by_freq,
             sparse);
       },
-      py::arg("input"),
-      py::arg("weight"),
-      py::arg("padding_idx").none(true) = py::none(),
-      py::arg("max_norm").none(true) = py::none(),
-      py::arg("norm_type").none(true) = py::none(),
-      py::arg("scale_grad_by_freq").none(true) = py::none(),
-      py::arg("sparse").none(true) = py::none(),
+      nb::arg("input"),
+      nb::arg("weight"),
+      nb::arg("padding_idx").none(true) = nb::none(),
+      nb::arg("max_norm").none(true) = nb::none(),
+      nb::arg("norm_type").none(true) = nb::none(),
+      nb::arg("scale_grad_by_freq").none(true) = nb::none(),
+      nb::arg("sparse").none(true) = nb::none(),
       R"(
 Forward pass for embedding layers that maps integer indices to vectors.
 
@@ -3175,7 +3187,7 @@ Notes
 - All optional parameters must be scalar values when provided.
 - This operation is equivalent to PyTorch's torch.nn.functional.embedding.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "preprocess_grouped_matmul_input_sf",
       [](TensorView* input,
@@ -3187,9 +3199,9 @@ Notes
             output_offsets,
             BlockScalingFactorLayout::Block128x4);
       },
-      py::arg("input"),
-      py::arg("input_offsets"),
-      py::arg("output_offsets"),
+      nb::arg("input"),
+      nb::arg("input_offsets"),
+      nb::arg("output_offsets"),
       R"(
 Layout operation to apply per group swizzle & padding to the block scaling factor of the input activations to grouped matmul.
 
@@ -3209,7 +3221,7 @@ Returns
 TensorView
     A tensor with proper swizzle & padding in memory. Note that the actual padding in buffer is not represented by the size/stride of the output tensor.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
 template <class ShapeType>
@@ -3221,7 +3233,7 @@ TensorView* full_op_fn(
   return full(output_shape, convertToVal(fill_value), dtype);
 }
 
-void bindTensorFactoryOps(py::module_& ops) {
+void bindTensorFactoryOps(nb::module_& ops) {
   ops.def(
       "iota",
       [](ScalarVariant length,
@@ -3234,10 +3246,10 @@ void bindTensorFactoryOps(py::module_& ops) {
             convertToVal(step),
             dtype);
       },
-      py::arg("length"),
-      py::arg("start").none(true) = py::none(),
-      py::arg("step").none(true) = py::none(),
-      py::arg("dtype") = DataType::Int,
+      nb::arg("length"),
+      nb::arg("start").none(true) = nb::none(),
+      nb::arg("step").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::Int,
       R"(
 Create a tensor with values from 0 to length-1.
 
@@ -3257,20 +3269,20 @@ Returns
 TensorView
     The tensor with values from 0 to length-1.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "full",
-      full_op_fn<py::list>,
-      py::arg("shape"),
-      py::arg("fill_value"),
-      py::arg("dtype"),
-      py::return_value_policy::reference);
+      full_op_fn<nb::list>,
+      nb::arg("shape"),
+      nb::arg("fill_value"),
+      nb::arg("dtype"),
+      nb::rv_policy::reference);
   ops.def(
       "full",
-      full_op_fn<py::tuple>,
-      py::arg("shape"),
-      py::arg("fill_value"),
-      py::arg("dtype"),
+      full_op_fn<nb::tuple>,
+      nb::arg("shape"),
+      nb::arg("fill_value"),
+      nb::arg("dtype"),
       R"(
 Create a tensor with all elements set to a specified value.
 
@@ -3288,16 +3300,15 @@ Returns
 TensorView
     The tensor with all elements set to the specified value.
 )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindSearchOps(py::module_& ops) {
+void bindSearchOps(nb::module_& ops) {
   ops.def(
       "topk",
-      [](TensorView* arg, Val* k, int64_t dim, bool largest, bool sorted)
-          -> py::tuple {
+      [](TensorView* arg, Val* k, int64_t dim, bool largest, bool sorted) {
         auto output = topk(arg, k, dim, largest, sorted);
-        return py::make_tuple(output.values, output.indices);
+        return std::make_tuple(output.values, output.indices);
       },
       R"(
       Find the k largest or smallest elements along a dimension.
@@ -3314,20 +3325,20 @@ void bindSearchOps(py::module_& ops) {
                                 the k largest/smallest elements and indices contains
                                 their positions in the original tensor.
       )",
-      py::arg("arg"),
-      py::arg("k"),
-      py::arg("dim") = -1,
-      py::arg("largest") = true,
-      py::arg("sorted") = false,
-      py::return_value_policy::reference);
+      nb::arg("arg"),
+      nb::arg("k"),
+      nb::arg("dim") = -1,
+      nb::arg("largest") = true,
+      nb::arg("sorted") = false,
+      nb::rv_policy::reference);
   ops.def(
       "argsort",
       [](TensorView* arg, int64_t dim, bool descending, bool stable)
           -> TensorView* { return argsort(arg, dim, descending, stable); },
-      py::arg("arg"),
-      py::arg("dim"),
-      py::arg("descending") = false,
-      py::arg("stable") = false,
+      nb::arg("arg"),
+      nb::arg("dim"),
+      nb::arg("descending") = false,
+      nb::arg("stable") = false,
       R"(
 Sort the elements of a tensor.
 
@@ -3347,10 +3358,10 @@ Returns
 TensorView
     The sorted tensor.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindSdpaOps(py::module_& ops) {
+void bindSdpaOps(nb::module_& ops) {
   ops.def(
       "sdpfa_fwd",
       [](TensorView* query,
@@ -3370,16 +3381,16 @@ void bindSdpaOps(py::module_& ops) {
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
             convertToVal(scale));
-        return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+        return std::make_tuple(output, log_sumexp, philox_seed, philox_offset);
       },
-      py::arg("query"),
-      py::arg("key"),
-      py::arg("value"),
-      py::arg("bias").none(true) = py::none(),
-      py::arg("mask").none(true) = py::none(),
-      py::arg("dropout_p").none(true) = py::none(),
-      py::arg("is_causal").none(true) = py::none(),
-      py::arg("scale").none(true) = py::none(),
+      nb::arg("query"),
+      nb::arg("key"),
+      nb::arg("value"),
+      nb::arg("bias").none(true) = nb::none(),
+      nb::arg("mask").none(true) = nb::none(),
+      nb::arg("dropout_p").none(true) = nb::none(),
+      nb::arg("is_causal").none(true) = nb::none(),
+      nb::arg("scale").none(true) = nb::none(),
       R"(
 Scaled Dot Product Flash Attention Forward.
 
@@ -3407,7 +3418,7 @@ Returns
 tuple[TensorView, TensorView, TensorView, TensorView]
     A tuple of (output, log_sumexp, philox_seed, philox_offset).
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "sdpfa_bwd",
       [](TensorView* grad_output,
@@ -3435,17 +3446,17 @@ tuple[TensorView, TensorView, TensorView, TensorView]
             convertToVal(scale));
         return std::make_tuple(grad_query, grad_key, grad_value);
       },
-      py::arg("grad_output"),
-      py::arg("query"),
-      py::arg("key"),
-      py::arg("value"),
-      py::arg("output"),
-      py::arg("log_sumexp"),
-      py::arg("dropout_p"),
-      py::arg("is_causal"),
-      py::arg("philox_seed"),
-      py::arg("philox_offset"),
-      py::arg("scale"),
+      nb::arg("grad_output"),
+      nb::arg("query"),
+      nb::arg("key"),
+      nb::arg("value"),
+      nb::arg("output"),
+      nb::arg("log_sumexp"),
+      nb::arg("dropout_p").none(),
+      nb::arg("is_causal").none(),
+      nb::arg("philox_seed"),
+      nb::arg("philox_offset"),
+      nb::arg("scale").none(),
       R"(
 Scaled Dot Product Flash Attention Backward.
 
@@ -3479,7 +3490,7 @@ Returns
 tuple[TensorView, TensorView, TensorView]
     A tuple of (grad_query, grad_key, grad_value).
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
 template <
@@ -3517,23 +3528,23 @@ TensorView* random_dist_op_fn(
       /*maybe_symbolic=*/true);
 }
 
-void bindQuantizationOps(py::module_& ops) {
+void bindQuantizationOps(nb::module_& ops) {
   ops.def(
       "nv_block_quantize",
       [](TensorView* input,
          TensorView* global_scale,
          bool swizzle_block_scales,
          int64_t block_size,
-         PrimDataType dtype) -> py::tuple {
+         PrimDataType dtype) -> std::tuple<TensorView*, TensorView*> {
         auto output = blockQuantize(
             input, global_scale, block_size, swizzle_block_scales, dtype);
-        return py::make_tuple(output.quantized_tensor, output.block_scales);
+        return std::make_tuple(output.quantized_tensor, output.block_scales);
       },
-      py::arg("input"),
-      py::arg("global_scale").none(true) = py::none(),
-      py::arg("swizzle_block_scales") = false,
-      py::arg("block_size") = 16,
-      py::arg("dtype") = DataType::Float4_e2m1fn,
+      nb::arg("input"),
+      nb::arg("global_scale").none(true) = nb::none(),
+      nb::arg("swizzle_block_scales") = false,
+      nb::arg("block_size") = 16,
+      nb::arg("dtype") = DataType::Float4_e2m1fn,
       R"(
 Block quantize tensor to NVFP4 format.
 Parameters
@@ -3555,31 +3566,31 @@ tuple[TensorView, TensorView]
     - quantized_tensor: Quantized tensor in NVFP4 format
     - block_scales: Per-block scaling factors
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
-void bindRandomOps(py::module_& ops) {
+void bindRandomOps(nb::module_& ops) {
   ops.def(
       "normal",
-      random_dist_op_fn<py::list, normal>,
-      py::arg("mean"),
-      py::arg("std"),
-      py::arg("shape"),
-      py::kw_only(),
-      py::arg("rng_seed").none(true) = py::none(),
-      py::arg("rng_offset").none(true) = py::none(),
-      py::arg("dtype") = DataType::Float,
-      py::return_value_policy::reference);
+      random_dist_op_fn<nb::list, normal>,
+      nb::arg("mean"),
+      nb::arg("std"),
+      nb::arg("shape"),
+      nb::kw_only(),
+      nb::arg("rng_seed").none(true) = nb::none(),
+      nb::arg("rng_offset").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::Float,
+      nb::rv_policy::reference);
   ops.def(
       "normal",
-      random_dist_op_fn<py::tuple, normal>,
-      py::arg("mean"),
-      py::arg("std"),
-      py::arg("shape"),
-      py::kw_only(),
-      py::arg("rng_seed").none(true) = py::none(),
-      py::arg("rng_offset").none(true) = py::none(),
-      py::arg("dtype") = DataType::Float,
+      random_dist_op_fn<nb::tuple, normal>,
+      nb::arg("mean"),
+      nb::arg("std"),
+      nb::arg("shape"),
+      nb::kw_only(),
+      nb::arg("rng_seed").none(true) = nb::none(),
+      nb::arg("rng_offset").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with normal distribution.
 
@@ -3603,28 +3614,28 @@ Returns
 TensorView
     The tensor with normal distribution.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
   ops.def(
       "uniform",
-      random_dist_op_fn<py::list, uniform>,
-      py::arg("minval"),
-      py::arg("maxval"),
-      py::arg("shape"),
-      py::kw_only(),
-      py::arg("rng_seed").none(true) = py::none(),
-      py::arg("rng_offset").none(true) = py::none(),
-      py::arg("dtype") = DataType::Float,
-      py::return_value_policy::reference);
+      random_dist_op_fn<nb::list, uniform>,
+      nb::arg("minval"),
+      nb::arg("maxval"),
+      nb::arg("shape"),
+      nb::kw_only(),
+      nb::arg("rng_seed").none(true) = nb::none(),
+      nb::arg("rng_offset").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::Float,
+      nb::rv_policy::reference);
   ops.def(
       "uniform",
-      random_dist_op_fn<py::tuple, uniform>,
-      py::arg("minval"),
-      py::arg("maxval"),
-      py::arg("shape"),
-      py::kw_only(),
-      py::arg("rng_seed").none(true) = py::none(),
-      py::arg("rng_offset").none(true) = py::none(),
-      py::arg("dtype") = DataType::Float,
+      random_dist_op_fn<nb::tuple, uniform>,
+      nb::arg("minval"),
+      nb::arg("maxval"),
+      nb::arg("shape"),
+      nb::kw_only(),
+      nb::arg("rng_seed").none(true) = nb::none(),
+      nb::arg("rng_offset").none(true) = nb::none(),
+      nb::arg("dtype") = DataType::Float,
       R"(
 Create a tensor with uniform distribution.
 
@@ -3648,17 +3659,13 @@ Returns
 TensorView
     The tensor with uniform distribution.
       )",
-      py::return_value_policy::reference);
+      nb::rv_policy::reference);
 }
 
 } // namespace
 
-void bindOperations(py::module& nvfuser) {
-  // suppress auto-generated signatures for sphinx documentation
-  py::options options;
-  options.disable_function_signatures();
-
-  py::module_ nvf_ops = nvfuser.def_submodule(
+void bindOperations(nb::module_& nvfuser) {
+  nb::module_ nvf_ops = nvfuser.def_submodule(
       "ops", "This submodule contains all operations for NvFuser.");
   bindUnaryOps(nvf_ops);
   bindBinaryOps(nvf_ops);

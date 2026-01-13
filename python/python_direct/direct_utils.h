@@ -7,16 +7,19 @@
 // clang-format on
 #pragma once
 
+#include <nanobind/nanobind.h>
 #include <runtime/executor_kernel_arg.h>
-#include <torch/csrc/jit/python/pybind_utils.h>
 #include <optional>
+#include <typeinfo>
 #include <vector>
+
+namespace nb = nanobind;
 
 namespace nvfuser::python {
 
-// Convert a py::iterable to a KernelArgumentHolder
+// Convert a nb::iterable to a KernelArgumentHolder
 nvfuser::KernelArgumentHolder from_pyiterable(
-    const py::iterable& iter,
+    const nb::iterable& iter,
     std::optional<int64_t> device = std::nullopt);
 
 // Convert a KernelArgumentHolder to a std::vector<at::Tensor>
