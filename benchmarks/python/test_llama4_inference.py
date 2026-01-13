@@ -2,7 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
 
 
@@ -11,7 +10,6 @@ from .benchmark_inference import InferenceBenchmarkConfig, InferenceBenchmark
 @pytest.mark.parametrize("mode", ["thunder", "inductor"])
 @pytest.mark.parametrize("enable_nvfp4", [False, True])
 @pytest.mark.parametrize("enable_cudagraph", [False, True])
-@pytest.mark.pointwise
 def test_llama4_inference_benchmark(
     benchmark,
     input_length: int,
