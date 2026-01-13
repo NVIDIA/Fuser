@@ -165,7 +165,8 @@ void Common::findRoles() {
 void Common::countDims() {
   NVF_ERROR(!patterns_.empty());
   TensorView* mma_result = patterns_.front().output;
-  num_device_dims_ = scheduler_utils::numDeviceDims(mma_result);
+  num_device_dims_ =
+      scheduler_utils::countLeadingParallelDimensions(mma_result);
   for (const auto& it : id_roles_) {
     if (it.second == MatmulDimRole::Batch &&
         // Skip device dims

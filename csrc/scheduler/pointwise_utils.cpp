@@ -414,7 +414,8 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
   // Move non-concretized broadcasts innermost
   scheduler_utils::moveNonConcretizedBroadcastInnermost(
       fusion, {info.reference_tv});
-  int64_t num_device_dims = scheduler_utils::numDeviceDims(info.reference_tv);
+  int64_t num_device_dims =
+      scheduler_utils::countLeadingParallelDimensions(info.reference_tv);
   int64_t device_aware_break_point = break_point + num_device_dims;
 
   // Positions of rhs and lhs after merging all dimensions.
