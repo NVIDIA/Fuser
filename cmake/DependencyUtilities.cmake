@@ -103,8 +103,12 @@ endfunction()
 # --------------------------
 
 macro(report_dependencies)
-  # Export dependency data to JSON
-  export_dependency_json("${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
+  # Export dependency data to JSON with error handling
+  set(json_file "${CMAKE_BINARY_DIR}/nvfuser_dependencies.json")
+  export_dependency_json("${json_file}")
+  if(NOT EXISTS "${json_file}")
+    message(WARNING "Failed to export dependency data to ${json_file} - skipping enhanced dependency report")
+  else()
 
   # Try to use Python script for enhanced reporting
   set(python_script "${CMAKE_SOURCE_DIR}/python/tools/check_dependencies.py")
