@@ -110,28 +110,30 @@ macro(report_dependencies)
     message(WARNING "Failed to export dependency data to ${json_file} - skipping enhanced dependency report")
   else()
 
-  # Try to use Python script for enhanced reporting
-  set(python_script "${CMAKE_SOURCE_DIR}/python/tools/check_dependencies.py")
+    # Try to use Python script for enhanced reporting
+    set(python_script "${CMAKE_SOURCE_DIR}/python/tools/check_dependencies.py")
 
-  if(NOT EXISTS "${python_script}")
-    message(WARNING "Python reporting script not found: ${python_script}")
-  elseif(NOT DEFINED Python_EXECUTABLE OR NOT Python_FOUND)
-    message(WARNING "Python is not available - skipping enhanced dependency report")
-  else()
-    # Run Python reporting script
-    execute_process(
-      COMMAND "${Python_EXECUTABLE}" "${python_script}" "${CMAKE_BINARY_DIR}/nvfuser_dependencies.json"
-      RESULT_VARIABLE python_result
-      OUTPUT_VARIABLE python_output
-      ERROR_VARIABLE python_error
-    )
-
-    if(NOT python_result EQUAL 0)
-      message(WARNING "Python reporting failed (exit code ${python_result}): ${python_error}")
+    if(NOT EXISTS "${python_script}")
+      message(WARNING "Python reporting script not found: ${python_script}")
+    elseif(NOT DEFINED Python_EXECUTABLE OR NOT Python_FOUND)
+      message(WARNING "Python is not available - skipping enhanced dependency report")
     else()
-      # Display Python output
-      message("${python_output}")
+      # Run Python reporting script
+      execute_process(
+        COMMAND ${Python_EXECUTABLE} ${python_script} ${json_file}
+        RESULT_VARIABLE python_result
+        OUTPUT_VARIABLE python_output
+        ERROR_VARIABLE python_error
+      )
+
+      if(NOT python_result EQUAL 0)
+        message(WARNING "Python reporting failed (${python_result}): ${python_error} To reproduce: ${Python_EXECUTABLE} ${python_script} ${json_file}")
+      else()
+        # Display Python output
+        message("${python_output}")
+      endif()
     endif()
+
   endif()
 
 endmacro()
