@@ -596,7 +596,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(ReductionParams, fastest_dim)
       .PARAM(ReductionParams, persistent_kernel)
       .PARAM(ReductionParams, project_persistent_buffers)
-      .PARAM(ReductionParams, schedule_3D)
+      .PARAM(ReductionParams, schedule_3d)
       .PARAM(ReductionParams, flip_grid)
       .PARAM(ReductionParams, cross_block_inner_reduction)
       .PARAM(ReductionParams, cross_grid_inner_reduction)

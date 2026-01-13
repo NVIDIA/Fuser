@@ -1119,9 +1119,9 @@ void innerPersistentHeuristic3D(
   }
 
   // Outer reduction domain
-  rparams->schedule_3D =
+  rparams->schedule_3d =
       properties.total_reduction_numel != properties.inner_most_dimension_numel;
-  if (rparams->schedule_3D) {
+  if (rparams->schedule_3d) {
     rparams->batches_per_block_outer_reduction =
         batches_per_block_outer_reduction;
     rparams->block_dim_outer_reduction = ParallelType::TIDz;
