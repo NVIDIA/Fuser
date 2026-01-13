@@ -491,6 +491,6 @@ def test_alltoall(multidevice_test):
         out.set_allocation_domain(out.get_loop_domain(), True)
 
     in_tensor = torch.randn(k, m, n, dtype=torch.float16)
-    sharded = multidevice_test.shard_tensor(in_tensor, 2, mesh)
+    sharded = multidevice_test.shard_tensor(in_tensor, inp)
     (all2all_inp, all2all_out, out) = fd.execute([sharded])
-    torch.testing.assert_close(out, multidevice_test.shard_tensor(in_tensor, 1, mesh))
+    torch.testing.assert_close(out.cpu(), multidevice_test.shard_tensor(in_tensor, out))
