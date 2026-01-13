@@ -117,8 +117,6 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
             t.set_device_mesh(mesh)
             t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     def make_unsharded_tensor() -> torch.Tensor:
         return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cuda")
 
@@ -238,8 +236,6 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
     b, s = 2, 1024
 
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     def make_unsharded_tensor() -> torch.Tensor:
         return torch.randn(b, h, s, e // h, dtype=torch.bfloat16, device="cpu")
 
@@ -329,8 +325,6 @@ def test_privatize_squeeze(multidevice_test):
 def test_inner_reduction(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     with FusionDefinition() as fd:
         inp_tv = fd.define_tensor((-1, -1), dtype=DataType.Float)
         out_tv = fd.ops.sum(inp_tv, [1])
