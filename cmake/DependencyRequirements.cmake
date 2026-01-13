@@ -23,7 +23,7 @@ set(NVFUSER_REQUIREMENT_Clang_VERSION_MIN "19")
 
 # Python
 set(NVFUSER_REQUIREMENT_Python_VERSION_MIN "3.10")
-set(NVFUSER_REQUIREMENT_Python_COMPONENTS "Interpreter;Development")
+set(NVFUSER_REQUIREMENT_Python_COMPONENTS "Interpreter;Development.Module")
 
 # Torch
 set(NVFUSER_REQUIREMENT_Torch_VERSION_MIN "2.9")
