@@ -220,8 +220,7 @@ def main():
     reporter = DependencyReporter(json_path)
     reporter.generate_report()
 
-    # Python doesn't determine success/failure - that's CMake's job
-    # We just print a pretty report and always exit 0
+    # Report generated successfully
     sys.exit(0)
 
 
