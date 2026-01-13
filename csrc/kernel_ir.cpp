@@ -164,12 +164,12 @@ bool ForLoop::isUnrollable() const {
 
 bool ForLoop::isUnrolled() const {
   if (isUnrollRequired() && !isUnrollable()) {
-    if (!iter_domain()->isBroadcast() && !vectorize()) {
+    if (!isTrivial()) {
       TORCH_WARN(
-          "Unroll required but not possible. Register allocation disabled. "
+          "Unroll required but not possible. Register allocation disabled.\n"
           "Loop index: ",
           index()->toString(),
-          ", ",
+          "\nLoop:\n",
           toString());
     }
     return false;
@@ -1737,8 +1737,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
     int64_t bdimy,
     int64_t bdimz) const {
   auto out_tv = ir_utils::getTvOutput(this);
-  auto kernel = dynamic_cast<kir::Kernel*>(container());
-  NVF_ERROR(kernel != nullptr);
+  auto kernel = container()->as<kir::Kernel>();
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {

@@ -40,6 +40,7 @@ from tqdm import tqdm
 import transformers
 from transformers import AutoConfig, AutoModelForCausalLM
 from transformers.cache_utils import HybridChunkedCache, StaticCache
+from transformers.models.llama4 import Llama4TextConfig
 from transformers.models.llama4.modeling_llama4 import Llama4TextMoe
 from torch.distributed.tensor.placement_types import Shard
 from torch.distributed.tensor import DTensor
@@ -51,9 +52,6 @@ from layers_for_inference_benchmark import (
     Llama4MoE,
     NVFP4InferenceGroupedSwiGLU,
     nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
-    FLOAT4_E2M1_MAX,
-    FLOAT8_E4M3_EPS,
-    FLOAT8_E4M3_MAX,
 )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
@@ -76,6 +74,50 @@ else:
     mesh = None
 
 LLAMA4_MAVERICK_MODEL_ID: str = "meta-llama/Llama-4-Maverick-17B-128E"
+llama_4_Maverick_17B_128E_cfg_str = r""" {
+  "attention_bias": false,
+  "attention_chunk_size": 8192,
+  "attention_dropout": 0.0,
+  "attn_scale": 0.1,
+  "attn_temperature_tuning": true,
+  "bos_token_id": 200000,
+  "cache_implementation": "hybrid",
+  "eos_token_id": [
+    200001,
+    200007,
+    200008
+  ],
+  "floor_scale": 8192,
+  "for_llm_compressor": false,
+  "head_dim": 128,
+  "hidden_act": "silu",
+  "hidden_size": 5120,
+  "initializer_range": 0.02,
+  "interleave_moe_layer_step": 2,
+  "intermediate_size": 8192,
+  "intermediate_size_mlp": 16384,
+  "max_position_embeddings": 262144,
+  "model_type": "llama4_text",
+  "moe_layers": [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47],
+  "no_rope_layers": [1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0],
+  "num_attention_heads": 40,
+  "num_experts_per_tok": 1,
+  "num_hidden_layers": 48,
+  "num_key_value_heads": 8,
+  "num_local_experts": 128,
+  "output_router_logits": false,
+  "pad_token_id": 200018,
+  "rms_norm_eps": 1e-05,
+  "rope_scaling": null,
+  "rope_theta": 500000.0,
+  "router_aux_loss_coef": 0.001,
+  "router_jitter_noise": 0.0,
+  "torch_dtype": "bfloat16",
+  "use_cache": true,
+  "use_qk_norm": false,
+  "vocab_size": 202048
+}
+"""
 
 
 # TODO: Add mm quantization once nvfuser implements nvfp4 gemm
@@ -107,24 +149,7 @@ def _register_nvfp4_ops():
         nv_offsets = getnv(offsets, fd, lc_to_nv_map)
         nv_blocksf_offsets = getnv(blockscale_offsets, fd, lc_to_nv_map)
         nv_problem_sizes = getnv(problem_sizes, fd, lc_to_nv_map)
-        # dynamic shape support has some concretization issue
-        m_size = activation.shape[0]
-        k_size = activation.shape[1]
-        k_tile_size = k_size // 16
-
-        reshaped_mat1 = fd.ops.reshape(nv_act, [m_size, k_tile_size, 16])
-        scale1 = fd.ops.abs(reshaped_mat1)
-        scale1 = fd.ops.max(scale1, 2)
-        scale1 = fd.ops.div(scale1, FLOAT4_E2M1_MAX)
-        scale1 = fd.ops.clamp(scale1, FLOAT8_E4M3_EPS, FLOAT8_E4M3_MAX)
-
-        broadcast_scale1 = fd.ops.broadcast(scale1, [False, False, True])
-        reshaped_scaled_mat1 = fd.ops.div(reshaped_mat1, broadcast_scale1)
-        reshaped_scaled_mat1 = fd.ops.clamp(reshaped_scaled_mat1, -FLOAT8_E4M3_MAX, FLOAT8_E4M3_MAX)
-
-        scaled_mat1 = fd.ops.reshape(reshaped_scaled_mat1, [m_size, k_size])
-        fp4_mat1 = fd.ops.cast(scaled_mat1, DataType.Float4_e2m1fn)
-        fp8_scale1 = fd.ops.cast(scale1, DataType.Float8_e4m3fn)
+        fp4_mat1, fp8_scale1 = fd.ops.nv_block_quantize(nv_act)
         layout_fp8_scale1 = fd.ops.preprocess_grouped_matmul_input_sf(fp8_scale1, nv_offsets, nv_blocksf_offsets)
         out = fd.ops.cutlass_nvfp4_grouped_mm(
             fp4_mat1,
@@ -229,8 +254,9 @@ class InferenceBenchmarkConfig:
     disable_moe_replacement: bool
     attn_implementation: str | None
     thunder_cache: str | None
-    enable_thunder_cudagraph: bool
+    enable_cudagraph: bool
     debug_moe: bool
+    use_hardcoded_model: bool
 
 
 @dataclass
@@ -404,7 +430,7 @@ class InferenceBenchmark:
                 self._mask_transform = SDPAMaskTransform()
             res["transforms"].append(self._mask_transform)
             res["executors"] = [self._mask_transform.get_executor(), *thunder.get_default_executors()]
-        if self.config.enable_thunder_cudagraph:
+        if self.config.enable_cudagraph:
             res["transforms"].append(CUDAGraphTransform())
         if self.config.thunder_cache is not None:
             res["cache"] = self.config.thunder_cache
@@ -416,7 +442,10 @@ class InferenceBenchmark:
             case "eager":
                 return model
             case "inductor":
-                return torch.compile(model, mode="reduce-overhead")
+                if (self.config.enable_cudagraph):
+                    return torch.compile(model, mode="reduce-overhead")
+                else:
+                    return torch.compile(model, mode="default")
             case "thunder":
                 return thunderfx(model, **self._thunder_jit_options)
             case "thunderjit":
@@ -427,7 +456,14 @@ class InferenceBenchmark:
     def _load_model(self) -> torch.nn.Module:
         """Load the model based on configuration"""
         model_id = self.config.model_name
-        config = AutoConfig.from_pretrained(model_id)
+
+        config = None
+        if self.config.use_hardcoded_model:
+            config = Llama4TextConfig.from_dict(
+                json.loads(llama_4_Maverick_17B_128E_cfg_str)
+            )
+        else:
+            config = AutoConfig.from_pretrained(model_id)
 
         if hasattr(config, "text_config"):
             config = config.text_config
@@ -519,16 +555,20 @@ class InferenceBenchmark:
         """
         # Prefill phase - process the entire prompt
         with timer() as prefill_timer:
+            torch.cuda.nvtx.range_push("prefill")
             first_token = self.prefill(input_ids, past_key_values)
+            torch.cuda.nvtx.range_pop()
         prefill_time = prefill_timer()
         generated_tokens = [first_token]
 
         # Decode phase - generate remaining tokens one by one
         next_token = first_token
         with timer() as decode_timer:
-            for _ in range(max_new_tokens - 1):
+            for idx in range(max_new_tokens - 1):
+                torch.cuda.nvtx.range_push("decode:" + str(idx))
                 next_token = self.decode_one_token(next_token, past_key_values)
                 generated_tokens.append(next_token)
+                torch.cuda.nvtx.range_pop()
 
         total_decode_time = decode_timer()
 
@@ -586,12 +626,14 @@ class InferenceBenchmark:
         print(f"\nWarming up with {self.config.warmup_iterations} iterations...")
         input_ids, past_key_values = self.generate_batch()
 
-        for _ in tqdm(range(self.config.warmup_iterations), disable=LOCAL_RANK != 0):
+        for idx in tqdm(range(self.config.warmup_iterations), disable=LOCAL_RANK != 0):
             past_key_values.reset()
             # Use output_length to warm up sufficiently. Otherwise, Thunder's
             # first-run latency is terribly slow due to lack of dynamic shape
             # support.
+            torch.cuda.nvtx.range_push("warmup:" + str(idx))
             _ = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
+            torch.cuda.nvtx.range_pop()
 
         print(f"\nRunning {self.config.num_iterations} benchmark iterations...")
         all_metrics = []
@@ -599,7 +641,7 @@ class InferenceBenchmark:
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
 
-        for _ in tqdm(range(self.config.num_iterations), disable=LOCAL_RANK != 0):
+        for idx in tqdm(range(self.config.num_iterations), disable=LOCAL_RANK != 0):
             past_key_values.reset()
 
             is_under_nsys = bool(os.environ.get("NSYS_PROFILING_SESSION_ID"))
@@ -613,7 +655,9 @@ class InferenceBenchmark:
             self.profiler_toggle = is_under_nsys
             if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStart()
+            torch.cuda.nvtx.range_push("step:" + str(idx))
             iter_metrics = self.measure_inference_step(input_ids, past_key_values, self.config.output_length)
+            torch.cuda.nvtx.range_pop()
             if is_under_nsys and not self.config.debug_moe:
                 torch.cuda.cudart().cudaProfilerStop()
 
@@ -821,8 +865,9 @@ Examples:
         default=None,
         help="Cache option: no caching, same input, constant values, symbolic values. See `cache` argument of `thunder.jit` for more details.",
     )
-    parser.add_argument("--enable-thunder-cudagraph", action="store_true", help="Pass CUDAGraphTransform to Thunder")
+    parser.add_argument("--enable-cudagraph", action="store_true", help="Pass CUDAGraphTransform to Thunder, or use reduce-overhead for torch.compile")
     parser.add_argument("--attn-implementation", type=str, default=None, help="Attention implementation")
+    parser.add_argument("--use-hardcoded-model", action="store_true", help="Use the hardcoded Llama4 config, rather than pulling from huggingfaces")
 
     args = parser.parse_args()
     return args
@@ -856,8 +901,9 @@ def main():
         disable_moe_replacement=args.disable_moe_replacement,
         attn_implementation=args.attn_implementation,
         thunder_cache=args.thunder_cache,
-        enable_thunder_cudagraph=args.enable_thunder_cudagraph,
+        enable_cudagraph=args.enable_cudagraph,
         debug_moe=args.debug_moe,
+        use_hardcoded_model=args.use_hardcoded_model,
     )
     benchmark = InferenceBenchmark(config)
 

@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/execution_utils.h>
-#include <multidevice/executor.h>
-#include <multidevice/utils.h>
-#include <tests/cpp/utils.h>
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/execution_utils.h"
+#include "multidevice/executor.h"
+#include "multidevice/utils.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -28,18 +28,6 @@ class MultiDeviceTest : public NVFuserTest {
   ~MultiDeviceTest();
   void SetUp() override;
 
-  // Returns a shard of the tensor according to the sharding annotation in tv
-  // for the deviceId. If tensor is not sharded returns the original tensor.
-  // TODO: If deviceId is not part of the mesh this should return an empty
-  // tensor. Currently, we don't support this, so for now it returns a slice.
-  at::Tensor shardTensor(at::Tensor tensor, TensorView* tv);
-
-  // A lower-level helper that doesn't require a TensorView.
-  at::Tensor shardTensor(
-      at::Tensor tensor,
-      int64_t axis,
-      const DeviceMesh& mesh);
-
   // Validate the outputs of a fusion against expected outputs.
   static void validate(
       const std::vector<at::Tensor>& expected_outputs,
@@ -49,7 +37,6 @@ class MultiDeviceTest : public NVFuserTest {
   Communicator* communicator_;
   c10::TensorOptions tensor_options_;
   bool debug_print;
-  bool disable_skip;
 };
 
 // This macro is supposed to be used in a test case of a MultiDeviceTest or its

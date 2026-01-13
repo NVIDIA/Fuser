@@ -1267,4 +1267,67 @@ TensorView* repeat(
   return out_tv;
 }
 
+TensorView* asNested(
+    TensorView* data,
+    TensorView* extents,
+    int64_t ragged_dim) {
+  NVF_ERROR(data != nullptr, "asNested: data tensor is null");
+  NVF_ERROR(extents != nullptr, "asNested: extents tensor is null");
+
+  // Only 1D extents tensors are currently supported
+  NVF_ERROR_EQ(
+      std::ranges::distance(
+          extents->getLogicalDomain() | TensorDomain::kNoReductions),
+      1,
+      "asNested currently only supports 1D extents tensors");
+
+  // Get the logical domain of the input, excluding reductions
+  auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto inp_logical_size = std::ranges::distance(inp_logical);
+
+  // Clone the logical domain to create the root domain for output
+  std::vector<IterDomain*> root_domain;
+  root_domain.reserve(inp_logical_size);
+  for (auto* id : inp_logical) {
+    root_domain.push_back(id->cloneWithoutRFactor());
+  }
+
+  ragged_dim = wrapDim(ragged_dim, inp_logical_size);
+
+  // Partition the specified dimension in root domain
+  // This replaces one IterDomain with (component_id, ragged_id)
+  auto [component_id, ragged_id] =
+      RaggedIterDomain::partition(root_domain.at(ragged_dim), extents);
+
+  // Build the logical domain: replace ragged_dim with component and ragged
+  std::vector<IterDomain*> logical_domain;
+  logical_domain.reserve(root_domain.size() + 1); // One extra for the split
+
+  for (const auto i : arange(root_domain.size())) {
+    if (static_cast<int64_t>(i) == ragged_dim) {
+      // Replace with component and ragged dimensions
+      logical_domain.push_back(component_id);
+      logical_domain.push_back(ragged_id);
+    } else {
+      logical_domain.push_back(root_domain.at(i));
+    }
+  }
+
+  // Create the output TensorView with the partitioned structure
+  auto* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          root_domain,
+          logical_domain,
+          logical_domain,
+          TensorDomain::getContiguityFilledWith(logical_domain, true)),
+      data->getDataType().value());
+
+  // For now, just use LoadStoreOp to represent the nesting
+  // operation. Does it make more sense to have a specific TensorView
+  // op like ReshapeOp?
+  IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, data);
+
+  return out;
+}
+
 } // namespace nvfuser

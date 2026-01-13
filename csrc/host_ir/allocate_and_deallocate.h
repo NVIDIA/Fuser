@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include "host_ir/container.h"
 #include "optimization_pass.h"
 
 namespace nvfuser::hir {

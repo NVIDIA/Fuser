@@ -217,21 +217,14 @@ def broadcast_in_dim_error_generator(
         "The new shape is expected to be greater-then-or-equal to the input",
     )
 
-    # 3. broadcast_dimensions is an ascending sequence of integers.
-    descending_broadcast_dimensions = (
-        ([2, 2], [2, 2], [1, 0]),
-        RuntimeError,
-        "Broadcast dimension is not greater than the previous value.",
-    )
-
-    # 4. Each broadcast dimension is within the new shape.
+    # 3. Each broadcast dimension is within the new shape.
     out_of_bounds_broadcast_dimensions = (
         ([2, 2], [2, 2], [0, 2]),
         RuntimeError,
         "Invalid broadcast_dims value.",
     )
 
-    # 5. The original tensor is not broadcastable to desired shape.
+    # 4. The original tensor is not broadcastable to desired shape.
     # tensor.shape[idx] == 1 or tensor.shape[idx] == output_shape[new_idx]
     #
     # Jax Exception:
@@ -244,7 +237,7 @@ def broadcast_in_dim_error_generator(
         "Invalid broadcast_dims value.",
     )
 
-    # 6. TypeError: broadcast_in_dim shape must have every element be nonnegative, got (-1, 2, 3).
+    # 5. TypeError: broadcast_in_dim shape must have every element be nonnegative, got (-1, 2, 3).
     negative_shape = (
         ([2, 3], [2, 3, -1], [0, 1]),
         RuntimeError,
@@ -255,7 +248,6 @@ def broadcast_in_dim_error_generator(
     error_cases = [
         missing_axis_in_bcast_dims,
         fewer_dims_in_output_shape,
-        descending_broadcast_dimensions,
         out_of_bounds_broadcast_dimensions,
         # not_broadcastable,
         # negative_shape,
@@ -922,9 +914,7 @@ def topk_error_generator(
     ), RuntimeError, "Invalid resized domain extent"
 
     #  error coming from aten fallback.
-    yield SampleInput(
-        a, 16, 1, True, False
-    ), RuntimeError, "selected index k out of range"
+    yield SampleInput(a, 16, 1, True, False), RuntimeError, "k .* range"
 
 
 def index_select_generator(

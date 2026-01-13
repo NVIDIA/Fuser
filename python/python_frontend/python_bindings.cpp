@@ -596,7 +596,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(ReductionParams, fastest_dim)
       .PARAM(ReductionParams, persistent_kernel)
       .PARAM(ReductionParams, project_persistent_buffers)
-      .PARAM(ReductionParams, schedule_3D)
+      .PARAM(ReductionParams, schedule_3d)
       .PARAM(ReductionParams, flip_grid)
       .PARAM(ReductionParams, cross_block_inner_reduction)
       .PARAM(ReductionParams, cross_grid_inner_reduction)
@@ -3604,6 +3604,8 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor query,
          Tensor key,
          Tensor value,
+         std::optional<Tensor> bias,
+         std::optional<Tensor> mask,
          std::optional<Scalar> dropout_p,
          std::optional<Scalar> is_causal,
          std::optional<Scalar> scale) -> decltype(auto) {
@@ -3622,6 +3624,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
 
+        auto bias_state = bias.has_value()
+            ? fd->recordingState(bias.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+        auto mask_state = mask.has_value()
+            ? fd->recordingState(mask.value()())
+            : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
         auto dropout_p_state = dropout_p.has_value()
             ? fd->recordingState(dropout_p.value()())
             : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
@@ -3636,6 +3644,8 @@ void initNvFuserPythonBindings(PyObject* module) {
             {fd->recordingState(query()),
              fd->recordingState(key()),
              fd->recordingState(value()),
+             bias_state,
+             mask_state,
              dropout_p_state,
              is_causal_state,
              scale_state},
@@ -3648,6 +3658,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("query"),
       py::arg("key"),
       py::arg("value"),
+      py::arg("bias").none(true) = py::none(),
+      py::arg("mask").none(true) = py::none(),
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("scale").none(true) = py::none(),

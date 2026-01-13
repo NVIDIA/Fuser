@@ -38,6 +38,8 @@ void bindEnums(py::module& nvfuser) {
 
   py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
       .value("mesh_x", ParallelType::DIDx)
+      .value("mesh_y", ParallelType::DIDy)
+      .value("mesh_z", ParallelType::DIDz)
       .value("grid_x", ParallelType::BIDx)
       .value("grid_y", ParallelType::BIDy)
       .value("grid_z", ParallelType::BIDz)
@@ -81,7 +83,8 @@ void bindEnums(py::module& nvfuser) {
       .value("tensor", MemoryType::Tensor)
       .value("local", MemoryType::Local)
       .value("shared", MemoryType::Shared)
-      .value("global", MemoryType::Global);
+      .value("global", MemoryType::Global)
+      .value("symmetric", MemoryType::Symmetric);
 
   py::enum_<CacheOp>(nvfuser, "CacheOp", py::module_local())
       .value("unspecified", CacheOp::Unspecified)
