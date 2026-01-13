@@ -31,8 +31,7 @@ macro(handle_git_submodules)
 
     if(SUBMODULE_RESULT EQUAL 0)
       # Parse the output to check for uninitialized submodules (lines starting with '-')
-      string(REGEX MATCH "^-" HAS_UNINITIALIZED_SUBMODULES "${SUBMODULE_STATUS}")
-      string(REGEX MATCH "\n-" HAS_UNINITIALIZED_SUBMODULES_MULTILINE "${SUBMODULE_STATUS}")
+      string(REGEX MATCH "(^|\\n)-" HAS_UNINITIALIZED_SUBMODULES "${SUBMODULE_STATUS}")
 
       if(HAS_UNINITIALIZED_SUBMODULES OR HAS_UNINITIALIZED_SUBMODULES_MULTILINE)
         set(GitSubmodules_FOUND FALSE)
