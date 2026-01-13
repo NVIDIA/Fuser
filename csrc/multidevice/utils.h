@@ -37,6 +37,9 @@ std::unordered_set<IterDomain*> getInputsInTargetDomain(
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
+//
+// This function can probably be removed. It is only used in tests and uses the
+// legacy ComputeAtMap.
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);

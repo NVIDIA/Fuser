@@ -24,13 +24,25 @@ namespace nvfuser {
 // Fusion.
 int64_t requestedNumberOfDevices(Fusion*);
 
-// Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
-// is determined by `mesh` and `device_id`. Returns the sharded tensor.
-NVF_API at::Tensor shardTensor(
+// Returns a shard of the tensor according to the sharding annotation in tv
+// for the deviceId. If tensor is not sharded returns the original tensor.
+//
+// This function assumes the mesh is 1D.
+NVF_API at::Tensor shardTensor1D(
     at::Tensor tensor,
     int64_t axis,
-    const DeviceMesh& mesh,
-    DeviceIdxType device_id);
+    const DeviceMesh& mesh);
+
+// Shards the input tensor according to the TensorView's sharding annotation.
+// Returns a shard of the tensor according to the sharding annotation in tv
+// for the current deviceId from Communicator. If tensor is not sharded returns
+// the original tensor.
+//
+// TODO: This function will eventually support multi-dimensional meshes.
+//
+// TODO: If deviceId is not part of the mesh this should return an empty
+// tensor. Currently, we don't support this, so for now it returns a slice.
+NVF_API at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used

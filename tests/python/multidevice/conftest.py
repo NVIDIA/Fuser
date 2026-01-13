@@ -45,13 +45,57 @@ class MultideviceTest:
     def local_rank(self):
         return self._communicator.local_rank()
 
-    def shard_tensor(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
+    def shard_tensor_1d(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
+        """Shard tensor along a single dimension (1D sharding only).
+
+        Args:
+            t: Tensor to shard (preferably on CPU for memory efficiency)
+            dim: Dimension to shard along
+            mesh: DeviceMesh to use for sharding
+
+        Returns:
+            Sharded tensor on current GPU device
+
+        Example:
+            mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
+            unsharded = torch.randn(num_devices, 4)
+            sharded = self.shard_tensor_1d(unsharded, 0, mesh)
+        """
         assert t.is_cpu, (
             "This is not strictly required but it's a general good practice "
             "for unit tests to create unsharded data on CPU to reduce GPU "
             "memory footprint."
         )
-        return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
+        return mesh.shard_tensor(t, dim).cuda(self.local_rank)
+
+    def shard_tensor(self, t: torch.Tensor, tv) -> torch.Tensor:
+        """Shard tensor using TensorView's parallelization and device mesh.
+
+        Args:
+            t: Tensor to shard (preferably on CPU for memory efficiency)
+            tv: TensorView with device mesh and parallelization information
+
+        Returns:
+            Sharded tensor on current GPU device
+
+        Example:
+            with nvfuser.FusionDefinition() as fd:
+                inp_tv = fd.define_tensor([-1, -1])
+                inp_tv.set_device_mesh(mesh)
+                inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+                # ... rest of fusion
+
+            unsharded = torch.randn(num_devices, 4)
+            sharded = self.shard_tensor(unsharded, inp_tv)
+        """
+        assert t.is_cpu, (
+            "This is not strictly required but it's a general good practice "
+            "for unit tests to create unsharded data on CPU to reduce GPU "
+            "memory footprint."
+        )
+
+        sharded = nvfuser.multidevice.shard_tensor(t, tv)
+        return sharded.cuda(self.local_rank)
 
 
 @pytest.fixture
