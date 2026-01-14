@@ -8,12 +8,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -21,7 +20,7 @@ class PredicateEliminationTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

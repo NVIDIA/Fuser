@@ -9,16 +9,16 @@
 
 #include <gtest/gtest.h>
 
-#include <device_lower/analysis/bank_conflict.h>
-#include <exceptions.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <swizzle.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_iter.h>
+#include "device_lower/analysis/bank_conflict.h"
+#include "exceptions.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "swizzle.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_iter.h"
 
 namespace nvfuser {
 

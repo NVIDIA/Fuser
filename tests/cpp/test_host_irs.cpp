@@ -9,18 +9,18 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/lower.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <multidevice/symmetric_tensor.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_kernel_arg.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/lower.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_kernel_arg.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser::hir {
 

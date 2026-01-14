@@ -5,57 +5,57 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <macros.h>
-
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_profiler.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <sys_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
-#include <utils.h>
+#include <algorithm>
+#include <iostream>
 
 // fuser and IR parser
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+
+#include <gtest/gtest.h>
+
 #include <c10/cuda/CUDAStream.h>
 
-#include <ir/builder.h>
-#include <algorithm>
-#include <iostream>
 #include "c10/core/ScalarType.h"
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_profiler.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
 #include "kernel_ir_dispatch.h"
+#include "logical_domain_map.h"
+#include "macros.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul.h"
 #include "scheduler/matmul_heuristic.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "sys_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -663,7 +663,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
 TEST_F(MatmulTest, MatmulMatmulAmpere) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3657,7 +3657,7 @@ class HopperMatmulTest : public HopperBase {
  protected:
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

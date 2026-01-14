@@ -366,10 +366,15 @@ class FusionDefinition:
             # A copy of fusion is created after construction FusionExecutorCache
             # Delete the _fusion and reference the fusion inside FusionExecutorCache
             del self._fusion
+
+        # Add "id_model" as a default enable option
+        default_enable_options = ["id_model"]
+        merged_enable_options = default_enable_options + _enable_options
+
         return self.fec.execute(
             inputs,
             device=self._get_device_index(device),
-            _enable_options=_enable_options,
+            _enable_options=merged_enable_options,
             _disable_options=_disable_options,
         )
 

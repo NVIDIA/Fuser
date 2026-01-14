@@ -12,12 +12,12 @@
 
 #include <c10/util/env.h>
 
-#include <fusion.h>
-#include <fusion_guard.h>
-#include <global_allocator.h>
-#include <ops/arith.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "fusion_guard.h"
+#include "global_allocator.h"
+#include "ops/arith.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

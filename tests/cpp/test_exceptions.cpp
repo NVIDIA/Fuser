@@ -13,9 +13,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <exceptions.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

@@ -8,9 +8,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
