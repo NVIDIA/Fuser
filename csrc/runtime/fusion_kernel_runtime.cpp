@@ -376,7 +376,6 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   } else {
     auto fusion_to_run = group_to_run->getFusion();
     return inferContiguousOutputMetaTensor(
-        heuristics,
         fusion_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values);
