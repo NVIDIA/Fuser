@@ -663,7 +663,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
 TEST_F(MatmulTest, MatmulMatmulAmpere) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3657,7 +3657,7 @@ class HopperMatmulTest : public HopperBase {
  protected:
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

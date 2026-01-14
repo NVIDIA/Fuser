@@ -865,7 +865,7 @@ TEST_F(FindAllExprsTest, Rotation) {
   std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);

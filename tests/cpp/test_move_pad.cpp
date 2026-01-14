@@ -22,7 +22,7 @@ class MovePadTest : public NVFuserTest {
  protected:
   void SetUp() override {
     DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

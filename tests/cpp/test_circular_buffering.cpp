@@ -22,7 +22,7 @@ TEST_F(NVFuserTest, BarSyncWarpSpecializedPointwise) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
@@ -99,7 +99,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
@@ -183,7 +183,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
@@ -267,7 +267,7 @@ class CircularBufferingTest : public NVFuserFixtureParamTest<StageAndPrefetch> {
     number_of_stages = std::get<0>(GetParam());
     prefetch_distance = std::get<1>(GetParam());
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -1101,7 +1101,7 @@ class TmaCircularBufferingTest
     // NOTE: Multiple of 16 required for inner dimension
     NVF_ERROR(tensor_inner_dim % 16 == 0);
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   bool testEnablesWarpSpecialization() {
@@ -1220,7 +1220,7 @@ TEST_F(NVFuserTest, ElectSyncCompatibility) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   TensorView* input = makeContigTensor(3);
   fusion->addInput(input);
@@ -2414,7 +2414,7 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);
@@ -2478,7 +2478,7 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);

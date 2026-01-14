@@ -50,7 +50,7 @@ struct RopeConfig {
 class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
   void SetUp() override {
     NVFuserFixtureParamTest<RopeConfig>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

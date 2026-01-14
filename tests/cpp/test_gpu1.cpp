@@ -59,7 +59,7 @@ class Gpu1Test : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2803,7 +2803,7 @@ class Fp4CastTest : public NVFuserTest,
  public:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(dtype_highp, vectorization_factor) = GetParam();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   }
@@ -3008,7 +3008,7 @@ class AdvancedDtypeTest : public NVFuserFixtureParamTest<bool> {
   bool use_dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<bool>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     use_dynamic_shape = GetParam();
   }
 };
@@ -3086,7 +3086,7 @@ class Float4E2m1ManualScheduleTestAllArch
   bool dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<Float4E2m1ManualScheduleTestParams>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(vectorize_factor, dynamic_shape) = GetParam();
   }
 };

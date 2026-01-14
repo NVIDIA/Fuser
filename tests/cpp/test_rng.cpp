@@ -68,7 +68,7 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
 
 class RNGTest : public NVFuserTest {
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

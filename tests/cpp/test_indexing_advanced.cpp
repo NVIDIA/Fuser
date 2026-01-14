@@ -22,7 +22,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
  protected:
   void SetUp() override {
     if (GetParam()) {
-      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     } else {
       EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
     }
@@ -32,7 +32,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
 class AdvancedIndexingIdModelTest : public NVFuserTest {
  protected:
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
