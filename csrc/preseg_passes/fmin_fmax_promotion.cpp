@@ -187,15 +187,16 @@ class FMinFMaxPromoter : public OptOutMutator {
 
  private:
   FMinFMaxPromoter(Fusion* fusion) : fusion_(fusion) {
-    // Traverse in topological order so that when we check isSafeReduction,
-    // any upstream reductions will have already been processed.
+    // Traverse in topological order so that when we check
+    // isUnpromotedReduction, any upstream reductions will have already been
+    // processed.
     for (auto expr : fusion->exprs()) {
       dispatchMutate(expr);
     }
   }
 
   // Check if a reduction is safe (not already promoted to FMin/FMax).
-  bool isSafeReduction(Expr* expr) {
+  bool isUnpromotedReduction(Expr* expr) {
     auto* rop = dynamic_cast<ReductionOp*>(expr);
     if (!rop) {
       return false;
@@ -295,7 +296,7 @@ class FMinFMaxPromoter : public OptOutMutator {
         status = NanStatus::BadReduced;
       }
 
-      if (isSafeReduction(expr)) {
+      if (isUnpromotedReduction(expr)) {
         if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
           // Unreduced and Mixed states both indicate the targetRop's input has
           // propagated here pointwise, preserving its NAN values in unchanged
@@ -360,7 +361,7 @@ class FMinFMaxPromoter : public OptOutMutator {
     IrBuilder::create<ReductionOp>(
         new_op_type, init, out, in, rop->isAllreduce());
 
-    // Register the mutation so downstream isSafeReduction checks work
+    // Register the mutation so downstream isUnpromotedReduction checks work
     registerMutation(out, out);
   }
 
