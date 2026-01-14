@@ -139,6 +139,7 @@ class Val;
   f(Continue);                        \
   f(Return);                          \
   f(MBarrierInit);                    \
+  f(UniformWarpIdInit);               \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
   f(MBarrierArriveExpectTx);          \

@@ -1231,6 +1231,24 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
+  // insert a scalar register variable for uniform warp id
+  void insertUniformWarpId(Expr* expr) {
+    // allocate uniform_warp_id
+    Val* uniform_warp_id = IrBuilder::create<Val>(DataType::UInt32);
+    kir::Allocate* uniform_warp_id_alloc = IrBuilder::create<kir::Allocate>(
+        uniform_warp_id,
+        MemoryType::Local,
+        FusionGuard::getCurFusion()->oneVal());
+    registerInsertBefore(expr, uniform_warp_id_alloc, nullptr);
+
+    // initialize uniform_warp_id
+    auto uniform_warp_id_init =
+        IrBuilder::create<kir::UniformWarpIdInit>(uniform_warp_id);
+    Expr* pred_uniform_warp_id_init = uniform_warp_id_init->withPredicate(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    registerInsertBefore(expr, pred_uniform_warp_id_init, nullptr);
+  }
+
   // Insert cluster reduction mbarrier allocation and initialization at the
   // beginning of the kernel for the first top-level expression
   void insertClusterReductionMBarrier(Expr* expr) {
@@ -1679,6 +1697,11 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    // For warp specialized kernel, insert uniform warp id at the top-level
+    // scope.
+    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+      insertUniformWarpId(exprs.at(0));
+    }
     // insert cluster reduction mbarrier at top-level scope
     if (GpuLower::current()->clusterReductionCount() >= 1) {
       insertClusterReductionMBarrier(exprs.at(0));

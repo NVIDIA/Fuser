@@ -1571,6 +1571,13 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
+void IndexLowering::handle(const kir::UniformWarpIdInit* uwid_init) {
+  // UniformWarpIdInit operates on scalar Vals, no indexing needed
+  // Just pass through as-is
+  pushBack(IrBuilder::create<kir::UniformWarpIdInit>(uwid_init->out()));
+  GpuLower::current()->propagateExprInfo(uwid_init, back());
+}
+
 void IndexLowering::handle(const kir::MBarrierArrive* arrive_transaction) {
   NVF_ERROR(
       arrive_transaction->mbarrier()->isA<kir::TensorIndex>(),

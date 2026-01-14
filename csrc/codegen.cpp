@@ -4442,6 +4442,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << call << ";\n";
   }
 
+  void handle(const kir::UniformWarpIdInit* init) final {
+    indent() << gen(init->out()) << " = "
+             << genCall("warp::getUniformWarpId", ArgumentBuilder()) << ";\n";
+  }
+
   void handle(const kir::MBarrierInvalidate* inval) final {
     auto call = genCall(
         "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
