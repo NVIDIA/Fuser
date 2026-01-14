@@ -39,6 +39,9 @@ __all__ = [
     "NVFP4InferenceGroupedLinear",
     "NVFP4InferenceGroupedSwiGLU",
     "nvfuser_f16a_nvfp4weight_scaled_grouped_mm",
+    "nvfuser_f16a_nvfp4weight_scaled_mm",
+    "NVFP4InferenceLinear",
+    "NVFP4InferenceSwiGLU",
 ]
 
 
@@ -235,6 +238,60 @@ def nvfuser_f16a_nvfp4weight_scaled_grouped_mm(
             fp4_weight[i].transpose(1, 0), weight_scaling_factor[i], weight_global_scale[i], activation.dtype, fp4_weight.device, 16
         )
     return grouped_mm(activation, hp_weight.transpose(2, 1), offsets)
+
+@torch.library.custom_op("nvf_cutlass::f16a_nvfp4weight_scaled_mm", mutates_args=())
+def nvfuser_f16a_nvfp4weight_scaled_mm(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    weight_global_scale: torch.Tensor,
+) -> torch.Tensor:
+    # fp4_weight shape: (in_features // 2, out_features)
+    # Dequantize and transpose to get (out_features, in_features)
+    hp_weight = dequantize_to_dtype(
+        fp4_weight.t(),
+        weight_scaling_factor,
+        weight_global_scale,
+        activation.dtype,
+        fp4_weight.device,
+        16
+    )
+    # hp_weight is now (out_features, in_features) - ready for F.linear
+    return torch.nn.functional.linear(activation, hp_weight.to(torch.bfloat16))
+
+
+@torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_mm")
+def _(
+    activation: torch.Tensor,
+    fp4_weight: torch.Tensor,
+    weight_scaling_factor: torch.Tensor,
+    weight_global_scale: torch.Tensor,
+) -> torch.Tensor:
+    # fp4_weight shape: (in_features // 2, out_features)
+    # Validate that activation has at least 1 dimension
+    if activation.ndim == 0:
+        raise ValueError(f"Expected activation to have at least 1 dimension, got {activation.ndim}")
+
+
+    if (
+        len(
+            {
+                t.device
+                for t in [
+                    activation,
+                    fp4_weight,
+                    weight_scaling_factor,
+                    weight_global_scale,
+                ]
+            }
+        )
+        != 1
+    ):
+        raise ValueError("Expected all inputs to be on the same device.")
+
+
+    a = torch.empty((activation.shape[0], fp4_weight.t().shape[0]), device=activation.device, dtype=torch.bfloat16)
+    return a
 
 
 @torch.library.register_fake("nvf_cutlass::f16a_nvfp4weight_scaled_grouped_mm")
@@ -522,6 +579,103 @@ class NVFP4InferenceGroupedSwiGLU(nn.Module):
         up_proj = NVFP4InferenceGroupedLinear.from_grouped_linear(grouped_swiglu.up_proj)
         down_proj = NVFP4InferenceGroupedLinear.from_grouped_linear(grouped_swiglu.down_proj)
         return NVFP4InferenceGroupedSwiGLU(gate_proj, up_proj, down_proj)
+
+
+class NVFP4InferenceLinear(nn.Module):
+    """NVFP4 Linear layer for inference using nvf_cutlass.nvfp4_scaled_mm."""
+
+    def __init__(
+        self,
+        fp4_weight: torch.Tensor,
+        weight_scaling_factor: torch.Tensor,
+        weight_global_scale: torch.Tensor,
+    ) -> None:
+        super().__init__()
+        self.register_buffer("fp4_weight", fp4_weight)
+        self.register_buffer("weight_scaling_factor", weight_scaling_factor)
+        self.register_buffer("weight_global_scale", weight_global_scale)
+
+
+    @property
+    def out_features(self) -> int:
+        return self.fp4_weight.size(1)
+
+    @property
+    def in_features(self) -> int:
+        return self.fp4_weight.size(0) * 2
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Forward pass using nvfp4_scaled_mm.
+
+        Args:
+            hidden_states: Input tensor of shape [batch, seq_len, in_features]
+        """
+        hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
+
+        # Use nvfp4_scaled_mm which handles the full computation
+        output = torch.ops.nvf_cutlass.f16a_nvfp4weight_scaled_mm(
+            hidden_states,
+            self.fp4_weight,
+            self.weight_scaling_factor,
+            self.weight_global_scale,
+        )
+
+        return output
+
+    @staticmethod
+    def from_linear(linear: nn.Linear, fqn: str | None = None) -> NVFP4InferenceLinear:
+        """Create an NVFP4InferenceLinear from a standard Linear layer.
+
+        Args:
+            linear (nn.Linear): The source Linear layer.
+            fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
+        """
+        weight_fp4, weight_scale, global_scale = quantize_linear_weight_to_nvfp4(linear.weight)
+        return NVFP4InferenceLinear(weight_fp4.t(), weight_scale, global_scale)
+
+
+class NVFP4InferenceSwiGLU(nn.Module):
+    """NVFP4 SwiGLU for inference using NVFP4InferenceLinear."""
+
+    def __init__(
+        self,
+        gate_proj: NVFP4InferenceLinear,
+        up_proj: NVFP4InferenceLinear,
+        down_proj: NVFP4InferenceLinear,
+    ):
+        super().__init__()
+        self.gate_proj = gate_proj
+        self.up_proj = up_proj
+        self.down_proj = down_proj
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Forward pass through SwiGLU.
+
+        Args:
+            hidden_states: Input tensor
+
+        Returns:
+            Output tensor after SwiGLU transformation
+        """
+        gate_out = self.gate_proj(hidden_states)
+        up_out = self.up_proj(hidden_states)
+
+        intermediate = torch.nn.functional.silu(gate_out) * up_out
+
+        return self.down_proj(intermediate)
+
+    @staticmethod
+    def from_swiglu(swiglu, fqn: str | None = None) -> NVFP4InferenceSwiGLU:
+        """Create an NVFP4InferenceSwiGLU from a SwiGLU module.
+
+        Args:
+            swiglu: The source SwiGLU module (should have gate_proj, up_proj, down_proj).
+            fqn (str or None): Fully qualified name. Currently unused; reserved for future use or compatibility.
+        """
+        gate_proj = NVFP4InferenceLinear.from_linear(swiglu.gate_proj)
+        up_proj = NVFP4InferenceLinear.from_linear(swiglu.up_proj)
+        down_proj = NVFP4InferenceLinear.from_linear(swiglu.down_proj)
+        return NVFP4InferenceSwiGLU(gate_proj, up_proj, down_proj)
 
 
 # Slightly modified version of `thunder.tests.test_networks.Llama4MoE`

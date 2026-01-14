@@ -666,7 +666,11 @@ class BackwardTraverseFromAllocToLogical {
       }
     }
 
-    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+    auto factor = ee_.evaluate(split->factor()).as<int64_t>();
+    auto in_extent = ee_.evaluate(split->in()->extent()).as<int64_t>();
+    bool is_divisible = in_extent % factor == 0 ? true : false;
+
+    if (is_divisible && areDimsToBeMergedContiguous(tensor_, new_shape)) {
       tensor_ = tensor_.view(new_shape);
     } else {
       auto [tensor_new_shape, tensor_new_strides] =
