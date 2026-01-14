@@ -171,9 +171,7 @@ class DependencyReporter:
         print(
             f"{self.colors.BOLD_RED}Build prerequisite validation FAILED{self.colors.RESET}"
         )
-        print(
-            f"See installation instructions above"
-        )
+        print("See installation instructions above")
 
     def _print_dependencies(self):
         """Print status for each dependency using OOP requirement classes"""

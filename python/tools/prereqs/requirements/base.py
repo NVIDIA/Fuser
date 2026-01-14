@@ -87,6 +87,7 @@ class Requirement(ABC):
             "optional": self.optional,
             "location": self.location,
         }
+
     @abstractmethod
     def generate_help(self, platform_info):
         """Generate help text for this requirement when it fails.
@@ -153,15 +154,13 @@ class VersionRequirement(Requirement):
 
     def _format_success(self, colors) -> str:
         """For example:
-             Format success: [nvFuser] ✓ Python        3.12.3 >= 3.10 (/usr/bin/python3)
+        Format success: [nvFuser] ✓ Python        3.12.3 >= 3.10 (/usr/bin/python3)
         """
         # Add asterisk for optional requirements
         name_with_marker = f"{self.name}*" if self.optional else self.name
         # Status symbol and name in white/green with padding
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = (
-            f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
-        )
+        status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
 
         # Version info in green
         if self.version_found and self.version_required:
@@ -190,9 +189,7 @@ class VersionRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.optional:
-            status_part = (
-                f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
-            )
+            status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
             if self.version_required:
                 return f"{status_part} {colors.YELLOW}Not found (optional, v{self.version_required}+ recommended){colors.RESET}"
             else:
@@ -211,9 +208,7 @@ class VersionRequirement(Requirement):
         # Add asterisk for optional requirements
         name_with_marker = f"{self.name}*" if self.optional else self.name
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = (
-            f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
-        )
+        status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
 
         if self.version_found and self.version_required:
             return f"{status_part} {colors.BOLD_RED}{self.version_found} < {self.version_required}{colors.RESET}"
@@ -235,9 +230,7 @@ class BooleanRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.status == RequirementStatus.SUCCESS:
-            status_part = (
-                f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
-            )
+            status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
             if self.location:
                 return f"{status_part} {colors.CYAN}({self.location}){colors.RESET}"
             return status_part
@@ -248,7 +241,9 @@ class BooleanRequirement(Requirement):
                     f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
                 )
             else:
-                status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
+                status_part = (
+                    f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
+                )
                 return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
         else:
             return f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded} {colors.BOLD_RED}validation failed{colors.RESET}"
