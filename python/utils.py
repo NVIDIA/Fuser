@@ -35,7 +35,7 @@ class BuildConfig:
     install_requires: list = field(default_factory=list)
     extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
-    cutlass_max_jobs: int = None
+    cutlass_max_jobs: int | None = None
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
