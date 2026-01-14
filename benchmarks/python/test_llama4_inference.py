@@ -7,6 +7,7 @@ from .benchmark_inference import (
     InferenceBenchmark,
     _register_nvfp4_ops,
 )
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
 
 
 # NOTE: for some reason, changing the order of nvfp4 and cudagraph parameter breaks thunder benchmark. I suspect there's something with thunder's cache.
@@ -36,8 +37,6 @@ def test_llama4_inference_benchmark(
             pytest.skip("cudagraph doesn't support grouped matmul")
 
     if enable_nvfp4:
-        from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
-
         _register_nvfp4_ops()
 
     config = InferenceBenchmarkConfig(
