@@ -174,6 +174,9 @@ class FusionKernelRuntime {
   const std::vector<std::unique_ptr<HeuristicParams>>& schedulers() const;
 
   //! Infer the output shape and stride of the fusion as tensors on Meta device
+  //! If the group is scheduled to be evaluated using ExprEval, the output
+  //! tensors are inferred using the ExprEval on meta device. Otherwise, the
+  //! output tensors are inferred assuming they are contiguous.
   KernelArgumentHolder inferOutputMetaTensor(
       SegmentedGroup* group_to_run,
       const KernelArgumentHolder& group_runtime_inputs,
