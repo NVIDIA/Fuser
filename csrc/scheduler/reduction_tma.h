@@ -19,8 +19,8 @@ class TmaInnerReductionParams : public HeuristicParams {
       SchedulerType scheduler_type = SchedulerType::Reduction)
       : HeuristicParams(scheduler_type) {};
 
-  // Inner serial split factor (similar to vectorization for non-TMA)
-  int64_t vectorization_factor = 1;
+  // Outer serial split factor for reduce dimension, to better fit into smem.
+  int64_t tma_split_factor = 1;
 
   // Number of threads per block for TIDx parallelization
   int64_t threads_per_block = 1;

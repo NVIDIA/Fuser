@@ -206,17 +206,11 @@ bool mayUseTma(
     return false;
   }
 
+  int64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
+  uint64_t total_reduction_bytes = props.total_reduction_numel * dtype_bytes;
+
   // For small TMA sizes, the smem indirection is not worth it.
-  if (props.total_reduction_numel < 128) {
-    return false;
-  }
-
-  // Require reduction dim fits into smem, until we add iteration over large
-  // reduction dim.
-  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
-      props.max_dtype_size_bit_for_vectorization;
-
-  if (props.inner_most_dimension_numel > smem_elems) {
+  if (total_reduction_bytes < 16384) {
     return false;
   }
 

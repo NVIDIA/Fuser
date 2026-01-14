@@ -36,14 +36,20 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       target_threads_per_sm,
       props.has_mufu_computation);
 
-  // Initialize split factors
-  int64_t vectorization_factor =
-      std::min(target_vect_unroll, props.vectorize_factor);
-  int64_t threads_per_block = 128;
-  int64_t unroll_factor = target_vect_unroll / vectorization_factor;
+  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
+      props.max_dtype_size_bit_for_vectorization;
+
+  const int64_t half_smem_elems = scheduler_utils::lastPow2(smem_elems) / 2;
+
+  // Split the reduction dimension to reduce smem usage.
+  uint64_t tma_split_factor =
+      ceilDiv(props.inner_most_dimension_numel, half_smem_elems);
+
+  int64_t threads_per_block = 256;
+  int64_t unroll_factor = scheduler_utils::lastPow2(target_vect_unroll);
 
   auto params = std::make_unique<TmaInnerReductionParams>();
-  params->vectorization_factor = vectorization_factor;
+  params->tma_split_factor = tma_split_factor;
   params->threads_per_block = threads_per_block;
   params->unroll_factor = unroll_factor;
 
@@ -64,6 +70,8 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   scheduler_utils::clearMemorySpace(fusion);
 
   scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  scheduler_utils::cacheAndForkOutputs(fusion, true);
 
   std::vector<TensorView*> tma_tvs;
   for (auto [tv, input_idx] : cached_inputs) {
@@ -87,6 +95,15 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   bool has_red_axis = dim_analysis.second;
   NVF_ERROR(has_iter_axis && has_red_axis);
 
+  if (rparams->tma_split_factor > 1) {
+    reduction_tv->split(1, rparams->tma_split_factor, false);
+    reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+
+    for (auto tma_tv : tma_tvs) {
+      tma_tv->split(1, rparams->tma_split_factor, false);
+    }
+  }
+
   // Propagate the merges to all TMA TVs
   TransformPropagator tma_propagator(reduction_tv);
   SetSelector tma_selector({tma_tvs.begin(), tma_tvs.end()});
@@ -94,7 +111,7 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
       .traverse(&tma_propagator);
 
   int64_t iter_axis = 0;
-  int64_t inner_reduce_axis = 1;
+  int64_t inner_reduce_axis = rparams->tma_split_factor > 1 ? 2 : 1;
 
   // Schedule TMA tvs as [BIDx, Bulk]
   tma_tvs[0]->axis(iter_axis)->parallelize(ParallelType::BIDx);
@@ -104,26 +121,22 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Non-TMA scheduling
   //
   // Apply splits following the pattern:
-  // [I, R] -> [I, R/vect, vect]
-  //        -> [I, R/vect/tidx, tidx, vect]
-  //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
+  // [I, R] -> [I, R/tidx, tidx]
+  //        -> [I, R/tidx/unroll, unroll, tidx]
 
-  // Split 1: Vectorization factor (innermost serial split for TMA)
-  reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
-  reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::Serial);
-
-  // Split 2: TIDx (always applied)
-  reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
+  // Split 1: TIDx (always applied)
+  reduction_tv->split(inner_reduce_axis, 256);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
+  reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
 
-  // Split 3: Inner unroll (outside of TIDx)
+  // Split 2: Inner unroll (outside of TIDx)
   if (rparams->unroll_factor > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->unroll_factor);
     reduction_tv->axis(inner_reduce_axis + 1)
         ->parallelize(ParallelType::Unroll);
   }
 
-  // Split 4: Unswitch (always applied)
+  // Split 3: Unswitch (always applied)
   reduction_tv->split(inner_reduce_axis, 1);
   reduction_tv->axis(inner_reduce_axis + 1)
       ->parallelize(ParallelType::Unswitch);
