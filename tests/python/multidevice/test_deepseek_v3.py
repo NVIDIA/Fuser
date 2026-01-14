@@ -6,15 +6,15 @@
 # Run command:
 # mpirun -np 1 pytest tests/python/multidevice/test_deepseek_v3.py --only-mpi -s
 
-import pytest
-import transformers
-import torch
-import torch.distributed as dist
 from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
-from linear import TensorParallelLinear
-from benchmark_utils import get_benchmark_fns
+from typing import Optional
+
+import pytest
+
+import torch
+import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -23,7 +23,11 @@ from torch.distributed.tensor.parallel import (
     ColwiseParallel,
 )
 from torch.distributed.tensor.placement_types import Shard
-from typing import Optional
+
+import transformers
+
+from .benchmark_utils import get_benchmark_fns
+from .linear import TensorParallelLinear
 
 
 @contextmanager

@@ -5,14 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <expr_simplifier.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <cctype>
 #include <deque>
 #include <memory>
@@ -22,6 +14,14 @@
 #include <string_view>
 #include <variant>
 #include <vector>
+
+#include <gtest/gtest.h>
+
+#include "csrc/exceptions.h"
+#include "expr_simplifier.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 namespace {

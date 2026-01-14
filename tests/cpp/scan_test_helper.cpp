@@ -6,7 +6,7 @@
  */
 // clang-format on
 
-#include <tests/cpp/scan_test_helper.h>
+#include "tests/cpp/scan_test_helper.h"
 
 #include <gtest/gtest.h>
 

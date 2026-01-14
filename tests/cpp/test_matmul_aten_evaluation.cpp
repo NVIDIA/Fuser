@@ -8,16 +8,16 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/mma_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/mma_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
