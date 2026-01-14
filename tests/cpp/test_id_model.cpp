@@ -3266,4 +3266,43 @@ TEST_F(IdModelTest, PermissiveResizeGraph) {
   auto id2 = r2_exprs[0]->as<Split>()->inner(); // 12 split by 2 -> 6
   EXPECT_TRUE(prg.disjointValSets().strictAreMapped(id1, id2));
 }
+
+TEST_F(IdModelTest, ReproIssue5803) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv2 = makeContigConcreteTensor({4}, DataType::Int);
+  fusion.addInput(tv2);
+  auto tv3 = makeContigConcreteTensor({32, 1440}, DataType::Float);
+  fusion.addInput(tv3);
+  auto tv13 = makeContigConcreteTensor({4, 1440}, DataType::BFloat16);
+  fusion.addInput(tv13);
+
+  auto tv15 = binaryOp(BinaryOpType::LT, tv2, fusion.zeroVal(DataType::Int));
+  auto tv16 = where(
+      tv15,
+      IrBuilder::create<Val>(32, DataType::Int),
+      fusion.zeroVal(DataType::Int));
+  auto tv72 = castOp(DataType::Int32, tv16);
+  auto tv14 = castOp(DataType::Float, tv13);
+  auto tv74 = set(tv72);
+  auto tv19 = add(tv2, tv74);
+  auto tv20 = broadcast(tv19, {false, true});
+  auto tv21 = indexSelect(tv3, 0, tv20);
+  auto tv22 = add(tv14, tv21);
+  auto tv23 = reshape(tv22, {4, 1440}, {4, 720, 2});
+  fusion.addOutput(tv23);
+
+  auto options_int = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto inp0 = at::randint(4, {4}, options_int);
+  auto inp1 = at::randn({32, 1440}, options_fp32);
+  auto inp2 = at::randn({4, 1440}, options_bf16);
+  scheduleAndRun(&fusion, SchedulerType::PointWise, {inp0, inp1, inp2});
+}
+
 } // namespace nvfuser
