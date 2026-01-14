@@ -1025,10 +1025,14 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       "partition: extents must have Index type, got ",
       extents->dtype());
 
-  const auto& extents_domain = extents->getLogicalDomain();
-  NVF_ERROR(
-      !extents_domain.empty(),
-      "partition: extents tensor must have at least one dimension, got 0D tensor");
+  // Filter out reduction dimensions from extents tensor
+  auto extents_no_reduction =
+      extents->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
+  NVF_ERROR_GT(
+      extents_ndim,
+      0,
+      "partition: extents tensor must have at least one non-reduction dimension");
 
   auto container = in->container();
 
@@ -1040,7 +1044,8 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
   // The outer dimensions of extents correspond to outer dimensions of the
   // tensor being partitioned, allowing non-uniform partitions across instances.
   auto zero = container->zeroVal(DataType::Index);
-  auto component_extent = extents_domain.back()->extent();
+  auto component_extent =
+      (*std::ranges::prev(extents_no_reduction.end()))->extent();
   auto component_id = IterDomainBuilder(zero, component_extent)
                           .parallel_type(ParallelType::Serial)
                           .iter_type(IterType::Iteration)
