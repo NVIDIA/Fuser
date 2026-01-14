@@ -35,7 +35,7 @@ class BuildConfig:
     install_requires: list = field(default_factory=list)
     extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
-    cutlass_max_jobs: int = 0
+    cutlass_max_jobs: int = None
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -476,7 +476,7 @@ def cmake(config, relative_path):
         "-B",
         cmake_build_dir,
     ]
-    if config.cutlass_max_jobs > 0:
+    if config.cutlass_max_jobs:
         cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
     if config.nvmmh_include_dir:
         cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
