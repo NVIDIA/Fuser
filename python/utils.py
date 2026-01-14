@@ -477,7 +477,7 @@ def cmake(config, relative_path):
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
         f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
-        f"-DENABLE_PCH={on_or_off(config.enable_pch)}",
+        f"-DNVFUSER_USE_PCH={on_or_off(config.enable_pch)}",
         "-B",
         cmake_build_dir,
     ]
