@@ -8,9 +8,11 @@
 
 #pragma once
 
-#include <ATen/Tensor.h>
-#include <cuda_runtime.h>
 #include <cstdint>
+
+#include <cuda_runtime.h>
+
+#include <ATen/Tensor.h>
 
 namespace nvfuser {
 

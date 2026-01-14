@@ -5,9 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <runtime/fusion_kernel_runtime.h>
-#include <tests/cpp/validator.h>
-#include <validator_utils.h>
+#include "tests/cpp/validator.h"
+
+#include "runtime/fusion_kernel_runtime.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 void validateSegmentation(

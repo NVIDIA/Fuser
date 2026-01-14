@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <expr_simplifier.h>
-#include <interval_analysis.h>
-#include <iter_visitor.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <algorithm>
 #include <exception>
 #include <unordered_map>
+
+#include <gtest/gtest.h>
+
+#include "csrc/exceptions.h"
+#include "expr_simplifier.h"
+#include "interval_analysis.h"
+#include "iter_visitor.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
