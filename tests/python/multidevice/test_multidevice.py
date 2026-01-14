@@ -415,3 +415,45 @@ def test_binary(multidevice_test):
     (z,) = fd.execute([x_ref.cuda(), y])
 
     torch.testing.assert_close(z, multidevice_test.shard_tensor(z_ref, z_tv))
+
+
+@pytest.mark.mpi
+def test_reduction_with_2d_mesh(multidevice_test):
+    d = multidevice_test.size
+    tp_size = 2
+
+    # Skip if d is not divisible by tp_size
+    if d % tp_size != 0:
+        pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
+
+    dp_size = d // tp_size
+    rank = multidevice_test.rank
+
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, -1], dtype=DataType.Float, contiguity=True)
+        out = fd.ops.sum(inp, [1])
+        fd.add_output(out)
+
+        inp.set_device_mesh(mesh)
+        inp.outer_split(0, dp_size)
+        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        inp.outer_split(-1, tp_size)
+        inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    dp_rank = rank // tp_size
+    tp_rank = rank % tp_size
+
+    rows_per_rank, cols_per_rank = 2, 3
+    rows, cols = dp_size * rows_per_rank, tp_size * cols_per_rank
+    inp_ref = torch.arange(rows * cols).reshape(rows, cols).to(torch.float)
+    out_ref = inp_ref.sum([-1])
+    inp = inp_ref[
+        dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank,
+        tp_rank * cols_per_rank : (tp_rank + 1) * cols_per_rank,
+    ].cuda()
+    (out,) = fd.execute([inp])
+    torch.testing.assert_close(
+        out.cpu(), out_ref[dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank]
+    )
