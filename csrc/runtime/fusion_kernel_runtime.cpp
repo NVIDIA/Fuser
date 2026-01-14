@@ -380,7 +380,7 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
     auto fusion_to_run = group_to_run->getFusion();
     return inferContiguousOutputMetaTensor(
         heuristics,
-        group_to_run,
+        fusion_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values);
   }
