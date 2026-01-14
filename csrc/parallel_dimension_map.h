@@ -78,6 +78,16 @@ class ParallelDimensionMap {
   //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
   Val* getLinearThreadIndexAsync() const;
 
+  //! Get the number of compute warps for warp specialized kernels.
+  //! This computes the total number of compute threads across all dimensions
+  //! (TIDx, TIDy, TIDz), using the compute dimension (minus padding) for the
+  //! warp specialized dimension, then divides by 32 to get the number of warps.
+  //! Examples:
+  //!   - If warp specialized on TIDx: (bdimx - pad) * bdimy * bdimz / 32
+  //!   - If warp specialized on TIDy: bdimx * (bdimy - pad) * bdimz / 32
+  //!   - If warp specialized on TIDz: bdimx * bdimy * (bdimz - pad) / 32
+  Val* getNumComputeWarps() const;
+
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
     return warp_specialized_parallel_type_.has_value();

@@ -1299,7 +1299,7 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   int64_t dim0 = 2048;
-  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 256) {
+  for (int64_t dim1 = 1024; dim1 <= 32768; dim1 += 256) {
     for (bool contig : {true, false}) {
       // to save test time
       if (dim1 != 1024 && !contig) {

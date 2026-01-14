@@ -1566,21 +1566,23 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  // kir::Predicate is UniformWarpId() >= num_compute_warps
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
-    ParallelType warp_specialize_on =
-        std::get<WarpSpecialized>(options.type).on;
-    int64_t warp_specialization_pad =
-        GpuLower::current()
-            ->info()
-            .parallelDimensionMap()
-            .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
-        warp_specialize_on);
-    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
-        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    // Get the number of compute warps using ParallelDimensionMap
+    // This works correctly for warp specialization on TIDx, TIDy, or TIDz
+    const ParallelDimensionMap& pdim_map =
+        GpuLower::current()->info().parallelDimensionMap();
+    Val* num_compute_warps = pdim_map.getNumComputeWarps();
+
+    ave num_compute_warps in GpuLower for reuse in cre
+    // teElectSyncPredicateAsync
+    GpuLower::current()->setNumComputeWarps(num_compute_warps);
+
+    niformWarpId() instead of threadIdx.x Val* uniform_warp_id =
+        GpuLower::current()->uniformWarpId();
+    NVF_ERROR(uniform_warp_id != nullptr, "UniformWarpId must be initialized");
+    return IrBuilder::create<kir::Predicate>(
+        IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
   }
 
   void insertTmaWarpSpecialized(
@@ -2172,3 +2174,4 @@ std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
+        

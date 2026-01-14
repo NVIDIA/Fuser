@@ -323,6 +323,46 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
   return warp_specialized_padding_value_.value();
 }
 
+Val* ParallelDimensionMap::getNumComputeWarps() const {
+  NVF_ERROR(
+      hasWarpSpecialization(),
+      "getNumComputeWarps() should only be called for warp specialized "
+      "kernels");
+
+  // Calculate the total number of compute threads:
+  // If warp specialized on TIDx: (bdimx - pad) * bdimy * bdimz
+  // If warp specialized on TIDy: bdimx * (bdimy - pad) * bdimz
+  // If warp specialized on TIDz: bdimx * bdimy * (bdimz - pad)
+  // Then divide by 32 to get the number of warps
+
+  Val* num_compute_threads = FusionGuard::getCurFusion()->oneVal();
+  ParallelType ws_pt = warp_specialized_parallel_type_.value();
+
+  for (auto pt : kParallelTypeTIDs) {
+    Val* dim = nullptr;
+    if (pt == ws_pt) {
+      // For the warp specialized dimension, use getRawCompute which subtracts
+      // the pad
+      dim = getRawCompute(pt);
+    } else {
+      // For other dimensions, use the raw dimension
+      dim = getRaw(pt);
+    }
+
+    if (dim == nullptr) {
+      continue;
+    }
+    num_compute_threads =
+        SimplifyingIrBuilder::mulExpr(num_compute_threads, dim);
+  }
+
+  // Divide by 32 to get the number of warps
+  Val* num_compute_warps = SimplifyingIrBuilder::divExpr(
+      num_compute_threads, IrBuilder::create<Val>(32L, DataType::Index));
+
+  return num_compute_warps;
+}
+
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   // short-circuit: skip if warp specialization is not enabled
   if (!hasWarpSpecialization()) {
