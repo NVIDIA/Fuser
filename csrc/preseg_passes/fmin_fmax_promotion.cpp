@@ -8,9 +8,9 @@
 #include <preseg_passes/fmin_fmax_promotion.h>
 
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
+#include <dispatch.h>
 #include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -110,16 +110,6 @@ enum class NanStatus {
 //    be promoted.
 
 using NanStatusMap = std::unordered_map<TensorView*, NanStatus>;
-using PromotedOpSet = std::unordered_set<ReductionOp*>;
-
-bool isSafeReduction(Expr* expr, const PromotedOpSet& promoted_ops) {
-  if (auto* rop = dynamic_cast<ReductionOp*>(expr)) {
-    // Check that this expr hasn't already been promoted to an unsafe reduction.
-    return !promoted_ops.contains(rop);
-  }
-
-  return false;
-}
 
 bool reductionMatches(ReductionOp* target, ReductionOp* other) {
   auto* target_tv = dynamic_cast<TensorView*>(target->output(0));
@@ -188,180 +178,199 @@ bool canBeAnalyzed(
   return false;
 }
 
-// Traverses the restricted subgraph around the target rop and checks whether
-// NANs which would be squelched by a promotion, will be subsequently repaired
-// by safe reductions.
-bool minMaxOpIsRepaired(
-    ReductionOp* targetRop,
-    const PromotedOpSet& promoted_ops) {
-  Fusion* fusion = targetRop->fusion();
-
-  auto* in_tv = targetRop->input(0)->as<TensorView>();
-  auto* out_tv = targetRop->output(0)->as<TensorView>();
-
-  NanStatusMap status_map;
-
-  status_map.emplace(in_tv, NanStatus::Unreduced);
-  status_map.emplace(out_tv, NanStatus::BadReduced);
-
-  std::optional<BroadcastOp*> broadcastMatcher;
-
-  // Topological traversal downstream of the targetRop input.
-  // Note we start from the input, not the output, of the targetRop, because
-  // we need to track the Unreduced state, so it can make repairs.
-  auto traversal =
-      StmtSort::getExprsBetween({targetRop->input(0)}, fusion->outputs());
-
-  for (Expr* expr : traversal) {
-    if (expr == targetRop) {
-      // Skip the target rop. We already marked its status.
-      continue;
-    }
-
-    // Get aggregate status from all inputs.
-    bool any_unreduced = false;
-    bool any_bad_reduced = false;
-    bool any_mixed = false;
-    bool any_good_reduced = false;
-
-    for (auto input : expr->inputs()) {
-      if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
-        NanStatus status = NanStatus::None;
-
-        auto it = status_map.find(in_tv);
-        if (it != status_map.end()) {
-          status = it->second;
-        }
-
-        switch (status) {
-          case NanStatus::Unreduced:
-            any_unreduced = true;
-            break;
-          case NanStatus::BadReduced:
-            any_bad_reduced = true;
-            break;
-          case NanStatus::Mixed:
-            any_mixed = true;
-            break;
-          case NanStatus::GoodReduced:
-            any_good_reduced = true;
-            break;
-          default:
-            break;
-        }
-      }
-    }
-
-    if (!canBeAnalyzed(expr, targetRop, broadcastMatcher)) {
-      // Analysis is blocked for this node, treat it like a fusion output.
-      if (any_bad_reduced || any_mixed) {
-        return false;
-      } else {
-        continue;
-      }
-    }
-
-    NanStatus status = NanStatus::None;
-    // Determine this node's status based on its inputs.
-    // Status is mostly propped based on priority. For example, GoodReduced
-    // beats all other states. There is also one combination rule with
-    // BadReduced and Unreduced combining to become Mixed.
-    if (any_good_reduced) {
-      status = NanStatus::GoodReduced;
-    } else if (any_mixed) {
-      status = NanStatus::Mixed;
-    } else if (any_unreduced && any_bad_reduced) {
-      status = NanStatus::Mixed;
-    } else if (any_unreduced) {
-      status = NanStatus::Unreduced;
-    } else if (any_bad_reduced) {
-      status = NanStatus::BadReduced;
-    }
-
-    if (isSafeReduction(expr, promoted_ops)) {
-      if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
-        // Unreduced and Mixed states both indicate the targetRop's input has
-        // propagated here pointwise, preserving its NAN values in unchanged
-        // positions. Therefore, this reduction will create the tensor with
-        // reduced NAN values matching the original targetRop if it propagated
-        // its NANs.
-        status = NanStatus::GoodReduced;
-      }
-    }
-
-    auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
-
-    status_map.emplace(out_tv, status);
+class FMinFMaxPromoter : public OptOutMutator {
+ public:
+  static void run(Fusion* fusion) {
+    FusionGuard fg(fusion);
+    FMinFMaxPromoter promoter(fusion);
   }
 
-  // Check whether any bad status reached output nodes
-  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  for (TensorView* out_tv : output_tvs) {
-    NanStatus status = NanStatus::None;
-
-    auto it = status_map.find(out_tv);
-    if (it != status_map.end()) {
-      status = it->second;
+ private:
+  FMinFMaxPromoter(Fusion* fusion) : fusion_(fusion) {
+    // Traverse in topological order so that when we check isSafeReduction,
+    // any upstream reductions will have already been processed.
+    for (auto expr : fusion->exprs()) {
+      dispatchMutate(expr);
     }
+  }
 
-    if (status == NanStatus::BadReduced || status == NanStatus::Mixed) {
+  // Check if a reduction is safe (not already promoted to FMin/FMax).
+  bool isSafeReduction(Expr* expr) {
+    auto* rop = dynamic_cast<ReductionOp*>(expr);
+    if (!rop) {
       return false;
     }
+
+    Val* out = maybeMutated(rop->out());
+    if (auto* def = dynamic_cast<ReductionOp*>(out->definition())) {
+      auto op_type = def->getReductionOpType();
+      return op_type != BinaryOpType::FMax && op_type != BinaryOpType::FMin;
+    }
+    return true;
   }
 
-  return true;
-}
+  // Traverses the restricted subgraph around the target rop and checks whether
+  // NANs which would be squelched by a promotion, will be subsequently repaired
+  // by safe reductions.
+  bool minMaxOpIsRepaired(ReductionOp* targetRop) {
+    auto* in_tv = targetRop->input(0)->as<TensorView>();
+    auto* out_tv = targetRop->output(0)->as<TensorView>();
 
-} // namespace
+    NanStatusMap status_map;
 
-void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
-  FusionGuard fusion_guard(fusion);
+    status_map.emplace(in_tv, NanStatus::Unreduced);
+    status_map.emplace(out_tv, NanStatus::BadReduced);
 
-  PromotedOpSet promoted_ops;
+    std::optional<BroadcastOp*> broadcastMatcher;
 
-  // This outer loop runs over all expressions, filtering for min/max
-  // reductions, which become the target for the rest of the analysis.
-  for (Expr* targetExpr : fusion->exprs()) {
-    auto* targetRop = dynamic_cast<ReductionOp*>(targetExpr);
+    // Topological traversal downstream of the targetRop input.
+    // Note we start from the input, not the output, of the targetRop, because
+    // we need to track the Unreduced state, so it can make repairs.
+    auto traversal =
+        StmtSort::getExprsBetween({targetRop->input(0)}, fusion_->outputs());
 
-    if (!targetRop) {
-      continue;
+    for (Expr* expr : traversal) {
+      if (expr == targetRop) {
+        // Skip the target rop. We already marked its status.
+        continue;
+      }
+
+      // Get aggregate status from all inputs.
+      bool any_unreduced = false;
+      bool any_bad_reduced = false;
+      bool any_mixed = false;
+      bool any_good_reduced = false;
+
+      for (auto input : expr->inputs()) {
+        if (auto* in_tv = dynamic_cast<TensorView*>(input)) {
+          NanStatus status = NanStatus::None;
+
+          auto it = status_map.find(in_tv);
+          if (it != status_map.end()) {
+            status = it->second;
+          }
+
+          switch (status) {
+            case NanStatus::Unreduced:
+              any_unreduced = true;
+              break;
+            case NanStatus::BadReduced:
+              any_bad_reduced = true;
+              break;
+            case NanStatus::Mixed:
+              any_mixed = true;
+              break;
+            case NanStatus::GoodReduced:
+              any_good_reduced = true;
+              break;
+            default:
+              break;
+          }
+        }
+      }
+
+      if (!canBeAnalyzed(expr, targetRop, broadcastMatcher)) {
+        // Analysis is blocked for this node, treat it like a fusion output.
+        if (any_bad_reduced || any_mixed) {
+          return false;
+        } else {
+          continue;
+        }
+      }
+
+      NanStatus status = NanStatus::None;
+      // Determine this node's status based on its inputs.
+      // Status is mostly propped based on priority. For example, GoodReduced
+      // beats all other states. There is also one combination rule with
+      // BadReduced and Unreduced combining to become Mixed.
+      if (any_good_reduced) {
+        status = NanStatus::GoodReduced;
+      } else if (any_mixed) {
+        status = NanStatus::Mixed;
+      } else if (any_unreduced && any_bad_reduced) {
+        status = NanStatus::Mixed;
+      } else if (any_unreduced) {
+        status = NanStatus::Unreduced;
+      } else if (any_bad_reduced) {
+        status = NanStatus::BadReduced;
+      }
+
+      if (isSafeReduction(expr)) {
+        if (status == NanStatus::Unreduced || status == NanStatus::Mixed) {
+          // Unreduced and Mixed states both indicate the targetRop's input has
+          // propagated here pointwise, preserving its NAN values in unchanged
+          // positions. Therefore, this reduction will create the tensor with
+          // reduced NAN values matching the original targetRop if it propagated
+          // its NANs.
+          status = NanStatus::GoodReduced;
+        }
+      }
+
+      auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
+
+      status_map.emplace(out_tv, status);
     }
 
-    auto reduction_type = targetRop->getReductionOpType();
+    // Check whether any bad status reached output nodes
+    auto output_tvs = ir_utils::filterByType<TensorView>(fusion_->outputs());
+    for (TensorView* out_tv : output_tvs) {
+      NanStatus status = NanStatus::None;
 
-    if (reduction_type == BinaryOpType::Min ||
-        reduction_type == BinaryOpType::Max) {
-      if (minMaxOpIsRepaired(targetRop, promoted_ops)) {
-        promoted_ops.insert(targetRop);
+      auto it = status_map.find(out_tv);
+      if (it != status_map.end()) {
+        status = it->second;
+      }
+
+      if (status == NanStatus::BadReduced || status == NanStatus::Mixed) {
+        return false;
       }
     }
+
+    return true;
   }
 
-  for (auto* rop : promoted_ops) {
-    // Promote the reduction ops by doing expression replacement
-    auto red_op_type = rop->getReductionOpType();
+  void mutate(Expr* expr) final {
+    auto* rop = dynamic_cast<ReductionOp*>(expr);
+
+    if (!rop) {
+      OptOutMutator::mutate(expr);
+      return;
+    }
+
+    auto op_type = rop->getReductionOpType();
+    if (op_type != BinaryOpType::Min && op_type != BinaryOpType::Max) {
+      OptOutMutator::mutate(expr);
+      return;
+    }
+
+    if (!minMaxOpIsRepaired(rop)) {
+      OptOutMutator::mutate(expr);
+      return;
+    }
+
+    // Promote: create new reduction with FMin/FMax
+    auto new_op_type = (op_type == BinaryOpType::Max) ? BinaryOpType::FMax
+                                                      : BinaryOpType::FMin;
+
     auto init = rop->init();
     auto out = rop->out();
     auto in = rop->in();
 
-    switch (red_op_type) {
-      case BinaryOpType::Max:
-        red_op_type = BinaryOpType::FMax;
-        break;
-      case BinaryOpType::Min:
-        red_op_type = BinaryOpType::FMin;
-        break;
-      default:
-        NVF_THROW();
-    }
-
-    fusion->removeExpr(rop);
+    fusion_->removeExpr(rop);
     IrBuilder::create<ReductionOp>(
-        red_op_type, init, out, in, rop->isAllreduce());
+        new_op_type, init, out, in, rop->isAllreduce());
+
+    // Register the mutation so downstream isSafeReduction checks work
+    registerMutation(out, out);
   }
 
-  return;
+  Fusion* fusion_;
+};
+
+} // namespace
+
+void FMinFMaxPromotionPass::runPass(Fusion* fusion) {
+  FMinFMaxPromoter::run(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
