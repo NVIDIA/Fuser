@@ -663,7 +663,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
     // Generate metadata for the fusion's outputs
     auto group_runtime_outputs = inferOutputMetaTensor(
-        heuristics,
+        heuristics.get(),
         group_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values.get());
