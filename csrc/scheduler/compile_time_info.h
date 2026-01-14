@@ -146,9 +146,8 @@ class ReductionTVs {
 //! Entry type definition class for `HAS_BLOCK_QUANTIZATION_OPS`,
 //!  stores a boolean flag indicating whether the fusion contains any
 //!  BlockQuantizationOp operations.
-class HasBlockQuantizationOps {
+class BlockQuantizationOps {
  public:
-  // using DataType = bool;
   using DataType = std::vector<BlockQuantizationOp*>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;

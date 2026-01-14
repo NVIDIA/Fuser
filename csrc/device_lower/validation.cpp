@@ -725,6 +725,10 @@ class ExprValidator : public OptOutDispatch {
       }
     }
 
+    // group id is used as a proxy for vectorization.
+    // When quantizing to mxfp8, we allow no group id
+    // as vectorization is not necessary for quantization to mxfp8
+    // but is required for sub-byte dtypes.
     NVF_ERROR(
         grouped_id != nullptr || is_mxfp8_output,
         "One of the output IDs must be grouped for "

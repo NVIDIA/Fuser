@@ -296,7 +296,7 @@ bool PointWiseScheduler::canScheduleRunTime(
   // Block Quantization Op runtime function.
 
   auto block_quantization_ops =
-      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+      HeuristicDataCacheEntry<HeuristicCompileTime::BlockQuantizationOps>(
           data_cache,
           [fusion]() {
             return std::make_unique<std::vector<BlockQuantizationOp*>>(
@@ -310,12 +310,12 @@ bool PointWiseScheduler::canScheduleRunTime(
     NVF_ERROR(pparams != nullptr);
     if (pparams->vectorization_factor < 2) {
       for (auto op : block_quantization_ops) {
-        if (op->quantizedOutput()->getDataType() != DataType::Float8_e4m3fn) {
+        if (dataTypeSizeBit(op->quantizedOutput()->getDataType().value()) < 8) {
           scheduler_debug_utils::canScheduleRejectReason(
               schedulerType(),
               "Block Quantization Op requires vectorization factor to be at "
               "least "
-              "2 for quantizing to NVFP4");
+              "2 for quantizing to sub-byte dtypes such as NVFP4");
           return false;
         }
       }
