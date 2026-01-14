@@ -87,7 +87,7 @@ class Requirement(ABC):
             "optional": self.optional,
             "location": self.location,
         }
-
+    @abstractmethod
     def generate_help(self, platform_info):
         """Generate help text for this requirement when it fails.
 
@@ -152,7 +152,9 @@ class VersionRequirement(Requirement):
             )
 
     def _format_success(self, colors) -> str:
-        """Format success: [nvFuser] ✓ Python        3.12.3 >= 3.8 (/usr/bin/python3)"""
+        """For example:
+             Format success: [nvFuser] ✓ Python        3.12.3 >= 3.10 (/usr/bin/python3)
+        """
         # Add asterisk for optional requirements
         name_with_marker = f"{self.name}*" if self.optional else self.name
         # Status symbol and name in white/green with padding
