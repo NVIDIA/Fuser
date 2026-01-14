@@ -495,14 +495,11 @@ Val* createElectSyncExpr() {
 }
 
 Val* selectWarpIndex(uint32_t warp_index) {
-  Val* select_first_warp = nullptr;
-
   Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
   NVF_ERROR(uniform_warp_id != nullptr);
-
-  Val* zero = IrBuilder::create<Val>(warp_index, PrimDataType::UInt32);
-  select_first_warp = IrBuilder::eqExpr(uniform_warp_id, zero);
-  return select_first_warp;
+  Val* target_warp_index =
+      IrBuilder::create<Val>(warp_index, PrimDataType::UInt32);
+  return IrBuilder::eqExpr(uniform_warp_id, target_warp_index);
 }
 
 // Select the first warp or one thread of the first warp in the block
@@ -515,49 +512,20 @@ Val* selectWarpIdxElectSyncPredicate(
             selectWarpIndex(warp_index), createElectSyncExpr());
 }
 
-// Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
-// ptx::elect_sync if not warp collective.
-// TODO If TIDx is known at compile-time, generate custom mask.
+// Since num_compute_warps represents the number of compute warps,
+// the first async warp starts at index num_compute_warps
 Val* createElectSyncPredicateAsync() {
   const ParallelDimensionMap& pdim_map =
       GpuLower::current()->info().parallelDimensionMap();
   Val* num_compute_warps = pdim_map.getNumComputeWarps();
   NVF_ERROR(
       num_compute_warps != nullptr, "NumComputeWarps must be initialized");
-  // Convert Val to uint32_t for warp index
-  // Since num_compute_warps represents the number of compute warps,
-  // the first async warp starts at index num_compute_warps
-  uint32_t warp_index = 0;
-  if (num_compute_warps->isConstScalar()) {
-    warp_index =
-        static_cast<uint32_t>(num_compute_warps->evaluate().as<int64_t>());
-  }
+  NVF_ERROR(
+      num_compute_warps->isConstScalar(), "NumComputeWarps must be a constant");
+  uint32_t warp_index =
+      static_cast<uint32_t>(num_compute_warps->evaluate().as<int64_t>());
   return selectWarpIdxElectSyncPredicate(
       warp_index, /*is_warp_collective=*/false);
-  // Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-  // Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-
-  // const ParallelDimensionMap& pdim_map =
-  //     GpuLower::current()->info().parallelDimensionMap();
-  // Val* async_warp_thread_index = pdim_map.getLinearThreadIndexAsync();
-  // Val* warp_id =
-  //     SimplifyingIrBuilder::divExpr(async_warp_thread_index, warp_size);
-  // // TODO Only select first warp now
-  // Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, zero);
-
-  // // Use elect-sync if available
-  // if (pdim_map.canUseElectSyncInAsyncWarp()) {
-  //   return SimplifyingIrBuilder::logicalAndExpr(
-  //       select_warp, createElectSyncExpr());
-  // }
-
-  // // Warp Specialized ParallelType is ThreadIdx.x and it contains less than
-  // 32
-  // // threads, so manually select first thread in warp.
-  // Val* thread_id =
-  //     SimplifyingIrBuilder::modExpr(async_warp_thread_index, warp_size);
-  // Val* select_thread = SimplifyingIrBuilder::eqExpr(thread_id, zero);
-  // return SimplifyingIrBuilder::logicalAndExpr(select_warp, select_thread);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {

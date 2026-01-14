@@ -976,7 +976,8 @@ Expr* initializeCircularBufferMbarrier(
         GpuLower::current()
             ->info()
             .parallelDimensionMap()
-            .getNumComputeThreadsEachBlock());
+            .getNumComputeThreadsEachBlock(
+                /*only_count_same_compute_warp_groups=*/true));
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread

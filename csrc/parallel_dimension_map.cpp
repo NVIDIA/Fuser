@@ -257,12 +257,13 @@ Val* ParallelDimensionMap::getRawAsync(ParallelType pt) const {
   return getRaw(pt);
 }
 
-Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
+Val* ParallelDimensionMap::getNumComputeThreadsEachBlock(
+    bool only_count_same_compute_warp_groups) const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     // Skip warp specialized ParallelType if the are computation warp groups
     // are independent.
-    if (isWarpSpecialized(pt) &&
+    if (only_count_same_compute_warp_groups && isWarpSpecialized(pt) &&
         GpuLower::current()
             ->circularBufferInfo()
             .hasIndependentComputeWarpGroups()) {
@@ -275,39 +276,6 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
   return num_threads;
-}
-
-// For warp-specialization, the CTA is padded so the AsyncWarp contains 128
-// threads. This function maps the AsyncWarp CTA to a linear index from
-// [0, 128). It is used to divide AsyncWarp into four independent warps.
-Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
-  Val* index = GpuLower::current()->kernel()->zeroVal();
-  Val* extent = GpuLower::current()->kernel()->oneVal();
-
-  for (auto pt : kParallelTypeTIDs) {
-    // For warp-specialization, an axis is padded so the AsyncWarp contains
-    // 128 threads.
-    Val* extent_for_pdim = getRawAsync(pt);
-    // short-circuit: extent_for_pdim is not used in kernel.
-    if (extent_for_pdim == nullptr) {
-      continue;
-    }
-    // short-circuit: extent_for_pdim is trivial.
-    if (extent_for_pdim->isConstScalar() &&
-        extent_for_pdim->evaluate().as<int64_t>() == 1) {
-      continue;
-    }
-    Val* pt_index = NamedScalar::getParallelIndex(pt);
-    // Map the padded parallel index to [0, padded_value] range, so the linear
-    // index will be in range of [0, 128).
-    if (isWarpSpecialized(pt)) {
-      pt_index = SimplifyingIrBuilder::subExpr(pt_index, getRawCompute(pt));
-    }
-    index = SimplifyingIrBuilder::addExpr(
-        index, SimplifyingIrBuilder::mulExpr(pt_index, extent));
-    extent = SimplifyingIrBuilder::mulExpr(extent, extent_for_pdim);
-  }
-  return index;
 }
 
 int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
@@ -329,32 +297,8 @@ Val* ParallelDimensionMap::getNumComputeWarps() const {
       "getNumComputeWarps() should only be called for warp specialized "
       "kernels");
 
-  // Calculate the total number of compute threads:
-  // If warp specialized on TIDx: (bdimx - pad) * bdimy * bdimz
-  // If warp specialized on TIDy: bdimx * (bdimy - pad) * bdimz
-  // If warp specialized on TIDz: bdimx * bdimy * (bdimz - pad)
-  // Then divide by 32 to get the number of warps
-
-  Val* num_compute_threads = FusionGuard::getCurFusion()->oneVal();
-  ParallelType ws_pt = warp_specialized_parallel_type_.value();
-
-  for (auto pt : kParallelTypeTIDs) {
-    Val* dim = nullptr;
-    if (pt == ws_pt) {
-      // For the warp specialized dimension, use getRawCompute which subtracts
-      // the pad
-      dim = getRawCompute(pt);
-    } else {
-      // For other dimensions, use the raw dimension
-      dim = getRaw(pt);
-    }
-
-    if (dim == nullptr) {
-      continue;
-    }
-    num_compute_threads =
-        SimplifyingIrBuilder::mulExpr(num_compute_threads, dim);
-  }
+  Val* num_compute_threads = getNumComputeThreadsEachBlock(
+      /*only_count_same_compute_warp_groups=*/false);
 
   // Divide by 32 to get the number of warps
   Val* num_compute_warps = SimplifyingIrBuilder::divExpr(

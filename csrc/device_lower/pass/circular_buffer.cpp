@@ -2016,7 +2016,8 @@ kir::ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
       GpuLower::current()
           ->info()
           .parallelDimensionMap()
-          .getNumComputeThreadsEachBlock());
+          .getNumComputeThreadsEachBlock(
+              /*only_count_same_compute_warp_groups=*/true));
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
   kir::MBarrierInit* ping_pong_mbarrier_init =

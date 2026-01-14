@@ -73,10 +73,8 @@ class ParallelDimensionMap {
   //! And this function will return (32 * 16) because the extra one for TIDy is
   //! introduced by warp specialization and only used for loading circular
   //! buffer tensors.
-  Val* getNumComputeThreadsEachBlock() const;
-
-  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
-  Val* getLinearThreadIndexAsync() const;
+  Val* getNumComputeThreadsEachBlock(
+      bool only_count_same_compute_warp_groups) const;
 
   //! Get the number of compute warps for warp specialized kernels.
   //! This computes the total number of compute threads across all dimensions
