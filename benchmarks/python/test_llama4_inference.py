@@ -29,11 +29,15 @@ def test_llama4_inference_benchmark(
     if mode == "thunder" and enable_nvfp4 and enable_cudagraph:
         pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
 
+    if DEVICE_PROPERTIES["gpu_compute_capability_major"] < 10:
+        if enable_nvfp4:
+            pytest.skip("nvfp4 support requires compute_capability >= 10.0")
+        if mode == "thunder" and enable_cudagraph:
+            pytest.skip("cudagraph doesn't support grouped matmul")
+
     if enable_nvfp4:
         from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
 
-        if DEVICE_PROPERTIES["gpu_compute_capability_major"] < 10:
-            pytest.skip("nvfp4 support requires compute_capability >= 10.0")
         _register_nvfp4_ops()
 
     config = InferenceBenchmarkConfig(
