@@ -592,15 +592,15 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         // Merge batch dim into the dimension that will be parallelized BIDy
         if (params_->cta_order ==
             MatmulParams::TileRasterizationOrder::ColumnMajor) {
-          int64_t outer_grid_dim = num_device_dims_ + 2L;
+          int64_t outer_grid_dim = num_parallel_dims_ + 2L;
           // [..., Batch, M, N, ...]
-          tv->merge(num_device_dims_, outer_grid_dim);
+          tv->merge(num_parallel_dims_, outer_grid_dim);
           // [..., Batch*N, M, ...]
           // Now we need to transpose so that Batch*N is to the right of M
-          tv->reorder({{num_device_dims_, num_device_dims_ + 1}});
+          tv->reorder({{num_parallel_dims_, num_parallel_dims_ + 1}});
         } else { // row major
-          int64_t outer_grid_dim = num_device_dims_ + 1L;
-          tv->merge(num_device_dims_, outer_grid_dim);
+          int64_t outer_grid_dim = num_parallel_dims_ + 1L;
+          tv->merge(num_parallel_dims_, outer_grid_dim);
         }
         merged_roles.erase(merged_roles.begin());
       }
@@ -618,7 +618,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
       if (num_local_batch_dims_ > 0) {
         NVF_ERROR(merged_roles.front() == MatmulDimRole::Batch);
         // Merge batch dims before doing the persistent split
-        tv->merge(num_device_dims_);
+        tv->merge(num_parallel_dims_);
         merged_roles.erase(merged_roles.begin());
       }
 
@@ -626,7 +626,7 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
           params_->cluster_dims.m * params_->cluster_dims.n);
       if (isCooperative()) {
         // outer, cga_m, cga_n
-        tv->split(num_device_dims_, num_clusters);
+        tv->split(num_parallel_dims_, num_clusters);
         // outer/num_cgas, num_cgas, cga_m, cga_n
       } else {
         // Schedule TensorViews for Ping-Pong schedule; Only for Hopper
@@ -636,20 +636,20 @@ std::vector<std::vector<MatmulDimRole>> HopperPlus::blockTileTensors(
         int64_t outer_split = num_clusters * num_compute_warp_groups;
 
         // outer, cga_m, cga_n
-        tv->split(num_device_dims_, outer_split);
+        tv->split(num_parallel_dims_, outer_split);
         // outer / (num_cgas * num_wgs), (num_cgas * num_wgs), cga_m, cga_n
 
-        tv->split(num_device_dims_ + 1, num_clusters);
+        tv->split(num_parallel_dims_ + 1, num_clusters);
         // outer / (num_cgas * num_wgs), num_wgs, num_cgas, cga_m, cga_n
 
         if (!ir_utils::isCpAsyncBulkLoad(tv->definition())) {
-          tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::TIDy);
+          tv->axis(num_parallel_dims_ + 1)->parallelize(ParallelType::TIDy);
         }
         // outer / (num_cgas * num_wgs), num_wgs (TIDy), num_cgas, cga_m, cga_n
 
         // Reorder so num_cgas, cga_m, and cga_n axes are in the same positions
         // as cooperative
-        tv->reorder({{num_device_dims_ + 1, num_device_dims_ + 4}});
+        tv->reorder({{num_parallel_dims_ + 1, num_parallel_dims_ + 4}});
         // outer / (num_cgas * num_wgs), num_cgas, cga_m, cga_n, num_wgs (TIDy)
       }
     } else {
@@ -715,12 +715,12 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
           // TODO: Should we instead check the roles of these dimensions to take
           // the outermost two M or N axes?
           case MatmulParams::TileRasterizationOrder::ColumnMajor:
-            tv->axis(num_device_dims_)->parallelize(ParallelType::BIDx);
-            tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDy);
+            tv->axis(num_parallel_dims_)->parallelize(ParallelType::BIDx);
+            tv->axis(num_parallel_dims_ + 1)->parallelize(ParallelType::BIDy);
             break;
           case MatmulParams::TileRasterizationOrder::RowMajor:
-            tv->axis(num_device_dims_)->parallelize(ParallelType::BIDy);
-            tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDx);
+            tv->axis(num_parallel_dims_)->parallelize(ParallelType::BIDy);
+            tv->axis(num_parallel_dims_ + 1)->parallelize(ParallelType::BIDx);
             break;
           default:
             NVF_THROW(
@@ -731,11 +731,11 @@ void HopperPlus::parallelizeBlocks(const std::vector<TensorView*>& tvs) const {
       case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
         // With CGAs, we only bind BIDz to indicate the cluster ID and
         // BIDx/BIDy are the cluster dimensions
-        tv->axis(num_device_dims_ + 1)->parallelize(ParallelType::BIDz);
+        tv->axis(num_parallel_dims_ + 1)->parallelize(ParallelType::BIDz);
         // BIDx and BIDy are the cluster dims and always correspond to M and
         // N, regardless of cta_order
-        tv->axis(num_device_dims_ + 2)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_dims_ + 3)->parallelize(ParallelType::BIDy);
+        tv->axis(num_parallel_dims_ + 2)->parallelize(ParallelType::BIDx);
+        tv->axis(num_parallel_dims_ + 3)->parallelize(ParallelType::BIDy);
         break;
     }
   }
@@ -1331,7 +1331,7 @@ void HopperPlus::setUpInlining() {
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads));
 
   for (TensorView* mma_result : mma_results_) {
-    inlineSelectedAt(smem_loads, mma_result, num_device_dims_ + 4);
+    inlineSelectedAt(smem_loads, mma_result, num_parallel_dims_ + 4);
   }
 }
 

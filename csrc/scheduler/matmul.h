@@ -127,7 +127,7 @@ class Common {
   std::vector<ValGroup> canonical_dim_ordering_;
 
   int64_t num_splitk_dims_ = 0;
-  int64_t num_device_dims_ = 0;
+  int64_t num_parallel_dims_ = 0;
   int64_t num_local_batch_dims_ = 0;
   int64_t num_device_and_batch_dims_ = 0;
 

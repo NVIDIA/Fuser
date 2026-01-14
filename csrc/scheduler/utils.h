@@ -1010,7 +1010,10 @@ std::pair<int64_t, int64_t> getRegisterSharing(
     int64_t padded_threads);
 
 // Returns the number of leading parallel non-reduction dimensions in a
-// TensorView's loop domain.
+// TensorView's loop domain. Asserts the rest are non-parallel or reduction.
+// This function is typically used by intra-GPU schedulers to decide where to
+// set the "breakpoint" in a loop domain so scheduling only affects non-device
+// and non-stream IterDomains.
 int64_t countLeadingParallelDimensions(const TensorView*);
 
 } // namespace scheduler_utils

@@ -165,7 +165,7 @@ void Common::findRoles() {
 void Common::countDims() {
   NVF_ERROR(!patterns_.empty());
   TensorView* mma_result = patterns_.front().output;
-  num_device_dims_ =
+  num_parallel_dims_ =
       scheduler_utils::countLeadingParallelDimensions(mma_result);
   for (const auto& it : id_roles_) {
     if (it.second == MatmulDimRole::Batch &&
@@ -179,7 +179,7 @@ void Common::countDims() {
   }
   num_splitk_dims_ = params_->splitk_factor > 1 ? 1 : 0;
   // Subtract 6 for the [Mo, No, Ko, Mi, Ni, Ki]
-  num_device_and_batch_dims_ = num_device_dims_ + num_local_batch_dims_;
+  num_device_and_batch_dims_ = num_parallel_dims_ + num_local_batch_dims_;
 }
 
 //! Rebuilds IdModel, then updates all ValGroups in abstract tensors to refer
