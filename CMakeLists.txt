@@ -1164,8 +1164,9 @@ function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
   if(NVFUSER_USE_PCH)
     target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
-    set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
+  set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_options("${TEST_NAME}" PRIVATE -fPIC)
 endfunction()
 
 # Special function for tests that MUST be isolated (single source file only)
@@ -1403,8 +1404,9 @@ if(BUILD_NVFUSER_BENCHMARK)
   # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
   if(NVFUSER_USE_PCH)
     target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
-    set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
   endif()
+  set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  target_compile_options(nvfuser_bench PRIVATE -fPIC)
 
   target_include_directories(nvfuser_bench SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
