@@ -253,7 +253,9 @@ void traverseFrontierWithContiguityCheck(
   }
 }
 
-void validateQuantizedOutputScheduling(TensorView* quantized_output, DataType input_dtype) {
+void validateQuantizedOutputScheduling(
+    TensorView* quantized_output,
+    DataType input_dtype) {
   // Outputs have the same allocation domain
   // as the logical domain - no allocation domain.
   NVF_ERROR(
@@ -352,7 +354,8 @@ void validateQuantizedOutputScheduling(TensorView* quantized_output, DataType in
   // (M*K)/4/128      128(Tx)
 
   // Next we check the following scheduling requirements for
-  // BlockQuantizationOp/GroupedBlockQuantizationOp - the above figure is an example of a valid schedule.
+  // BlockQuantizationOp/GroupedBlockQuantizationOp - the above figure is an
+  // example of a valid schedule.
   // 1. The Group ID must be derived from the innermost logical IDs
   // 2. TIDx must follow the Group ID in the schedule -- that is when derived
   // from the logical domain, group ID must be inner-most, the next
@@ -428,7 +431,6 @@ void validateQuantizedOutputScheduling(TensorView* quantized_output, DataType in
       "contiguous IDs from the logical domain for: ",
       quantized_output->toString());
 }
-
 
 // Check if maybe_innermost_id is derived from base_id and corresponds to the
 // innermost subregion of base_id. The split/merge exprs between
@@ -861,7 +863,6 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor not contiguous");
 
     validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
-
   }
 
   void handle(GroupedBlockQuantizationOp* bqop) final {
