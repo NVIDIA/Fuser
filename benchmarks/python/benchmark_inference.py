@@ -47,12 +47,21 @@ from torch.distributed.tensor import DTensor
 
 import thunder
 from thunder.dynamo.compiler import thunderfx
-from layers_for_inference_benchmark import (
-    GroupedSwiGLU,
-    Llama4MoE,
-    NVFP4InferenceGroupedSwiGLU,
-    nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
-)
+if __name__ == "__main__":
+    # TODO: remove this after folks switch to pytest
+    from layers_for_inference_benchmark import (
+        GroupedSwiGLU,
+        Llama4MoE,
+        NVFP4InferenceGroupedSwiGLU,
+        nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
+    )
+else:
+    from .layers_for_inference_benchmark import (
+        GroupedSwiGLU,
+        Llama4MoE,
+        NVFP4InferenceGroupedSwiGLU,
+        nvfuser_f16a_nvfp4weight_scaled_grouped_mm,
+    )
 from thunder.tests.distributed.test_moe import GroupedLinearColwiseParallel, GroupedLinearRowwiseParallel
 from thunder.transforms.cudagraph import CUDAGraphTransform
 from thunder.torch.custom_op import _register_custom_op, _register_nvfuser_translator
