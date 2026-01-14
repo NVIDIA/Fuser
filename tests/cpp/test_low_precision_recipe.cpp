@@ -11,10 +11,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 using testing::UnorderedElementsAre;

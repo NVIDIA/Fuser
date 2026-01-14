@@ -735,8 +735,7 @@ std::list<Expr*> addStreamManagement(std::list<Expr*> top_level_exprs) {
 void StreamParallelType::passImplementation(Fusion* fusion) {
   // Set up the fusion environment and build the ID model
   FusionGuard fg(fusion);
-  auto* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
-  NVF_CHECK(hic, "Expected HostIrContainer");
+  auto* hic = fusion->as<hir::HostIrContainer>();
 
   IdModel id_model(fusion);
   id_model.buildBroadcastGraph();

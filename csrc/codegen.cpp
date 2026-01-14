@@ -4676,7 +4676,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(layout_op->g()));
 
     indent() << genCall(
-                    "block_layout::preprocessGroupedMatmulInputSf",
+                    "bq::preprocessGroupedMatmulInputSf",
                     template_args,
                     func_args)
              << ";\n";
