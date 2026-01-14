@@ -109,7 +109,8 @@ T throwIfError(llvm::Expected<T>&& E) {
 
 // Helper functions to get LLVM type for given types
 llvm::Type* getInt8PtrType(llvm::LLVMContext& context) {
-  return llvm::PointerType::getUnqual(llvm::Type::getInt8Ty(context));
+  // Use context-only overload for LLVM opaque pointer compatibility
+  return llvm::PointerType::getUnqual(context);
 }
 
 llvm::Type* getInt8PtrStaticArrayType(
@@ -119,16 +120,15 @@ llvm::Type* getInt8PtrStaticArrayType(
 }
 
 llvm::Type* getInt8PtrDynamicArrayType(llvm::LLVMContext& context) {
-  return llvm::PointerType::getUnqual(getInt8PtrType(context));
+  // Use context-only overload for LLVM opaque pointer compatibility
+  return llvm::PointerType::getUnqual(context);
 }
 
-// Helper function to get opaque at::Tensor type for better type safety
+// Helper function to get opaque pointer type for at::Tensor
 llvm::Type* getTensorPtrType(llvm::LLVMContext& context) {
-  // Create an opaque struct type for at::Tensor
-  // This provides better type safety than using void* for tensor pointers
-  // while still being compatible with LLVM's type system
-  return llvm::PointerType::getUnqual(
-      llvm::StructType::create(context, kAtTensorType));
+  // With LLVM opaque pointers, all pointers are the same type regardless of
+  // what they point to - no need to create a named struct type
+  return llvm::PointerType::getUnqual(context);
 }
 
 llvm::ArrayType* getInt64StaticArrayType(
@@ -138,7 +138,8 @@ llvm::ArrayType* getInt64StaticArrayType(
 }
 
 llvm::Type* getInt64PtrType(llvm::LLVMContext& context) {
-  return llvm::PointerType::getUnqual(llvm::Type::getInt64Ty(context));
+  // Use context-only overload for LLVM opaque pointer compatibility
+  return llvm::PointerType::getUnqual(context);
 }
 
 // Helper function to insert nvtxRangePush call
