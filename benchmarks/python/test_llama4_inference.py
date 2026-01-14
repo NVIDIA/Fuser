@@ -12,8 +12,8 @@ from .benchmark_inference import (
 @pytest.mark.parametrize("input_length", [4096])
 @pytest.mark.parametrize("output_length", [4])
 @pytest.mark.parametrize("mode", ["thunder", "inductor"])
-@pytest.mark.parametrize("enable_nvfp4", [False, True])
-@pytest.mark.parametrize("enable_cudagraph", [False, True])
+@pytest.mark.parametrize("enable_nvfp4", [True, False])
+@pytest.mark.parametrize("enable_cudagraph", [True, False])
 def test_llama4_inference_benchmark(
     benchmark,
     input_length: int,
