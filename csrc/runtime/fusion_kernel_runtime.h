@@ -178,6 +178,7 @@ class FusionKernelRuntime {
   //! tensors are inferred using the ExprEval on meta device. Otherwise, the
   //! output tensors are inferred assuming they are contiguous.
   KernelArgumentHolder inferOutputMetaTensor(
+      HeuristicParamsList* heuristics,
       SegmentedGroup* group_to_run,
       const KernelArgumentHolder& group_runtime_inputs,
       PrecomputedValues* evaluator_precomputed_values = nullptr) const;
