@@ -30,6 +30,7 @@ def test_llama4_inference_benchmark(
 
     if enable_nvfp4:
         from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
+
         if DEVICE_PROPERTIES["gpu_compute_capability_major"] < 10:
             pytest.skip("nvfp4 support requires compute_capability >= 10.0")
         _register_nvfp4_ops()
