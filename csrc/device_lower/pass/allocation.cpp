@@ -1699,9 +1699,10 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
-    // For warp specialized kernel, insert uniform warp id at the top-level
-    // scope.
-    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+    // Insert uniform warp id at the top-level scope if warp specialization or
+    // cluster reduction is used.
+    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized() ||
+        GpuLower::current()->clusterReductionCount() >= 1) {
       insertUniformWarpId(exprs.at(0));
     }
     // insert cluster reduction mbarrier at top-level scope
