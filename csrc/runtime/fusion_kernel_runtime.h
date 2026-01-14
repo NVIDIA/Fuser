@@ -177,7 +177,7 @@ class FusionKernelRuntime {
   KernelArgumentHolder inferOutputMetaTensor(
       SegmentedGroup* group_to_run,
       const KernelArgumentHolder& args,
-      PrecomputedValues* evaluator_precomputed_values = nullptr);
+      PrecomputedValues* evaluator_precomputed_values = nullptr) const;
 
   //! When a FusionIR is constructed, all intermediate tensors are assumed to
   //! be contiguous. Unfortunately, this assumption is not always true, and

@@ -340,7 +340,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
     SegmentedGroup* group_to_run,
     const KernelArgumentHolder& group_runtime_inputs,
-    PrecomputedValues* evaluator_precomputed_values = nullptr) {
+    PrecomputedValues* evaluator_precomputed_values) const {
   FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
   Fusion* fusion_to_run = group_to_run->getFusion();
   KernelArgumentHolder group_runtime_outputs;
@@ -350,10 +350,10 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   if (is_expr_eval) {
     // For expr evaluated fusion, the striding rules follow that of ATen.
     ExpressionEvaluator eval_fusion;
-    for (auto [i, v] : enumerate(group_to_run->inputs())) {
-      auto tensor_pv = args_manager.checkTensorMap(v);
+    for (auto i : arange(group_to_run->inputs().size())) {
+      const auto& tensor_pv = group_runtime_inputs[i];
       if (tensor_pv.is<at::Tensor>()) {
-        const auto t = tensor_pv.as<at::Tensor>();
+        const auto& t = tensor_pv.as<at::Tensor>();
         if (t.defined()) {
           const auto meta_t = at::empty_strided(
               t.sizes(),
@@ -389,10 +389,10 @@ void FusionKernelRuntime::updateContiguityOfSegmentOutputs(
   if (!isOptionEnabled(EnableOption::InferContiguity)) {
     return;
   }
-  for (Val* output : group_to_run->outputs()) {
+  for (auto [i, output] : enumerate(group_to_run->outputs())) {
     auto tv = dynamic_cast<TensorView*>(output);
     if (tv) {
-      const at::Tensor& tensor = group_runtime_outputs[output].as<at::Tensor>();
+      const at::Tensor& tensor = group_runtime_outputs[i].as<at::Tensor>();
       ir_utils::resetContiguityFromTensor(tv, tensor);
     }
   }
