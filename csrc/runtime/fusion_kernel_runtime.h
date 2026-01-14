@@ -176,7 +176,8 @@ class FusionKernelRuntime {
   //! Infer the output shape and stride of the fusion as tensors on Meta device
   KernelArgumentHolder inferOutputMetaTensor(
       SegmentedGroup* group_to_run,
-      const KernelArgumentHolder& group_runtime_inputs) const;
+      const KernelArgumentHolder& group_runtime_inputs,
+      PrecomputedValues* evaluator_precomputed_values = nullptr) const;
 
   //! When a FusionIR is constructed, all intermediate tensors are assumed to
   //! be contiguous. Unfortunately, this assumption is not always true, and

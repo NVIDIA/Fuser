@@ -339,7 +339,8 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 
 KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
     SegmentedGroup* group_to_run,
-    const KernelArgumentHolder& group_runtime_inputs) const {
+    const KernelArgumentHolder& group_runtime_inputs,
+    PrecomputedValues* evaluator_precomputed_values) const {
   FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
   Fusion* fusion_to_run = group_to_run->getFusion();
   KernelArgumentHolder group_runtime_outputs;
@@ -376,7 +377,7 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
     // instead.
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     return inferContiguousOutputMetaTensor(
-        fusion_to_run.get(), group_runtime_inputs);
+        fusion_to_run.get(), group_runtime_inputs, evaluator_precomputed_values);
   }
   return group_runtime_outputs;
 }
