@@ -695,40 +695,44 @@ TEST_F(RaggedIterDomainTest, Partition2DOffsets) {
   EXPECT_EQ(component_id->definition(), ragged_id->definition());
 }
 
-// asNested with 2D offsets (expert parallelism use case)
+// asNested with 2D extents (should partition axis 1, not axis 0)
 TEST_F(RaggedIterDomainTest, AsNested2DOffsets) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  // Create a 2D TensorView representing tokens [total_tokens, hidden]
-  auto data = makeSymbolicTensor(2, DataType::Float);
+  // Create a 3D TensorView: [D=2, tokens=100, hidden=512]
+  // This represents 2 GPUs, each with tokens, and hidden dimension
+  auto data = makeSymbolicTensor(3, DataType::Float);
   fusion.addInput(data);
 
-  // Create 2D offsets [num_gpus, num_experts + 1]
-  // This represents per-GPU offsets for routing tokens to experts
-  auto offsets_2d = makeSymbolicTensor(2, DataType::Index);
-  fusion.addInput(offsets_2d);
+  // Create 2D extents [D=2, num_experts=4]
+  // This represents per-GPU token counts for experts
+  auto extents_2d = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(extents_2d);
 
-  // Create nested tensor partitioning the first dimension
-  auto nested = asNested(data, offsets_2d, 0);
+  // Create nested tensor partitioning dimension 1 (tokens)
+  auto nested = asNested(data, extents_2d, 1);
 
   fusion.addOutput(nested);
 
   // Verify the output dimensions
-  // Should be: [component (num_experts), ragged (tokens_per_expert with 2D extents), hidden]
-  EXPECT_EQ(nested->nDims(), 3);
+  // Should be: [D=2, component=4, ragged, hidden=512]
+  EXPECT_EQ(nested->nDims(), 4);
 
-  // First axis is component (num_experts from last dim of offsets)
+  // First axis is unchanged (D=2)
   EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
-  EXPECT_FALSE(nested->axis(0)->isA<RaggedIterDomain>());
 
-  // Second axis is ragged with 2D extents
-  EXPECT_TRUE(nested->axis(1)->isA<RaggedIterDomain>());
-  auto ragged_id = nested->axis(1)->as<RaggedIterDomain>();
+  // Second axis is component (num_experts from last dim)
+  EXPECT_TRUE(nested->axis(1)->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(nested->axis(1)->isA<RaggedIterDomain>());
+
+  // Third axis is ragged with 2D extents
+  EXPECT_TRUE(nested->axis(2)->isA<RaggedIterDomain>());
+  auto ragged_id = nested->axis(2)->as<RaggedIterDomain>();
   EXPECT_EQ(ragged_id->extents()->nDims(), 2);
 
-  // Third axis is the original hidden dimension
-  EXPECT_TRUE(nested->axis(2)->isStrictlyA<IterDomain>());
+  // Fourth axis is the original hidden dimension
+  EXPECT_TRUE(nested->axis(3)->isStrictlyA<IterDomain>());
 }
 
 // Partition with 3D offsets
@@ -1247,6 +1251,62 @@ TEST_F(RaggedIterDomainTest, PadRaggedDimensionError) {
   };
 
   EXPECT_THROW(pad(nested, pad_widths), nvfuser::nvfError);
+}
+
+// Test asNested with 2D extents on correct axis (matching expert parallelism)
+TEST_F(RaggedIterDomainTest, AsNested2DExtentsAxis1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 3D TensorView: [D=2, S=100, hidden=512]
+  // This represents 2 GPUs, each with 100 tokens, and hidden dimension
+  auto tokens = makeSymbolicTensor(3, DataType::Float);
+  fusion.addInput(tokens);
+
+  // Create 2D extents: [D=2, E=4]
+  // Represents per-GPU token counts for 4 experts
+  auto extents = makeSymbolicTensor(2, DataType::Index);
+  fusion.addInput(extents);
+
+  // Partition dimension 1 (tokens) with 2D extents
+  auto nested = asNested(tokens, extents, 1);
+
+  fusion.addOutput(nested);
+
+  // Should be: [D=2, component=4, ragged, hidden=512]
+  EXPECT_EQ(nested->nDims(), 4);
+
+  // First axis unchanged (D=2)
+  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
+
+  // Second axis is component (num_experts=4)
+  EXPECT_TRUE(nested->axis(1)->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(nested->axis(1)->isA<RaggedIterDomain>());
+
+  // Third axis is ragged with 2D extents
+  EXPECT_TRUE(nested->axis(2)->isA<RaggedIterDomain>());
+  auto ragged_id = nested->axis(2)->as<RaggedIterDomain>();
+  EXPECT_EQ(ragged_id->extents()->nDims(), 2);
+
+  // Fourth axis unchanged (hidden=512)
+  EXPECT_TRUE(nested->axis(3)->isStrictlyA<IterDomain>());
+}
+
+// Test asNested invalid shape
+TEST_F(RaggedIterDomainTest, AsNestedInvalidShape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create a 3D TensorView: [D=2, S=100, hidden=512]
+  auto tokens = makeSymbolicTensor(3, DataType::Float);
+  fusion.addInput(tokens);
+
+  // Create 3D extents (wrong dimensionality for axis 1)
+  auto extents_3d = makeSymbolicTensor(3, DataType::Index);
+  fusion.addInput(extents_3d);
+
+  // This should throw: 3D extents for axis 1 requires extents.ndim - 1 == 1
+  EXPECT_THROW(asNested(tokens, extents_3d, 1), nvfuser::nvfError);
 }
 
 } // namespace nvfuser

@@ -1026,20 +1026,21 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
       extents->dtype());
 
   const auto& extents_domain = extents->getLogicalDomain();
-  NVF_ERROR_EQ(
-      extents_domain.size(),
-      1,
-      "partition: extents tensor must be 1D, got ",
-      extents_domain.size(),
-      "D tensor. Multi-dimensional extents not yet supported.");
+  NVF_ERROR(
+      !extents_domain.empty(),
+      "partition: extents tensor must have at least one dimension, got 0D tensor");
 
   auto container = in->container();
 
   // Create component IterDomain
-  // Component extent = number of components = length of extents tensor
+  // Component extent = number of components = size of last dimension of extents
+  // For 1D extents [K]: component_extent = K
+  // For 2D extents [D, K]: component_extent = K (last dim)
+  // For N-D extents [..., K]: component_extent = K (last dim)
+  // The outer dimensions of extents correspond to outer dimensions of the
+  // tensor being partitioned, allowing non-uniform partitions across instances.
   auto zero = container->zeroVal(DataType::Index);
-  // TODO: This is likely wrong
-  auto component_extent = extents_domain.at(0)->extent();
+  auto component_extent = extents_domain.back()->extent();
   auto component_id = IterDomainBuilder(zero, component_extent)
                           .parallel_type(ParallelType::Serial)
                           .iter_type(IterType::Iteration)

@@ -487,13 +487,14 @@ class NVF_API RaggedIterDomain : public IterDomain {
   //!
   //! \param in Input IterDomain to partition (must be regular IterDomain)
   //! \param extents Extents tensor defining the size of each component
-  //!        1D example: Shape [num_components], values [extent0, extent1, ...,
-  //!        extent(n-1)]
+  //!        1D example: Shape [num_components], values [extent0, extent1, ...]
   //!        2D example: Shape [outer_dim, num_components], e.g., [num_gpus, num_experts]
+  //!        For N-D extents, the last dimension defines the number of components,
+  //!        and outer dimensions correspond to outer dimensions of the tensor.
   //!
   //! \return Pair of (component_id, ragged_id)
-  //!         component_id: IterDomain with extent = num_components (from last dim of offsets)
-  //!         ragged_id: RaggedIterDomain with N-D extents tensor (same shape as extents in last dim)
+  //!         component_id: IterDomain with extent = num_components (from last dim of extents)
+  //!         ragged_id: RaggedIterDomain with N-D extents tensor
   static std::pair<IterDomain*, RaggedIterDomain*> partition(
       IterDomain* in,
       TensorView* extents);
