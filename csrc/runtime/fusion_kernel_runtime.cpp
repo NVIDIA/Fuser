@@ -337,6 +337,64 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
+KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
+    SegmentedGroup* group_to_run,
+    const KernelArgumentHolder& group_runtime_inputs,
+    PrecomputedValues* evaluator_precomputed_values = nullptr) {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
+  Fusion* fusion_to_run = group_to_run->getFusion();
+  KernelArgumentHolder group_runtime_outputs;
+  const auto& heuristic_params = heuristics_->at(group_to_run->groupId());
+  const bool is_expr_eval =
+      heuristic_params->scheduler_type == SchedulerType::ExprEval;
+  if (is_expr_eval) {
+    // For expr evaluated fusion, the striding rules follow that of ATen.
+    ExpressionEvaluator eval_fusion;
+    for (auto [i, v] : enumerate(group_to_run->inputs())) {
+      auto tensor_pv = args_manager.checkTensorMap(v);
+      if (tensor_pv.is<at::Tensor>()) {
+        const auto t = tensor_pv.as<at::Tensor>();
+        if (t.defined()) {
+          const auto meta_t = at::empty_strided(
+              t.sizes(),
+              t.strides(),
+              at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
+          eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
+        } else {
+          eval_fusion.bind(fusion_to_run->inputs()[i], t);
+        }
+      } else {
+        eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+      }
+    }
+    for (auto v : fusion_to_run->outputs()) {
+      auto result = eval_fusion.evaluate(v);
+      group_runtime_outputs.push(result);
+    }
+  } else {
+    // TODO: inferContiguousOutputMetaTensor doesn't seem to strictly
+    // require a Fusion for each segment. Consider using the complete fusion
+    // instead.
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+    return inferContiguousOutputMetaTensor(
+        fusion_to_run.get(), group_runtime_inputs);
+  }
+  return group_runtime_outputs;
+}
+
+void FusionKernelRuntime::updateContiguityOfSegmentOutputs(
+    SegmentedGroup* group_to_run,
+    const KernelArgumentHolder& group_runtime_outputs) const {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::updateContiguityOfSegmentOutputs");
+  for (Val* output : group_to_run->outputs()) {
+    auto tv = dynamic_cast<TensorView*>(output);
+    if (tv) {
+      const at::Tensor& tensor = group_runtime_outputs[output].as<at::Tensor>();
+      ir_utils::resetContiguityFromTensor(tv, tensor);
+    }
+  }
+}
+
 std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     const KernelArgumentHolder& args) const {
   std::vector<KernelArgumentHolder> all_runtime_inputs;
@@ -362,16 +420,14 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputShapeAndContiguousStrides doesn't seem to strictly
-    // require a Fusion for each segment. Consider using the complete fusion
-    // instead.
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
-        fusion_to_run.get(), group_runtime_inputs);
+    auto group_runtime_outputs =
+        inferOutputMetaTensor(group_to_run, group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
+
+    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
 
   return all_runtime_inputs;
@@ -599,13 +655,13 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
-        fusion_to_run,
-        group_runtime_inputs,
-        evaluator_precomputed_values.get());
+    auto group_runtime_outputs = inferOutputMetaTensor(
+        group_to_run, group_runtime_inputs, evaluator_precomputed_values.get());
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
+
+    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
   return heuristics;
 }
