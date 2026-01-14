@@ -12,6 +12,8 @@ from abc import ABC, abstractmethod
 from typing import Optional, Dict
 from dataclasses import dataclass
 
+from ..colors import colorize
+
 
 @dataclass
 class RequirementStatus:
@@ -148,9 +150,7 @@ class VersionRequirement(Requirement):
         elif self.status == RequirementStatus.INCOMPATIBLE:
             return self._format_incompatible(colors)
         else:
-            return (
-                f"{colors.BOLD_RED}[nvFuser] ✗ {self.name} unknown status{colors.RESET}"
-            )
+            return colorize(colors.BOLD_RED, f"[nvFuser] ✗ {self.name} unknown status")
 
     def _format_success(self, colors) -> str:
         """For example:
@@ -160,13 +160,15 @@ class VersionRequirement(Requirement):
         name_with_marker = f"{self.name}*" if self.optional else self.name
         # Status symbol and name in white/green with padding
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
+        status_part = colorize(colors.GREEN, "[nvFuser] ✓ ") + name_padded
 
         # Version info in green
         if self.version_found and self.version_required:
-            version_part = f"{colors.GREEN}{self.version_found} >= {self.version_required}{colors.RESET}"
+            version_part = colorize(
+                colors.GREEN, f"{self.version_found} >= {self.version_required}"
+            )
         elif self.version_found:
-            version_part = f"{colors.GREEN}{self.version_found}{colors.RESET}"
+            version_part = colorize(colors.GREEN, self.version_found)
         else:
             version_part = ""
 
@@ -178,7 +180,7 @@ class VersionRequirement(Requirement):
 
         # Add location in cyan if available
         if self.location:
-            main_line += f" {colors.CYAN}({self.location}){colors.RESET}"
+            main_line += " " + colorize(colors.CYAN, f"({self.location})")
 
         return main_line
 
@@ -189,31 +191,51 @@ class VersionRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.optional:
-            status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
+            status_part = colorize(colors.YELLOW, "[nvFuser] ○ ") + name_padded
             if self.version_required:
-                return f"{status_part} {colors.YELLOW}Not found (optional, v{self.version_required}+ recommended){colors.RESET}"
+                return (
+                    status_part
+                    + " "
+                    + colorize(
+                        colors.YELLOW,
+                        f"Not found (optional, v{self.version_required}+ recommended)",
+                    )
+                )
             else:
                 return (
-                    f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                    status_part + " " + colorize(colors.YELLOW, "Not found (optional)")
                 )
         else:
-            status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
+            status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
             if self.version_required:
-                return f"{status_part} {colors.BOLD_RED}Not found (requires {self.version_required}+){colors.RESET}"
+                return (
+                    status_part
+                    + " "
+                    + colorize(
+                        colors.BOLD_RED,
+                        f"Not found (requires {self.version_required}+)",
+                    )
+                )
             else:
-                return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
+                return status_part + " " + colorize(colors.BOLD_RED, "Not found")
 
     def _format_incompatible(self, colors) -> str:
         """Format incompatible: [nvFuser] ✗ Python        3.7.0 < 3.8"""
         # Add asterisk for optional requirements
         name_with_marker = f"{self.name}*" if self.optional else self.name
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
-        status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
+        status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
 
         if self.version_found and self.version_required:
-            return f"{status_part} {colors.BOLD_RED}{self.version_found} < {self.version_required}{colors.RESET}"
+            return (
+                status_part
+                + " "
+                + colorize(
+                    colors.BOLD_RED, f"{self.version_found} < {self.version_required}"
+                )
+            )
         else:
-            return f"{status_part} {colors.BOLD_RED}incompatible{colors.RESET}"
+            return status_part + " " + colorize(colors.BOLD_RED, "incompatible")
 
 
 class BooleanRequirement(Requirement):
@@ -230,20 +252,23 @@ class BooleanRequirement(Requirement):
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
 
         if self.status == RequirementStatus.SUCCESS:
-            status_part = f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
+            status_part = colorize(colors.GREEN, "[nvFuser] ✓ ") + name_padded
             if self.location:
-                return f"{status_part} {colors.CYAN}({self.location}){colors.RESET}"
+                return status_part + " " + colorize(colors.CYAN, f"({self.location})")
             return status_part
         elif self.status == RequirementStatus.NOT_FOUND:
             if self.optional:
-                status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
+                status_part = colorize(colors.YELLOW, "[nvFuser] ○ ") + name_padded
                 return (
-                    f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
+                    status_part + " " + colorize(colors.YELLOW, "Not found (optional)")
                 )
             else:
-                status_part = (
-                    f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
-                )
-                return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
+                status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
+                return status_part + " " + colorize(colors.BOLD_RED, "Not found")
         else:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded} {colors.BOLD_RED}validation failed{colors.RESET}"
+            return (
+                colorize(colors.BOLD_RED, "[nvFuser] ✗ ")
+                + name_padded
+                + " "
+                + colorize(colors.BOLD_RED, "validation failed")
+            )

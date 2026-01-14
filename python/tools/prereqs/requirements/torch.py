@@ -5,6 +5,7 @@
 
 from typing import Dict
 from .base import VersionRequirement
+from ..colors import colorize
 
 
 class TorchRequirement(VersionRequirement):
@@ -85,21 +86,24 @@ class TorchRequirement(VersionRequirement):
 
         if self.constraint_status == "match":
             cuda_version = self.constraint_version or "unknown"
-            status_part = f"{colors.GREEN}[nvFuser] ✓{colors.RESET} {name_padded}"
+            status_part = colorize(colors.GREEN, "[nvFuser] ✓") + " " + name_padded
             # Use cyan for the CUDA version/result, matching location color
-            version_part = (
-                f"{colors.CYAN}{cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
+            version_part = colorize(
+                colors.CYAN, f"{cuda_version} (Torch.CUDA == CUDAToolkit)"
             )
             return f"{status_part} {version_part}"
         elif self.constraint_status == "mismatch":
             torch_cuda = self.constraint_found or "unknown"
             toolkit_cuda = self.constraint_required or "unknown"
-            status_part = f"{colors.BOLD_RED}[nvFuser] ✗{colors.RESET} {name_padded}"
-            error_part = f"{colors.BOLD_RED}mismatch (Torch: {torch_cuda}, CUDAToolkit: {toolkit_cuda}){colors.RESET}"
+            status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗") + " " + name_padded
+            error_part = colorize(
+                colors.BOLD_RED,
+                f"mismatch (Torch: {torch_cuda}, CUDAToolkit: {toolkit_cuda})",
+            )
             return f"{status_part} {error_part}"
         elif self.constraint_status == "not_available":
-            status_part = f"{colors.YELLOW}[nvFuser] ○{colors.RESET} {name_padded}"
-            message_part = f"{colors.YELLOW}Torch built without CUDA{colors.RESET}"
+            status_part = colorize(colors.YELLOW, "[nvFuser] ○") + " " + name_padded
+            message_part = colorize(colors.YELLOW, "Torch built without CUDA")
             return f"{status_part} {message_part}"
         else:
             return ""

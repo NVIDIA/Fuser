@@ -14,65 +14,23 @@ This script only formats output and provides help text.
 """
 
 import json
-import os
 import sys
 from pathlib import Path
 from typing import Dict
 
-# Import prereqs utilities
-try:
-    from prereqs import detect_platform, format_platform_info
-    from prereqs.requirements import (
-        PythonRequirement,
-        TorchRequirement,
-        LLVMRequirement,
-        CUDAToolkitRequirement,
-        Pybind11Requirement,
-        CompilerRequirement,
-        NinjaRequirement,
-        NVMMHRequirement,
-        GitSubmodulesRequirement,
-    )
-
-    HELP_AVAILABLE = True
-except ImportError:
-    # Fallback if prereqs not available
-    print(
-        "Warning: prereqs package not found. Platform-specific help unavailable.",
-        file=sys.stderr,
-    )
-
-    def detect_platform():
-        return {"os": "unknown", "arch": "unknown", "ubuntu_based": False}
-
-    def format_platform_info(x=None):
-        return "unknown platform"
-
-    HELP_AVAILABLE = False
-
-
-class Colors:
-    """ANSI color codes for terminal output"""
-
-    _codes = {
-        "RESET": "\033[m",
-        "BOLD": "\033[1m",
-        # Regular colors
-        "GREEN": "\033[32m",
-        "YELLOW": "\033[33m",
-        "CYAN": "\033[36m",
-        "WHITE": "\033[37m",
-        # Bold colors
-        "BOLD_RED": "\033[1;31m",
-        "BOLD_GREEN": "\033[1;32m",
-        "BOLD_WHITE": "\033[1;37m",
-    }
-
-    def __init__(self):
-        use_colors = os.environ.get("NVFUSER_BUILD_DISABLE_COLOR") is None
-
-        for name, code in self._codes.items():
-            setattr(self, name, code if use_colors else "")
+from prereqs import detect_platform, format_platform_info
+from prereqs.colors import colorize, Colors
+from prereqs.requirements import (
+    PythonRequirement,
+    TorchRequirement,
+    LLVMRequirement,
+    CUDAToolkitRequirement,
+    Pybind11Requirement,
+    CompilerRequirement,
+    NinjaRequirement,
+    NVMMHRequirement,
+    GitSubmodulesRequirement,
+)
 
 
 class DependencyReporter:
@@ -92,16 +50,15 @@ class DependencyReporter:
 
         # Create requirement objects - each class defines its own name and variable names
         self.requirements = []
-        if HELP_AVAILABLE:
-            self.requirements.append(NinjaRequirement(cmake_vars))
-            self.requirements.append(GitSubmodulesRequirement(cmake_vars))
-            self.requirements.append(CompilerRequirement(cmake_vars))
-            self.requirements.append(PythonRequirement(cmake_vars))
-            self.requirements.append(CUDAToolkitRequirement(cmake_vars))
-            self.requirements.append(TorchRequirement(cmake_vars))
-            self.requirements.append(Pybind11Requirement(cmake_vars))
-            self.requirements.append(LLVMRequirement(cmake_vars))
-            self.requirements.append(NVMMHRequirement(cmake_vars))
+        self.requirements.append(NinjaRequirement(cmake_vars))
+        self.requirements.append(GitSubmodulesRequirement(cmake_vars))
+        self.requirements.append(CompilerRequirement(cmake_vars))
+        self.requirements.append(PythonRequirement(cmake_vars))
+        self.requirements.append(CUDAToolkitRequirement(cmake_vars))
+        self.requirements.append(TorchRequirement(cmake_vars))
+        self.requirements.append(Pybind11Requirement(cmake_vars))
+        self.requirements.append(LLVMRequirement(cmake_vars))
+        self.requirements.append(NVMMHRequirement(cmake_vars))
 
     def _load_cmake_vars(self, deps_path: Path) -> Dict:
         """Load CMake variables from JSON file"""
@@ -161,16 +118,16 @@ class DependencyReporter:
         """Print report header with platform information"""
         platform_str = format_platform_info(self.platform_info)
         print(
-            f"{self.colors.BOLD_GREEN}[nvFuser] Validating build prerequisites...{self.colors.RESET}"
+            colorize(
+                self.colors.BOLD_GREEN, "[nvFuser] Validating build prerequisites..."
+            )
         )
-        print(f"{self.colors.CYAN}Platform: {platform_str}{self.colors.RESET}")
+        print(colorize(self.colors.CYAN, "Platform: ") + platform_str)
 
     def _print_failure_summary(self):
         """Print failure summary message"""
         print()
-        print(
-            f"{self.colors.BOLD_RED}Build prerequisite validation FAILED{self.colors.RESET}"
-        )
+        print(colorize(self.colors.BOLD_RED, "Build prerequisite validation FAILED"))
         print("See installation instructions above")
 
     def _print_dependencies(self):
