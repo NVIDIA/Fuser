@@ -72,14 +72,15 @@ function(dump_captured_logs log_list)
       _message("")
     else()
       # Split "TYPE|||CONTENT"
+      # Split "TYPE<<<DELIM>>>CONTENT"
       string(FIND "${entry}" "<<<DELIM>>>" pos)
-      string(SUBSTRING "${entry}" 0 ${pos} type)
-      math(EXPR content_start "${pos} + 11")
-      string(SUBSTRING "${entry}" ${content_start} -1 content)
       if(pos EQUAL -1)
         message(WARNING "Log entry missing delimiter: ${entry}")
         continue()
       endif()
+      string(SUBSTRING "${entry}" 0 ${pos} type)
+      math(EXPR content_start "${pos} + 11")
+      string(SUBSTRING "${entry}" ${content_start} -1 content)
 
       # Print using the original type (STATUS, WARNING, etc.)
       # This preserves color and formatting!
