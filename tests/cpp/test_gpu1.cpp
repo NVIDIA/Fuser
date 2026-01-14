@@ -5,53 +5,51 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/pass/magic_zero.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <grouped_reduction.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
-#include <utils.h>
-
-#include <torch/csrc/jit/api/function_impl.h>
-#include <torch/csrc/jit/codegen/cuda/interface.h>
-#include <torch/torch.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
-
 #include <algorithm>
 #include <complex>
 #include <sstream>
 #include <thread>
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+#include <torch/torch.h>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include <c10/cuda/CUDAStream.h>
+
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/pass/magic_zero.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "grouped_reduction.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "kernel_ir_dispatch.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -61,7 +59,7 @@ class Gpu1Test : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2805,7 +2803,7 @@ class Fp4CastTest : public NVFuserTest,
  public:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(dtype_highp, vectorization_factor) = GetParam();
     NVFUSER_TEST_CUDA_ARCH_GUARD(10, 0);
   }
@@ -3010,7 +3008,7 @@ class AdvancedDtypeTest : public NVFuserFixtureParamTest<bool> {
   bool use_dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<bool>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     use_dynamic_shape = GetParam();
   }
 };
@@ -3088,7 +3086,7 @@ class Float4E2m1ManualScheduleTestAllArch
   bool dynamic_shape;
   void SetUp() override {
     NVFuserFixtureParamTest<Float4E2m1ManualScheduleTestParams>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     std::tie(vectorize_factor, dynamic_shape) = GetParam();
   }
 };

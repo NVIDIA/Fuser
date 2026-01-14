@@ -8,12 +8,12 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 
@@ -28,7 +28,7 @@ class ReplayTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

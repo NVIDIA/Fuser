@@ -5,25 +5,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/consecutive_cast.h>
-#include <preseg_passes/move_gather.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
-#include <preseg_passes/translate_repeat_to_expand.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/consecutive_cast.h"
+#include "preseg_passes/move_gather.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h"
+#include "preseg_passes/translate_repeat_to_expand.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser::preseg_passes {
 

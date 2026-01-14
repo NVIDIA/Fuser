@@ -12,8 +12,10 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
+
 #else
 #include "multidevice/c10d_mock.h"
+
 #endif
 #include <torch/cuda.h>
 

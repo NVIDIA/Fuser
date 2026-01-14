@@ -8,14 +8,13 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <scheduler/tools/inlining.h>
-#include <type.h>
-
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
 
 namespace nvfuser {
 

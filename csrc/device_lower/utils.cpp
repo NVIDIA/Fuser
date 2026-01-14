@@ -2126,7 +2126,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID uses the IdModel loop
   // promotion only when opted in.
   if ((GpuLower::hasCurrent() &&
-       GpuLower::current()->idModelOptions().loop()) ||
+       GpuLower::current()->idModelOptions().isTensorIndexerEnabled()) ||
       (!GpuLower::hasCurrent() && FusionInfoGuard::current()->hasIdModel() &&
        FusionInfoGuard::current()->idModel().hasIdGraph(IdMappingMode::LOOP))) {
     // If enabled, the concret ID should be basically just the

@@ -7,14 +7,14 @@
 // clang-format on
 #include <gmock/gmock-more-matchers.h>
 
-#include <fusion.h>
-#include <global_allocator.h>
-#include <host_ir/container.h>
-#include <host_ir/jit.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "global_allocator.h"
+#include "host_ir/container.h"
+#include "host_ir/jit.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
