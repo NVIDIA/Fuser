@@ -256,71 +256,6 @@ std::optional<int64_t> mergeDims(
   return inner;
 }
 
-namespace {
-
-// Merge all reduction to the right side and returns total number of
-// reduction axes.
-int64_t mergeReduction(TensorView* tv) {
-  int prev_i = -1;
-  int64_t num_merges = 0;
-  for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-    if (!tv->axis(i)->isReduction()) {
-      continue;
-    }
-    if (prev_i == -1) {
-      prev_i = i;
-    } else {
-      tv->merge(i, prev_i);
-      prev_i = i;
-      num_merges++;
-    }
-  }
-  if (prev_i != 0) {
-    tv->reorder({{prev_i, 0}});
-  }
-
-  return prev_i == -1 ? 0 : num_merges + 1;
-}
-
-// Merge all non-reduction axes to the left side and returns total number of
-// iteration axes.
-int64_t mergeNonReduction(TensorView* tv) {
-  bool has_device_dim = false;
-  int prev_i = -1;
-  int64_t num_merged = 0;
-  if (tv->nDims() == 0) {
-    return 0;
-  }
-  for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-    if (tv->axis(i)->isReduction()) {
-      continue;
-    }
-    if (tv->axis(i)->isDeviceDim()) {
-      has_device_dim = true;
-      continue;
-    }
-    if (prev_i == -1) {
-      prev_i = i;
-    } else {
-      tv->merge(i, prev_i);
-      prev_i = i;
-      num_merged++;
-    }
-  }
-  if (prev_i != -1) {
-    tv->reorder({{prev_i, 0}});
-  }
-  if (has_device_dim) {
-    // in this case the layout at this point is [i, r , d]
-    // we want to put the device dim back to outmost
-    tv->reorder({{prev_i != -1 ? 2 : 1, 0}});
-  }
-
-  return prev_i == -1 ? 0 : num_merged + 1;
-}
-
-} // namespace
-
 void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos,
@@ -1219,13 +1154,7 @@ std::pair<bool, bool> canonicalizeReduction(
     bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (!schedule_3d) {
-    // We coalesce all reduction axes to the right;
-    bool has_red_axis = mergeReduction(tv) > 0;
-
-    bool has_iter_axis = mergeNonReduction(tv) > 0;
-    return {has_iter_axis, has_red_axis};
-  } else {
+  if (schedule_3d) {
     NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
@@ -1236,6 +1165,49 @@ std::pair<bool, bool> canonicalizeReduction(
     }
     return {true, true};
   }
+
+  // Merge all reductions and all non-reductions, and reorder them to
+  // [DIDs/Streams..., merged non-reduction, merged reduction]. Merging happens
+  // incrementally -- first the parallel IterDomains, then the non-reductions,
+  // then the reductions.
+  //
+  // At this stage of scheduling, they can only be DIDs or Streams.
+  std::unordered_map<int64_t, int64_t> reorder_map =
+      reorderParallelizedToFront(tv);
+  auto num_ordered_dims = std::ssize(reorder_map);
+
+  // This helper function merges not-yet-ordered IterDomains that satisfy the
+  // predicate from back to front. Returns the index of the last merged
+  // IterDomain, or -1 if no IterDomains were merged.
+  auto merge_all = [&](auto pred) -> int64_t {
+    int64_t merged = -1;
+    for (int64_t i :
+         arange(num_ordered_dims, tv->nDims()) | std::views::reverse) {
+      if (pred(tv->axis(i))) {
+        if (merged >= 0) {
+          tv->merge(i, merged);
+        }
+        merged = i;
+      }
+    }
+    return merged;
+  };
+
+  int64_t merged_non_reduction =
+      merge_all([](IterDomain* id) { return !id->isReduction(); });
+  if (merged_non_reduction >= 0) {
+    tv->reorder({{merged_non_reduction, num_ordered_dims}});
+    num_ordered_dims++;
+  }
+
+  int64_t merged_reduction = merge_all([](IterDomain* id) { return true; });
+  if (merged_reduction >= 0) {
+    tv->reorder({{merged_reduction, num_ordered_dims}});
+    num_ordered_dims++;
+  }
+
+  NVF_ERROR_EQ(num_ordered_dims, tv->nDims(), "Did not merge all IterDomains.");
+  return {merged_non_reduction >= 0, merged_reduction >= 0};
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {

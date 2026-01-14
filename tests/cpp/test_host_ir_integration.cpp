@@ -12,14 +12,14 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <global_allocator.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "global_allocator.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser::hir {
 

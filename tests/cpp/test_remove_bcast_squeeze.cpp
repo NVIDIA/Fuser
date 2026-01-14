@@ -5,20 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <preseg_passes/remove_bcast_squeeze.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
+#include "csrc/exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "preseg_passes/remove_bcast_squeeze.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -26,7 +26,7 @@ class RemoveBcastSqueezeTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
