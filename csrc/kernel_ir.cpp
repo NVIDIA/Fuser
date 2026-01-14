@@ -1075,24 +1075,26 @@ std::string MBarrierInit::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
 
-UniformWarpIdInit::UniformWarpIdInit(IrBuilderPasskey passkey, Val* out)
+UniformWarpId::UniformWarpId(IrBuilderPasskey passkey, Val* out)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_CHECK(out->dtype() == DataType::UInt32);
   addOutput(out);
 }
 
-std::string UniformWarpIdInit::toString(int indent_size) const {
+std::string UniformWarpId::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = UniformWarpIdInit()\n";
+  indent(ss, indent_size) << out()->toString() << " = UniformWarpId()\n";
   return ss.str();
 }
 
-std::string UniformWarpIdInit::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "UniformWarpIdInit can not be printed inline");
+// uniform warp id is used in predicate, Predicate::toString() uses its
+// toInlineString()
+std::string UniformWarpId::toInlineString(int indent_size) const {
+  return std::string(getOpString()) + "()";
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(UniformWarpIdInit)
+NVFUSER_DEFINE_CLONE_AND_CREATE(UniformWarpId)
 
 MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
     : Expr(passkey) {

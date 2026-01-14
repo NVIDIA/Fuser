@@ -58,7 +58,7 @@ class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class UniformWarpIdInit;
+class UniformWarpId;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -848,15 +848,15 @@ class MBarrierInit final : public Expr {
   }
 };
 
-class UniformWarpIdInit final : public Expr {
+class UniformWarpId final : public Expr {
  public:
   using Expr::Expr;
-  explicit UniformWarpIdInit(IrBuilderPasskey passkey, Val* out);
+  explicit UniformWarpId(IrBuilderPasskey passkey, Val* out);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "UniformWarpIdInit";
+    return "UniformWarpId";
   }
 
   std::string toString(int indent_size = 0) const override;

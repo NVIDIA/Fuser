@@ -318,6 +318,16 @@ class GpuLower : public NonCopyable {
     cluster_reduction_mbarrier_tensor_ = mbarrier;
   }
 
+  //! Get the uniform warp id scalar
+  Val* uniformWarpId() const {
+    return uniform_warp_id_;
+  }
+
+  //! Set the uniform warp id scalar
+  void setUniformWarpId(Val* warp_id) {
+    uniform_warp_id_ = warp_id;
+  }
+
   //! Define an alias for consumer as producer.
   //!
   //! If producer is already aliased, we chase the alias. If there are tensors
@@ -434,6 +444,10 @@ class GpuLower : public NonCopyable {
   // The shared cluster reduction mbarrier tensor allocated during allocation
   // pass
   TensorView* cluster_reduction_mbarrier_tensor_ = nullptr;
+
+  // The uniform warp id scalar allocated during allocation pass for warp
+  // specialized kernels
+  Val* uniform_warp_id_ = nullptr;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

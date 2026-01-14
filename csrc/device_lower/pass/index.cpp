@@ -1571,10 +1571,10 @@ void IndexLowering::handle(const kir::MBarrierInvalidate* minval) {
   GpuLower::current()->propagateExprInfo(minval, minval_indexed);
 }
 
-void IndexLowering::handle(const kir::UniformWarpIdInit* uwid_init) {
-  // UniformWarpIdInit operates on scalar Vals, no indexing needed
+void IndexLowering::handle(const kir::UniformWarpId* uwid_init) {
+  // UniformWarpId operates on scalar Vals, no indexing needed
   // Just pass through as-is
-  pushBack(IrBuilder::create<kir::UniformWarpIdInit>(uwid_init->out()));
+  pushBack(IrBuilder::create<kir::UniformWarpId>(uwid_init->out()));
   GpuLower::current()->propagateExprInfo(uwid_init, back());
 }
 

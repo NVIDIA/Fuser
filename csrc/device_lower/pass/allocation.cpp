@@ -1243,10 +1243,11 @@ class AllocationInserter : public kir::ExprMutator {
 
     // initialize uniform_warp_id
     auto uniform_warp_id_init =
-        IrBuilder::create<kir::UniformWarpIdInit>(uniform_warp_id);
-    Expr* pred_uniform_warp_id_init = uniform_warp_id_init->withPredicate(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-    registerInsertBefore(expr, pred_uniform_warp_id_init, nullptr);
+        IrBuilder::create<kir::UniformWarpId>(uniform_warp_id);
+    registerInsertBefore(expr, uniform_warp_id_init, nullptr);
+
+    // Store the uniform_warp_id in GpuLower for later use in predicates
+    GpuLower::current()->setUniformWarpId(uniform_warp_id);
   }
 
   // Insert cluster reduction mbarrier allocation and initialization at the
