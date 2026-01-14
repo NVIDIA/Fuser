@@ -349,7 +349,7 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
-  if (is_expr_eval) {
+  if (is_expr_eval && isOptionEnabled(EnableOption::InferContiguity)) {
     // For expr evaluated fusion, the striding rules follow that of ATen.
     ExpressionEvaluator eval_fusion;
     for (auto i : arange(group_to_run->inputs().size())) {
