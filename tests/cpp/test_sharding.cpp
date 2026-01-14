@@ -9,17 +9,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/executor.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/executor.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

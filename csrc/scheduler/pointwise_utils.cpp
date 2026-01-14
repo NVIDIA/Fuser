@@ -414,9 +414,9 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
   // Move non-concretized broadcasts innermost
   scheduler_utils::moveNonConcretizedBroadcastInnermost(
       fusion, {info.reference_tv});
-  int64_t num_device_dims =
+  int64_t num_parallel_dims =
       scheduler_utils::countLeadingParallelDimensions(info.reference_tv);
-  int64_t device_aware_break_point = break_point + num_device_dims;
+  int64_t device_aware_break_point = break_point + num_parallel_dims;
 
   // Positions of rhs and lhs after merging all dimensions.
   int64_t rhs_i = -1;
@@ -438,9 +438,9 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
     // to do this is with Dependency check which will grab all intermediate
     // values too.
     auto lhs_all_vals = DependencyCheck::getAllValsBetween(
-        {ref_orig_loop.begin() + num_device_dims,
+        {ref_orig_loop.begin() + num_parallel_dims,
          ref_orig_loop.begin() + device_aware_break_point},
-        {info.reference_tv->getLoopDomain().begin() + num_device_dims,
+        {info.reference_tv->getLoopDomain().begin() + num_parallel_dims,
          info.reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> lhs_all_vals_set(
@@ -448,7 +448,7 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
 
     auto rhs_all_vals = DependencyCheck::getAllValsBetween(
         {ref_orig_loop.begin() + device_aware_break_point, ref_orig_loop.end()},
-        {info.reference_tv->getLoopDomain().begin() + num_device_dims,
+        {info.reference_tv->getLoopDomain().begin() + num_parallel_dims,
          info.reference_tv->getLoopDomain().end()});
 
     std::unordered_set<Val*> rhs_all_vals_set(
@@ -536,7 +536,7 @@ std::optional<CommonScheduleInfo> commonPointwiseSchedule(
     }
 
     // Merge left side of break point
-    for (int64_t i = device_aware_break_point; i > num_device_dims; i--) {
+    for (int64_t i = device_aware_break_point; i > num_parallel_dims; i--) {
       auto axis_i = i - 1;
       if (lhs_i == -1) {
         lhs_i = axis_i;

@@ -8,52 +8,53 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
-#include "ir/interface_nodes.h"
+
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
 
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAStream.h>
 
-#include <codegen.h>
-#include <debug.h>
-#include <device_lower/lower2device.h>
-#include <device_lower/pass/magic_zero.h>
-#include <device_lower/pass/replace_size.h>
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <grouped_reduction.h>
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <parallel_dimension_map.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
+#include "codegen.h"
+#include "debug.h"
+#include "device_lower/lower2device.h"
+#include "device_lower/pass/magic_zero.h"
+#include "device_lower/pass/replace_size.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "grouped_reduction.h"
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "kernel_ir_dispatch.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "parallel_dimension_map.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
 
 namespace nvfuser {
 
@@ -63,7 +64,7 @@ class Gpu3Test : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -3398,7 +3399,7 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);

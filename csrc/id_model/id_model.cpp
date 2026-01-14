@@ -1384,7 +1384,7 @@ void IdModel::allocateLoopIndexVariables() {
     // If enabled, allocate own indices. Otherwise, use the one
     // generated for ComputeAtMap for compatibility with the legacy
     // indexing
-    if (GpuLower::current()->idModelOptions().loop()) {
+    if (GpuLower::current()->idModelOptions().isTensorIndexerEnabled()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
       const auto& ca_map = FusionInfoGuard::current()->caMap();

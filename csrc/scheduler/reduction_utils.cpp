@@ -38,20 +38,20 @@ TensorView* scheduleReductionTV(
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
-  const int64_t num_device_dims =
+  const int64_t num_parallel_dims =
       scheduler_utils::countLeadingParallelDimensions(reduction_tv);
-  const int iter_axis = num_device_dims;
+  const int iter_axis = num_parallel_dims;
   const auto [outer_reduce_axis, inner_reduce_axis] =
       [&]() -> std::tuple<int, int> {
     if (rparams->schedule_3d) {
       NVF_ERROR_EQ(
-          num_device_dims,
+          num_parallel_dims,
           0,
           "Mixing multi-GPU and 3D schedule is not supported at this "
           "moment.");
       return {1, 2};
     } else {
-      return {0, num_device_dims + has_iter_axis};
+      return {0, num_parallel_dims + has_iter_axis};
     }
   }();
 
@@ -1301,9 +1301,9 @@ FusionRuntimeProperties getFusionRuntimeProperties(
   // based on non-device/non-reduction domain size and accounts for device
   // dimensions during scheduling.
   // TODO (priya): We should make this consistent across all schedulers
-  int64_t num_device_dims =
+  int64_t num_parallel_dims =
       scheduler_utils::countLeadingParallelDimensions(reduced_tv);
-  int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
+  int64_t no_device_break_point = vec_break_point.get() - num_parallel_dims;
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, no_device_break_point);
 

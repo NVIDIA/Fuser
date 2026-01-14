@@ -7,17 +7,17 @@
 // clang-format on
 #pragma once
 
-#include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
-
 #include <string>
 #include <vector>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/scheduler_types.h>
-#include <validator_utils.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/scheduler_types.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 // A gmock matcher for matching heuristics.

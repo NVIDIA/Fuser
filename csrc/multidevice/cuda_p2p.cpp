@@ -268,6 +268,11 @@ void postBroadcastWithCudaBackend(
       launchMulticastKernel(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION < 12080
+      NVF_THROW(
+          "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+          "12.8");
+#else
       std::vector<void*> dsts(world_size);
       std::vector<const void*> srcs(world_size, src_ptr);
       std::vector<size_t> counts(world_size, count);
@@ -311,6 +316,7 @@ void postBroadcastWithCudaBackend(
           numAttrs,
           &failIdx,
           (cudaStream_t)stream));
+#endif
 #endif
     } else {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -419,6 +425,11 @@ void postAllgatherWithCudaBackend(
         count,
         stream);
   } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION < 12080
+    NVF_THROW(
+        "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+        "12.8");
+#else
     std::vector<void*> dsts(world_size);
     std::vector<const void*> srcs(world_size, src_ptr);
     std::vector<size_t> counts(world_size, count);
@@ -462,6 +473,7 @@ void postAllgatherWithCudaBackend(
         numAttrs,
         &failIdx,
         (cudaStream_t)stream));
+#endif
 #endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(

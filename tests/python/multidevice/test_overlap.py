@@ -295,8 +295,6 @@ def test_overlap_allgather_matmul_stream_outermost(
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
-
-    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         s, d, m // (s * d), k, dtype=torch.bfloat16, device="cpu"
     )
@@ -366,8 +364,6 @@ def test_overlap_allgather_matmul_shard_outermost(
     assert m % d == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
-
-    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         d, m // d, k, dtype=torch.bfloat16, device="cpu"
     )

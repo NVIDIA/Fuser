@@ -6,13 +6,14 @@
  */
 // clang-format on
 
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <string.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include <cstring>
 #include <exception>
 #include <utility>
+
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -328,7 +329,7 @@ TEST_P(SiblingPingPongCircularBuffering, TwoTmaLoads) {
 
   auto [use_id_model, stage_slice_position] = GetParam();
   if (use_id_model) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();

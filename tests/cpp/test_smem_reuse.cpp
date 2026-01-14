@@ -5,26 +5,26 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <utils.h>
-
 #include <algorithm>
 #include <complex>
 #include <sstream>
 #include <thread>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "utils.h"
 
 namespace nvfuser {
 
