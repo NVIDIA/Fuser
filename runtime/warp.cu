@@ -7,17 +7,6 @@
 // clang-format on
 namespace warp {
 
-// Compute uniform warp id that is guaranteed to be the same for all threads in
-// a warp.
-// __shfl_sync helps PTXAS prove that every thread in the warp has the same
-// uniform warp id.
-__device__ __forceinline__ uint32_t getUniformWarpId() {
-  const unsigned int tid = threadIdx.x + threadIdx.y * blockDim.x +
-      threadIdx.z * blockDim.x * blockDim.y;
-  const unsigned int warp_id = tid / 32;
-  return __shfl_sync(0xFFFFFFFF, warp_id, 0);
-}
-
 template <typename T>
 __device__ __forceinline__ T shfl_xor(T var, int laneMask, int width = 32) {
   return __shfl_xor_sync(0xffffffff, var, laneMask, width);

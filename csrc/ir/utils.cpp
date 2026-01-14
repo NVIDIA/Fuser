@@ -1417,11 +1417,6 @@ bool isFunctional(const Val* v) {
   if (dynamic_cast<kir::GetRNGSeedAndOffsetFromHost*>(def)) {
     return false;
   }
-  // UniformWarpId is a runtime operation that should not be evaluated
-  // at compile time or constant-folded by SimplifyingIrBuilder
-  if (dynamic_cast<kir::UniformWarpId*>(def)) {
-    return false;
-  }
   return std::all_of(def->inputs().begin(), def->inputs().end(), isFunctional);
 }
 

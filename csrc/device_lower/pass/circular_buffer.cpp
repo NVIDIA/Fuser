@@ -1566,7 +1566,7 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is UniformWarpId() >= num_compute_warps
+  // kir::Predicate is warp_id >= num_compute_warps
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
     // Get the number of compute warps using ParallelDimensionMap
     // This works correctly for warp specialization on TIDx, TIDy, or TIDz
@@ -1575,7 +1575,8 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     Val* num_compute_warps = pdim_map.getNumComputeWarps();
 
     Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-    NVF_ERROR(uniform_warp_id != nullptr, "UniformWarpId must be initialized");
+    NVF_ERROR(
+        uniform_warp_id != nullptr, "uniform_warp_id must be initialized");
     return IrBuilder::create<kir::Predicate>(
         IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
   }

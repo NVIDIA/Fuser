@@ -88,7 +88,6 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const kir::Continue*) final;
   void handle(const kir::Return*) final;
   void handle(const kir::MBarrierInit*) final;
-  void handle(const kir::UniformWarpId*) final;
   void handle(const kir::MBarrierInvalidate*) final;
   void handle(const kir::MBarrierArrive*) final;
   void handle(const kir::MBarrierArriveExpectTx*) final;

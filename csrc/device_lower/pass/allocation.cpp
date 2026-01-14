@@ -1234,20 +1234,43 @@ class AllocationInserter : public kir::ExprMutator {
 
   // insert a scalar register variable for uniform warp id
   void insertUniformWarpId(Expr* expr) {
-    // allocate uniform_warp_id
-    Val* uniform_warp_id = IrBuilder::create<Val>(DataType::UInt32);
-    kir::Allocate* uniform_warp_id_alloc = IrBuilder::create<kir::Allocate>(
-        uniform_warp_id,
-        MemoryType::Local,
-        FusionGuard::getCurFusion()->oneVal());
-    registerInsertBefore(expr, uniform_warp_id_alloc, nullptr);
+    // Compute flat thread id: tid = threadIdx.x + threadIdx.y * blockDim.x +
+    // threadIdx.z * blockDim.x * blockDim.y
+    const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
+    Val* tid = FusionGuard::getCurFusion()->zeroVal();
+    Val* bdimx = pdim.getRaw(ParallelType::TIDx);
+    Val* bdimy = pdim.getRaw(ParallelType::TIDy);
+    Val* bdimz = pdim.getRaw(ParallelType::TIDz);
 
-    // initialize uniform_warp_id
-    auto uniform_warp_id_init =
-        IrBuilder::create<kir::UniformWarpId>(uniform_warp_id);
-    registerInsertBefore(expr, uniform_warp_id_init, nullptr);
+    if (bdimx != nullptr) {
+      tid = NamedScalar::getParallelIndex(ParallelType::TIDx);
+    }
+    if (bdimy != nullptr) {
+      Val* tidy = NamedScalar::getParallelIndex(ParallelType::TIDy);
+      if (bdimx != nullptr) {
+        tidy = SimplifyingIrBuilder::mulExpr(tidy, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidy);
+    }
+    if (bdimz != nullptr) {
+      Val* tidz = NamedScalar::getParallelIndex(ParallelType::TIDz);
+      if (bdimy != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimy);
+      }
+      if (bdimx != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidz);
+    }
 
-    // Store the uniform_warp_id in GpuLower for later use in predicates
+    // Compute warp_id = tid / 32
+    Val* warp_size = IrBuilder::create<Val>(32L, DataType::Index);
+    Val* warp_id = SimplifyingIrBuilder::divExpr(tid, warp_size);
+
+    // Cast to UInt32 for use in predicates and store in GpuLower
+    Val* uniform_warp_id =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, warp_id);
+
     GpuLower::current()->setUniformWarpId(uniform_warp_id);
   }
 

@@ -1075,27 +1075,6 @@ std::string MBarrierInit::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierInit)
 
-UniformWarpId::UniformWarpId(IrBuilderPasskey passkey, Val* out)
-    : Expr(passkey) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(out->dtype() == DataType::UInt32);
-  addOutput(out);
-}
-
-std::string UniformWarpId::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = UniformWarpId()\n";
-  return ss.str();
-}
-
-// uniform warp id is used in predicate, Predicate::toString() uses its
-// toInlineString()
-std::string UniformWarpId::toInlineString(int indent_size) const {
-  return std::string(getOpString()) + "()";
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(UniformWarpId)
-
 MBarrierInvalidate::MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

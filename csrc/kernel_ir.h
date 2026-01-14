@@ -58,7 +58,6 @@ class AsyncWait;
 class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
-class UniformWarpId;
 class IfThenElse;
 class GridReduction;
 class GroupedGridReduction;
@@ -845,25 +844,6 @@ class MBarrierInit final : public Expr {
 
   Val* threadCount() const {
     return input(1);
-  }
-};
-
-class UniformWarpId final : public Expr {
- public:
-  using Expr::Expr;
-  explicit UniformWarpId(IrBuilderPasskey passkey, Val* out);
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  const char* getOpString() const override {
-    return "UniformWarpId";
-  }
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-
-  Val* out() const {
-    return output(0);
   }
 };
 
