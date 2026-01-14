@@ -1032,7 +1032,8 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
   NVF_ERROR_GT(
       extents_ndim,
       0,
-      "partition: extents tensor must have at least one non-reduction dimension");
+      "partition: extents tensor must have at least one non-reduction "
+      "dimension");
 
   auto container = in->container();
 
@@ -1128,11 +1129,18 @@ IterDomain* RaggedIterDomain::combine(
   TensorView* extents_tv = ragged->extents();
   NVF_ERROR(extents_tv != nullptr, "combine: ragged extents tensor is null");
 
-  // It is still assumed the extents tensor is just 1D
+  // Multi-dimensional extents are not yet supported in combine
+  // Filter out reduction dimensions before checking
+  auto extents_no_reduction =
+      extents_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto extents_ndim = std::ranges::distance(extents_no_reduction);
   NVF_ERROR_EQ(
-      std::ranges::distance(extents_tv->getLogicalDomain() | TensorDomain::kNoReductions),
+      extents_ndim,
       1,
-      "Unexpected rank of extent tensor: ",
+      "combine: Multi-dimensional extents are not yet supported. ",
+      "Expected 1D extents tensor, got ",
+      extents_ndim,
+      "D extents: ",
       extents_tv->toString());
 
   auto container = component->container();
