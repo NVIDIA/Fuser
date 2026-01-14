@@ -386,6 +386,9 @@ void FusionKernelRuntime::updateContiguityOfSegmentOutputs(
     SegmentedGroup* group_to_run,
     const KernelArgumentHolder& group_runtime_outputs) const {
   FUSER_PERF_SCOPE("FusionKernelRuntime::updateContiguityOfSegmentOutputs");
+  if (!isOptionEnabled(EnableOption::InferContiguity)) {
+    return;
+  }
   for (Val* output : group_to_run->outputs()) {
     auto tv = dynamic_cast<TensorView*>(output);
     if (tv) {
