@@ -387,7 +387,7 @@ void validateQuantizedOutputScheduling(TensorView* quantized_output, DataType in
   NVF_ERROR(
       ids_to_transform.back() == grouped_id,
       "The grouped ID must correspond to the innermost of all splits "
-      "from logical domains to loop domains for TV: "
+      "from logical domains to loop domains for TV: ",
       quantized_output->toString());
 
   // Iterate from the back to find TIDx, skipping group_id (last element)
@@ -860,7 +860,7 @@ class ExprValidator : public OptOutDispatch {
             [](std::optional<bool> c) { return c.value_or(true); }),
         "Block scaling factor not contiguous");
 
-    validateQuantizedOutputScheduling(quantized_output, input_tv->dtype());
+    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
 
   }
 
@@ -908,7 +908,7 @@ class ExprValidator : public OptOutDispatch {
           global_scale->dtype());
     }
 
-    validateQuantizedOutputScheduling(quantized_output, input_tv->dtype());
+    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
   }
 };
 
