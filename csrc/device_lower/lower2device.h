@@ -328,16 +328,6 @@ class GpuLower : public NonCopyable {
     uniform_warp_id_ = warp_id;
   }
 
-  //! Get the number of compute warps
-  Val* numComputeWarps() const {
-    return num_compute_warps_;
-  }
-
-  //! Set the number of compute warps
-  void setNumComputeWarps(Val* num_warps) {
-    num_compute_warps_ = num_warps;
-  }
-
   //! Define an alias for consumer as producer.
   //!
   //! If producer is already aliased, we chase the alias. If there are tensors
@@ -458,10 +448,6 @@ class GpuLower : public NonCopyable {
   // The uniform warp id scalar allocated during allocation pass for warp
   // specialized kernels
   Val* uniform_warp_id_ = nullptr;
-
-  // The number of compute warps calculated during circular buffer pass for warp
-  // specialized kernels
-  Val* num_compute_warps_ = nullptr;
 };
 
 #define NVFUSER_LOWER_VALIDATE(cond, ...) \

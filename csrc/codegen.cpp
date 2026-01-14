@@ -3757,7 +3757,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     ArgumentBuilder template_args;
     template_args.arg(kernel_->paddedParallelDimensions().is_tidx_single_warp);
-    template_args.arg(isAligned());
+    template_args.arg(has_warp_specialized_ ? false : isAligned());
     template_args.arg(num_grouped_iterations);
     template_args.arg(reduction_scheduler_utils::getComputeBdimx(
         warp_specialized_on_, lparams_.bdimx()));

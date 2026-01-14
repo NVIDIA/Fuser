@@ -519,7 +519,9 @@ Val* selectWarpIdxElectSyncPredicate(
 // ptx::elect_sync if not warp collective.
 // TODO If TIDx is known at compile-time, generate custom mask.
 Val* createElectSyncPredicateAsync() {
-  Val* num_compute_warps = GpuLower::current()->numComputeWarps();
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->info().parallelDimensionMap();
+  Val* num_compute_warps = pdim_map.getNumComputeWarps();
   NVF_ERROR(
       num_compute_warps != nullptr, "NumComputeWarps must be initialized");
   // Convert Val to uint32_t for warp index

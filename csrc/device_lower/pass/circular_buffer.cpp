@@ -1574,12 +1574,7 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         GpuLower::current()->info().parallelDimensionMap();
     Val* num_compute_warps = pdim_map.getNumComputeWarps();
 
-    ave num_compute_warps in GpuLower for reuse in cre
-    // teElectSyncPredicateAsync
-    GpuLower::current()->setNumComputeWarps(num_compute_warps);
-
-    niformWarpId() instead of threadIdx.x Val* uniform_warp_id =
-        GpuLower::current()->uniformWarpId();
+    Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
     NVF_ERROR(uniform_warp_id != nullptr, "UniformWarpId must be initialized");
     return IrBuilder::create<kir::Predicate>(
         IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
@@ -2174,4 +2169,3 @@ std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
 }
 
 } // namespace nvfuser
-        
