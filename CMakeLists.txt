@@ -1408,6 +1408,9 @@ file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuse
 
 message(STATUS "******** Nvfuser configuration summary ********")
 message(STATUS "  NVFUSER_USE_CUTLASS                : ${NVFUSER_USE_CUTLASS}")
+if(NVFUSER_USE_CUTLASS)
+  message(STATUS "    CUTLASS_MAX_JOBS                 : ${CUTLASS_MAX_JOBS}")
+endif()
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")

@@ -473,10 +473,11 @@ def cmake(config, relative_path):
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
         "-B",
         cmake_build_dir,
     ]
+    if config.cutlass_max_jobs > 0:
+        cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
     if config.nvmmh_include_dir:
         cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
     if not config.no_ninja:
