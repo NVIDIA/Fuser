@@ -184,8 +184,8 @@ class FusionKernelRuntime {
   //! could not be determined at compile time. Depending on the runtime inputs,
   //! we may segment the fusions differently, and some fusion segments would be
   //! executed using ATen, which may not generate contiguous tensors. So we have
-  //! to update the contiguity of the segment outputs on the fly depending on the
-  //! runtime inputs.
+  //! to update the contiguity of the segment outputs on the fly depending on
+  //! the runtime inputs.
   void updateContiguityOfSegmentOutputs(
       SegmentedGroup* group_to_run,
       const KernelArgumentHolder& group_runtime_outputs) const;
