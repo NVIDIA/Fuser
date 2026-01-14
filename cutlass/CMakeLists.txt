@@ -53,6 +53,7 @@ set_target_properties(nvf_cutlass PROPERTIES
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
   "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
   CUDA_ARCHITECTURES "100a"
