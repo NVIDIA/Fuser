@@ -7,11 +7,11 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

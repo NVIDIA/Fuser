@@ -11,11 +11,11 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
-#include <alias_analysis.h>
-#include <fusion.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <tests/cpp/utils.h>
+#include "alias_analysis.h"
+#include "fusion.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

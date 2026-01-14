@@ -8,9 +8,8 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-
-#include <scheduler/tools/abstract_tensor.h>
+#include "scheduler/tools/abstract_tensor.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -21,7 +20,7 @@ class AbstractTensorTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     fusion_ptr_ = std::make_unique<Fusion>();
     fusion_guard_ptr_ = std::make_unique<FusionGuard>(fusion_ptr_.get());
     auto size = IrBuilder::create<Val>(16, DataType::Index);

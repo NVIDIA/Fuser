@@ -5,18 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
 #include <memory>
 #include <sstream>
 #include <tuple>
 
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include <gtest/gtest.h>
+
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 #include "type.h"
 
 namespace nvfuser {
@@ -28,7 +29,7 @@ class ClusterReductionTest : public NVFuserTest,
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   }
 };
