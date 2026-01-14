@@ -494,33 +494,25 @@ Val* createElectSyncExpr() {
   return elect_sync_val;
 }
 
-// Select first warp of threads along TIDx axis and use ptx::elect_sync if not
-// warp collective.
-// TODO If TIDx is known at compile-time, generate custom mask.
+// Select the first warp or one thread of the first warp in the block
 Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
   Val* select_first_warp = nullptr;
 
-  // Try to use the uniform warp id if available (for warp specialized kernels)
   Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-  if (uniform_warp_id != nullptr) {
-    // Use uniform warp id: check if warp_id == 0
-    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt32);
-    select_first_warp = IrBuilder::eqExpr(uniform_warp_id, zero);
-  } else {
-    // Fallback to original: threadIdx.x < 32
-    Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-    select_first_warp = IrBuilder::ltExpr(
-        NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size);
-  }
+  NVF_ERROR(uniform_warp_id != nullptr);
+
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt32);
+  select_first_warp = IrBuilder::eqExpr(uniform_warp_id, zero);
 
   // Short-Circuit: TMA Store is a warp-collective, so ElectSync is not
-  // necessary.
+  // necessary. Just select the first warp.
   if (is_warp_collective) {
     return select_first_warp;
   }
 
-  Val* elect_sync = createElectSyncExpr();
-  return SimplifyingIrBuilder::logicalAndExpr(elect_sync, select_first_warp);
+  // Select one thread of the first warp
+  return SimplifyingIrBuilder::logicalAndExpr(
+      createElectSyncExpr(), select_first_warp);
 }
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
