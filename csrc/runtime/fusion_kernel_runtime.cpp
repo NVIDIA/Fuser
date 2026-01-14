@@ -338,13 +338,15 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 }
 
 KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
+    HeuristicParamsList* heuristics,
     SegmentedGroup* group_to_run,
     const KernelArgumentHolder& group_runtime_inputs,
     PrecomputedValues* evaluator_precomputed_values) const {
   FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
+  NVF_ERROR(heuristics != nullptr);
   Fusion* fusion_to_run = group_to_run->getFusion();
   KernelArgumentHolder group_runtime_outputs;
-  const auto& heuristic_params = heuristics_->at(group_to_run->groupId());
+  const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
   if (is_expr_eval) {
@@ -425,8 +427,8 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    auto group_runtime_outputs =
-        inferOutputMetaTensor(group_to_run, group_runtime_inputs);
+    auto group_runtime_outputs = inferOutputMetaTensor(
+        heuristics_.get(), group_to_run, group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -661,7 +663,10 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
     // Generate metadata for the fusion's outputs
     auto group_runtime_outputs = inferOutputMetaTensor(
-        group_to_run, group_runtime_inputs, evaluator_precomputed_values.get());
+        heuristics,
+        group_to_run,
+        group_runtime_inputs,
+        evaluator_precomputed_values.get());
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
