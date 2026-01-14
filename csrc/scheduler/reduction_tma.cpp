@@ -37,8 +37,9 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       props.has_mufu_computation);
 
   // Initialize split factors
-  int64_t vectorization_factor =
-      std::min(target_vect_unroll, props.vectorize_factor);
+  int64_t vectorization_factor = std::min(
+      scheduler_utils::lastPow2(target_vect_unroll),
+      (int64_t)props.vectorize_factor);
   int64_t threads_per_block = 128;
   int64_t unroll_factor = target_vect_unroll / vectorization_factor;
 
