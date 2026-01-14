@@ -9,11 +9,12 @@ from .benchmark_inference import (
 )
 
 
+# NOTE: for some reason, changing the order of nvfp4 and cudagraph parameter breaks thunder benchmark. I suspect there's something with thunder's cache.
 @pytest.mark.parametrize("input_length", [4096])
 @pytest.mark.parametrize("output_length", [4])
 @pytest.mark.parametrize("mode", ["thunder", "inductor"])
 @pytest.mark.parametrize("enable_nvfp4", [True, False])
-@pytest.mark.parametrize("enable_cudagraph", [True, False])
+@pytest.mark.parametrize("enable_cudagraph", [False, True])
 def test_llama4_inference_benchmark(
     benchmark,
     input_length: int,
