@@ -845,12 +845,12 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 // is not the fusion/segment output.
 bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
-    if (auto bqop = dynamic_cast<BlockQuantizationOp>(expr)) {
+    if (auto bqop = dynamic_cast<BlockQuantizationOp*>(expr)) {
       auto block_scales = bqop->blockScales()->as<TensorView>();
       if (!block_scales->isFusionOutput()) {
         return true;
       }
-    } else if (auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp>(expr)) {
+    } else if (auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(expr)) {
       auto block_scales = grouped_bqop->blockScales()->as<TensorView>();
       if (!block_scales->isFusionOutput()) {
         return true;
