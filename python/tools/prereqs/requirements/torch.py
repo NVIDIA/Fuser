@@ -85,7 +85,7 @@ class TorchRequirement(VersionRequirement):
 
         if self.constraint_status == "match":
             cuda_version = self.constraint_version or "unknown"
-            status_part = f"{colors.GREEN}[nvFuser] ✓{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = f"{colors.GREEN}[nvFuser] ✓{colors.RESET} {name_padded}"
             # Use cyan for the CUDA version/result, matching location color
             version_part = (
                 f"{colors.CYAN}{cuda_version} (Torch.CUDA == CUDAToolkit){colors.RESET}"
@@ -94,11 +94,11 @@ class TorchRequirement(VersionRequirement):
         elif self.constraint_status == "mismatch":
             torch_cuda = self.constraint_found or "unknown"
             toolkit_cuda = self.constraint_required or "unknown"
-            status_part = f"{colors.BOLD_RED}[nvFuser] ✗{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = f"{colors.BOLD_RED}[nvFuser] ✗{colors.RESET} {name_padded}"
             error_part = f"{colors.BOLD_RED}mismatch (Torch: {torch_cuda}, CUDAToolkit: {toolkit_cuda}){colors.RESET}"
             return f"{status_part} {error_part}"
         elif self.constraint_status == "not_available":
-            status_part = f"{colors.YELLOW}[nvFuser] ○{colors.RESET} {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = f"{colors.YELLOW}[nvFuser] ○{colors.RESET} {name_padded}"
             message_part = f"{colors.YELLOW}Torch built without CUDA{colors.RESET}"
             return f"{status_part} {message_part}"
         else:

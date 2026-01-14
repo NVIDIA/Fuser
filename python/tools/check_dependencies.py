@@ -172,7 +172,7 @@ class DependencyReporter:
             f"{self.colors.BOLD_RED}Build prerequisite validation FAILED{self.colors.RESET}"
         )
         print(
-            f"{self.colors.WHITE}See installation instructions above{self.colors.RESET}"
+            f"See installation instructions above"
         )
 
     def _print_dependencies(self):

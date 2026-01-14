@@ -158,7 +158,7 @@ class VersionRequirement(Requirement):
         # Status symbol and name in white/green with padding
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
         status_part = (
-            f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+            f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
         )
 
         # Version info in green
@@ -189,7 +189,7 @@ class VersionRequirement(Requirement):
 
         if self.optional:
             status_part = (
-                f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
+                f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
             )
             if self.version_required:
                 return f"{status_part} {colors.YELLOW}Not found (optional, v{self.version_required}+ recommended){colors.RESET}"
@@ -198,7 +198,7 @@ class VersionRequirement(Requirement):
                     f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
                 )
         else:
-            status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+            status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
             if self.version_required:
                 return f"{status_part} {colors.BOLD_RED}Not found (requires {self.version_required}+){colors.RESET}"
             else:
@@ -210,7 +210,7 @@ class VersionRequirement(Requirement):
         name_with_marker = f"{self.name}*" if self.optional else self.name
         name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
         status_part = (
-            f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+            f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
         )
 
         if self.version_found and self.version_required:
@@ -234,19 +234,19 @@ class BooleanRequirement(Requirement):
 
         if self.status == RequirementStatus.SUCCESS:
             status_part = (
-                f"{colors.GREEN}[nvFuser] ✓ {colors.WHITE}{name_padded}{colors.RESET}"
+                f"{colors.GREEN}[nvFuser] ✓ {colors.RESET}{name_padded}"
             )
             if self.location:
                 return f"{status_part} {colors.CYAN}({self.location}){colors.RESET}"
             return status_part
         elif self.status == RequirementStatus.NOT_FOUND:
             if self.optional:
-                status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.WHITE}{name_padded}{colors.RESET}"
+                status_part = f"{colors.YELLOW}[nvFuser] ○ {colors.RESET}{name_padded}"
                 return (
                     f"{status_part} {colors.YELLOW}Not found (optional){colors.RESET}"
                 )
             else:
-                status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded}{colors.RESET}"
+                status_part = f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded}"
                 return f"{status_part} {colors.BOLD_RED}Not found{colors.RESET}"
         else:
-            return f"{colors.BOLD_RED}[nvFuser] ✗ {colors.WHITE}{name_padded} {colors.BOLD_RED}validation failed{colors.RESET}"
+            return f"{colors.BOLD_RED}[nvFuser] ✗ {colors.RESET}{name_padded} {colors.BOLD_RED}validation failed{colors.RESET}"
