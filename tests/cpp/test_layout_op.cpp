@@ -378,6 +378,10 @@ TEST_F(LayoutOpTest, Inlining) {
 }
 
 TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
+  if (cudaArchGuardShouldSkip(10, 0)) {
+    GTEST_SKIP() << "skipping test because fp8 requires compute capability "
+                    "10.0 or above";
+  }
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
