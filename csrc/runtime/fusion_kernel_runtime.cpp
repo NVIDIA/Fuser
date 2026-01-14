@@ -377,9 +377,10 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
     // TODO: inferContiguousOutputMetaTensor doesn't seem to strictly
     // require a Fusion for each segment. Consider using the complete fusion
     // instead.
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+    auto fusion_to_run = group_to_run->getFusion();
     return inferContiguousOutputMetaTensor(
-        fusion_to_run.get(),
+        heuristics,
+        group_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values);
   }
