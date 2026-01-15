@@ -28,15 +28,15 @@ std::ostream& operator<<(std::ostream& os, DomainType domain_type);
 // Checks that the other non-reduction axis are not parallelized on Didx
 bool isSharded(const TensorView*);
 
-// Returns number of device dimensions in a TensorView's loop domain.
-int64_t numDeviceDims(const TensorView*);
-
 std::unordered_set<IterDomain*> getInputsInTargetDomain(
     const std::vector<IterDomain*>& loop_ids,
     const std::vector<IterDomain*>& target_domain);
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
+//
+// This function can probably be removed. It is only used in tests and uses the
+// legacy ComputeAtMap.
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
     const std::vector<TensorView*>& tvs);

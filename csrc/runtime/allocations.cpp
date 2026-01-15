@@ -115,6 +115,20 @@ int64_t computeSharedMemory(
       }
     }
   }
+  if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+    int64_t available_shared_memory_bytes = deviceAvailableSharedMemoryBytes();
+    debug() << "total requested shared memory bytes: " << total << std::endl;
+    debug() << "available shared memory bytes: "
+            << available_shared_memory_bytes << std::endl;
+    if (total > 0) {
+      debug() << "shared memory limited blocks per SM: "
+              << available_shared_memory_bytes / total << std::endl;
+    } else {
+      debug() << "shared memory limited blocks per SM: unlimited (no shared "
+                 "memory requested)"
+              << std::endl;
+    }
+  }
   return total;
 }
 

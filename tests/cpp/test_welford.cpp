@@ -7,13 +7,13 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <type.h>
-#include <utils.h>
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -21,7 +21,7 @@ class WelfordTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
