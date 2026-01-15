@@ -32,9 +32,9 @@ To install nvFuser with a compatible PyTorch nightly build:
 pip install --pre "nvfuser-cu128[torch]" --extra-index-url https://pypi.nvidia.com
 ```
 
- > [!warning]
- > Installing with the `[torch]` extra will **replace** your existing PyTorch
- > installation with a compatible nightly build.
+> [!warning]
+> Installing with the `[torch]` extra will **replace** your existing PyTorch
+> installation with a compatible nightly build.
 
 ### Stable Releases
 
