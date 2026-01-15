@@ -161,15 +161,14 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   }
   // If dimension is dynamic but we have compile-time CTA shape available,
   // use the actual compile parameter value
-  if (GpuLower::hasCurrent()) {
-    const auto& cparams = GpuLower::current()->compileParams();
-    if (pt == ParallelType::TIDx && cparams.bdimx.has_value()) {
-      return cparams.bdimx.value();
-    } else if (pt == ParallelType::TIDy && cparams.bdimy.has_value()) {
-      return cparams.bdimy.value();
-    } else if (pt == ParallelType::TIDz && cparams.bdimz.has_value()) {
-      return cparams.bdimz.value();
-    }
+  NVF_ERROR(GpuLower::hasCurrent());
+  const auto& cparams = GpuLower::current()->compileParams();
+  if (pt == ParallelType::TIDx && cparams.bdimx.has_value()) {
+    return cparams.bdimx.value();
+  } else if (pt == ParallelType::TIDy && cparams.bdimy.has_value()) {
+    return cparams.bdimy.value();
+  } else if (pt == ParallelType::TIDz && cparams.bdimz.has_value()) {
+    return cparams.bdimz.value();
   }
   // Return -1 for dynamic dimensions when compile-time CTA shape is not known,
   // this disables register sharing on dynamic dimensions since we can't
