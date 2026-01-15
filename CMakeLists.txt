@@ -34,6 +34,8 @@ endif()
 
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
+option(NVFUSER_USE_PCH "Enable precompiled headers" OFF)
+
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
 
@@ -469,6 +471,24 @@ endif()
 target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
+
+if(NVFUSER_USE_PCH)
+  message(STATUS "Enabling PCH for top 10 nvFuser headers")
+  target_precompile_headers(codegen_internal PRIVATE
+    # Top 10 nvFuser headers by exclusive parse time
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.h"                              # 1675s (27.9m)
+    "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type/type_traits.h"      # 473.6s (7.9m)
+    "${NVFUSER_SRCS_DIR}/ir/base_nodes.h"                                  # 284.5s (4.7m)
+    "${NVFUSER_SRCS_DIR}/scheduler/tools/abstract_tensor.h"                # 162.1s (2.7m)
+    "${NVFUSER_SRCS_DIR}/type.h"                                           # 81.6s (1.4m)
+    "${NVFUSER_SRCS_DIR}/ir/container.h"                                   # 51.6s (0.9m)
+    "${NVFUSER_SRCS_DIR}/serde/fusion_cache_generated.h"                   # 44.1s (0.7m)
+    "${NVFUSER_SRCS_DIR}/iter_visitor.h"                                   # 38.2s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"                              # 33.3s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"                             # 29.6s (0.5m)
+  )
+  target_precompile_headers(nvfuser_codegen REUSE_FROM codegen_internal)
+endif()
 
 if (NVFUSER_USE_CUTLASS)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
@@ -1037,6 +1057,13 @@ endfunction()
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  if(NVFUSER_USE_PCH)
+    target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
+    set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_options("${TEST_NAME}" PRIVATE -fPIC)
+  endif()
 endfunction()
 
 # Special function for tests that MUST be isolated (single source file only)
@@ -1271,6 +1298,13 @@ if(BUILD_NVFUSER_BENCHMARK)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  if(NVFUSER_USE_PCH)
+    target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
+    set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_options(nvfuser_bench PRIVATE -fPIC)
+  endif()
+
   target_include_directories(nvfuser_bench SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
@@ -1423,5 +1457,6 @@ message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
 message(STATUS "  NVMMH_FOUND                        : ${NVMMH_FOUND}")
+message(STATUS "  NVFUSER_USE_PCH                    : ${NVFUSER_USE_PCH}")
 message(STATUS "******** End of Nvfuser configuration summary ********")
 message("")
