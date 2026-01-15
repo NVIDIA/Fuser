@@ -769,7 +769,6 @@ TensorView* TensorView::swizzle(
   return this;
 }
 
-
 TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
