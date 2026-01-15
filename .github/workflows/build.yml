@@ -46,6 +46,7 @@ jobs:
           wait
           source tools/setup-env.sh
 
+          export NVFUSER_CUTLASS_MAX_JOBS=1
           export NVFUSER_BUILD_CPP_STANDARD=23
           pip install -v -e ./python --no-build-isolation
       - name: Show ccache statistics
