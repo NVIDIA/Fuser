@@ -79,6 +79,13 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   }
   params->persistent_batch_size = pbs;
 
+  // recompute bimdx since it is used to parallelize the dynamic dimension
+  // pad to multiple of warp size to use warp reduction.
+  // to use warp specialized version, it should pad to 128 threads.
+  bdimx = ceilDiv(after_vect, params->persistent_batch_size);
+  bdimx =
+      bdimx % warp_size == 0 ? bdimx : bdimx + warp_size - bdimx % warp_size;
+
   // set warp specialized circular buffer options
   // don't use warp specialized if the total iteration count is too small
   // TODO: heuristic tuning determine when to use warp specialized version
@@ -134,6 +141,11 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
         bdimx,
         bdimy,
         bdimz);
+
+    // warp specialized version requires static CTA shape
+    params->cparams.bdimx = bdimx;
+    params->cparams.bdimy = bdimy;
+    params->cparams.bdimz = bdimz;
   }
 
   // Set index type

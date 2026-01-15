@@ -66,6 +66,9 @@
 #   NVFUSER_BUILD_CPP_STANDARD=STANDARD
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
+#   NVFUSER_BUILD_ENABLE_PCH=1
+#     Enable precompiled headers to speed up compilation. Default is OFF.
+#
 
 import sys
 

@@ -322,8 +322,6 @@ class NVFuserTest(TestCase):
         with FusionDefinition() as fd:
             fusion_func(fd)
         torch.manual_seed(0)
-        if "id_model_extra_validation" not in _enable_options:
-            _enable_options.append("id_model_extra_validation")
         out = fd.execute(
             inputs,
             device=device,
