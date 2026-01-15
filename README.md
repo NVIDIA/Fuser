@@ -41,32 +41,29 @@ We always recommend use of the latest nvfuser build with latest cuda and pytorch
 
 PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
-## Developer
+## Building From Source
 
-Docs: https://github.com/NVIDIA/Fuser/wiki
+### Required:
 
-### Building From Source
+- C++20 compliant compiler:
+  - `GCC` >= `13.1` or `Clang` >= `19`
+- `Python` >= `3.10`
+- `CMake` >= `3.18`
+- `Ninja`
+- `CUDA Toolkit` >= `12.6` (recommend `12.8+`)
+- `PyTorch` >= `2.9` (recommend latest `stable`/`nightly` release)
+- `pybind11` >= `3.0`
+- `LLVM` >= `18.1`
 
-#### Prerequisites
+> [!note]
+> - PyTorch **must** be built w/ CUDA
+> - The PyTorch CUDA version must match your CUDA Toolkit version.
 
-**Required:**
-- **C++ Compiler** with C++20 support:
-  - GCC >= 13.1, or
-  - Clang >= 19
-- **Python** >= 3.10
-- **CMake** >= 3.18
-  * **Ninja** build system (recommended for faster builds)
-- **CUDA Toolkit** >= 12.6 (recommend 12.8+)
-- **PyTorch** >= 2.9 (recommend latest stable/nightly)
-  - PyTorch **must** be built w/ CUDA
-  - The PyTorch CUDA version must match your CUDA Toolkit version.
-- **pybind11** >= 3.0
-- **LLVM** >= 18.1
+### Optional:
 
-**Optional:**
-- **nvidia-matmul-heuristics** (enhanced matmul scheduling)
+- `nvidia-matmul-heuristics` (enhanced matmul scheduling)
 
-#### Build Steps
+### Build Steps
 
 1. Clone the repository and initialize submodules:
 ```bash
@@ -97,20 +94,19 @@ You can customize the build using environment variables:
 
 **Build Configuration:**
 - `MAX_JOBS=<n>` - Control compilation parallelism (e.g., `MAX_JOBS=8`)
-- `NVFUSER_BUILD_BUILD_TYPE` - Build in (Debug/RelWithDebInfo/Release) mode
-- `NVFUSER_BUILD_DIR=<path>` - Custom build directory
-- `NVFUSER_BUILD_INSTALL_DIR=<path>` - Custom install directory
+- `NVFUSER_BUILD_BUILD_TYPE` - Build in (`Debug`/`RelWithDebInfo`/`Release`) mode.
+- `NVFUSER_BUILD_DIR=<path>` - Custom build directory (default: `./python/build`)
+- `NVFUSER_BUILD_INSTALL_DIR=<path>` - Custom install directory (default: `./nvfuser`)
 
 **Build Targets:**
-- `NVFUSER_BUILD_NO_PYTHON=1` - Skip Python bindings
-- `NVFUSER_BUILD_NO_TEST=1` - Skip C++ tests
-- `NVFUSER_BUILD_NO_BENCHMARK=1` - Skip benchmarks
+- `NVFUSER_BUILD_NO_PYTHON=1` - Skip Python bindings.
+- `NVFUSER_BUILD_NO_TEST=1` - Skip C++ tests.
+- `NVFUSER_BUILD_NO_BENCHMARK=1` - Skip benchmarks.
 
 **Advanced Options:**
-- `NVFUSER_BUILD_WITH_UCC=1` - Enable UCC support for multi-device operations
-- `NVFUSER_BUILD_WITHOUT_DISTRIBUTED=1` - Build without multi-device support
-- `NVFUSER_BUILD_NO_NINJA=1` - Use make instead of ninja
-- `NVFUSER_BUILD_CPP_STANDARD=<n>` - Specify C++ standard (default: 20)
+- `NVFUSER_BUILD_WITH_UCC=1` - Enable UCC support for multi-device operations.
+- `NVFUSER_BUILD_WITHOUT_DISTRIBUTED=1` - Build without multi-device support.
+- `NVFUSER_BUILD_CPP_STANDARD=<n>` - Specify C++ standard (default: 20).
 
 Example with custom options:
 ```bash
@@ -119,9 +115,9 @@ MAX_JOBS=8 NVFUSER_BUILD_BUILD_TYPE=Debug pip install --no-build-isolation -e py
 
 #### Verifying the Installation
 
-Test your installation:
+Test your installation with a simple fusion:
 ```python
-python -c "import nvfuser; print(nvfuser.__version__)"
+python -c "import nvfuser; print('nvFuser successfully imported from:', nvfuser.__file__)"
 ```
 
 Run the Python test suite:
