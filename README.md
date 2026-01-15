@@ -45,31 +45,91 @@ PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
 Docs: https://github.com/NVIDIA/Fuser/wiki
 
-### Install From Source:
-```bash
-git clone https://github.com/NVIDIA/Fuser.git
-cd Fuser
-pip install -r python/requirements.txt
+### Building From Source
 
-[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
+#### Prerequisites
+
+**Required:**
+- **C++ Compiler** with C++20 support:
+  - GCC >= 13.1, or
+  - Clang >= 19
+- **Python** >= 3.10
+- **CMake** >= 3.18
+  * **Ninja** build system (recommended for faster builds)
+- **CUDA Toolkit** >= 12.6 (recommend 12.8+)
+- **PyTorch** >= 2.9 (recommend latest stable/nightly)
+  - PyTorch **must** be built w/ CUDA
+  - The PyTorch CUDA version must match your CUDA Toolkit version.
+- **pybind11** >= 3.0
+- **LLVM** >= 18.1
+
+**Optional:**
+- **nvidia-matmul-heuristics** (enhanced matmul scheduling)
+
+#### Build Steps
+
+1. Clone the repository and initialize submodules:
+```bash
+git clone --recursive https://github.com/NVIDIA/Fuser.git
+cd Fuser
+```
+
+If you already cloned without `--recursive`, initialize submodules:
+```bash
+git submodule update --init --recursive
+```
+
+2. Install Python dependencies:
+```bash
+pip install -r python/requirements.txt
+```
+
+3. Build and install nvFuser:
+```bash
 pip install --no-build-isolation -e python -v
 ```
 
-Supported compilers:
+The build system will automatically validate all dependencies and provide helpful error messages if anything is missing.
 
-**GCC:**
+#### Build Options
 
-We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 3/2/2025, they are:
+You can customize the build using environment variables:
 
-- gcc 12.4
-- gcc 13.3
-- gcc 14.2
+**Build Configuration:**
+- `MAX_JOBS=<n>` - Control compilation parallelism (e.g., `MAX_JOBS=8`)
+- `NVFUSER_BUILD_BUILD_TYPE` - Build in (Debug/RelWithDebInfo/Release) mode
+- `NVFUSER_BUILD_DIR=<path>` - Custom build directory
+- `NVFUSER_BUILD_INSTALL_DIR=<path>` - Custom install directory
 
-**Clang:**
+**Build Targets:**
+- `NVFUSER_BUILD_NO_PYTHON=1` - Skip Python bindings
+- `NVFUSER_BUILD_NO_TEST=1` - Skip C++ tests
+- `NVFUSER_BUILD_NO_BENCHMARK=1` - Skip benchmarks
 
-- clang 16+
+**Advanced Options:**
+- `NVFUSER_BUILD_WITH_UCC=1` - Enable UCC support for multi-device operations
+- `NVFUSER_BUILD_WITHOUT_DISTRIBUTED=1` - Build without multi-device support
+- `NVFUSER_BUILD_NO_NINJA=1` - Use make instead of ninja
+- `NVFUSER_BUILD_CPP_STANDARD=<n>` - Specify C++ standard (default: 20)
 
-Supported C++ standard:
+Example with custom options:
+```bash
+MAX_JOBS=8 NVFUSER_BUILD_BUILD_TYPE=Debug pip install --no-build-isolation -e python -v
+```
 
-- C++20
+#### Verifying the Installation
+
+Test your installation:
+```python
+python -c "import nvfuser; print(nvfuser.__version__)"
+```
+
+Run the Python test suite:
+```bash
+pytest tests/python/
+```
+
+Run C++ tests (if built):
+```bash
+./build/bin/test_nvfuser
+```
