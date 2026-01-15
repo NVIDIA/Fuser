@@ -974,7 +974,13 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
 class BlockQuantizationSchedulingTest
     : public BlackwellBase,
       public ::testing::WithParamInterface<
-          std::tuple<DataType, std::pair<int, int>, bool, bool>> {};
+          std::tuple<DataType, std::pair<int, int>, bool, bool>> {
+ protected:
+  void SetUp() override {
+    BlackwellBase::SetUp();
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
+  }
+};
 
 TEST_P(BlockQuantizationSchedulingTest, AutoScheduleSingleOp) {
   const auto data_type = std::get<0>(GetParam());
