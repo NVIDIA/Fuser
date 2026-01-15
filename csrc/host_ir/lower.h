@@ -18,6 +18,9 @@ namespace nvfuser {
 struct HostIrLowerParams {
   CommunicatorBackend communicator_backend = CommunicatorBackend::kNccl;
   bool offset_stream_indexing_by_rank = false;
+  // If enabled, explicitly synchronize stream (i+1) with stream i inside stream
+  // parallel loops to prevent iteration i+1 from starting before i completes.
+  bool inter_stream_synchronization = false;
 };
 
 class HostIrLower {

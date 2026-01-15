@@ -609,6 +609,32 @@ std::list<Expr*> processForLoopBodies(
           }
           new_loop_body.push_back(if_sending_to_self);
         }
+
+        if (params.inter_stream_synchronization) {
+          auto* number_of_streams =
+              IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
+
+          // Switch to stream i+1 to make it wait for stream i. This ensures
+          // that iteration i+1 doesn't start comms before iteration i finishes.
+          auto* curr_stream_idx = mod(for_loop->index(), number_of_streams);
+          auto* curr_stream = IrBuilder::create<hir::Stream>(curr_stream_idx);
+
+          auto* one = FusionGuard::getCurFusion()->oneVal();
+          auto* next_stream_idx =
+              mod(add(for_loop->index(), one), number_of_streams);
+          auto* next_stream = IrBuilder::create<hir::Stream>(next_stream_idx);
+
+          auto* set_next_stream =
+              IrBuilder::create<hir::SetCurrentStream>(next_stream);
+          new_loop_body.push_back(set_next_stream);
+
+          auto* sync = IrBuilder::create<hir::Synchronize>(curr_stream);
+          new_loop_body.push_back(sync);
+
+          auto* set_curr_stream =
+              IrBuilder::create<hir::SetCurrentStream>(curr_stream);
+          new_loop_body.push_back(set_curr_stream);
+        }
       } else {
         // Process inputs and outputs normally
         for (auto* input :
