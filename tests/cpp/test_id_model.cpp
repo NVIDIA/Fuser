@@ -3267,6 +3267,8 @@ TEST_F(IdModelTest, PermissiveResizeGraph) {
   EXPECT_TRUE(prg.disjointValSets().strictAreMapped(id1, id2));
 }
 
+// This is the failing segment of the reproducer of
+// https://github.com/NVIDIA/Fuser/issues/5803.
 TEST_F(IdModelTest, ReproIssue5803) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -3302,7 +3304,37 @@ TEST_F(IdModelTest, ReproIssue5803) {
   auto inp0 = at::randint(4, {4}, options_int);
   auto inp1 = at::randn({32, 1440}, options_fp32);
   auto inp2 = at::randn({4, 1440}, options_bf16);
+
+  // Loop graph will be built. Make sure this completes with no error.
   scheduleAndRun(&fusion, SchedulerType::PointWise, {inp0, inp1, inp2});
+}
+
+// This is a minimal fusion pattern to trigger the loop promotion
+// issue as reported in https://github.com/NVIDIA/Fuser/issues/5803
+TEST_F(IdModelTest, ReproIssue5803Minimal) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({4, 8});
+  fusion.addInput(tv0);
+  auto tv1 = makeConcreteTensor({4});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv1);
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv0, tv3);
+  auto tv5 = reshape(tv4, {4, 8}, {4, 2, 4});
+  fusion.addOutput(tv5);
+
+  tv5->merge(-2);
+  tv5->merge(-2);
+  TransformPropagatorWithCheck propagator(tv5);
+  MaxLogicalDomainInfoSpanningTree(tv5).traverse(&propagator);
+
+  inlineMost();
+
+  IdModel id_model(&fusion, true);
 }
 
 } // namespace nvfuser
