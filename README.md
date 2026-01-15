@@ -20,8 +20,11 @@ Nightly `nvFuser` wheels are built against `PyTorch:nightly` and published to
 `https://pypi.nvidia.com`:
 
 ```bash
-pip install --pre nvfuser-cu128 --extra-index-url https://pypi.nvidia.com
+pip install --pre nvfuser-cuXXY --extra-index-url https://pypi.nvidia.com
 ```
+> [!note]
+> nvFuser supports CUDA 12.6+. `cuXXY` denotes the CUDA major `XX` and minor
+> `Y` version.  If you have CUDA 12.8 use `nvfuser-cu128`.
 
 To install nvFuser with a compatible PyTorch nightly build:
 
