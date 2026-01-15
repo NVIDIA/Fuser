@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-cmake_minimum_required(VERSION 3.18 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.18)
 project(nvfuser)
+
 enable_language(CUDA)
 
 cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
@@ -25,12 +26,15 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
+option(NVFUSER_ENABLE_DEPENDENCY_REPORT "Enable Python-based dependency reporting and log capture" ON)
 
 if(NVFUSER_EXPLICIT_ERROR_CHECK)
   add_compile_definitions(NVFUSER_EXPLICIT_ERROR_CHECK)
 endif()
 
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
+
+option(NVFUSER_USE_PCH "Enable precompiled headers" OFF)
 
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
@@ -39,13 +43,6 @@ if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
 
-message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
-
-# We try to update which C++ standard we use together in lockstep across all
-# built libraries, and these variables control which that is. Generally we are
-# on C++20, but we still support a version of CUDA (11) that does not recognize
-# C++20 and so we drop back to 17 there. Also, we allow all of these to be
-# overridden by the user.
 # Note we do not use a global set_property on e.g. CXX_STANDARD. CMake globals
 # are footguns that should generally be avoided, because they are difficult to
 # target where and *only* where they are needed. See e.g.:
@@ -54,144 +51,72 @@ set(NVFUSER_C_STANDARD 20 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
-if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
-  # I believe we should bump up the version below to 12.x.
-  # However, because gcc 11.4 is well tested and stable, let's defer this
-  # rejection until the day that we find a bug in gcc 11.4.
-  if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
-    message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
-  endif()
-endif()
-
 string(APPEND CMAKE_CXX_FLAGS " -Wno-psabi")
 
-# --------------------------
-# nvMatmulHeuristics support
-# --------------------------
-set(NVMMH_INCLUDE_DIR "NVMMH_INCLUDE_DIR-NOTFOUND" CACHE PATH "Directory containing nvMatmulHeuristics.h")
-if (NOT IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
-  find_path(NVMMH_INCLUDE_DIR nvMatmulHeuristics.h
-    PATHS /usr/local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include $ENV{HOME}/.local/lib/python3.12/dist-packages/nvidia/nvMatmulHeuristics/include)
+# -----------------------------------------------------------------------------
+# nvFuser Requirements & Dependencies
+# -----------------------------------------------------------------------------
+include(cmake/DependencyRequirements.cmake)
+include(cmake/DependencyUtilities.cmake)
+include(cmake/LogCapture.cmake)
+
+# Include all dependency handler functions
+include(cmake/deps/handle_ninja.cmake)
+include(cmake/deps/handle_compiler.cmake)
+include(cmake/deps/handle_python.cmake)
+include(cmake/deps/handle_cuda_toolkit.cmake)
+include(cmake/deps/handle_torch.cmake)
+include(cmake/deps/handle_pybind11.cmake)
+include(cmake/deps/handle_llvm.cmake)
+include(cmake/deps/handle_nvmmh.cmake)
+include(cmake/deps/handle_git_submodules.cmake)
+
+# Initialize success flag
+set(NVFUSER_DEPENDENCIES_OK TRUE)
+
+if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
+  start_capture()
 endif()
 
-if(IS_DIRECTORY "${NVMMH_INCLUDE_DIR}")
-  set(NVMMH_FOUND TRUE)
-  string(APPEND CMAKE_CXX_FLAGS " -DHAS_NVMMH=1")
-else()
-  set(NVMMH_FOUND FALSE)
-  message(WARNING "nvMatmulHeuristics headers not found – building without nvMatmulHeuristics support")
+# Handle each dependency explicitly
+handle_compiler()
+handle_git_submodules()
+handle_ninja()
+handle_cuda_toolkit()
+handle_python()
+handle_torch() # Must come AFTER python and cudatoolkit.
+handle_pybind11()
+handle_llvm()
+handle_nvmmh() # Must come AFTER python to query correct site-packages
+
+if(NVFUSER_ENABLE_DEPENDENCY_REPORT)
+  stop_capture(DEP_LOGS)
+
+  # Show the dependency report (Python-based)
+  report_dependencies()
+
+  # Dump detailed logs
+  message("")
+  message(STATUS "******** Detailed Dependency Output ********")
+  dump_captured_logs("${DEP_LOGS}")
+  message(STATUS "******** End Dependency Output ********")
+  message("")
 endif()
-# --------------------------
 
-find_package(Torch REQUIRED)
-find_package(Python REQUIRED Development.Module Interpreter)
-find_package(pybind11 REQUIRED)
-find_package(CUDAToolkit REQUIRED)
-
-# need this since the pytorch execution uses a different name
-set(PYTHON_EXECUTABLE ${Python_EXECUTABLE})
-
-# CXX flags is necessary since https://github.com/pytorch/pytorch/issues/98093
-string(APPEND CMAKE_CXX_FLAGS " ${TORCH_CXX_FLAGS}")
-include(cmake/FlatBuffers.cmake)
-include(cmake/Dependencies.cmake)
-
-# set CUDA_ARCH for cu tests.
-if(TORCH_CUDA_ARCH_LIST)
-  set(ARCH_FLAGS)
-  cuda_select_nvcc_arch_flags(ARCH_FLAGS ${TORCH_CUDA_ARCH_LIST})
-  list(APPEND CUDA_NVCC_FLAGS ${ARCH_FLAGS})
+# Check if any required dependencies failed
+if(NOT NVFUSER_DEPENDENCIES_OK)
+  message(FATAL_ERROR "Please install or upgrade the required dependencies listed above.")
 endif()
+
+# Setup submodule related logic
+include(cmake/Submodules.cmake)
+# -----------------------------------------------------------------------------
 
 add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
-set(CUTLASS_STATUS "N/A")
-if(BUILD_CUTLASS)
-  enable_language(CUDA)
-
-  if(CMAKE_CUDA_COMPILER_VERSION VERSION_LESS 12.8)
-    message(WARNING "Skip building CUTLASS because of incompatible CUDA ${CMAKE_CUDA_COMPILER_VERSION}")
-    set(CUTLASS_STATUS "DISABLED")
-  else()
-    add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
-    set(CUTLASS_STATUS "ENABLED")
-
-    find_package(CUDAToolkit REQUIRED)
-
-    set(NVF_CUTLASS_CUDA_FLAGS
-      "-DCUTE_USE_PACKED_TUPLE=1"
-      "-DCUTLASS_ENABLE_TENSOR_CORE_MMA=1"
-      "-DCUTLASS_VERSIONS_GENERATED"
-      "-DCUTLASS_TEST_LEVEL=0"
-      "-DCUTLASS_TEST_ENABLE_CACHED_RESULTS=1"
-      "-DCUTLASS_DEBUG_TRACE_LEVEL=0"
-      "--expt-relaxed-constexpr"
-      "--expt-extended-lambda"
-      # Equivalent to --threads=<number of CPUs>
-      "--threads=0"
-      # -----------------
-      # Suppress warnings
-      # -----------------
-      "-Xcompiler=-Wconversion"
-      "-Xcompiler=-fno-strict-aliasing"
-      # CUDA 13 has deprecated old vector types such as ulong4: https://developer.nvidia.com/blog/whats-new-and-important-in-cuda-toolkit-13-0
-      "-Xcompiler=-Wno-deprecated-declarations"
-    )
-
-    set(NVFUSER_CUTLASS_SRCS)
-    list(APPEND NVFUSER_CUTLASS_SRCS
-        ${NVFUSER_CUTLASS}/group_mm.cu
-        ${NVFUSER_CUTLASS}/mxfp8_scaled_mm.cu
-        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm.cu
-        ${NVFUSER_CUTLASS}/nvfp4_scaled_mm_blockscale.cu
-        ${NVFUSER_CUTLASS}/nvfp4_scaled_group_mm.cu
-        ${NVFUSER_CUTLASS}/nvf_cutlass.cpp
-        ${NVFUSER_CUTLASS}/cutlass_utils.cpp
-    )
-    add_library(nvf_cutlass SHARED ${NVFUSER_CUTLASS_SRCS})
-
-    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include)
-    target_include_directories(nvf_cutlass PRIVATE ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include)
-    target_compile_options(nvf_cutlass PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:${NVF_CUTLASS_CUDA_FLAGS}>)
-    if(NOT MSVC)
-      set(NVF_LIB_SUFFIX ".so")
-    else()
-      set(NVF_LIB_SUFFIX ".pyd")
-    endif()
-
-    target_include_directories(nvf_cutlass PUBLIC
-      "$<BUILD_INTERFACE:${NVFUSER_SRCS_DIR}>"
-      "$<BUILD_INTERFACE:${NVFUSER_CUTLASS}>"
-      "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/nvfuser>"
-    )
-    target_link_libraries(nvf_cutlass PRIVATE "${TORCH_LIBRARIES}" c10)
-    set_target_properties(nvf_cutlass PROPERTIES
-      C_STANDARD ${NVFUSER_C_STANDARD}
-      CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-      CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-      CXX_STANDARD_REQUIRED ON
-      CXX_VISIBILITY_PRESET hidden
-      INSTALL_RPATH
-      "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
-      POSITION_INDEPENDENT_CODE Yes
-      VISIBILITY_INLINES_HIDDEN Yes
-      CUDA_ARCHITECTURES "100a"
-    )
-    # Our CUTLASS kernels require substantially more memory to compile—up to 6
-    # GB per file. To avoid exhausting system memory, it's helpful to limit
-    # concurrency specifically for these kernels, without throttling other
-    # compilation units. A pool of size 2 works well in practice: there are
-    # only a handful of CUTLASS kernel files, so this restriction has little
-    # impact on overall build time.
-    set(CUTLASS_MAX_JOBS 0 CACHE STRING "Max concurrent CUTLASS CUDA compiles (0 = no limit)")
-    if(CUTLASS_MAX_JOBS GREATER 0)
-      set_property(GLOBAL PROPERTY JOB_POOLS cutlass=${CUTLASS_MAX_JOBS})
-      set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
-    endif()
-    install(TARGETS nvf_cutlass EXPORT NvfuserTargets DESTINATION lib)
-
-  endif()
+if(NVFUSER_USE_CUTLASS)
+  add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
+  add_subdirectory(cutlass)
 endif()
 
 # ------------------------------
@@ -437,25 +362,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/validator_utils.cpp
 )
 
-# Add LLVM JIT related dependencies
-set(LLVM_MINIMUM_VERSION "18.1")
-find_package(LLVM REQUIRED CONFIG)
-if(${LLVM_VERSION} VERSION_LESS ${LLVM_MINIMUM_VERSION})
-  message(FATAL_ERROR "LLVM ${LLVM_VERSION} does not meet the minimum version required: ${LLVM_MINIMUM_VERSION}")
-endif()
-llvm_map_components_to_libnames(LLVM_LIBS
-  support
-  core
-  orcjit
-  executionengine
-  irreader
-  nativecodegen
-  Target
-  Analysis
-  JITLink
-  Demangle
-)
-
 add_library(LLVM_JIT INTERFACE)
 target_include_directories(LLVM_JIT SYSTEM INTERFACE ${LLVM_INCLUDE_DIRS})
 target_compile_definitions(LLVM_JIT INTERFACE ${LLVM_DEFINITIONS})
@@ -557,7 +463,7 @@ target_link_libraries(codegen_internal PUBLIC
   ${TORCH_LIBRARIES}
   dl
 )
-if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+if (NVFUSER_USE_CUTLASS)
   target_link_libraries(codegen_internal PUBLIC nvf_cutlass)
   target_compile_definitions(codegen_internal PUBLIC "-DNVFUSER_CUTLASS_KERNEL_ENABLED")
 endif()
@@ -566,13 +472,31 @@ target_link_libraries(codegen_internal PUBLIC LLVM_JIT)
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
-if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+if(NVFUSER_USE_PCH)
+  message(STATUS "Enabling PCH for top 10 nvFuser headers")
+  target_precompile_headers(codegen_internal PRIVATE
+    # Top 10 nvFuser headers by exclusive parse time
+    "${NVFUSER_SRCS_DIR}/polymorphic_value.h"                              # 1675s (27.9m)
+    "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type/type_traits.h"      # 473.6s (7.9m)
+    "${NVFUSER_SRCS_DIR}/ir/base_nodes.h"                                  # 284.5s (4.7m)
+    "${NVFUSER_SRCS_DIR}/scheduler/tools/abstract_tensor.h"                # 162.1s (2.7m)
+    "${NVFUSER_SRCS_DIR}/type.h"                                           # 81.6s (1.4m)
+    "${NVFUSER_SRCS_DIR}/ir/container.h"                                   # 51.6s (0.9m)
+    "${NVFUSER_SRCS_DIR}/serde/fusion_cache_generated.h"                   # 44.1s (0.7m)
+    "${NVFUSER_SRCS_DIR}/iter_visitor.h"                                   # 38.2s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/internal_nodes.h"                              # 33.3s (0.6m)
+    "${NVFUSER_SRCS_DIR}/ir/interface_nodes.h"                             # 29.6s (0.5m)
+  )
+  target_precompile_headers(nvfuser_codegen REUSE_FROM codegen_internal)
+endif()
+
+if (NVFUSER_USE_CUTLASS)
   target_link_libraries(nvfuser_codegen PUBLIC nvf_cutlass)
 endif()
 
 # Conditionally link CUTLASS using generator expression to avoid export issues
 target_link_libraries(nvfuser_codegen PRIVATE
-  $<$<AND:$<BOOL:${BUILD_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
+  $<$<AND:$<BOOL:${NVFUSER_USE_CUTLASS}>,$<VERSION_GREATER_EQUAL:${CMAKE_CUDA_COMPILER_VERSION},12.8>>:nvf_cutlass>
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
@@ -706,9 +630,9 @@ if(BUILD_PYTHON)
   add_custom_command(
     OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
+    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
@@ -771,12 +695,12 @@ if(BUILD_PYTHON)
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  if (NVFUSER_USE_CUTLASS)
     target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
   endif()
 
   if (NOT MSVC)
-      target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
+    target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
   endif()
 
   target_link_libraries(nvf_py_internal PRIVATE
@@ -833,9 +757,9 @@ if(BUILD_PYTHON)
   add_custom_command(
     OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser_direct/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
+    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
+    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser_direct
     DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
     DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
@@ -902,21 +826,14 @@ if(BUILD_PYTHON)
 
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
-    target_link_libraries(nvf_py_direct_internal PRIVATE
-      nvfuser_codegen
-      nvf_cutlass
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-      CUDA::cupti
-    )
-  else()
-    target_link_libraries(nvf_py_direct_internal PRIVATE
-      nvfuser_codegen
-      "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-      pybind11::pybind11 pybind11::headers
-      CUDA::cupti
-    )
+  target_link_libraries(nvf_py_direct_internal PRIVATE
+    nvfuser_codegen
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+    CUDA::cupti
+  )
+  if (NVFUSER_USE_CUTLASS)
+    target_link_libraries(nvf_py_direct_internal PRIVATE nvf_cutlass)
   endif()
 
   target_link_libraries(nvfuser_direct PRIVATE
@@ -1140,6 +1057,13 @@ endfunction()
 function(add_test TEST_NAME TEST_SRC ADDITIONAL_LINK)
   list(APPEND ADDITIONAL_LINK "GTest::gtest_main")
   add_test_without_main("${TEST_NAME}" "${TEST_SRC}" "${ADDITIONAL_LINK}")
+
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  if(NVFUSER_USE_PCH)
+    target_precompile_headers("${TEST_NAME}" REUSE_FROM codegen_internal)
+    set_target_properties("${TEST_NAME}" PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_options("${TEST_NAME}" PRIVATE -fPIC)
+  endif()
 endfunction()
 
 # Special function for tests that MUST be isolated (single source file only)
@@ -1274,7 +1198,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
   )
-  if (BUILD_CUTLASS AND CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 12.8)
+  if (NVFUSER_USE_CUTLASS)
     list(APPEND MATMUL_TEST_SRCS
       ${NVFUSER_ROOT}/tests/cpp/test_cutlass_scheduler.cpp
     )
@@ -1373,6 +1297,13 @@ if(BUILD_NVFUSER_BENCHMARK)
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
+
+  # See https://gitlab.kitware.com/cmake/cmake/-/issues/20289
+  if(NVFUSER_USE_PCH)
+    target_precompile_headers(nvfuser_bench REUSE_FROM codegen_internal)
+    set_target_properties(nvfuser_bench PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_compile_options(nvfuser_bench PRIVATE -fPIC)
+  endif()
 
   target_include_directories(nvfuser_bench SYSTEM PRIVATE
     ${CMAKE_SOURCE_DIR}/third_party/benchmark/include
@@ -1484,7 +1415,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
     COMMENT "Stringify NVFUSER runtime source file ${src}"
     OUTPUT ${dst}
     DEPENDS ${src} "${NVFUSER_STRINGIFY_TOOL}"
-    COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
+    COMMAND ${Python_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst}
   )
   add_custom_target(nvfuser_rt_${filename} DEPENDS ${dst})
   add_dependencies(codegen_internal nvfuser_rt_${filename})
@@ -1494,7 +1425,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
   if(${src} IS_NEWER_THAN ${dst})
     # also generate the resource headers during the configuration step
     # (so tools like clang-tidy can run w/o requiring a real build)
-    execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
+    execute_process(COMMAND ${Python_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})
   endif()
 endforeach()
 
@@ -1509,9 +1440,11 @@ file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
 file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser" "${NVFUSER_ROOT}/nvfuser" SYMBOLIC)
 file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuser_direct" SYMBOLIC)
 
-message(STATUS "")
 message(STATUS "******** Nvfuser configuration summary ********")
-message(STATUS "  BUILD_CUTLASS: ${CUTLASS_STATUS}")
+message(STATUS "  NVFUSER_USE_CUTLASS                : ${NVFUSER_USE_CUTLASS}")
+if(NVFUSER_USE_CUTLASS)
+  message(STATUS "    CUTLASS_MAX_JOBS                 : ${CUTLASS_MAX_JOBS}")
+endif()
 message(STATUS "  UCC_FOUND: ${UCC_FOUND}")
 if(NVFUSER_STANDALONE_BUILD_WITH_UCC)
   message(STATUS "    UCC_HOME: $ENV{UCC_HOME}")
@@ -1523,5 +1456,7 @@ message(STATUS "  NVFUSER_STANDALONE_BUILD_WITH_UCC  : ${NVFUSER_STANDALONE_BUIL
 message(STATUS "  NVFUSER_BUILD_WITH_ASAN            : ${NVFUSER_BUILD_WITH_ASAN}")
 message(STATUS "  NVFUSER_DISTRIBUTED                : ${NVFUSER_DISTRIBUTED}")
 message(STATUS "  NVFUSER_CPP_STANDARD               : ${NVFUSER_CPP_STANDARD}")
-message(STATUS "  NVMMH_INCLUDE_DIR                  : ${NVMMH_INCLUDE_DIR}")
+message(STATUS "  NVMMH_FOUND                        : ${NVMMH_FOUND}")
+message(STATUS "  NVFUSER_USE_PCH                    : ${NVFUSER_USE_PCH}")
 message(STATUS "******** End of Nvfuser configuration summary ********")
+message("")

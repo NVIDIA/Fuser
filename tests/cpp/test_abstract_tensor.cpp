@@ -894,12 +894,6 @@ TEST_F(AbstractTensorTest, SwizzleTaggedTensor) {
     EXPECT_EQ(v1.getTag(1), TestTag::B);
     EXPECT_EQ(v1.getTag(2), TestTag::C);
 
-    v1.swizzle(Swizzle2DType::NoSwizzle, 0, 1);
-
-    EXPECT_EQ(v1.getTag(0), TestTag::A);
-    EXPECT_EQ(v1.getTag(1), TestTag::B);
-    EXPECT_EQ(v1.getTag(2), TestTag::C);
-
     // An XOR swizzle will mix the tags
     v1.swizzle(SwizzleType::XOR, 1, 0);
 

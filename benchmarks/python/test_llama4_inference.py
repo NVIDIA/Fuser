@@ -7,12 +7,14 @@ from .benchmark_inference import (
     InferenceBenchmark,
     _register_nvfp4_ops,
 )
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
 
 
+# NOTE: for some reason, changing the order of nvfp4 and cudagraph parameter breaks thunder benchmark. I suspect there's something with thunder's cache.
 @pytest.mark.parametrize("input_length", [4096])
 @pytest.mark.parametrize("output_length", [4])
 @pytest.mark.parametrize("mode", ["thunder", "inductor"])
-@pytest.mark.parametrize("enable_nvfp4", [False, True])
+@pytest.mark.parametrize("enable_nvfp4", [True, False])
 @pytest.mark.parametrize("enable_cudagraph", [False, True])
 def test_llama4_inference_benchmark(
     benchmark,
@@ -27,6 +29,12 @@ def test_llama4_inference_benchmark(
 
     if mode == "thunder" and enable_nvfp4 and enable_cudagraph:
         pytest.skip("FIXME: nvfp4 and cudagraph doesn't work together.")
+
+    if DEVICE_PROPERTIES["gpu_compute_capability_major"] < 10:
+        if enable_nvfp4:
+            pytest.skip("nvfp4 support requires compute_capability >= 10.0")
+        if mode == "thunder" and enable_cudagraph:
+            pytest.skip("cudagraph doesn't support grouped matmul")
 
     if enable_nvfp4:
         _register_nvfp4_ops()
