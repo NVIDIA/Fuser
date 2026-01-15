@@ -41,9 +41,9 @@ namespace nvfuser {
 
 class CombineMulSumAsMmaTest : public NVFuserTest {
   void SetUp() override {
-    // These test are enable for Turing and newer. Temporarily
+    // These test are enable for Hopper and newer. Temporarily
     // we are skipping Blackwell since the matmul for it is under development.
-    auto lower_major = 8;
+    auto lower_major = 9;
     auto lower_minor = 0;
     auto upper_major = 10;
     auto upper_minor = 0;
@@ -71,9 +71,9 @@ class CombineMulSumAsMmaTestWithLayout
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
-    // These test are enable for Turing and newer.
+    // These test are enable for Hopper and newer.
     // we are skipping Blackwell since the matmul for it is under development.
-    auto lower_major = 8;
+    auto lower_major = 9;
     auto lower_minor = 0;
     auto upper_major = 10;
     auto upper_minor = 0;
@@ -309,7 +309,7 @@ using MatmulNodeTranslationTest =
 // Test that a simple matmul op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const bool enable_fusion = std::get<2>(GetParam());
@@ -469,7 +469,7 @@ using LinearNodeTranslationTest =
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.

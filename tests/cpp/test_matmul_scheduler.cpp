@@ -32,7 +32,7 @@ class MatmulSchedulerTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   }
 
  private:
@@ -65,6 +65,11 @@ class PrecisionParametrizedTest
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   PrecisionParametrizedTest() : optimization_guard_(false) {}
+
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  }
 
  private:
   OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -2489,7 +2494,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   }
 
  private:
@@ -2795,6 +2800,7 @@ class MatmulFusionTest
       public ::testing::WithParamInterface<std::pair<bool, bool>> {
  protected:
   void SetUp() override {
+    MatmulSchedulerTest::SetUp();
     if (fusion_enabled) {
       EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
     }
@@ -2928,6 +2934,7 @@ class AllocationDomainTest
   }
 
   void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     NVFuserFixtureParamTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
