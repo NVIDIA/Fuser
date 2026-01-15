@@ -2765,7 +2765,7 @@ def test_expanded_to_size_one(nvfuser_direct_test):
     nvfuser_direct_test.assertEqual(out[0], inputs[0])
 
 
-def test_issue4888():
+def test_issue4888(nvfuser_direct_test):
     # https://github.com/NVIDIA/Fuser/issues/4888
     def nvfuser_fusion_id2(fd: FusionDefinition) -> None:
         T0 = fd.define_tensor(
@@ -2850,9 +2850,6 @@ def test_issue4888():
         fd.add_output(T84)
         fd.add_output(T85)
 
-    with FusionDefinition() as fd:
-        nvfuser_fusion_id2(fd)
-
     inputs = [
         torch.testing.make_tensor((4096, 4097), dtype=torch.bfloat16, device="cuda:0"),
         torch.testing.make_tensor((4096, 4097), dtype=torch.bool, device="cuda:0"),
@@ -2861,4 +2858,6 @@ def test_issue4888():
             (1, 32, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"
         ),
     ]
-    fd.execute(inputs, _enable_options=["infer-contiguity"])
+    nvfuser_direct_test.exec_nvfuser(
+        nvfuser_fusion_id2, inputs, enable_options=["infer_contiguity"]
+    )

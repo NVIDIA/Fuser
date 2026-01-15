@@ -28,6 +28,8 @@ class NVFuserTest(TestCase):
         new_fusion_expected=True,
         expected_fd_str=None,
         device=None,
+        enable_options=None,
+        disable_options=None,
         validate_results=False,
     ):
         # Copy inputs because aliased outputs can modify inputs when running
@@ -64,9 +66,15 @@ class NVFuserTest(TestCase):
         if validate_results:
             out = fd.validate(inputs)
         else:
+            if enable_options is None:
+                enable_options = []
+            if disable_options is None:
+                disable_options = []
             out = fd.execute(
                 inputs,
                 device=device,
+                _enable_options=enable_options,
+                _disable_options=disable_options,
             )
 
         assert check_captured_python_definition(out, fd, inputs_captured, device)
