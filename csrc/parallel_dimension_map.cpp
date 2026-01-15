@@ -208,6 +208,43 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
       " and remaining active cta threads ",
       other_active_pts_threads);
 
+  // For warp specialization on TIDx, both the original and padded bdimx must
+  // be multiples of 32 to prevent warps from being split across producer and
+  // consumer roles. With CUDA's thread linearization (tidx + tidy * bdimx +
+  // tidz * bdimx * bdimy), if bdimx is not a multiple of 32, consecutive linear
+  // thread IDs wrap to the next tidy value mid-warp, splitting a warp across
+  // different roles. Example: CTA (32, 4, 2) with warp specialization on TIDx
+  // would pad to (48, 4, 2). Linear thread IDs 32-47 (padded producer threads,
+  // tidy=0) and 48-63 (original compute threads, tidy=1) occupy the same warp
+  // but have different roles, defeating warp specialization's purpose.
+  if (ws_pt == ParallelType::TIDx) {
+    int64_t original_tidx = getThreadCountInDim(ws_pt);
+    NVF_ERROR(
+        original_tidx % 32 == 0,
+        "Warp specialization on TIDx requires bdimx to be a multiple of 32 ",
+        "to avoid splitting warps across producer/consumer boundaries. ",
+        "Got bdimx = ",
+        original_tidx,
+        " with CTA shape (",
+        original_tidx,
+        ", ",
+        getThreadCountInDim(ParallelType::TIDy),
+        ", ",
+        getThreadCountInDim(ParallelType::TIDz),
+        ")");
+    NVF_ERROR(
+        after_pad % 32 == 0,
+        "Warp specialization on TIDx requires padded bdimx to be a multiple of "
+        "32 to avoid warp diverge. "
+        "Got padded bdimx = ",
+        after_pad,
+        " (original: ",
+        original_tidx,
+        ", padding: ",
+        ws_num_threads_pad,
+        ")");
+  }
+
   // Apply the pad
   warp_specialized_padding_value_ = ws_num_threads_pad;
   auto offset = IrBuilder::create<Val>(ws_num_threads_pad, DataType::Index);
