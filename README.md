@@ -88,7 +88,7 @@ pip install --no-build-isolation -e python -v
 
 The build system will automatically validate all dependencies and provide helpful error messages if anything is missing.
 
-#### Build Options
+### Build Options
 
 You can customize the build using environment variables:
 
@@ -113,7 +113,7 @@ Example with custom options:
 MAX_JOBS=8 NVFUSER_BUILD_BUILD_TYPE=Debug pip install --no-build-isolation -e python -v
 ```
 
-#### Verifying the Installation
+### Verifying the Installation
 
 Test your installation with a simple fusion:
 ```python
