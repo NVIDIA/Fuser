@@ -87,6 +87,7 @@ class LayoutOpTest : public NVFuserTest {
   void SetUp() override {
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
   }
 };
 
