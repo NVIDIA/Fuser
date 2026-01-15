@@ -109,10 +109,26 @@ class ParallelDimensionMap {
   // elect-sync cannot be used.
   bool canUseElectSyncInAsyncWarp() const;
 
+  //! Check if warp-id-based predicates can be used for warp specialization.
+  //! Warp-id-based predicates (e.g., warp_id >= N) only work when the
+  //! warp-specialized dimension produces consecutive warp IDs. This requires
+  //! that the warp-specialized dimension is the outermost dimension > 1,
+  //! meaning ALL dimensions after it must be 1.
+  //!
+  //! Example: warp specialized on TIDy with CTA (32, 6, 2):
+  //!   TIDz=2 after TIDy causes non-consecutive warps (FAILS)
+  //! Example: warp specialized on TIDz with CTA (32, 4, 3):
+  //!   No dimensions after TIDz -> consecutive warps (WORKS)
+  //!
+  //! Returns true if:
+  //!   - No warp specialization is used, OR
+  //!   - All dimensions after the warp-specialized dimension are 1
+  bool canUseWarpIdBasedPredicate() const;
+
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1
-  int64_t getThreadCountInDim(ParallelType pt);
+  int64_t getThreadCountInDim(ParallelType pt) const;
 
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.

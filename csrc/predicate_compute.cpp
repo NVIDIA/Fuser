@@ -498,10 +498,9 @@ Val* createElectSyncExpr() {
 // warp collective.
 // TODO If TIDx is known at compile-time, generate custom mask.
 Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
-  // Use new approach with uniform warp ID when warp specialization is enabled
-  if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
-    Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-    NVF_ERROR(uniform_warp_id != nullptr);
+  // If uniform warp ID is available, use warp-ID-based predicate
+  Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
+  if (uniform_warp_id != nullptr) {
     Val* target_warp_index = IrBuilder::create<Val>(0u, PrimDataType::UInt32);
     Val* select_warp = IrBuilder::eqExpr(uniform_warp_id, target_warp_index);
     if (is_warp_collective) {
@@ -532,8 +531,9 @@ Val* createElectSyncPredicateAsync() {
   const ParallelDimensionMap& pdim_map =
       GpuLower::current()->info().parallelDimensionMap();
 
-  // Use new approach with uniform warp ID when warp specialization is enabled
-  if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+  // If uniform warp ID is available, use warp-ID-based predicate
+  Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
+  if (uniform_warp_id != nullptr) {
     Val* num_compute_warps = pdim_map.getNumComputeWarps();
     NVF_ERROR(
         num_compute_warps != nullptr, "NumComputeWarps must be initialized");
@@ -542,8 +542,6 @@ Val* createElectSyncPredicateAsync() {
         "NumComputeWarps must be a constant");
     uint32_t warp_index =
         static_cast<uint32_t>(num_compute_warps->evaluate().as<int64_t>());
-    Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-    NVF_ERROR(uniform_warp_id != nullptr);
     Val* target_warp_index =
         IrBuilder::create<Val>(warp_index, PrimDataType::UInt32);
     Val* select_warp = IrBuilder::eqExpr(uniform_warp_id, target_warp_index);
@@ -710,13 +708,12 @@ Val* createMultipleExpressionElectSync(
             CircularBufferLoopStage::AsyncWarp;
       });
 
-  // Use new approach with uniform warp ID when warp specialization is enabled
-  if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+  // If uniform warp ID is available, use warp-ID-based predicate
+  Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
+  if (uniform_warp_id != nullptr) {
     if (async_warp_loop_it != loops.end()) {
       return createElectSyncPredicateAsync();
     } else {
-      Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-      NVF_ERROR(uniform_warp_id != nullptr);
       Val* target_warp_index = IrBuilder::create<Val>(0u, PrimDataType::UInt32);
       Val* select_warp = IrBuilder::eqExpr(uniform_warp_id, target_warp_index);
       return SimplifyingIrBuilder::logicalAndExpr(

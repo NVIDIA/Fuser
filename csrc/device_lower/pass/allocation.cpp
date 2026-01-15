@@ -1721,8 +1721,11 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
-    // compute uniform warp id if warp specialization is enabled
-    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+    // Warp-id-based predicates (e.g., warp_id >= threshold) only work when
+    // async/compute warps have consecutive warp IDs.
+    if (gpu_lower_->info()
+            .parallelDimensionMap()
+            .canUseWarpIdBasedPredicate()) {
       computeUniformWarpId(exprs.at(0));
     }
     // insert cluster reduction mbarrier at top-level scope

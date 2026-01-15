@@ -152,7 +152,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
+int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) const {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
@@ -359,6 +359,31 @@ bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   }
 
   return false;
+}
+
+bool ParallelDimensionMap::canUseWarpIdBasedPredicate() const {
+  if (!hasWarpSpecialization()) {
+    return false;
+  }
+
+  // For consecutive warp IDs, all dimensions after the warp-specialized
+  // dimension must be 1. Otherwise outer dimensions create gaps in warp IDs.
+  NVF_ERROR(warp_specialized_parallel_type_.has_value());
+  ParallelType ws_pt = warp_specialized_parallel_type_.value();
+
+  bool found_ws_pt = false;
+  for (ParallelType pt : kParallelTypeTIDs) {
+    if (pt == ws_pt) {
+      found_ws_pt = true;
+    } else if (found_ws_pt) {
+      int64_t thread_count = getThreadCountInDim(pt);
+      if (thread_count == -1 || thread_count > 1) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 std::string ParallelDimensionMap::toString() const {

@@ -1566,19 +1566,34 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is warp_id >= num_compute_warps
+  // If uniform warp ID is available, use warp-ID-based predicate (warp_id >=
+  // num_compute_warps)
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
-    // Get the number of compute warps using ParallelDimensionMap
-    // This works correctly for warp specialization on TIDx, TIDy, or TIDz
     const ParallelDimensionMap& pdim_map =
         GpuLower::current()->info().parallelDimensionMap();
-    Val* num_compute_warps = pdim_map.getNumComputeWarps();
 
     Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
-    NVF_ERROR(
-        uniform_warp_id != nullptr, "uniform_warp_id must be initialized");
-    return IrBuilder::create<kir::Predicate>(
-        IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
+    if (uniform_warp_id != nullptr) {
+      // Use uniform warp ID approach: async warps have warp_id >=
+      // num_compute_warps
+      Val* num_compute_warps = pdim_map.getNumComputeWarps();
+      NVF_ERROR(
+          num_compute_warps != nullptr,
+          "num_compute_warps must be initialized");
+      return IrBuilder::create<kir::Predicate>(
+          IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
+    }
+
+    // Fallback: use parallel index comparison
+    ParallelType warp_specialize_on =
+        std::get<WarpSpecialized>(options.type).on;
+    int64_t warp_specialization_pad =
+        pdim_map.getWarpSpecializationPaddedVal(warp_specialize_on);
+    Val* raw = pdim_map.get(warp_specialize_on);
+    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
+        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
   }
 
   void insertTmaWarpSpecialized(
@@ -2017,8 +2032,7 @@ kir::ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
       GpuLower::current()
           ->info()
           .parallelDimensionMap()
-          .getNumComputeThreadsEachBlock(
-              /*only_count_same_compute_warp_groups=*/true));
+          .getNumComputeThreadsEachBlock(true));
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
   kir::MBarrierInit* ping_pong_mbarrier_init =
