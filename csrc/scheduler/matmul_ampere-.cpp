@@ -905,7 +905,7 @@ void AmpereMinus::scheduleMmaResults() {
       mma_result->axis(num_device_and_batch_dims_ + 2)
           ->parallelize(ParallelType::BIDz);
     } else if (num_local_batch_dims_ > 0) {
-      mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
+      mma_result->axis(num_parallel_dims_)->parallelize(ParallelType::BIDz);
     }
     switch (params_->cta_order) {
       case MatmulParams::TileRasterizationOrder::ColumnMajor:
