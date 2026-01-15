@@ -750,7 +750,7 @@ class ExprValidator : public OptOutDispatch {
         grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
     auto input_dtype = inp_tv->dtype();
 
-    // Check the extents of group id based on inputdata type
+    // Check the extents of group id based on input data type
     // if group id is present
     NVF_ERROR(
         (!grouped_id ||
