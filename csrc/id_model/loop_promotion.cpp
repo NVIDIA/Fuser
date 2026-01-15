@@ -253,6 +253,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       continue;
     }
 
+    NVF_ERROR(
+        expected_num_consumer_loop_group_count_if_fully_inlined <=
+        consumer_loop_groups.size());
+
     // Even when the outputs have multiple loop groups, if it's the
     // same number as the number of outputs themselves, it should not
     // be necessary to propagate anything
