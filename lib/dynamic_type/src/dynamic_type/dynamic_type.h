@@ -501,7 +501,7 @@ struct DynamicType {
   static constexpr auto all_arrow_star_ret_types##__const =                     \
       remove_void_from_tuple(for_all_types([](auto t) {                         \
         using T = typename decltype(t)::type;                                   \
-        if constexpr (opcheck<T>->*opcheck<MemberT>) {                          \
+        if constexpr (requires(T t, MemberT m) { t->*m; }) {                    \
           return std::type_identity<                                            \
               decltype(std::declval<__const T>()->*std::declval<MemberT>())>{}; \
         }                                                                       \
@@ -520,14 +520,32 @@ struct DynamicType {
       typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type;     \
                                                                                 \
   template <typename MemberT>                                                   \
-  requires all_arrow_star_ret_types_are_same##__const<MemberT> constexpr        \
-      typename ArrowStarRetType##__const<MemberT>::type                         \
+  static constexpr bool has_valid_arrow_star_ret_type##__const =                \
+      !std::is_void_v<ArrowStarRetType##__const<MemberT>>;                      \
+                                                                                \
+  /* Helper to safely extract type from ArrowStarRetType */                     \
+  template <typename MemberT, typename = void>                                  \
+  struct ArrowStarRetTypeExtractor##__const {                                   \
+    using type = void;                                                          \
+  };                                                                            \
+                                                                                \
+  template <typename MemberT>                                                   \
+  struct ArrowStarRetTypeExtractor##__const<                                    \
+      MemberT,                                                                  \
+      std::enable_if_t<has_valid_arrow_star_ret_type##__const<MemberT>>> {      \
+    using type = typename ArrowStarRetType##__const<MemberT>::type;             \
+  };                                                                            \
+                                                                                \
+  template <typename MemberT>                                                   \
+  requires(all_arrow_star_ret_types_are_same##__const<MemberT>&&                \
+               has_valid_arrow_star_ret_type##__const<MemberT>) constexpr       \
+      typename ArrowStarRetTypeExtractor##__const<MemberT>::type                \
       operator->*(const MemberT& member) __const {                              \
-    using RetT = typename ArrowStarRetType##__const<MemberT>::type;             \
+    using RetT = typename ArrowStarRetTypeExtractor##__const<MemberT>::type;    \
     std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                   \
     for_all_types([this, &member, &ret](auto t) {                               \
       using T = typename decltype(t)::type;                                     \
-      if constexpr (opcheck<T>->*opcheck<MemberT>) {                            \
+      if constexpr (requires(T t, MemberT m) { t->*m; }) {                      \
         if (is<T>()) {                                                          \
           ret = as<T>()->*member;                                               \
         }                                                                       \
