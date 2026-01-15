@@ -120,6 +120,5 @@ class ParallelDimensionMap {
 
   //! Keep track of warp specialized parallel type and padding value
   std::optional<ParallelType> warp_specialized_parallel_type_;
-  std::optional<int64_t> warp_specialized_padding_value_;
 };
 } // namespace nvfuser

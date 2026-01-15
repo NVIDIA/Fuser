@@ -53,6 +53,19 @@ struct CompileParams {
     return !(*this == other);
   }
 
+  std::optional<int64_t> getDim(ParallelType p_type) const {
+    switch (p_type) {
+      case ParallelType::TIDx:
+        return bdimx;
+      case ParallelType::TIDy:
+        return bdimy;
+      case ParallelType::TIDz:
+        return bdimz;
+      default:
+        NVF_THROW("Invalid parallel type: ", p_type);
+    }
+  }
+
   NVF_API std::string toString() const;
 };
 

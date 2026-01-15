@@ -15,6 +15,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/utils.h>
+#include <utils.h>
 
 #include <sstream>
 #include <string>
@@ -177,54 +178,61 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
-  // shortcut for case without register sharing
+  // shortcut for case without warp specialization
   if (!warp_specialized_parallel_type_.has_value()) {
     return;
   }
-
-  // Warp specialization with register sharing on parallel type pt
-  // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
   auto ws_pt = warp_specialized_parallel_type_.value();
-  auto dim_it = dim_map_.find(ws_pt);
 
-  int64_t other_active_pts_threads = 1;
-  for (ParallelType pt : kParallelTypeTIDs) {
+  // Must use static CTA shape for warp specialization
+  // If loop domain is symbolic, derive corresponding threads from compile
+  // params
+  NVF_ERROR(GpuLower::hasCurrent());
+  const auto& cparams = GpuLower::current()->compileParams();
+  for (auto pt : kParallelTypeTIDs) {
     if (pt == ws_pt) {
       continue;
     }
-    int64_t thread_count_for_pt = getThreadCountInDim(pt);
-    NVF_ERROR(
-        thread_count_for_pt != -1,
-        "Detected dynamic size for parallel type ",
-        pt,
-        " in warp specialization kernel.");
-    other_active_pts_threads *= thread_count_for_pt;
+    if (dim_map_.contains(pt) && !dim_map_.at(pt)->isConstScalar()) {
+      NVF_ERROR(cparams.getDim(pt).has_value());
+      dim_map_[pt] =
+          IrBuilder::create<Val>(cparams.getDim(pt).value(), DataType::Index);
+    }
   }
-  NVF_ERROR(
-      other_active_pts_threads <= 128,
-      "The # active threads in other thread dimensions > 128 threads.");
-  NVF_ERROR(
-      128 % other_active_pts_threads == 0,
-      "The # active threads in other thread dimensions is not evenly ",
-      "divisible with 128 threads.");
-  int64_t ws_num_threads_pad = 128 / other_active_pts_threads;
-  int64_t after_pad = getThreadCountInDim(ws_pt) + ws_num_threads_pad;
-  NVF_ERROR(
-      (after_pad * other_active_pts_threads) % 128 == 0,
-      "Illegal register sharing on ",
-      ws_pt,
-      " with padded size ",
-      after_pad,
-      " and remaining active cta threads ",
-      other_active_pts_threads);
 
-  // Apply the pad
-  warp_specialized_padding_value_ = ws_num_threads_pad;
-  auto offset = IrBuilder::create<Val>(ws_num_threads_pad, DataType::Index);
-  auto current_val = dim_it == dim_map_.end()
-      ? IrBuilder::create<Val>(1, DataType::Index)
-      : dim_it->second;
-  dim_map_[ws_pt] = IrBuilder::addExpr(current_val, offset);
+  for (auto [pt, dim] : dim_map_) {
+    std::cout << pt << ": " << dim->toInlineString() << std::endl;
+  }
+
+  // validate the CTA shape, ensure preceding dimensions have 128x threads
+  if (ws_pt == ParallelType::TIDx || ws_pt == ParallelType::TIDy) {
+    NVF_ERROR(dim_map_.at(ParallelType::TIDx)->isConstScalar());
+    const int64_t bdimx =
+        dim_map_.at(ParallelType::TIDx)->evaluate().as<int64_t>();
+    NVF_ERROR(bdimx % kWarpSpecializationPaddedThreads == 0);
+  } else if (ws_pt == ParallelType::TIDz) {
+    NVF_ERROR(dim_map_.at(ParallelType::TIDx)->isConstScalar());
+    NVF_ERROR(dim_map_.at(ParallelType::TIDy)->isConstScalar());
+    const int64_t bdimx =
+        dim_map_.at(ParallelType::TIDx)->evaluate().as<int64_t>();
+    const int64_t bdimy =
+        dim_map_.at(ParallelType::TIDy)->evaluate().as<int64_t>();
+    NVF_ERROR(bdimx * bdimy % kWarpSpecializationPaddedThreads == 0);
+  }
+
+  // for warp specialized dimension, set the padded value or directly use
+  // compile params
+  if (!dim_map_.contains(ws_pt) || dim_map_.at(ws_pt)->isConstScalar()) {
+    int64_t unpadded_val = dim_map_.contains(ws_pt)
+        ? dim_map_.at(ws_pt)->evaluate().as<int64_t>()
+        : 1L;
+    auto padded_val = unpadded_val + getWarpSpecializationPaddedVal(ws_pt);
+    dim_map_[ws_pt] = IrBuilder::create<Val>(padded_val, DataType::Index);
+  } else {
+    NVF_ERROR(cparams.getDim(ws_pt).has_value());
+    dim_map_[ws_pt] =
+        IrBuilder::create<Val>(cparams.getDim(ws_pt).value(), DataType::Index);
+  }
   exact_types_.erase(ws_pt);
 }
 
@@ -323,14 +331,17 @@ Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
 int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
     ParallelType pt) const {
   NVF_ERROR(isWarpSpecialized(pt), "Can't find ParallelType: ", pt);
-  if (!warp_specialized_parallel_type_.has_value()) {
-    return 1;
+  switch (pt) {
+    case ParallelType::TIDx:
+      return kWarpSpecializationPaddedThreads; // 128
+    case ParallelType::TIDy:
+      return 1;
+    case ParallelType::TIDz:
+      return 1;
+    default:
+      NVF_ERROR("Not supported warp specialization on ", pt);
+      return 0;
   }
-  NVF_ERROR(
-      warp_specialized_parallel_type_.value() == pt,
-      "Can't find padded val for: ",
-      pt);
-  return warp_specialized_padding_value_.value();
 }
 
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
