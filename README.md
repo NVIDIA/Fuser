@@ -94,7 +94,7 @@ git submodule update --init --recursive
 2. Install Python dependencies:
 
 ```bash
-pip install -r python/requirements.txt
+pip install -r requirements.txt
 ```
 
 3. Build and install nvFuser:
