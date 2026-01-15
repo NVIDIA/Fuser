@@ -83,6 +83,10 @@ class GpuLower : public NonCopyable {
     return cparams_.index_type.value();
   }
 
+  const CompileParams& compileParams() const {
+    return cparams_;
+  }
+
   const auto& minDeviceVersion() const {
     return min_device_version_;
   }
