@@ -56,8 +56,8 @@ PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 - `LLVM` >= `18.1`
 
 > [!note]
-> - PyTorch **must** be built w/ CUDA
-> - The PyTorch CUDA version must match your CUDA Toolkit version.
+> - `PyTorch` **MUST** be built w/ `CUDA` support.
+> - The `PyTorch CUDA version` **MUST** match the `CUDAToolkit version`.
 
 ### Optional:
 
