@@ -307,6 +307,39 @@ Val* ParallelDimensionMap::getNumComputeWarps() const {
   return num_compute_warps;
 }
 
+// For warp-specialization, the CTA is padded so the AsyncWarp contains 128
+// threads. This function maps the AsyncWarp CTA to a linear index from
+// [0, 128). It is used to divide AsyncWarp into four independent warps.
+Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
+  Val* index = GpuLower::current()->kernel()->zeroVal();
+  Val* extent = GpuLower::current()->kernel()->oneVal();
+
+  for (auto pt : kParallelTypeTIDs) {
+    // For warp-specialization, an axis is padded so the AsyncWarp contains
+    // 128 threads.
+    Val* extent_for_pdim = getRawAsync(pt);
+    // short-circuit: extent_for_pdim is not used in kernel.
+    if (extent_for_pdim == nullptr) {
+      continue;
+    }
+    // short-circuit: extent_for_pdim is trivial.
+    if (extent_for_pdim->isConstScalar() &&
+        extent_for_pdim->evaluate().as<int64_t>() == 1) {
+      continue;
+    }
+    Val* pt_index = NamedScalar::getParallelIndex(pt);
+    // Map the padded parallel index to [0, padded_value] range, so the linear
+    // index will be in range of [0, 128).
+    if (isWarpSpecialized(pt)) {
+      pt_index = SimplifyingIrBuilder::subExpr(pt_index, getRawCompute(pt));
+    }
+    index = SimplifyingIrBuilder::addExpr(
+        index, SimplifyingIrBuilder::mulExpr(pt_index, extent));
+    extent = SimplifyingIrBuilder::mulExpr(extent, extent_for_pdim);
+  }
+  return index;
+}
+
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   // short-circuit: skip if warp specialization is not enabled
   if (!hasWarpSpecialization()) {

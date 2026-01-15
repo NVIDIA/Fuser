@@ -1232,8 +1232,7 @@ class AllocationInserter : public kir::ExprMutator {
     return alloc_expr;
   }
 
-  // insert a scalar register variable for uniform warp id
-  void insertUniformWarpId(Expr* expr) {
+  void computeUniformWarpId(Expr* expr) {
     // Compute flat thread id: tid = threadIdx.x + threadIdx.y * blockDim.x +
     // threadIdx.z * blockDim.x * blockDim.y
     const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
@@ -1722,11 +1721,9 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
-    // Insert uniform warp id at the top-level scope if warp specialization or
-    // cluster reduction is used.
-    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized() ||
-        GpuLower::current()->clusterReductionCount() >= 1) {
-      insertUniformWarpId(exprs.at(0));
+    // compute uniform warp id if warp specialization is enabled
+    if (GpuLower::current()->circularBufferInfo().hasWarpSpecialized()) {
+      computeUniformWarpId(exprs.at(0));
     }
     // insert cluster reduction mbarrier at top-level scope
     if (GpuLower::current()->clusterReductionCount() >= 1) {

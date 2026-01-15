@@ -86,6 +86,11 @@ class ParallelDimensionMap {
   //!   - If warp specialized on TIDz: bdimx * bdimy * (bdimz - pad) / 32
   Val* getNumComputeWarps() const;
 
+  //! For warp-specialization, the CTA is padded so the AsyncWarp contains 128
+  //! threads. This function maps the AsyncWarp CTA to a linear index from
+  //! [0, 128). It is used to divide AsyncWarp into four independent warps.
+  Val* getLinearThreadIndexAsync() const;
+
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
     return warp_specialized_parallel_type_.has_value();
