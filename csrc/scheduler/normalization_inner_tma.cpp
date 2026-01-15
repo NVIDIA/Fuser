@@ -141,6 +141,11 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
         bdimx,
         bdimy,
         bdimz);
+
+    // warp specialized version requires static CTA shape
+    params->cparams.bdimx = bdimx;
+    params->cparams.bdimy = bdimy;
+    params->cparams.bdimz = bdimz;
   }
 
   // Set index type
