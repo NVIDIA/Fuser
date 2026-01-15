@@ -1607,6 +1607,8 @@ void KernelExecutor::deserialize(
   device_smem_limit_ = buffer->device_smem_limit();
   warp_size_ = buffer->warp_size();
 
+  // LaunchParams() is just a placeholder during deserialization. It will be
+  // determined at execution time based on the actual input shapes.
   compiled_kernel_ = std::make_unique<CompiledKernel>(
       _fusion,
       compile_params,
