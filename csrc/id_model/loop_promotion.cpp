@@ -260,6 +260,8 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         expected_num_consumer_loop_group_count_if_fully_inlined) {
       continue;
     }
+
+    loop_promotion_map_to_propagate.emplace(loop_group, promotion);
   }
 
   return loop_promotion_map_to_propagate;
