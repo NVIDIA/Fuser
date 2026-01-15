@@ -38,23 +38,22 @@ TensorView* scheduleReductionTV(
   // parallelized with DIDx at this point and in that case this reduction
   // scheduler only schedules the remaining domains while leaving the DIDx
   // domain unchanged.
-  IterDomain* sharded_id =
-      getShardedIterDomain(reduction_tv, ParallelType::DIDx, DomainType::kLoop);
-  if (sharded_id != nullptr) {
-    NVF_ERROR_EQ(reduction_tv->getDeviceMesh().rank(), 1);
-    NVF_ERROR_EQ(
-        reduction_tv->axis(0),
-        sharded_id,
-        "DIDx should only appear outermost in loop, but found: ",
-        reduction_tv->getLoopDomain());
-    NVF_ERROR(
-        !rparams->schedule_3d,
-        "Mixing multi-GPU and 3D schedule is not supported");
-  }
-  const int iter_axis = (sharded_id != nullptr) ? 1 : 0;
-  const int outer_reduce_axis = rparams->schedule_3d ? 1 : 0;
-  const int inner_reduce_axis =
-      rparams->schedule_3d ? 2 : (sharded_id != nullptr) + has_iter_axis;
+  const int64_t num_parallel_dims =
+      scheduler_utils::countLeadingParallelDimensions(reduction_tv);
+  const int iter_axis = num_parallel_dims;
+  const auto [outer_reduce_axis, inner_reduce_axis] =
+      [&]() -> std::tuple<int, int> {
+    if (rparams->schedule_3d) {
+      NVF_ERROR_EQ(
+          num_parallel_dims,
+          0,
+          "Mixing multi-GPU and 3D schedule is not supported at this "
+          "moment.");
+      return {1, 2};
+    } else {
+      return {0, num_parallel_dims + has_iter_axis};
+    }
+  }();
 
   const bool is_outer_grid_persistence = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
@@ -1302,8 +1301,9 @@ FusionRuntimeProperties getFusionRuntimeProperties(
   // based on non-device/non-reduction domain size and accounts for device
   // dimensions during scheduling.
   // TODO (priya): We should make this consistent across all schedulers
-  int64_t num_device_dims = numDeviceDims(reduced_tv);
-  int64_t no_device_break_point = vec_break_point.get() - num_device_dims;
+  int64_t num_parallel_dims =
+      scheduler_utils::countLeadingParallelDimensions(reduced_tv);
+  int64_t no_device_break_point = vec_break_point.get() - num_parallel_dims;
   const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, no_device_break_point);
 

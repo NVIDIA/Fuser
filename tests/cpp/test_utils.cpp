@@ -14,17 +14,17 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/utils.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <utils.h>
+#include "device_lower/utils.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "utils.h"
 
 namespace nvfuser {
 

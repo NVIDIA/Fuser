@@ -8,20 +8,21 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/analysis/bank_conflict.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/normalization_inner_tma.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "device_lower/analysis/bank_conflict.h"
 #include "ir/internal_nodes.h"
 #include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/normalization_inner_tma.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 #include "type.h"
+
 namespace nvfuser {
 
 using testing::Contains;
@@ -31,7 +32,7 @@ class PersistentBufferTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2181,7 +2182,7 @@ class TmaPersistentTestP
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
   }
 };

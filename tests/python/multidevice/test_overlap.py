@@ -101,8 +101,8 @@ def test_row_parallel_linear_forward(multidevice_test):
     ).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = multidevice_test.shard_tensor(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
@@ -140,8 +140,8 @@ def test_row_parallel_linear_forward_benchmark(multidevice_test, benchmark, s):
     inp_ref = torch.randn(t, h * 4, dtype=torch.bfloat16, device="cpu")
     weight_ref = torch.randn(h, h * 4, dtype=torch.bfloat16, device="cpu")
 
-    inp = multidevice_test.shard_tensor(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
 
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
@@ -295,12 +295,10 @@ def test_overlap_allgather_matmul_stream_outermost(
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
-
-    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         s, d, m // (s * d), k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_test.shard_tensor(
+    x = multidevice_test.shard_tensor_1d(
         x_unsharded,
         1,
         nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
@@ -366,12 +364,10 @@ def test_overlap_allgather_matmul_shard_outermost(
     assert m % d == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
-
-    torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
         d, m // d, k, dtype=torch.bfloat16, device="cpu"
     )
-    x = multidevice_test.shard_tensor(
+    x = multidevice_test.shard_tensor_1d(
         x_unsharded,
         0,
         nvfuser.multidevice.DeviceMesh(range(multidevice_test.size)),
