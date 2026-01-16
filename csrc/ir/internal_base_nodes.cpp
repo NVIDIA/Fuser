@@ -1123,7 +1123,8 @@ IterDomain* RaggedIterDomain::combine(
 
   // It is still assumed the extents tensor is just 1D
   NVF_ERROR_EQ(
-      std::ranges::distance(extents_tv->getLogicalDomain() | TensorDomain::kNoReductions),
+      std::ranges::distance(
+          extents_tv->getLogicalDomain() | TensorDomain::kNoReductions),
       1,
       "Unexpected rank of extent tensor: ",
       extents_tv->toString());
