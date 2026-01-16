@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -86,7 +86,7 @@ class LayoutOpTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

@@ -6,15 +6,16 @@
  */
 // clang-format on
 
-#include <gtest/gtest.h>
-
-#include <tests/cpp/scan_test_helper.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <ATen/cuda/CUDAContext.h>
 #include <cstdint>
 #include <vector>
+
+#include <ATen/cuda/CUDAContext.h>
+
+#include <gtest/gtest.h>
+
+#include "tests/cpp/scan_test_helper.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

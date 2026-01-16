@@ -329,7 +329,7 @@ RaggedIterDomain* newOutputRaggedIterDomain(
 
   // Just using the first ragged ID as all input IDs are assumed to be
   // equivalent
-  RaggedIterDomain* ref_input_id = input_ids.front()->as<RaggedIterDomain>();
+  auto ref_input_id = input_ids.front()->as<RaggedIterDomain>();
 
   return IterDomainBuilder(ref_input_id).build()->as<RaggedIterDomain>();
 }
@@ -358,7 +358,7 @@ IterDomain* newOutputIterDomain(
             input_ids.begin(),
             input_ids.end(),
             [](IterDomain* id) { return id->isA<RaggedIterDomain>(); }),
-        "All of none input IDs must be ragged");
+        "All or none input IDs must be ragged");
     NVF_ERROR(
         !force_iter_type.has_value(),
         "force_iter_type not supported for RaggedIterDomain");

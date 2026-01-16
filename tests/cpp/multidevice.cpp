@@ -12,8 +12,10 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/debug.h>
+
 #else
 #include "multidevice/c10d_mock.h"
+
 #endif
 #include <torch/cuda.h>
 
@@ -60,25 +62,6 @@ void MultiDeviceTest::SetUp() {
   if (!communicator_->is_available()) {
     GTEST_SKIP() << "This test needs an available communicator.";
   }
-}
-
-at::Tensor MultiDeviceTest::shardTensor(at::Tensor tensor, TensorView* tv) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
-  return shardTensor(
-      tensor,
-      getShardedLogicalAxis(tv, ParallelType::DIDx),
-      tv->getDeviceMesh());
-}
-
-at::Tensor MultiDeviceTest::shardTensor(
-    at::Tensor tensor,
-    const int64_t axis,
-    const DeviceMesh& mesh) {
-  const auto device_id = communicator_->deviceId();
-  return nvfuser::shardTensor(tensor, axis, mesh, device_id);
 }
 
 // testValidate doesn't work out of the box due to #2906, so I had to manually
