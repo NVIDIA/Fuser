@@ -56,6 +56,20 @@ namespace tma {
 // TODO: This can be further relaxed to allow more tensor views with fewer
 // dimensions, e.g., outer broadcast inputs [B, I] can also be loaded with TMA.
 bool isTvSuitableForTma(const TensorView* tv, int64_t n_valid_dims) {
+  // When tv has broadcast dimensions, it may cause one of the following issues:
+  // 1. Merge of iteration domain with broadcast dimension.
+  // This is not supported by TMA and will trigger tma lowering validation
+  // error. The TMA domain must be equivalent to the allocation domain of the
+  // gmem tensor.
+  // 2. Right side or left side contains a single broadcast domain, which is
+  // against our 2D tile assumption. This restriction can be lifted if we
+  // further revise the scheduler.
+  if (std::any_of(
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end(),
+          [](const IterDomain* id) { return id->isBroadcast(); })) {
+    return false;
+  }
   return scheduler_utils::nLogicalDims(tv) == n_valid_dims;
 };
 
@@ -100,6 +114,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   auto bp_info = pointwise_utils::getBreakPoint(
       fusion, prop, data_cache, /*is_tma =*/true);
   params->break_point = bp_info.break_point;
+
+  // check which input is suitable for TMA load
+  // summarize bits of all suitable inputs
+  // if bits_per_element is 0, no suitable input is found, return nullptr
+  // Note: we can move this check upfront when dispatching to TMA and non-TMA
+  // versions, however, we may want to further extend to use break point for
+  // more fine-grained control of TMA loads, e.g. mixing 2D tile and 1D tile.
+  const int64_t bits_per_element = getInputBitsPerElement(prop);
+  if (bits_per_element == 0) {
+    return nullptr;
+  }
 
   // ========== Step 1: Compute TMA Domain Dimensions ==========
   // The TMA domain splits the entire problem into
@@ -159,7 +184,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   constexpr int64_t cta_per_sm = 8;
   const int64_t bits_per_sm = scheduler_utils::getRequiredBitsInFlight();
   const int64_t bits_per_cta = bits_per_sm / cta_per_sm;
-  const int64_t bits_per_element = getInputBitsPerElement(prop);
   if (bits_per_element == 0) {
     return nullptr;
   }

@@ -2114,4 +2114,73 @@ TEST_F(TmaPointwiseTestF, MixedPrecisionIllegalTma) {
       executor_cache.fusion(), out_tensors, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(TmaPointwiseTestF, OuterDimOne) {
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({1, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({1, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, dim1}, options);
+  auto t1 = at::randn({1, dim1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, InnerDimOne) {
+  int64_t dim0 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 1}, options);
+  auto t1 = at::randn({dim0, 1}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(TmaPointwiseTestF, MiddleDimOne) {
+  int64_t dim0 = 8192;
+  int64_t dim2 = 1024;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, 1, dim2}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, 1, dim2}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, 1, dim2}, options);
+  auto t1 = at::randn({dim0, 1, dim2}, options);
+
+  auto cg_results = scheduleAndRun(fusion, SchedulerType::PointWise, {t0, t1});
+  auto pparams = cg_results.heuristic_params->as<PointwiseParams>();
+  EXPECT_FALSE(pparams->use_tma_load);
+  testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
