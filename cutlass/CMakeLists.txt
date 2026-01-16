@@ -64,7 +64,7 @@ set_target_properties(nvf_cutlass PROPERTIES
 # compilation units. A pool of size 2 works well in practice: there are
 # only a handful of CUTLASS kernel files, so this restriction has little
 # impact on overall build time.
-set(CUTLASS_MAX_JOBS 2 CACHE STRING "Max concurrent CUTLASS CUDA compiles (0 = no limit)" )
+set(CUTLASS_MAX_JOBS 0 CACHE STRING "Max concurrent CUTLASS CUDA compiles (0 = no limit)" )
 if(CUTLASS_MAX_JOBS GREATER 0)
   set_property(GLOBAL PROPERTY JOB_POOLS cutlass=${CUTLASS_MAX_JOBS})
   set_target_properties(nvf_cutlass PROPERTIES JOB_POOL_COMPILE cutlass)
