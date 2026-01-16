@@ -199,6 +199,19 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         pt,
         " in warp specialization kernel.");
     other_active_pts_threads *= thread_count_for_pt;
+
+    // If bdimx, bdimy, or bdimz is used
+    // If it is const scalar, check if it is equal to thread_count_for_pt
+    // If it is not const scalar, update the dimension to thread_count_for_pt
+    if (dim_map_.contains(pt)) {
+      if (dim_map_.at(pt)->isConstScalar()) {
+        NVF_ERROR(
+            dim_map_.at(pt)->evaluate().as<int64_t>() == thread_count_for_pt);
+      } else {
+        dim_map_[pt] =
+            IrBuilder::create<Val>(thread_count_for_pt, DataType::Index);
+      }
+    }
   }
   NVF_ERROR(
       other_active_pts_threads <= 128,
