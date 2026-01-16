@@ -1129,10 +1129,10 @@ IterDomain* RaggedIterDomain::combine(
   TensorView* extents_tv = ragged->extents();
   NVF_ERROR(extents_tv != nullptr, "combine: ragged extents tensor is null");
 
-  // Multi-dimensional extents are not yet supported in combine
   // Filter out reduction dimensions before checking
   auto extents_no_reduction =
       extents_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  // Multi-dimensional extents are not yet supported in combine
   auto extents_ndim = std::ranges::distance(extents_no_reduction);
   NVF_ERROR_EQ(
       extents_ndim,

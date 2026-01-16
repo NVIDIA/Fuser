@@ -1334,10 +1334,7 @@ TensorView* asNested(
 
   ragged_dim = wrapDim(ragged_dim, inp_logical_size);
 
-  // Validate shape correspondence for multi-dimensional extents
-  // For N-D extents, outer dimensions must match outer dimensions of input
-  // tensor Rule: extents.ndim - 1 == ragged_dim (except 1D extents which are
-  // always valid) Filter out reduction dimensions from extents tensor
+  // Filter out reduction dimensions from extents tensor
   auto extents_no_reduction =
       extents->getLogicalDomain() | TensorDomain::kNoReductions;
   auto extents_ndim = std::ranges::distance(extents_no_reduction);
@@ -1346,6 +1343,11 @@ TensorView* asNested(
       0,
       "asNested: extents tensor must have at least one non-reduction "
       "dimension");
+
+  // Validate shape correspondence for multi-dimensional extents
+  // For N-D extents, outer dimensions must match outer dimensions of input
+  // tensor Rule: extents.ndim - 1 == ragged_dim (except 1D extents which are
+  // always valid).
   if (extents_ndim > 1) {
     NVF_ERROR_EQ(
         extents_ndim - 1,
