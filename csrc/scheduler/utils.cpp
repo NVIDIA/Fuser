@@ -43,8 +43,7 @@
 #include <type.h>
 #include <val_graph_visitor.h>
 
-namespace nvfuser {
-namespace scheduler_utils {
+namespace nvfuser::scheduler_utils {
 
 // Minimal PTX code for a no-op kernel, used for occupancy queries
 const char* noopPtx = R"(
@@ -3613,5 +3612,25 @@ std::pair<int64_t, int64_t> getRegisterSharing(
   return std::make_pair(tma_branch_regs, compute_branch_regs);
 }
 
-} // namespace scheduler_utils
-} // namespace nvfuser
+int64_t countLeadingParallelDimensions(const TensorView* tv) {
+  auto is_parallel = [](IterDomain* id) {
+    // Reduction dimensions are treated non-parallel.
+    return id->isParallelized() && !id->isReduction();
+  };
+
+  int64_t i = 0;
+  for (; i < tv->nDims() && is_parallel(tv->axis(i)); i++)
+    ;
+  const int64_t num_parallel_dims = i;
+
+  for (; i < tv->nDims(); i++) {
+    NVF_ERROR(
+        !is_parallel(tv->axis(i)),
+        "Expected only leading parallel non-reduction dimensions in ",
+        tv->toString());
+  }
+
+  return num_parallel_dims;
+}
+
+} // namespace nvfuser::scheduler_utils
