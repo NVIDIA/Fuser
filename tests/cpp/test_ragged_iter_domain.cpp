@@ -458,4 +458,487 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationMultiDimExtents) {
   EXPECT_THROW(asNested(data, extents_2d, 0), nvfError);
 }
 
+TEST_F(RaggedIterDomainTest, LoadStoreWithNestedTensor) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor from dimension 0
+  auto nested = asNested(data, offsets, 0);
+
+  // This should still be a nested tensor
+  auto copy_of_nested = set(nested);
+
+  fusion.addOutput(copy_of_nested);
+
+  // Verify the output is a new TensorView
+  EXPECT_TRUE(copy_of_nested != nullptr);
+  EXPECT_NE(copy_of_nested, data);
+  EXPECT_TRUE(copy_of_nested->isA<TensorView>());
+
+  // Verify copy_of_nested tensor has 3 dimensions: [component, ragged,
+  // original_dim1]
+  EXPECT_EQ(copy_of_nested->nDims(), 3);
+
+  // First axis should be a regular IterDomain (component)
+  EXPECT_TRUE(copy_of_nested->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(copy_of_nested->axis(0)->isA<RaggedIterDomain>());
+
+  // Second axis should be a RaggedIterDomain
+  EXPECT_TRUE(copy_of_nested->axis(1)->isA<RaggedIterDomain>());
+
+  // Third axis should be the original second dimension
+  EXPECT_TRUE(copy_of_nested->axis(2)->isStrictlyA<IterDomain>());
+
+  // The copy of the original copy_of_nested tensor does not inherit the
+  // Partition op
+  EXPECT_TRUE(copy_of_nested->axis(0)->definition() == nullptr);
+}
+
+// Test binary operations with nested tensors
+TEST_F(RaggedIterDomainTest, BinaryOpWithNestedTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create two 2D input tensors
+  auto data1 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data1);
+
+  auto data2 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data2);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensors from both inputs
+  auto nested1 = asNested(data1, offsets, 0);
+  auto nested2 = asNested(data2, offsets, 0);
+
+  // Perform binary operation. The result should be a nested tensor
+  auto result = add(nested1, nested2);
+
+  fusion.addOutput(result);
+
+  // Verify the result has 3 dimensions: [component, ragged, original_dim1]
+  EXPECT_EQ(result->nDims(), 3);
+
+  // First axis should be a regular IterDomain (component)
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_FALSE(result->axis(0)->isA<RaggedIterDomain>());
+
+  // Second axis should be a RaggedIterDomain
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+
+  // Third axis should be the original second dimension
+  EXPECT_TRUE(result->axis(2)->isStrictlyA<IterDomain>());
+}
+
+// Test binary operation with mixed inputs (one ragged, one not) - should error
+TEST_F(RaggedIterDomainTest, BinaryOpMixedInputsError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data1 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data1);
+
+  auto data2 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data2);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor from first input only
+  auto nested1 = asNested(data1, offsets, 0);
+
+  // Try to add nested tensor with non-nested tensor
+  // This should fail because one is ragged and one is not
+  EXPECT_THROW(add(nested1, data2), nvfError);
+}
+
+// Test binary operation with different offsets
+TEST_F(RaggedIterDomainTest, BinaryOpDifferentRaggedStructures) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data1 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data1);
+
+  auto data2 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data2);
+
+  auto offsets1 = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets1);
+
+  auto offsets2 = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets2);
+
+  // Create nested tensors with different offset tensors
+  auto nested1 = asNested(data1, offsets1, 0);
+  auto nested2 = asNested(data2, offsets2, 0);
+
+  // This would be an error if, for example, the values of the offset
+  // tensors are not equivalent, but, like binary ops with normal
+  // tensors, we assume their shapes are indeed compatible
+  auto result = add(nested1, nested2);
+  fusion.addOutput(result);
+
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+}
+
+// Test unary operations with nested tensors
+TEST_F(RaggedIterDomainTest, UnaryOpWithNestedTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor
+  auto nested = asNested(data, offsets, 0);
+
+  // Perform unary operation: neg
+  auto result = neg(nested);
+
+  fusion.addOutput(result);
+
+  // Verify the result preserves RaggedIterDomain structure
+  EXPECT_EQ(result->nDims(), 3);
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_TRUE(result->axis(2)->isStrictlyA<IterDomain>());
+}
+
+// Test broadcast with nested tensors
+TEST_F(RaggedIterDomainTest, BroadcastWithNestedTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  auto result = broadcast(nested, {false, false, false, true});
+
+  fusion.addOutput(result);
+
+  // Result should be: [component, ragged, dim1, broadcast_dim]
+  EXPECT_EQ(result->nDims(), 4);
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_TRUE(result->axis(2)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(3)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(3)->isBroadcast());
+}
+
+// Test squeeze on non-ragged dimension
+TEST_F(RaggedIterDomainTest, SqueezeNonRaggedDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // First broadcast to add a dimension: [component, ragged, dim1, 1]
+  auto broadcasted = broadcast(nested, {false, false, false, true});
+
+  // Then squeeze the broadcast dimension (dimension index 3)
+  auto result = squeeze(broadcasted, {3});
+
+  fusion.addOutput(result);
+
+  // Result should be: [component, ragged, dim1]
+  EXPECT_EQ(result->nDims(), 3);
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_TRUE(result->axis(2)->isStrictlyA<IterDomain>());
+}
+
+// Test unsqueeze with nested tensors
+TEST_F(RaggedIterDomainTest, UnsqueezeWithNestedTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Unsqueeze to add dimension at the end
+  auto result = unsqueeze(nested, -1);
+
+  fusion.addOutput(result);
+
+  // Result should be: [component, ragged, dim1, 1]
+  EXPECT_EQ(result->nDims(), 4);
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_TRUE(result->axis(2)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(3)->isStrictlyA<IterDomain>());
+}
+
+// Test permute/transpose with nested tensors
+TEST_F(RaggedIterDomainTest, PermuteWithNestedTensors) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Permute dimensions: swap ragged and dim1
+  auto result = permute(nested, {0, 2, 1});
+
+  fusion.addOutput(result);
+
+  // Result should be: [component, dim1, ragged]
+  EXPECT_EQ(result->nDims(), 3);
+  EXPECT_TRUE(result->axis(0)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(1)->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(result->axis(2)->isA<RaggedIterDomain>());
+}
+
+// Test reduction on non-ragged dimension
+TEST_F(RaggedIterDomainTest, ReductionOnNonRaggedDim) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Reduce along the last dimension (non-ragged)
+  auto result = sum(nested, {2});
+
+  fusion.addOutput(result);
+
+  // Result should be: [component, ragged]
+  // Get non-reduction dimensions
+  auto non_reduction_domain =
+      TensorDomain::noReductions(result->getLogicalDomain());
+
+  EXPECT_EQ(non_reduction_domain.size(), 2);
+  EXPECT_TRUE(non_reduction_domain[0]->isStrictlyA<IterDomain>());
+  EXPECT_TRUE(non_reduction_domain[1]->isA<RaggedIterDomain>());
+}
+
+// Test reduction on ragged dimension - should error
+TEST_F(RaggedIterDomainTest, ReductionOnRaggedDimError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to reduce along the ragged dimension (axis 1)
+  // This should throw an error because reducing RaggedIterDomain is not allowed
+  EXPECT_THROW(sum(nested, {1}), nvfError);
+}
+
+// Test reduction on component dimension - should error (TODO)
+TEST_F(RaggedIterDomainTest, ReductionOnComponentDimError) {
+  GTEST_SKIP() << "TODO: Implement validation to prevent reduction of "
+                  "component dimension. "
+               << "Currently there is no explicit marking of which IterDomains "
+                  "are component dimensions, "
+               << "so this validation cannot be implemented yet.";
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to reduce along the component dimension (axis 0)
+  // This should throw an error because reducing component dimensions is not
+  // allowed The component dimension defines the batch structure of the ragged
+  // tensor, and reducing it would destroy the ragged structure
+  EXPECT_THROW(sum(nested, {0}), nvfError);
+}
+
+// Test reshape with nested tensors - should error
+TEST_F(RaggedIterDomainTest, ReshapeWithNestedTensorsError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to reshape - this should throw an error because reshape is not
+  // supported for tensors with RaggedIterDomain
+  std::vector<Val*> new_shape = {
+      IrBuilder::create<Val>(-1L, DataType::Index), nested->axis(2)->extent()};
+  EXPECT_THROW(reshape(nested, new_shape), nvfError);
+}
+
+// Test flatten with nested tensors - should error
+TEST_F(RaggedIterDomainTest, FlattenWithNestedTensorsError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to flatten - this should throw an error because flatten is not
+  // supported for tensors with RaggedIterDomain
+  EXPECT_THROW(flatten(nested, 0, 2), nvfError);
+}
+
+// Test slice on ragged dimension - should error
+TEST_F(RaggedIterDomainTest, SliceRaggedDimensionError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to slice the ragged dimension (axis 1)
+  // This should error because resize on RaggedIterDomain is not allowed
+  EXPECT_THROW(
+      slice(
+          nested,
+          {{fusion.zeroVal(), fusion.oneVal()},
+           {fusion.zeroVal(), fusion.oneVal()},
+           {fusion.zeroVal(), nested->axis(2)->extent()}}),
+      nvfError);
+}
+
+// Test cat on ragged dimension - should error
+TEST_F(RaggedIterDomainTest, CatRaggedDimensionError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data1 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data1);
+
+  auto data2 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data2);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensors with same structure
+  auto nested1 = asNested(data1, offsets, 0);
+  auto nested2 = asNested(data2, offsets, 0);
+
+  // Try to concatenate along ragged dimension (axis 1)
+  // This should error because cat would need to resize RaggedIterDomain
+  EXPECT_THROW(cat({nested1, nested2}, 1), nvfError);
+}
+
+// Test cat on non-ragged dimension - currently also errors
+TEST_F(RaggedIterDomainTest, CatNonRaggedDimensionError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data1 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data1);
+
+  auto data2 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data2);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensors with same structure
+  auto nested1 = asNested(data1, offsets, 0);
+  auto nested2 = asNested(data2, offsets, 0);
+
+  // Try to concatenate along non-ragged dimension (axis 2)
+  // Currently cat rejects all tensors with RaggedIterDomain for safety
+  // In the future, this could be supported if concatenating along non-ragged
+  // dimensions
+  EXPECT_THROW(cat({nested1, nested2}, 2), nvfError);
+}
+
+// Test pad on ragged dimension - should error
+TEST_F(RaggedIterDomainTest, PadRaggedDimensionError) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto data = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(data);
+
+  auto offsets = makeSymbolicTensor(1, DataType::Index);
+  fusion.addInput(offsets);
+
+  // Create nested tensor: [component, ragged, dim1]
+  auto nested = asNested(data, offsets, 0);
+
+  // Try to pad the ragged dimension (axis 1)
+  // This should error because pad uses resize on RaggedIterDomain
+  std::vector<Val*> pad_widths = {
+      fusion.zeroVal(),
+      fusion.zeroVal(), // component: no padding
+      fusion.oneVal(),
+      fusion.oneVal(), // ragged: PADDING - should error
+      fusion.zeroVal(),
+      fusion.zeroVal() // dim1: no padding
+  };
+
+  EXPECT_THROW(pad(nested, pad_widths), nvfError);
+}
+
 } // namespace nvfuser
