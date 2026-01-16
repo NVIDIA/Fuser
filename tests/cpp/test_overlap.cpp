@@ -11,11 +11,11 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "ops/all_ops.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

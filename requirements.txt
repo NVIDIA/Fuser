@@ -1,2 +1,3 @@
-pybind11[global]
+pybind11[global]>=3.0
 ninja
+nvidia-matmul-heuristics

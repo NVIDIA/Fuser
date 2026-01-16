@@ -38,6 +38,69 @@
 
 namespace nvfuser {
 
+std::string Scope::toString(int indent_size) const {
+  std::stringstream ss;
+  for (auto expr : exprs()) {
+    ss << expr->toString(indent_size);
+  }
+  return ss.str();
+}
+
+Scope::Iterator Scope::insert(Iterator pos, Expr* expr) {
+  return exprs_.insert(pos, expr);
+}
+
+Scope::Iterator Scope::insert_before(Expr* ref, Expr* expr) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  NVF_ERROR(
+      it != exprs_.end(),
+      "Tried to insert ",
+      expr,
+      " before the reference: ",
+      ref,
+      " @ ",
+      (size_t)ref,
+      " however the reference was not found in this scope.");
+  return insert(it, expr);
+}
+
+Scope::Iterator Scope::insert_after(Expr* ref, Expr* expr) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  NVF_ERROR(
+      it != exprs_.end(),
+      "Tried to insert ",
+      expr,
+      " after the reference: ",
+      ref,
+      " @ ",
+      (size_t)ref,
+      " however the reference was not found in this scope.");
+  auto insert_pos = std::next(it);
+  return insert(insert_pos, expr);
+}
+
+void Scope::erase(Iterator pos) {
+  // Remove the scope of the expr if this is the scope
+  [[maybe_unused]] auto expr = *pos;
+  exprs_.erase(pos);
+}
+
+void Scope::erase(Expr* ref) {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), ref);
+  if (it != exprs_.end()) {
+    erase(it);
+  }
+}
+
+bool Scope::contains(Expr* expr) const {
+  const auto it = std::find(exprs_.begin(), exprs_.end(), expr);
+  return it != exprs_.end();
+}
+
+void Scope::clear() {
+  exprs_.clear();
+}
+
 FullOp::FullOp(IrBuilderPasskey passkey, Val* out, Val* fill_value)
     : Expr(passkey) {
   if (out->isA<TensorView>()) {
@@ -2279,7 +2342,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
-  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  const auto& [out_shape, _] = inferShapeAndContiguousStrides(out(), ee);
   return {in.expand(out_shape)};
 }
 
@@ -2413,7 +2476,7 @@ ReshapeOp::ReshapeOp(IrBuilderPasskey passkey, Val* out, Val* in)
 
 std::string ReshapeOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = view( "
+  indent(ss, indent_size) << out()->toString() << " = reshape( "
                           << in()->toString() << " )\n";
   return ss.str();
 }
@@ -2428,7 +2491,7 @@ std::vector<PolymorphicValue> ReshapeOp::evaluate(
   NVF_ERROR(inputs.size() == 1);
   const at::Tensor& in_tensor = inputs[0].as<at::Tensor>();
 
-  const auto& [out_shape, _] = inferShapeOfOutput(out(), ee);
+  const auto& [out_shape, _] = inferShapeAndContiguousStrides(out(), ee);
   // TODO: check allocation domain and contiguity.
 
   // Use `at::Tensor::reshape` instead of `at::Tensor::view` because `ReshapeOp`

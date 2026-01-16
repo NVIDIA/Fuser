@@ -190,20 +190,71 @@ bool ReductionScheduler::canScheduleRunTime(
   return true;
 }
 
+namespace {
+
+bool mayUseTma(
+    const reduction_scheduler_utils::FusionRuntimeProperties& props) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+
+  if (dev_prop->major < 9) {
+    return false;
+  }
+
+  // Require the reduction shape is 2D inner reduction: [I, R]
+  if (!props.fastest_dim_reduction ||
+      props.total_reduction_numel != props.inner_most_dimension_numel) {
+    return false;
+  }
+
+  // For small TMA sizes, the smem indirection is not worth it.
+  if (props.total_reduction_numel < 128) {
+    return false;
+  }
+
+  // Require reduction dim fits into smem, until we add iteration over large
+  // reduction dim.
+  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
+      props.max_dtype_size_bit_for_vectorization;
+
+  if (props.inner_most_dimension_numel > smem_elems) {
+    return false;
+  }
+
+  // Smem check assumes only one input tensor.
+  if (props.n_tensor_inputs != 1) {
+    return false;
+  }
+
+  // Like vectorization, TMA requires 16-bytes alignment
+  if (props.vectorize_factor <= 1) {
+    return false;
+  }
+
+  return true;
+}
+} // namespace
+
 std::unique_ptr<HeuristicParams> ReductionScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("ReductionScheduler::computeHeuristics");
 
-  bool use_tma = false;
+  auto props = reduction_scheduler_utils::getFusionRuntimeProperties(
+      fusion, runtime_info, data_cache);
+
+  bool use_tma =
+      mayUseTma(props) && isOptionEnabled(EnableOption::TmaReduction);
+
   std::unique_ptr<HeuristicParams> rparams = nullptr;
   if (use_tma) {
     rparams = reduction::tma::getReductionHeuristics(
-        fusion, runtime_info, data_cache);
-  } else {
+        fusion, runtime_info, data_cache, props);
+  }
+  // Fallback to non-TMA scheduler if TMA is not applicable
+  if (rparams == nullptr) {
     rparams = reduction::non_tma::getReductionHeuristics(
-        fusion, runtime_info, data_cache);
+        fusion, runtime_info, data_cache, props);
   }
   NVF_ERROR(rparams != nullptr);
   return rparams;
@@ -213,17 +264,14 @@ void ReductionScheduler::schedule(
     Fusion* fusion,
     const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ReductionScheduler::schedule");
-  auto rparams = dynamic_cast<const ReductionParams*>(params);
-  NVF_ERROR(
-      rparams != nullptr,
-      "Incorrect parameters sent to ReductionScheduler::schedule",
-      params);
-  if (false) {
-    reduction::tma::scheduleReduction(fusion, rparams);
+  if (auto* tma_params = dynamic_cast<const TmaInnerReductionParams*>(params)) {
+    reduction::tma::scheduleReduction(fusion, tma_params);
   } else {
-    // NVF_ERROR(
-    //     !rparams->use_tma_store,
-    //     "Using TMA store without use TMA load is not supported");
+    auto rparams = dynamic_cast<const ReductionParams*>(params);
+    NVF_ERROR(
+        rparams != nullptr,
+        "Incorrect parameters sent to ReductionScheduler::schedule",
+        params);
     reduction::non_tma::scheduleReduction(fusion, rparams);
   }
 }

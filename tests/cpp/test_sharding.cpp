@@ -6,23 +6,25 @@
  */
 // clang-format on
 
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/executor.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "multidevice/executor.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
 using testing::_;
+using testing::Contains;
 using testing::ElementsAre;
 using testing::HasSubstr;
 using testing::ThrowsMessage;
@@ -293,14 +295,10 @@ TEST_F(ShardingTest, PropagateParallelTypeOnce) {
 
   OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
       fusion.get());
-  NVF_CHECK(numDeviceDims(tv2) == 1);
-  int64_t expected_sharded_axis =
-      getShardedLogicalAxis(tv0, ParallelType::DIDx);
-  NVF_CHECK(expected_sharded_axis != -1, "tv0 should have a sharded axis.");
-  NVF_CHECK(
-      getShardedLogicalAxis(tv2, ParallelType::DIDx) == expected_sharded_axis,
-      "Expected tv2 to be sharded like tv0 due to forward propagation of "
-      "shardings.");
+
+  EXPECT_THAT(
+      tv2->getLoopDomain(),
+      Contains(IsParallelized(ParallelType::DIDx)).Times(1));
 }
 
 TEST_F(ShardingTest, ReductionDIDxIsIgnored) {

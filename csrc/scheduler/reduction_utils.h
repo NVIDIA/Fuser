@@ -19,7 +19,7 @@ namespace nvfuser {
 namespace reduction_scheduler_utils {
 
 // Consistent parallelization based on provided reduction parameters. Provided
-// tensor is expected to be reduced by canonicalDimReduction before sending
+// tensor is expected to be reduced by canonicalizeReduction before sending
 // here. reduction_tv should be provided as the tensorview to reduce.
 // RFactor of reduction_tv will be returned if applicable otherwise reduction_tv
 // is returned

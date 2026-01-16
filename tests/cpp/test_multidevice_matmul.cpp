@@ -436,7 +436,7 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
       executor_cache.fusion(),
       outputs,
       args,
-      {shardTensor(expected_y_tensor, 0, mesh)},
+      {shardTensor1D(expected_y_tensor, 0, mesh)},
       __LINE__,
       __FILE__);
 }
