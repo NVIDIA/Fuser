@@ -174,6 +174,15 @@ class Backend : public torch::CustomClassHolder {
     return c10::make_intrusive<Work>();
   }
 
+  c10::intrusive_ptr<Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts) {
+    return c10::make_intrusive<Work>();
+  }
+
   int getSize() const {
     return 0;
   }
