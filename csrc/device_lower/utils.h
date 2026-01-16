@@ -402,4 +402,6 @@ bool isCopyOnly(Val* val);
 IterDomain* getConcreteMappedId(IterDomain* id);
 
 } // namespace lower_utils
+
+bool canUsePresetAllocationDomain(TensorView* tv);
 } // namespace nvfuser
