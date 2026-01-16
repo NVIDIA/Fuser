@@ -1321,11 +1321,6 @@ TensorView* asNested(
       "Multiple level of nesting is not supported: ",
       data->toString());
 
-  NVF_CHECK(
-      !data->domain()->hasRaggedIterDomain(),
-      "Multiple level of nesting is not supported: ",
-      data->toString());
-
   // Get the logical domain of the input, excluding reductions
   auto inp_logical = data->getLogicalDomain() | TensorDomain::kNoReductions;
   auto inp_logical_size = std::ranges::distance(inp_logical);
