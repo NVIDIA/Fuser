@@ -77,7 +77,9 @@ class NVFuserTest(TestCase):
                 _disable_options=disable_options,
             )
 
-        assert check_captured_python_definition(out, fd, inputs_captured, device)
+        assert check_captured_python_definition(
+            out, fd, inputs_captured, device, enable_options, disable_options
+        )
         assert expected_fd_str is None or expected_fd_str in repr(fd)
         return out, fd
 
