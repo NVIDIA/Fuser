@@ -281,7 +281,7 @@ template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
 template class HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>;
 template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::HasBlockQuantizationOps>;
+    HeuristicCompileTime::BlockQuantizationOps>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::PersistentBufferInfo>;
 template class HeuristicDataCacheEntry<
