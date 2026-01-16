@@ -419,7 +419,7 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
               CommunicationType::SendRecv, p_logical_id, c_logical_id);
         } else {
           fill_communication_info(
-              CommunicationType::AllToAll, nullptr, nullptr);
+              CommunicationType::AllToAll, p_logical_id, c_logical_id);
         }
       }
     } else {
