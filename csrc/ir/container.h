@@ -160,6 +160,9 @@ class IrContainer : public PolymorphicBase {
   // Let mutator remove Exprs.
   friend OptOutMutator;
 
+  // Let IrInterface access protected methods for forwarding
+  friend class IrInterface;
+
   virtual void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
