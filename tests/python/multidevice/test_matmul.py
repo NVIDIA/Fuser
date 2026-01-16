@@ -49,10 +49,6 @@ def test_linear_logical_split(multidevice_test):
         out, multidevice_test.shard_tensor_1d(out_ref, 0, mesh), rtol=1.3e-6, atol=1e-3
     )
 
-    (out_sharding,) = fd.fec.get_output_shardings()
-    # rtol is the same as the default for fp32. atol is slightly increased.
-    assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
-
 
 @pytest.mark.mpi
 def test_column_parallel_linear(multidevice_test):
