@@ -116,7 +116,13 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 
 if(NVFUSER_USE_CUTLASS)
   add_compile_definitions(NVFUSER_ENABLE_CUTLASS)
+  # Save CMAKE_CUDA_FLAGS before entering cutlass subdirectory to prevent
+  # PyTorch's multi-architecture flags from affecting CUTLASS compilation
+  set(SAVED_CMAKE_CUDA_FLAGS_FOR_CUTLASS ${CMAKE_CUDA_FLAGS})
+  set(CMAKE_CUDA_FLAGS "")
   add_subdirectory(cutlass)
+  # Restore CMAKE_CUDA_FLAGS for other targets
+  set(CMAKE_CUDA_FLAGS ${SAVED_CMAKE_CUDA_FLAGS_FOR_CUTLASS})
 endif()
 
 # ------------------------------
