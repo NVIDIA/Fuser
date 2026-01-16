@@ -5,15 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
+
+using testing::ElementsAre;
+using testing::NotNull;
 
 using RaggedIterDomainTest = NVFuserTest;
 
@@ -159,7 +164,7 @@ TEST_F(RaggedIterDomainTest, ValidationNullExtents) {
           nullptr, // null extents
           IterType::Iteration,
           ParallelType::Serial),
-      nvfuser::nvfError);
+      nvfError);
 }
 
 // Validation - non-integer extents should fail
@@ -174,7 +179,7 @@ TEST_F(RaggedIterDomainTest, ValidationNonIntegerExtents) {
   EXPECT_THROW(
       IrBuilder::create<RaggedIterDomain>(
           float_extents, IterType::Iteration, ParallelType::Serial),
-      nvfuser::nvfError);
+      nvfError);
 }
 
 // IterVisitor test - ensure graph traversal visits extents field
@@ -219,15 +224,9 @@ TEST_F(RaggedIterDomainTest, PartitionBasic) {
   auto [component_id, ragged_id] =
       RaggedIterDomain::partition(input_id, extents);
 
-  // Verify component IterDomain
-  EXPECT_TRUE(component_id != nullptr);
-  EXPECT_TRUE(component_id->isA<IterDomain>());
-  EXPECT_FALSE(component_id->isA<RaggedIterDomain>());
-
-  // Verify RaggedIterDomain
-  EXPECT_TRUE(ragged_id != nullptr);
-  EXPECT_TRUE(ragged_id->isA<RaggedIterDomain>());
-  EXPECT_TRUE(ragged_id->extents() != nullptr);
+  EXPECT_THAT(component_id, IsStrictlyA<IterDomain>());
+  EXPECT_THAT(ragged_id, IsStrictlyA<RaggedIterDomain>());
+  EXPECT_THAT(ragged_id->extents(), NotNull());
 
   // Verify that a Partition expr was created
   EXPECT_TRUE(component_id->definition() != nullptr);
@@ -269,24 +268,20 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
   fusion.addInput(extents);
 
   // Test 1: Null input should fail
-  EXPECT_THROW(
-      RaggedIterDomain::partition(nullptr, extents), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(nullptr, extents), nvfError);
 
   // Test 2: Null extents should fail
-  EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, nullptr), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(input_id, nullptr), nvfError);
 
   // Test 3: Non-Index extents should fail
   auto float_extents = makeSymbolicTensor(1, DataType::Float);
   fusion.addInput(float_extents);
-  EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, float_extents), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(input_id, float_extents), nvfError);
 
   // Test 4: Multi-dimensional extents should fail
   auto extents_2d = makeSymbolicTensor(2, DataType::Index);
   fusion.addInput(extents_2d);
-  EXPECT_THROW(
-      RaggedIterDomain::partition(input_id, extents_2d), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(input_id, extents_2d), nvfError);
 
   // Test 5: Non-Iteration IterType should fail
   auto reduction_id =
@@ -294,16 +289,14 @@ TEST_F(RaggedIterDomainTest, PartitionValidation) {
           fusion.zeroVal(), IrBuilder::create<Val>(10L, DataType::Index))
           .iter_type(IterType::Reduction)
           .build();
-  EXPECT_THROW(
-      RaggedIterDomain::partition(reduction_id, extents), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(reduction_id, extents), nvfError);
 
   // Test 6: Cannot partition RaggedIterDomain
   auto extents2 = makeSymbolicTensor(1, DataType::Index);
   fusion.addInput(extents2);
   auto ragged_id = IrBuilder::create<RaggedIterDomain>(
       extents2, IterType::Iteration, ParallelType::Serial);
-  EXPECT_THROW(
-      RaggedIterDomain::partition(ragged_id, extents), nvfuser::nvfError);
+  EXPECT_THROW(RaggedIterDomain::partition(ragged_id, extents), nvfError);
 }
 
 // TensorView::partition operation
@@ -322,17 +315,12 @@ TEST_F(RaggedIterDomainTest, TensorViewPartition) {
   // Partition the first axis
   tv0->partition(0, extents);
 
-  // Verify the tensor now has 3 dimensions: [component, ragged, original_dim1]
-  EXPECT_EQ(tv0->nDims(), 3);
-
-  // First axis should be a regular IterDomain (component)
-  EXPECT_TRUE(tv0->axis(0)->isA<IterDomain>());
-
-  // Second axis should be a RaggedIterDomain
-  EXPECT_TRUE(tv0->axis(1)->isA<RaggedIterDomain>());
-
-  // Third axis should be the original second dimension
-  EXPECT_TRUE(tv0->axis(2)->isA<IterDomain>());
+  EXPECT_THAT(
+      tv0->getLoopDomain(),
+      ElementsAre(
+          IsStrictlyA<IterDomain>(),
+          IsStrictlyA<RaggedIterDomain>(),
+          IsStrictlyA<IterDomain>()));
 
   // Verify both partition outputs have the same definition
   EXPECT_TRUE(tv0->axis(0)->definition() != nullptr);
@@ -399,20 +387,13 @@ TEST_F(RaggedIterDomainTest, AsNestedDifferentDimension) {
   // Partition dimension 1 (middle dimension)
   auto nested = asNested(data, extents, 1);
 
-  // Verify dimensions: [dim0, component, ragged, dim2]
-  EXPECT_EQ(nested->nDims(), 4);
-
-  // First axis is original dim0
-  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
-
-  // Second axis is component
-  EXPECT_TRUE(nested->axis(1)->isStrictlyA<IterDomain>());
-
-  // Third axis is ragged
-  EXPECT_TRUE(nested->axis(2)->isA<RaggedIterDomain>());
-
-  // Fourth axis is original dim2
-  EXPECT_TRUE(nested->axis(3)->isA<IterDomain>());
+  EXPECT_THAT(
+      nested->getLoopDomain(),
+      ElementsAre(
+          IsStrictlyA<IterDomain>(),
+          IsStrictlyA<IterDomain>(),
+          IsStrictlyA<RaggedIterDomain>(),
+          IsStrictlyA<IterDomain>()));
 }
 
 // asNested with 1D tensor
@@ -433,14 +414,9 @@ TEST_F(RaggedIterDomainTest, AsNested1DTensor) {
 
   fusion.addOutput(nested);
 
-  // Verify dimensions: [component, ragged]
-  EXPECT_EQ(nested->nDims(), 2);
-
-  // First axis is component
-  EXPECT_TRUE(nested->axis(0)->isStrictlyA<IterDomain>());
-
-  // Second axis is ragged
-  EXPECT_TRUE(nested->axis(1)->isA<RaggedIterDomain>());
+  EXPECT_THAT(
+      nested->getLoopDomain(),
+      ElementsAre(IsStrictlyA<IterDomain>(), IsStrictlyA<RaggedIterDomain>()));
 }
 
 // asNested validation - null data
@@ -452,7 +428,7 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationNullData) {
   fusion.addInput(extents);
 
   // Null data should throw
-  EXPECT_THROW(asNested(nullptr, extents, 0), nvfuser::nvfError);
+  EXPECT_THROW(asNested(nullptr, extents, 0), nvfError);
 }
 
 // asNested validation - null extents
@@ -464,7 +440,7 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationNullExtents) {
   fusion.addInput(data);
 
   // Null extents should throw
-  EXPECT_THROW(asNested(data, nullptr, 0), nvfuser::nvfError);
+  EXPECT_THROW(asNested(data, nullptr, 0), nvfError);
 }
 
 // asNested validation - multi-dimensional extents (not yet supported)
@@ -479,7 +455,7 @@ TEST_F(RaggedIterDomainTest, AsNestedValidationMultiDimExtents) {
   auto extents_2d = makeSymbolicTensor(2, DataType::Index);
   fusion.addInput(extents_2d);
 
-  EXPECT_THROW(asNested(data, extents_2d, 0), nvfuser::nvfError);
+  EXPECT_THROW(asNested(data, extents_2d, 0), nvfError);
 }
 
 TEST_F(RaggedIterDomainTest, LoadStoreWithNestedTensor) {

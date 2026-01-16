@@ -2,16 +2,18 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import torch
-import torch.distributed as dist
 from dataclasses import dataclass
 from enum import auto, Enum
 from functools import lru_cache
-from fusion_definition_wrapper import FusionDefinitionWrapper
-from nvfuser_direct import DataType, FusionDefinition
+from typing import Iterable
+
+import torch
+import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.placement_types import Placement
-from typing import Iterable
+
+from nvfuser_direct import DataType, FusionDefinition
+from .fusion_definition_wrapper import FusionDefinitionWrapper
 
 
 @dataclass(frozen=True)

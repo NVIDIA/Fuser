@@ -7,17 +7,17 @@
 // clang-format on
 #pragma once
 
-#include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
-
 #include <string>
 #include <vector>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/scheduler_types.h>
-#include <validator_utils.h>
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/scheduler_types.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 // A gmock matcher for matching heuristics.
@@ -42,13 +42,20 @@ MATCHER_P(IsParallelized, expected, "") {
 // See
 // https://google.github.io/googletest/gmock_cook_book.html#writing-new-monomorphic-matchers
 // for how to write a matcher.
-template <typename T>
+//
+// testing::An doesn't work for checking subclasses -- `EXPECT_THAT(foo,
+// testing::An<Bar>())` requires `foo` to be implicitly convertible to `Bar`.
+template <typename T, bool kStrictly>
 class IsAMatcher {
  public:
   using is_gtest_matcher = void;
 
   bool MatchAndExplain(const PolymorphicBase* pb, std::ostream*) const {
-    return pb->isA<T>();
+    if (kStrictly) {
+      return pb->isStrictlyA<T>();
+    } else {
+      return pb->isA<T>();
+    }
   }
 
   void DescribeTo(std::ostream* os) const {
@@ -62,7 +69,12 @@ class IsAMatcher {
 
 template <typename T>
 inline testing::Matcher<const PolymorphicBase*> IsA() {
-  return IsAMatcher<T>();
+  return IsAMatcher<T, false>();
+}
+
+template <typename T>
+inline testing::Matcher<const PolymorphicBase*> IsStrictlyA() {
+  return IsAMatcher<T, true>();
 }
 
 // Validate that the fusion is segmented with desired scheduler, currently only

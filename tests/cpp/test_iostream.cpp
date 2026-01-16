@@ -9,9 +9,9 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ir/iostream.h>
-#include <ops/alias.h>
-#include <tests/cpp/utils.h>
+#include "ir/iostream.h"
+#include "ops/alias.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 
@@ -34,7 +34,7 @@ TEST_F(IostreamTest, Fusion) {
   std::cout << &fusion;
   std::string std_out = getCapturedStdout();
 
-  EXPECT_THAT(std_out, HasSubstr("view("));
+  EXPECT_THAT(std_out, HasSubstr("reshape("));
 }
 
 TEST_F(IostreamTest, NullFusion) {
