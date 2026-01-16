@@ -358,7 +358,7 @@ IterDomain* newOutputIterDomain(
             input_ids.begin(),
             input_ids.end(),
             [](IterDomain* id) { return id->isA<RaggedIterDomain>(); }),
-        "All of none input IDs must be ragged");
+        "All or none input IDs must be ragged");
     NVF_ERROR(
         !force_iter_type.has_value(),
         "force_iter_type not supported for RaggedIterDomain");
