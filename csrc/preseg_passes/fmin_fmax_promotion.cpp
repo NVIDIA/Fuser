@@ -362,7 +362,7 @@ class FMinFMaxPromoter : public OptOutMutator {
                                                       : BinaryOpType::FMin;
 
     auto init = rop->init();
-    auto out_tv = rop->out_tv()->as<TensorView>();
+    auto out_tv = rop->out()->as<TensorView>();
     auto in_tv = maybeMutated(rop->in())->as<TensorView>();
 
     std::vector<int64_t> axes;
