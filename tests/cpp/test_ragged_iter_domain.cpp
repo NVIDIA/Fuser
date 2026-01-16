@@ -557,7 +557,7 @@ TEST_F(RaggedIterDomainTest, BinaryOpMixedInputsError) {
 
   // Try to add nested tensor with non-nested tensor
   // This should fail because one is ragged and one is not
-  EXPECT_THROW(add(nested1, data2), nvfuser::nvfError);
+  EXPECT_THROW(add(nested1, data2), nvfError);
 }
 
 // Test binary operation with different offsets
@@ -770,7 +770,7 @@ TEST_F(RaggedIterDomainTest, ReductionOnRaggedDimError) {
 
   // Try to reduce along the ragged dimension (axis 1)
   // This should throw an error because reducing RaggedIterDomain is not allowed
-  EXPECT_THROW(sum(nested, {1}), nvfuser::nvfError);
+  EXPECT_THROW(sum(nested, {1}), nvfError);
 }
 
 // Test reduction on component dimension - should error (TODO)
@@ -797,7 +797,7 @@ TEST_F(RaggedIterDomainTest, ReductionOnComponentDimError) {
   // This should throw an error because reducing component dimensions is not
   // allowed The component dimension defines the batch structure of the ragged
   // tensor, and reducing it would destroy the ragged structure
-  EXPECT_THROW(sum(nested, {0}), nvfuser::nvfError);
+  EXPECT_THROW(sum(nested, {0}), nvfError);
 }
 
 // Test reshape with nested tensors - should error
@@ -818,7 +818,7 @@ TEST_F(RaggedIterDomainTest, ReshapeWithNestedTensorsError) {
   // supported for tensors with RaggedIterDomain
   std::vector<Val*> new_shape = {
       IrBuilder::create<Val>(-1L, DataType::Index), nested->axis(2)->extent()};
-  EXPECT_THROW(reshape(nested, new_shape), nvfuser::nvfError);
+  EXPECT_THROW(reshape(nested, new_shape), nvfError);
 }
 
 // Test flatten with nested tensors - should error
@@ -837,7 +837,7 @@ TEST_F(RaggedIterDomainTest, FlattenWithNestedTensorsError) {
 
   // Try to flatten - this should throw an error because flatten is not
   // supported for tensors with RaggedIterDomain
-  EXPECT_THROW(flatten(nested, 0, 2), nvfuser::nvfError);
+  EXPECT_THROW(flatten(nested, 0, 2), nvfError);
 }
 
 // Test slice on ragged dimension - should error
@@ -862,7 +862,7 @@ TEST_F(RaggedIterDomainTest, SliceRaggedDimensionError) {
           {{fusion.zeroVal(), fusion.oneVal()},
            {fusion.zeroVal(), fusion.oneVal()},
            {fusion.zeroVal(), nested->axis(2)->extent()}}),
-      nvfuser::nvfError);
+      nvfError);
 }
 
 // Test cat on ragged dimension - should error
@@ -885,7 +885,7 @@ TEST_F(RaggedIterDomainTest, CatRaggedDimensionError) {
 
   // Try to concatenate along ragged dimension (axis 1)
   // This should error because cat would need to resize RaggedIterDomain
-  EXPECT_THROW(cat({nested1, nested2}, 1), nvfuser::nvfError);
+  EXPECT_THROW(cat({nested1, nested2}, 1), nvfError);
 }
 
 // Test cat on non-ragged dimension - currently also errors
@@ -910,7 +910,7 @@ TEST_F(RaggedIterDomainTest, CatNonRaggedDimensionError) {
   // Currently cat rejects all tensors with RaggedIterDomain for safety
   // In the future, this could be supported if concatenating along non-ragged
   // dimensions
-  EXPECT_THROW(cat({nested1, nested2}, 2), nvfuser::nvfError);
+  EXPECT_THROW(cat({nested1, nested2}, 2), nvfError);
 }
 
 // Test pad on ragged dimension - should error
@@ -938,7 +938,7 @@ TEST_F(RaggedIterDomainTest, PadRaggedDimensionError) {
       fusion.zeroVal() // dim1: no padding
   };
 
-  EXPECT_THROW(pad(nested, pad_widths), nvfuser::nvfError);
+  EXPECT_THROW(pad(nested, pad_widths), nvfError);
 }
 
 } // namespace nvfuser
