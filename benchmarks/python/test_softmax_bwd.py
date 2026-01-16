@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -41,18 +41,19 @@ def softmax_bwd_fusion(
     T5 = fd.ops.sum(T4, dims=[reduction_axis], keepdim=False, dtype=DataType.Null)
 
     if reduction_axis:
-        V9 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
+        shape_v9 = [T0.size(0), 1]
     else:
-        V9 = fd.define_vector([1, T0.size(1)], dtype=DataType.Int)
+        shape_v9 = [1, T0.size(1)]
     bcast_dim = 1 - reduction_axis
 
-    T10 = fd.ops.broadcast_in_dim(T5, shape=V9, broadcast_dims=[bcast_dim])
+    T10 = fd.ops.broadcast_in_dim(T5, shape=shape_v9, broadcast_dims=[bcast_dim])
 
     if dtype is not DataType.Float:
         T10 = fd.ops.cast(T10, dtype=dtype)
 
-    V15 = fd.define_vector([T0.size(0), T0.size(1)], dtype=DataType.Int)
-    T16 = fd.ops.broadcast_in_dim(T10, shape=V15, broadcast_dims=[0, 1])
+    T16 = fd.ops.broadcast_in_dim(
+        T10, shape=[T0.size(0), T0.size(1)], broadcast_dims=[0, 1]
+    )
 
     if dtype is not DataType.Float:
         T16 = fd.ops.cast(T16, dtype=DataType.Float)
@@ -72,7 +73,13 @@ def softmax_bwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -101,7 +108,13 @@ def test_softmax_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
-@pytest.mark.parametrize("reduction_axis", [0, 1])
+@pytest.mark.parametrize(
+    "reduction_axis",
+    [
+        pytest.param(0, marks=pytest.mark.outer_persistent),
+        pytest.param(1, marks=pytest.mark.inner_persistent),
+    ],
+)
 def test_softmax_bwd_baseline_benchmark(
     benchmark,
     size: tuple,

@@ -13,8 +13,10 @@
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph.h>
 
+#include <ranges>
 #include <unordered_set>
 #include <vector>
 
@@ -40,39 +42,23 @@ bool isTrivialExpr(Expr* expr) {
   // TODO: support discontiguous inputs. The output should be an intermediate
   // tensor which we would always assume to be contiguous, but the input might
   // not be. This would necessitate using a different linear index.
-  const std::vector<IterDomain*>& in_alloc = TensorDomain::noReductions(
-      TensorDomain::noBroadcasts(in->getMaybeAllocationDomain()));
-  const std::vector<IterDomain*>& out_alloc =
-      TensorDomain::noBroadcasts(out->getMaybeAllocationDomain());
+  auto in_alloc = in->getMaybeAllocationDomain() | TensorDomain::kNoReductions |
+      TensorDomain::kNoBroadcasts;
+  auto out_alloc =
+      out->getMaybeAllocationDomain() | TensorDomain::kNoBroadcasts;
 
-  if (in_alloc.size() != out_alloc.size()) {
-    // Non-trivial allocation domains cannot be in bijective correspondence if
-    // there are different numbers of them
-    return false;
-  }
-
-  std::vector<bool> in_contig;
-  std::vector<bool> out_contig;
-  for (const std::optional<bool>& c : in->getContiguity()) {
-    if (c.has_value()) {
-      in_contig.push_back(c.value());
-    }
-  }
-  for (const std::optional<bool>& c : out->getContiguity()) {
-    if (c.has_value()) {
-      out_contig.push_back(c.value());
-    }
-  }
+  auto in_contig = in->getContiguity() |
+      std::views::filter([](const auto& c) { return c.has_value(); }) |
+      std::views::transform([](const auto& c) { return c.value(); });
+  auto out_contig = out->getContiguity() |
+      std::views::filter([](const auto& c) { return c.has_value(); }) |
+      std::views::transform([](const auto& c) { return c.value(); });
 
   const ValGraph& exact_graph =
-      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
 
-  for (size_t pos : arange(in_alloc.size())) {
-    // At this point in_pos and out_pos are both in range and point to
-    // non-broadcast IDs
-    IterDomain* in_id = in_alloc.at(pos);
-    IterDomain* out_id = out_alloc.at(pos);
-
+  for (auto [in_id, out_id, in_is_contig, out_is_contig] :
+       zip(in_alloc, out_alloc, in_contig, out_contig)) {
     // If this allocation ID is parallelized such that its loop index is not
     // used, then we can ignore it for this analysis.
     const auto id_is_indexed = [](TensorView* tv, IterDomain* id) {
@@ -85,10 +71,10 @@ bool isTrivialExpr(Expr* expr) {
     }
 
     NVF_ERROR(
-        out_contig.at(pos),
+        out_is_contig,
         "Found discontiguous intermediate global tensor ",
         out->toString());
-    if (in_contig.at(pos) != out_contig.at(pos)) {
+    if (in_is_contig != out_is_contig) {
       return false;
     }
 

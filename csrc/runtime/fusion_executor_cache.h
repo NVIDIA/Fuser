@@ -114,15 +114,17 @@ enum class PrimDataType;
 //! assumed graph partition strategy is independent of input pattern, which we
 //! can revisit once we have more advanced graph segmentation logic Each
 //! FusionExecutorCache corresponds to one graph and one graph segmentation.
-class FusionExecutorCache {
+class NVF_API FusionExecutorCache {
  public:
   //! create new fusion executor cache at a given device to handle kernel
   //! generation of dynamic sizes
   //! fusion executor is taking the ownership of `fusion`
-  NVF_API explicit FusionExecutorCache(
+  explicit FusionExecutorCache(
       std::unique_ptr<Fusion> fusion,
       int64_t fusion_id = 0,
       bool auto_schedule = true);
+
+  ~FusionExecutorCache();
 
   //! Execute fusion graph with given inputs, create `KernelExecutor` as needed
   //! Note this function also handles permutation & input update outside of
@@ -132,18 +134,16 @@ class FusionExecutorCache {
   //! what inputs and the fusion look like. This may be useful in some
   //! cases as our analysis of index type may be overly conservative
   //! for intermediate tensors.
-  //! WARING: Correctness is not guaranteed.
+  //! WARNING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API KernelArgumentHolder runFusionWithInputs(
+  KernelArgumentHolder runFusionWithInputs(
       KernelArgumentHolder args,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
-  NVF_API bool isCompiled(
-      const KernelArgumentHolder& inputs,
-      int8_t device = 0);
+  bool isCompiled(const KernelArgumentHolder& inputs, int8_t device = 0);
 
   Fusion* fusion();
 

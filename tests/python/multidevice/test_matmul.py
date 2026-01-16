@@ -5,8 +5,8 @@
 import pytest
 import torch
 
-import nvfuser
-from nvfuser import DataType, FusionDefinition
+import nvfuser_direct as nvfuser
+from nvfuser_direct import DataType, FusionDefinition, PythonProfiler
 
 
 # Avoid doing this when possible. This test started to exist before nvFuser
@@ -14,34 +14,23 @@ from nvfuser import DataType, FusionDefinition
 # 3D, different from a normal linear.
 @pytest.mark.mpi
 def test_linear_logical_split(multidevice_test):
-    class Model(FusionDefinition):
-        def __init__(self, num_devices, batch, sequence, hidden):
-            super().__init__()
-            self._num_devices = num_devices
-            self._batch = batch
-            self._sequence = sequence
-            self._hidden = hidden
+    def _definition(fd: FusionDefinition, d: int, b: int, s: int, e: int):
+        inp = fd.define_tensor([b, s, e])
+        weight = fd.define_tensor([d, e, e], contiguity=True)
+        bias = fd.define_tensor([d, e], contiguity=True)
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
 
-        def definition(self):
-            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
-            self.inp = self.define_tensor([b, s, e])
-            self.weight = self.define_tensor([d, e, e], contiguity=True)
-            self.bias = self.define_tensor([d, e], contiguity=True)
-            out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(out)
-
-        def multidevice_schedule(self):
-            mesh = nvfuser.DeviceMesh(range(self._num_devices))
-            for t in [self.inp, self.weight, self.bias]:
-                self.sched._set_device_mesh(t, mesh)
-            for t in [self.weight, self.bias]:
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
+    def _multidevice_schedule(fd: FusionDefinition, d: int):
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+        inp, weight, bias = fd.fusion.inputs()
+        for t in [inp, weight, bias]:
+            t.set_device_mesh(mesh)
+        for t in [weight, bias]:
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     d = multidevice_test.size
     rank = multidevice_test.rank
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
     b, s, e = 2, 1024, 768
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e, device="cuda")
@@ -49,10 +38,12 @@ def test_linear_logical_split(multidevice_test):
     unsharded_bias_tensor = torch.randn(d * e, device="cuda")
     bias_tensor = unsharded_bias_tensor.view([d, e])[rank : rank + 1]
 
-    fd = Model(d, b, s, e)
-    (out_tensor,), (out_sharding,) = fd.execute(
-        [inp_tensor, weight_tensor, bias_tensor]
-    )
+    with FusionDefinition() as fd:
+        _definition(fd, d, b, s, e)
+        _multidevice_schedule(fd, d)
+
+    (out_tensor,) = fd.execute([inp_tensor, weight_tensor, bias_tensor])
+    (out_sharding,) = fd.fec.get_output_shardings()
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.nn.functional.linear(
@@ -69,48 +60,50 @@ def test_linear_logical_split(multidevice_test):
 @pytest.mark.mpi
 def test_column_parallel_linear(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, e])
-            self.weight = self.define_tensor([d * e, e])
-            self.bias = self.define_tensor([d * e])
-            out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(out)
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor([-1, -1, e])
+        weight = fd.define_tensor([d * e, e])
+        bias = fd.define_tensor([d * e])
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.bias]:
-                self.sched._set_device_mesh(t, mesh)
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight, bias = fd.fusion.inputs()
+        for t in [inp, weight, bias]:
+            t.set_device_mesh(mesh)
 
-            # Shard N for weight (N, K) and bias (N)
-            for t in [self.weight, self.bias]:
-                self.sched.split(t, 0, d, False)
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+        # Shard N for weight (N, K) and bias (N)
+        for t in [weight, bias]:
+            t.outer_split(0, d)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
+    sharded_weight_tensor = multidevice_test.shard_tensor_1d(
         unsharded_weight_tensor, 0, mesh
     )
     unsharded_bias_tensor = torch.randn(d * e)
-    sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
-
-    fd = Model()
-    (out_tensor,), _ = fd.execute(
-        [inp_tensor, sharded_weight_tensor, sharded_bias_tensor]
+    sharded_bias_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_bias_tensor, 0, mesh
     )
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.nn.functional.linear(
         inp_tensor.cpu(), unsharded_weight_tensor, unsharded_bias_tensor
     )
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
 
@@ -118,34 +111,34 @@ def test_column_parallel_linear(multidevice_test):
 @pytest.mark.mpi
 def test_row_parallel_linear(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, d * e])
-            self.weight = self.define_tensor([e, d * e])
-            out = self.ops.linear(self.inp, self.weight, None)
-            self.add_output(out)
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor([-1, -1, d * e])
+        weight = fd.define_tensor([e, d * e])
+        out = fd.ops.linear(inp, weight, None)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-                self.sched.split(t, -1, d, False)
-                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight = fd.fusion.inputs()
+        for t in [inp, weight]:
+            t.set_device_mesh(mesh)
+            t.outer_split(-1, d)
+            t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 1024
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
 
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
-    fd = Model()
-    (out,), _ = fd.execute([inp, weight])
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out,) = fd.execute([inp, weight])
 
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, None)
     # rtol is the same as the default for fp32. atol is slightly increased.
@@ -155,36 +148,36 @@ def test_row_parallel_linear(multidevice_test):
 @pytest.mark.mpi
 def test_row_parallel_linear_with_bias(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 5
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, d * e])
-            self.weight = self.define_tensor([e, d * e])
-            self.bias = self.define_tensor([e])
-            out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(out)
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor([-1, -1, d * e])
+        weight = fd.define_tensor([e, d * e])
+        bias = fd.define_tensor([e])
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-                self.sched.split(t, -1, d, False)
-                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight, _ = fd.fusion.inputs()
+        for t in [inp, weight]:
+            t.set_device_mesh(mesh)
+            t.outer_split(-1, d)
+            t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 3
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
     bias = torch.randn(e)
 
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
-    fd = Model()
-    (out,), _ = fd.execute([inp, weight, bias.cuda()])
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out,) = fd.execute([inp, weight, bias.cuda()])
 
     unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
     # rtol is the same as the default for fp32. atol is slightly increased.
@@ -194,94 +187,99 @@ def test_row_parallel_linear_with_bias(multidevice_test):
 @pytest.mark.mpi
 def test_linear_reduce_scatter(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
-    e = 768
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    b, s, e = 3, 5, 7
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, d * e])
-            self.weight = self.define_tensor([e, d * e])
-            self.out = self.ops.linear(self.inp, self.weight, None)
-            self.add_output(self.out)
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor([-1, d * s, d * e], dtype=DataType.BFloat16)
+        weight = fd.define_tensor([-1, d * e], dtype=DataType.BFloat16)
+        bias = fd.define_tensor([e], dtype=DataType.BFloat16)
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.out]:
-                self.sched._set_device_mesh(t, mesh)
-                self.sched.split(t, -1, d, False)
-                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight, bias = fd.fusion.inputs()
+        (out,) = fd.fusion.outputs()
+        bias.set_device_mesh(mesh)
+        for tv in [inp, weight, out]:
+            tv.set_device_mesh(mesh)
+            tv.split(-1, d, inner_split=False)
+            tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-            # Scatter
-            self.sched.split(self.out, 1, d, False)
-            self.sched.parallelize(self.out, 1, nvfuser.ParallelType.mesh_x)
+        # Scatter
+        out.outer_split(1, d)
+        out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
-    torch.cuda.set_device(multidevice_test.local_rank)
+    unsharded_inp = torch.randint(-2, 3, (b, d * s, d * e)).to(torch.bfloat16)
+    unsharded_weight = torch.randint(-2, 3, (e, d * e)).to(torch.bfloat16)
+    bias = torch.randint(-2, 3, (e,)).to(torch.bfloat16)
+    inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor_1d(unsharded_weight, -1, mesh)
 
-    # set b=1 as a temporary fix for the test to pass.
-    # TODO: set b>1 once reduce scatter is fixed.
-    b, s = 2, 1024
-    unsharded_inp = torch.randn(b, s, d * e)
-    unsharded_weight = torch.randn(e, d * e)
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
 
-    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+    with PythonProfiler() as prof:
+        (out,) = fd.execute([inp, weight, bias.cuda()])
 
-    fd = Model()
-    (out,), _ = fd.execute([inp, weight])
+    # Only one reduce scatter kernel should be scheduled.
+    assert len(
+        [kp for kp in prof.profile.kernel_profiles if kp.scheduler == "communication"]
+    ) == (1 if d > 1 else 0)
 
-    unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, None)
-    # rtol is the same as the default for fp32. atol is slightly increased.
+    unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, bias)
     torch.testing.assert_close(
         out,
-        multidevice_test.shard_tensor(unsharded_out, 1, mesh),
-        rtol=1.3e-6,
-        atol=1e-3,
+        multidevice_test.shard_tensor_1d(unsharded_out, 1, mesh),
     )
 
 
 @pytest.mark.mpi
 def test_column_parallel_matmul(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 768
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, e])
-            self.weight = self.define_tensor([e, d * e])
-            self.out = self.ops.matmul(self.inp, self.weight)
-            self.add_output(self.out)
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor([-1, -1, e])
+        weight = fd.define_tensor([e, d * e])
+        out = fd.ops.matmul(inp, weight)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.out]:
-                self.sched._set_device_mesh(t, mesh)
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight = fd.fusion.inputs()
+        (out,) = fd.fusion.outputs()
+        for t in [inp, weight, out]:
+            t.set_device_mesh(mesh)
 
-            # Shard N for weight (K, N)
-            self.sched.split(self.weight, -1, d, False)
-            self.sched.parallelize(self.weight, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
+        # Shard N for weight (K, N)
+        weight.outer_split(-1, d)
+        weight.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+        # Output of linear: {.., i{M}, i{N}, r{K}}
+        # Shard N -> axis(-2)
+        out.outer_split(-2, d)
+        out.axis(-3).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(e, d * e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
+    sharded_weight_tensor = multidevice_test.shard_tensor_1d(
         unsharded_weight_tensor, -1, mesh
     )
 
-    fd = Model()
-    (out_tensor,), _ = fd.execute([inp_tensor, sharded_weight_tensor])
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor])
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.matmul(inp_tensor.cpu(), unsharded_weight_tensor)
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
         out_tensor, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
@@ -291,172 +289,304 @@ def test_column_parallel_matmul(multidevice_test):
 @pytest.mark.mpi
 def test_row_parallel_matmul(multidevice_test):
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     e = 8
 
-    class Model(FusionDefinition):
-        def definition(self) -> None:
-            self.inp = self.define_tensor(
-                [-1, d * e], contiguity=True, dtype=DataType.Half
-            )
-            self.weight = self.define_tensor(
-                [d * e, e], contiguity=True, dtype=DataType.Half
-            )
-            self.out = self.ops.matmul(self.inp, self.weight)
-            self.add_output(self.out)
+    def _definition(fd: FusionDefinition) -> None:
+        inp = fd.define_tensor([-1, d * e], contiguity=True, dtype=DataType.Half)
+        weight = fd.define_tensor([d * e, e], contiguity=True, dtype=DataType.Half)
+        out = fd.ops.matmul(inp, weight)
+        fd.add_output(out)
 
-        def multidevice_schedule(self) -> None:
-            for t in [self.inp, self.weight, self.out]:
-                self.sched._set_device_mesh(t, mesh)
+    def _multidevice_schedule(fd: FusionDefinition) -> None:
+        inp, weight = fd.fusion.inputs()
+        (out,) = fd.fusion.outputs()
+        for t in [inp, weight, out]:
+            t.set_device_mesh(mesh)
 
-            # Shard K for inp (M, K)
-            self.sched.split(self.inp, -1, d, False)
-            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.inp)
+        # Shard K for inp (M, K)
+        inp.outer_split(-1, d)
+        inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-            # Shard K for weight (K, N)
-            self.sched.split(self.weight, 0, d, False)
-            self.sched.parallelize(self.weight, 0, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
+        # Shard K for weight (K, N)
+        weight.outer_split(0, d)
+        weight.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
-            # [i{M}, i{N}, r{K}]
-            self.sched.split(self.out, -1, d, False)
-            # [i{M}, i{N}, r{d}, r{K//d}]
-            self.local_out = self.sched.rfactor(self.out, dims=[-1])
-            # local_out = [i{M}, i{N}, i{d}, r{K//d}]
-            # out = [i{M}, i{N}, r{d}]
-            self.sched._set_device_mesh(self.local_out, mesh)
-            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
+        # [i{M}, i{N}, r{K}]
+        out.outer_split(-1, d)
+        # [i{M}, i{N}, r{d}, r{K//d}]
+        local_out = out.rfactor(axes=[-1])
+        # local_out = [i{M}, i{N}, i{d}, r{K//d}]
+        # out = [i{M}, i{N}, r{d}]
+        local_out.set_device_mesh(mesh)
+        local_out.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     b, s = 1, 4
     unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
     unsharded_weight = torch.randn(d * e, e, dtype=torch.half)
-    sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    sharded_weight = multidevice_test.shard_tensor(unsharded_weight, 0, mesh)
+    sharded_inp = multidevice_test.shard_tensor_1d(unsharded_inp, -1, mesh)
+    sharded_weight = multidevice_test.shard_tensor_1d(unsharded_weight, 0, mesh)
 
     expected_out = torch.matmul(unsharded_inp, unsharded_weight)
 
-    fd = Model()
-    (out,), _ = fd.execute([sharded_inp, sharded_weight])
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out,) = fd.execute([sharded_inp, sharded_weight])
 
     torch.testing.assert_close(out.cpu(), expected_out, rtol=1e-3, atol=1e-2)
 
 
 @pytest.mark.mpi
 def test_column_parallel_grouped_mm(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16
-    n = 16 * d
+    n = 64 * d
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor(
-                [-1, k], dtype=DataType.BFloat16, contiguity=True
-            )
-            self.w = self.define_tensor(
-                [g, k, n], dtype=DataType.BFloat16, contiguity=True
-            )
-            self.offsets = self.define_tensor(
-                [g], dtype=DataType.Int32, contiguity=True
-            )
-            out = self.ops.grouped_mm(self.inp, self.w, self.offsets)
-            self.add_output(out)
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
+        w = fd.define_tensor([g, n, k], dtype=DataType.BFloat16, contiguity=True)
+        w_t = fd.ops.permute(w, [0, 2, 1])
+        offsets = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
+        out = fd.ops.grouped_mm(inp, w_t, offsets)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.w, self.offsets]:
-                self.sched._set_device_mesh(t, mesh)
+        for t in [inp, w, offsets]:
+            t.set_device_mesh(mesh)
 
-            self.sched.split(self.w, -1, d, False)
-            self.sched.parallelize(self.w, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.w)
+        w.outer_split(1, d)
+        w.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
     inp = torch.randn(m, k, dtype=torch.bfloat16, device="cuda")
-    w = torch.randn(g, k, n, dtype=torch.bfloat16)
-    sharded_w = multidevice_test.shard_tensor(w, -1, mesh)
-    assert m % g == 0
-    group_sizes = [m // g] * g
+    w = torch.randn(g, n, k, dtype=torch.bfloat16)
+    sharded_w = multidevice_test.shard_tensor_1d(w, 1, mesh)
+    group_sizes = [5, 7, 9, 11]
+    assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
-        group_in.cpu() @ group_w
+        group_in.cpu() @ group_w.T
         for group_in, group_w in zip(inp.split(group_sizes), w.unbind())
     ]
     expected_out = torch.cat(group_outs, dim=0)
 
-    fd = Model()
-    (out,), _ = fd.execute([inp, sharded_w, offsets])
+    (out,) = fd.execute([inp, sharded_w, offsets])
 
     torch.testing.assert_close(
-        out, multidevice_test.shard_tensor(expected_out, -1, mesh)
+        out, multidevice_test.shard_tensor_1d(expected_out, -1, mesh)
     )
 
 
 @pytest.mark.mpi
 def test_row_parallel_grouped_mm(multidevice_test):
-    prop = torch.cuda.get_device_properties(torch.cuda.current_device())
-    if (prop.major, prop.minor) != (9, 0):
-        pytest.skip("at::_grouped_mm only supports sm90.")
-
     d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
     g = 4
     k = 16 * d
-    n = 16
+    n = 64
 
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor(
-                [-1, k], dtype=DataType.BFloat16, contiguity=True
-            )
-            self.w = self.define_tensor(
-                [g, k, n], dtype=DataType.BFloat16, contiguity=True
-            )
-            self.offsets = self.define_tensor(
-                [g], dtype=DataType.Int32, contiguity=True
-            )
-            out = self.ops.grouped_mm(self.inp, self.w, self.offsets)
-            self.add_output(out)
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, k], dtype=DataType.BFloat16, contiguity=True)
+        w = fd.define_tensor([g, n, k], dtype=DataType.BFloat16, contiguity=True)
+        w_t = fd.ops.permute(w, [0, 2, 1])
+        offsets = fd.define_tensor([g], dtype=DataType.Int32, contiguity=True)
+        out = fd.ops.grouped_mm(inp, w_t, offsets)
+        fd.add_output(out)
 
-        def multidevice_schedule(self):
-            for t in [self.inp, self.w, self.offsets]:
-                self.sched._set_device_mesh(t, mesh)
+        for t in [inp, w, offsets]:
+            t.set_device_mesh(mesh)
 
-            self.sched.split(self.inp, -1, d, False)
-            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.inp)
+        inp.outer_split(-1, d)
+        inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-            self.sched.split(self.w, 1, d, False)
-            self.sched.parallelize(self.w, 1, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.w)
+        w.outer_split(-1, d)
+        w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     m = 32
     inp = torch.randint(-2, 3, (m, k), dtype=torch.bfloat16)
-    sharded_inp = multidevice_test.shard_tensor(inp, -1, mesh)
-    w = torch.randint(-2, 3, (g, k, n), dtype=torch.bfloat16)
-    sharded_w = multidevice_test.shard_tensor(w, 1, mesh)
-    assert m % g == 0
-    group_sizes = [m // g] * g
+    sharded_inp = multidevice_test.shard_tensor_1d(inp, -1, mesh)
+    w = torch.randint(-2, 3, (g, n, k), dtype=torch.bfloat16)
+    sharded_w = multidevice_test.shard_tensor_1d(w, -1, mesh)
+    group_sizes = [5, 7, 9, 11]
+    assert sum(group_sizes) == m
     offsets = torch.cumsum(torch.tensor(group_sizes), 0, dtype=torch.int32).cuda()
 
     group_outs = [
-        group_in @ group_w
+        group_in @ group_w.T
         for group_in, group_w in zip(inp.split(group_sizes), w.unbind())
     ]
     expected_out = torch.cat(group_outs, dim=0)
 
-    fd = Model()
-    (out,), _ = fd.execute([sharded_inp, sharded_w, offsets])
+    (out,) = fd.execute([sharded_inp, sharded_w, offsets])
 
     torch.testing.assert_close(
         out.cpu(),
         expected_out,
     )
+
+
+@pytest.mark.mpi
+def test_issue4729(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+
+    def _definition(fd: FusionDefinition):
+        x = fd.define_tensor([1, 1, d * 3], dtype=DataType.BFloat16, contiguity=True)
+        y = fd.define_tensor([1, 1, d * 3], dtype=DataType.BFloat16, contiguity=True)
+        w = fd.define_tensor([-1, d * 3], dtype=DataType.BFloat16, contiguity=True)
+        x = fd.ops.cast(x, DataType.Float)
+        y = fd.ops.cast(y, DataType.Float)
+        xy = fd.ops.mul(x, y)
+        xy = fd.ops.cast(xy, DataType.BFloat16)
+        out = fd.ops.linear(xy, w)
+        fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        x, y, w = fd.fusion.inputs()
+        for t in [x, y, w]:
+            t.set_device_mesh(mesh)
+            t.outer_split(-1, d)
+            t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    x_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
+    y_ref = torch.randint(-2, 3, (1, 1, d * 3), dtype=torch.bfloat16)
+    w_ref = torch.randint(-2, 3, (2, d * 3), dtype=torch.bfloat16)
+    x = multidevice_test.shard_tensor_1d(x_ref, -1, mesh)
+    y = multidevice_test.shard_tensor_1d(y_ref, -1, mesh)
+    w = multidevice_test.shard_tensor_1d(w_ref, -1, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (z,) = fd.execute([x, y, w])
+
+    torch.testing.assert_close(
+        z.cpu(), torch.nn.functional.linear(x_ref * y_ref, w_ref)
+    )
+
+
+@pytest.mark.mpi
+def test_sequence_parallel_linear(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    b, s, e = 2, 1024, 768
+    assert (
+        s % d == 0
+    ), f"Sequence length {s} must be divisible by the number of devices {d}"
+    assert e % d == 0, f"Hidden size {e} must be divisible by the number of devices {d}"
+
+    def _definition(fd: FusionDefinition):
+        inp = fd.define_tensor(shape=[-1, -1, -1], contiguity=True)  # [b, s // d, e]
+        weight = fd.define_tensor(shape=[-1, -1], contiguity=True)  # [e // d, e]
+        bias = fd.define_tensor(shape=[-1], contiguity=True)  # [e // d]
+        out = fd.ops.linear(inp, weight, bias)
+        fd.add_output(out)
+
+    def _multidevice_schedule(fd: FusionDefinition):
+        inp, weight, bias = fd.fusion.inputs()
+        for t in [weight, bias]:
+            t.set_device_mesh(mesh)
+            t.outer_split(0, d)
+            t.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+        inp.set_device_mesh(mesh)
+        inp.outer_split(1, d)
+        inp.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+    unsharded_inp_tensor = torch.randn(b, s, e)
+    unsharded_weight_tensor = torch.randn(e, e)
+    unsharded_bias_tensor = torch.randn(e)
+    inp_tensor = multidevice_test.shard_tensor_1d(unsharded_inp_tensor, 1, mesh)
+    weight_tensor = multidevice_test.shard_tensor_1d(unsharded_weight_tensor, 0, mesh)
+    bias_tensor = multidevice_test.shard_tensor_1d(unsharded_bias_tensor, 0, mesh)
+
+    with FusionDefinition() as fd:
+        _definition(fd)
+        _multidevice_schedule(fd)
+
+    (out_tensor,) = fd.execute([inp_tensor, weight_tensor, bias_tensor])
+
+    # [b, s, d*e]
+    unsharded_out_tensor = torch.nn.functional.linear(
+        unsharded_inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
+    )
+    expected_out_tensor = multidevice_test.shard_tensor_1d(
+        unsharded_out_tensor, -1, mesh
+    )
+
+    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1e-3, atol=1e-2)
+
+
+@pytest.mark.mpi
+def test_data_and_tensor_parallel_mlp(multidevice_test):
+    # Build a GPT-3 style MLP with data and tensor parallelism.
+    d = multidevice_test.size
+    tp_size = 2
+
+    if d % tp_size != 0:
+        pytest.skip(f"Number of devices ({d}) must be divisible by tp_size ({tp_size})")
+
+    dp_size = d // tp_size
+    rank = multidevice_test.rank
+
+    # mesh_y (dim 0) for data parallelism, mesh_x (dim 1) for tensor parallelism
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
+
+    dp_rank = rank // tp_size
+    tp_rank = rank % tp_size
+
+    batch_per_rank = 7
+    b = dp_size * batch_per_rank
+    s, e = 5, 3
+
+    inp_ref = torch.testing.make_tensor(b, s, e, dtype=torch.int32, device="cpu").to(
+        torch.float
+    )
+    up_w_ref = torch.testing.make_tensor(4 * e, e, dtype=torch.int32, device="cpu").to(
+        torch.float
+    )
+    down_w_ref = torch.testing.make_tensor(
+        e, 4 * e, dtype=torch.int32, device="cpu"
+    ).to(torch.float)
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, -1, e], contiguity=True)
+        up_w = fd.define_tensor([4 * e, e], contiguity=True)
+        down_w = fd.define_tensor([e, 4 * e], contiguity=True)
+        up_out = fd.ops.linear(inp, up_w)
+        down_out = fd.ops.linear(up_out, down_w)
+        fd.add_output(down_out)
+
+        for t in [inp, up_w, down_w]:
+            t.set_device_mesh(mesh)
+
+        inp.outer_split(0, dp_size)
+        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        up_w.outer_split(0, tp_size)
+        up_w.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        down_w.outer_split(-1, tp_size)
+        down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+
+    # TODO: Use shard_tensor when it's ready.
+    inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
+    hidden_per_rank = (4 * e) // tp_size
+    up_w = up_w_ref[tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank].cuda()
+    down_w = down_w_ref[
+        :, tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank
+    ].cuda()
+
+    (out,) = fd.execute([inp, up_w, down_w])
+
+    up_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref, None)
+    down_out_ref = torch.nn.functional.linear(up_out_ref, down_w_ref, None)
+
+    expected_out = down_out_ref[
+        dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank
+    ]
+
+    torch.testing.assert_close(out.cpu(), expected_out)

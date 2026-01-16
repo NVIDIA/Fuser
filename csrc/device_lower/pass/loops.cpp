@@ -7,6 +7,9 @@
 // clang-format on
 #include <device_lower/pass/loops.h>
 
+#include <algorithm>
+#include <deque>
+
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -15,10 +18,6 @@
 #include <iter_visitor.h>
 #include <ops/arith.h>
 #include <transform_replay.h>
-
-#include <algorithm>
-#include <deque>
-#include <numeric>
 
 namespace nvfuser {
 
@@ -36,10 +35,10 @@ LoopNestGenerator::LoopNestGenerator(const std::vector<Expr*>& exprs) {
 
 namespace {
 
-ForLoop* openForHelper(ForLoop* scope, IterDomain* id) {
-  ForLoop* new_scope = IrBuilder::create<ForLoop>(id);
+kir::ForLoop* openForHelper(kir::ForLoop* scope, IterDomain* id) {
+  auto* new_scope = IrBuilder::create<kir::ForLoop>(id);
   if (scope != nullptr) {
-    scope->body().insert(0, new_scope);
+    scope->body().insert(scope->body().exprs().begin(), new_scope);
   }
   return new_scope;
 }
@@ -66,7 +65,8 @@ void LoopNestGenerator::pushFront(Expr* expr) {
   if (for_loops_.empty()) {
     lowered_exprs_.insert(lowered_exprs_.begin(), expr);
   } else {
-    for_loops_.back()->body().insert(0, expr);
+    for_loops_.back()->body().insert(
+        for_loops_.back()->body().exprs().begin(), expr);
   }
 }
 
@@ -95,7 +95,7 @@ void LoopNestGenerator::handle(Expr* expr) {
     return;
   }
 
-  TensorView* out_tv = expr->output(0)->as<TensorView>();
+  auto* out_tv = expr->output(0)->as<TensorView>();
 
   // Grab the loop structure
   NVF_ERROR(
@@ -118,8 +118,8 @@ void LoopNestGenerator::handle(Expr* expr) {
   }
 
   for (auto loop : loop_structure) {
-    auto find_it =
-        std::find_if(for_loops_.begin(), for_loops_.end(), [loop](ForLoop* fl) {
+    auto find_it = std::find_if(
+        for_loops_.begin(), for_loops_.end(), [loop](kir::ForLoop* fl) {
           return fl->iter_domain() == loop;
         });
     if (find_it == for_loops_.end()) {

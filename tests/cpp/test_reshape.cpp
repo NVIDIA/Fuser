@@ -5,48 +5,48 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gmock/gmock-matchers.h>
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/analysis/divisible_split.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
-#include <scheduler/tools/abstract_tensor.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
-#include <transform_view.h>
+#include <algorithm>
 
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+
+#include <gmock/gmock-matchers.h>
+#include <gtest/gtest.h>
+
 #include <c10/cuda/CUDAStream.h>
 
-#include <algorithm>
-#include <iostream>
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/analysis/divisible_split.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "kernel_ir_dispatch.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/registry_utils.h"
+#include "scheduler/tools/abstract_tensor.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
+#include "transform_view.h"
 
 namespace nvfuser {
 
@@ -56,7 +56,7 @@ class ReshapeTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -397,7 +397,7 @@ class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -1497,11 +1497,16 @@ TEST_F(ReshapeTest, ReshapeMagicSchedule2) {
 
   auto tv1 = sin(tv0);
 
+  // add math ops to avoid being scheduled as expr eval
   auto tv2 = reshape(tv1, {x, y, z}, {x, y * z});
-  auto tv3 = reshape(tv2, {x, y * z}, {x * y, z});
-  auto tv4 = reshape(tv3, {x * y, z}, {y, x * z});
-  auto tv5 = reshape(tv4, {y, x * z}, {x, y, z});
-  fusion->addOutput(tv5);
+  auto tv3 = add(tv2, tv2);
+  auto tv4 = reshape(tv3, {x, y * z}, {x * y, z});
+  auto tv5 = add(tv4, tv4);
+  auto tv6 = reshape(tv5, {x * y, z}, {y, x * z});
+  auto tv7 = add(tv6, tv6);
+  auto tv8 = reshape(tv7, {y, x * z}, {x, y, z});
+  auto tv9 = add(tv8, tv8);
+  fusion->addOutput(tv9);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
@@ -2815,6 +2820,268 @@ TEST_F(ReshapeTest, CyclicReshape) {
     EXPECT_FALSE(registry_utils::SchedulerTopologyChecker::hasCyclicReshape(
         segment_fusion.get()));
   }
+}
+
+TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  auto tv0 = makeConcreteTensor({24});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {24}, {6, 4});
+  auto tv4 = reshape(tv2, {24}, {3, 8});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({24}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{36});
+  auto tv3 = reshape(tv1, {24}, {6, 4});
+  auto tv4 = reshape(tv2, {24}, {6, 4});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsWithMerge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t x = 3, y = 4, z = 5;
+  auto tv0 = makeConcreteTensor({x + 1, y + 1, z + 1});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0, 0, 0}, {x, y, z});
+  auto tv2 = slice(tv0, std::vector<int64_t>{1, 1, 1}, {x + 1, y + 1, z + 1});
+  auto tv3 = reshape(tv1, {x, y, z}, {z, x, y});
+  auto tv4 = reshape(tv2, {x, y, z}, {z, x, y});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({x + 1, y + 1, z + 1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, CompatibleReshapesSameDisjointSetsMultiSteps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({24});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {24}, {2, 12});
+  auto tv2 = reshape(tv0, {24}, {2, 2, 6});
+  auto tv3 = sin(tv1);
+  auto tv4 = cos(tv2);
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({24}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, UnsegmentedCompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {24}, {2, 12});
+  auto tv4 = reshape(tv2, {36}, {2, 18});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, IncompatibleReshapesSameDisjointSetsMultiSteps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({24});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {24}, {2, 3, 4});
+  auto tv4 = reshape(tv2, {24}, {2, 2, 6});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({24}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{36});
+  auto tv3 = reshape(tv1, {24}, {6, 4});
+  auto tv4 = reshape(tv2, {24}, {3, 8});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, IncompatibleReshapesDifferentDisjointSetsMultiSteps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{36});
+  auto tv3 = reshape(tv1, {24}, {2, 3, 4});
+  auto tv4 = reshape(tv2, {24}, {2, 2, 6});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, CompatibleReshapesDifferentDisjointSetsMultiSteps) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{36});
+  auto tv3 = reshape(tv1, {24}, {2, 12});
+  auto tv4 = reshape(tv2, {24}, {2, 2, 6});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, DifferentSlicesCompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = slice(tv0, std::vector<int64_t>{12}, std::vector<int64_t>{24});
+  auto tv3 = reshape(tv1, {24}, {2, 12});
+  auto tv4 = reshape(tv2, {12}, {2, 6});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
+}
+
+TEST_F(ReshapeTest, OneSliceIncompatibleReshapesDifferentDisjointSets) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeConcreteTensor({36});
+  fusion.addInput(tv0);
+  auto tv1 = slice(tv0, std::vector<int64_t>{0}, std::vector<int64_t>{24});
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {24}, {2, 12});
+  auto tv4 = reshape(tv2, {36}, {4, 9});
+  auto tv5 = sin(tv3);
+  auto tv6 = cos(tv4);
+  fusion.addOutput(tv5);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({36}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+  EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 }
 
 } // namespace nvfuser

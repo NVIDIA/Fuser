@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -322,7 +323,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     // The second op was simply a "Set" operation, so we just skip it
     replacement = first->output(0)->as<TensorView>();
   } else {
-    TensorView* input_tv = first->input(0)->as<TensorView>();
+    auto* input_tv = first->input(0)->as<TensorView>();
     switch (simple_op_type_opt.value()) {
       case AxisOp::PRESERVE:
         // This is equivalent to a set Op
@@ -374,8 +375,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   //      v
   //  [b{1}, i0]
   //
-  // Such resharding expressions won't be resolved by `insert_reshardings`
-  // because `insert_reshardings` runs before `remove_bcast_squeeze`.
+  // Such resharding expressions won't be resolved by `decompose_reshardings`
+  // because `decompose_reshardings` runs before `remove_bcast_squeeze`.
   // Therefore, if resharding is needed, instead of replacing `orig` with
   // `replacement`, we link them with a resharding `set`.
   bool needs_resharding = false;
@@ -394,8 +395,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   // replaying the allocation domain. Otherwise it might alter user semantics,
   // violating memory layout required by aliasing
   if (orig->isFusionOutput()) {
-    TransformReplay::selfReplay(
-        orig->domain(), replacement->domain(), /*ignore_reductions=*/true);
+    TransformReplay::selfReplay(orig->domain(), replacement->domain());
   }
 
   if (needs_resharding) {

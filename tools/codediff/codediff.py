@@ -22,6 +22,7 @@ import re
 import subprocess
 import sys
 
+import cxxfilt
 from dataclasses_json import dataclass_json
 
 
@@ -30,14 +31,18 @@ from dataclasses_json import dataclass_json
 class GitRev:
     full_hash: str
     diff: str | None = None
-    abbrev: str = field(init=False)
-    title: str = field(init=False)
-    author_name: str = field(init=False)
-    author_email: str = field(init=False)
-    author_time: str = field(init=False)
-    commit_time: str = field(init=False)
+    abbrev: str | None = None
+    title: str | None = None
+    author_name: str | None = None
+    author_email: str | None = None
+    author_time: str | None = None
+    commit_time: str | None = None
 
     def __post_init__(self):
+        if self.abbrev is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.abbrev = (
             subprocess.run(
                 ["git", "rev-parse", "--short", self.full_hash], capture_output=True
@@ -117,6 +122,10 @@ class CompiledKernel:
     index_type: str | None = None
 
     def __post_init__(self):
+        if self.launch_params is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.parse_ptxas()
         self.parse_launch_params()
 
@@ -175,6 +184,7 @@ class CompiledKernel:
         if self.launch_params_str is None:
             return
 
+        self.launch_params = None
         for line in self.launch_params_str.splitlines():
             m = re.search(
                 r"Launch Parameters: BlockDim.x = (.*), BlockDim.y = (.*), BlockDim.z = (.*), "
@@ -444,25 +454,29 @@ class TestRun:
     """A single process that might contain many kernels, grouped into tests"""
 
     directory: str
-    git: GitRev = field(init=False)
-    name: str = field(init=False)
-    command: str = field(init=False)
-    command_type: CommandType = field(init=False)
-    exit_code: int = field(init=False)
-    env: str = field(init=False)
-    gpu_names: str = field(init=False)
-    nvcc_version: str = field(init=False)
+    git: GitRev | None = None
+    name: str | None = None
+    command: str | None = None
+    command_type: CommandType | None = None
+    exit_code: int | None = None
+    env: str | None = None
+    gpu_names: str | None = None
+    nvcc_version: str | None = None
     # map from name of test to list of kernel base filenames
-    kernel_map: dict[str, CompiledTest] = field(default_factory=dict)
+    kernel_map: dict[str, CompiledTest] | None = None
     # collecting the preamble lets us skip it when diffing, and lets us compare
     # only the preamble between runs
-    preamble: str = field(init=False)
+    preamble: str | None = None
     # The following lets us skip preamble when loading kernels. Note that the
     # preamble can change length due to differing index types, so we can't rely
     # on f.seek()
-    preamble_size_lines: int = field(init=False)
+    preamble_size_lines: int | None = None
 
     def __post_init__(self):
+        if self.git is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         if not os.path.isdir(self.directory):
             print(f"ERROR: {self.directory} does not name a directory")
             sys.exit(1)
@@ -587,6 +601,8 @@ class TestRun:
         """Get a string of the kernel, optionally stripping the preamble"""
         kern = self.kernel_map[test_name].kernels[kernel_number]
         basename = kern.filename
+        if kern.code is not None:
+            return kern
         fullname = os.path.join(self.directory, "cuda", basename)
         kern.code = ""
         with open(fullname, "r") as f:
@@ -672,14 +688,18 @@ class KernelDiff:
     kernel2: CompiledKernel
     diff_lines: InitVar[list[str]] = []
     ptx_diff_lines: InitVar[list[str] | None] = []
-    diff: str = field(init=False)
     new_lines: int = 0
     removed_lines: int = 0
     ptx_diff: str | None = None
     new_ptx_lines: int = 0
     removed_ptx_lines: int = 0
+    diff: str | None = None
 
     def __post_init__(self, diff_lines: list[str], ptx_diff_lines: list[str] | None):
+        if self.diff is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         self.diff = "\n".join(diff_lines)
 
         for line in diff_lines:
@@ -707,35 +727,62 @@ class TestDiff:
     kernel_diffs: list[KernelDiff] | None = None
 
 
+filename_pattern = re.compile(r"__tmp_\w+")
+kernel_pattern = re.compile(r"(?P<prefix>kernel|nvfuser)_\d+")
+
+
+def sanitize_symbol_name(symb: str) -> str:
+    """
+    Replace mangled kernel names like
+      _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+    or
+      _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
+
+    This function first demangles the name, then parses each piece to check
+    for common patterns to replace. This lets us replace stuff like "kernel_4"
+    with "kernel_N" or "nvfuser_4" with "nvfuser_N". Note that this does not
+    "mangle" the name back since there does not seem to be a useful utility
+    for doing so and cxxfilt only does demangling. As this is only for diff
+    purposes, the report will only show the demangled names in the diff
+    portions, but clicking on the original code will show the actual original
+    mangled symbol names.
+    """
+    suffix = ""
+    while len(symb) > 0:
+        # PTX sometimes refers to local variables as
+        # <demangled_function_name>_<variable_name>. For example,
+        #   ZN3nvf9nvfuser_8ENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE_param_4
+        # Represents
+        #   nvf::nvfuser_8(nvf::Tensor<nvf::__half, 3, 3>, nvf::Tensor<nvf::__half, 3, 3>, nvf::TensorMap, nvf::TensorMap, nvf::Tensor<nvf::__half, 2, 2>)_param_4
+        # Here we loop, cutting off more and more suffix until we are able to
+        # demangle in order to demangle to something like the above
+        try:
+            d = cxxfilt.demangle(symb)
+            break
+        except cxxfilt.InvalidName:
+            suffix = symb[-1] + suffix
+            symb = symb[:-1]
+    # Replace "__tmp_kernel_pointwise_f0_c1_r0_g0_cu" or "__tmp_kernel_4" with "__tmp_filename"
+    d = re.sub(filename_pattern, "__tmp_filename", d)
+    # Replace "kernel_4" or "nvfuser_8" with "kernel_N"
+    d = re.sub(kernel_pattern, lambda m: f"{m.groupdict()['prefix']}_N", d)
+    return d + suffix
+
+
+# Mangled symbol names start with _Z in the Itanium ABI
+# https://itanium-cxx-abi.github.io/cxx-abi/abi.html#mangling
+symbol_pattern = re.compile(r"\b_Z\w+\b")
+comment_pattern = re.compile(r"//.*$")
+
+
 def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     """Remove comments and remove kernel id"""
     sanitary_lines = []
     for l in lines:
-        # Replace mangled kernel names like
-        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
-        # or
-        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
-        # with
-        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
-
-        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
-        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
-        if m is not None:
-            d = m.groupdict()
-            scopenamelen = int(d["scopenamelen"])
-            # demangle second part in remainder after scope name
-            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
-            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
-            if mrem is not None:
-                drem = mrem.groupdict()
-                varnamelen = int(drem["varnamelen"])
-                remainder = (
-                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
-                )
-            l = d["prefix"] + "11kernelscope" + remainder
+        l = re.sub(symbol_pattern, lambda m: sanitize_symbol_name(m.group()), l)
 
         # Remove comments. This fixes mismatches in PTX "callseq" comments, which appear to be non-repeatable.
-        l = re.sub(r"//.*$", "", l)
+        l = re.sub(comment_pattern, "", l)
         sanitary_lines.append(l)
     return sanitary_lines
 
@@ -752,10 +799,14 @@ class TestDifferences:
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
     inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
-    preamble_diff: str = field(init=False)
-    env_diff: str = field(init=False)
+    preamble_diff: str | None = None
+    env_diff: str | None = None
 
     def __post_init__(self, show_diffs: bool, kernel_inclusion_criterion: str):
+        if self.preamble_diff is not None:
+            # Avoid running __post_init__ during deserialization
+            return
+
         if self.run1.command != self.run2.command:
             print("WARNING: commands differ between runs", file=sys.stderr)
             print(f"  {self.run1.directory}: {self.run1.command}", file=sys.stderr)
@@ -927,6 +978,9 @@ class TestDifferences:
             .decode("utf-8")
         )
         context["tool_git"] = GitRev(head_hash)
+        context["explain_api_url"] = os.environ.get(
+            "CODEDIFF_EXPLAIN_API_URL", "/api/explain-diff"
+        )
 
         return template.render(context)
 

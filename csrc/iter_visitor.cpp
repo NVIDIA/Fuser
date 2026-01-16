@@ -69,9 +69,19 @@ class MemberStatements : public OptOutDispatch {
     next_stmts_.push_back(stmt->stopOffset());
   }
 
+  void handle(RaggedIterDomain* stmt) final {
+    // Visit the standard IterDomain fields
+    next_stmts_.push_back(stmt->start());
+    next_stmts_.push_back(stmt->extent());
+    next_stmts_.push_back(stmt->stopOffset());
+    // Visit the extents TensorView (ragged-specific field)
+    next_stmts_.push_back(stmt->extents());
+  }
+
   void handle(TensorDomain* stmt) final {
-    next_stmts_.insert(
-        next_stmts_.end(), stmt->loop().begin(), stmt->loop().end());
+    for (const std::vector<IterDomain*>* dom : stmt->allDomains()) {
+      next_stmts_.insert(next_stmts_.end(), dom->begin(), dom->end());
+    }
   }
 
   void handle(TensorView* tv) final {

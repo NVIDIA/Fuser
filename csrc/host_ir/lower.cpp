@@ -5,25 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <host_ir/lower.h>
-#include <host_ir/lower_to_communication.h>
-#include <host_ir/pass/convert_op_to_communication.h>
-#include <host_ir/pass/stream_parallel_type.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/insert_reshardings.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <runtime/fusion_kernel_runtime.h>
+#include "host_ir/lower.h"
+
 #include <limits>
+
+#include "device_lower/utils.h"
+#include "host_ir/lower_to_communication.h"
+#include "host_ir/pass/convert_op_to_communication.h"
+#include "host_ir/pass/stream_parallel_type.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "runtime/fusion_kernel_runtime.h"
 
 namespace nvfuser {
 
@@ -70,17 +72,34 @@ bool HostIrLower::shouldMergeSegmentedGroups(
   return true;
 }
 
+namespace {
+std::set<DeviceIdxType> involvedDevices(Expr* expr) {
+  std::set<DeviceIdxType> ret;
+  for (const auto& tvs :
+       {ir_utils::filterByType<TensorView>(expr->inputs()),
+        ir_utils::filterByType<TensorView>(expr->outputs())}) {
+    for (auto* tv : tvs) {
+      if (tv->hasDeviceMesh()) {
+        const auto& mesh = tv->getDeviceMesh().vector();
+        ret.insert(mesh.begin(), mesh.end());
+      } else {
+        ret.insert(0);
+      }
+    }
+  }
+  return ret;
+}
+} // namespace
+
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
     DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::InsertReshardingsPass>::runPass(fusion.get());
-  preseg_passes::OptimizationPass<
-      preseg_passes::FinalizeMultideviceDomainsPass>::runPass(fusion.get());
+  // `PropagateShardingsPass` and `ReorderShardedAxisPass` are not run here
+  // since they are incompatible with MultiDeviceExecutor.
+  OptimizationPass<preseg_passes::DecomposeReshardingsPass>::runPass(
+      fusion.get());
 
   // Performs segmentation at the inter-device communications
   // Each SegmentedGroup represents a pipeline's stage, and can be either
@@ -97,8 +116,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
           std::move(fusion), KernelArgumentHolder(), options, true);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
-  RuntimeWorkSpace workspace;
-  prepareRuntimeOrder(staged_fusion.get(), workspace);
+  RuntimeWorkSpace workspace = prepareRuntimeOrder(*staged_fusion);
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();
@@ -116,7 +134,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
 
   for (auto group : workspace.group_run_order) {
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
-    if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
+    if (involvedDevices(group->exprs().front()).count(my_device_index) == 0) {
       continue;
     }
     // we decide whether to insert the Expr as a standalone op in the
@@ -130,7 +148,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       NVF_ERROR(
           group->exprs().size() == 1,
           "Expr executed as a standalone op cannot be fused");
-      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().at(0)));
+      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().front()));
     } else {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);
@@ -147,13 +165,15 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   for (auto tv : hic->allTvs()) {
-    // set all host tensors to global memory type. This must be the case by
-    // definition of a host tensor, and setting the memory type to global is
-    // also required to avoid Allocate HIR nodes to throw
-    tv->setMemoryType(MemoryType::Global);
+    // set all host tensors to global or symmetric memory type. This must be the
+    // case by definition of a host tensor, and setting the memory type to
+    // global is also required to avoid Allocate HIR nodes to throw
+    if (tv->getMemoryType() != MemoryType::Symmetric) {
+      tv->setMemoryType(MemoryType::Global);
+    }
   }
 
-  hir_pass::StreamParallelType().runPass(hic.get());
+  hir_pass::StreamParallelType(params_).runPass(hic.get());
 
   hir_pass::ConvertOpToCommunication(params_).runPass(hic.get());
 

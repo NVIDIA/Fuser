@@ -72,6 +72,10 @@ PrimDataType getIndexTypeOfKernel(
     const KernelArgumentHolder& inputs,
     ExpressionEvaluator& ee);
 
+// Check if the block scales output of Block Quantization Op
+// is a segment output.
+bool hasNonTerminalBlockQuantizeOp(Fusion* fusion);
+
 class SchedulerTopologyChecker {
  public:
   // Checks if any broadcasts are resolved after a reduction that don't follow
@@ -107,11 +111,28 @@ class SchedulerTopologyChecker {
 
   static bool hasResizeAndIndexOps(Fusion* fusion);
 
+  // Checks if fusion satisfies the buffer requirement for special operations.
+  // E.g. for PreprocessGroupedMatmulInputSf, the runtime function requires both
+  // offsets (inputs) and the output TensorView to reside on global memory. This
+  // is because indexing is not done during lowering, but rather by runtime
+  // function. Keeping offsets and outputs in global memory allows random access
+  // without synchronization by threads. We currently rejects fusion where the
+  // runtime requirements are not satisfied.
+  static bool rejectScheduleFusionGlobalBufferRequirement(
+      Fusion* fusion,
+      SchedulerType scheduler_type);
+
   // Checks if a series of reshape ops creates a cycle in the ID
   // graph. It is not currently supported. For example,
   // propagateReshapeTransforms won't work as it won't find any
   // terminating reshape IDs.
   static bool hasCyclicReshape(Fusion* fusion);
+
+  // Checks if there are incompatible reshapes in the fusion.
+  // reshapes are propagated to other tvs, replaying one reshape
+  // should not cause conflicts with other reshapes, e.g. two ids
+  // are the same disjoint val set can't be split by different factors.
+  static bool hasIncompatibleTransforms(Fusion* fusion);
 };
 
 } // namespace registry_utils

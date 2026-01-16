@@ -13,9 +13,12 @@
 #include <ir/cloner.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <tensor_metadata.h>
+
+#include <ranges>
 
 namespace nvfuser {
 
@@ -218,22 +221,22 @@ class BackwardTraverseFromLogicalToAlloc {
 };
 
 void validateAllocationSizesAndStrides(
-    const std::vector<IterDomain*>& alloc_dom,
-    const std::vector<std::optional<bool>>& contiguity,
+    TensorView* tv,
     c10::IntArrayRef sizes,
     c10::IntArrayRef strides) {
-  NVF_ERROR(alloc_dom.size() == contiguity.size());
+  const std::vector<IterDomain*>& alloc_dom = tv->getMaybeAllocationDomain();
+  const std::vector<std::optional<bool>>& contiguity = tv->getContiguity();
+  NVF_ERROR_EQ(alloc_dom.size(), contiguity.size());
   checkAllEqual(
-      {TensorDomain::noReductions(alloc_dom).size(),
-       sizes.size(),
-       strides.size()});
+      {std::ranges::distance(alloc_dom | TensorDomain::kNoReductions),
+       std::ssize(sizes),
+       std::ssize(strides)});
 
   int64_t expected_stride_if_contiguous = 1;
-  auto dim_index = static_cast<int64_t>(sizes.size());
+  auto dim_index = std::ssize(sizes);
   // Go backwards because it's easier to compute the expected stride this way.
-  for (auto domain_index = static_cast<int64_t>(alloc_dom.size()) - 1;
-       domain_index >= 0;
-       domain_index--) {
+  for (auto domain_index :
+       arange(std::ssize(alloc_dom)) | std::views::reverse) {
     IterDomain* alloc_id = alloc_dom[domain_index];
     if (alloc_id->isReduction()) {
       continue;
@@ -246,49 +249,56 @@ void validateAllocationSizesAndStrides(
     if (alloc_id->isBroadcast()) {
       NVF_CHECK(!contiguity[domain_index].has_value());
       if (alloc_id->hasExpandedExtent()) {
-        NVF_CHECK(
-            stride == 0,
-            "Expecting an expanded dimension on dimension ",
-            dim_index,
-            " but found stride ",
-            stride);
+        // When the runtime size after materialization is 1, a
+        // non-zero stride is harmless
+        if (size != 1) {
+          NVF_CHECK_EQ(
+              stride,
+              0,
+              "Expecting an expanded dimension on dimension ",
+              dim_index);
+        }
       }
       continue;
     }
 
     if (alloc_id->isDeviceDim()) {
-      NVF_CHECK(size == 1);
+      NVF_CHECK_EQ(size, 1);
       continue;
     }
 
     NVF_CHECK(contiguity[domain_index].has_value());
-    if (*contiguity[domain_index]) {
-      NVF_CHECK(
-          stride == expected_stride_if_contiguous,
-          "Stride mismatch with contiguity info. ",
-          " allocation domain: ",
-          ir_utils::toString(alloc_dom),
-          ": sizes: ",
-          sizes,
-          ": strides: ",
-          strides,
-          "; contiguity: ",
-          toDelimitedString(contiguity),
-          "; dim: ",
-          domain_index,
-          "; expected stride: ",
-          expected_stride_if_contiguous,
-          "; actual stride: ",
-          stride);
+    if (size > 1) {
+      if (*contiguity[domain_index]) {
+        NVF_CHECK_EQ(
+            stride,
+            expected_stride_if_contiguous,
+            "TensorView ",
+            tv->toString(),
+            "'s stride mismatch with contiguity info. ",
+            " allocation domain: ",
+            ir_utils::toString(alloc_dom),
+            ": sizes: ",
+            sizes,
+            ": strides: ",
+            strides,
+            "; contiguity: ",
+            toDelimitedString(contiguity),
+            "; dim: ",
+            domain_index);
+      }
+
+      // When `size=1`, we keep `expected_stride_if_contiguous` from the
+      // previous iteration.
+      expected_stride_if_contiguous = stride * size;
     }
-    expected_stride_if_contiguous = stride * size;
   }
 }
 
 } // namespace
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>>
-inferAndValidateAllocationSizesAndStrides(
+inferAllocationSizesAndStrides(
     const at::Tensor& tensor,
     TensorView* tv,
     ExpressionEvaluator ee) {
@@ -299,7 +309,7 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
   std::unordered_map<IterDomain*, std::pair<int64_t, int64_t>> active_ids;
   int64_t dim_index = 0;
-  for (IterDomain* id : TensorDomain::noReductions(logical)) {
+  for (IterDomain* id : logical | TensorDomain::kNoReductions) {
     active_ids[id] = {logical_sizes.at(dim_index), tensor.stride(dim_index)};
     dim_index++;
   }
@@ -314,19 +324,57 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> allocation_strides;
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
-  for (IterDomain* id : TensorDomain::noReductions(alloc)) {
+  for (IterDomain* id : alloc | TensorDomain::kNoReductions) {
+    auto it = active_ids.find(id);
+    NVF_ERROR(
+        it != active_ids.end(),
+        "Allocation domain of tensor ",
+        tv->toString(),
+        " is not complete. Missing ID: ",
+        id->toString());
+    auto [size, stride] = it->second;
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {
-      allocation_sizes.push_back(active_ids.at(id).first);
+      allocation_sizes.push_back(size);
     }
-    allocation_strides.push_back(active_ids.at(id).second);
+    allocation_strides.push_back(stride);
+  }
+  return {std::move(allocation_sizes), std::move(allocation_strides)};
+}
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAndValidateAllocationSizesAndStrides(
+    const at::Tensor& tensor,
+    TensorView* tv,
+    ExpressionEvaluator ee) {
+  auto [allocation_sizes, allocation_strides] =
+      inferAllocationSizesAndStrides(tensor, tv, ee);
+
+  bool skip_validation = false;
+
+  // Skip validation for block scales of BlockQuantizationOp with
+  // swizzled scales.
+  if (tv->definition() && tv->definition()->isA<BlockQuantizationOp>()) {
+    auto bqop = tv->definition()->as<BlockQuantizationOp>();
+    if (bqop->isSwizzledScales() && tv == bqop->blockScales()) {
+      skip_validation = true;
+    }
   }
 
-  // Only validate final sizes and strides when we have a non-empty tensor.
-  if (tensor.numel() != 0) {
-    validateAllocationSizesAndStrides(
-        alloc, tv->getContiguity(), allocation_sizes, allocation_strides);
+  // Skip validation for scale input to ScaledMmaOp as it will be swizzled.
+  if (tv->uses().size() == 1 && tv->uses().at(0)->isA<ScaledMmaOp>()) {
+    auto scaled_mma = tv->uses().at(0)->as<ScaledMmaOp>();
+    // Only skip validation for scale inputs, not data inputs
+    if (tv == scaled_mma->scale1() || tv == scaled_mma->scale2()) {
+      skip_validation = true;
+    }
+  }
+
+  // Only validate final sizes and strides when we have a non-empty tensor
+  // or the tensor is a scale input to the scaledMmaOp
+  if (tensor.numel() != 0 && !skip_validation) {
+    validateAllocationSizesAndStrides(tv, allocation_sizes, allocation_strides);
   }
   return {std::move(allocation_sizes), std::move(allocation_strides)};
 }
@@ -371,6 +419,18 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   metadata->alloc_stride_data = std::move(allocation_strides);
   metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
   return {PolymorphicValue(std::move(struct_))};
+}
+
+void validateSizesAndStrides(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& ee) {
+  NVF_ERROR_EQ(tensors.size(), tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, ee);
+    }
+  }
 }
 
 } // namespace nvfuser

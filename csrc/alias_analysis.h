@@ -54,8 +54,8 @@ class AliasAnalysisResult {
   TensorView* getRoot(const TensorView* alias) const;
 
  private:
-  // Maps an alias (e.g. the output of a `ViewOp`) to its direct source (e.g.
-  // the input of the same `ViewOp`). Also stores the preferred output layout
+  // Maps an alias (e.g. the output of a `ReshapeOp`) to its direct source (e.g.
+  // the input of the same `ReshapeOp`). Also stores the preferred output layout
   // for the alias. Consider path compression, a common optimization used in
   // disjoint-set data structure, so it's easy to figure out the root of an
   // alias.

@@ -209,7 +209,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
 // size 1. The order of the returned parallel types is from z to x.
 std::vector<ParallelType> getNonTrivialActiveThreadParallelTypes(
     Fusion* fusion) {
-  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& pdim_map = GpuLower::current()->info().parallelDimensionMap();
   std::vector<ParallelType> nontrivial_tid_ptypes;
   for (auto pt : std::views::reverse(kParallelTypeTIDs)) {
     Val* size = pdim_map.getRaw(pt);
@@ -287,7 +287,7 @@ getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   auto nontrivial_tid_ptypes =
       getNonTrivialActiveThreadParallelTypes(expr->fusion());
   const auto& loop_domain = ir_utils::getTvOutput(expr)->getLoopDomain();
-  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  const auto& pdim_map = GpuLower::current()->info().parallelDimensionMap();
   // Get the contiguity of nontrivial_tid_ptypes in the loop domain as described
   // above. The contiguity of each item in nontrivial_tid_ptypes can be computed
   // as follows:

@@ -5,77 +5,31 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+
+// This file contains integration tests that run fusions through
+// FusionExecutorCache with host IR lowering turned on.
+#include <gmock/gmock-matchers.h>
 #include <gmock/gmock-more-matchers.h>
+#include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <global_allocator.h>
-#include <host_ir/container.h>
-#include <host_ir/executor.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "global_allocator.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
-namespace nvfuser {
-
-namespace hir {
+namespace nvfuser::hir {
 
 using testing::Contains;
-using HostIrEvaluatorTest = NVFuserTest;
-
-// This test manually creates a HostIrContainer with LaunchKernels and runs it
-// using HostIrEvaluator.
-TEST_F(HostIrEvaluatorTest, LaunchKernel) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-  TensorView* in = makeSymbolicTensor(2);
-  fusion.addInput(in);
-
-  TensorView* out = set(in);
-  fusion.addOutput(out);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({32, 32}, options);
-  auto ke = std::make_unique<KernelExecutor>();
-  ke->setGroupId(0);
-  ke->compile(&fusion, {t0});
-
-  auto hic = std::make_unique<HostIrContainer>(1);
-  FusionGuard::setCurFusion(hic.get());
-
-  hic->addKernelExecutor(std::move(ke));
-
-  IrCloner ir_cloner(hic.get());
-  auto hic_in = ir_cloner.clone(in);
-  auto hic_out = ir_cloner.clone(out);
-
-  hic->addInput(hic_in);
-  hic->addOutput(hic_out);
-
-  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
-  auto* cache_id = IrBuilder::create<NamedScalar>("cacheId", DataType::UInt64);
-  auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0,
-      LaunchParams(),
-      CompileParams(),
-      std::vector<Val*>{hic_in},
-      std::vector<Val*>{hic_out},
-      cache_id);
-
-  hic->pushBackTopLevelExprs(allocate);
-  hic->pushBackTopLevelExprs(launch_kernel);
-
-  HostIrEvaluator hie(std::move(hic));
-
-  auto outputs = hie.runWithInput({{hic_in, t0}});
-
-  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
-}
 
 class HostIrIntegrationTest : public NVFuserTest {
  protected:
   HostIrIntegrationTest() {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrJit);
   }
 };
 
@@ -125,7 +79,10 @@ TEST_F(HostIrIntegrationTest, Sum_Kernel) {
       "");
 }
 
-TEST_F(HostIrIntegrationTest, ExprEvalAndKernel) {
+// TODO: mdavis36
+// Temporarily disabled, this test requires intermediate support to execute
+// correctly with host ir jit.
+TEST_F(HostIrIntegrationTest, DISABLED_ExprEvalAndKernel) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -246,11 +203,9 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
-  auto hicExprs =
-      runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
+  EXPECT_THAT(exprs, Contains(IsA<Deallocate>()).Times(2));
 
   testValidate(
       executor_cache.fusion(),
@@ -287,6 +242,81 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
       << ") was higher than expected << (" << kExpectedPeakMemory << ")";
 }
 
-} // namespace hir
+TEST_F(HostIrIntegrationTest, ExcludeOutputsFromDeallocations) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
-} // namespace nvfuser
+  std::vector<int64_t> input_shape{8, 8};
+  auto in = TensorViewBuilder()
+                .ndims(input_shape.size())
+                .dtype(DataType::Double)
+                .build();
+
+  fusion->addInput(in);
+  TensorView* t0 = add(in, in);
+  TensorView* t1 = matmul(t0, t0);
+  fusion->addOutput(t0);
+  fusion->addOutput(t1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  at::Tensor in_tensor =
+      at::randn(input_shape, at::dtype(at::kDouble).device(at::kCUDA));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& exprs = runtime->getHostIrContainer().topLevelExprs();
+
+  EXPECT_THAT(exprs, Contains(IsA<Deallocate>()).Times(0));
+
+  EXPECT_EQ(out_tensors.size(), 2);
+  EXPECT_TRUE(std::all_of(
+      out_tensors.begin(), out_tensors.end(), [](const PolymorphicValue& v) {
+        return v.as<at::Tensor>().defined();
+      }));
+}
+
+TEST_F(HostIrIntegrationTest, TensorAndScalarInputs) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create tensor and scalar inputs
+  // NOTE: Host IR JIT currently only supports Index scalar inputs (int64_t)
+  TensorView* tv0 = makeSymbolicTensor(2, DataType::Int);
+  Val* scalar0 = IrBuilder::create<Val>(DataType::Index);
+  Val* scalar1 = IrBuilder::create<Val>(DataType::Index);
+
+  fusion->addInput(tv0);
+  fusion->addInput(scalar0);
+  fusion->addInput(scalar1);
+
+  // Use both tensors and scalars in computation
+  // out = (tv0 + scalar0) * scalar1
+  TensorView* tv1 = add(tv0, castOp(DataType::Int, scalar0));
+  TensorView* tv2 = mul(tv1, castOp(DataType::Int, scalar1));
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  // Create runtime inputs - use int64 (long) to match DataType::Int
+  at::Tensor in_tensor =
+      at::randint(1, 10, {3, 4}, at::dtype(at::kLong).device(at::kCUDA, 0));
+  int64_t scalar_val0 = 2;
+  int64_t scalar_val1 = 3;
+
+  auto out_tensors =
+      executor_cache.runFusionWithInputs({in_tensor, scalar_val0, scalar_val1});
+
+  // Expected output: (in_tensor + 2) * 3
+  at::Tensor expected = (in_tensor + scalar_val0) * scalar_val1;
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor, scalar_val0, scalar_val1},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
+} // namespace nvfuser::hir

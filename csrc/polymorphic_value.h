@@ -11,7 +11,6 @@
 #include <any>
 #include <complex>
 #include <cstddef>
-#include <functional>
 #include <numeric>
 #include <ostream>
 #include <unordered_map>
@@ -34,18 +33,19 @@ struct DataType;
 // exponential compilation time for all pointer types in PolymorphicValue.
 class Pointer {
   std::byte* ptr_;
-  int64_t size_;
+  int64_t size_bit_;
 
  public:
   template <typename T>
-  Pointer(T* ptr) : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(sizeof(T)) {}
+  Pointer(T* ptr)
+      : ptr_(reinterpret_cast<std::byte*>(ptr)), size_bit_(sizeof(T) * 8) {}
 
   inline Pointer(void* ptr, DataType dtype);
 
-  Pointer() : ptr_(nullptr), size_(-1) {}
+  Pointer() : ptr_(nullptr), size_bit_(-1) {}
 
-  int64_t size() const {
-    return size_;
+  int64_t sizeBit() const {
+    return size_bit_;
   }
 
   template <typename T>
@@ -54,23 +54,27 @@ class Pointer {
   }
 
   Pointer& operator+=(int64_t offset) {
-    ptr_ += offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ += offset_bit / 8;
     return *this;
   }
 
   Pointer& operator-=(int64_t offset) {
-    ptr_ -= offset * size_;
+    int64_t offset_bit = offset * size_bit_;
+    NVF_ERROR(
+        offset_bit % 8 == 0, "Offset must be a multiple of 8 bits (one byte)");
+    ptr_ -= offset_bit / 8;
     return *this;
   }
 
   Pointer& operator++() {
-    ptr_ += size_;
-    return *this;
+    return *this += 1;
   }
 
   Pointer& operator--() {
-    ptr_ -= size_;
-    return *this;
+    return *this -= 1;
   }
 
   Pointer operator++(int) {
@@ -98,8 +102,8 @@ class Pointer {
   }
 
   int64_t operator-(const Pointer& other) const {
-    NVF_ERROR(size_ == other.size_);
-    return (ptr_ - other.ptr_) / (int64_t)size_;
+    NVF_ERROR(size_bit_ == other.size_bit_, "Size must be the same");
+    return (int64_t)((ptr_ - other.ptr_) * 8) / size_bit_;
   }
 
   bool operator==(const Pointer& other) const {
@@ -185,7 +189,7 @@ class StructHandle {
   StructHandle& operator=(const StructHandle& other) = default;
   StructHandle& operator=(StructHandle&& other) = default;
 
-  bool operator==(const StructHandle& other) const;
+  NVF_API bool operator==(const StructHandle& other) const;
 
   template <typename T>
   bool is() const {
@@ -220,6 +224,8 @@ using PolymorphicValue = dynamic_type::DynamicType<
     bool>;
 
 namespace PolymorphicValue_functions {
+
+NVF_API size_t hash(const PolymorphicValue& v);
 
 NVF_API std::string toString(const PolymorphicValue& v);
 
@@ -334,13 +340,37 @@ inline PolymorphicValue ceildiv(
 inline PolymorphicValue max(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(a);
+  }
   return PolymorphicValue(a > b ? a : b);
+}
+
+inline PolymorphicValue fmax(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(b);
+  }
+  return PolymorphicValue(a < b ? b : a);
 }
 
 inline PolymorphicValue min(
     const PolymorphicValue& a,
     const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(a);
+  }
   return PolymorphicValue(a < b ? a : b);
+}
+
+inline PolymorphicValue fmin(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  if (a != a) {
+    return PolymorphicValue(b);
+  }
+  return PolymorphicValue(a > b ? b : a);
 }
 
 inline PolymorphicValue gcd(
@@ -366,6 +396,19 @@ inline PolymorphicValue abs(const PolymorphicValue& a) {
     return a.as<at::Tensor>().abs();
   }
   NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
+}
+
+inline PolymorphicValue ceil(const PolymorphicValue& a) {
+  if (a.is<int64_t>() || a.is<bool>()) {
+    return a;
+  }
+  if (a.is<double>()) {
+    return PolymorphicValue(std::ceil(a.as<double>()));
+  }
+  if (a.is<at::Tensor>()) {
+    return a.as<at::Tensor>().ceil();
+  }
+  NVF_THROW("PolymorphicValue ceil not implemented for ", a.type().name());
 }
 
 inline PolymorphicValue erf(const PolymorphicValue& a) {
@@ -422,6 +465,72 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
     return (c10::complex<double>)x.as<std::complex<double>>();
   } else {
     return (c10::Scalar)x;
+  }
+}
+
+inline PolymorphicValue where(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b,
+    const PolymorphicValue& c) {
+  if (!a.is<at::Tensor>()) {
+    return a.as<bool>() ? b : c;
+  }
+  // dispatch to at::where with appropriate overload
+  bool b_is_tensor = b.is<at::Tensor>();
+  bool c_is_tensor = c.is<at::Tensor>();
+  if (b_is_tensor && c_is_tensor) {
+    // Both are tensors
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), c.as<at::Tensor>()));
+  } else if (b_is_tensor && !c_is_tensor) {
+    // b is tensor, c is scalar
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), b.as<at::Tensor>(), toScalar(c)));
+  } else if (!b_is_tensor && c_is_tensor) {
+    // b is scalar, c is tensor
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), c.as<at::Tensor>()));
+  } else {
+    // Both are scalars
+    return PolymorphicValue(
+        at::where(a.as<at::Tensor>(), toScalar(b), toScalar(c)));
+  }
+}
+
+inline PolymorphicValue pow(
+    const PolymorphicValue& a,
+    const PolymorphicValue& b) {
+  bool a_is_tensor = a.is<at::Tensor>();
+  bool b_is_tensor = b.is<at::Tensor>();
+  if (a_is_tensor && b_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), b.as<at::Tensor>()));
+  } else if (a_is_tensor) {
+    return PolymorphicValue(at::pow(a.as<at::Tensor>(), toScalar(b)));
+  } else if (b_is_tensor) {
+    return PolymorphicValue(at::pow(toScalar(a), b.as<at::Tensor>()));
+  } else {
+    // no tensor involved, use std::pow, at::pow doesn't support scalar^scalar
+    if (a.is<int64_t>()) {
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<int64_t>()));
+      }
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<int64_t>(), b.as<double>()));
+      }
+    }
+    if (a.is<double>()) {
+      if (b.is<double>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<double>()));
+      }
+      if (b.is<int64_t>()) {
+        return PolymorphicValue(std::pow(a.as<double>(), b.as<int64_t>()));
+      }
+    }
+    NVF_THROW(
+        "PolymorphicValue pow not implemented for ",
+        a.type().name(),
+        " , ",
+        b.type().name());
   }
 }
 

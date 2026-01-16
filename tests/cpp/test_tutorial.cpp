@@ -8,16 +8,16 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <id_model/id_model.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <type.h>
+#include "fusion.h"
+#include "id_model/id_model.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -468,7 +468,7 @@ TEST_F(Tutorial, Reshape) {
     ASSERT_TRUE(tv1->hasRoot());
     ASSERT_EQ(tv1->getLogicalDomain().size(), 1);
     ASSERT_TRUE(tv1->getLogicalDomain().at(0)->definition()->isA<Merge>());
-    Merge* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
+    auto* tv1_merge = tv1->getLogicalDomain().at(0)->definition()->as<Merge>();
     ASSERT_EQ(tv1_merge->inner(), tv1->getRootDomain().at(1));
     ASSERT_EQ(tv1_merge->outer(), tv1->getRootDomain().at(0));
   }
@@ -495,7 +495,7 @@ TEST_F(Tutorial, Reshape) {
     // tv1 = unsqueeze(reshape(squeeze(tv0)));
     ASSERT_TRUE(tv1->definition()->isA<BroadcastOp>());
     auto reshape_output = tv1->definition()->input(0)->as<TensorView>();
-    ASSERT_TRUE(reshape_output->definition()->isA<ViewOp>());
+    ASSERT_TRUE(reshape_output->definition()->isA<ReshapeOp>());
     auto squeeze_output =
         reshape_output->definition()->input(0)->as<TensorView>();
     ASSERT_TRUE(squeeze_output->definition()->isA<SqueezeOp>());

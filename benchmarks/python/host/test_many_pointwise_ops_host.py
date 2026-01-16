@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from ..core import run_benchmark
 import torch
 from ..global_params import PROMOTE_DTYPES
@@ -29,8 +29,9 @@ def pointwise_ops_fusion(fd: FusionDefinition, dtype: DataType, num_iters: int):
     fd.add_output(a)
 
 
-# NOTE: num_iters restricted due to issue #1234.
-@pytest.mark.parametrize("num_iters", [2, 4, 8, 16])
+# TODO: num_iters 32 and 128 are restricted due to issue #5531.
+# NOTE: 22 is the largest, runnable num_iters without timeout.
+@pytest.mark.parametrize("num_iters", [2, 8, 16, 22])
 @pytest.mark.parametrize("host_bench_mode", ["compile", "steady", "dynamic"])
 def test_pointwise_ops_benchmark(
     benchmark,

@@ -56,12 +56,18 @@
 #     this is used for pip wheel build to specify package required for install
 #     e.g. NVFUSER_BUILD_INSTALL_REQUIRES=nvidia-cuda-nvrtc-cu12
 #
+#   NVFUSER_BUILD_NVMMH_INCLUDE_DIR=<ABSOLUTE PATH>
+#     Specify the location to find nvMatmulHeuristics.h
+#
 #   NVFUSER_BUILD_WHEEL_NAME=NAME
 #     Specify the wheel name this is used for pip wheel package where we want
 #     to identify the cuda toolkit version
 #
 #   NVFUSER_BUILD_CPP_STANDARD=STANDARD
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
+#
+#   NVFUSER_BUILD_ENABLE_PCH=1
+#     Enable precompiled headers to speed up compilation. Default is OFF.
 #
 
 import sys

@@ -6,7 +6,6 @@
  */
 // clang-format on
 
-#include <iostream>
 #include <list>
 #include <memory>
 #include <unordered_set>
@@ -15,10 +14,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

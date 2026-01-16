@@ -382,7 +382,7 @@ bool isSegmentSet(const Expr* e);
 // Returns all non-trivial view operations. We shouldn't have trivial view
 // operations but this function is to simply make sure if we ever do we don't
 // pull them in.
-std::vector<ViewOp*> getViewOps(Fusion*);
+std::vector<ReshapeOp*> getReshapeOps(Fusion*);
 
 template <typename T>
 std::string toString(const T& nodes) {
@@ -440,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isGatherLookupTv(const Val* tv);
+bool isAndOnlyIsGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
@@ -575,7 +575,7 @@ inline bool dependenciesSatisfied(
   return true;
 }
 
-//! Check if a conditional scope, i.e., ForLoop or IfThenElse, is
+//! Check if a conditional scope, i.e., kir::ForLoop or IfThenElse, is
 //! guaranteed not to cause thread divergence
 bool isAlignedScopeExpr(const Expr* expr);
 
@@ -678,6 +678,9 @@ std::optional<std::vector<int64_t>> computePermutation(
   return permutation;
 }
 
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation);
+
 template <typename T>
 std::vector<T> applyPermutation(
     const std::vector<T>& in,
@@ -746,6 +749,13 @@ inline bool isMemorySharedAcross(
   }
 }
 
+inline bool isSizeOneDomain(IterDomain* id) {
+  return id->isBroadcast() || id->extent()->isOneInt();
+}
+
+// True if a given domain of a tensor *may* require allocation
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id);
+
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.
@@ -778,9 +788,9 @@ bool isRecursivelyDefined(Val* val);
 // instance of Expr is counted as a single operation.
 int64_t getOperationCount(Val* val);
 
-// Create a ForLoop IR node that represents:
+// Create a kir::ForLoop IR node that represents:
 //   for (int i = 0; i < size; i++)
-ForLoop* createRangeLoop(int64_t size);
+kir::ForLoop* createRangeLoop(int64_t size);
 
 // Returns the first output of Expr that is a TensorView
 TensorView* getTvOutput(const Expr*);
@@ -790,14 +800,14 @@ TensorView* getTvInput(const Expr*);
 
 // Generates the allocation domain for the given logical domain based on the
 // stride order.
-std::vector<IterDomain*> strideOrderToAllocation(
+NVF_API std::vector<IterDomain*> strideOrderToAllocation(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<int64_t>& stride_order);
 
-// Returns the number of bytes of data types of the producer and
+// Returns the number of bits of data types of the producer and
 // consumer tensors of a cast unary op
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* cast_op);
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* cast_op);
 
 // Get the <size> in the PTX instruction of TMem load/store:
 //   tcgen05.st.sync.aligned.32x32b.x<size>.b32
@@ -845,5 +855,18 @@ getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
 std::vector<IterDomain*> getReachableIds(
     const std::vector<IterDomain*>& domain,
     const std::vector<IterDomain*>& dependencies);
+
+// Replay the logical-allocation transformations of a scatter output
+// tensor to a list of logical iter domains for another tensor.
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain);
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt);
+
+// Swizzle the block scales output of the block quantization operation.
+// This applies to block quantization to nvfp4.
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+NVF_API void swizzleBlockScales(TensorView* tv);
 
 } // namespace nvfuser::ir_utils

@@ -5,24 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/optimization_pass.h>
-#include <runtime/executor.h>
-#include <runtime/executor_utils.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/tools/loop_domain_scheduler.h>
-#include <scheduler/tools/resize_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <fstream>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/executor.h"
+#include "runtime/executor_utils.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "scheduler/tools/resize_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -59,9 +57,7 @@ using ResizeTest = NVFuserTest;
 
 using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
-using testing::Each;
 using testing::HasSubstr;
-using testing::Not;
 using testing::Property;
 using testing::ThrowsMessage;
 using testing::UnorderedElementsAre;
@@ -92,7 +88,7 @@ TEST_F(ResizeTest, Pad1) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -123,7 +119,7 @@ TEST_F(ResizeTest, Pad2) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -171,7 +167,7 @@ TEST_F(ResizeTest, Pad3) {
   auto t1 = at::randn(padded_shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
@@ -200,7 +196,7 @@ TEST_F(ResizeTest, Pad4) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -250,7 +246,7 @@ TEST_F(ResizeTest, Pad5) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -296,7 +292,7 @@ TEST_F(ResizeTest, Pad6) {
   auto t1 = at::randn(padded_shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1});
@@ -342,7 +338,7 @@ TEST_F(ResizeTest, Pad7) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -415,7 +411,7 @@ TEST_F(ResizeTest, PadScheduler1) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -449,7 +445,7 @@ TEST_F(ResizeTest, PadScheduler2) {
   auto t1 = at::randn(padded_shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -525,7 +521,7 @@ TEST_F(ResizeTest, PadScheduler4) {
   std::vector<int64_t> pad_extents{1, 1};
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, 1, 1});
@@ -560,7 +556,7 @@ TEST_F(ResizeTest, PadBroadcastInput) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -1400,7 +1396,7 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
   }
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
@@ -1690,7 +1686,7 @@ TEST_F(ResizeTest, PadWithValue) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -1724,7 +1720,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
   auto t0 = at::randn(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -1755,7 +1751,7 @@ TEST_F(ResizeTest, PadHalfWithDoubleValue) {
   auto t0 = at::ones(shape, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -1946,7 +1942,7 @@ TEST_F(ResizeTest, FusionSliceForNanoGPT2) {
 TEST_F(ResizeTest, SliceForNanoGPT3) {
   // To verify input caching condition in this test, disable aliasing as that
   // will skip compilation and no kernel will exist.
-  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
       optimization_guard(false);
 
   auto fusion = std::make_unique<Fusion>();
@@ -2361,7 +2357,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
   auto t1 = at::randn(t1_size, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
@@ -2428,7 +2424,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   }
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
@@ -2472,7 +2468,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   auto t1 = at::randn({3}, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion), args);
@@ -3025,7 +3021,7 @@ TEST_F(ResizeTest, ReshapeToPad) {
   fusion.addOutput(tv2);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
 
@@ -3197,7 +3193,7 @@ TEST_F(ResizeTest, PadExpandedEmpty) {
   auto t0 = at::randn({0}, options).as_strided({2, 0, 3}, {0, 0, 0});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
@@ -3224,7 +3220,7 @@ TEST_F(ResizeTest, PadOfBroadcast) {
   auto t0 = at::randn(shape0, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3255,7 +3251,7 @@ TEST_F(ResizeTest, PadOfExpandedBroadcast) {
   auto t0 = at::randn(shape0, options);
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
@@ -3597,7 +3593,7 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
   std::vector<int64_t> shape({100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
@@ -3645,7 +3641,7 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
   std::vector<int64_t> shape({100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeConcreteTensor(shape);
@@ -3693,7 +3689,7 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   std::vector<int64_t> shape({100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3745,7 +3741,7 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
   std::vector<int64_t> shape({100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3799,7 +3795,7 @@ TEST_F(ResizeTest, SliceThenConcat) {
   std::vector<int64_t> shape({100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   // concrete shapes to avoid dynamic Fusion
   auto tv0 = makeContigConcreteTensor(shape);
@@ -3860,7 +3856,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
   const int64_t rope_size = 32;
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto zero = fusion.zeroVal();
 
@@ -3959,7 +3955,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputs) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4048,7 +4044,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape1) {
   std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4139,7 +4135,7 @@ TEST_P(ResizeSchedulerTest, PropagateSliceToInputsWithReshape2) {
   std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4225,7 +4221,7 @@ TEST_P(ResizeSchedulerTest, PropagateMultipleSlicesToInputs1) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4337,7 +4333,7 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs2) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4449,7 +4445,7 @@ TEST_F(ResizeSchedulerTest, PropagateMultipleSlicesToInputs3) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4748,7 +4744,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4880,7 +4876,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -4935,16 +4931,6 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
     ref_tv->split(0, 128);
     // For BIDx
     ref_tv->split(0, 4);
-
-    {
-      IdModel id_model(&fusion, false);
-      id_model.buildExactGraph();
-      std::ofstream ofs("exact_graph.dot", std::ofstream::trunc);
-      auto dot_string =
-          id_model.idGraph(IdMappingMode::EXACT).toGraphvizDotGraph();
-      ofs << dot_string;
-      ofs.close();
-    }
 
     scheduler_tools::scheduleLoopDomainsLike(
         fusion.allTvs(), ref_tv->getLoopDomain(), /*update_mode=*/true);
@@ -5020,7 +5006,7 @@ TEST_F(ResizeSchedulerTest, SliceRotateCatTwice) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -5115,7 +5101,7 @@ TEST_P(ResizeSchedulerTest, PropagatePadToInputs) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -5206,7 +5192,7 @@ TEST_P(ResizeSchedulerTest, PropagateCatToInputs) {
   std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);
@@ -6139,7 +6125,7 @@ TEST_F(ResizeTest, ReshapeAfterRef) {
   std::vector<int64_t> shape({2, 16, 100});
 
   EnableOptionsGuard enable_options_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto tv0 = makeConcreteTensor(shape);
   fusion.addInput(tv0);

@@ -8,16 +8,21 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
-class PredicateEliminationTest : public NVFuserTest {};
+class PredicateEliminationTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 TEST_F(PredicateEliminationTest, 1) {
   Fusion fusion;
@@ -479,6 +484,75 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateEliminationTest, FullSharedMem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  // Force launching 128 threads at minimum
+  auto tv1 = add(tv0, fusion.oneVal());
+  fusion.addOutput(tv1);
+
+  auto tv2 = zeros({IrBuilder::create<Val>(8)}, DataType::Float);
+  auto tv3 = add(tv2, fusion.oneVal());
+  fusion.addOutput(tv3);
+
+  tv2->setMemoryType(MemoryType::Shared);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  // tv2 expectation: should be predicated even though there's no
+  //  producer tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv2, gpulw));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(PredicateEliminationTest, FullGlobalMem) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({128});
+  fusion.addInput(tv0);
+
+  // Force launching 128 threads at minimum
+  auto tv1 = add(tv0, fusion.oneVal());
+  fusion.addOutput(tv1);
+
+  auto tv2 = zeros({IrBuilder::create<Val>(8)}, DataType::Float);
+  fusion.addOutput(tv2);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+  // tv2 expectation: should be predicated even though there's no
+  //  producer tensor
+  EXPECT_TRUE(PredicatedChecker::isPredicated(tv2, gpulw));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

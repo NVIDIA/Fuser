@@ -19,31 +19,37 @@ jobs:
           ( startsWith(github.event.comment.body, '!build') ||
             startsWith(github.event.comment.body, '!test')
           ) &&
-          ( github.actor == 'xwang233' ||
-            github.actor == 'jjsjann123' ||
+          (
+            github.actor == 'IvanYashchuk' ||
+            github.actor == 'Priya2698' ||
+            github.actor == 'Steboss' ||
             github.actor == 'chang-l' ||
+            github.actor == 'chaserileyroberts' ||
+            github.actor == 'cowanmeg' ||
+            github.actor == 'crcrpar' ||
             github.actor == 'csarofeen' ||
             github.actor == 'drzejan2' ||
-            github.actor == 'IvanYashchuk' ||
             github.actor == 'jacobhinkle' ||
+            github.actor == 'jjsjann123' ||
             github.actor == 'kevinstephano' ||
             github.actor == 'liqiangxl' ||
+            github.actor == 'mattwalsh' ||
+            github.actor == 'mdavis36' ||
             github.actor == 'mmigdal-nv' ||
+            github.actor == 'nWEIdia' ||
             github.actor == 'naoyam' ||
+            github.actor == 'nsarka' ||
+            github.actor == 'protonu' ||
             github.actor == 'ptrblck' ||
             github.actor == 'rdspring1' ||
             github.actor == 'samnordmann' ||
-            github.actor == 'zasdfgbnm' ||
-            github.actor == 'crcrpar' ||
-            github.actor == 'nWEIdia' ||
-            github.actor == 'Priya2698' ||
-            github.actor == 'wujingyue' ||
-            github.actor == 'tfogal' ||
-            github.actor == 'protonu' ||
-            github.actor == 'cowanmeg' ||
-            github.actor == 'nsarka' ||
             github.actor == 'syed-ahmed' ||
-            github.actor == 'wolfcomos'
+            github.actor == 'tbqh' ||
+            github.actor == 'tfogal' ||
+            github.actor == 'wolfcomos' ||
+            github.actor == 'wujingyue' ||
+            github.actor == 'xwang233' ||
+            github.actor == 'zasdfgbnm'
           )
     steps:
       - name: Check if comment is issued by authorized person

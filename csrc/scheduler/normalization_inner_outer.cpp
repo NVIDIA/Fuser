@@ -61,7 +61,8 @@ bool preferWarpSpecialized(
 std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
+    HeuristicDataCache* data_cache,
+    const scheduler_utils::SchedulerHyperParameters* hp = nullptr) {
   FusionGuard fg(fusion);
 
   auto reduction_tv_entry =
@@ -77,7 +78,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   // Get dtype used to store partial outer reduction
   // Get the first inner reduction tv and use it as the reference tv
-  int64_t max_outer_reduction_dtype_size = 1;
+  int64_t max_outer_reduction_dtype_size_bit = 1;
   int64_t n_inner_reduction_tvs = 0;
   TensorView* first_inner_reduction_tv = nullptr;
   for (auto tv : reduction_tvs) {
@@ -85,9 +86,9 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       first_inner_reduction_tv = tv;
       n_inner_reduction_tvs++;
     } else {
-      max_outer_reduction_dtype_size = std::max(
-          max_outer_reduction_dtype_size,
-          dataTypeSizeByte(tv->getDataType().value()));
+      max_outer_reduction_dtype_size_bit = std::max(
+          max_outer_reduction_dtype_size_bit,
+          dataTypeSizeBit(tv->getDataType().value()));
     }
   }
   auto ref_red_tv = first_inner_reduction_tv;
@@ -110,7 +111,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
                 ref_red_tv, reduced_tv, properties.inner_most_dimension_ndims));
       });
 
-  const auto vectorize_factor = vectorize_helper::getVectorizationFactor(
+  auto vectorize_factor = vectorize_helper::getVectorizationFactor(
       runtime_info, reduced_tv, data_cache, vec_break_point.get());
 
   auto persistent_buffer_info_entry =
@@ -120,73 +121,101 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
                 scheduler_utils::persistentBuffers(fusion));
           });
 
-  auto scheduler_hyperparameters_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
-          data_cache, [&]() {
-            return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
-                /*vectorize_factor=*/vectorize_factor,
-                /*unroll_factor=*/1,
-                /*threads_per_block_min=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_min,
-                /*threads_per_block_max=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_max,
-                /*is_warp_specialized=*/
-                isOptionEnabled(EnableOption::WarpSpecializedNormalization));
-          });
-  scheduler_utils::SchedulerHyperParameters& hp =
-      scheduler_hyperparameters_entry.get();
+  int64_t threads_per_block_min =
+      InnerOuterPersistentKernelScheduler::threads_per_block_min;
+  int64_t threads_per_block_max =
+      InnerOuterPersistentKernelScheduler::threads_per_block_max;
+  bool user_enforced_warp_specialization =
+      isOptionEnabled(EnableOption::WarpSpecializedNormalization);
+  if (hp) {
+    NVF_ERROR(
+        (hp->vectorize_factor & (hp->vectorize_factor - 1)) == 0,
+        "Vectorization factor must be a power of 2");
+    NVF_ERROR(
+        hp->vectorize_factor <= vectorize_factor,
+        "Vectorization factor must be less than or equal to the max allowed "
+        "vectorization factor");
+    threads_per_block_min = hp->threads_per_block_min;
+    threads_per_block_max = hp->threads_per_block_max;
+    user_enforced_warp_specialization = hp->is_warp_specialized;
+  }
 
   auto& persistent_buffer_info = persistent_buffer_info_entry.get();
   NVF_ERROR(
       !persistent_buffer_info.persistent_buffers.empty(),
       "Persistent scheduler requires persistent buffers.");
 
-  auto getBufferParams = [&](bool warp_specialized) {
-    return inner_outer_utils::getPersistentBufferStorageParams(
-        fusion,
-        runtime_info,
-        data_cache,
-        reduction_tvs,
-        hp.vectorize_factor,
-        hp.threads_per_block_min,
-        hp.threads_per_block_max,
-        warp_specialized);
-  };
-
   auto makeRParams = [&]() {
     return std::make_unique<ReductionParams>(
         InnerOuterPersistentKernelScheduler::schedulerType());
   };
-
-  if (hp.is_warp_specialized ||
+  if (user_enforced_warp_specialization ||
       preferWarpSpecialized(
           fusion, properties.total_iteration_numel, n_inner_reduction_tvs)) {
-    auto buffer_params = getBufferParams(/*is_warp_specialized=*/true);
-    auto rparams = makeRParams();
-    rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+    auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
+        fusion,
+        runtime_info,
+        data_cache,
+        reduction_tvs,
+        vectorize_factor,
+        threads_per_block_min,
+        threads_per_block_max,
+        /*is_warp_specialized=*/true);
 
-    inner_outer_tma_warp_specialized::getHeuristics(
-        rparams.get(),
-        properties.total_iteration_numel,
-        properties.total_reduction_numel,
-        buffer_params.regs_buffer_size,
-        buffer_params.circular_buffered_smem_size,
-        buffer_params.non_circular_buffered_smem_size,
-        max_outer_reduction_dtype_size,
-        hp.vectorize_factor,
-        hp.threads_per_block_min,
-        hp.threads_per_block_max,
-        buffer_params.project_to_input,
-        runtime_info.getIndexType());
+    // Current implementation assumes persistent buffers are projected to
+    // inputs, making TMA loading beneficial. If not, shared memory persistent
+    // buffers cannot use TMA since their producers are not inputs.
+    if (buffer_params.project_to_input) {
+      // TMA load requires size to be multiple of 16 bytes (128 bits).
+      // In inner-outer scheduler, only shared memory persistent buffers are
+      // TMA loaded and tma load size equals to the buffer size.
+      if (std::all_of(
+              buffer_params.smem_persistent_buffers.begin(),
+              buffer_params.smem_persistent_buffers.end(),
+              [&runtime_info, &persistent_buffer_info](TensorView* buffer) {
+                int64_t buffer_size_regs_bit =
+                    scheduler_utils::getPersistentBufferSizeBitOfTensor(
+                        buffer, runtime_info, persistent_buffer_info);
+                return buffer_size_regs_bit % 128 == 0;
+              })) {
+        auto rparams = makeRParams();
+        rparams->smem_persistent_buffers =
+            buffer_params.smem_persistent_buffers;
 
-    // If warp specialized is enabled, or the heuristic is successful, return
-    if (hp.is_warp_specialized || rparams->is_good_ws_heuristic) {
-      return rparams;
+        inner_outer_tma_warp_specialized::getHeuristics(
+            rparams.get(),
+            properties.total_iteration_numel,
+            properties.total_reduction_numel,
+            buffer_params.regs_buffer_size_bit,
+            buffer_params.circular_buffered_smem_size_bit,
+            buffer_params.non_circular_buffered_smem_size_bit,
+            max_outer_reduction_dtype_size_bit,
+            vectorize_factor,
+            threads_per_block_min,
+            threads_per_block_max,
+            buffer_params.project_to_input,
+            runtime_info.getIndexType());
+
+        // If warp specialized is enabled, or the heuristic is successful,
+        // return
+        if (user_enforced_warp_specialization ||
+            rparams->is_good_ws_heuristic) {
+          return rparams;
+        }
+      }
     }
   }
 
   // Fallback to multi-wave
-  auto buffer_params = getBufferParams(/*is_warp_specialized=*/false);
+  auto buffer_params = inner_outer_utils::getPersistentBufferStorageParams(
+      fusion,
+      runtime_info,
+      data_cache,
+      reduction_tvs,
+      vectorize_factor,
+      threads_per_block_min,
+      threads_per_block_max,
+      /*is_warp_specialized=*/false);
   auto rparams = makeRParams();
   rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
 
@@ -194,13 +223,13 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       rparams.get(),
       properties.total_iteration_numel,
       properties.total_reduction_numel,
-      buffer_params.regs_buffer_size,
-      buffer_params.smem_buffer_size,
-      buffer_params.smem_overhead,
-      max_outer_reduction_dtype_size,
-      hp.vectorize_factor,
-      hp.threads_per_block_min,
-      hp.threads_per_block_max,
+      buffer_params.regs_buffer_size_bit,
+      buffer_params.smem_buffer_size_bit,
+      buffer_params.smem_overhead_bit,
+      max_outer_reduction_dtype_size_bit,
+      vectorize_factor,
+      threads_per_block_min,
+      threads_per_block_max,
       buffer_params.project_to_input,
       runtime_info.getIndexType());
 
@@ -213,6 +242,16 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     Fusion* fusion) {
   FUSER_PERF_SCOPE(
       "InnerOuterPersistentKernelScheduler::canScheduleCompileTime");
+
+  for (auto tv : fusion->allTvs()) {
+    if (tv->dtype() != DataType::Index &&
+        dataTypeSizeBit(tv->dtype()) % 8 != 0) {
+      scheduler_debug_utils::canScheduleRejectReason(
+          schedulerType(), "Does not support sub-byte data types.");
+      return false;
+    }
+  }
+
   // common checks for all persistent heuristics
   if (!normalization_scheduler_utils::checkOpsAndInputs(
           fusion, schedulerType())) {
@@ -277,7 +316,7 @@ bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
     return false;
   }
 
-  if (!ir_utils::getViewOps(fusion).empty()) {
+  if (!ir_utils::getReshapeOps(fusion).empty()) {
     ComputeAtMap ca_map(fusion);
     if (registry_utils::requiresForwardViewReplay(fusion, ca_map)) {
       scheduler_debug_utils::canScheduleRejectReason(
@@ -403,22 +442,6 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       data_cache,
       (int)(reduced_tv->nDims() - properties.inner_most_dimension_ndims));
 
-  auto scheduler_hyperparameters_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::SchedulerHyperParameters>(
-          data_cache, [&]() {
-            return std::make_unique<scheduler_utils::SchedulerHyperParameters>(
-                /*vectorize_factor=*/vectorize_factor,
-                /*unroll_factor=*/1,
-                /*threads_per_block_min=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_min,
-                /*threads_per_block_max=*/
-                InnerOuterPersistentKernelScheduler::threads_per_block_max,
-                /*is_warp_specialized=*/
-                isOptionEnabled(EnableOption::WarpSpecializedNormalization));
-          });
-  scheduler_utils::SchedulerHyperParameters& hp =
-      scheduler_hyperparameters_entry.get();
-
   // check if there is enough register and shared memory for persistence
   const auto buffer_params =
       inner_outer_utils::getPersistentBufferStorageParams(
@@ -426,10 +449,10 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           runtime_info,
           data_cache,
           reduction_tvs,
-          hp.vectorize_factor,
-          hp.threads_per_block_min,
-          hp.threads_per_block_max,
-          hp.is_warp_specialized);
+          vectorize_factor,
+          InnerOuterPersistentKernelScheduler::threads_per_block_min,
+          InnerOuterPersistentKernelScheduler::threads_per_block_max,
+          isOptionEnabled(EnableOption::WarpSpecializedNormalization));
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -446,7 +469,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
           ->maxThreadsPerMultiProcessor;
 
   const int64_t required_sm_per_norm = ceilDiv(
-      buffer_params.regs_buffer_size, scheduler_utils::register_file_size);
+      buffer_params.regs_buffer_size_bit,
+      scheduler_utils::register_file_size_bit);
 
   // If the persistence requires over half the device don't do grid
   // persistence as we can't overlap the grid comms.
@@ -482,8 +506,8 @@ std::unique_ptr<HeuristicParams> InnerOuterPersistentKernelScheduler::
         SchedulerRuntimeInfo& runtime_info,
         HeuristicDataCache* data_cache) {
   FUSER_PERF_SCOPE("InnerOuterPersistentKernelScheduler::computeHeuristics");
-  auto rparams =
-      getInnerOuterPersistentHeuristics(fusion, runtime_info, data_cache);
+  auto rparams = getInnerOuterPersistentHeuristics(
+      fusion, runtime_info, data_cache, getSchedulerHyperParameters());
   NVF_ERROR(rparams != nullptr);
   return rparams;
 }

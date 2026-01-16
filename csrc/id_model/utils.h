@@ -14,79 +14,7 @@
 #include <options.h>
 #include <utils.h>
 
-#include <functional>
-#include <iostream>
-#include <sstream>
-
 namespace nvfuser {
-
-// Options to enable the IdModel-based tensor indexer selectively
-enum class IdModelEnableOption {
-  ConsumerIndex,
-  ProducerIndex,
-  InlinePredicate,
-  UnswitchPredicate,
-  // Uses the loop promotion to generate loops. Indexing and
-  // predication need to be enabled as well.
-  Loop,
-};
-
-inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
-  std::unordered_set<IdModelEnableOption> opts;
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "consumer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
-    opts.insert(IdModelEnableOption::ConsumerIndex);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "producer_index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "index") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
-    opts.insert(IdModelEnableOption::ProducerIndex);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "inline_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
-    opts.insert(IdModelEnableOption::InlinePredicate);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "unswitch_predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "predicate") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
-    opts.insert(IdModelEnableOption::UnswitchPredicate);
-  }
-
-  if (hasEnableOptionArgument(EnableOption::IdModel, "loop") ||
-      hasEnableOptionArgument(EnableOption::IdModel, "all")) {
-    opts.insert(IdModelEnableOption::Loop);
-  }
-
-  // Loop requires ConsumerIndex, ProducerIndex, InlinePredicate and
-  // UnswitchPredicate
-  if (opts.find(IdModelEnableOption::Loop) != opts.end()) {
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::ConsumerIndex) != opts.end(),
-        "ConsumerIndex required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::ProducerIndex) != opts.end(),
-        "ProducerIndex required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::InlinePredicate) != opts.end(),
-        "InlinePredicate required for Loop");
-    NVF_ERROR(
-        opts.find(IdModelEnableOption::UnswitchPredicate) != opts.end(),
-        "UnswitchPredicate required for Loop");
-  }
-
-  return opts;
-}
-
-inline bool isIdModelOptionEnabled(IdModelEnableOption option) {
-  const auto opts = getIdModelEnabledOptions();
-  return opts.find(option) != opts.end();
-}
 
 // Get the promotion domain of a given loop domain.
 inline IterDomain* getLoopPromotion(

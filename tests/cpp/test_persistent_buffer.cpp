@@ -8,20 +8,33 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/analysis/bank_conflict.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "device_lower/analysis/bank_conflict.h"
+#include "ir/internal_nodes.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/normalization_inner_tma.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
+
 namespace nvfuser {
 
 using testing::Contains;
 using testing::UnorderedElementsAre;
-using PersistentBufferTest = NVFuserTest;
+
+class PersistentBufferTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -75,17 +88,15 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
 
   EXPECT_EQ(
-      persistent_buffer_size.persistent_buffer_size,
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
+      persistent_buffer_size_bit.persistent_buffer_size_bit,
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
   EXPECT_EQ(
-      persistent_buffer_size.projected_persistent_buffer_size,
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit,
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
@@ -140,16 +151,15 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation2_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
 
   NVF_ERROR(
-      persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
+      persistent_buffer_size_bit.persistent_buffer_size_bit ==
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
   NVF_ERROR(
-      persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeByte(DataType::Half)));
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit ==
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Half)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation3_CUDA) {
@@ -223,17 +233,17 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation3_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0, aten_t5});
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
 
   NVF_ERROR(
-      persistent_buffer_size.persistent_buffer_size ==
+      persistent_buffer_size_bit.persistent_buffer_size_bit ==
       static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Float) * 2));
+          aten_t0.size(1) * dataTypeSizeBit(DataType::Float) * 2));
   NVF_ERROR(
-      persistent_buffer_size.projected_persistent_buffer_size ==
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit ==
       static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Half) * 2));
+          aten_t0.size(1) * dataTypeSizeBit(DataType::Half) * 2));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
@@ -299,19 +309,18 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation4_CUDA) {
 
   // Schedule through magic scheduler
   SchedulerRuntimeInfo runtime_info(&fusion, {aten_t0});
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
 
   // T1 and T2 are persistent buffers, but T2 can be projected to T1.
   // So, the actual buffer size is just the size to save T1.
   NVF_ERROR(
-      persistent_buffer_size.persistent_buffer_size ==
-      static_cast<int64_t>(
-          aten_t0.size(1) * dataTypeSizeByte(DataType::Float)));
+      persistent_buffer_size_bit.persistent_buffer_size_bit ==
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Float)));
 
   NVF_ERROR(
-      persistent_buffer_size.projected_persistent_buffer_size ==
-      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeByte(DataType::Half)));
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit ==
+      static_cast<int64_t>(aten_t0.size(1) * dataTypeSizeBit(DataType::Half)));
 }
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
@@ -420,16 +429,17 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection2_CUDA) {
   }
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1});
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_info);
 
   // Since tv1 is not projectable, it is included in the active mask
   // of projected buffers, even though it is also included in the
   // projectable buffer inputs. Thus, the buffer size would be
   // calculated as the sum of tv1, tv0 and tv1.
-  auto projected_size = persistent_buffer_size.projected_persistent_buffer_size;
+  auto projected_size =
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit;
   auto expected_size =
-      static_cast<int64_t>(shape[1] * 2 * dataTypeSizeByte(DataType::Half));
+      static_cast<int64_t>(shape[1] * 2 * dataTypeSizeBit(DataType::Half));
   NVF_CHECK(
       projected_size == expected_size,
       "Buffer projection failure. Expected size: ",
@@ -604,11 +614,11 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   // The buffer size should only count 1 buffer because the other one is
   // projected to its producer.
   SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2, t3, t4});
-  auto persistent_buffer_size =
-      persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(fusion, runtime_info, persistent_buffer_info);
   NVF_CHECK(
-      persistent_buffer_size.persistent_buffer_size ==
-          hidden_size * dataTypeSizeByte(dtype),
+      persistent_buffer_size_bit.persistent_buffer_size_bit ==
+          hidden_size * dataTypeSizeBit(dtype),
       "Persistent buffer size is not correct!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -739,11 +749,11 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   // projectable buffer needs to be deducted in this scope.
   auto persistent_info = scheduler_utils::persistentBuffers(fusion);
   SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2});
-  auto persistent_buffer_size =
-      persistentBufferSize(fusion, runtime_info, persistent_info);
-  auto calculated_size = persistent_buffer_size.persistent_buffer_size;
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(fusion, runtime_info, persistent_info);
+  auto calculated_size = persistent_buffer_size_bit.persistent_buffer_size_bit;
   auto expected_size =
-      static_cast<int64_t>(hidden_size * 2 * dataTypeSizeByte(input_dtype));
+      static_cast<int64_t>(hidden_size * 2 * dataTypeSizeBit(input_dtype));
   EXPECT_EQ(calculated_size, expected_size)
       << "Buffer size calculation failure";
   auto heuristic_params = SchedulerEntry::scheduleWith(
@@ -817,11 +827,11 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   // After projection, tv7 is the only buffer.
   auto persistent_info = scheduler_utils::persistentBuffers(fusion);
   SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2});
-  auto persistent_buffer_size =
-      persistentBufferSize(fusion, runtime_info, persistent_info);
-  auto calculated_size = persistent_buffer_size.persistent_buffer_size;
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(fusion, runtime_info, persistent_info);
+  auto calculated_size = persistent_buffer_size_bit.persistent_buffer_size_bit;
   auto expected_size =
-      static_cast<int64_t>(hidden_size * dataTypeSizeByte(DataType::Float));
+      static_cast<int64_t>(hidden_size * dataTypeSizeBit(DataType::Float));
   NVF_CHECK(
       calculated_size == expected_size,
       "Buffer size calculation failure. Expected size: ",
@@ -883,11 +893,11 @@ TEST_F(PersistentBufferTest, SoftmaxProjectToInput) {
     auto rparams = cg_results.heuristic_params->as<ReductionParams>();
 
     // Threshold to project to inputs
-    int64_t buffer_threshold = scheduler_utils::isHighBandwidthFlopsRatio()
-        ? 24 * 1024 * 4
-        : 6 * 1024 * 4;
+    int64_t buffer_threshold_bit = scheduler_utils::isHighBandwidthFlopsRatio()
+        ? 24 * 1024 * 4 * 8
+        : 6 * 1024 * 4 * 8;
     bool should_project_to_input =
-        feature * dataTypeSizeByte(DataType::Float) > buffer_threshold;
+        feature * dataTypeSizeBit(DataType::Float) > buffer_threshold_bit;
     NVF_CHECK(
         rparams->project_persistent_buffers == should_project_to_input,
         should_project_to_input ? "Should project to inputs!"
@@ -1227,7 +1237,8 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+      scheduler_utils::register_file_size_bit /
+      scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {2, 64, 2, total_elements / (2 * 2)};
@@ -1260,7 +1271,8 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   // max allowed register file size to trigger the use of smem persistent buffer
   // or segmentation.
   const int64_t max_element_for_reg_persistent =
-      scheduler_utils::register_file_size / scheduler_utils::bytes_per_register;
+      scheduler_utils::register_file_size_bit /
+      scheduler_utils::bits_per_register;
   DataType input_dtype = DataType::Float;
   const int64_t total_elements = max_element_for_reg_persistent + 1024;
   const std::vector<int64_t> input_shape = {64, 2, 2, total_elements / (2 * 2)};
@@ -1274,11 +1286,11 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
   fusion->addOutput(tv7);
 
   // If device doesn't have enough shared memory, skip this test
-  int64_t smem_overhead = scheduler_utils::getReductionSmemWorkspace(
+  int64_t smem_overhead_bit = scheduler_utils::getReductionSmemWorkspaceBit(
       fusion.get(), scheduler_utils::getReductionTvs(fusion.get()));
-  const size_t required_smem_size =
-      smem_overhead + total_elements * dataTypeSizeByte(input_dtype);
-  REQUIRE_DEVICE_SMEM_SIZE(required_smem_size, 0);
+  const size_t required_smem_size_bit =
+      smem_overhead_bit + total_elements * dataTypeSizeBit(input_dtype);
+  REQUIRE_DEVICE_SMEM_SIZE(required_smem_size_bit / 8, 0);
 
   // Schedule through magic scheduler and test the use of smem persistent buffer
   auto options = at::TensorOptions()
@@ -1292,24 +1304,30 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion.get(), runtime_info);
-  EXPECT_FALSE(
-      heuristic_params->as<ReductionParams>()->smem_persistent_buffers.empty());
+  // shared memory persistent is used for Ampere and lower architectures.
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_FALSE(heuristic_params->as<ReductionParams>()
+                     ->smem_persistent_buffers.empty());
+  }
+
   scheduler->schedule(fusion.get(), heuristic_params.get());
 
   // Run the fusion and validate the results
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
-  // Shared memory access should be vectorized.
-  // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
-  // "std::get: wrong index for variant" when trying to evaluate index with:
-  // `expr_eval.evaluate(ti->index()).as<int64_t>();`
-  for (auto tv : fusion->allTvs()) {
-    if (tv->getMemoryType() == MemoryType::Shared) {
-      // check self
-      EXPECT_TRUE(isVectorized(tv));
-      // check consumers
-      for (auto consumer : ir_utils::consumerTvsOf(tv)) {
-        EXPECT_TRUE(isVectorized(consumer));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    // Shared memory access should be vectorized.
+    // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
+    // "std::get: wrong index for variant" when trying to evaluate index with:
+    // `expr_eval.evaluate(ti->index()).as<int64_t>();`
+    for (auto tv : fusion->allTvs()) {
+      if (tv->getMemoryType() == MemoryType::Shared) {
+        // check self
+        EXPECT_TRUE(isVectorized(tv));
+        // check consumers
+        for (auto consumer : ir_utils::consumerTvsOf(tv)) {
+          EXPECT_TRUE(isVectorized(consumer));
+        }
       }
     }
   }
@@ -1400,12 +1418,12 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // enough shared memory. Otherwise, it will be segmented.
   SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1, t2});
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
-  int64_t logic_buffer_size = 80 * 1024 * dataTypeSizeByte(DataType::Half);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size_bit = 80 * 1024 * dataTypeSizeBit(DataType::Half);
   EXPECT_EQ(
-      persistent_buffer_size.projected_persistent_buffer_size,
-      logic_buffer_size);
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit,
+      logic_buffer_size_bit);
 
   // If total shared memory on device is less than logic buffer size, should
   // segment. Otherwise, further calculate available shared memory size by
@@ -1413,18 +1431,18 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // split.
   bool is_segmented = false;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
+  if ((int64_t)dev_prop->sharedMemPerBlockOptin * 8 < logic_buffer_size_bit) {
     is_segmented = true;
   } else {
-    int64_t available_buffer_size = normalization_scheduler_utils::
-        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    int64_t available_buffer_size_bit = normalization_scheduler_utils::
+        getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
             &fusion,
             runtime_info,
             scheduler_utils::getReductionTvs(&fusion),
             persistent_buffer_info,
             /*can_use_smem_persistent*/ true,
             /*project_to_inputs*/ true);
-    is_segmented = logic_buffer_size >= available_buffer_size;
+    is_segmented = logic_buffer_size_bit >= available_buffer_size_bit;
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
@@ -1433,12 +1451,14 @@ TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
   // check segmentation, if not segmented, further check shared memory
   // persistence
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_EQ(is_segmented, runtime->isSegmented());
-  if (!is_segmented) {
-    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
-    ASSERT_TRUE(params->isA<ReductionParams>());
-    ASSERT_TRUE(
-        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    ASSERT_EQ(is_segmented, runtime->isSegmented());
+    if (!is_segmented) {
+      auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+      ASSERT_TRUE(params->isA<ReductionParams>());
+      ASSERT_TRUE(
+          params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+    }
   }
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -1487,29 +1507,29 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   // check persistent buffer size
   SchedulerRuntimeInfo runtime_info(&fusion, runtime_inputs);
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
-  auto persistent_buffer_size =
-      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
-  int64_t logic_buffer_size = hidden_size * dataTypeSizeByte(dtype);
+  auto persistent_buffer_size_bit =
+      persistentBufferSizeBit(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size_bit = hidden_size * dataTypeSizeBit(dtype);
   EXPECT_EQ(
-      persistent_buffer_size.projected_persistent_buffer_size,
-      logic_buffer_size);
+      persistent_buffer_size_bit.projected_persistent_buffer_size_bit,
+      logic_buffer_size_bit);
 
   // expect segmentation?
   bool has_enough_regs_smem = true;
-  if (logic_buffer_size > scheduler_utils::register_file_size) {
+  if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-    if ((int64_t)dev_prop->sharedMemPerBlockOptin < logic_buffer_size) {
+    if ((int64_t)dev_prop->sharedMemPerBlockOptin * 8 < logic_buffer_size_bit) {
       has_enough_regs_smem = false;
     } else {
-      int64_t available_buffer_size = normalization_scheduler_utils::
-          getMaxRegOrSharedMemorySizeForPersistentBuffer(
+      int64_t available_buffer_size_bit = normalization_scheduler_utils::
+          getMaxRegOrSharedMemorySizeBitForPersistentBuffer(
               &fusion,
               runtime_info,
               scheduler_utils::getReductionTvs(&fusion),
               persistent_buffer_info,
               /*can_use_smem_persistent*/ true,
               /*project_to_inputs*/ true);
-      has_enough_regs_smem = available_buffer_size >= logic_buffer_size;
+      has_enough_regs_smem = available_buffer_size_bit >= logic_buffer_size_bit;
     }
   }
 
@@ -1518,30 +1538,32 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   auto cg_outputs =
       executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  if (has_enough_regs_smem) {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
-    Fusion* scheduled_fusion = runtime->executors()
-                                   .back()
-                                   ->as<KernelExecutor>()
-                                   ->compiledKernel()
-                                   ->kernel();
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    if (has_enough_regs_smem) {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+      Fusion* scheduled_fusion = runtime->executors()
+                                     .back()
+                                     ->as<KernelExecutor>()
+                                     ->compiledKernel()
+                                     ->kernel();
 
-    if (logic_buffer_size > scheduler_utils::register_file_size) {
-      bool has_smem_tv = false;
-      for (auto tv : scheduled_fusion->allTvs()) {
-        if (tv->getMemoryType() == MemoryType::Shared) {
-          has_smem_tv = true;
-          break;
+      if (logic_buffer_size_bit > scheduler_utils::register_file_size_bit) {
+        bool has_smem_tv = false;
+        for (auto tv : scheduled_fusion->allTvs()) {
+          if (tv->getMemoryType() == MemoryType::Shared) {
+            has_smem_tv = true;
+            break;
+          }
         }
+        EXPECT_TRUE(has_smem_tv);
       }
-      EXPECT_TRUE(has_smem_tv);
+    } else {
+      EXPECT_THAT(
+          runtime->fusionSegments()->groups(),
+          Contains(HeuristicIs(SchedulerType::Reduction)));
     }
-  } else {
-    EXPECT_THAT(
-        runtime->fusionSegments()->groups(),
-        Contains(HeuristicIs(SchedulerType::Reduction)));
   }
   testValidate(
       &fusion_copy,
@@ -1597,11 +1619,11 @@ TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
   // becase tv3 is the output of an upcast op, the scheduler will project it
   // back to the input which is tv2 and its data type is bool.
   SchedulerRuntimeInfo runtime_info(&fusion, {aten_input});
-  auto persistent_buffer_size = scheduler_utils::persistentBufferSize(
+  auto persistent_buffer_size_bit = scheduler_utils::persistentBufferSizeBit(
       &fusion, runtime_info, persistent_buffer_info);
   EXPECT_EQ(
-      persistent_buffer_size.persistent_buffer_size,
-      dim1 * dataTypeSizeByte(DataType::Bool));
+      persistent_buffer_size_bit.persistent_buffer_size_bit,
+      dim1 * dataTypeSizeBit(DataType::Bool));
 
   // Check the compute position of the bool tensor, tv2, is at the top of the
   // kernel.
@@ -1908,4 +1930,459 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Should cache gather lookup tv if it is a persistent buffer
+TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
+  DataType dtype = DataType::BFloat16;
+  int x = 1024;
+  int y = 2048;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto index_tv = makeContigConcreteTensor({x}, DataType::Int);
+  fusion.addInput(tv0);
+  fusion.addInput(index_tv);
+  auto tv1 = maybeCastOp(DataType::Float, tv0);
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = broadcast(index_tv, {false, true});
+  auto tv5 = gather(tv0, 1, tv4);
+  auto tv6 = maybeCastOp(DataType::BFloat16, tv5);
+  auto tv7 = add(tv3, tv6);
+  auto tv8 = add(tv1, tv7);
+  auto tv9 = maybeCastOp(DataType::BFloat16, tv8);
+  fusion.addOutput(tv9);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+  auto t1 = at::randint(0, y, {x}, options_i);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+
+  // tv0 is a lookup tv, should stays in global memory and consumed by a gather
+  // op tv0 is also a persistent buffer, should be cached in shared memory or
+  // register So, we should expect two uses of tv0, one is a gather op, the
+  // other is a load op
+  const auto& tv0_uses = tv0->uses();
+  EXPECT_THAT(
+      tv0_uses,
+      testing::UnorderedElementsAre(
+          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+
+  // index_tv is a indicies tv, should be cached in register
+  // Gather op will use the cached version
+  const auto& index_tv_uses = index_tv->uses();
+  EXPECT_EQ(index_tv_uses.size(), 1);
+  EXPECT_TRUE(index_tv_uses.at(0)->isA<LoadStoreOp>());
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1});
+}
+
+namespace tma_check {
+bool isTmaParams(const FusionExecutorCache& executor_cache) {
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  const auto& hparams = runtime->schedulerHeuristics()->heuristicsList().at(0);
+  return hparams->isA<InnerNormTmaParams>();
+}
+} // namespace tma_check
+
+class TmaPersistentTestF : public PersistentBufferTest {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    PersistentBufferTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
+// Test TMA-based inner persistent reduction with manual scheduling
+// This test demonstrates how to manually schedule a persistent buffer kernel
+// using TMA (Tensor Memory Accelerator) for efficient data loading.
+// Pattern: input -> cast -> reduction -> broadcast -> add -> cast -> output
+TEST_F(TmaPersistentTestF, TmaInnerPersistent) {
+  DataType dtype = DataType::BFloat16;
+  int x = 1024;
+  int y = 10240;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create fusion: tv0 -> tv1(cast) -> tv2(sum) -> tv3(bcast) -> tv4(add) ->
+  // tv5(cast)
+  auto tv0 = makeContigTensor(2, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = maybeCastOp(DataType::Float, tv0); // tv1 is the persistent buffer
+  auto tv2 = sum(tv1, {1});
+  auto tv3 = broadcast(tv2, {false, true});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = maybeCastOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options).clamp(-2, 2);
+
+  // Option to test with auto-scheduler (set to true to compare)
+  bool is_auto_schedule = false;
+  if (is_auto_schedule) {
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({t0});
+    testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+    return;
+  }
+
+  // Project persistent buffer tv1 to inputs.
+  // This replaces all uses of tv1 (except the first use in the reduction path)
+  // with tv1 recomputed from the fusion inputs.
+  // clang-format off
+  //
+  // Before projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) -> T4 = T3 + T1
+  //                    └────────────────────────────────────────────┘
+  //
+  // After projection:
+  //   T0(input) -> T1(cast) -> T2(reduce) -> T3(broadcast) ┐
+  //            |                                            ├─> T4 = T3 + T6 -> T5(output)
+  //            └─> T6(cast, recomputed from T0) ──────────┘
+  //
+  // After scheduling (adding T8 bulk load, T9 register cache, T10 rfactor):
+  //   T0 -> T8(bulk) -> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //         |                                                 ├─> T4 -> T9 -> T5
+  //         └─> T6 (recomputed cast) ───────────────────────┘
+  //
+  // Transform Propagation Challenge:
+  // Transformations from T10(reference_tv) cannot reach T3:
+  //   - Path through T0: blocked by unscheduled bulk domain in T8
+  //   - Path through T2: blocked by reduced domain in T2
+  //
+  // Solution - Add dummy output T7 = T6 + T1:
+  //   T0 -> T8(bulk) ──┬─> T1 -> T10(ref) -> T2(reduce) -> T3 ──┐
+  //                    │    │                                    ├─> T4 -> T9 -> T5
+  //                    └─> T6 ────────────────────────────────> ─┘
+  //                         │
+  //                         └────┴─> T7 = T6 + T1 (dummy output)
+  //
+  // The dummy output creates a propagation path: T10 -> T1 -> T7 -> T6 -> T4
+  // This allows transforms to flow from the reference_tv to the entire fusion.
+  // Note: T7 is removed after transform propagation but before inlining.
+  // clang-format on
+  std::vector<TensorView*> dummy_outputs;
+  if (dtype == DataType::BFloat16) {
+    dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
+        fusion_ptr.get(),
+        scheduler_utils::persistentBuffers(fusion_ptr.get()),
+        /*project_to_inputs=*/true);
+
+    for (auto output : dummy_outputs) {
+      fusion.addOutput(output);
+    }
+  }
+
+  // Cache input tv0 in shared memory using TMA load (CpAsyncBulk)
+  auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // Cache output tv5 in registers to enable vectorized write to global memory
+  tv5->cacheBefore();
+
+  std::vector<TensorView*> tma_tvs = {tv0_smem};
+
+  // Use the reduction tensor tv2 as the starting point for scheduling
+  // Its transformations will be propagated to all non-TMA tensors
+  TensorView* reduction_tv = tv2;
+
+  // Scheduling parameters
+  struct TmaInnerPersistentParams {
+    int64_t vectorization_factor = 1; // Elements per vectorized memory access
+    int64_t bdimx = 1; // Number of threads per block (TIDx)
+  };
+  TmaInnerPersistentParams params;
+  params.vectorization_factor =
+      128 / dataTypeSizeBit(dtype); // 128 bits / element size
+  params.bdimx = 128; // Use 128 threads per block for reduction
+
+  // Schedule TMA load: [I, R]
+  // - No transformation is needed as we assume each block handles one row
+  // - axis(0): parallelize with BIDx (each block handles one batch)
+  // - axis(1): parallelize with Bulk (TMA async copy entire reduction
+  // dimension)
+  reduction_tv->axis(0)->parallelize(ParallelType::BIDx);
+  reduction_tv->axis(1)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(reduction_tv, tma_tvs);
+  // Change reduction_tv's axis(1) back to Serial (only TMA tvs use Bulk)
+  reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+
+  // Schedule the reduction domain: [I, R] -> [I, R/v/x, us, x, v]
+  // Split R into multiple dimensions for efficient reduction:
+  //   - v: vectorization factor (elements processed per vector instruction)
+  //   - x: thread dimension (bdimx threads cooperate on reduction)
+  //   - us: unswitch dimension (for loop optimization)
+  int64_t rpos = 1;
+  reduction_tv->split(rpos, params.vectorization_factor);
+  reduction_tv->split(rpos, params.bdimx);
+  reduction_tv->split(rpos, 1);
+  reduction_tv->axis(rpos + 1)->parallelize(ParallelType::Unswitch);
+  reduction_tv->axis(rpos + 2)->parallelize(ParallelType::TIDx);
+
+  // Create rfactor tv to separate thread-local vectorized reduction from block
+  // reduction rfactor axes: {rpos, vectorize_pos} = {1, 4} corresponding to
+  // R/v/x and v dimensions
+  int64_t vectorize_pos = rpos + 3;
+  auto reference_tv = reduction_tv->rFactor({rpos, vectorize_pos});
+
+  // Propagate transformations from reference_tv to all non-TMA tensors
+  // TMA tensors keep their simple [BIDx, Bulk] schedule
+  std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
+      fusion_ptr.get(), {tma_tvs.begin(), tma_tvs.end()});
+  TransformPropagator non_tma_propagator(reference_tv);
+  SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
+  MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
+      .traverse(&non_tma_propagator);
+
+  scheduler_utils::parallelizeAllLike(reference_tv, non_tma_tvs);
+
+  // Vectorize output write to global memory
+  tv5->axis(vectorize_pos)->parallelize(ParallelType::Vectorize);
+
+  // Remove dummy outputs before inlining (they were only needed for scheduling)
+  for (auto output : dummy_outputs) {
+    fusion.removeOutput(output);
+  }
+
+  // Inline all tensors to minimize register usage
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs = ke.run({t0}, {}, {});
+
+  testValidate(&unscheduled_fusion_copy, outputs, {t0});
+}
+
+// Base class for parameterized TMA inner persistent tests using TEST_P
+// <dtype, dim_0, dim_1>
+using TmaPersistentTestParams = std::tuple<DataType, int64_t, int64_t>;
+class TmaPersistentTestP
+    : public NVFuserFixtureParamTest<TmaPersistentTestParams> {
+ protected:
+  void SetUp() override {
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+    NVFuserFixtureParamTest<ParamType>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+  }
+};
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentLayerNorm) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv2 = makeContigConcreteTensor({y}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  tv2 = maybeCastOp(DataType::Float, tv2);
+  auto res = layer_norm(tv0, 1, tv1, tv2, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, res.output);
+  fusion.addOutput(output);
+  fusion.addOutput(res.mean);
+  fusion.addOutput(res.invstd);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+  auto t1 = at::randn({y}, options);
+  auto t2 = at::randn({y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(
+      &unscheduled_fusion_copy, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaPersistentTestP, TmaInnerPersistentSoftmax) {
+  auto dtype = std::get<0>(GetParam());
+  auto x = std::get<1>(GetParam());
+  auto y = std::get<2>(GetParam());
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
+  fusion.addInput(tv0);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  auto res = softmax(tv0, 1);
+  auto output = maybeCastOp(DataType::BFloat16, res);
+  fusion.addOutput(output);
+
+  auto unscheduled_fusion_copy = fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn({x, y}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  if (y >= 1024 &&
+      y <= scheduler_utils::register_file_size_bit / dataTypeSizeBit(dtype)) {
+    EXPECT_TRUE(tma_check::isTmaParams(executor_cache));
+  }
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaPersistentTestP,
+    ::testing::Combine(
+        testing::Values(DataType::BFloat16),
+        testing::Values(
+            deviceSMCount() / 2, // small batch, can't do grid stride loop
+            2048), // batch size, less or larger than sm count
+        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+    [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
+      auto dtype = std::get<0>(info.param);
+      auto x = std::get<1>(info.param);
+      auto y = std::get<2>(info.param);
+      std::ostringstream os;
+      os << dtype << "_" << x << "_" << y;
+      return os.str();
+    });
+
+TEST_F(TmaPersistentTestF, KernelReuse) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create an RMS norm fusion that will use inner persistent scheduler
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  // Helper to get the number of compiled kernel runtimes
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    if (runtime_map.empty()) {
+      return 0;
+    }
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // Helper to run fusion with given dimensions and return the runtime
+  auto runAndValidate = [&](int64_t outer_dim,
+                            int64_t inner_dim) -> FusionKernelRuntime* {
+    auto input = at::randn({outer_dim, inner_dim}, options);
+    auto weight = at::randn({inner_dim}, options);
+    auto outputs = executor_cache.runFusionWithInputs({input, weight});
+    testValidate(
+        executor_cache.fusion(), outputs, {input, weight}, __LINE__, __FILE__);
+    return executor_cache.getMostRecentKernelRuntime();
+  };
+
+  // First run with specific dimensions that will produce launch config A
+  auto first_runtime = runAndValidate(2048, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Second run with different outer dimension - should reuse the kernel
+  auto second_runtime = runAndValidate(2048 + 8, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+  EXPECT_EQ(first_runtime, second_runtime);
+
+  // Third run with slightly smaller inner dimension - should reuse the kernel
+  auto third_runtime = runAndValidate(2048 + 8, 4096 - 8);
+  EXPECT_EQ(first_runtime, third_runtime);
+
+  // Fourth run with slightly larger inner dimension - should NOT reuse the
+  // kernel
+  auto fourth_runtime = runAndValidate(2048 + 8, 4096 + 8);
+  EXPECT_NE(first_runtime, fourth_runtime);
+  EXPECT_EQ(numRuntimes(), 2);
+
+  // Fifth run with different inner dimension - should not reuse the kernel
+  // 1280 after vectorization of 8 is 160, after persistent batch size of 2 is
+  // 80, it requires 80 threads current heuristic pads to 96 threads and won't
+  // use warp specialized version. to use warp specialized version, it should
+  // pad to 128 threads.
+  auto fifth_runtime = runAndValidate(2048, 1280);
+  EXPECT_NE(first_runtime, fifth_runtime);
+  EXPECT_EQ(numRuntimes(), 3);
+}
+
 } // namespace nvfuser

@@ -16,6 +16,7 @@
 #include <scheduler/mma_utils.h>
 
 #include <limits>
+#include <ranges>
 #include <set>
 
 namespace nvfuser::ir_utils {
@@ -187,7 +188,7 @@ namespace ValReplacement {
 // Creates a new Expr substituting current with producer
 struct SubstituteInExpr : public OptOutMutator {
  public:
-  static Expr* subsitute(Expr* expr, Val* reference, Val* substitute) {
+  static Expr* substitute(Expr* expr, Val* reference, Val* substitute) {
     NVF_ERROR(
         expr != nullptr && reference != nullptr && substitute != nullptr,
         "Nullptr arg found.");
@@ -217,14 +218,14 @@ struct SubstituteInExpr : public OptOutMutator {
 
 Expr* replaceValInExprInputs(Expr* expr, Val* reference, Val* substitute) {
   FusionGuard fg(expr->fusion());
-  return ValReplacement::SubstituteInExpr::subsitute(
+  return ValReplacement::SubstituteInExpr::substitute(
       expr, reference, substitute);
 }
 
 void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
   auto uses = old_val->uses();
   for (auto use_of_old_val : uses) {
-    ir_utils::replaceValInExprInputs(use_of_old_val, old_val, new_val);
+    replaceValInExprInputs(use_of_old_val, old_val, new_val);
   }
   if (old_val->isFusionOutput()) {
     old_val->fusion()->replaceOutput(old_val, new_val);
@@ -234,9 +235,7 @@ void replaceValInAllExprInputsAndFusionOutputs(Val* old_val, Val* new_val) {
 Expr* transferDefinitionToNewOutputs(
     Expr* expr,
     const std::vector<Val*>& new_outputs) {
-  NVF_ERROR(
-      new_outputs.size() == expr->outputs().size(),
-      "Number of new outputs must match old outputs");
+  NVF_ERROR_EQ(new_outputs.size(), expr->outputs().size());
   OptOutMutator mutator;
   for (const auto i : arange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
@@ -366,19 +365,19 @@ std::vector<Val*> consumerValsOf(const std::vector<Val*>& vals) {
 
 std::vector<TensorView*> producerTvsOf(const TensorView* tv) {
   auto producer_vals = producerValsOf(tv);
-  auto producer_tvs = ir_utils::filterByType<TensorView>(producer_vals);
+  auto producer_tvs = filterByType<TensorView>(producer_vals);
   return {producer_tvs.begin(), producer_tvs.end()};
 }
 
 std::vector<TensorView*> consumerTvsOf(const TensorView* tv) {
   auto consumer_vals = consumerValsOf(tv);
-  auto consumer_tvs = ir_utils::filterByType<TensorView>(consumer_vals);
+  auto consumer_tvs = filterByType<TensorView>(consumer_vals);
   return {consumer_tvs.begin(), consumer_tvs.end()};
 }
 
 std::vector<TensorView*> siblingTvsOf(const TensorView* tv) {
   auto sibling_vals = siblingValsOf(tv);
-  auto sibling_tvs = ir_utils::filterByType<TensorView>(sibling_vals);
+  auto sibling_tvs = filterByType<TensorView>(sibling_vals);
   return {sibling_tvs.begin(), sibling_tvs.end()};
 }
 
@@ -414,14 +413,14 @@ std::vector<TensorView*> outputTvsOf(TensorView* tv) {
 
 std::vector<TensorView*> inputTvsOf(std::vector<TensorView*> tvs) {
   auto inp_vals = IterVisitor::getInputsTo({tvs.begin(), tvs.end()});
-  auto filtered = ir_utils::filterByType<TensorView>(inp_vals);
+  auto filtered = filterByType<TensorView>(inp_vals);
   std::vector<TensorView*> inp_tvs(filtered.begin(), filtered.end());
   return uniqueEntries<TensorView>(inp_tvs);
 }
 
 std::vector<TensorView*> outputTvsOf(std::vector<TensorView*> tvs) {
   auto out_vals = DependencyCheck::getAllOutputsOf({tvs.begin(), tvs.end()});
-  auto filtered = ir_utils::filterByType<TensorView>(out_vals);
+  auto filtered = filterByType<TensorView>(out_vals);
   std::vector<TensorView*> out_tvs(filtered.begin(), filtered.end());
   return uniqueEntries<TensorView>(out_tvs);
 }
@@ -430,8 +429,8 @@ VectorOfUniqueEntries<TensorView*> allTvsOfExprs(
     const std::vector<Expr*>& exprs) {
   VectorOfUniqueEntries<TensorView*> all_tvs;
   for (auto expr : exprs) {
-    auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
-    auto output_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
+    auto input_tvs = filterByType<TensorView>(expr->inputs());
+    auto output_tvs = filterByType<TensorView>(expr->outputs());
     for (const auto& tvs : {input_tvs, output_tvs}) {
       all_tvs.pushBack(tvs.begin(), tvs.end());
     }
@@ -612,7 +611,7 @@ bool isReductionOp(const Expr* expr) {
 }
 
 bool isReductionTvOp(const Expr* expr) {
-  return ir_utils::isTvOp(expr) && isReductionOp(expr);
+  return isTvOp(expr) && isReductionOp(expr);
 }
 
 bool isPointwiseTvOp(const Expr* expr) {
@@ -620,7 +619,7 @@ bool isPointwiseTvOp(const Expr* expr) {
   // considered pointwise
   return isTvOp(expr) &&
       (expr->isOneOf<UnaryOp, BinaryOp, TernaryOp>() ||
-       (expr->isA<LoadStoreOp>() && !ir_utils::getTvOutput(expr)->hasRoot()));
+       (expr->isA<LoadStoreOp>() && !getTvOutput(expr)->hasRoot()));
 }
 
 bool isSegmentSet(const Expr* e) {
@@ -632,18 +631,18 @@ bool isSegmentSet(const Expr* e) {
   return false;
 }
 
-std::vector<ViewOp*> getViewOps(Fusion* fusion) {
+std::vector<ReshapeOp*> getReshapeOps(Fusion* fusion) {
   auto all_exprs = fusion->exprs();
 
-  auto all_view_ops = ir_utils::filterByType<ViewOp>(all_exprs);
+  auto all_view_ops = filterByType<ReshapeOp>(all_exprs);
 
-  std::vector<ViewOp*> view_ops;
+  std::vector<ReshapeOp*> view_ops;
 
   std::copy_if(
       all_view_ops.begin(),
       all_view_ops.end(),
       std::back_inserter(view_ops),
-      [](ViewOp* view) {
+      [](ReshapeOp* view) {
         return std::any_of(
             view->outputs().begin(), view->outputs().end(), [](Val* v) {
               if (!v->isA<TensorView>()) {
@@ -793,16 +792,11 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isGatherLookupTv(const Val* tv) {
-  for (auto expr : tv->uses()) {
-    if (expr->isA<GatherOp>()) {
-      auto idx_sel = expr->as<GatherOp>();
-      if (idx_sel->lookupTv() == tv) {
-        return true;
-      }
-    }
-  }
-  return false;
+bool isAndOnlyIsGatherLookupTv(const Val* tv) {
+  return !tv->uses().empty() &&
+      std::all_of(tv->uses().begin(), tv->uses().end(), [tv](Expr* expr) {
+        return expr->isA<GatherOp>() && expr->as<GatherOp>()->lookupTv() == tv;
+      });
 }
 
 std::string varName(const Val* val) {
@@ -1027,14 +1021,15 @@ CompareDomainResult compareDomains(
       toDelimitedString(dom1));
 
   dom0.insert(dom0.end(), additional_ids.begin(), additional_ids.end());
-  auto exprs =
-      getExprsBetween<IRBFS>(
-          {dom0.begin(), dom0.end()}, {dom1.begin(), dom1.end()}, false)
-          .first;
+  auto dom0_to_dom1_exprs = getExprsBetween<IRBFS>(
+                                {dom0.begin(), dom0.end()},
+                                {dom1.begin(), dom1.end()},
+                                /*require_all_to_visited=*/false)
+                                .first;
 
   std::unordered_set<Val*> frontier(dom0.begin(), dom0.end());
 
-  for (auto [expr, direction] : exprs) {
+  for (auto [expr, direction] : dom0_to_dom1_exprs) {
     NVF_ERROR(
         std::all_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
           return v->isA<IterDomain>();
@@ -1263,7 +1258,7 @@ bool isAlignedScopeExpr(const Expr* expr) {
       return false;
     }
 
-  } else if (auto fl = dynamic_cast<const ForLoop*>(expr)) {
+  } else if (auto fl = dynamic_cast<const kir::ForLoop*>(expr)) {
     // If the start, stop, step are not thread dependent
     //  then this for loop should be thread independent.
     if (getRegisterType(fl->start()) == RegisterType::GeneralPurpose ||
@@ -1336,11 +1331,26 @@ bool hasTrivialAllocationDomain(const TensorView* tv) {
   }
   const std::vector<IterDomain*>& alloc = tv->getMaybeAllocationDomain();
   const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
-  return TensorDomain::noBroadcasts(TensorDomain::noReductions(logical)) ==
-      TensorDomain::noBroadcasts(TensorDomain::noReductions(alloc));
+
+  return std::ranges::equal(
+      logical | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts,
+      alloc | TensorDomain::kNoReductions | TensorDomain::kNoBroadcasts);
 }
 bool hasUniformSiblings(Expr* expr) {
-  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp>();
+  return !expr->isOneOf<SdpaFwdOp, SdpaBwdOp, BlockQuantizationOp>();
+}
+
+bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
+  // Conditions to consider:
+  // - Fully partitioned
+  // - Size one: Allocation is done based on the promotion ID, but as
+  // long as the original ID has size one, its allocation should
+  // remain size one.
+  // - Reduction: Check the original ID, not the promotion, which may
+  //   be a reduction ID even though the original ID is not a reduction
+  return !ir_utils::isMemoryPartitionedAcross(
+             tv->getMemoryType(), id->getParallelType()) &&
+      !isSizeOneDomain(id) && !id->isReduction() && !id->isStride();
 }
 
 bool hasRootToLoopLinearTransformations(const TensorView* tv) {
@@ -1470,13 +1480,13 @@ int64_t getOperationCount(Val* val) {
   return num_ops;
 }
 
-ForLoop* createRangeLoop(int64_t size) {
+kir::ForLoop* createRangeLoop(int64_t size) {
   Val* loop_start = IrBuilder::create<Val>(0L, PrimDataType::Index);
   Val* loop_index = IrBuilder::create<Val>(PrimDataType::Index);
   Val* loop_stop = IrBuilder::create<Val>(size, DataType::Index);
   IterDomainBuilder loop_domain_builder(loop_start, loop_stop);
 
-  ForLoop* loop = IrBuilder::create<ForLoop>(
+  kir::ForLoop* loop = IrBuilder::create<kir::ForLoop>(
       loop_domain_builder.build(),
       loop_index,
       loop_start,
@@ -1507,6 +1517,15 @@ TensorView* getTvInput(const Expr* expr) {
     }
   }
   return nullptr;
+}
+
+std::vector<int64_t> inversePermutation(
+    const std::vector<int64_t>& permutation) {
+  std::vector<int64_t> inverse(permutation.size());
+  for (auto [out_index, in_index] : enumerate(permutation)) {
+    inverse[in_index] = out_index;
+  }
+  return inverse;
 }
 
 std::vector<IterDomain*> strideOrderToAllocation(
@@ -1551,8 +1570,8 @@ std::vector<IterDomain*> strideOrderToAllocation(
   return allocation_domain;
 }
 
-std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
-    UnaryOp* uop) {
+std::optional<std::pair<int64_t, int64_t>>
+getPrecisionOfProducerConsumerTensorsBit(UnaryOp* uop) {
   NVF_CHECK(uop != nullptr);
   NVF_CHECK(
       uop->getUnaryOpType() == UnaryOpType::Cast,
@@ -1577,8 +1596,7 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
   }
 
   return std::make_pair(
-      primDataTypeSizeByte(*inp_prim_type),
-      primDataTypeSizeByte(*out_prim_type));
+      primDataTypeSizeBit(*inp_prim_type), primDataTypeSizeBit(*out_prim_type));
 }
 
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
@@ -1650,7 +1668,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
 getReshapeInputAndOutputIds(TensorView* reshape_out_tv) {
   NVF_ERROR(
       reshape_out_tv->definition() != nullptr &&
-          reshape_out_tv->definition()->isA<ViewOp>(),
+          reshape_out_tv->definition()->isA<ReshapeOp>(),
       "Not a reshape output: ",
       reshape_out_tv->toString());
 
@@ -1701,6 +1719,63 @@ std::vector<IterDomain*> getReachableIds(
         return std::ranges::find(vals, id) != vals.end();
       });
   return dependent_ids;
+}
+
+std::vector<IterDomain*> propagateScatterAllocationDomain(
+    TensorView* scatter_out,
+    const std::vector<IterDomain*>& to_logical_domain) {
+  NVF_ERROR_EQ(
+      scatter_out->getLogicalDomain().size(),
+      to_logical_domain.size(),
+      "Mismatching tensor rank");
+  if (!scatter_out->hasAllocation()) {
+    return to_logical_domain;
+  }
+
+  // Only permutation is considered for now
+  auto logical_to_alloc = ir_utils::computePermutation(
+      scatter_out->getLogicalDomain(), scatter_out->getMaybeAllocationDomain());
+  NVF_ERROR(
+      logical_to_alloc.has_value(),
+      "Allocation domain of scatter output must be a permutation of logical "
+      "domain: ",
+      scatter_out->toString(),
+      ", logical: ",
+      toDelimitedString(scatter_out->getLogicalDomain()),
+      ", allocation: ",
+      toDelimitedString(scatter_out->getAllocationDomain()));
+
+  return ir_utils::applyPermutation(
+      to_logical_domain, logical_to_alloc.value());
+}
+
+bool isParallelizedBy(const std::vector<IterDomain*>& ids, ParallelType pt) {
+  return std::ranges::any_of(
+      ids, [&](IterDomain* id) { return id->getParallelType() == pt; });
+}
+
+void swizzleBlockScales(TensorView* tv) {
+  NVF_ERROR(
+      tv && tv->getLoopDomain().size() == 2,
+      "we can only swizzle 2D block scales tvs");
+  tv->split(0, 128);
+  // m/128, 128, k
+  tv->split(1, 32);
+  // m/128, 4(m_o), 32(m_i), k
+  tv->split(3, 4);
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  std::vector<IterDomain*> tv_alloc{
+      tv->axis(0), tv->axis(3), tv->axis(2), tv->axis(1), tv->axis(4)};
+  // m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  tv->setAllocationDomain(tv_alloc, true);
+  // back to a 2D logical domain.
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k) ->
+  // m/32, 32, k/4, 4(k)
+  tv->merge(0);
+  // m/32, 32, k/4, 4(k) -> m, k/4, 4(k)
+  tv->merge(0);
+  // m, k/4, 4(k) -> m, k
+  tv->merge(-2);
 }
 
 } // namespace nvfuser::ir_utils

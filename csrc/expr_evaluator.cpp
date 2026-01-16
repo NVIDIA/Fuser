@@ -6,19 +6,21 @@
  */
 // clang-format on
 
-#include <functional>
-#include <iostream>
+#include <expr_evaluator.h>
+
+#include <ranges>
 
 #include <debug.h>
 #include <evaluator_common.h>
-#include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -60,8 +62,8 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    int64_t expect_dim =
-        std::ssize(TensorDomain::noReductions(tv->getLogicalDomain()));
+    const auto expect_dim = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -73,8 +75,7 @@ void validateValWithConcreteValue(
         t.dim());
     NVF_CHECK(
         (value->dtype() == DataType::Index &&
-         (t.scalar_type() == torch::kInt64 ||
-          t.scalar_type() == torch::kInt32)) ||
+         (t.scalar_type() == at::kLong || t.scalar_type() == at::kInt)) ||
             (t.scalar_type() == data_type_to_aten(value->dtype())),
         "Expected ",
         getInputPosString(tv),
@@ -135,34 +136,20 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  NVF_ERROR(
-      t.dim() == (int64_t)logical_domain.size(),
+  auto logical_domain = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  const auto logical_rank = std::ranges::distance(logical_domain);
+  NVF_ERROR_EQ(
+      t.dim(),
+      logical_rank,
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
-      ", to be bound to a tensor of rank ",
-      logical_domain.size(),
-      ", but got a tensor of rank ",
-      t.dim());
+      ", to be bound to a tensor of equal rank.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
+  adjustEvaluatorSizes(tv, logical_sizes);
 
-  // Adjust the last dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (!logical_sizes.empty()) {
-    auto& last_dim = logical_sizes.back();
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  } else {
-    NVF_ERROR(
-        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
-        "DataType not supported");
-  }
-
-  for (auto i : arange(t.dim())) {
-    auto id = logical_domain[i];
+  for (const auto& [i, id] : enumerate(logical_domain)) {
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
@@ -282,7 +269,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
   std::reference_wrapper<const PolymorphicValue> maybe_concrete_value =
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
-    if (auto def = value->definition()) {
+    if (auto* def = value->definition()) {
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
@@ -319,6 +306,10 @@ const PolymorphicValue& ExpressionEvaluator::getValue(
   }
 
   return null_;
+}
+
+void ExpressionEvaluator::invalidate(const Val* value) {
+  known_values_.erase(value);
 }
 
 void ExpressionEvaluator::print() const {

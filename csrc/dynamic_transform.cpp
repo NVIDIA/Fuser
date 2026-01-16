@@ -28,8 +28,7 @@ namespace nvfuser {
 
 DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
-  DynamicTransformInitialInfo cloned_info(
-      static_cast<Fusion*>(ir_cloner.container()));
+  DynamicTransformInitialInfo cloned_info(ir_cloner.container()->as<Fusion>());
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
   for (const auto tv : dynamic_reshaped_tvs_) {
     cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
@@ -148,7 +147,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
   }
 
   //! Find views that have symbolic outputs
-  void handle(ViewOp* op) override {
+  void handle(ReshapeOp* op) override {
     auto inp_tv = op->in()->as<TensorView>();
     auto out_tv = op->out()->as<TensorView>();
     // If there's no symbolic axis, this is a static reshape op
@@ -156,8 +155,8 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
       info_.dynamic_reshaped_tvs_.push_back(out_tv);
 
       // Input and output extent expressions both affect concretization
-      for (const auto& id :
-           TensorDomain::noReductions(inp_tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           inp_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         loop_dynamic_vals_.push_back(id->getMaybeExpandedExtent());
       }
       for (const auto& id : out_tv->getLogicalDomain()) {
@@ -327,7 +326,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
   const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
   for (const auto tv_index : arange((int64_t)reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
-    auto op = out_tv->definition()->as<ViewOp>();
+    auto op = out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = op->in()->as<TensorView>();
 
     // If there's no symblic axis, this is a static reshape op
@@ -337,7 +336,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 
     NVF_ERROR(
         out_tv->hasRoot(),
-        "Unexpected output tv of ViewOp: ",
+        "Unexpected output tv of ReshapeOp: ",
         out_tv->toString());
 
     const auto& inp_dom =
@@ -774,6 +773,8 @@ class DynamicTransformConcretizer : public OptOutMutator {
 
   void mutate(TensorDomain* td) final;
 
+  void mutate(IterDomain* id) final;
+
   void mutate(Expr* expr) final;
 
   //! Concretizes the root domain of a symbolic consumer tensor from
@@ -912,7 +913,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   //   T1[ iS2{i0} rS3{i1} ] = sum(T0[ iS0{i0} iS1{i1} ])
   //   T3[ iS4{i0} ] = -T1[ iS2{i0} rS3{i1} ]
   //
-  // Notice here that the ViewOp is gone since we recognized that there is no
+  // Notice here that the ReshapeOp is gone since we recognized that there is no
   // transformation to perform. Instead, T1 is used directly in place of T2.
   // We also replace the extent i2 from the dynamic reshape output T2 with i0,
   // which is what the code below implements. Since T1 includes a Reduction
@@ -925,9 +926,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
       "Concretized reshape logical size does not match symbolic logical size");
 
   TransformReplay::selfReplay(
-      incomplete_out_tv->domain(),
-      concrete_reshape_out_tv->domain(),
-      /*ignore_reductions=*/true);
+      incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
 
   for (auto&& [old_id, new_id] : zip(old_logical, new_logical)) {
     Val* old_extent = old_id->extent();
@@ -1002,7 +1001,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
   for (const auto& [tv_index, view_info] : info_->getReshapeTransforms()) {
     auto incomplete_out_tv =
         info_->initialInfo()->getDynamicReshapedTensorViews().at(tv_index);
-    auto view_op = incomplete_out_tv->definition()->as<ViewOp>();
+    auto view_op = incomplete_out_tv->definition()->as<ReshapeOp>();
     auto inp_tv = view_op->in()->as<TensorView>();
 
     TensorView* concrete_reshape_out_tv = nullptr;
@@ -1168,7 +1167,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   for (auto root_id : tv->getMaybeRootDomain()) {
     // This will register root_id for mutation if its extent, start, or
     // stop_offset is registered for mutation
-    OptOutMutator::mutate(root_id);
+    mutate(root_id);
   }
 
   // First, try to concretize the root domain as there may be symbolic
@@ -1361,6 +1360,18 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
   registerConcretization(td, mutated_val);
 }
 
+void DynamicTransformConcretizer::mutate(IterDomain* id) {
+  OptOutMutator::mutate(id);
+  // Check whether the extent was mutated to zero. If so, ensure that the
+  // IterType is set to Iteration
+  auto* mut_id = maybeMutated(id)->as<IterDomain>();
+  if (mut_id->isSymbolic() && mut_id->extent()->isZeroInt()) {
+    IterDomain* new_mut_id =
+        IterDomainBuilder(mut_id).iter_type(IterType::Iteration).build();
+    registerConcretization(id, new_mut_id);
+  }
+}
+
 //! Returns whether a reduction has any trivial partial reductions. Modifies
 //! reduction_axes in place to insert indices of non-trivial reduction axes,
 //! relative to squeezed input.
@@ -1374,7 +1385,8 @@ static bool hasTrivialReduction(
   p2c_map.mapBroadcast(true);
   auto p2c = p2c_map.mapProducerToConsumer();
   int64_t pos = -1;
-  for (IterDomain* in_id : TensorDomain::noReductions(in->getLogicalDomain())) {
+  for (IterDomain* in_id :
+       in->getLogicalDomain() | TensorDomain::kNoReductions) {
     ++pos;
     auto out_it = p2c.find(in_id);
     if (out_it == p2c.end()) {
@@ -1476,8 +1488,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   bool is_concretized = false;
 
-  for (const auto i : arange((int64_t)root_domain.size())) {
-    auto root_id = root_domain.at(i);
+  for (IterDomain* root_id : root_domain) {
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
     }
@@ -1516,8 +1527,9 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
           consumer->toString(),
           ". Replacement is ",
           maybeMutated(input_id)->toString());
-      NVF_ERROR(
-          input_id->getIterType() != IterType::Symbolic,
+      NVF_ERROR_NE(
+          input_id->getIterType(),
+          IterType::Symbolic,
           "Producer ID not concretized: ",
           input_id->toString());
 

@@ -33,8 +33,12 @@ std::string toString(SchedulerType scheduler_type) {
       return "expr_eval";
     case SchedulerType::Resize:
       return "resize";
+    case SchedulerType::Greedy:
+      return "greedy";
     case SchedulerType::Communication:
       return "communication";
+    case SchedulerType::Cutlass:
+      return "cutlass";
     case SchedulerType::None:
       return "none";
     default:

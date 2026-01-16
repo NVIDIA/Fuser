@@ -57,25 +57,31 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const ScatterOp*) final;
   void handle(const ArgsortOp*) final;
   void handle(const TopKOp*) final;
+  void handle(const BlockQuantizationOp*) final;
   void handle(const RNGOp*) final;
   void handle(const ReductionOp*) final;
   void handle(const GroupedReductionOp*) final;
   void handle(const WelfordOp*) final;
   void handle(const GroupedWelfordOp*) final;
+  void handle(const ScanOp*) final;
   void handle(const LoadStoreOp*) final;
   void handle(const MmaOp*) final;
   void handle(const BroadcastOp*) final;
   void handle(const PadOp*) final;
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
+  void handle(const PreprocessGroupedMatmulInputSf*) final;
+  void handle(const LaunchDependentGridOp*) final;
+  void handle(const WaitForPriorGridOp*) final;
 
   void handle(const kir::Asm*) final;
-  void handle(const ForLoop*) final;
+  void handle(const kir::ForLoop*) final;
   void handle(const kir::IfThenElse*) final;
   void handle(const kir::Allocate*) final;
   void handle(const kir::AllocTMem*) final;
   void handle(const kir::BlockSync*) final;
   void handle(const kir::GridSync*) final;
+  void handle(const kir::ClusterSync*) final;
   void handle(const kir::FenceAsyncProxy*) final;
   void handle(const kir::WgMmaFence*) final;
   void handle(const kir::SetMaxNReg*) final;
@@ -94,11 +100,6 @@ class IndexLowering : private OptOutConstDispatch {
 
   void generate(const std::vector<Expr*>& exprs);
 
-  // Get the loop in which the currently visiting expr is a rotated expr.
-  const std::unordered_set<ForLoop*>& getRotatedLoop() const {
-    return rotated_loop_;
-  }
-
   // lower index for producer. The `override_index` is a mapping `id->index`,
   // where `id` must be an IterDomain in the rFactor domain of the producer.
   // This is can used to manually set the index for the given rFactor ID.
@@ -116,13 +117,15 @@ class IndexLowering : private OptOutConstDispatch {
       Val* dst,
       const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   Val* lowerDstIndex(
       Val* dst,
-      const std::unordered_map<int, Val*>& override_index = {},
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
       bool generate_pointer = false,
-      DataType as_type = DataType::Null) const;
+      DataType as_type = DataType::Null,
+      bool ld_st_matrix = false) const;
 
   void handleCpAsyncBulkLoad(const LoadStoreOp* ldst);
   void handleCpAsyncBulkStore(const LoadStoreOp* ldst);
@@ -132,6 +135,7 @@ class IndexLowering : private OptOutConstDispatch {
   //! Called by handleGridReduction, this returns true if rop is lowered as a
   //! serial grid reduction.
   void handleSerialGridReduction(const ReductionOp* rop, Val* out, Val* in);
+  void handleClusterReduction(const ReductionOp* rop, Val* out, Val* in);
 
   void handleBlockReduction(
       const GroupedReductionOp* rop,
@@ -154,6 +158,8 @@ class IndexLowering : private OptOutConstDispatch {
       const std::vector<WelfordTriplet>& output_vals,
       const std::vector<WelfordTriplet>& input_vals,
       const std::vector<WelfordTriplet>& init_vals);
+
+  void handleGroupedLoadStoreOp(const LoadStoreOp* ldst);
 
   // Allocate a unique buffer for grid reductions and broadcast. A
   // buffer is uniquely allocated for each output tensor of an
@@ -188,10 +194,7 @@ class IndexLowering : private OptOutConstDispatch {
 
   // Track for loops to send to indexing. Similar to what's done in
   // kir::IrVisitor
-  std::vector<ForLoop*> for_loops_;
-
-  // Keep track of the loop in which the currently visiting expr is a rotated.
-  std::unordered_set<ForLoop*> rotated_loop_;
+  std::vector<kir::ForLoop*> for_loops_;
 
   // Maps to keep track of allocated buffers and objects that must be
   // allocated only once
@@ -199,6 +202,9 @@ class IndexLowering : private OptOutConstDispatch {
   std::unordered_map<TensorView*, kir::Allocate*> work_buffer_map_;
   std::unordered_map<TensorView*, kir::AllocateFusedReduction*>
       fused_reduction_map_;
+
+  // Track mbarrier index assignment for cluster reductions
+  int64_t current_cluster_index_ = 0;
 };
 
 } // namespace nvfuser

@@ -29,6 +29,11 @@ struct CompileParams {
   // Additional include paths to be added to the nvrtc compilation
   std::vector<std::string> include_paths;
 
+  // CTA shape known at compile time
+  std::optional<int64_t> bdimx = std::nullopt;
+  std::optional<int64_t> bdimy = std::nullopt;
+  std::optional<int64_t> bdimz = std::nullopt;
+
   bool operator==(const CompileParams& other) const {
     // Disallow comparison if the index type is nullopt
     NVF_ERROR(
@@ -40,14 +45,15 @@ struct CompileParams {
     return index_type == other.index_type &&
         maxrregcount == other.maxrregcount &&
         enable_magic_zero == other.enable_magic_zero &&
-        device == other.device && include_paths == other.include_paths;
+        device == other.device && include_paths == other.include_paths &&
+        bdimx == other.bdimx && bdimy == other.bdimy && bdimz == other.bdimz;
   }
 
   bool operator!=(const CompileParams& other) const {
     return !(*this == other);
   }
 
-  std::string toString() const;
+  NVF_API std::string toString() const;
 };
 
 class LaunchParams {
@@ -148,7 +154,7 @@ class LaunchParams {
   // for a ParallelType cannot be set multiple times. bindUnsafe allows setting
   // value of ParallelType multiple times. It is used for when LaunchParams is
   // a configuration parameter.
-  void bindUnsafe(int64_t val, ParallelType p_type);
+  NVF_API void bindUnsafe(int64_t val, ParallelType p_type);
 
   // Adjusted value based on get functions above for each value
   NVF_API int64_t getDim(ParallelType p_type) const;

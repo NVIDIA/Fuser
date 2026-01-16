@@ -8,10 +8,10 @@
 
 #include <runtime/executor_dispatch.h>
 
-#include <host_ir/executor.h>
 #include <instrumentation.h>
-
-#include <typeinfo>
+#include <runtime/communication_executor.h>
+#include <runtime/cutlass_executor.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
@@ -24,12 +24,16 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("ExecutorDispatch::makeExecutor");
   if (scheduler_type == SchedulerType::None) {
-    if (HostIrExecutor::supported(fusion)) {
-      return std::make_unique<HostIrExecutor>(
+    if (CommunicationExecutor::supported(fusion)) {
+      return std::make_unique<CommunicationExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     }
     if (ExprEvalExecutor::supported(fusion)) {
       return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    }
+    if (CutlassExecutor::supported(fusion)) {
+      return std::make_unique<CutlassExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     }
     if (KernelExecutor::supported(fusion)) {
@@ -41,10 +45,13 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
 
   switch (scheduler_type) {
     case SchedulerType::Communication:
-      return std::make_unique<HostIrExecutor>(
+      return std::make_unique<CommunicationExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     case SchedulerType::ExprEval:
       return std::make_unique<ExprEvalExecutor>(
+          fusion_id, concrete_id, runtime_id, group_id);
+    case SchedulerType::Cutlass:
+      return std::make_unique<CutlassExecutor>(
           fusion_id, concrete_id, runtime_id, group_id);
     default:
       return std::make_unique<KernelExecutor>(
@@ -54,13 +61,18 @@ std::unique_ptr<ExecutorAbstract> ExecutorDispatch::makeExecutor(
 
 void ExecutorDispatch::compile(ExecutorAbstract* executor, Fusion* fusion) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     eee->compile(fusion);
     return;
+  }
+  if (dynamic_cast<CutlassExecutor*>(executor) != nullptr) {
+    NVF_THROW(
+        "CutlassExecutor needs more information to be provided for "
+        "compilation.");
   }
   if (dynamic_cast<KernelExecutor*>(executor) != nullptr) {
     NVF_THROW(
@@ -74,22 +86,28 @@ void ExecutorDispatch::compile(
     ExecutorAbstract* executor,
     Fusion* fusion,
     const KernelArgumentHolder& args,
-    const LaunchParams& launch_constraints,
-    CompileParams compile_params,
-    SchedulerType scheduler_type) {
+    const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::compile2");
 
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    hire->compile(fusion);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    ce->compile(fusion);
     return;
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     eee->compile(fusion);
     return;
   }
+  if (auto ce = dynamic_cast<CutlassExecutor*>(executor)) {
+    const auto* cutlass_params = dynamic_cast<const CutlassParams*>(params);
+    NVF_ERROR(
+        cutlass_params != nullptr,
+        "Expected CutlassParams for CutlassExecutor");
+    ce->compile(fusion, *cutlass_params);
+    return;
+  }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     ke->compile(
-        fusion, args, launch_constraints, compile_params, scheduler_type);
+        fusion, args, params->lparams, params->cparams, params->scheduler_type);
     return;
   }
   NVF_THROW("Unsupported Executor detected.");
@@ -100,11 +118,14 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
     return false;
   }
   FUSER_PERF_SCOPE("ExecutorDispatch::isCompiled");
-  if (auto hire = dynamic_cast<const HostIrExecutor*>(executor)) {
-    return hire->isCompiled();
+  if (auto ce = dynamic_cast<const CommunicationExecutor*>(executor)) {
+    return ce->isCompiled();
   }
   if (auto eee = dynamic_cast<const ExprEvalExecutor*>(executor)) {
     return eee->isCompiled();
+  }
+  if (auto ce = dynamic_cast<const CutlassExecutor*>(executor)) {
+    return ce->isCompiled();
   }
   if (auto ke = dynamic_cast<const KernelExecutor*>(executor)) {
     return ke->isCompiled();
@@ -119,11 +140,14 @@ KernelArgumentHolder ExecutorDispatch::run(
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run");
-  if (auto hire = dynamic_cast<HostIrExecutor*>(executor)) {
-    return hire->run(args, outputs);
+  if (auto ce = dynamic_cast<CommunicationExecutor*>(executor)) {
+    return ce->run(args, outputs);
   }
   if (auto eee = dynamic_cast<ExprEvalExecutor*>(executor)) {
     return eee->run(args, outputs);
+  }
+  if (auto ce = dynamic_cast<CutlassExecutor*>(executor)) {
+    return ce->run(args, outputs);
   }
   if (auto ke = dynamic_cast<KernelExecutor*>(executor)) {
     return ke->run(args, outputs, launch_constraints, compile_params);

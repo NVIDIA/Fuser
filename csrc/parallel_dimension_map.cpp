@@ -8,6 +8,7 @@
 #include <parallel_dimension_map.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <expr_simplifier.h>
@@ -15,7 +16,6 @@
 #include <iter_visitor.h>
 #include <scheduler/utils.h>
 
-#include <functional>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -38,7 +38,7 @@ struct hash<PAndID> {
 
 namespace nvfuser {
 
-void ParallelDimensionMap::build(Fusion* fusion) {
+ParallelDimensionMap::ParallelDimensionMap(Fusion* fusion) {
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -58,8 +58,9 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       if (!isParallelTypeThread(ptype)) {
         continue;
       }
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT);
+      auto concrete_id =
+          FusionInfoGuard::current()->caMap().getConcreteMappedID(
+              id, IdMappingMode::EXACT);
       if (concrete_id->isBroadcast()) {
         // Broadcasted concrete id's don't specify anything about shape
         continue;
@@ -99,12 +100,13 @@ void ParallelDimensionMap::build(Fusion* fusion) {
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
-  const auto gpu_lower = GpuLower::current();
-
   // If TIDx is padded to a multiple of the warp size, mark it as
   // non-exact.
-
-  auto& warp_info = gpu_lower->getWarpPaddedParallelInfo();
+  NVF_ERROR(
+      FusionInfoGuard::hasCurrent() &&
+      FusionInfoGuard::current()->hasPaddedParallelDimensions());
+  const auto& warp_info =
+      FusionInfoGuard::current()->paddedParallelDimensions();
   // TIDx isn't really padded if there isn't a warp reduction (this could
   // change)
   if (!(warp_info.is_tidx_padded && warp_info.has_warp_reduction)) {
@@ -157,10 +159,20 @@ int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   if (dim_map_.at(pt)->isConstScalar()) {
     return dim_map_.at(pt)->value().as<int64_t>();
   }
-  // Return -1 for dynamic dimensions, this disables register sharing on
-  // dynamic dimensions since we can't guarantee the number of threads is
-  // divisible by 128. We may allow this in the future and delegate this
-  // check to a point where the launch parameters are known.
+  // If dimension is dynamic but we have compile-time CTA shape available,
+  // use the actual compile parameter value
+  NVF_ERROR(GpuLower::hasCurrent());
+  const auto& cparams = GpuLower::current()->compileParams();
+  if (pt == ParallelType::TIDx && cparams.bdimx.has_value()) {
+    return cparams.bdimx.value();
+  } else if (pt == ParallelType::TIDy && cparams.bdimy.has_value()) {
+    return cparams.bdimy.value();
+  } else if (pt == ParallelType::TIDz && cparams.bdimz.has_value()) {
+    return cparams.bdimz.value();
+  }
+  // Return -1 for dynamic dimensions when compile-time CTA shape is not known,
+  // this disables register sharing on dynamic dimensions since we can't
+  // guarantee the number of threads is divisible by 128.
   return -1;
 }
 

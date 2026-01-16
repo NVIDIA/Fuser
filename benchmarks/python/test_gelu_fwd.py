@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -23,8 +23,7 @@ def gelu_fwd_fusion(
         bias = fd.ops.cast(bias, dtype=DataType.Float)
     S_079 = fd.define_scalar(0.79788456)
     S_004 = fd.define_scalar(0.044715)
-    V1 = fd.define_vector([1, input.size(-1)], dtype=DataType.Int)
-    bias = fd.ops.broadcast_in_dim(bias, shape=V1, broadcast_dims=[1])
+    bias = fd.ops.broadcast_in_dim(bias, shape=[1, input.size(-1)], broadcast_dims=[1])
     T1 = fd.ops.add(input, bias)
     T2 = fd.ops.mul(S_079, T1)
     T3 = fd.ops.mul(S_004, T1)
@@ -44,6 +43,7 @@ def gelu_fwd_fusion(
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_gelu_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -67,6 +67,7 @@ def test_gelu_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.pointwise
 def test_gelu_fwd_baseline_benchmark(
     benchmark,
     size: tuple,

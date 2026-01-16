@@ -7,13 +7,18 @@
 // clang-format on
 #pragma once
 
-#include <runtime/executor.h>
+#include <fusion.h>
 #include <runtime/executor_abstract.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_params.h>
+#include <scheduler/scheduler_types.h>
 
 namespace nvfuser {
 
-// Simple stateless dispatch system for KernelExecutor, HostIrExecutor, and
-// ExprEvalExecutor
+class HeuristicParams;
+
+// Simple stateless dispatch system for KernelExecutor, CommunicationExecutor,
+// and ExprEvalExecutor
 class ExecutorDispatch {
  public:
   // If `scheduler_type` is `SchedulerType::None`, this function iterates
@@ -37,9 +42,7 @@ class ExecutorDispatch {
       ExecutorAbstract* executor,
       Fusion* fusion,
       const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
-      SchedulerType scheduler_type = SchedulerType::None);
+      const HeuristicParams* params);
 
   static bool isCompiled(const ExecutorAbstract* executor);
 

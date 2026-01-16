@@ -5,24 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+
+#include <kernel_ir.h>
 
 namespace nvfuser {
 namespace kir {
-std::vector<Expr*> IrVisitor::handle(const std::vector<Expr*>& exprs) {
-  exprs_ = std::vector<Expr*>(exprs);
-  for (auto expr : exprs) {
-    dispatch(expr);
-  }
-  return exprs_;
-}
-
 void IrVisitor::handle(ForLoop* fl) {
   for_loops_.push_back(fl);
   scope_.push_back(&fl->body());
   scope_exprs_.push_back(fl);
-  auto body_exprs = std::vector<Expr*>(fl->body().exprs());
+  const auto& body_exprs = fl->body().exprs();
   for (auto expr : body_exprs) {
     dispatch(expr);
   }
@@ -34,28 +27,19 @@ void IrVisitor::handle(ForLoop* fl) {
 void IrVisitor::handle(IfThenElse* ite) {
   scope_exprs_.push_back(ite);
   scope_.push_back(&ite->thenBody());
-  auto then_exprs = std::vector<Expr*>(ite->thenBody().exprs());
+  const auto& then_exprs = ite->thenBody().exprs();
   for (auto expr : then_exprs) {
     dispatch(expr);
   }
   scope_.pop_back();
 
   scope_.push_back(&ite->elseBody());
-  auto else_exprs = std::vector<Expr*>(ite->elseBody().exprs());
+  const auto& else_exprs = ite->elseBody().exprs();
   for (auto expr : else_exprs) {
     dispatch(expr);
   }
   scope_.pop_back();
   scope_exprs_.pop_back();
-}
-
-std::vector<const Expr*> ConstIrVisitor::handle(
-    const std::vector<const Expr*>& exprs) {
-  exprs_ = exprs;
-  for (auto expr : exprs) {
-    dispatch(expr);
-  }
-  return exprs_;
 }
 
 void ConstIrVisitor::handle(const ForLoop* fl) {
@@ -115,7 +99,7 @@ std::vector<Expr*> ExprMutator::mutate(bool reverse_order) {
       // If reference is nullptr and there are no expressions, simply insert the
       // expr
       if (info.scope->exprs().empty() && info.reference == nullptr) {
-        info.scope->push_back(info.new_expr);
+        info.scope->pushBack(info.new_expr);
         return;
       }
       if (info.mode == MutationMode::BEFORE) {

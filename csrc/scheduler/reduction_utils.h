@@ -19,7 +19,7 @@ namespace nvfuser {
 namespace reduction_scheduler_utils {
 
 // Consistent parallelization based on provided reduction parameters. Provided
-// tensor is expected to be reduced by canonicalDimReduction before sending
+// tensor is expected to be reduced by canonicalizeReduction before sending
 // here. reduction_tv should be provided as the tensorview to reduce.
 // RFactor of reduction_tv will be returned if applicable otherwise reduction_tv
 // is returned
@@ -55,8 +55,8 @@ void propagateRFactor(
 NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     TensorView* reference_tv,
     bool is_vectorize,
-    const std::vector<TensorView*>& cached_inputs,
-    const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
 // Unroll and Vectorize types are explicitly handled for
@@ -154,5 +154,34 @@ int64_t getComputeBdimx(ParallelType warp_specialized_on, int64_t bdimx);
 int64_t getComputeBdimx(
     const CircularBufferOptions& circular_buffer_opt,
     int64_t bdimx);
+
+int64_t getL1L2WarpSize(
+    const int64_t total_reduction_numel,
+    const int64_t total_iteration_numel,
+    const int64_t n_tensor_inputs,
+    const int64_t max_dtype_size_bit_for_vectorization);
+
+int64_t getVectUnroll(
+    const int64_t max_dtype_size_bit_for_vectorization,
+    const int64_t max_vectorize_factor,
+    const int64_t n_tensor_inputs,
+    const int64_t target_threads_per_sm,
+    const bool has_mufu_computation);
+
+struct FusionRuntimeProperties {
+  int64_t total_reduction_numel = 0;
+  int64_t total_iteration_numel = 0;
+  int64_t inner_most_dimension_numel = 0;
+  bool fastest_dim_reduction = false;
+  int64_t n_tensor_inputs = 0;
+  int64_t max_dtype_size_bit_for_vectorization = 0;
+  int64_t vectorize_factor = 1;
+  bool has_mufu_computation = false;
+};
+
+FusionRuntimeProperties getFusionRuntimeProperties(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache);
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

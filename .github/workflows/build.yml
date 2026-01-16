@@ -23,16 +23,42 @@ jobs:
           submodules: true
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.12'
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-clang23-ccache-v1-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-clang23-ccache-v1-
+      - name: Setup ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ccache
+          ccache --set-config=max_size=2G
+          ccache --set-config=compression=true
+          ccache --zero-stats
       - name: Build with clang++
         working-directory: ${{ env.working_directory }}
         run: |
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
-          source tools/setup-env.sh
           wait
-          cd python
-          python setup.py build --cpp=23
+          source tools/setup-env.sh
+
+          export NVFUSER_BUILD_NO_CUTLASS=true
+          export NVFUSER_BUILD_CPP_STANDARD=23
+          export NVFUSER_BUILD_ENABLE_PCH=true
+          pip install -v -e ./python --no-build-isolation
+      - name: Show ccache statistics
+        if: always()
+        run: ccache --show-stats
+      - name: Save ccache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-clang23-ccache-v1-${{ github.run_id }}
 
   dynamic-type-meson:
     runs-on: ubuntu-latest

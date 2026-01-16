@@ -104,7 +104,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 // IdMappingMode::LOOP
 //   Subgraph of the permissive graph. Maps only CA and their
 //   dependent domains.
-class IdModel : public PolymorphicBase {
+class NVF_API IdModel : public PolymorphicBase {
  public:
   // Sometimes fusion inputs or outputs are disconnected from expressions, in
   // those cases we still may want to send in some additional tensor views from
@@ -133,6 +133,11 @@ class IdModel : public PolymorphicBase {
       bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
+
+  IdModel(const IdModel&) = delete;
+  IdModel& operator=(const IdModel&) = delete;
+  IdModel(IdModel&&) noexcept = default;
+  IdModel& operator=(IdModel&&) noexcept = default;
 
   bool hasIdGraph(IdMappingMode mode) const {
     return id_graphs_.find(mode) != id_graphs_.end();
@@ -213,6 +218,9 @@ class IdModel : public PolymorphicBase {
 
   // Build a graph if not already built
   ValGraph& maybeBuildGraph(IdMappingMode mode);
+
+  // Query if the specified graph is already built
+  bool hasGraph(IdMappingMode mode) const;
 
   // Remove a graph if already built
   void removeGraph(IdMappingMode mode);
@@ -362,5 +370,9 @@ class IdModel : public PolymorphicBase {
 std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const std::unordered_map<ValGroup, IterDomain*>& stale_map,
     ValGraph& new_graph);
+
+// Build a PERMISSIVE_RESIZE graph from the permissive graph.
+// This adds additional mappings for resize operations.
+ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph);
 
 } // namespace nvfuser

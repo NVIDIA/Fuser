@@ -5,21 +5,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <device_lower/lower2device.h>
-#include <dynamic_transform.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/executor_utils.h>
-#include <tests/cpp/topk_test_helper.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
 #include <gtest/gtest.h>
+
+#include "csrc/exceptions.h"
+#include "device_lower/lower2device.h"
+#include "dynamic_transform.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "preseg_passes/remove_empty.h"
+#include "runtime/executor.h"
+#include "runtime/executor_utils.h"
+#include "scheduler/tools/cub_utils.h"
+#include "tests/cpp/topk_test_helper.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -430,11 +434,53 @@ TEST_F(TopKDynamicTest, DynamicReshapeThenStaticTopK) {
       << "Should detect reshape operation";
 }
 
+TEST_F(TopKDynamicTest, KZeroConcretization) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto k = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(k);
+
+  auto topk_result = topk(tv0, k);
+  fusion.addOutput(topk_result.values);
+
+  auto tv3 = add(topk_result.values, fusion.oneVal());
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({16}, options);
+
+  auto initial_info = DynamicTransform::getInitialInfo(&fusion);
+  KernelArgumentHolder args({t0, 0});
+  auto expr_eval = executor_utils::bindInputs(args, &fusion);
+  DynamicTransformConcretizationInfo conc_info(&initial_info, &expr_eval);
+
+  // Test concretization
+  DynamicTransform::concretizeFusion(&fusion, &conc_info);
+
+  IterDomain* out_id = fusion.outputs().at(0)->as<TensorView>()->axis(0);
+  EXPECT_TRUE(out_id->isIteration());
+
+  // Replacement of the extent to zero doesn't seem to be working as
+  // topk now uses IterDomain::resize, which then uses
+  // SimplyfingIrBuilder::addExpr and that introduces casting to the
+  // index type. However, the preseg pass should detect the empty topk
+  // output and the use of the output should be converted to fullop
+  OptimizationPass<preseg_passes::RemoveEmptyPass>::runPass(&fusion);
+  tv3 = fusion.outputs().at(1)->as<TensorView>();
+  EXPECT_TRUE(tv3->definition()->isA<FullOp>())
+      << tv3->definition()->toString();
+}
+
 class TopKTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -592,5 +638,177 @@ TEST_F(TopKTest, IndicesOnly) {
   auto ref_values = std::get<0>(torch::topk(input, 3));
   EXPECT_TRUE(ref_values.equal(topk_values));
 }
+
+TEST_F(TopKTest, ZeroDimensionalInput) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(0);
+  fusion.addInput(tv0);
+
+  auto tv1 = topk(tv0, fusion.oneVal(DataType::Int), -1).indices;
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Make sure the shared memory work buffer is reused correctly
+TEST_F(TopKTest, BufferSync) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape = {1024};
+  auto tv0 = makeContigConcreteTensor(shape, DataType::Int);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  auto tv4 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv5 = set(tv4);
+  fusion.addOutput(tv5);
+
+  auto tv6 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv7 = set(tv6);
+  fusion.addOutput(tv7);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  // Verify the output
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+class TopKParameterizedWithBlockandBatch
+    : public TopKTest,
+      public ::testing::WithParamInterface<std::tuple<int, int, bool, bool>> {};
+
+TEST_P(TopKParameterizedWithBlockandBatch, SharedMemoryRequirement) {
+  DisableOptionsGuard disable_options_guard;
+  // Avoid using magic zero to make the estimation simpler
+  DisableOptionsGuard::getCurOptions().set(DisableOption::MagicZero);
+  // Avoid insertion of segmenter_set
+  OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  const auto [size, batch, has_dulicate, has_extra] = GetParam();
+
+  ASSERT_EQ(batch, 1) << "TopKOp does not support batching yet";
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  DataType dtype = DataType::Int;
+  DataType dtype_extra = DataType::Float;
+
+  std::vector<int64_t> shape = {size};
+
+  auto tv0 = makeContigConcreteTensor(shape, dtype);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = topk(tv1, fusion.oneVal(DataType::Int), 0).values;
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // Duplicate the above call but should not change the usage as it's
+  // the same template instantiation
+  if (has_dulicate) {
+    auto tv4 = set(tv0);
+    auto tv5 = topk(tv4, fusion.oneVal(DataType::Int), 0).values;
+    auto tv6 = set(tv5);
+    fusion.addOutput(tv6);
+  }
+
+  // Create a different instantiation
+  if (has_extra) {
+    auto tv7 = castOp(dtype_extra, tv0);
+    auto tv8 = topk(tv7, fusion.oneVal(DataType::Int), 0).values;
+    auto tv9 = set(tv8);
+    fusion.addOutput(tv9);
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    if (batch > 1) {
+      tv->split(-1, batch);
+      if (tv->isDefinitionType<ArgsortOp>()) {
+        tv->axis(-1)->parallelize(ParallelType::Group);
+      }
+    }
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randint(0, shape[0], shape, options);
+
+  scheduler_tools::CubSharedMemoryBuffer smem_buffer;
+  smem_buffer.registerTopK(ceilDiv(size, batch), batch, dtype);
+  // The duplicate should not increase the buffer usage
+  if (has_extra) {
+    smem_buffer.registerTopK(ceilDiv(size, batch), batch, dtype_extra);
+  }
+  const int64_t expected_size = smem_buffer.getTotalSizeInBytes();
+
+  const int64_t available_capacity =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock;
+  const int64_t opt_in_available_capacity =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerBlockOptin;
+
+  KernelExecutor ke;
+  if (expected_size <= available_capacity) {
+    ke.compile(&fusion, {t0});
+    auto outputs = ke.run({t0});
+    testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+    // The test would fail if the estimate is not 100% accurate. That
+    // may be too strict and fragile as a test. After all, we would
+    // just need a reasonably tight upper bound. Consider relaxing the
+    // condition if necessary.
+    EXPECT_EQ(expected_size, ke.getStaticSmemSize())
+        << "Actual static shared memory size was different";
+  } else if (expected_size > opt_in_available_capacity) {
+    // Compilation should fail
+    EXPECT_THAT(
+        [&]() { ke.compile(&fusion, {t0}); },
+        testing::Throws<nvfuser::nvfError>());
+  } else {
+    // It doesn't seem consistent whether compilation or launch should
+    // fail if the requirement of static shared memory exceeds the default
+    // limit but within the opt-in larger limit. As we should move to
+    // dynamic allocaitons anyway, don't assert for now.
+  }
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TopKParameterizedWithBlockandBatch,
+    testing::Combine(
+        testing::Values(128, 256, 512, 1024),
+        testing::Values(1),
+        testing::Bool(),
+        testing::Bool()),
+    [](const auto& info) {
+      std::ostringstream os;
+      os << std::get<0>(info.param) << "_" << std::get<1>(info.param) << "_"
+         << std::get<2>(info.param) << "_" << std::get<3>(info.param);
+      return os.str();
+    });
 
 } // namespace nvfuser

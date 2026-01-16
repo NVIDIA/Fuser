@@ -3,40 +3,39 @@
  * AFFILIATES. All rights reserved. SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <macros.h>
-
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/optimization_pass.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "macros.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "options.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -337,8 +336,8 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
 
   int batch_size = 3, M = 504, N = 136, K = 248;
   auto fusion = std::make_unique<Fusion>();
@@ -474,8 +473,8 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
-  preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
-      alloc_pass_guard(false);
+  OptimizationPassGuard<preseg_passes::AllocationDomainPass> alloc_pass_guard(
+      false);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const int64_t bias_dim = std::get<2>(GetParam());

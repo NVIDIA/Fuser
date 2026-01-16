@@ -9,6 +9,7 @@
 #include <instrumentation.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/greedy.h>
 #include <scheduler/heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
@@ -16,6 +17,7 @@
 #include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -33,10 +35,20 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
+  // These ops are supported only by the ExprEval or Cutlass schedulers. All
+  // others should reject them
+  if (scheduler_type != SchedulerType::Greedy &&
+      scheduler_type != SchedulerType::Cutlass &&
+      ir_utils::hasOpsOfType<ScaledMmaOp>(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Has unsupported ops");
+  }
+
   // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
   // TODO: remove IndexPutAccumulateOp
-  if (ir_utils::hasOpsOfType<
+  if (scheduler_type != SchedulerType::Greedy &&
+      ir_utils::hasOpsOfType<
           ScatterOp,
           SdpaFwdOp,
           SdpaBwdOp,
@@ -44,6 +56,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
           IndexPutAccumulateOp,
           ArgsortOp,
           GroupedMmaOp,
+          CutlassNvfp4GroupedMmaOp,
           TopKOp,
           ScanOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
@@ -65,6 +78,7 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "Connected fusion graph check failed!");
     return false;
   }
+
   if (IterDomainGraph(fusion, /*allow_self_mapping=*/true).hasSelfMapping()) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Iter domain graph check failed!");
@@ -80,6 +94,22 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
   if (registry_utils::SchedulerTopologyChecker::hasCyclicReshape(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
         scheduler_type, "Fusion has cyclic reshapes.");
+    return false;
+  }
+
+  // Resize scheduler allows incompatible reshapes
+  if (scheduler_type != SchedulerType::Resize &&
+      registry_utils::SchedulerTopologyChecker::hasIncompatibleTransforms(
+          fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion has incompatible reshapes.");
+    return false;
+  }
+
+  if (registry_utils::SchedulerTopologyChecker::
+          rejectScheduleFusionGlobalBufferRequirement(fusion, scheduler_type)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Fusion doesn't meets global buffer requirement.");
     return false;
   }
 
@@ -115,8 +145,12 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Greedy:
+      return std::make_unique<GreedyScheduler>();
     case SchedulerType::Communication:
       return std::make_unique<CommunicationScheduler>();
+    case SchedulerType::Cutlass:
+      return std::make_unique<CutlassScheduler>();
     default:
       NVF_THROW("unreachable");
   }
@@ -247,6 +281,8 @@ template class HeuristicDataCacheEntry<
     HeuristicCompileTime::UnrollableInputsAndOutputs>;
 template class HeuristicDataCacheEntry<HeuristicCompileTime::ReductionTVs>;
 template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::HasBlockQuantizationOps>;
+template class HeuristicDataCacheEntry<
     HeuristicCompileTime::PersistentBufferInfo>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::ScopePersistentFactorInfo>;
@@ -258,6 +294,4 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizationBreakPointOfReductionProducer>;
-template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::SchedulerHyperParameters>;
 } // namespace nvfuser

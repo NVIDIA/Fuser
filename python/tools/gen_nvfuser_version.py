@@ -70,6 +70,9 @@ def get_pytorch_use_distributed():
 
 
 if __name__ == "__main__":
-    version_file = nvfuser_root / "nvfuser" / "version.py"
+    assert len(sys.argv) == 2
+    assert sys.argv[1] == "nvfuser" or sys.argv[1] == "nvfuser_direct"
+    python_module = sys.argv[1]
+    version_file = nvfuser_root / python_module / "version.py"
     with open(version_file, "w") as f:
         f.write("_version_str = '{}'\n".format(get_version()))

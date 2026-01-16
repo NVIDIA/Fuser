@@ -13,6 +13,7 @@
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
+#include <multidevice/resharding.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <scheduler/utils.h>
@@ -34,8 +35,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
       getCommunicationLayout(input, communication_info.type, p_sharded_id);
   if (!isCompliantWith(*canonicalizeLayout(input), p_layout)) {
     TensorView* input_copy = set(input);
-    TransformReplay::selfReplay(
-        input->domain(), input_copy->domain(), /*ignore_reductions=*/true);
+    TransformReplay::selfReplay(input->domain(), input_copy->domain());
     ir_utils::replaceValInExprInputs(expr, input, input_copy);
     p_layout = *mapInLayoutToOutRoot(p_layout, input, input_copy);
     input = input_copy;
@@ -59,8 +59,7 @@ void makeCommunicationLayoutCompliant(Expr* expr) {
       // extra copy -- a contiguous tensor can be used as non-contiguous.
       !isCompliantWith(c_layout, *canonicalizeLayout(output))) {
     TensorView* output_copy = set(output);
-    TransformReplay::selfReplay(
-        output->domain(), output_copy->domain(), /*ignore_reductions=*/true);
+    TransformReplay::selfReplay(output->domain(), output_copy->domain());
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, output_copy);
   }
   output->setAllocationDomain(

@@ -87,10 +87,11 @@ class WelfordVectorizer : public kir::ExprMutator {
       return false;
     }
 
-    if (!GpuLower::current()->caMap()->areMapped(
-            innermost_loop->iter_domain(),
-            innermost_loop_id,
-            IdMappingMode::EXACT)) {
+    if (!GpuLower::current()
+             ->info()
+             .idModel()
+             .idGraph(IdMappingMode::EXACT)
+             .areMapped(innermost_loop->iter_domain(), innermost_loop_id)) {
       return false;
     }
 
@@ -99,12 +100,14 @@ class WelfordVectorizer : public kir::ExprMutator {
     // loop is produced only with divisible splits, but for now only
     // enable when it's mapped with a vectorized ID.
     const auto& exact_set = GpuLower::current()
-                                ->caMap()
-                                ->getIdSets(IdMappingMode::EXACT)
-                                .getDisjointSetOf(innermost_loop_id);
+                                ->info()
+                                .idModel()
+                                .idGraph(IdMappingMode::EXACT)
+                                .toGroup(innermost_loop_id);
     // If none of IterDomains is vectorized, don't vectorize the WelfordOp
-    if (std::none_of(exact_set.begin(), exact_set.end(), [&](IterDomain* id) {
-          return id->getParallelType() == ParallelType::Vectorize;
+    if (std::ranges::none_of(*exact_set, [&](Val* v) {
+          return v->as<IterDomain>()->getParallelType() ==
+              ParallelType::Vectorize;
         })) {
       return false;
     }
@@ -145,8 +148,8 @@ class WelfordVectorizer : public kir::ExprMutator {
         "All predicates should have been lowered at this point: ",
         wop_ite->toString());
 
-    if (!(wop_ite->thenBody().size() == 1 && wop_ite->thenBody().at(0) == wop &&
-          wop_ite->elseBody().empty())) {
+    if (!(wop_ite->thenBody().size() == 1 &&
+          wop_ite->thenBody().front() == wop && wop_ite->elseBody().empty())) {
       return false;
     }
 
@@ -474,7 +477,7 @@ class WelfordVectorizer : public kir::ExprMutator {
     // Check all the exprs in the same scope
     for (auto expr : innermost_loop->body().exprs()) {
       // Bail out if a loop is found
-      if (expr->isA<ForLoop>()) {
+      if (expr->isA<kir::ForLoop>()) {
         return false;
       }
 
@@ -497,7 +500,7 @@ class WelfordVectorizer : public kir::ExprMutator {
         return false;
       }
 
-      expr = expr_ite->thenBody().at(0);
+      expr = expr_ite->thenBody().front();
 
       // Check only other expressions than the WelfordOp itself
       if (expr == wop) {
@@ -541,8 +544,11 @@ class WelfordVectorizer : public kir::ExprMutator {
                 wop_out->getLoopDomain().begin(),
                 wop_out->getLoopDomain().end(),
                 [&](auto wop_loop_id) {
-                  return GpuLower::current()->caMap()->areMapped(
-                      tv_loop_id, wop_loop_id, IdMappingMode::LOOP);
+                  return GpuLower::current()
+                      ->info()
+                      .idModel()
+                      .idGraph(IdMappingMode::LOOP)
+                      .areMapped(tv_loop_id, wop_loop_id);
                 })) {
           return false;
         }
@@ -557,7 +563,7 @@ class WelfordVectorizer : public kir::ExprMutator {
   }
 
  private:
-  ForLoop* innermost_loop_ = nullptr;
+  kir::ForLoop* innermost_loop_ = nullptr;
   Scope* scope_of_innermost_loop_ = nullptr;
 };
 

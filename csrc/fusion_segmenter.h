@@ -467,6 +467,18 @@ std::ostream& operator<<(
     std::ostream& os,
     const SegmentedFusion* segmented_fusion);
 
+struct RuntimeWorkSpace {
+  //! Pre-determined order to run the segmented groups
+  std::vector<SegmentedGroup*> group_run_order;
+
+  //! Pre-determined order to bind tensor input meta data
+  std::vector<Val*> group_extent_binding_order;
+};
+
+// Perform a topological sort of different groups composiong the Segmented
+// Fusion
+RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion);
+
 //! This is a base class for segmenter analysis
 //!  provides the minimal implementation on header so that
 //!  a unique_ptr can use this base class
@@ -565,17 +577,58 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // This is a helper function used by privatizeOps.
+  // @return true if any upcast or squeeze operation was successfully
+  // privatized; false otherwise.
+  bool privatizeUpCastOrSqueezeOp();
+
   // Replicate upcast ops when consumed by multiple expressions. This
   // promotes segmented fusions to share pre-upcast tensors rather
   // than post-upcast tensors. Replicated upcast ops will be reverted
-  // when they are grouped into the same segment. See
+  // when they are grouped into the same segment.
+  // In addition, some meta operations are privatized in order to promote
+  // privatization of upcast. Currently, only squeeze is privatized in addition
+  // to upcast. See
   // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
-  void privatizeUpcast();
+  // To extend this for squeeze ops, we need to call the helper function
+  // privatizeUpCastOrSqueezeOp() in a loop. This is because a round of
+  // privatization may open up new opportunities for further privatization.
+  // For example we may start with:
+  //  tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= sum(tv2); tv4=sum(tv2);
+  // After the first round if privatization, we may have:
+  // tv1 = cast(tv0); tv2 = squeeze(tv1); tv3= squeeze(tv1);
+  // tv4=sum(tv2); tv5=sum(tv3);
+  // Futher privatization will then be able to:
+  // tv1 = cast(tv0); tv2 = cast(tv0); tv3= squeeze(tv1);
+  // tv4=squeeze(tv2); tv5=sum(tv3); tv6=sum(tv4);
+  void privatizeOps();
 
   void findSegments();
 
-  // Revert privatized upcast ops when not necessary
-  void revertPrivatizedUpcast(SegmentedGroup* group);
+  // Revert privatized ops when not necessary
+  std::unordered_set<Expr*> revertPrivatizedOps(
+      SegmentedGroup* group,
+      std::unordered_map<Expr*, std::unordered_set<Expr*>>&
+          remaining_privatized_ops);
+
+  // Iteratively revert privatized ops until no more privatized ops are found
+  // Say, we have the following graph:
+  // In -> cast0 -> out_0 -> squeeze0 -> out_1
+  //   -> cast1-> out_2 -> squeeze1 -> out_3
+  // Let's assume cast is first privatized, then we have the following graph:
+  // In -> cast0 -> out_0 -> squeeze0 -> out_1
+  //                      -> squeeze1' -> out_3
+  // Then, we privatize squeeze, and we're done.
+  // All of the above can be done in one call to the above function
+  // revertPrivatizedOps.
+  // Howe ever, as the order in which we revert privatized ops is not
+  // guaranteed, If we had chosed on revert squeeze first, we would have failed,
+  // then we would have gone on to revert cast, which would have succeeded. All
+  // of this would have been done in one call to the above function
+  // revertPrivatizedOps. At this point, we would still have squeeze left to
+  // privatize, and we would have make another pass to privatize it, and thus
+  // the iterative version is needed.
+  void iterativelyRevertPrivatizedOps(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -731,8 +784,7 @@ class SegmentCandidateFinder {
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
-  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
-      privatized_upcast_ops_;
+  std::unordered_map<Expr*, std::unordered_set<Expr*>> privatized_ops_;
 
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for

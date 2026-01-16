@@ -5,9 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
+
+#include <scheduler/mma_utils.h>
+
+#include <ranges>
+#include <variant>
 
 #include <ATen/cuda/CUDAContext.h>
 
+#include <compute_at_map.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <id_model/id_model.h>
@@ -18,12 +28,11 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <options.h>
-#include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph.h>
-#include <variant>
 
 namespace nvfuser {
 
@@ -514,6 +523,10 @@ std::optional<IterDomain*> getMaybeAllocationIfInnermostTiled(
         id = split->in();
         continue;
       }
+    } else if (auto merge = dynamic_cast<Merge*>(id->definition());
+               merge && id == merge->out()) {
+      id = merge->inner();
+      continue;
     }
     // Didn't pass the inner most check, return empty.
     return std::nullopt;
@@ -1509,7 +1522,8 @@ TensorRolesMapOpt getTensorRoles(
 
   const auto findDims = [&dim_roles, &graph](TensorView* tv) {
     DimPresence has;
-    for (IterDomain* id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+    for (IterDomain* id :
+         tv->getLogicalDomain() | TensorDomain::kNoReductions) {
       if (id->isBroadcast() || id->isDeviceDim()) {
         continue;
       }
@@ -1585,14 +1599,15 @@ namespace {
 // Check the val (in) is the output of broadcast.
 // Then check the output of the broadcast is 3D (4D for bmm).
 bool hasValidBroadcastOp(TensorView* bcast_out) {
-  // First check the tensorsview is 3D (4D)
+  // First check the TensorView is 3D (4D)
   // and has one broadcast dim.
   // Ignore device dimensions in this analysis.
-  auto non_device_dims =
-      TensorDomain::noDevices(bcast_out->getLoopDomain()).size();
+  auto non_device_dims = std::ranges::distance(
+      bcast_out->getLoopDomain() | TensorDomain::kNoDevices);
+  auto non_device_non_bcast = bcast_out->getLoopDomain() |
+      TensorDomain::kNoBroadcasts | TensorDomain::kNoDevices;
   if (!((non_device_dims == 3 || non_device_dims == 4) &&
-        TensorDomain::noDevices(bcast_out->domain()->noBroadcasts()).size() ==
-            non_device_dims - 1)) {
+        std::ranges::distance(non_device_non_bcast) == non_device_dims - 1)) {
     return false;
   }
 
@@ -1754,8 +1769,8 @@ class MatmulPatternMatcher : IterVisitor {
       // Float, but the Fusion was segmented and casts to half precision were
       // inserted at the segmentation edge (see
       // castInputOutputToLowerPrecision in fusion_segmenter.cpp).
-      TensorView* ltv = dynamic_cast<TensorView*>(bop->lhs());
-      TensorView* rtv = dynamic_cast<TensorView*>(bop->rhs());
+      auto* ltv = dynamic_cast<TensorView*>(bop->lhs());
+      auto* rtv = dynamic_cast<TensorView*>(bop->rhs());
       if (ltv == nullptr || rtv == nullptr) {
         // Found a scalar input
         return;
@@ -1770,10 +1785,10 @@ class MatmulPatternMatcher : IterVisitor {
 
       // These sizes should match since ops::maybeBroadcast places
       // BroadcastOps for implicit broadcasting.
-      NVF_ERROR(lrf.size() == rrf.size());
+      NVF_ERROR_EQ(lrf.size(), rrf.size());
       const std::vector<IterDomain*>& red_root = TensorDomain::noDevices(
           rop->out()->as<TensorView>()->getMaybeRootDomain());
-      NVF_ERROR(red_root.size() == lrf.size());
+      NVF_ERROR_EQ(red_root.size(), lrf.size());
       // Find innermost M or N dimension in output
       // We will assume for now that the output logical domain matches the
       // fusion output's allocation domain; in particular that the innermost
@@ -1783,10 +1798,8 @@ class MatmulPatternMatcher : IterVisitor {
       bool lhs_is_A = true;
       bool has_m = false, has_n = false;
       // Loop backwards to find inner-most Iteration domain in output
-      for (int64_t i = (int64_t)red_root.size() - 1; i >= 0; --i) {
-        IterDomain* lhs_id = lrf[(size_t)i];
-        IterDomain* rhs_id = rrf[(size_t)i];
-        IterDomain* out_id = red_root[(size_t)i];
+      for (auto [lhs_id, rhs_id, out_id] :
+           zip(lrf, rrf, red_root) | std::views::reverse) {
         if (out_id->isIteration()) {
           if (lhs_id->isBroadcast() != rhs_id->isBroadcast()) {
             // This is either an M or N dimension
@@ -1920,7 +1933,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
 
     // broadcast inner on inp to match rank with other.
     if ((int64_t)tv_rank < rank) {
@@ -1934,7 +1948,8 @@ class MatmulTranslator : public OptInDispatch {
   }
 
   TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
-    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    const auto tv_rank = std::ranges::distance(
+        tv->getLogicalDomain() | TensorDomain::kNoReductions);
     std::vector<bool> bcast_dims(tv_rank + 1, false);
     if (dim < 0) {
       dim += (int64_t)tv_rank + 1;

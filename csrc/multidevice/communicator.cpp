@@ -5,16 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <cuda_utils.h>
-#include <multidevice/communicator.h>
-#include <options.h>
-#include <utils.h>
+#include "multidevice/communicator.h"
 
 #include <netdb.h>
+
+#include <cstdlib>
 #include <map>
+#include <numeric>
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
+#include <torch/csrc/distributed/c10d/exception.h>
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -22,6 +23,10 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupUCC.hpp>
 #endif
 #endif
+
+#include "cuda_utils.h"
+#include "options.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -180,6 +185,9 @@ Communicator::Communicator(
       ucc_available_(false),
       nccl_available_(false) {
   if (isOptionDisabled(DisableOption::Multidevice)) {
+    TORCH_WARN(
+        "Multi-device support is disabled. All communication operations will "
+        "fail.");
     return;
   }
 
@@ -206,7 +214,19 @@ Communicator::Communicator(
         local_rank_ == server_local_rank;
   }
   store_opts.port = master_port_;
-  store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+
+  try {
+    store_ = c10::make_intrusive<c10d::TCPStore>(master_addr_, store_opts);
+  } catch (const c10d::SocketError& e) {
+    TORCH_WARN(
+        "Failed to create a TCPStore: ",
+        e.what(),
+        ". The Communicator is therefore made unavailable. If you imported "
+        "both nvfuser and nvfuser_direct, this warning is expected and can be "
+        "ignored: https://github.com/NVIDIA/Fuser/pull/4722");
+    is_available_ = false;
+    return;
+  }
 #endif
 
 #if defined(USE_C10D_UCC) && defined(NVFUSER_BUILD_WITH_UCC)
@@ -322,8 +342,9 @@ void Communicator::cleanup() {
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
-  if (is_available()) {
+  if (is_available_) {
     barrier();
+    is_available_ = false;
   }
 
   store_ = nullptr;
@@ -343,8 +364,6 @@ void Communicator::cleanup() {
   }
 #endif
   backends_.clear();
-
-  is_available_ = false;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
@@ -359,7 +378,7 @@ c10d::Backend* Communicator::getBackendForTeam(
       "torchrun). Sometimes, this is because Communicator::cleanup has been "
       "accidentally called before this function.");
 
-  CommunicatorBackend b = getBackend(backend);
+  CommunicatorBackend b = backend.value_or(default_backend_);
   // generate a string key which is unique to the team
   // create the team and cache it
   std::string team_key = prefix + getTeamKey(team, b);

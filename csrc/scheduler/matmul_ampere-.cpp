@@ -905,7 +905,7 @@ void AmpereMinus::scheduleMmaResults() {
       mma_result->axis(num_device_and_batch_dims_ + 2)
           ->parallelize(ParallelType::BIDz);
     } else if (num_local_batch_dims_ > 0) {
-      mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
+      mma_result->axis(num_parallel_dims_)->parallelize(ParallelType::BIDz);
     }
     switch (params_->cta_order) {
       case MatmulParams::TileRasterizationOrder::ColumnMajor:
@@ -956,7 +956,7 @@ void AmpereMinus::schedulePrologues() {
     std::unordered_set<TensorView*>
         mma_input_set; // to prevent double insertion
     for (TensorView* mma_result : mma_results_) {
-      MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+      auto* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
       TensorView* mma_input = nullptr;
       if (operand_type == MmaOperand::A) {
@@ -1299,20 +1299,6 @@ void AmpereMinus::setUpCircularBuffering() {
     for (TensorView* bcr : bcrs_) {
       safely_apply_circular_buffering(bcr);
     }
-  }
-
-  if (params_->circular_buffer_options.circular_buffer_smem_read &&
-      params_->circular_buffer_options.circular_buffer_smem_write) {
-    // rotate Kg loop
-    // This assumes we have a single main loop. If there were multiple main
-    // loops, then we would need to rotate each of them separately.
-    std::unordered_set<Statement*> all_smem_loads;
-    all_smem_loads.insert(acrs_.begin(), acrs_.end());
-    all_smem_loads.insert(bcrs_.begin(), bcrs_.end());
-    scheduler_utils::rotateLoop(
-        mma_results_.front(),
-        num_device_and_batch_dims_ + 2 + num_splitk_dims_,
-        all_smem_loads);
   }
 }
 

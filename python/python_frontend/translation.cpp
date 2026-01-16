@@ -87,17 +87,19 @@ class FusionTranslator : public OptInConstDispatch {
       return true;
     }
 
-    for (size_t idx : arange(logical.size())) {
-      if (logical.at(idx) != loop.at(idx)) {
-        return true;
+    if (tv->definition() != nullptr && !tv->definition()->isA<ScatterOp>()) {
+      for (size_t idx : arange(logical.size())) {
+        if (logical.at(idx) != loop.at(idx)) {
+          return true;
+        }
       }
     }
     return false;
   }
 
   // The new shape for view operation can be dynamic. Check that all dynamic
-  // scalar dependencies are handled before the ViewOp.
-  bool checkViewShapeDependency(const ViewOp* vop) {
+  // scalar dependencies are handled before the ReshapeOp.
+  bool checkViewShapeDependency(const ReshapeOp* vop) {
     const std::vector<IterDomain*>& logical_out_domain =
         vop->out()->as<TensorView>()->domain()->logical();
     std::vector<Val*> logical_domain_extents;
@@ -173,7 +175,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Check that all of the expression's inputs are defined in FusionDefinition.
   bool checkExpressionDependencies(Expr* e) {
     bool check_view_dependency =
-        !e->isA<ViewOp>() || checkViewShapeDependency(e->as<ViewOp>());
+        !e->isA<ReshapeOp>() || checkViewShapeDependency(e->as<ReshapeOp>());
     return check_view_dependency &&
         std::all_of(e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
              return map_val_to_fd_index_.count(v) > 0;
@@ -196,7 +198,7 @@ class FusionTranslator : public OptInConstDispatch {
     // Scalar expressions are not handled by Fusion::exprs, so gather them
     // manually.
     for (Expr* e : to_visit) {
-      if (e->isA<ViewOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
+      if (e->isA<ReshapeOp>() || e->isA<ExpandOp>() || e->isA<FullOp>()) {
         std::vector<Expr*> extent_definitions =
             gatherScalarExpressions(e->output(0)->as<TensorView>());
         to_visit.insert(
@@ -280,8 +282,9 @@ class FusionTranslator : public OptInConstDispatch {
             handleOutput(v->as<TensorView>(), alias_info);
           }
           // An alias output can also be returned as a fusion output
-          // if it is already aliased or if not hide_output
-          if (num_visited > 0 || !alias_info.hide_output) {
+          // if it is already aliased or if the output is visible.
+          if (num_visited > 0 ||
+              alias_info.visibility == OutputVisibility::kVisible) {
             handleOutput(v->as<TensorView>());
           }
           break;
@@ -440,7 +443,7 @@ class FusionTranslator : public OptInConstDispatch {
   // Utility functions
 
   // Create a vector for the logical domain of TensorView.
-  // Used with ViewOp and ExpandOp handlers
+  // Used with ReshapeOp and ExpandOp handlers
   Vector getShape(TensorView* tv) {
     const std::vector<IterDomain*>& logical_out_domain =
         tv->domain()->logical();
@@ -705,12 +708,14 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ReductionOp to python frontend
   void handle(const ReductionOp* rop) final {
-    TensorView* out_tv = rop->out()->as<TensorView>();
+    auto* out_tv = rop->out()->as<TensorView>();
 
-    // The min and max reduction operations expect the dtype argument to by
+    // The min and max reduction operations expect the dtype argument to be
     // PrimDataType::Null
     PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                          rop->getReductionOpType() == BinaryOpType::Max)
+                          rop->getReductionOpType() == BinaryOpType::FMin ||
+                          rop->getReductionOpType() == BinaryOpType::Max ||
+                          rop->getReductionOpType() == BinaryOpType::FMax)
         ? PrimDataType::Null
         : std::get<PrimDataType>(rop->out()->dtype().type);
 
@@ -739,17 +744,17 @@ class FusionTranslator : public OptInConstDispatch {
     NVF_ERROR(wop->initN()->evaluate().as<int64_t>() == 0);
 
     NVF_ERROR(wop->outAvg()->isA<TensorView>());
-    TensorView* out_avg_tv = wop->outAvg()->as<TensorView>();
+    auto* out_avg_tv = wop->outAvg()->as<TensorView>();
     Tensor out_avg = fd_->defineTensor(out_avg_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outAvg(), out_avg());
 
     NVF_ERROR(wop->outVar()->isA<TensorView>());
-    TensorView* out_var_tv = wop->outVar()->as<TensorView>();
+    auto* out_var_tv = wop->outVar()->as<TensorView>();
     Tensor out_var = fd_->defineTensor(out_var_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outVar(), out_var());
 
     NVF_ERROR(wop->outN()->isA<TensorView>());
-    TensorView* out_N_tv = wop->outN()->as<TensorView>();
+    auto* out_N_tv = wop->outN()->as<TensorView>();
     Tensor out_N = fd_->defineTensor(out_N_tv->nDims());
     map_val_to_fd_index_.emplace(wop->outN(), out_N());
 
@@ -777,7 +782,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Add DimsOpRecord to create permutation in FusionDefinition
   void handlePermute(const LoadStoreOp* lsop) {
-    TensorView* out_tv = lsop->out()->as<TensorView>();
+    auto* out_tv = lsop->out()->as<TensorView>();
 
     std::optional<std::vector<int64_t>> new2old = ir_utils::computePermutation(
         out_tv->getRootDomain(), out_tv->getLogicalDomain());
@@ -824,10 +829,10 @@ class FusionTranslator : public OptInConstDispatch {
         /*squeeze_expanded=*/true));
   }
 
-  // Map ViewOp to python frontend
-  void handle(const ViewOp* vop) final {
+  // Map ReshapeOp to python frontend
+  void handle(const ReshapeOp* vop) final {
     // Get extent's for output's logical domain
-    TensorView* out_tv = vop->out()->as<TensorView>();
+    auto* out_tv = vop->out()->as<TensorView>();
     Vector new_shape = getShape(out_tv);
 
     Tensor output = fd_->defineTensor(out_tv->nDims());
@@ -840,8 +845,8 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ExpandOp to python frontend
   void handle(const ExpandOp* eop) final {
-    TensorView* in_tv = eop->in()->as<TensorView>();
-    TensorView* out_tv = eop->out()->as<TensorView>();
+    auto* in_tv = eop->in()->as<TensorView>();
+    auto* out_tv = eop->out()->as<TensorView>();
     NVF_ERROR(in_tv->nDims() == out_tv->nDims());
     Vector new_shape = getShape(out_tv);
 
@@ -965,7 +970,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map RNGOp to RandomDistOpRecord
   void handle(const RNGOp* rop) final {
-    TensorView* out_tv = rop->output(0)->as<TensorView>();
+    auto* out_tv = rop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1030,7 +1035,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map LinearOp to python frontend
   void handle(const LinearOp* lop) final {
-    TensorView* out_tv = lop->out()->as<TensorView>();
+    auto* out_tv = lop->out()->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1059,7 +1064,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map FullOp to python frontend
   void handle(const FullOp* fop) final {
-    TensorView* out_tv = fop->output(0)->as<TensorView>();
+    auto* out_tv = fop->output(0)->as<TensorView>();
     Vector tensor_shape = getShape(out_tv);
 
     Scalar fill_value = createScalar(fop->getFillValue());
@@ -1076,7 +1081,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map IotaOp to python frontend
   void handle(const IotaOp* iop) final {
-    TensorView* out_tv = iop->output(0)->as<TensorView>();
+    auto* out_tv = iop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1094,7 +1099,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map IndexSelectOp to IndexSelectOpRecord
   void handle(const IndexSelectOp* isop) final {
-    TensorView* out_tv = isop->output(0)->as<TensorView>();
+    auto* out_tv = isop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1107,7 +1112,7 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map SelectOp to IndexSelectOpRecord
   void handle(const SelectOp* sop) final {
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1120,21 +1125,21 @@ class FusionTranslator : public OptInConstDispatch {
 
   // Map ScatterOp to python frontend
   void handle(const ScatterOp* sop) final {
-    TensorView* out_tv = sop->output(0)->as<TensorView>();
+    auto* out_tv = sop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
     fd_->defineRecord(new ScatterOpRecord(
-        {fd_->recordingState(map_val_to_fd_index_.at(sop->selfTv())),
-         fd_->recordingState(map_val_to_fd_index_.at(sop->indexTv())),
-         fd_->recordingState(map_val_to_fd_index_.at(sop->srcTv()))},
+        {fd_->recordingState(map_val_to_fd_index_.at(sop->in())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->index())),
+         fd_->recordingState(map_val_to_fd_index_.at(sop->src()))},
         {fd_->recordingState(output())},
         sop->dim()));
   }
 
   // Map ArgsortOp to python frontend
   void handle(const ArgsortOp* argsortop) final {
-    TensorView* out_tv = argsortop->output(0)->as<TensorView>();
+    auto* out_tv = argsortop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1232,6 +1237,66 @@ class FusionTranslator : public OptInConstDispatch {
     }
   }
 
+  // Map ScaledMmaOp to python frontend
+  void handle(const ScaledMmaOp* smm_op) final {
+    int64_t out_block_scale_size = 0;
+    PrimDataType out_block_scale_dtype = DataType::BFloat16;
+    bool out_gamma = false;
+
+    TensorView* out_tv = smm_op->out();
+    TensorView* out_block_scale_tv = smm_op->outScale();
+    if (out_block_scale_tv != nullptr) {
+      Tensor output_block_scale = fd_->defineTensor(
+          TensorDomain::noReductions(out_block_scale_tv->getLogicalDomain())
+              .size());
+      map_val_to_fd_index_.emplace(out_block_scale_tv, output_block_scale());
+      auto block_size_extent = out_block_scale_tv->axis(-1)->extent();
+      NVF_CHECK(
+          block_size_extent->isConstInt(),
+          "Block size extent needs to be a constant integer");
+      out_block_scale_size = block_size_extent->evaluate().as<int64_t>();
+      out_block_scale_dtype =
+          std::get<PrimDataType>(out_block_scale_tv->dtype().type);
+    }
+
+    TensorView* out_gamma_tv = smm_op->outGamma();
+    if (out_gamma_tv != nullptr) {
+      Tensor output_gamma = fd_->defineTensor(
+          TensorDomain::noReductions(out_gamma_tv->getLogicalDomain()).size());
+      map_val_to_fd_index_.emplace(out_gamma_tv, output_gamma());
+      out_gamma = true;
+    }
+
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    fd_->defineRecord(new ScaledMmaOpRecord(
+        {fd_->recordingState(map_val_to_fd_index_.at(smm_op->matrix1())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->matrix2())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale1())),
+         fd_->recordingState(map_val_to_fd_index_.at(smm_op->scale2())),
+         smm_op->hasAlpha()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->alpha()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         smm_op->hasBias()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->bias()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         smm_op->hasBeta()
+             ? fd_->recordingState(map_val_to_fd_index_.at(smm_op->beta()))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+        {fd_->recordingState(output()),
+         out_block_scale_tv != nullptr
+             ? fd_->recordingState(map_val_to_fd_index_.at(out_block_scale_tv))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None),
+         out_gamma_tv != nullptr
+             ? fd_->recordingState(map_val_to_fd_index_.at(out_gamma_tv))
+             : State(/*_index=*/0, /*_stype=*/serde::StateType::None)},
+        std::get<PrimDataType>(out_tv->dtype().type),
+        out_block_scale_size,
+        out_block_scale_dtype,
+        out_gamma));
+  }
+
   // Map TopKOp to python frontend
   void handle(const TopKOp* topkop) final {
     // Create outputs for this RecordFunctor
@@ -1257,9 +1322,29 @@ class FusionTranslator : public OptInConstDispatch {
         topkop->isSorted()));
   }
 
+  void handle(const ScanOp* scan_op) final {
+    auto out_tv = scan_op->out()->as<TensorView>();
+    Tensor output = fd_->defineTensor(out_tv->nDims());
+    map_val_to_fd_index_.emplace(out_tv, output());
+
+    NVF_ERROR(
+        scan_op->opType() == BinaryOpType::Add,
+        "Only cumsum (BinaryOpType::Add) is supported for ScanOp.");
+
+    fd_->defineRecord(new ScanOpRecord(
+        {fd_->recordingState(
+            map_val_to_fd_index_.at(scan_op->in()->as<TensorView>()))},
+        {fd_->recordingState(output())},
+        ("ops.cumsum"),
+        serde::RecordType::ScanOpCumsum,
+        static_cast<TensorView* (*)(TensorView*, int64_t)>(cumsum),
+        scan_op->dim(),
+        BinaryOpType::Add));
+  }
+
   // Map GatherOp to python frontend
   void handle(const GatherOp* gop) final {
-    TensorView* out_tv = gop->output(0)->as<TensorView>();
+    auto* out_tv = gop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
@@ -1301,6 +1386,14 @@ class FusionTranslator : public OptInConstDispatch {
           return fd_->recordingState(output());
         });
 
+    State bias_state = (sdpa_fwd_op->bias() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->bias()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
+    State mask_state = (sdpa_fwd_op->mask() != nullptr)
+        ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->mask()))
+        : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
+
     State dropout_p_state = (sdpa_fwd_op->dropout_p() != nullptr)
         ? fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->dropout_p()))
         : State(/*_index=*/0, /*_stype=*/serde::StateType::None);
@@ -1317,6 +1410,8 @@ class FusionTranslator : public OptInConstDispatch {
         {fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->query())),
          fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->key())),
          fd_->recordingState(map_val_to_fd_index_.at(sdpa_fwd_op->value())),
+         bias_state,
+         mask_state,
          dropout_p_state,
          is_causal_state,
          scale_state},

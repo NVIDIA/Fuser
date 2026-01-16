@@ -13,7 +13,7 @@
 namespace nvfuser::python_frontend {
 
 // Translate a CPP Fusion into a Python FusionDefinition.
-std::unordered_map<const nvfuser::Val*, size_t> translate(
+NVF_API std::unordered_map<const nvfuser::Val*, size_t> translate(
     Fusion* fusion,
     FusionDefinition* fd);
 

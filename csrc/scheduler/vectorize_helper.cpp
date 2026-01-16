@@ -18,9 +18,11 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <iter_visitor.h>
+#include <multidevice/utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
+#include <scheduler/utils.h>
 #include <val_graph_visitor.h>
 
 #include <unordered_set>
@@ -800,13 +802,37 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
       }
     }
 
-    // Mapping order isn't correct, cannot expand vectorization dimension.
-    if (projected_dims[--projected_dims_i] != alloc_iid) {
+    // Get the logical ID corresponding to the allocation ID.
+    auto exprs = DependencyCheck::getAllExprsBetween(
+        {of_tv->getLogicalDomain().begin(), of_tv->getLogicalDomain().end()},
+        {alloc_iid});
+    IterDomain* logical_id = alloc_iid;
+    Val* num_devices = of_tv->container()->oneVal();
+    bool only_valid_device_split = true;
+    for (Expr* expr : exprs | std::views::reverse) {
+      if (!isValidDeviceSplit(expr)) {
+        only_valid_device_split = false;
+        break;
+      }
+      auto* split = expr->as<Split>();
+      logical_id = split->in();
+      num_devices = SimplifyingIrBuilder::mulExpr(num_devices, split->factor());
+    }
+
+    // Non device split could lead to padding, which prevents vectorization
+    if (!only_valid_device_split) {
       break;
     }
 
-    product_of_inner_extents = SimplifyingIrBuilder::mulExpr(
-        product_of_inner_extents, getProjectedExtent(alloc_iid));
+    // Mapping order isn't correct, cannot expand vectorization dimension.
+    if (projected_dims[--projected_dims_i] != logical_id) {
+      break;
+    }
+
+    auto sharded_extent = SimplifyingIrBuilder::divExpr(
+        getProjectedExtent(logical_id), num_devices);
+    product_of_inner_extents =
+        SimplifyingIrBuilder::mulExpr(product_of_inner_extents, sharded_extent);
   }
   return simplifyExpr(product_of_inner_extents);
 }
@@ -952,13 +978,14 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
 
 } // namespace
 
-int64_t getVectorizationFactor(
+int64_t getLayoutConstraint(
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference_tv,
     HeuristicDataCache* data_cache,
     int64_t break_point,
+    int64_t max_vectorization_size_in_bit,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
-  FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
+  FUSER_PERF_SCOPE("vectorize_helper::getLayoutConstraint");
 
   auto vectorizable_inputs_outputs_entry = HeuristicDataCacheEntry<
       HeuristicCompileTime::VectorizableInputsAndOutputs>(
@@ -997,21 +1024,22 @@ int64_t getVectorizationFactor(
 
   const auto& resize_factors = resize_factors_entry.get();
 
-  int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
+  int64_t max_vect_factor = max_vectorization_size_in_bit;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
   for (auto inp_or_out : vectorizable_inputs_outputs) {
-    // factor <= max_factor / dtype_size
-    const auto dtype_size =
-        dataTypeSizeByte(inp_or_out->dtype(), runtime_info.getIndexType());
-    max_vec_size = std::min(
-        max_vec_size,
-        SchedulerRuntimeInfo::max_alignment_size_in_byte / dtype_size);
+    // factor <= max_factor / dtype_size_bit
+    const auto dtype_size_bit =
+        dataTypeSizeBit(inp_or_out->dtype(), runtime_info.getIndexType());
+    max_vect_factor = std::min(
+        max_vect_factor, max_vectorization_size_in_bit / dtype_size_bit);
 
-    // factor <= alignment / dtype_size
-    int64_t alignment_size = (int64_t)runtime_info.getAlignmentSize(inp_or_out);
-    NVF_ERROR(alignment_size % dtype_size == 0);
-    max_vec_size = std::min(max_vec_size, alignment_size / dtype_size);
+    // factor <= alignment / dtype_size_bit
+    int64_t alignment_size_bit =
+        (int64_t)runtime_info.getAlignmentSizeBit(inp_or_out);
+    NVF_ERROR(alignment_size_bit % dtype_size_bit == 0);
+    max_vect_factor =
+        std::min(max_vect_factor, alignment_size_bit / dtype_size_bit);
 
     // factor <= projected_extent
     auto inner_size_it = tv_to_inner_size_map.find(inp_or_out);
@@ -1031,9 +1059,9 @@ int64_t getVectorizationFactor(
         "Vectorization heuristic could not evaluate inner most size: ",
         inner_size_it->second);
 
-    max_vec_size = std::min(
+    max_vect_factor = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
-        max_vec_size);
+        max_vect_factor);
   }
 
   // This is a WAR for vectorization through resize as the spanning
@@ -1050,10 +1078,133 @@ int64_t getVectorizationFactor(
     if (inferred_val_int == 0) {
       continue;
     }
-    max_vec_size = std::gcd(max_vec_size, inferred_val_int);
+    max_vect_factor = std::gcd(max_vect_factor, inferred_val_int);
   }
 
-  return max_vec_size;
+  return max_vect_factor;
+}
+
+namespace {
+
+// Helper function to compute minimum vectorization factor based on data type
+// sizes. This is needed for sub-byte data types where we need multiple elements
+// to form at least one byte. For example, with 4-bit data types, we need at
+// least 2 elements.
+int64_t getByteConstraint(int64_t min_dtype_size_bit) {
+  NVF_ERROR(
+      min_dtype_size_bit > 0,
+      "Minimum data type size must be positive, got: ",
+      min_dtype_size_bit);
+
+  constexpr int64_t bits_per_byte = 8;
+
+  // For sub-byte data types, we need multiple elements to form at least one
+  // byte. For example, if the minimum data type size is 4 bits, we need at
+  // least 2 elements (2 * 4 = 8 bits = 1 byte).
+  //
+  // NOTE: This is not a perfect solution, as sub-byte data types don't
+  // necessarily need vectorization in the traditional sense, but rather just
+  // consecutive elements being handled together so we have byte-sized buffer
+  // per thread.
+  if (min_dtype_size_bit < bits_per_byte) {
+    return scheduler_utils::safeDiv(bits_per_byte, min_dtype_size_bit);
+  }
+
+  // For regular data types (>= 8 bits), minimum vectorization factor is 1
+  return 1;
+}
+
+// Helper function to apply register pressure constraint based on data type
+// size and number of tensors.
+int64_t getRegisterPressureConstraint(
+    int64_t n_tensors,
+    int64_t max_vect_factor) {
+  // Reduce vectorization if we have many tensors to avoid register pressure
+  // We use lastPow2 to get a power-of-2 reduction factor based on tensor count
+  // The >> 2 (divide by 4) means we start reducing when n_tensors >= 4
+  int64_t register_pressure_reduction =
+      std::max(scheduler_utils::lastPow2(n_tensors) >> 2, (int64_t)1);
+
+  // Apply reduction and return constrained factor
+  return ceilDiv(max_vect_factor, register_pressure_reduction);
+}
+
+} // namespace
+
+int64_t getVectorizationFactor(
+    SchedulerRuntimeInfo& runtime_info,
+    TensorView* reference_tv,
+    HeuristicDataCache* data_cache,
+    int64_t break_point,
+    int64_t max_vectorization_size_in_bit,
+    int64_t min_dtype_size_bit,
+    int64_t max_dtype_size_bit,
+    int64_t n_vectorizable_tensors,
+    int64_t n_waves,
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+  FUSER_PERF_SCOPE("vectorize_helper::getVectorizationFactor");
+
+  // 1. Compute minimum vectorization factor from byte alignment constraints.
+  // This is required for sub-byte data types (e.g., int4, fp8) to ensure
+  // proper memory alignment.
+  // TODO: Enable and test for all schedulers (currently pointwise only).
+  int64_t min_vect_factor = 1;
+  if (min_dtype_size_bit > 0) {
+    min_vect_factor = getByteConstraint(min_dtype_size_bit);
+  }
+
+  // 2. Apply register pressure constraint to avoid excessive register usage.
+  // This heuristic limits vectorization based on data types and tensor count.
+  // Optional: use -1 for max_dtype_size_bit or n_vectorizable_tensors to skip.
+  int64_t max_vect_factor = max_vectorization_size_in_bit;
+  if (max_dtype_size_bit > 0 && n_vectorizable_tensors > 0) {
+    max_vect_factor = max_vectorization_size_in_bit / max_dtype_size_bit;
+    max_vect_factor =
+        getRegisterPressureConstraint(n_vectorizable_tensors, max_vect_factor);
+    // Ensure we respect the minimum vectorization factor
+    max_vect_factor = std::max(max_vect_factor, min_vect_factor);
+  }
+
+  // 3. Apply wave occupancy constraint to maintain GPU utilization.
+  // Limits vectorization to avoid reducing occupancy below a full wave.
+  // n_waves = ceilDiv(n_elems, SM_count * threads_per_block).
+  // Optional: use -1 for n_waves to skip. Sub-byte types always respect min.
+  if (n_waves > 0 && max_vect_factor > min_vect_factor) {
+    max_vect_factor =
+        std::min(max_vect_factor, scheduler_utils::lastPow2(n_waves));
+    max_vect_factor = std::max(max_vect_factor, min_vect_factor);
+  }
+
+  NVF_ERROR(
+      min_vect_factor >= 1,
+      "Minimum vectorization factor must be at least 1, got: ",
+      min_vect_factor);
+  NVF_ERROR(
+      max_vect_factor >= min_vect_factor,
+      "Maximum vectorization factor (",
+      max_vect_factor,
+      ") must be >= minimum vectorization factor (",
+      min_vect_factor,
+      ")");
+
+  // 4. Compute layout-based constraint from contiguity and alignment analysis.
+  // This is a required constraint applied for all schedulers.
+  int64_t base_vect_factor = getLayoutConstraint(
+      runtime_info,
+      reference_tv,
+      data_cache,
+      break_point,
+      max_vectorization_size_in_bit,
+      logical_reorder_map);
+  // 5. Apply all constraints: take the minimum to respect all upper bounds.
+  int64_t vectorization_factor = std::min(base_vect_factor, max_vect_factor);
+
+  // TODO: validate vectorization_factor >= min_vect_factor
+  // we can't do this because canSchedule runtime check uses computeHeuristics
+  // will trigger an error in test
+  // BlockQuantizationCanScheduleTests.CanRuntimeScheduleFailFromNoVectorization
+
+  return vectorization_factor;
 }
 
 int64_t getVectorizationFactorTransposeGroup(

@@ -5,20 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <functional>
-
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <csrc/exceptions.h>
-#include <dynamic_transform.h>
-#include <expr_evaluator.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "dynamic_transform.h"
+#include "expr_evaluator.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -1398,7 +1396,6 @@ TEST_F(DynamicTransformTest, LoopSplit) {
     tv->setDeviceMesh(mesh);
     tv->split(2, d, /*inner_split=*/false);
     tv->axis(2)->parallelize(ParallelType::DIDx);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));

@@ -102,16 +102,21 @@ Val* promoteSize(Val* v1, Val* v2) {
   if (!v1->isConstInt() && !v2->isConstInt()) {
     return v1;
   } else if (v1->isConstInt() && v2->isConstInt()) {
+    auto fmtVal = [](Val* v) {
+      std::ostringstream oss;
+      if (v->isConstInt())
+        oss << v->evaluate();
+      else
+        oss << v->toString() << " (" << v->evaluate() << ")";
+      return oss.str();
+    };
+
     NVF_ERROR(
         v1->evaluate() == v2->evaluate(),
-        "Expected sizes of, ",
-        v1->toString(),
-        " and ",
-        v2->toString(),
-        " to match but found ",
-        v1->evaluate(),
-        " and ",
-        v2->evaluate(),
+        "Expected sizes to match: ",
+        fmtVal(v1),
+        " vs ",
+        fmtVal(v2),
         ".");
     return simplifiedInt(v1);
   } else if (v1->isConstInt()) {
@@ -310,21 +315,24 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
   return mapping;
 }
 
-namespace {
-ParallelType promoteParallelType(ParallelType a, ParallelType b) {
-  if (a == b) {
-    return a;
-  }
+RaggedIterDomain* newOutputRaggedIterDomain(
+    const std::vector<IterDomain*>& input_ids) {
   NVF_ERROR(
-      a == ParallelType::Serial || b == ParallelType::Serial,
-      "Doesn't know how to resolve ",
-      a,
-      " and ",
-      b,
-      " at this moment.");
-  return a == ParallelType::Serial ? b : a;
+      std::ranges::all_of(
+          input_ids,
+          [](IterDomain* input_id) {
+            return input_id->isA<RaggedIterDomain>();
+          }),
+      "All input iter domains must be RaggedIterDomain");
+
+  NVF_ERROR(!input_ids.empty());
+
+  // Just using the first ragged ID as all input IDs are assumed to be
+  // equivalent
+  auto ref_input_id = input_ids.front()->as<RaggedIterDomain>();
+
+  return IterDomainBuilder(ref_input_id).build()->as<RaggedIterDomain>();
 }
-} // namespace
 
 // Adding these pragmas since gcc-12.2.1
 // incorrectly reports a warning with the use of evaluate
@@ -335,6 +343,28 @@ ParallelType promoteParallelType(ParallelType a, ParallelType b) {
 IterDomain* newOutputIterDomain(
     const std::vector<IterDomain*>& input_ids,
     const std::optional<IterType> force_iter_type) {
+  NVF_ERROR(!input_ids.empty());
+
+  // If an input ID is a RaggedIterDomain, the output as well as all
+  // other inputs must be ragged
+  bool has_ragged =
+      std::any_of(input_ids.begin(), input_ids.end(), [](IterDomain* id) {
+        return id->isA<RaggedIterDomain>();
+      });
+
+  if (has_ragged) {
+    NVF_ERROR(
+        std::all_of(
+            input_ids.begin(),
+            input_ids.end(),
+            [](IterDomain* id) { return id->isA<RaggedIterDomain>(); }),
+        "All or none input IDs must be ragged");
+    NVF_ERROR(
+        !force_iter_type.has_value(),
+        "force_iter_type not supported for RaggedIterDomain");
+    return newOutputRaggedIterDomain(input_ids);
+  }
+
   // For the start and stop offsets, take the maximum of input axes.
   // For now, the offsets of both start and stop are always integer
   // constant, so we can statically compute them. It is unclear
@@ -345,7 +375,6 @@ IterDomain* newOutputIterDomain(
   Val* extent_val = nullptr;
   bool extent_is_from_symbolic = true;
   Val* expanded_extent_val = nullptr;
-  auto parallel_type = ParallelType::Serial;
   std::optional<IterType> iter_type = std::nullopt;
 
   for (auto id : input_ids) {
@@ -356,10 +385,10 @@ IterDomain* newOutputIterDomain(
 
     NVF_ERROR(
         id->getParallelType() == ParallelType::Serial ||
+            id->getParallelType() == ParallelType::Stream ||
             isParallelTypeDeviceDim(id->getParallelType()),
         id->getParallelType(),
         " is not expected when building ops.");
-    parallel_type = promoteParallelType(parallel_type, id->getParallelType());
 
     if (id->isBroadcast()) {
       if (id->hasExpandedExtent()) {
@@ -379,6 +408,8 @@ IterDomain* newOutputIterDomain(
     extent_val = promoteSize(extent_val, id->extent());
     if (iter_type.has_value()) {
       iter_type = promoteIterType(iter_type.value(), id->getIterType());
+    } else if (id->isGatherScatter()) {
+      iter_type = IterType::Iteration;
     } else {
       iter_type = id->getIterType();
     }
@@ -414,7 +445,6 @@ IterDomain* newOutputIterDomain(
         IterDomainBuilder(
             IrBuilder::create<Val>(start_offset, DataType::Index), extent_val)
             .stop_offset(IrBuilder::create<Val>(stop_offset, DataType::Index))
-            .parallel_type(parallel_type)
             .iter_type(iter_type.value())
             .build();
   } else {
@@ -422,7 +452,6 @@ IterDomain* newOutputIterDomain(
                      FusionGuard::getCurFusion()->zeroVal(),
                      FusionGuard::getCurFusion()->oneVal())
                      .expanded_extent(expanded_extent_val)
-                     .parallel_type(parallel_type)
                      .iter_type(IterType::Broadcast)
                      .build();
   }
@@ -614,16 +643,17 @@ Val* getMaximumValue(DataType v) {
   return nullptr;
 }
 
-std::vector<unsigned int> canonicalizeAxes(
+std::vector<int64_t> canonicalizeAxes(
     const std::vector<int64_t>& axes,
     int64_t ndims) {
-  std::vector<unsigned int> uint_axes;
-  uint_axes.reserve(axes.size());
+  std::vector<int64_t> canonicalized_axes;
+  canonicalized_axes.reserve(axes.size());
   std::transform(
-      axes.begin(), axes.end(), std::back_inserter(uint_axes), [&](int axis) {
-        return (unsigned int)wrapDim(axis, ndims);
-      });
-  return uint_axes;
+      axes.begin(),
+      axes.end(),
+      std::back_inserter(canonicalized_axes),
+      [&](int64_t axis) { return wrapDim(axis, ndims); });
+  return canonicalized_axes;
 }
 
 Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
@@ -633,8 +663,12 @@ Val* binOpIdentity(BinaryOpType op_type, DataType dtype) {
       return fusion->zeroVal(dtype);
     case BinaryOpType::Mul:
       return fusion->oneVal(dtype);
+    case BinaryOpType::FMin:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Min:
       return getMaximumValue(dtype);
+    case BinaryOpType::FMax:
+      return IrBuilder::create<Val>(std::numeric_limits<double>::quiet_NaN());
     case BinaryOpType::Max:
       return getMinimumValue(dtype);
     case BinaryOpType::LogicalAnd:

@@ -6,17 +6,41 @@
  */
 // clang-format on
 #pragma once
+
 #include <cuda.h>
-#include <multidevice/ipc_handle.h>
+
+#include "multidevice/ipc_handle.h"
 
 namespace nvfuser {
 
-namespace get_zcopy {
+enum class P2pProtocol { Get, Put };
+
+P2pProtocol getP2pProtocol();
+
+std::ostream& operator<<(std::ostream& os, P2pProtocol protocol);
+
+// Returns the prescribed P2P protocol based on NVFUSER_ENABLE option
+P2pProtocol getP2pProtocol();
 
 void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
-void sendPost(const P2pIpcHandle& ipc_handles, CUstream stream);
+
+void recvWait(const P2pIpcHandle& ipc_handles, CUstream stream);
+
+void sendPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
+
 void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 
-} // namespace get_zcopy
+void postWithCudaBackend(
+    Communication* communication,
+    at::Tensor input,
+    SymmetricMemoryHandle* multicast_handle,
+    CUstream stream,
+    int64_t root);
+
+void waitWithCudaBackend(
+    Communication* communication,
+    SymmetricMemoryHandle* multicast_handle,
+    CUstream stream,
+    int64_t root);
 
 } // namespace nvfuser

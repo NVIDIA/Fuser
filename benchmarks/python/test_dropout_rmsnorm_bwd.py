@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -80,8 +80,7 @@ def dropout_rmsnorm_bwd_fusion(
     T41 = fd.ops.mul(T37, T40)
     T42 = fd.ops.sum(T41, dims=[1], keepdim=False, dtype=DataType.Null)
 
-    V60 = fd.define_vector([T5.size(0), 1], dtype=DataType.Int)
-    T47 = fd.ops.broadcast_in_dim(T42, shape=V60, broadcast_dims=[0])
+    T47 = fd.ops.broadcast_in_dim(T42, shape=[T5.size(0), 1], broadcast_dims=[0])
 
     T50 = fd.ops.mul(S38, T7)
     T51 = fd.ops.reciprocal(T50)
@@ -90,7 +89,7 @@ def dropout_rmsnorm_bwd_fusion(
     T56 = fd.ops.mul(T52, S55)
     T57 = fd.ops.sum(T56, dims=[1], keepdim=False, dtype=DataType.Null)
 
-    T61 = fd.ops.broadcast_in_dim(T57, shape=V60, broadcast_dims=[0])
+    T61 = fd.ops.broadcast_in_dim(T57, shape=[T5.size(0), 1], broadcast_dims=[0])
     T65 = fd.ops.broadcast_in_dim(T61, shape=V19, broadcast_dims=[0, 1])
     T66 = fd.ops.mul(T65, S38)
     T69 = fd.ops.mul(T66, T15)
@@ -130,6 +129,7 @@ def dropout_rmsnorm_bwd_iobytes(size, dtype):
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_bwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -175,6 +175,8 @@ def test_dropout_rmsnorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -187,7 +189,7 @@ def test_dropout_rmsnorm_bwd_baseline_benchmark(
     input1 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     input2 = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+    weights = torch.randn(size[1], device="cuda", dtype=dtype, requires_grad=True)
 
     fwd_fn = with_executor(executor, dropout_rmsnorm)
     fwd_inputs = [input1, input2, weights, dropout_p]

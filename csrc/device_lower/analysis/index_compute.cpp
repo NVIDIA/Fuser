@@ -108,7 +108,6 @@ struct IndexingParameters {
 // Initial loop index map for global producer or consumer case.
 IndexingParameters getLinearIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
     bool index_producer = false) {
   IndexingParameters index_parameters;
 
@@ -116,15 +115,11 @@ IndexingParameters getLinearIndexParameters(
   auto& loop_domain = loop_indexing.loopDomains();
   auto& loop_index_map = index_parameters.initial_concrete_id_index;
 
-  for (auto loop_idx : arange(loops.size())) {
-    auto loop = loops[loop_idx];
-    auto index_domain = GpuLower::current()->caMap()->getConcreteMappedID(
-        loop_domain[loop_idx], IdMappingMode::EXACT);
+  for (auto [loop_idx, loop] : enumerate(loops)) {
+    IterDomain* index_domain =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            loop_domain[loop_idx], IdMappingMode::EXACT);
     loop_index_map[index_domain] = loop->indexOrStartIfTrivial();
-    if (rotated_loops.count(loop) > 0) {
-      loop_index_map[index_domain] = SimplifyingIrBuilder::addExpr(
-          loop_index_map.at(index_domain), loop->step());
-    }
   }
 
   protectNonPredicateIndexWithMagicZero(
@@ -146,7 +141,7 @@ IndexingParameters getLinearIndexParameters(
         auto loop_id = loop_indexing.loopDomains()[loop_idx];
 
         auto concrete_loop_id =
-            GpuLower::current()->caMap()->getConcreteMappedID(
+            GpuLower::current()->info().caMap().getConcreteMappedID(
                 loop_id, IdMappingMode::EXACT);
 
         auto prefetch_distance =
@@ -169,7 +164,6 @@ IndexingParameters getLinearIndexParameters(
 // Initial index parameters for shared and local case
 IndexingParameters getNonGlobalInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
     const TensorView* consumer_tv,
     bool index_producer = false,
     const TensorView* producer_tv = nullptr,
@@ -191,10 +185,10 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
-  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
-  std::unordered_set<ForLoop*> zero_loops;
+  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_set<kir::ForLoop*> zero_loops;
 
-  ForLoop* circular_buffer_loop = nullptr;
+  kir::ForLoop* circular_buffer_loop = nullptr;
 
   if (index_producer) {
     circular_buffer_loop =
@@ -205,7 +199,6 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   std::tie(loop_to_ind_map, zero_loops) = indexMapFromTV(
       alloc_tv,
       loops,
-      rotated_loops,
       alloc_info.init_for_loop,
       !index_producer,
       circular_buffer_loop);
@@ -221,7 +214,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
     auto loop_domain = loop_domains[loop_idx];
 
     auto concrete_loop_domain =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_domain, IdMappingMode::EXACT);
 
     index_parameters.initial_concrete_id_index[concrete_loop_domain] =
@@ -242,7 +235,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
 
 // Check if this loop is actually unswitched, meaning an initial index
 // of the maximum value from a non-size-one range is used.
-bool trackUnswitchedDomain(ForLoop* loop) {
+bool trackUnswitchedDomain(kir::ForLoop* loop) {
   // Loop index has only one valid value per thread, which means the
   // loop is not actually unswitched
   if (loop->isTrivial()) {
@@ -252,8 +245,9 @@ bool trackUnswitchedDomain(ForLoop* loop) {
   // The same can be said as long as it's exactly mapped with a
   // vectorized domain
   const auto& id_exact_set = GpuLower::current()
-                                 ->caMap()
-                                 ->getIdSets(IdMappingMode::EXACT)
+                                 ->info()
+                                 .caMap()
+                                 .getIdSets(IdMappingMode::EXACT)
                                  .getDisjointSetOf(loop->iter_domain());
 
   if (std::any_of(id_exact_set.begin(), id_exact_set.end(), [](auto id) {
@@ -276,9 +270,8 @@ bool trackUnswitchedDomain(ForLoop* loop) {
 //! the 3 variants.
 IndexingParameters getPredicateInitialIndexParameters(
     const LoopIndexing& loop_indexing,
-    const std::unordered_set<ForLoop*>& rotated_loops,
     TensorView* consumer_tv,
-    ForLoop* unswitch_or_vec_loop,
+    kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   IndexingParameters index_parameters;
@@ -290,7 +283,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       loops.size() <= loop_domains.size(),
       "Loop domain didn't replay all loops");
 
-  std::unordered_map<ForLoop*, Val*> loop_to_ind_map;
+  std::unordered_map<kir::ForLoop*, Val*> loop_to_ind_map;
 
   // Fill initial index with each forloop's index.
   for (auto fl : loops) {
@@ -298,10 +291,6 @@ IndexingParameters getPredicateInitialIndexParameters(
       loop_to_ind_map[fl] = fl->start();
     } else {
       loop_to_ind_map[fl] = fl->index();
-    }
-    if (rotated_loops.count(fl) > 0) {
-      loop_to_ind_map[fl] =
-          SimplifyingIrBuilder::addExpr(loop_to_ind_map.at(fl), fl->step());
     }
   }
 
@@ -378,7 +367,7 @@ IndexingParameters getPredicateInitialIndexParameters(
           // Note that the parallel dimension is used rather than
           // loop-stop(). See the above comment.
           loop_to_ind_map[loop] =
-              GpuLower::current()->parallelDimensionMap().get(loop_pt);
+              GpuLower::current()->info().parallelDimensionMap().get(loop_pt);
         }
       } else if (is_start_predicate) {
         loop_to_ind_map[loop] = GpuLower::current()->kernel()->zeroVal();
@@ -399,7 +388,7 @@ IndexingParameters getPredicateInitialIndexParameters(
       // context.
       if (!is_start_predicate && trackUnswitchedDomain(loop)) {
         index_parameters.unswitched_domains.insert(
-            GpuLower::current()->caMap()->getConcreteMappedID(
+            GpuLower::current()->info().caMap().getConcreteMappedID(
                 loop_id, IdMappingMode::EXACT));
       }
     }
@@ -423,11 +412,7 @@ IndexingParameters getPredicateInitialIndexParameters(
               ->circularBufferInfo()
               .getCircularBufferOptionsFor(db_loop->iter_domain())
               .prefetch;
-      bool is_same =
-          (rotated_loops.count(db_loop)
-               ? cur_index->sameAs(SimplifyingIrBuilder::addExpr(
-                     db_loop->indexOrStartIfTrivial(), db_loop->step()))
-               : cur_index == db_loop->indexOrStartIfTrivial());
+      bool is_same = cur_index == db_loop->indexOrStartIfTrivial();
       if (is_same) {
         loop_to_ind_map[db_loop] = SimplifyingIrBuilder::addExpr(
             cur_index,
@@ -441,7 +426,7 @@ IndexingParameters getPredicateInitialIndexParameters(
   for (auto loop_idx : arange(loops.size())) {
     auto loop = loops.at(loop_idx);
     auto concrete_loop_domain =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             loop_domains.at(loop_idx), IdMappingMode::EXACT);
     index_parameters.initial_concrete_id_index[concrete_loop_domain] =
         loop_to_ind_map.at(loop);
@@ -457,7 +442,7 @@ IndexingParameters getPredicateInitialIndexParameters(
 } // namespace
 
 LoopIndexing LoopIndexingAnalysis::fromLoopAndConsumer(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const TensorView* consumer_tv) {
   LoopIndexingAnalysis analysis(loops, consumer_tv);
   return analysis.getLoopIndexing(loops);
@@ -472,7 +457,7 @@ VectorOfUniqueEntries<IterDomain*> LoopIndexingAnalysis::
 }
 
 LoopIndexingAnalysis::LoopIndexingAnalysis(
-    const std::vector<ForLoop*>& loops,
+    const std::vector<kir::ForLoop*>& loops,
     const TensorView* consumer_tv)
     : consumer_tv_(consumer_tv) {
   // Validate consistency in given loop nest
@@ -483,7 +468,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
       loops.begin(),
       loops.end(),
       std::back_inserter(initial_loop_domain_ids_),
-      [](ForLoop* fl) { return fl->iter_domain(); });
+      [](kir::ForLoop* fl) { return fl->iter_domain(); });
 
   run();
 }
@@ -508,7 +493,7 @@ LoopIndexingAnalysis::LoopIndexingAnalysis(
             consumer_loop_id->toString(),
             ", consumer: ",
             consumer_tv->toString());
-        return GpuLower::current()->caMap()->getConcreteMappedID(
+        return GpuLower::current()->info().caMap().getConcreteMappedID(
             consumer_loop_id, IdMappingMode::LOOP);
       });
 
@@ -532,7 +517,7 @@ void LoopIndexingAnalysis::run() {
   for (auto expr : replayed_exprs_) {
     for (auto input_id : ir_utils::filterByType<IterDomain>(expr->inputs())) {
       auto concrete_input_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
               input_id, IdMappingMode::EXACT);
       concrete_id_to_consumer_[concrete_input_id] = expr;
     }
@@ -548,7 +533,7 @@ void LoopIndexingAnalysis::run() {
 }
 
 void LoopIndexingAnalysis::validateLoopStructure(
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<kir::ForLoop*>& loops) {
   // Throw an error when two loops are mapped with each other, which
   // violates an assumption that unique mappings between concrete
   // IterDomains and the IterDomains of the loop structure must be
@@ -566,8 +551,9 @@ void LoopIndexingAnalysis::validateLoopStructure(
   for (auto for_loop : loops) {
     // Largely duplicating original logic
     auto loop_id = for_loop->iter_domain();
-    auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
-        loop_id, IdMappingMode::EXACT);
+    auto concrete_loop_id =
+        GpuLower::current()->info().caMap().getConcreteMappedID(
+            loop_id, IdMappingMode::EXACT);
 
     NVF_ERROR(
         !concrete_to_loop.count(concrete_loop_id),
@@ -631,7 +617,7 @@ void LoopIndexingAnalysis::traverseFromDomainVals() {
 }
 
 IterDomain* LoopIndexingAnalysis::concretizeAndVisitId(IterDomain* id) {
-  auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
+  auto concrete_id = GpuLower::current()->info().caMap().getConcreteMappedID(
       id, IdMappingMode::EXACT);
   if (replayed_concrete_ids_.pushBack(concrete_id)) {
     concrete_to_original_id_[concrete_id] = id;
@@ -642,7 +628,7 @@ IterDomain* LoopIndexingAnalysis::concretizeAndVisitId(IterDomain* id) {
 namespace {
 // Alias used for std::transform
 IterDomain* exactConcreteId(IterDomain* id) {
-  return GpuLower::current()->caMap()->getConcreteMappedID(
+  return GpuLower::current()->info().caMap().getConcreteMappedID(
       id, IdMappingMode::EXACT);
 }
 } // namespace
@@ -723,7 +709,7 @@ void LoopIndexingAnalysis::constructLoopDomains() {
               //   level to other iterdomain expressions from tv's that are
               //   further concretized and usually they are further down the
               //   consumer chain of the given consumer tv.
-              GpuLower::current()->caMap()->areMapped(
+              GpuLower::current()->info().caMap().areMapped(
                   concrete_id, loop_id, IdMappingMode::PERMISSIVE);
         });
 
@@ -760,15 +746,15 @@ void LoopIndexingAnalysis::constructLoopDomains() {
   // will complain for not having all outputs of the traversal.
   for (auto id : ir_utils::filterByType<IterDomain>(all_ids_from_root)) {
     if (id->uses().empty()) {
-      loop_domains_.pushBack(GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT));
+      loop_domains_.pushBack(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
+              id, IdMappingMode::EXACT));
     }
   }
 }
 
 IndexFromIdGraph getTensorIndexFromIdGraph(
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
     const TensorView* consumer_tv,
     const TensorView* producer_tv,
     bool is_global,
@@ -790,16 +776,10 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   }
 
   if (is_global) {
-    index_parameters =
-        getLinearIndexParameters(loop_indexing, rotated_loops, index_producer);
+    index_parameters = getLinearIndexParameters(loop_indexing, index_producer);
   } else {
     index_parameters = getNonGlobalInitialIndexParameters(
-        loop_indexing,
-        rotated_loops,
-        consumer_tv,
-        index_producer,
-        producer_tv,
-        p2c_map);
+        loop_indexing, consumer_tv, index_producer, producer_tv, p2c_map);
   }
 
   IndexCompute indexing(
@@ -842,7 +822,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
     }
 
     auto almost_exact_concrete_id =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             consumer_id, IdMappingMode::ALMOSTEXACT);
 
     auto almost_exact_2_target_ids_it =
@@ -865,7 +845,7 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
   for (auto entry : indexing.indexMap()) {
     auto ref_exact_id = entry.first;
     auto almost_exact_concrete_id =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             ref_exact_id, IdMappingMode::ALMOSTEXACT);
 
     if (almost_exact_2_target_ids.find(almost_exact_concrete_id) ==
@@ -896,8 +876,8 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
       {},
       indexing.indexMap(),
       GpuLower::current()->divisibleSplitSet(),
-      GpuLower::current()->caMap(),
-      GpuLower::current()->concretizedBroadcastDomains(),
+      &GpuLower::current()->info().caMap(),
+      &GpuLower::current()->info().concretizedBroadcastDomains(),
       p2c_map);
 
   auto target_indexing = indexing.updateIndexCompute(
@@ -920,10 +900,9 @@ IndexFromIdGraph getTensorIndexFromIdGraph(
 }
 
 IndexFromIdGraph getPredicateIndexingFromIdGraph(
-    const std::vector<ForLoop*>& loops,
-    const std::unordered_set<ForLoop*>& rotated_loops,
+    const std::vector<kir::ForLoop*>& loops,
     TensorView* consumer_tv,
-    ForLoop* unswitch_or_vec_loop,
+    kir::ForLoop* unswitch_or_vec_loop,
     IterDomain* circular_buffer_axis,
     bool is_start_predicate) {
   // Run replay pass on the loop nest to generate the deterministic
@@ -935,7 +914,6 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   //  according to loop and unswitch info.
   auto index_parameters = getPredicateInitialIndexParameters(
       loop_indexing,
-      rotated_loops,
       consumer_tv,
       unswitch_or_vec_loop,
       circular_buffer_axis,
@@ -966,7 +944,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   for (IterDomain* consumer_id :
        ir_utils::filterByType<IterDomain>(all_consumer_vals)) {
     auto almost_exact_concrete_id =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             consumer_id, IdMappingMode::ALMOSTEXACT);
 
     auto almost_exact_2_consumer_ids_it =
@@ -989,7 +967,7 @@ IndexFromIdGraph getPredicateIndexingFromIdGraph(
   for (auto entry : indexing.indexMap()) {
     auto ref_exact_id = entry.first;
     auto almost_exact_concrete_id =
-        GpuLower::current()->caMap()->getConcreteMappedID(
+        GpuLower::current()->info().caMap().getConcreteMappedID(
             ref_exact_id, IdMappingMode::ALMOSTEXACT);
 
     if (almost_exact_2_consumer_ids.find(almost_exact_concrete_id) ==
@@ -1084,8 +1062,9 @@ LoopIndexingTraversal::LoopIndexingTraversal(
     auto next_ids =
         ir_utils::filterByType<IterDomain>(nextValsInTraversalOrder(expr));
     for (auto id : next_ids) {
-      auto concrete_id = GpuLower::current()->caMap()->getConcreteMappedID(
-          id, IdMappingMode::EXACT);
+      auto concrete_id =
+          GpuLower::current()->info().caMap().getConcreteMappedID(
+              id, IdMappingMode::EXACT);
       NVF_ERROR(
           concrete_id_to_dependency_.insert(std::make_pair(concrete_id, expr))
               .second,
@@ -1153,7 +1132,7 @@ std::vector<Expr*> LoopIndexingTraversal::getExprList() {
     for (auto prev_id :
          ir_utils::filterByType<IterDomain>(prevValsInTraversalOrder(top))) {
       auto prev_expr_it = concrete_id_to_dependency_.find(
-          GpuLower::current()->caMap()->getConcreteMappedID(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
               prev_id, IdMappingMode::EXACT));
       if (prev_expr_it != concrete_id_to_dependency_.end()) {
         auto prev_expr = prev_expr_it->second;
@@ -1207,7 +1186,7 @@ void LoopIndexingAnalysis::collectOutOfLineExprs() {
             id_outputs.end(),
             [&out_of_line_ids](IterDomain* id) {
               return out_of_line_ids.count(
-                  GpuLower::current()->caMap()->getConcreteMappedID(
+                  GpuLower::current()->info().caMap().getConcreteMappedID(
                       id, IdMappingMode::EXACT));
             })) {
       // Record out of line expression
@@ -1259,7 +1238,7 @@ namespace {
 bool isPermissivelyMappedWithAny(IterDomain* id, const std::vector<Val*>& ids) {
   return std::any_of(ids.begin(), ids.end(), [&](Val* val) {
     if (!(val->isA<IterDomain>() &&
-          GpuLower::current()->caMap()->areMapped(
+          GpuLower::current()->info().caMap().areMapped(
               id, val->as<IterDomain>(), IdMappingMode::PERMISSIVE))) {
       return false;
     }
@@ -1314,7 +1293,7 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
         mapped_id = c_id_it->second;
       }
       auto concrete_original_id =
-          GpuLower::current()->caMap()->getConcreteMappedID(
+          GpuLower::current()->info().caMap().getConcreteMappedID(
               mapped_id, IdMappingMode::EXACT);
       if (all_concrete_ids.count(concrete_original_id)) {
         if (original_id->isBroadcast() || original_id->isReduction() ||
@@ -1342,8 +1321,11 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
             all_iter_inputs.end(),
             [&](IterDomain* inp_id) {
               return this->preferred_path_.find(
-                         GpuLower::current()->caMap()->getConcreteMappedID(
-                             inp_id, IdMappingMode::EXACT)) !=
+                         GpuLower::current()
+                             ->info()
+                             .caMap()
+                             .getConcreteMappedID(
+                                 inp_id, IdMappingMode::EXACT)) !=
                   this->preferred_path_.end();
             })) {
       auto all_iter_outputs = ir_utils::filterByType<IterDomain>(e->outputs());
@@ -1383,7 +1365,7 @@ IterDomain* getLogicalIDToTraverse(
     IterDomain* id,
     const std::vector<Val*>& consumer_all_ids) {
   const auto& logical_ids =
-      GpuLower::current()->caMap()->getLogicalDomainsOfIdGroup(
+      GpuLower::current()->info().caMap().getLogicalDomainsOfIdGroup(
           id, IdMappingMode::PERMISSIVE);
   if (logical_ids.empty()) {
     return nullptr;

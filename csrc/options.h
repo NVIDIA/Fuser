@@ -23,6 +23,8 @@ namespace nvfuser {
 //! These can be set through the `NVFUSER_DUMP` environment variable
 //!
 enum class DebugDumpOption {
+  CutlassCompile, //!< Dump compile commands and compile times for
+                  //!< CutlassExecutor
   FunctionTrace, //!< Dump the function trace of selected internal function. The
                  //!< function of interest needs to be instrumented with
                  //!< DEBUG_PRINT_SCOPE and optionally RECORD_AND_RETURN before
@@ -57,6 +59,7 @@ enum class DebugDumpOption {
   GlobalZeroedMemory, //!< Print the log for zeroed global memory allocator
   HostIr, //!< Dump the Host IR program
   HostIrJit, //!< Dump the LLVM IR lowered from Host IR
+  Inlining, //! Verbose information about tensor inlining
   KernelArgs, //!< Print the runtime kernel arguments when launching kernels
   FusionSegmentsDrawing, //!< Dump Segmented Fusion Graph
   PrintPtxasLog, //!< Print the ptxas verbose log including register usage
@@ -67,7 +70,7 @@ enum class DebugDumpOption {
   PerfDebugVerbose, //! When running kernels, print verbose information
                     //! associated with what's running
   PreSegmenterLogging,
-  HostIrLoweringLogging, //! Dump the Host IR after each lowering pass
+  HostIrLowering, //! Dump the Host IR after each lowering pass
   PythonDefinition, //! Python Frontend Fusion Definition.
   PythonDefinitionSegments, //! Python Frontend Fusion Definition of segments.
   PythonFrontendDebug, //! Python Frontend debug information.
@@ -83,12 +86,12 @@ enum class DebugDumpOption {
   ExprSimplification, //! Print all passes' transform in simplifyExpr
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
-  LoopRotation, //! Print loop rotation log
   Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
   Communication, //! Print multi-GPU communications posted
+  CompileParams, //! Print NVRTC compile parameters
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -97,6 +100,7 @@ enum class DebugDumpOption {
 //! These can be set through the `NVFUSER_ENABLE` environment variable
 //!
 enum class EnableOption {
+  CutlassScheduler, //! Enable the CUTLASS scheduler and executor
   FuseMatmul, //! Enable automatic fusion of matmul and linear ops
   FuseMultipleMatmuls, //! Allow fusing more than one matmul in a single kernel
   IdModel, //! Enable IdModel
@@ -114,8 +118,18 @@ enum class EnableOption {
   WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  TmaPointwise, //! Enable TMA pointwise kernel
+  TmaInnerPersistent, //! Enable TMA inner persistent kernel
+  TmaReduction, //! Enable TMA reduction kernel
   WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
+  HostIrJit, //! Enable Host IR JIT compilation with LLVM
+  InsertReshardingAfter, //! Insert resharding set after the expression
+  FastMath, //! Enable fast math optimizations (--use_fast_math)
+  P2pProtocol, //! Prescribe P2P protocol: put|get
+  MulticastProtocol, //! Prescribe multicast protocol:
+                     //! memcpy|multimem|batch_memcpy
+  ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -130,9 +144,9 @@ enum class DisableOption {
   ExprSimplify, //! Disable expression simplifier
   Fallback, //! Disable fallback
   Fma, //! Disable FMA instructions
+  GreedyScheduler, //! Disable the greedy scheduler
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
-  IdModel, //! Disable IdModel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
@@ -140,7 +154,6 @@ enum class DisableOption {
   NvrtcCaching, // Disable compilation caching by nvrtc
   Nvtx, //! Disable NVTX instrumentation
   ParallelCompile, //! Disable compiling Fusion segments in parallel
-  ParallelSerde, //! Disable deserializing FusionExecutorCache in parallel
   PredicateElimination, //! Disable predicate elimination
   PythonInlineDefinitions, //! Disable printing of inline definitions
   KernelReuse, //! Disable re-using cached FusionKernelRuntimes with different
@@ -283,7 +296,7 @@ NVF_API std::unordered_map<EnableOption, std::vector<std::string>> Options<
 
 using EnableOptions = Options<EnableOption>;
 
-std::optional<EnableOption> stringToEnableOption(
+NVF_API std::optional<EnableOption> stringToEnableOption(
     const std::string& enable_option);
 
 bool isOptionEnabled(EnableOption option);
@@ -304,7 +317,7 @@ NVF_API std::unordered_map<DisableOption, std::vector<std::string>> Options<
 
 using DisableOptions = Options<DisableOption>;
 
-std::optional<DisableOption> stringToDisableOption(
+NVF_API std::optional<DisableOption> stringToDisableOption(
     const std::string& disable_option);
 
 NVF_API bool isOptionDisabled(DisableOption option);

@@ -36,7 +36,7 @@ class AliasFinder : public OptOutConstDispatch {
       AliasAnalysisResult& analysis)
       : empty_allocation_as_(empty_allocation_as), analysis_(analysis) {}
 
-  void handle(const ViewOp*) override;
+  void handle(const ReshapeOp*) override;
   void handle(const LoadStoreOp*) override;
   void handle(const SliceOp*) override;
   void handle(const BroadcastOp*) override;
@@ -59,6 +59,27 @@ bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
     const EmptyAllocationAs empty_allocation_as) {
+  // Alias analysis only cares about maintaining allocation of global TVs.
+  // Consider the following pattern after scheduling:
+  // ```
+  //   tv0: global
+  //       |
+  //   [permute]
+  //       |
+  //   tv1: local
+  //       |
+  //   [permute]
+  //       |
+  //   tv2: global
+  // ```
+  // Regardless of `tv1`'s allocation domain, `tv2` can still be evaluated as an
+  // alias of `tv0`. However, if `tv1` is global (especially when it's also a
+  // fusion output), `tv1`'s allocation domain can't be ignored because it's
+  // visible to the caller of the fusion.
+  if (tv->getMemoryType() != MemoryType::Global) {
+    return true;
+  }
+
   if (empty_allocation_as == EmptyAllocationAs::kUndetermined &&
       !tv->hasAllocation()) {
     return true;
@@ -82,7 +103,7 @@ bool AliasFinder::aliasIfCompliant(
   return true;
 }
 
-void AliasFinder::handle(const ViewOp* view) {
+void AliasFinder::handle(const ReshapeOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
 
@@ -163,7 +184,7 @@ void AliasFinder::handle(const ViewOp* view) {
 }
 
 void AliasFinder::handle(const LoadStoreOp* set) {
-  TensorView* in = dynamic_cast<TensorView*>(set->in());
+  auto* in = dynamic_cast<TensorView*>(set->in());
   if (in == nullptr) {
     return;
   }
@@ -214,6 +235,13 @@ void AliasFinder::handle(const SliceOp* slice) {
     out_root_to_logical.reserve(out_root.size());
     for (auto&& [root_id, logical_id] : zip(out_root, out_logical)) {
       out_root_to_logical[root_id] = logical_id;
+      if (root_id->hasExpandedExtent() && !logical_id->isBroadcast()) {
+        // This works around a limitation in nvFuser's `slice`. Slicing an
+        // expanded broadcast dimension should produce another expanded
+        // broadcast dimension, but actually produces an IterType::Iteration. I
+        // tried to fix that in #4966 but failed.
+        return;
+      }
     }
   }
 
@@ -261,7 +289,7 @@ void AliasFinder::handle(const SliceOp* slice) {
 }
 
 void AliasFinder::handle(const BroadcastOp* bcast) {
-  TensorView* in = dynamic_cast<TensorView*>(bcast->in());
+  auto* in = dynamic_cast<TensorView*>(bcast->in());
   if (in == nullptr) {
     return;
   }
@@ -280,7 +308,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
   for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
       out_allocation.push_back(out_logical[i]);
-      out_contiguity.emplace_back(std::nullopt);
+      out_contiguity.push_back(std::nullopt);
     }
   }
 
@@ -289,7 +317,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
 }
 
 void AliasFinder::handle(const SqueezeOp* squeeze) {
-  TensorView* in = dynamic_cast<TensorView*>(squeeze->in());
+  auto* in = dynamic_cast<TensorView*>(squeeze->in());
   if (in == nullptr) {
     return;
   }

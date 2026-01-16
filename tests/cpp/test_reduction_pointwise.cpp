@@ -8,15 +8,22 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "ops/all_ops.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+
 namespace nvfuser {
 
-using PointwiseFusedReductionTest = NVFuserTest;
+class PointwiseFusedReductionTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 // inner reduction + non-broadcast epilogue, can't be fused
 // outer reduction + non-broadcast epilogue, can be fused
@@ -209,8 +216,6 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDInnerNormalization) {
   auto tv4 = add(tv0, tv1);
   fusion.addOutput(tv4);
 
-  fusion.printMath();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({100, 20, 1}, options);
   auto t1 = at::randn({100, 20, 128}, options);
@@ -241,8 +246,6 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
   fusion.addOutput(tv3);
   auto tv4 = add(tv0, tv1);
   fusion.addOutput(tv4);
-
-  fusion.printMath();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1, 20, 100}, options);

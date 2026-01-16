@@ -7,7 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <device_lower/pass/loop_rotation.h>
 #include <disjoint_set.h>
 #include <exceptions.h>
 #include <fusion.h>
@@ -16,6 +15,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -36,19 +36,26 @@ namespace scheduler_utils {
 // with a compile time constant index. Unfortunately nvcc seems to be using
 // many registers for indexing. This is a bad estimation of extra register use,
 // but it's hard to get a better one.
-constexpr int64_t register_file_size_full = (int64_t)256 * 1024;
-constexpr int64_t register_file_size = register_file_size_full / 2;
-constexpr int64_t register_file_size_56k = (int64_t)56 * 4 * 1024;
+constexpr int64_t register_file_size_bit_full = (int64_t)256 * 1024 * 8;
+constexpr int64_t register_file_size_bit = register_file_size_bit_full / 2;
+constexpr int64_t register_file_size_bit_56k = (int64_t)56 * 4 * 1024 * 8;
 
 // Empirically observed number. Not guaranteed to be a good estimate
 constexpr int64_t register_overhead = 40l;
 constexpr int64_t max_registers_per_thread = 255l;
-constexpr int64_t bytes_per_register = 4l;
+constexpr int64_t bits_per_register = 4l * 8;
 
 constexpr int64_t x_grid_limit = ((int64_t)1 << (int64_t)31) - (int64_t)1;
 constexpr int64_t y_grid_limit = 65535;
 constexpr int64_t z_grid_limit = 65535;
 constexpr int64_t z_block_limit = 64;
+
+// Static shared memory usage (e.g., for magic zero).
+// Currently, magic zero is the only user of static shared memory and takes 4
+// bytes before alignment. All shared memory in nvFuser is aligned to
+// kSharedMemoryAlignmentBytes.
+constexpr int64_t static_smem_usage_in_bytes = kSharedMemoryAlignmentBytes;
+constexpr int64_t static_smem_usage_in_bits = static_smem_usage_in_bytes * 8;
 
 // Find largest power of 2 that is a factor of n. If n==0, return largest power
 // of 2 representable by int64_t
@@ -148,14 +155,6 @@ inline std::optional<int64_t> mergeDims(
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
-// Merge all reduction to the right side and returns total number of
-// reduction axes.
-int64_t mergeReduction(TensorView* tv);
-
-// merge all non-reduction axes to the left side and returns total number of
-// iteration axes.
-int64_t mergeNonReduction(TensorView* tv);
-
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
 // Position `pos` means selecting all the dimensions [0, 1, ..., pos - 1]. pos =
@@ -170,7 +169,7 @@ int64_t mergeNonReduction(TensorView* tv);
 // boolean flag that determines whether to additionally parallelize the inputs
 // of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
 // and scheduleTranspose.
-void parallelizeAllLike(
+NVF_API void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
@@ -353,15 +352,15 @@ ReductionTvProperties getReductionProperties(
 // Struct to store persistent buffer sizes. also holds the persistent buffer
 // size of the buffers are projected to the inputs.
 struct PersistentBufferSizeReturn {
-  int64_t persistent_buffer_size = 0;
-  int64_t projected_persistent_buffer_size = 0;
+  int64_t persistent_buffer_size_bit = 0;
+  int64_t projected_persistent_buffer_size_bit = 0;
 };
 
 // Compute the amount of register space would be needed to perform this kernel
 // persistently, only based on buffers that must be persistent, and based on the
 // maximum of all minimum size requirement. i.e. if must be persistent, only
 // hold persistent dimension.
-PersistentBufferSizeReturn persistentBufferSize(
+PersistentBufferSizeReturn persistentBufferSizeBit(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffers,
@@ -370,10 +369,10 @@ PersistentBufferSizeReturn persistentBufferSize(
 // Merges tensor view to the form:
 // [IterationDomain, ReductionDomain] Returns if <iteration dimensions,
 // reduction dimensions>
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D = false);
+    bool schedule_3d = false);
 
 // Return a list of tensor views that are outputs of reduction operations,
 // excluding resharding reduce expressions. If multiple outputs of an expression
@@ -389,13 +388,17 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
-// Returns cached after tensors of the fusion inputs if unrolled. Otherwise
-// return empty vector.
-std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll);
+// Returns the pairs of <cache, input_index> for each cached fusion input.
+// input_index is the position in fusion->inputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
+    Fusion* fusion,
+    bool unroll);
 
-// Returns the pairs of <cache of each fusion output, corresponding output> for
-// all outputs.
-std::vector<std::pair<TensorView*, TensorView*>> cacheAndForkOutputs(
+// Returns the pairs of <cache, output_index> for each cached fusion output.
+// output_index is the position in fusion->outputs(). Otherwise return empty
+// vector.
+std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll);
 
@@ -417,7 +420,7 @@ IterDomain* innerMostAllocDim(TensorView* tv);
 // case.
 class FindAllMappedDims : public MaxInfoSpanningTree::Propagator {
   std::unordered_map<TensorView*, IterDomain*> mapped_root_ids_;
-  std::unordered_map<TensorView*, IterDomain*> mapped_logical_ids_;
+  std::unordered_map<TensorView*, IterDomain*> mapped_allocation_ids_;
   TensorView* starting_tv_ = nullptr;
   IterDomain* starting_id_ = nullptr;
   bool inner_only_;
@@ -553,7 +556,7 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos);
 //!
 //! There are currently three modes of propagation: forward, backward and
 //! both-way, see comment on the interface functions for details.
-struct BoundedDirectionalTransformPropagator {
+struct NVF_API BoundedDirectionalTransformPropagator {
   //! Custom option container for configuring
   //!  the transform propagation actions.
   //! All option values default to false unless
@@ -669,10 +672,12 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 // Update the vector of ids_to_transform as progressing through the
 // `transform_exprs`. We'll always insert the result of split in the
 // location of the input, and insert the merge result in the position of the
-// inner dimension.
+// inner dimension. Optionally accepts a callback after each transform is
+// applied for analysis of the expr nodes.
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
-    const std::vector<Expr*>& transform_exprs);
+    const std::vector<Expr*>& transform_exprs,
+    std::optional<std::function<void(Expr*)>> post_transform = std::nullopt);
 
 // Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
@@ -682,31 +687,23 @@ void applyTransforms(
 // This is somewhat similar to orderTiledConcreteIdAsRoot
 std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
-// Generates an old to new map to reorder tv's loop domain as its allocation
-// order. This only handles the simple case where allocation is a permutation of
-// loop domain, otherwise, the function returns an empty container.
-std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
+// Generates an old to new map to reorder tv's logical domain as its allocation
+// order. Allocation domain is canonicalized to find a permutation of the
+// logical domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLogicalAsAllocationMap(
     TensorView* tv);
+
+// Generates an old to new map to reorder tv's loop domain as its allocation
+// order. Allocation domain is transformed to find a permutation of the loop
+// domain that satisfies the order in allocation domain.
+std::unordered_map<int64_t, int64_t> reorderLoopAsAllocationMap(TensorView* tv);
 
 // Assumes view's are consistent as detected by
 // registery.cpp::requiresForwardViewReplay returning false
-void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map);
+void propagateReshapeTransforms(Fusion* fusion);
 
 //! Check if tv is an output of a fastest-dim reduction
 bool isFastestDimReduction(TensorView* tv);
-
-// A wrapper for Fusion::rotateLoop that provide more consistent interace
-inline void rotateLoop(
-    TensorView* loop_tv,
-    int64_t axis,
-    std::unordered_set<Statement*> selection) {
-  auto fusion = loop_tv->fusion();
-  if (!fusion->hasManaged("loop_rotation")) {
-    fusion->manage("loop_rotation", LoopRotationParam{});
-  }
-  fusion->getManaged<LoopRotationParam>("loop_rotation")
-      .emplace_back(loop_tv, axis, std::move(selection));
-}
 
 //! Certain tensors may need to be placed on shared or global memory
 //! due to data dependencies caused by resize operations. Create
@@ -744,7 +741,7 @@ void prepareForMemoryTypePromotion(Fusion* fusion);
 //! fusion is lowered.
 void promoteProducerMemoryTypes(
     Fusion* fusion,
-    const std::vector<TensorView*>& input_caches);
+    const std::vector<std::pair<TensorView*, int64_t>>& input_caches);
 
 //! Get all tensors that are connected to from_tvs without going through
 //! any tvs in the cutoff_tv_set.
@@ -753,7 +750,7 @@ std::unordered_set<TensorView*> getAllTvsFrom(
     const std::unordered_set<TensorView*>& cutoff_tv_set);
 
 //! Get the persistent buffer size of a tensor
-int64_t getPersistentBufferSizeOfTensor(
+int64_t getPersistentBufferSizeBitOfTensor(
     const TensorView* buffer,
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info);
@@ -765,7 +762,7 @@ int64_t getPersistentBufferSizeOfTensor(
 //! block (threads_per_block = -1) to calculate the overhead. The caller can
 //! specify a different value if they are sure about the max value used at
 //! runtime.
-int64_t getReductionSmemWorkspace(
+int64_t getReductionSmemWorkspaceBit(
     Fusion* fusion,
     const std::vector<TensorView*>& reduction_tvs,
     int64_t threads_per_block = -1);
@@ -797,8 +794,8 @@ void moveNonConcretizedBroadcastInnermost(
 // predefined factor.
 int64_t getComputationCostFactor(Fusion* fusion);
 
-// Returns the required bytes in flight to saturate the memory bandwidth.
-int64_t getRequiredBytesInFlight();
+// Returns the required bits in flight to saturate the memory bandwidth.
+int64_t getRequiredBitsInFlight();
 
 // Returns true if the device has a high bandwidth to compute raito.
 bool isHighBandwidthFlopsRatio();
@@ -850,6 +847,174 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
 // Returns true if any of the domains of the tensor is symbolic
 bool isSymbolicTensor(const TensorView* tv);
-} // namespace scheduler_utils
 
+// Builds the allocation domain of `tv` by reusing existing IDs from the loop
+// domain. This avoids creating duplicate IDs when the loop domain already
+// contains the transformed IDs we need. It ensures we can allocate the tensor
+// based on its allocation domains and also verify that the allocated Ids are
+// consistent with the compute at position.
+void buildAllocationDomainFromLoopIds(TensorView* tv);
+
+// For shared memory tensor, replay loop domain transformations to allocation
+// domain
+void buildAllocationDomainForSharedMemoryTvs(Fusion* fusion);
+
+// Returns the maximum cluster size that can be used for the current device.
+// Uses cuOccupancyMaxPotentialClusterSize to query the hardware directly,
+// guaranteeing at most a single CTA per SM by requesting the maximum smem per
+// CTA. Results are cached per device to avoid redundant queries. Returns 1 for
+// pre-Hopper devices.
+int64_t getMaxClusterSize();
+
+//! Returns the number of clusters that can be active at once with the given
+//! size, assuming a single resident CTA per SM.
+//!
+//! Note: This function uses maximum shared memory (not actual usage) to enable
+//! caching results by cluster size, avoiding redundant queries for each call.
+int64_t getMaxActiveClusters(const int64_t cluster_size);
+
+// ============================================================================
+// TMA (Tensor Memory Accelerator) Background
+// For details see doc/dev/tma.md
+// ============================================================================
+// TMA is a hardware feature on NVIDIA GPUs that allows efficient loading of
+// multi-dimensional tiles from global memory to shared memory. Instead of
+// individual threads loading data, TMA enables hardware-accelerated bulk
+// transfer of multi-dimensional tiles with a single instruction.
+//
+// Key TMA Concepts in nvFuser:
+//
+// 1. TMA Domain: A "virtual" view of how we think about the problem
+//    dimensionality. For example, pointwise operations on a tensor of any shape
+//    can be viewed as a 1D problem by flattening all dimensions. However, for
+//    TMA scheduling, we typically use a 2D view to better utilize the hardware:
+//    (1) Since each dimension only allows 256 elements, using 2D TMA allows us
+//        to load a large number of elements, which is essential to achieve high
+//        bandwidth.
+//    (2) 2D TMA allows us to better re-use broadcasted data.
+//
+// 2. Box/Tile: The multi-dimensional region of data loaded by a single TMA
+//    instruction. In TMA terminology, a "box" is a dense region,
+//    while a "tile" can be a strided subset of a box. However, the TMA
+//    pointwise scheduler always uses dense tiles, so box == tile.
+//
+//    For the pointwise scheduler, box and tile are identical and refer to
+//    the contiguous multi-dimensional region loaded in one operation. For
+//    example, a box/tile of size (8, 4) loads 8×4 = 32 contiguous elements
+//    arranged in an 8-row by 4-column layout. Throughout this documentation,
+//    "box" and "tile" are used interchangeably.
+//
+// ============================================================================
+// Purpose of This Function
+// ============================================================================
+// The TMA pointwise scheduler views tensors as 2D domains: [tma_domain_outer,
+// tma_domain_inner]. This function computes the optimal size for the
+// "tma_domain_inner" dimension of this 2D view, given a flattened tensor of
+// total_element items.
+//
+// The transformation flow is:
+//   [total_element]                     # Flattened 1D tensor
+//   -> [tma_domain_outer, tma_domain_inner] # Split into 2D TMA domain
+//
+// Where:
+//   tma_domain_inner = return value of this function
+//   tma_domain_outer = total_element / tma_domain_inner
+//   total_element % tma_domain_inner == 0
+//
+// ============================================================================
+// Parameters
+// ============================================================================
+//
+// total_element:
+//   Total number of elements in the flattened tensor. Must be divisible by
+//   (2 * 16 / min_dtype_bytes) to satisfy 2D TMA alignment requirements.
+//
+//   Hardware constraint details:
+//   - We use TMA without interleave; the byte size of the innermost TMA tile
+//     must be divisible by 16 bytes.
+//   - 2D TMA requires at least 2 tiles in the inner dimension.
+//   - Therefore, the inner TMA domain size must be at least 2 * 16 bytes,
+//     or (2 * 16 / min_dtype_bytes) elements.
+//
+// tma_domain_inner_target (default: 512):
+//   Target size for the inner TMA domain. The function finds the divisor of
+//   total_element closest to this target that satisfies all constraints.
+//
+//   Why 512 instead of 256?
+//   Using 512 provides a safety margin to avoid "dimension collapse" - a
+//   situation where a dimension has only 1 tile and gets virtually merged with
+//   its neighbor, breaking the assumption of a 2D TMA structure.
+//
+//   Example of dimension collapse with 256:
+//     Step 1: [total_element] -> [total_element/256, 256]  # 2D TMA domain
+//     Step 2: Further split both dimensions to create 2D TMA tiles.
+//             After tiling with tma_domain_inner=256:
+//       [total_element/256/tma_domain_outer, tma_domain_outer, 256/256, 256]
+//       = [total_element/256/tma_domain_outer, tma_domain_outer, 1, 256]
+//
+//     Problem: In [..., tma_domain_outer, 1, tma_domain_inner], since the
+//     middle dimension is 1, tma_domain_inner is contiguous with
+//     tma_domain_outer in the original tensor. This effectively creates a
+//     single TMA virtual dimension of size (tma_domain_outer *
+//     tma_domain_inner), which is subject to the 256 element limitation and may
+//     fail. Note: It failes when tma_domain_outer * tma_domain_inner > 256,
+//     becuase
+//           MergeTileGroupsByRotation merges contiguous bulk dimensions,
+//           but lacked the 256-element hardware constraint check.
+//
+//   With 512, even if tma_domain_inner=256:
+//     [total_element/512, 512]
+//     -> [total_element/512/tma_domain_outer, tma_domain_outer, 512/256, 256]
+//     = [total_element/512/tma_domain_outer, tma_domain_outer, 2, 256]
+//
+//     We maintain a proper 2D structure with 2 tiles in the inner dimension,
+//     preventing dimension collapse.
+//
+// min_dtype_bits:
+//   Size in bits of the smallest data type in TMA-loaded tensors. Used to
+//   ensure that the innermost TMA box dimension satisfies the 2 x 16-bytes
+//   (256-bit) alignment requirement.
+//
+// ============================================================================
+// Returns
+// ============================================================================
+// The size of the inner dimension of the 2D TMA domain. This value:
+//   - Divides total_element evenly
+//   - Is divisible by (256 / min_dtype_bits)
+//   - Is as close as possible to tma_domain_inner_target
+//   - Returns 1 if no suitable divisor exists (signaling TMA is not viable)
+//
+// ============================================================================
+int64_t getTmaDomainInner(
+    int64_t total_element,
+    int64_t tma_domain_inner_target = 512,
+    int64_t min_dtype_bits = 8);
+
+// Calculate register sharing between TMA async threads and computation threads
+// for warp specialization. Returns a pair of (tma_branch_registers,
+// compute_branch_registers).
+//
+// Assumes padded threads keep [tma_branch_registers] registers and all others
+// are moved to computation threads. The granularity is 8. When estimated
+// compute_branch_regs is not divisible by granularity, it is rounded down and
+// tma_branch_registers is recomputed.
+//
+// For example, assuming 256 computation threads, initial register = 168,
+// tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
+// divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded down to
+// 232. re-calculate [tma_branch_registers] using: borrowed registers = (232 -
+// 168) * 256 / 128 = 128. tma_branch_registers = 168 - 128 = 40
+std::pair<int64_t, int64_t> getRegisterSharing(
+    int64_t reg_per_thread,
+    int64_t computation_threads,
+    int64_t padded_threads);
+
+// Returns the number of leading parallel non-reduction dimensions in a
+// TensorView's loop domain. Asserts the rest are non-parallel or reduction.
+// This function is typically used by intra-GPU schedulers to decide where to
+// set the "breakpoint" in a loop domain so scheduling only affects non-device
+// and non-stream IterDomains.
+int64_t countLeadingParallelDimensions(const TensorView*);
+
+} // namespace scheduler_utils
 } // namespace nvfuser

@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_attn_inputs, FLOAT_DTYPES, PROMOTE_DTYPES
@@ -36,28 +36,47 @@ def huggingface_attn_fwd_fusion(
 
     T4 = fd.ops.add(T1, T0)
 
-    V9 = fd.define_vector(
-        [T0.size(0) * T0.size(1), T0.size(2), T0.size(3)], dtype=DataType.Int
+    T10 = fd.ops.reshape(
+        T4, new_shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), T0.size(3)]
     )
-    T10 = fd.ops.reshape(T4, new_shape=V9)
     T12 = fd.ops.max(T10, dims=[2], keepdim=False, dtype=DataType.Null)
 
-    V16 = fd.define_vector([T0.size(0) * T0.size(1), T0.size(2), 1], dtype=DataType.Int)
-    T17 = fd.ops.broadcast_in_dim(T12, shape=V16, broadcast_dims=[0, 1])
-    T22 = fd.ops.broadcast_in_dim(T17, shape=V9, broadcast_dims=[0, 1, 2])
+    T17 = fd.ops.broadcast_in_dim(
+        T12,
+        shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), 1],
+        broadcast_dims=[0, 1],
+    )
+    T22 = fd.ops.broadcast_in_dim(
+        T17,
+        shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), T0.size(3)],
+        broadcast_dims=[0, 1, 2],
+    )
     T23 = fd.ops.sub(T10, T22)
     T24 = fd.ops.exp(T23)
     T25 = fd.ops.sum(T24, dims=[2], keepdim=False, dtype=DataType.Null)
 
-    T30 = fd.ops.broadcast_in_dim(T25, shape=V16, broadcast_dims=[0, 1])
-    T35 = fd.ops.broadcast_in_dim(T30, shape=V9, broadcast_dims=[0, 1, 2])
+    T30 = fd.ops.broadcast_in_dim(
+        T25,
+        shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), 1],
+        broadcast_dims=[0, 1],
+    )
+    T35 = fd.ops.broadcast_in_dim(
+        T30,
+        shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), T0.size(3)],
+        broadcast_dims=[0, 1, 2],
+    )
 
     T36 = fd.ops.reciprocal(T35)
     T37 = fd.ops.mul(T24, T36)
 
     S39 = fd.define_scalar(0.00000, dtype=DataType.Double)
     S40 = fd.define_scalar(1.00000, dtype=DataType.Double)
-    T45 = fd.ops.uniform(S39, S40, shape=V9, dtype=DataType.Float)
+    T45 = fd.ops.uniform(
+        S39,
+        S40,
+        shape=[fd.ops.mul(T0.size(0), T0.size(1)), T0.size(2), T0.size(3)],
+        dtype=DataType.Float,
+    )
     S46 = fd.define_scalar(1 - dropout_p, dtype=DataType.Double)
     T47 = fd.ops.lt(T45, S46)
 
@@ -87,6 +106,7 @@ def huggingface_attn_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -128,6 +148,7 @@ def test_huggingface_attn_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_attn_inputs())
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_huggingface_attn_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -138,7 +159,9 @@ def test_huggingface_attn_fwd_baseline_benchmark(
         clear_dynamo_cache()
     batch_size, seq_len, nh, n_embd = size
     dropout_p = 0.2
-    inputs = torch.randn(batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype)
+    inputs = torch.randn(
+        batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype, requires_grad=True
+    )
     attention_mask = torch.zeros(
         batch_size, nh, seq_len, seq_len, device="cuda", dtype=dtype
     )

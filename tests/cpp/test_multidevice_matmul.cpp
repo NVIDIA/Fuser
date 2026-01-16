@@ -8,21 +8,22 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/multidevice.h>
-#include <tests/cpp/validator.h>
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "mma_type.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/multidevice.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -378,8 +379,8 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  auto x_tensor = at::randn({12, 48}, tensor_options);
-  auto w_tensor = at::randn({mesh.size(), 36, 48}, tensor_options);
+  auto x_tensor = at::randn({12, 48}, tensor_options_);
+  auto w_tensor = at::randn({mesh.size(), 36, 48}, tensor_options_);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -420,9 +421,10 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   // y is expected to have shape [2, D*5] and to be also column-wise sharded.
   constexpr int64_t kLowerBound = 0;
   constexpr int64_t kUpperBound = 10;
-  auto x_tensor = at::randint(kLowerBound, kUpperBound, {2, 3}, tensor_options);
+  auto x_tensor =
+      at::randint(kLowerBound, kUpperBound, {2, 3}, tensor_options_);
   auto w_tensor = at::randint(
-      kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options);
+      kLowerBound, kUpperBound, {mesh.size(), 3, 5}, tensor_options_);
   auto sharded_w_tensor = shardTensor(w_tensor, w);
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -434,7 +436,7 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
       executor_cache.fusion(),
       outputs,
       args,
-      {shardTensor(expected_y_tensor, 0, mesh)},
+      {shardTensor1D(expected_y_tensor, 0, mesh)},
       __LINE__,
       __FILE__);
 }
@@ -476,7 +478,6 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto tv : {x, w, y, local_y}) {
     tv->setDeviceMesh(mesh);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -484,8 +485,8 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
   constexpr int64_t b = 1;
   for (int64_t s : {4, 8, 16}) {
     // Use randint instead of randn to avoid floating point accumulation errors.
-    auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options);
-    auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options);
+    auto x_tensor = at::randint(/*high=*/5, {b, s, e}, tensor_options_);
+    auto w_tensor = at::randint(/*high=*/5, {e, e}, tensor_options_);
     auto sharded_x = shardTensor(x_tensor, x);
     auto sharded_w = shardTensor(w_tensor, w);
 

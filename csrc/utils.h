@@ -7,20 +7,6 @@
 // clang-format on
 #pragma once
 
-#include <ATen/ATen.h>
-#include <exceptions.h>
-#include <torch/csrc/jit/ir/ir.h>
-#include <torch/torch.h>
-#include <visibility.h>
-
-#include <debug.h>
-#include <mma_type.h>
-#include <options.h>
-#include <tma.h>
-#include <type.h>
-
-#include <c10/core/thread_pool.h>
-
 #include <concepts>
 #include <coroutine>
 #include <deque>
@@ -36,6 +22,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include <ATen/ATen.h>
+#include <c10/core/thread_pool.h>
+
+#include <debug.h>
+#include <exceptions.h>
+#include <mma_type.h>
+#include <options.h>
+#include <tma.h>
+#include <type.h>
+#include <visibility.h>
+#include <C++23/utility>
+
 //! IR header hierarchy
 //! 1. ** utils.h ** - PolymorphicBase and NonCopyable
 //! 2. ir/base_nodes.h - Statement, Expr, and Val
@@ -47,6 +45,22 @@ namespace nvfuser {
 
 //! Warp specialization padded threads count
 constexpr int64_t kWarpSpecializationPaddedThreads = 128;
+
+//! TMA hardware limit: maximum elements per dimension in a TMA box
+constexpr int64_t kMaxElementsPerTmaBoxDim = 256;
+
+//! In general TMA terminology, "box" is the dense rectangular region loaded,
+//! while "tile" is a potentially strided subset. The pointwise scheduler uses
+//! dense tiles (tile = box), so we use "tile" terminology for consistency.
+constexpr int64_t kMaxElementsPerTmaTileDim = kMaxElementsPerTmaBoxDim;
+
+//! shared memory alignment in bytes
+//! TMA requires 128 bytes alignment, other usage doesn't have such requirement,
+//! but still align to 128 bytes for simplicity and robustness.
+//! When shared memory swizzling is used, up to 1024 bytes alignment can be
+//! required for swizzling and they are handled by:
+//! getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle).
+constexpr int64_t kSharedMemoryAlignmentBytes = 128;
 
 class KernelArgumentHolder;
 
@@ -73,6 +87,9 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread);
 
+// Get the maximum vectorization size in bits for the current CUDA device
+int64_t getMaxVectorizationSizeInBit();
+
 // Check if fallback path should be used which will dispatch to eager mode if
 // any errors are encountered. Helpful for debugging.
 bool useFallback();
@@ -84,6 +101,16 @@ constexpr int64_t ceilDiv(int64_t dividend, int64_t divisor) {
 
 constexpr int64_t roundUpToMultiple(int64_t dividend, int64_t divisor) {
   return ceilDiv(dividend, divisor) * divisor;
+}
+
+constexpr int64_t alignSharedMemoryBits(int64_t unaligned_bits) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes * 8;
+  return (unaligned_bits + (alignment - 1)) & (~(alignment - 1));
+}
+
+constexpr int64_t alignSharedMemoryBytes(int64_t unaligned_bytes) {
+  constexpr int64_t alignment = kSharedMemoryAlignmentBytes;
+  return (unaligned_bytes + (alignment - 1)) & (~(alignment - 1));
 }
 
 //! Simple mixin for suppressing copy & move operations, ex:
@@ -112,23 +139,15 @@ class PolymorphicBase {
   // (checked in DEBUG builds)
   template <class T>
   T* as() {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
-    auto downcast_ptr = static_cast<T*>(this);
-#else
     auto downcast_ptr = dynamic_cast<T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
   const T* as() const {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
-    auto downcast_ptr = static_cast<const T*>(this);
-#else
     auto downcast_ptr = dynamic_cast<const T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
@@ -242,29 +261,6 @@ struct Printer {
   }
 };
 
-#if 0
-
-// Waiting for C++20....
-
-#include <concepts>
-
-template<typename T>
-concept Printable = requires(T a)
-{
-  { std::stringstream{} << a } -> std::convertible_to<std::stringstream>;
-};
-
-template <Printable T>
-struct Printer<T> {
-  static std::string toString(const T& value) {
-    std::stringstream ss;
-    ss << value;
-    return ss.str();
-  }
-};
-
-#else
-
 #define SPECIALIZE_PRINTER(T)                     \
   template <>                                     \
   struct Printer<T> {                             \
@@ -306,8 +302,6 @@ SPECIALIZE_PRINTER(std::vector<uint64_t>);
 SPECIALIZE_PRINTER(std::optional<bool>);
 
 #undef SPECIALIZE_PRINTER
-
-#endif // if 0
 
 // Stringification with delimiter
 template <typename Iterator>
@@ -540,15 +534,19 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
 NVF_API const char* getNvFuserEnv(
-    const char* env_name,
+    const std::string& env_name,
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <typename K, typename V>
-V getOrDefault(
-    const std::unordered_map<K, V>& map,
-    const K& key,
-    const V& default_value = V()) {
+template <
+    typename MapKey,
+    typename Value,
+    typename Key,
+    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
+Value getOrDefault(
+    const std::unordered_map<MapKey, Value>& map,
+    const Key& key,
+    const Value& default_value = Value()) {
   const auto i = map.find(key);
   return i == map.end() ? default_value : i->second;
 }
@@ -829,7 +827,7 @@ enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
 // Helper function
 auto enumerate(std::ranges::viewable_range auto&& r) {
   return enumerate_view{std::forward<decltype(r)>(r)};
-};
+}
 
 } // namespace views
 

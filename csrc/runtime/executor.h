@@ -6,6 +6,8 @@
  */
 // clang-format on
 #pragma once
+#include <functional>
+
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
@@ -20,11 +22,6 @@
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
 #include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
-#include <functional>
 
 namespace nvfuser {
 
@@ -108,7 +105,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None);
+      SchedulerType scheduler_type = SchedulerType::None);
 
   NVF_API KernelArgumentHolder
   run(KernelArgumentHolder args,
@@ -164,7 +161,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   //! Returns the launch parameters from the last kernel execution
   LaunchParams lastLaunchParams() const {
-    return launch_params_;
+    return last_launch_params_;
   }
 
   static void setGlobalFusionCount(int64_t new_fusion_count) {
@@ -337,7 +334,7 @@ class KernelExecutor : public ExecutorAbstract {
   float kernel_occupancy_ = -1.0f;
 
   // Profiling support: the last launch param used
-  LaunchParams launch_params_;
+  LaunchParams last_launch_params_;
 
   // Lowering hooks that are called after the GpuLower instance is created
   // before running lowering passes.

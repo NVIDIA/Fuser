@@ -7,18 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <macros.h>
-#include <visibility.h>
-
-#include <c10/core/ScalarType.h>
-
-#include <polymorphic_value.h>
-
 #include <array>
 #include <complex>
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -26,6 +18,16 @@
 #include <typeinfo>
 #include <unordered_set>
 #include <variant>
+
+#include <cuda_runtime_api.h>
+
+#include <c10/core/ScalarType.h>
+#include <torch/version.h>
+
+#include <exceptions.h>
+#include <macros.h>
+#include <polymorphic_value.h>
+#include <visibility.h>
 
 #define NVF_TORCH_VERSION_GREATER(major, minor, patch)                \
   TORCH_VERSION_MAJOR > major ||                                      \
@@ -43,6 +45,7 @@ namespace nvfuser {
 enum class ValType {
   TensorDomain,
   IterDomain,
+  RaggedIterDomain,
   TensorView,
   NamedScalar,
   Predicate,
@@ -56,7 +59,6 @@ enum class ValType {
 // Unswitch corresponds with UnswitchPredicate::get
 // Misaligned - PredicateCompute::getInlinePredicate + Misaligned flag
 // ReductionWrite - Same as Inline but without reduction axes
-// LoopRotation - Predicate added by loop rotation, currently always true.
 // ElectSync - Select a single thread to launch asynchronous operations.
 // OneDimTmaLoadExpectArrive - Predicate for expect arrive bytes and 1D TMA
 // load. OneDimTmaWaitParity - Predicate for wait parity for 1D TMA load.
@@ -67,7 +69,6 @@ enum class PredicateType {
   Vectorize,
   Misaligned,
   ReductionWrite,
-  LoopRotation,
   ElectSync,
   OneDimTmaLoadExpectArrive,
   OneDimTmaWaitParity,
@@ -504,7 +505,7 @@ inline bool hasCompatibleDataType(
       return false;
     }
     auto ptr = std::get<PointerType>(dtype.type);
-    return dataTypeSizeByte(*ptr.type) == value.as<Pointer>().size();
+    return dataTypeSizeBit(*ptr.type) == value.as<Pointer>().sizeBit();
   } else if (std::holds_alternative<ArrayType>(dtype.type)) {
     if (!value.is<std::vector>()) {
       return false;
@@ -609,7 +610,9 @@ enum class BinaryOpType {
   Div,
   Fmod,
   Max,
+  FMax,
   Min,
+  FMin,
   Mul,
   Nextafter,
   Pow,
@@ -648,8 +651,6 @@ enum class BinaryOpType {
   // generate complex from real and imaginary parts
   Complex
 };
-
-enum class ScatterOpType { Set };
 
 enum class RNGOpType {
   Uniform, // Uniform in [0, 1)
@@ -693,6 +694,10 @@ std::unordered_set<ParallelType> allParallelTypes();
 std::unordered_set<ParallelType> allParallelTypesExcept(
     const std::unordered_set<ParallelType>& except);
 
+std::unordered_set<ParallelType> deviceParallelTypes();
+
+std::unordered_set<ParallelType> deviceAndStreamParallelTypes();
+
 static constexpr std::array<ParallelType, 6> kParallelTypeThreads = {
     ParallelType::BIDx,
     ParallelType::BIDy,
@@ -716,7 +721,7 @@ static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
     ParallelType::DIDy,
     ParallelType::DIDz};
 
-enum class MemoryType { Local, Shared, Global, Tensor };
+enum class MemoryType { Local, Shared, Global, Tensor, Symmetric };
 
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
@@ -1005,7 +1010,6 @@ NVF_API std::ostream& operator<<(std::ostream&, const DataType);
 std::ostream& operator<<(std::ostream&, const UnaryOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const BinaryOpType);
 std::ostream& operator<<(std::ostream&, const TernaryOpType);
-std::ostream& operator<<(std::ostream&, const ScatterOpType);
 std::ostream& operator<<(std::ostream&, const RNGOpType);
 NVF_API std::ostream& operator<<(std::ostream&, const ParallelType);
 NVF_API std::ostream& operator<<(std::ostream&, const MemoryType);
@@ -1121,7 +1125,8 @@ const char* const kMagicZeroName = "nvfuser_zero";
 static constexpr int kMaxNumGroupedReductions = 16;
 
 Pointer::Pointer(void* ptr, DataType dtype)
-    : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSizeByte(dtype)) {}
+    : ptr_(reinterpret_cast<std::byte*>(ptr)),
+      size_bit_(dataTypeSizeBit(dtype)) {}
 
 inline PolymorphicValue castToDtype(
     PolymorphicValue value,
@@ -1171,5 +1176,17 @@ enum class TMemRegisterDataPath {
 };
 
 std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
+
+std::ostream& operator<<(std::ostream&, cudaDriverEntryPointQueryResult);
+
+// Layout for block scaling factor used by mx-format with narrow precision, this
+// indicates how to index into block scaling factor. see:
+// https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+enum class BlockScalingFactorLayout {
+  Block128x4,
+};
+
+const char* block_sf_layout2string(BlockScalingFactorLayout t);
+std::ostream& operator<<(std::ostream&, const BlockScalingFactorLayout);
 
 } // namespace nvfuser

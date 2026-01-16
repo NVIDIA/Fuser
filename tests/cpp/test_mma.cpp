@@ -5,23 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <scheduler/matmul_utils.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/inlining.h>
 #include <algorithm>
 #include <bit>
-#include <iterator>
 #include <unordered_map>
+
+#include <gtest/gtest.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "scheduler/matmul_utils.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -88,6 +87,7 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
     }
 
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -310,6 +310,7 @@ class HopperRS : public HopperBase,
 
   void SetUp() override {
     HopperBase::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
@@ -422,6 +423,7 @@ class HopperRSStmatrix
 
   void SetUp() override {
     HopperBase::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
     layout = std::get<2>(GetParam());
@@ -667,6 +669,7 @@ class SSTest : public Base,
 
   void SetUp() override {
     Base::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());

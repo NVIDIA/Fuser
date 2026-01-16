@@ -11,6 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
@@ -19,10 +20,10 @@ void getHeuristics(
     ReductionParams* rparams,
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
-    const int64_t regs_buffer_size,
-    const int64_t circular_buffered_smem_size,
-    const int64_t non_circular_buffered_smem_size,
-    const size_t computation_dtype_size,
+    const int64_t regs_buffer_size_bit,
+    const int64_t circular_buffered_smem_size_bit,
+    const int64_t non_circular_buffered_smem_size_bit,
+    const size_t computation_dtype_size_bit,
     const size_t max_allowed_vect_factor,
     const int64_t hp_threads_per_block_min,
     const int64_t hp_threads_per_block_max,
@@ -33,8 +34,6 @@ void getHeuristics(
   rparams->cparams.index_type = index_type;
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   const int64_t sm_count = (int64_t)dev_prop->multiProcessorCount;
-  constexpr int64_t reg_per_async_thread = 32L;
-  constexpr int64_t regs_granularity = 8L;
 
   // Params for 1st stage, inner reduction and partial outer reduction.
   // Inner dim: inner_vect, inner_batch, and bdimx
@@ -75,21 +74,23 @@ void getHeuristics(
   //     [n_computation_warps]
   auto is_enough_smem =
       [&](int64_t iter_unroll, int64_t n_stages, int64_t bdimx, int64_t bdimy) {
-        int64_t smem_size = 0;
+        int64_t smem_size_bit = 0;
         //  circular buffered smem size
-        smem_size += circular_buffered_smem_size * iter_unroll * n_stages;
+        smem_size_bit +=
+            circular_buffered_smem_size_bit * iter_unroll * n_stages;
         // non-circular buffered
         if (!is_non_circular_buffer_gmem_to_regs) {
-          smem_size += non_circular_buffered_smem_size;
+          smem_size_bit += non_circular_buffered_smem_size_bit;
         }
-        // mbarrier size, round to 128 bytes as required by TMA
-        smem_size += roundUpToMultiple(16 * n_stages, 128);
+        // mbarrier dtype is uint64_t
+        constexpr int64_t bits_per_mbarrier = 8 * 8;
+        smem_size_bit += alignSharedMemoryBits(bits_per_mbarrier * n_stages);
         // reduction workspace size, need to be aligned to 128 bytes since
         // other smems are stacked on top of it directly, see
         // assignNextAddress in StackBasedSharedMemAllocator
-        smem_size += roundUpToMultiple(
-            iter_unroll * bdimx * bdimy * computation_dtype_size, 128);
-        return (int64_t)dev_prop->sharedMemPerBlockOptin >= smem_size;
+        smem_size_bit += alignSharedMemoryBits(
+            iter_unroll * bdimx * bdimy * computation_dtype_size_bit);
+        return (int64_t)dev_prop->sharedMemPerBlockOptin * 8 >= smem_size_bit;
       };
 
   // Check register usage,  it is calculated as:
@@ -100,54 +101,29 @@ void getHeuristics(
   // Given a smem buffer size, calculate the number of registers pre thread
   // required to cache it in registers. The total required register size may be
   // larger than smem size due to non-divisible split.
-  auto round_up_reg_count = [&](int64_t logical_size, int64_t bdimx) {
+  auto round_up_reg_count = [&](int64_t logical_size_bit, int64_t bdimx) {
     int persistent_batch = ceilDiv(after_vect, bdimx);
-    int buffer_per_element = logical_size / inner_dim_numel;
+    int buffer_per_element = logical_size_bit / inner_dim_numel;
     int elements_per_thread = persistent_batch * vect_factor;
     int buffer_per_thread = buffer_per_element * elements_per_thread;
-    return buffer_per_thread / scheduler_utils::bytes_per_register;
+    return buffer_per_thread / scheduler_utils::bits_per_register;
   };
-  // Assume each padded threads keep [tma_branch_registers] registers and all
-  // others are moved to computation threads. The granularity is 8.
-  // [tma_branch_registers] is a tunable parameter. When estimated
-  // compute_branch_regs is not divisible by granularity, it is rounded down
-  // and needs to recompute tma_branch_registers.
-  // For example, assuming 256 computation threads, initial register = 168,
-  // tma_branch_regs = 32. then (168 - 32) * 128 / 256 = 68 which is not
-  // divisible by 8, compute_branch_registers = 168 + 68 = 236 --> rounded
-  // down to 232. re-calculate [tma_branch_registers] using: borrowed
-  // registers = (232 - 168) * 256 / 128 = 128. tma_branch_registers = 168 -
-  // 128 = 40
-  auto get_register_sharing = [&](int64_t reg_per_thread,
-                                  int64_t computation_threads) {
-    int64_t tma_branch_regs = reg_per_async_thread;
-    int64_t compute_branch_regs = reg_per_thread +
-        (reg_per_thread - tma_branch_regs) * kWarpSpecializationPaddedThreads /
-            computation_threads;
-    if (compute_branch_regs % regs_granularity != 0) {
-      compute_branch_regs -= compute_branch_regs % regs_granularity;
-      tma_branch_regs = reg_per_thread -
-          (compute_branch_regs - reg_per_thread) * computation_threads /
-              kWarpSpecializationPaddedThreads;
-    }
-    compute_branch_regs = std::min(
-        compute_branch_regs, scheduler_utils::max_registers_per_thread);
-    return std::make_pair(tma_branch_regs, compute_branch_regs);
-  };
+
   auto is_enough_regs = [&](int64_t iter_unroll, int64_t bdimx, int64_t bdimy) {
     int64_t reg_count = 0;
     // cache circular buffered tv
     if (is_circular_buffer_regs_cached) {
-      reg_count +=
-          round_up_reg_count(circular_buffered_smem_size, bdimx) * iter_unroll;
+      reg_count += round_up_reg_count(circular_buffered_smem_size_bit, bdimx) *
+          iter_unroll;
     }
 
     // cache non-circular buffered tv
     if (is_non_circular_buffer_gmem_to_regs) {
-      reg_count += round_up_reg_count(non_circular_buffered_smem_size, bdimx);
+      reg_count +=
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx);
     }
     // regs for partial outer reduction results.
-    reg_count += round_up_reg_count(regs_buffer_size, bdimx);
+    reg_count += round_up_reg_count(regs_buffer_size_bit, bdimx);
 
     // Empirical value, tunned for RMS Norm Bwd FP16
     // At hidden size 6144, buffer requires 120 registers, compute branch
@@ -156,8 +132,8 @@ void getHeuristics(
     reg_count += register_overhead_ws_tma;
     int64_t available_regs = getRegPerThreadGivenThreadsPerSM(
         bdimx * bdimy + kWarpSpecializationPaddedThreads);
-    auto [_, compute_branch_regs] =
-        get_register_sharing(available_regs, bdimx * bdimy);
+    auto [_, compute_branch_regs] = scheduler_utils::getRegisterSharing(
+        available_regs, bdimx * bdimy, kWarpSpecializationPaddedThreads);
     return reg_count <= compute_branch_regs;
   };
 
@@ -278,9 +254,9 @@ void getHeuristics(
   // For read from tmp gmem, since the parallelization is changed, a different
   //                         vectorization factor is used to optimize the
   //                         number of reductions per thread.
-  constexpr int64_t max_gmem_vect_access_bytes = 16;
+  constexpr int64_t max_gmem_vect_access_bit = 128;
   const int64_t max_tmp_gmem_vect_factor = std::min(
-      max_gmem_vect_access_bytes / (int64_t)computation_dtype_size,
+      max_gmem_vect_access_bit / (int64_t)computation_dtype_size_bit,
       vect_factor);
   int64_t tmp_gmem_write_vect = max_tmp_gmem_vect_factor;
   const int64_t workload_per_thread = inner_dim_numel >= 4096 ? 4l : 2l;
@@ -312,7 +288,8 @@ void getHeuristics(
       kWarpSpecializationPaddedThreads + computation_threads;
   if (total_threads > 256) {
     int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
-    ws.num_registers = get_register_sharing(reg_per_thread, bdimx * bdimy);
+    ws.num_registers = scheduler_utils::getRegisterSharing(
+        reg_per_thread, bdimx * bdimy, kWarpSpecializationPaddedThreads);
   }
   CircularBufferOptions circular_buffer_options{
       .type = ws, .stage = n_stages, .prefetch = n_stages - 1};
@@ -352,10 +329,11 @@ void getHeuristics(
     // cut-off at hidden size of 24K.
     if (bdimy == 1 && is_non_circular_buffer_gmem_to_regs) {
       int64_t buffer_regs =
-          round_up_reg_count(non_circular_buffered_smem_size, bdimx) +
-          round_up_reg_count(regs_buffer_size, bdimx);
-      NVF_ERROR(ws.num_registers.has_value(), "num_registers is not set");
-      int64_t other_regs = ws.num_registers.value().second - buffer_regs;
+          round_up_reg_count(non_circular_buffered_smem_size_bit, bdimx) +
+          round_up_reg_count(regs_buffer_size_bit, bdimx);
+      int64_t compute_branch_regs =
+          ws.num_registers.has_value() ? ws.num_registers.value().second : 255L;
+      int64_t other_regs = compute_branch_regs - buffer_regs;
       return other_regs >= 64L;
     }
     return true;
@@ -373,11 +351,11 @@ void getHeuristics(
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
             << "inner_dim_numel: " << inner_dim_numel << "\n"
-            << "regs_buffer_size: " << regs_buffer_size << "\n"
-            << "circular_buffered_smem_size: " << circular_buffered_smem_size
-            << "\n"
-            << "non_circular_buffered_smem_size: "
-            << non_circular_buffered_smem_size << "\n"
+            << "regs_buffer_size_bit: " << regs_buffer_size_bit << "\n"
+            << "circular_buffered_smem_size_bit: "
+            << circular_buffered_smem_size_bit << "\n"
+            << "non_circular_buffered_smem_size_bit: "
+            << non_circular_buffered_smem_size_bit << "\n"
             << "max_allowed_vect_factor: " << max_allowed_vect_factor << "\n"
             << "vectorization_factor_tmp_gmem_write: " << tmp_gmem_write_vect
             << "\n"
@@ -422,7 +400,7 @@ void scheduleOuterReduction(
   for (auto& outer_reduction_tv : outer_reduction_tvs) {
     // Similar to the inner reduction, we need to reorder the outer reduction tv
     // when there are view operations.
-    if (!ir_utils::getViewOps(fusion).empty()) {
+    if (!ir_utils::getReshapeOps(fusion).empty()) {
       // Reorder reference_tv after propagating the view operation. This will
       // reorder for better merging.
       outer_reduction_tv->reorder(
@@ -510,16 +488,18 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
-      smem_consumers;
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
-  normalization_scheduler_utils::beforeSchedule(
+  std::vector<TensorView*> dummy_outputs, reduction_tvs, smem_consumers,
+      persistent_buffers;
+  std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
+  std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
+  normalization_scheduler_utils::commonScheduleBeforeIterDomainTransform(
       fusion,
       rparams,
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
       smem_consumers,
+      persistent_buffers,
       cached_outputs);
 
   // split reduction_tvs into inner and outer reduction_tvs
@@ -816,17 +796,21 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       int64_t last_iter_dim = rparams->computation_warp_groups > 1
           ? tma_inline_pos + 1
           : tma_inline_pos;
-      for (auto cached_tv : cached_inputs) {
+      for (const auto& [cached_tv, input_idx] : cached_inputs) {
         // skip smem tvs as they are TMA loaded and already special inlined
         if (cached_tv->getMemoryType() == MemoryType::Shared) {
           continue;
         }
         // skip tvs that are already vectorized in general vectorization
         // analysis and propagation.
-        if (cached_tv->axis(-1)->getParallelType() == ParallelType::Vectorize) {
+        // The last iter dim may be a broadcast, so we need to check all the
+        // iter dims.
+        if (std::ranges::any_of(
+                cached_tv->domain()->loop(), [](const IterDomain* id) {
+                  return id->getParallelType() == ParallelType::Vectorize;
+                })) {
           continue;
         }
-
         // find tvs should be persistent due to grouped reduction.
         // (1) inline before iter unrolled dim to ensure accessible for both
         // loops before and after iter grouped reduction.
@@ -838,6 +822,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           tv_inline_pos_map.emplace(gp_tv, last_iter_dim);
         }
 
+        NVF_ERROR(
+            cached_tv->nDims() > last_iter_dim,
+            "No dim to vectorize or unroll, cached_tv: ",
+            cached_tv->toString());
         if (can_vectorize(ir_utils::getSoleProducerTv(cached_tv))) {
           cached_tv->axis(last_iter_dim)->parallelize(ParallelType::Vectorize);
         } else {
@@ -874,6 +862,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   } else {
     inlineMost();
   }
+  // replay loop domain transformations to allocation domain for shared memory
+  // tensors. Ensure we can allocate based on the allocation domain.
+  scheduler_utils::buildAllocationDomainForSharedMemoryTvs(fusion);
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser

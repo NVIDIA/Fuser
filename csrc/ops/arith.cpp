@@ -5,6 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ops/arith.h>
+
+#include <cfloat>
+#include <ranges>
 
 #include <expr_evaluator.h>
 #include <ir/all_nodes.h>
@@ -12,12 +16,9 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <ops/alias.h>
-#include <ops/arith.h>
 #include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
-
-#include <cfloat>
 
 namespace nvfuser {
 
@@ -466,10 +467,10 @@ TensorView* arange(Val* start, Val* end, Val* step, DataType dtype) {
   step = maybeCastOp(dtype, step);
   // Make sure no negative value is passed to ceilDiv as the device
   // implementation of ceilDiv assumes positive inputs
-  auto distance =
-      abs(sub(end_for_size_computation, start_for_size_computation));
-  auto abs_step = abs(step_for_size_computation);
-  auto length = ceilDiv(distance, abs_step);
+  auto distance = SimplifyingIrBuilder::absExpr(SimplifyingIrBuilder::subExpr(
+      end_for_size_computation, start_for_size_computation));
+  auto abs_step = SimplifyingIrBuilder::absExpr(step_for_size_computation);
+  auto length = SimplifyingIrBuilder::ceilDivExpr(distance, abs_step);
   if (!isIntegralType(length->dtype())) {
     length = maybeCastOp(DataType::Index, length);
   }
@@ -1167,10 +1168,10 @@ NVFUSER_DEFINE_BINARY_COMPARE_OP(ne, NE)
 // TODO: How do we adjust this so we can reduce to a single scalar value?
 TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type) {
   auto orig_domain = TensorDomain::noReductions(tv->getLogicalDomain());
-  std::set<unsigned int> axes_set(axes.begin(), axes.end());
+  std::set<int64_t> axes_set(axes.begin(), axes.end());
 
   std::vector<IterDomain*> new_domain;
 
@@ -1179,7 +1180,7 @@ TensorView* newForReduction(
       "Asked for output of reduction, but no reduction axis provided.");
 
   NVF_ERROR(
-      (*(axes_set.rbegin())) < orig_domain.size(),
+      (*(axes_set.rbegin())) < std::ssize(orig_domain),
       "Error setting up reduction, reduction axis (",
       *(axes_set.rbegin()),
       ") is outside nDims (",
@@ -1188,14 +1189,14 @@ TensorView* newForReduction(
       "views.");
 
   auto reduced_axis_iter = axes_set.begin();
-  for (const auto dim : arange(orig_domain.size())) {
+  for (auto dim : arange(std::ssize(orig_domain))) {
     bool is_reduction = false;
     if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
       is_reduction = true;
       reduced_axis_iter++;
     }
 
-    const IterDomain* id = orig_domain[dim];
+    IterDomain* id = orig_domain[dim];
 
     IterDomain* new_id = nullptr;
     if (is_reduction) {
@@ -1208,6 +1209,14 @@ TensorView* newForReduction(
             " of tensor ",
             tv);
       }
+      NVF_CHECK(
+          !id->isA<RaggedIterDomain>(),
+          "Cannot reduce a RaggedIterDomain. Reduction of ragged dimensions is "
+          "not supported. "
+          "Tried to reduce ID = ",
+          id,
+          " of tensor ",
+          tv);
       new_id = IterDomainBuilder(id)
                    // If the domain is being reduced, but it's coming in as an
                    // expanded extent, we need to realize the expand.
@@ -1216,12 +1225,7 @@ TensorView* newForReduction(
                    .iter_type(IterType::Reduction)
                    .build();
     } else {
-      new_id = IterDomainBuilder(id)
-                   .extent(id->extent())
-                   .resetSchedulingParams()
-                   .parallel_type(id->getParallelType())
-                   .iter_type(id->getIterType())
-                   .build();
+      new_id = id->cloneWithoutRFactor();
     }
     new_domain.push_back(new_id);
   }
@@ -1241,7 +1245,8 @@ namespace {
 // PyTorch accepts reductions of zero-dimensional tensors, which are
 // just ignored.
 TensorView* reductionOpZeroDimTensor(TensorView* inp) {
-  NVF_ERROR(inp->domain()->noReductions().empty());
+  NVF_ERROR(
+      std::ranges::empty(inp->getLoopDomain() | TensorDomain::kNoReductions));
   return set(inp);
 }
 
@@ -1261,27 +1266,20 @@ TensorView* reductionOpRaw(
       "Cannot create a reduction operation where the initial value is not a "
       "const scalar.");
 
-  NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted "
-      "at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  "
-      "Logical: ",
-      tv->getLogicalDomain(),
-      "\n  Domain: ",
-      tv->domain()->toString());
-
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // PyTorch allows reduction of 0-dim tensors
-  if (tv->domain()->noReductions().empty()) {
+  if (std::ranges::empty(tv->getLoopDomain() | TensorDomain::kNoReductions)) {
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
+  const auto non_reduction_ndims = static_cast<int64_t>(
+      std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
 
-  TensorView* out = newForReduction(tv, uint_axes, dtype);
+  std::vector<int64_t> canonicalized_axes =
+      ops::canonicalizeAxes(axes, non_reduction_ndims);
+
+  TensorView* out = newForReduction(tv, canonicalized_axes, dtype);
   const auto out_type = out->getDataType().value();
   const auto init_type = init->getDataType().value();
   NVF_CHECK(
@@ -1298,7 +1296,7 @@ TensorView* reductionOpRaw(
   if (keep_dim) {
     auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
     std::vector<bool> is_broadcast(tv_logical.size(), false);
-    for (auto axis : uint_axes) {
+    for (auto axis : canonicalized_axes) {
       is_broadcast.at(axis) = true;
     }
     out = broadcast(out, is_broadcast);
@@ -1309,20 +1307,23 @@ TensorView* reductionOpRaw(
 namespace {
 
 TensorView* maybeFullInsteadOfReduction(
-    const std::vector<unsigned int>& axes, // sorted
+    const std::vector<int64_t>& axes, // sorted
     Val* init,
     TensorView* tv,
     bool keep_dim,
     DataType dtype) {
   auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
-  const auto ndims = tv_logical.size();
+  const auto ndims = std::ssize(tv_logical);
   for (auto i : axes) {
     if (tv_logical.at(i)->extent()->isZeroInt()) {
       std::vector<IterDomain*> new_root;
-      new_root.reserve(keep_dim ? ndims : ndims - axes.size());
-      int cur_pos = 0;
+      const auto reserve_size = keep_dim ? ndims : ndims - std::ssize(axes);
+      NVF_ERROR_GE(reserve_size, 0);
+      new_root.reserve(reserve_size);
+      int64_t cur_pos = 0;
       for (auto j : arange(ndims)) {
-        bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
+        const bool is_reduction =
+            cur_pos < std::ssize(axes) && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
           if (keep_dim) {
@@ -1364,16 +1365,6 @@ TensorView* reductionOp(
       "Cannot create a reduction operation where the initial value is not a "
       "const scalar.");
 
-  NVF_CHECK(
-      TensorDomain::sameAs(tv->getLogicalDomain(), tv->getLoopDomain()),
-      "Reducing a tensor once it's gone under transformations is not permitted "
-      "at this time. \n",
-      "Please set reductions before calling split/merge/computeAt.\n  "
-      "Logical: ",
-      tv->getLogicalDomain(),
-      "\n  Domain: ",
-      tv->domain()->toString());
-
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   auto tv_logical = TensorDomain::noReductions(tv->getLogicalDomain());
@@ -1384,13 +1375,13 @@ TensorView* reductionOp(
     return reductionOpZeroDimTensor(tv);
   }
 
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(uint_axes.begin(), uint_axes.end());
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
+  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
 
   // In PyTorch, reduction of a size-0 tensor is effectively creating a tensor
   // filled with the init value.
-  auto maybe_full =
-      maybeFullInsteadOfReduction(uint_axes, init, tv, keep_dim, dtype);
+  auto maybe_full = maybeFullInsteadOfReduction(
+      canonicalized_axes, init, tv, keep_dim, dtype);
   if (maybe_full != nullptr) {
     return maybe_full;
   }
@@ -1418,13 +1409,13 @@ TensorView* reductionOp(
       reduction_op_type != BinaryOpType::Mul &&
       reduction_op_type != BinaryOpType::BitwiseXor;
   int64_t offset = 0;
-  for (unsigned int axis : uint_axes) {
+  for (auto axis : canonicalized_axes) {
     auto id = tv_logical[axis];
     if (id->isBroadcast()) {
-      is_squeeze[axis] = true;
+      is_squeeze.at(axis) = true;
       offset--;
     } else {
-      reduction_axes.push_back((int64_t)axis + offset);
+      reduction_axes.push_back(axis + offset);
     }
   }
 
@@ -1442,7 +1433,7 @@ TensorView* reductionOp(
 
   if (!expand_reductions_are_trivial) {
     Val* factor = nullptr;
-    for (auto axis : uint_axes) {
+    for (auto axis : canonicalized_axes) {
       IterDomain* id = tv_logical[axis];
       if (id->isBroadcast() && id->hasExpandedExtent()) {
         factor =
@@ -1545,11 +1536,11 @@ TensorView* min(
 }
 
 std::vector<Val*> shape(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto logical_domain = inp->getLogicalDomain() | TensorDomain::kNoReductions;
   std::vector<Val*> shape;
 
-  shape.reserve(iter_domains.size());
-  for (auto id : iter_domains) {
+  shape.reserve(std::ranges::distance(logical_domain));
+  for (IterDomain* id : logical_domain) {
     shape.push_back(id->getMaybeExpandedExtent());
   }
 
@@ -1615,12 +1606,14 @@ WelfordResult WelfordRaw(
   }
 
   // Check and collect reduction axes
-  std::vector<unsigned int> uint_axes =
-      ops::canonicalizeAxes(axes, (int64_t)tv->domain()->noReductions().size());
+  const auto non_reduction_ndims = static_cast<int64_t>(
+      std::ranges::distance(tv->getLoopDomain() | TensorDomain::kNoReductions));
+  std::vector<int64_t> canonicalized_axes =
+      ops::canonicalizeAxes(axes, non_reduction_ndims);
   // Create tensor outputs
-  TensorView* out_avg = newForReduction(tv, uint_axes);
-  TensorView* out_var = newForReduction(tv, uint_axes);
-  TensorView* out_N = newForReduction(tv, uint_axes, DataType::Index);
+  TensorView* out_avg = newForReduction(tv, canonicalized_axes);
+  TensorView* out_var = newForReduction(tv, canonicalized_axes);
+  TensorView* out_N = newForReduction(tv, canonicalized_axes, DataType::Index);
 
   IrBuilder::create<WelfordOp>(
       out_avg,
@@ -1655,21 +1648,21 @@ WelfordResult Welford(
   NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
   // Check and collect reduction axes
-  auto tv_root = tv->domain()->noReductions();
-  const auto ndims = (int64_t)tv_root.size();
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(axes, ndims);
-  std::sort(uint_axes.begin(), uint_axes.end());
+  const auto& tv_root = TensorDomain::noReductions(tv->getLoopDomain());
+  const auto ndims = std::ssize(tv_root);
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(axes, ndims);
+  std::sort(canonicalized_axes.begin(), canonicalized_axes.end());
 
   // Squeeze before reduction
   std::vector<int64_t> reduction_axes;
-  std::vector<bool> is_trivial_reduction(ndims, false);
-  int offset = 0;
-  for (auto axis : uint_axes) {
-    auto id = tv_root[axis];
-    is_trivial_reduction[axis] = id->isBroadcast() &&
+  std::vector<bool> is_trivial_reduction(tv_root.size(), false);
+  int64_t offset = 0;
+  for (auto axis : canonicalized_axes) {
+    IterDomain* id = tv_root.at(axis);
+    is_trivial_reduction.at(axis) = id->isBroadcast() &&
         !id->hasExpandedExtent() && id->extent()->isOneInt();
-    if (!is_trivial_reduction[axis]) {
-      reduction_axes.push_back((int)axis + offset);
+    if (!is_trivial_reduction.at(axis)) {
+      reduction_axes.push_back(axis + offset);
     } else {
       offset--;
     }
@@ -1741,11 +1734,6 @@ WelfordResult::WelfordResult(
   }
   NVF_ERROR(avg->definition()->sameAs(var_sum->definition()));
   NVF_ERROR(avg->definition()->sameAs(n->definition()));
-}
-
-TopKResult::TopKResult(TensorView* in_values, TensorView* in_indices)
-    : values(in_values), indices(in_indices) {
-  NVF_ERROR(values->definition()->sameAs(indices->definition()));
 }
 
 // COMPOUND OPERATIONS
@@ -2122,7 +2110,7 @@ namespace {
 static TensorView* newForMma(
     TensorView* tv_a,
     TensorView* tv_b,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type = DataType::Float) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
@@ -2131,18 +2119,18 @@ static TensorView* newForMma(
       orig_domain_a.size() == orig_domain_b.size(),
       "MMA op: need matching dim input");
 
-  std::vector<bool> is_reduction;
-  is_reduction.resize(orig_domain_a.size(), false);
-  for (unsigned int ax : axes) {
+  const auto num_dims = std::ssize(orig_domain_a);
+  std::vector<bool> is_reduction(num_dims, false);
+  for (auto ax : axes) {
     NVF_CHECK(
-        ax < is_reduction.size(),
+        ax >= 0 && ax < num_dims,
         "Error setting up reduction, reduction axis (",
         ax,
         ") is outside nDims (",
         orig_domain_a.size(),
         "). Keep in mind reductions are relative to root domains, not modified "
         "views.");
-    is_reduction[ax] = true;
+    is_reduction.at(ax) = true;
   }
   std::vector<IterDomain*> new_domain;
 
@@ -2150,8 +2138,8 @@ static TensorView* newForMma(
       !axes.empty(),
       "Asked for output of reduction, but no reduction axis provided.");
 
-  for (const int64_t dim : c10::irange(orig_domain_a.size())) {
-    bool dim_is_reduction = is_reduction.at((size_t)dim);
+  for (auto dim : arange(num_dims)) {
+    bool dim_is_reduction = is_reduction.at(dim);
 
     const IterDomain* id = orig_domain_a[dim]->isBroadcast()
         ? orig_domain_b[dim]
@@ -2208,10 +2196,12 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
-      axes, (int64_t)tv_a->domain()->noReductions().size());
+  std::vector<int64_t> canonicalized_axes = ops::canonicalizeAxes(
+      axes,
+      static_cast<int64_t>(std::ranges::distance(
+          tv_a->getLoopDomain() | TensorDomain::kNoReductions)));
 
-  TensorView* out = newForMma(tv_a, tv_b, uint_axes);
+  TensorView* out = newForMma(tv_a, tv_b, canonicalized_axes);
 
   if (init == nullptr) {
     init = IrBuilder::create<Val>(0.0, out->dtype());
@@ -2273,6 +2263,16 @@ TensorView* argsort(
     int64_t dim,
     bool descending,
     bool stable) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(inp->getLogicalDomain());
+
+  // Argsort of zero-dim tensor is allowed
+  if (logical_dom.empty()) {
+    return zeros({}, DataType::Int);
+  }
+
+  dim = wrapDim(dim, std::ssize(logical_dom));
+
   Val* out = ops::newValLike(inp, DataType::Int);
   IrBuilder::create<ArgsortOp>(out, inp, dim, descending, stable);
   return out->as<TensorView>();
@@ -2504,6 +2504,26 @@ TopKResult topk(
     bool sorted,
     bool maybe_symbolic) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  // When the input is a zero-dimensional tensor, dim must be either
+  // 0 or -1, and k must be 1.
+  if (inp_domain.empty()) {
+    NVF_ERROR(
+        dim == 0 || dim == -1,
+        "Invalid dimension to compute top-k of an zero-dimensinal tensor: ",
+        dim);
+
+    // Note that unless k is const, it is not possible to validate
+    // it's indeed 1. We need some way to register a condition to
+    // validate with actual fusion inputs like GpuLower::validate.
+    if (k->isConstScalar()) {
+      NVF_ERROR(k->isOneInt(), "Invalid k of topk: ", k->toString());
+    }
+    auto out_idx = zeros({}, DataType::Int);
+    auto out_val = set(inp);
+    return TopKResult(out_val, out_idx);
+  }
+
   dim = wrapDim(dim, std::ssize(inp_domain));
 
   NVF_CHECK(
@@ -2511,47 +2531,58 @@ TopKResult topk(
       "TopKOp expects int64_t input for k but got ",
       k->dtype());
 
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(inp_domain.size());
+  TensorView* out_values = nullptr;
+  TensorView* out_indices = nullptr;
 
-  for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
-    // TODO: nvfuser enumerate implementation is not correct, it should return
-    // signed ints instead.
-    if (index != (size_t)dim) {
-      out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
-      continue;
+  // Create a root-to-logical resize for the topk dimension. The root
+  // dimension just inherits the same properties as the producer
+  // dimension. It's resized to generate a logical iter domain of
+  // extent K by slicing the root iter domain by [0:k].
+  //
+  // The first output generated when i == 0 is the value output. The
+  // second is the index output.
+  for (const int i : arange(2)) {
+    std::vector<IterDomain*> values_root;
+    values_root.reserve(inp_domain.size());
+    std::vector<IterDomain*> values_logical;
+    values_logical.reserve(inp_domain.size());
+
+    for (const auto [index, inp_domain_ptr] : enumerate(inp_domain)) {
+      auto root_id = inp_domain_ptr->cloneWithoutRFactor();
+      values_root.push_back(root_id);
+      if (index != (size_t)dim) {
+        // Root and logical are the same for non topk dim
+        values_logical.push_back(root_id);
+        continue;
+      }
+
+      auto logical_id = IterDomain::resize(
+          root_id,
+          inp->fusion()->zeroVal(DataType::Index),
+          SimplifyingIrBuilder::subExpr(k, root_id->extent()),
+          /*mark_as_rfactor=*/true);
+
+      values_logical.push_back(logical_id);
     }
 
-    // Handling top k dimension, since the output extent is k.
-    ExpressionEvaluator ee;
-    PolymorphicValue ext = ee.evaluate(k);
-
-    IterType iter_type;
-    if (ext.hasValue()) {
-      iter_type =
-          ext.as<int64_t>() == 1 ? IterType::Broadcast : IterType::Iteration;
+    auto dtype = i == 0 ? inp->dtype() : DataType::Int;
+    auto out_tv = IrBuilder::create<TensorView>(
+        IrBuilder::create<TensorDomain>(
+            values_root,
+            values_logical,
+            values_logical,
+            TensorDomain::getContiguityFilledWith(values_logical, true)),
+        dtype);
+    if (i == 0) {
+      out_values = out_tv;
     } else {
-      iter_type =
-          maybe_symbolic ? IterType::Symbolic : inp_domain_ptr->getIterType();
+      out_indices = out_tv;
     }
-    out_domain.push_back(
-        IterDomainBuilder(
-            inp->fusion()->zeroVal(),
-            SimplifyingIrBuilder::maybeCastExpr(DataType::Index, k))
-            .iter_type(iter_type)
-            .build());
   }
-
-  TensorView* out_values = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  Val* out_indices = ops::newValLike(out_values, DataType::Int);
 
   IrBuilder::create<TopKOp>(
       out_values, out_indices, inp, k, dim, largest, sorted);
-  return TopKResult(
-      out_values->as<TensorView>(), out_indices->as<TensorView>());
+  return TopKResult(out_values, out_indices);
 }
 
 TensorView* scan(
@@ -2575,6 +2606,9 @@ TensorView* scan(
     return set(in_tv);
   }
 
+  // Unlike ReductionOp, low-precision input is not upcast to
+  // float. This seems inconsistent but aligns with the PyTorch eager
+  // implementation.
   DataType dtype = in_tv->dtype();
   auto new_dom = ops::newOutputDomain({in_tv});
   auto* td = IrBuilder::create<TensorDomain>(
@@ -2598,6 +2632,133 @@ TensorView* prefixSum(TensorView* tv, int64_t dim) {
       dim,
       BinaryOpType::Add,
       /*init=*/tv->fusion()->zeroVal(tv->dtype()));
+}
+
+// Currently this node gets lowered to a runtime function, which expects the
+// inputs in registers and writes out the quantized values to registers and
+// block scales to global memory.
+BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    TensorView* global_scaling_factor,
+    int64_t block_size,
+    bool swizzle_scales,
+    DataType out_dtype) {
+  NVF_CHECK(
+      out_dtype == DataType::Float4_e2m1fn ||
+          out_dtype == DataType::Float8_e4m3fn,
+      "Currently only output data type of Float4_e2m1fn or Float8_e4m3fn is "
+      "supported");
+
+  if (out_dtype == DataType::Float4_e2m1fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        16,
+        "Block size must be 16 for Float4_e2m1fn, got ",
+        block_size);
+  } else if (out_dtype == DataType::Float8_e4m3fn) {
+    NVF_ERROR_EQ(
+        block_size,
+        32,
+        "Block size must be 32 for Float8_e4m3fn, got ",
+        block_size);
+    NVF_CHECK(
+        !swizzle_scales, "swizzle_scales must be false for Float8_e4m3fn");
+    NVF_CHECK(
+        !global_scaling_factor,
+        "global_scaling_factor must be nullptr for Float8_e4m3fn");
+  }
+
+  // Validate input data type
+  // We'll only support FP32 or BF16/FP16
+  NVF_CHECK(
+      input->getDataType().value() == DataType::Float ||
+          input->getDataType().value() == DataType::BFloat16 ||
+          input->getDataType().value() == DataType::Half,
+      "Block quantization expects floating point input but got ",
+      input->getDataType().value());
+
+  // Check that if global_scaling_factor in non-null
+  // then it is a scalar float TensorView
+  if (global_scaling_factor != nullptr) {
+    NVF_CHECK(
+        TensorDomain::noReductions(global_scaling_factor->getLogicalDomain())
+            .empty(),
+        "Global scaling factor for block quantization must be a scalar tensor");
+    NVF_CHECK(
+        global_scaling_factor->getDataType().value() == DataType::Float,
+        "Global scaling factor for block quantization must be of float data "
+        "type");
+  }
+
+  auto inp_domain = TensorDomain::noReductions(input->getLogicalDomain());
+
+  // Validate input tensor is not zero-dimensional
+  NVF_CHECK(
+      !inp_domain.empty(),
+      "Block quantization does not support zero-dimensional tensors");
+
+  // Create output domain for quantized tensor (same shape as input)
+  std::vector<IterDomain*> quantized_out_domain;
+  quantized_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_domain_ptr : inp_domain) {
+    quantized_out_domain.push_back(inp_domain_ptr->cloneWithoutRFactor());
+  }
+
+  // Create output domain for block scales
+  // We'll clone the outer domains but divide the
+  // extent of the inner domain by 16. (block_size).
+  std::vector<IterDomain*> scales_out_domain;
+  scales_out_domain.reserve(inp_domain.size());
+
+  for (auto inp_id : inp_domain) {
+    if (inp_id == inp_domain.back()) {
+      scales_out_domain.push_back(
+          IterDomainBuilder(
+              inp_id->start(),
+              SimplifyingIrBuilder::divExpr(
+                  inp_id->extent(),
+                  IrBuilder::create<Val>(block_size, DataType::Index)))
+              .build());
+
+    } else {
+      scales_out_domain.push_back(inp_id->cloneWithoutRFactor());
+    }
+  }
+
+  // Create output tensors
+  TensorView* quantized_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          quantized_out_domain,
+          TensorDomain::getContiguityFilledWith(quantized_out_domain, true)),
+      out_dtype);
+
+  auto block_scales_dtype = (out_dtype == DataType::Float4_e2m1fn)
+      ? DataType::Float8_e4m3fn
+      : DataType::Float8_e8m0fnu;
+
+  // Create block scaling factors
+  TensorView* block_scales = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          scales_out_domain,
+          TensorDomain::getContiguityFilledWith(scales_out_domain, true)),
+      block_scales_dtype);
+
+  if (swizzle_scales) {
+    ir_utils::swizzleBlockScales(block_scales);
+  }
+
+  // Create the block quantization operation
+  IrBuilder::create<BlockQuantizationOp>(
+      block_scales,
+      quantized_tensor,
+      input,
+      /*logical_index=*/nullptr,
+      global_scaling_factor,
+      block_size,
+      swizzle_scales);
+
+  return BlockQuantizationResults(quantized_tensor, block_scales);
 }
 
 } // namespace nvfuser

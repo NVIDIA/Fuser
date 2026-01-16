@@ -5,8 +5,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+
 #include <expr_simplifier.h>
 #include <fusion.h>
+#include <host_ir/ir.h>
 #include <ir/all_nodes.h>
 #include <type.h>
 

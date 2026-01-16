@@ -8,12 +8,12 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
 
 namespace nvfuser {
 
@@ -24,7 +24,13 @@ using testing::Optional;
 using testing::Property;
 using testing::SizeIs;
 
-using ReplayTest = NVFuserTest;
+class ReplayTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   auto fusion = std::make_unique<Fusion>();
@@ -118,8 +124,7 @@ TEST_F(ReplayTest, ReplaySplitOnReduction) {
   out->outer_split(0, d);
 
   TensorView* new_out = sum(in, {0});
-  TransformReplay::selfReplay(
-      out->domain(), new_out->domain(), /*ignore_reductions=*/false);
+  TransformReplay::selfReplay(out->domain(), new_out->domain());
   fusion.replaceOutput(out, new_out);
 
   std::vector<IterDomain*> out_loop =
@@ -142,8 +147,7 @@ TEST_F(ReplayTest, IgnoreSplitOnReduction) {
   x->outer_split(0, d);
   x->outer_split(2, d);
 
-  TransformReplay::selfReplay(
-      x->domain(), out->domain(), /*ignore_reductions=*/true);
+  TransformReplay::selfReplay(x->domain(), out->domain());
 
   EXPECT_THAT(
       out->getLoopDomain(),

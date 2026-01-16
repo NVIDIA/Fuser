@@ -5,25 +5,29 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion_segmenter.h>
+
 #include <algorithm>
+#include <ranges>
 #include <sstream>
 
 #include <debug.h>
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <fusion.h>
-#include <fusion_segmenter.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/graphviz.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <scheduler/debug_utils.h>
+#include <scheduler/normalization_inner_tma.h>
 #include <scheduler/normalization_utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
@@ -297,7 +301,8 @@ void SegmentedGroup::finalize() {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
       // input TensorViews
-      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         input_set.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -1752,22 +1757,21 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
 
   for (auto tv : ir_utils::filterByType<TensorView>(fusion->inputs())) {
     // Create a new logical domain and replacement TensorDomain.
-    // Given an logical domain, create a new IterDomain.
-    // Otherwise, clone the previous IterDomain
     std::vector<IterDomain*> new_logical_domain;
-    auto logical = tv->getLogicalDomain();
-    new_logical_domain.reserve(logical.size());
+
+    // Ignore reduction ids for new tensordomain.
+    auto logical = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    new_logical_domain.reserve(std::ranges::distance(logical));
 
     // Does the logical domain contain all concrete sized extents?
-    bool tv_is_concrete = true;
-    for (auto id : logical) {
-      if (!id->extent()->isConstScalar()) {
-        tv_is_concrete = false;
-        break;
-      }
-    }
+    bool tv_is_concrete =
+        std::all_of(logical.begin(), logical.end(), [](IterDomain* id) {
+          return id->extent()->isConstScalar();
+        });
 
-    for (const auto& id : logical) {
+    // Given an rfactor IterDomain, create a new IterDomain.
+    // Otherwise, clone the previous IterDomain
+    for (IterDomain* id : logical) {
       if (id->isRFactorProduct()) {
         // Create new symbolic extents for logical iterDomains
         auto domain_extent = (!tv_is_concrete)
@@ -1783,87 +1787,56 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    TensorDomain* new_td = nullptr;
-    if (tv->domain()->hasAllocation()) {
-      // we need to reorder the logical domain into allocation domain
-      // consistently with the mapping from the old TensorView logical domain to
-      // its allocation domain
-      std::unordered_map<IterDomain*, IterDomain*> old_to_new;
-      for (const auto i : arange(logical.size())) {
-        old_to_new.emplace(logical[i], new_logical_domain[i]);
-      }
+    auto* new_td = IrBuilder::create<TensorDomain>(new_logical_domain);
 
-      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
-      // Without this,
-      // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
-      // tries to look for root IDs in the map, which shouldn't exist because
-      // the whole purpose of this function is to remove the root domain.
-      replay.setErrorOnFailure(false);
-      // We don't need replay.setReplayRFactor(true). The new root is the same
-      // as the new logical so there aren't any expressions between them.
+    auto compare_result = ir_utils::compareDomains(
+        tv->getLogicalDomain(),
+        tv->getLoopDomain(),
+        /*additional_ids=*/{},
+        /*ignore_broadcast=*/false);
+    bool has_disjoint_loop_logical = compare_result.dom0_has_unreachable_ids ||
+        compare_result.dom1_has_unreachable_ids;
 
-      std::vector<IterDomain*> new_alloc;
-      new_alloc.reserve(tv->getAllocationDomain().size());
-      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
-        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
-        // ReplayTransformations replay transforms but not paralelization, so
-        // we have to manually parallelize the new allocation ID. In other
-        // places, parallelization is usually done through parallelizeAllLike.
-        new_alloc_id->parallelize(alloc_id->getParallelType());
-        new_alloc.push_back(new_alloc_id);
-      }
-
-      std::vector<IterDomain*> new_loop;
-      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
-        new_loop = new_alloc;
-      } else {
-        NVF_ERROR(
-            tv->getLoopDomain() == tv->getLogicalDomain(),
-            tv,
-            " has an unexpected loop domain:\n",
-            tv->domain()->toString(0, /*loop_only=*/false));
-
-        new_loop = new_logical_domain;
-      }
-
-      new_td = IrBuilder::create<TensorDomain>(
-          /*root_domain=*/std::vector<IterDomain*>(),
-          new_logical_domain,
-          new_alloc,
-          new_loop,
-          tv->domain()->contiguity());
-    } else {
+    if (has_disjoint_loop_logical) {
+      // NOTE: This is only the case for scatter outputs, for which loop and
+      // logical are disjoint. Consequently, the loop domain cannot be replayed.
+      // Since this scatter output is a fusion input to this segment, its loop
+      // domain is immaterial now and we can skip replaying it.
       NVF_ERROR(
-          tv->getLoopDomain() == tv->getLogicalDomain(),
-          tv,
-          " has an unexpected loop domain:\n",
-          tv->domain()->toString(0, /*loop_only=*/false));
-      new_td = IrBuilder::create<TensorDomain>(
-          new_logical_domain, tv->domain()->contiguity());
-    }
-
-    // Remove reduction domains from new_td
-    if (new_td->hasReduction()) {
-      std::vector<std::optional<bool>> no_red_contiguity;
-      for (size_t i : arange(new_td->maybeAllocation().size())) {
-        if (new_td->maybeAllocation()[i]->isReduction()) {
-          continue;
+          std::any_of(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              [](IterDomain* id) { return id->isGatherScatter(); }),
+          "Disjoint loop and logical are only permitted for scatter outputs, ",
+          tv->domain()->toString(0, false));
+      NVF_ERROR(
+          !isSharded(tv),
+          "Sharding is not permitted when loop domain is disjoint from logical "
+          "domain, ",
+          tv->domain()->toString(0, false));
+      // Only replay allocation. Contiguity is
+      // set to `true` since the scatter output is contiguous.
+      new_td->setAllocationDomain(
+          ir_utils::propagateScatterAllocationDomain(tv, new_logical_domain),
+          true);
+    } else {
+      // Replay both loop and allocation domains.
+      TransformReplay::selfReplay(tv->domain(), new_td);
+      if (!tv->domain()->hasAllocation()) {
+        // The default contiguity for new_td is false. `selfReplay` does not
+        // replay contiguity when no allocation domain is present.
+        const std::vector<std::optional<bool>> old_contiguity =
+            tv->domain()->contiguity();
+        std::vector<std::optional<bool>> no_red_contiguity;
+        no_red_contiguity.reserve(old_contiguity.size());
+        for (const auto& [id, contiguity] :
+             zip(tv->getLogicalDomain(), old_contiguity)) {
+          if (id->isReduction()) {
+            continue;
+          }
+          no_red_contiguity.push_back(contiguity);
         }
-        no_red_contiguity.push_back(new_td->contiguity()[i]);
-      }
-      if (new_td->hasAllocation()) {
-        const std::vector<IterDomain*> new_logical =
-            TensorDomain::noReductions(new_td->logical());
-        new_td = IrBuilder::create<TensorDomain>(
-            /*root_domain=*/std::vector<IterDomain*>{},
-            /*logical_domain=*/new_logical,
-            /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
-            /*contiguity=*/no_red_contiguity);
-      } else {
-        new_td = IrBuilder::create<TensorDomain>(
-            /*logical_domain=*/TensorDomain::noReductions(new_td->logical()),
-            /*contiguity=*/no_red_contiguity);
+        new_td->setContiguity(no_red_contiguity);
       }
     }
 
@@ -1896,20 +1869,67 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
     fusion_segment->removeOutput(out);
   }
 
-  std::vector<TensorView*> view_tvs;
-  for (auto inp : getAllInputs(sg)) {
-    auto clone_tv = complete_to_segment_map.clone(inp);
-    fusion_segment->addInput(clone_tv);
-    if (inp->isDefinitionType<ViewOp>()) {
-      NVF_ERROR(clone_tv != nullptr && clone_tv->isA<TensorView>());
-      view_tvs.push_back(clone_tv->as<TensorView>());
-    }
-  }
-
   // note, we would want to keep output consistent and not artificially drop
   // duplicates.
   for (auto out : sg->output_vals_) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
+  }
+
+  for (auto inp : getAllInputs(sg)) {
+    auto clone_tv = complete_to_segment_map.clone(inp);
+    fusion_segment->addInput(clone_tv);
+    if (inp->isDefinitionType<PreprocessGroupedMatmulInputSf>()) {
+      // NOTE: inp is an input to fusion segment.
+      //
+      // There's no point of replaying allocation domain if we cannot index into
+      // the given TV anyway in the consumer. We erase the allocation domain
+      // because Transform Replay (triggered inside
+      // eraseInputDistinctRootDomains) cannot handle the allocation domain
+      // transformation represented padding yet. Note that the segment contains
+      // PreprocessGroupedMatmulInputSf still preserves the allocation domain of
+      // the output TV, which is needed to ensure that we allocate a large
+      // enough buffer.
+      auto* tv_ptr = clone_tv->as<TensorView>();
+      tv_ptr->setAllocationDomain(tv_ptr->getLogicalDomain(), true);
+
+      // check all uses are safe, this is to ensure that consumer of the
+      // operation wouldn't try to index into the given tensor relying on
+      // allocation domain.
+      for (Expr* use : tv_ptr->uses()) {
+        // clangtidy's false negative static analysis complains about use, see:
+        // https://github.com/llvm/llvm-project/issues/134454#issuecomment-2816262570
+        // However, the assert trick didn't seem to work here.
+#if defined(__clang__)
+        [[clang::suppress]] {
+#endif
+          auto* layout_op = dynamic_cast<CutlassNvfp4GroupedMmaOp*>(use);
+          NVF_ERROR(
+              layout_op,
+              "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+              "operation:",
+              use->toString());
+          NVF_ERROR(
+              std::none_of(
+                  layout_op->inputs().begin(),
+                  layout_op->inputs().end(),
+                  [&](const Val* input) {
+                    // we can only use output from
+                    // PreprocessGroupedMatmulInputSf as block scaling factor
+                    return layout_op->scale1() != input &&
+                        layout_op->scale2() != input && input == tv_ptr;
+                  }
+
+                  ),
+              "use of output from PreprocessGroupedMatmulInputSf is unsafe by "
+              "operation:",
+              use->toString(),
+              " as argument: ",
+              tv_ptr->toString());
+#if defined(__clang__)
+        }
+#endif
+      }
+    }
   }
 
   // Replace all vals that are logical extents in fusion_segment->inputs() with
@@ -1981,28 +2001,27 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
   return false;
 }
 
-void SegmentCandidateFinder::resetLevels() {
-  FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
-
+namespace {
+std::vector<SegmentedGroup*> toposort(
+    const std::vector<SegmentedGroup*>& groups) {
   std::deque<SegmentedGroup*> to_visit;
   std::unordered_map<SegmentedGroup*, int64_t> num_producer_edges;
-  for (SegmentedGroup* group : groups()) {
-    group->level_ = 0;
+  for (SegmentedGroup* group : groups) {
     if ((num_producer_edges[group] = std::ssize(group->producer_edges)) == 0) {
       // Start by visiting groups that have no producer edges.
       to_visit.push_back(group);
     }
   }
 
-  int64_t num_visited = 0;
+  std::vector<SegmentedGroup*> order;
+  order.reserve(groups.size());
   while (!to_visit.empty()) {
     SegmentedGroup* visiting = to_visit.front();
     to_visit.pop_front();
-    num_visited++;
+    order.push_back(visiting);
 
     for (SegmentedEdge* out : visiting->consumer_edges) {
       SegmentedGroup* consumer = out->to;
-      consumer->level_ = std::max(consumer->level_, visiting->level_ + 1);
       // After visiting a group, decrement the number of producer edges of each
       // consumer. When that number reaches 0, add the consumer to the visit
       // list.
@@ -2012,8 +2031,21 @@ void SegmentCandidateFinder::resetLevels() {
     }
   }
 
-  NVF_ERROR(
-      num_visited == std::ssize(groups()), "Error in graph, is not a DAG.");
+  NVF_ERROR_EQ(order.size(), groups.size(), "Error in graph, is not a DAG.");
+  return order;
+}
+} // namespace
+
+void SegmentCandidateFinder::resetLevels() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
+
+  for (SegmentedGroup* group : toposort(groups())) {
+    group->level_ = 0;
+    for (SegmentedEdge* in : group->producer_edges) {
+      SegmentedGroup* producer = in->from;
+      group->level_ = std::max(group->level_, producer->level_ + 1);
+    }
+  }
 }
 
 // Disconect group from neighbors, and return edges that were disconnected
@@ -2803,6 +2835,9 @@ bool TranslateApplicableWelford::isValidPersistentFusion(
   // However, when it comes to cross grid reduction, the additional grid
   // synchronization carries substantial overhead and does not yield any
   // performance gains.
+  if (heuristic_params->isA<InnerNormTmaParams>()) {
+    return true;
+  }
   return heuristic_params->as<ReductionParams>()->persistent_kernel &&
       !heuristic_params->as<ReductionParams>()->cross_grid_outer_reduction;
 }
@@ -3684,7 +3719,7 @@ class MergeUpAndDownCast {
   }
 
   bool isUpCast(SegmentedGroup* group) const {
-    if (auto precision_bits = getProducerConsumerPrecision(group);
+    if (auto precision_bits = getProducerConsumerPrecisionBit(group);
         precision_bits.has_value()) {
       return precision_bits->first < precision_bits->second;
     } else {
@@ -3693,7 +3728,7 @@ class MergeUpAndDownCast {
   }
 
   bool isDownCast(SegmentedGroup* group) const {
-    if (auto precision_bits = getProducerConsumerPrecision(group);
+    if (auto precision_bits = getProducerConsumerPrecisionBit(group);
         precision_bits.has_value()) {
       return precision_bits->first > precision_bits->second;
     } else {
@@ -3701,7 +3736,7 @@ class MergeUpAndDownCast {
     }
   }
 
-  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecision(
+  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecisionBit(
       SegmentedGroup* group) const {
     if (group->exprs().size() != 1) {
       return std::nullopt;
@@ -3712,7 +3747,7 @@ class MergeUpAndDownCast {
       return std::nullopt;
     }
 
-    return ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    return ir_utils::getPrecisionOfProducerConsumerTensorsBit(uop);
   }
 
  private:
@@ -3774,7 +3809,7 @@ class MergeCatWithInputPads {
     // represented with pad and add.
     // TODO: Consider extending this pattern matching to support
     // add-based concat
-    auto cat = dynamic_cast<CatOp*>(cat_group->exprs().at(0));
+    auto cat = dynamic_cast<CatOp*>(cat_group->exprs().front());
     if (cat == nullptr) {
       return std::nullopt;
     }
@@ -3804,7 +3839,7 @@ class MergeCatWithInputPads {
           cat_group->producer_edges, [&](SegmentedEdge* producer_edge) {
             SegmentedGroup* producer_group = producer_edge->from;
             return producer_group->exprs().size() == 1 &&
-                producer_group->exprs().at(0) == pad &&
+                producer_group->exprs().front() == pad &&
                 producer_group->consumer_edges.size() == 1;
           });
       if (producer_edge_it == cat_group->producer_edges.end()) {
@@ -4081,7 +4116,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
   }
 
-  privatizeUpcast();
+  privatizeOps();
   findSegments();
 }
 
@@ -4346,11 +4381,125 @@ void SegmentCandidateFinder::findSegments() {
   }
 }
 
-void SegmentCandidateFinder::privatizeUpcast() {
-  // Insert castOp to complete_fusion_
-  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+namespace {
+bool is_upcast_op(Expr* expr) {
+  auto maybe_upcast_op = dynamic_cast<UnaryOp*>(expr);
+  if (maybe_upcast_op == nullptr ||
+      maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+    return false;
+  }
+  auto precisions =
+      ir_utils::getPrecisionOfProducerConsumerTensorsBit(maybe_upcast_op);
+  if (!precisions.has_value() || precisions->first >= precisions->second) {
+    return false;
+  }
+  return true;
+}
 
+// Updates entries in the privatized_ops map after replacing old_expr with
+// new_expr. This function handles two cases:
+// 1. If old_expr is a key in privatized_ops, moves its entire set of values
+//    to be associated with new_expr instead
+// 2. If old_expr appears as a value in any of the value sets, replaces it
+//    with new_expr in that set
+//
+// Args:
+//    privatized_ops: Map tracking groups of privatized operations where each
+//    key is the original op and values are the cloned versions
+//    old_expr: Expression being replaced
+//    new_expr: Expression replacing old_expr
+void update_privatized_ops(
+    std::unordered_map<Expr*, std::unordered_set<Expr*>>& privatized_ops,
+    Expr* old_expr,
+    Expr* new_expr) {
+  // Check if old_expr is a key
+  auto it = privatized_ops.find(old_expr);
+  if (it != privatized_ops.end()) {
+    // Copy the set of values
+    auto cloned_set = it->second;
+    // Remove old entry
+    privatized_ops.erase(it);
+    // Insert with new key
+    privatized_ops[new_expr] = cloned_set;
+    return;
+  }
+
+  // Check if old_expr is in any value sets and update it
+  for (auto& kv : privatized_ops) {
+    if (kv.second.count(old_expr) > 0) {
+      kv.second.erase(old_expr);
+      kv.second.insert(new_expr);
+      return;
+    }
+  }
+}
+
+std::vector<Expr*> get_upcasts_and_squeezes(SegmentedGroup* group) {
+  std::vector<Expr*> upcasts_or_squeezes;
+  std::copy_if(
+      group->exprs().begin(),
+      group->exprs().end(),
+      std::back_inserter(upcasts_or_squeezes),
+      [](Expr* expr) {
+        return ir_utils::isTvOp(expr) &&
+            (is_upcast_op(expr) || expr->isA<SqueezeOp>());
+      });
+
+  return upcasts_or_squeezes;
+}
+
+//!
+//!  Determines if any expanded dimensions in a TensorView need to be squeezed.
+//!
+//!  This function checks each dimension of the provided TensorView `x`
+//!  (excluding reductions) and determines if any dimension marked as `true` in
+//!  the `to_squeeze` vector is both expanded and needs to be squeezed. If at
+//!  least one such dimension exists, the function returns true; otherwise, it
+//!  returns false.
+//!
+//!  @param x Pointer to the TensorView whose dimensions are to be checked.
+//!  @param to_squeeze A boolean vector indicating which dimensions should be
+//!  considered for squeezing.
+//!                    Each element corresponds to a dimension in `x` (after
+//!                    reductions are removed). If an element is true, that
+//!                    dimension is a candidate for squeezing.
+//!  @return true if at least one expanded dimension needs to be squeezed, false
+//!  otherwise.
+//!
+bool needsToSqueezeExpanded(
+    TensorView* x,
+    const std::vector<bool>& to_squeeze) {
+  auto non_reduction_ids = x->getLogicalDomain() | TensorDomain::kNoReductions;
+  NVF_ERROR_EQ(
+      std::ranges::distance(non_reduction_ids),
+      std::ssize(to_squeeze),
+      "Logical domain doesn't match to_squeeze: ",
+      x->getLogicalDomain(),
+      " vs ",
+      to_squeeze);
+  for (auto [id, squeeze] : zip(non_reduction_ids, to_squeeze)) {
+    if (squeeze && id->hasExpandedExtent()) {
+      return true;
+    }
+  }
+  return false;
+}
+
+} // namespace
+
+// In addition to privatizing upcasts, this function also privatizes squeeze.
+// We decided to privatize squeeze ops motivated by cross-entropy loss.
+// Let's say we have the sequence:
+// T1 (input) bfloat -> (up)cast to float  ->  squeeze.
+// also, say, T1 is input to another operation say takeAlongAxis.
+// Since T1 has multiple uses, the T1->cast->squeeze cannot be forwarded
+// and the cast cannot be privatized without privatizing the squeeze.
+// The above reasons motivated us to privatize squeeze ops as well.
+bool SegmentCandidateFinder::privatizeUpCastOrSqueezeOp() {
+  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
   const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+
+  bool privatized = false;
 
   for (auto expr : exprs) {
     if (!ir_utils::isTvOp(expr)) {
@@ -4358,51 +4507,111 @@ void SegmentCandidateFinder::privatizeUpcast() {
     }
 
     for (const auto i : arange(expr->inputs().size())) {
-      auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
-      if (maybe_upcast_out_tv == nullptr) {
+      auto maybe_upcast_squeeze_out_tv =
+          dynamic_cast<TensorView*>(expr->input(i));
+      if (maybe_upcast_squeeze_out_tv == nullptr) {
         continue;
       }
 
-      // Check if the input is an output of an upcast op
-      auto maybe_upcast_op =
-          dynamic_cast<UnaryOp*>(maybe_upcast_out_tv->definition());
-      if (maybe_upcast_op == nullptr ||
-          maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+      if (!is_upcast_op(maybe_upcast_squeeze_out_tv->definition()) &&
+          !maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>()) {
         continue;
       }
 
-      auto precisions =
-          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
-      if (!precisions.has_value() || precisions->first >= precisions->second) {
+      // This is just a hack/heuristic to avoid performance regressions.
+      // In test_rope.py we had seen regressions when privatizing squeeze ops.
+      // These regressions go away if we don't privatize squeeze ops whose
+      // outputs have more than 2 uses.
+      // Please also note that privating squeeze ops (even with 2 uses of the
+      // output) can create "horizontal" groups during segmentation. These
+      // horizontal groups are currently not merged leading to extra
+      // segments/squeeze ops that may appear in the final segmenter output.
+      // More details of the issue regarding merging horizontal groups can be
+      // found in issue 3829 -- https://github.com/NVIDIA/Fuser/issues/3829.
+      // Even with a squeeze op with 2 uses, this test case:
+      // https://github.com/NVIDIA/Fuser/blob/70ab277c7d91bcc24cd50dd75cedd79863a24f96/tests/python/test_python_frontend.py#L3666C1-L3666C30
+      // demonstrates that privatizing the squeeze op leads to horizontal groups
+      // that can't be merged back.
+      if (maybe_upcast_squeeze_out_tv->definition()->isA<SqueezeOp>() &&
+          maybe_upcast_squeeze_out_tv->uses().size() > 2) {
         continue;
       }
 
-      // Check if there's multiple uses of the upcast output
-      auto uses_of_upcast_out_tv = maybe_upcast_out_tv->uses();
-      if (uses_of_upcast_out_tv.size() < 2) {
+      // Check if there's multiple uses of the upcast/squeeze output
+      auto uses_of_out_tv = maybe_upcast_squeeze_out_tv->uses();
+      if (uses_of_out_tv.size() < 2) {
         continue;
       }
 
-      // If this is the first use of the upcast output, keep it as is
-      if (expr == uses_of_upcast_out_tv.front()) {
+      // If this is the first use of the upcast/squueze output, keep it as is
+      if (expr == uses_of_out_tv.front()) {
         continue;
       }
 
-      TensorView* upcast_out_tv_clone = castOp(
-          maybe_upcast_out_tv->dtype(),
-          maybe_upcast_op->input(0)->as<TensorView>());
+      TensorView* out_tv_clone = nullptr;
+      if (maybe_upcast_squeeze_out_tv->definition()->isA<UnaryOp>()) {
+        auto upcast_op =
+            maybe_upcast_squeeze_out_tv->definition()->as<UnaryOp>();
+        out_tv_clone = castOp(
+            maybe_upcast_squeeze_out_tv->dtype(),
+            upcast_op->input(0)->as<TensorView>());
+
+      } else {
+        auto squeeze_op =
+            maybe_upcast_squeeze_out_tv->definition()->as<SqueezeOp>();
+        out_tv_clone = squeeze(
+            squeeze_op->input(0)->as<TensorView>(),
+            squeeze_op->getSqueezeDimFlags(),
+            needsToSqueezeExpanded(
+                squeeze_op->input(0)->as<TensorView>(),
+                squeeze_op->getSqueezeDimFlags()));
+      }
+
       TransformReplay::selfReplay(
-          maybe_upcast_out_tv->domain(), upcast_out_tv_clone->domain());
-      expr = ir_utils::replaceValInExprInputs(
-          expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+          maybe_upcast_squeeze_out_tv->domain(), out_tv_clone->domain());
 
-      privatized_upcast_ops_[maybe_upcast_op].insert(
-          upcast_out_tv_clone->definition()->as<UnaryOp>());
+      auto new_expr = ir_utils::replaceValInExprInputs(
+          expr, maybe_upcast_squeeze_out_tv, out_tv_clone);
+
+      // Let's say, we have the following graph:
+      // In_0 -> Cast -> In_1 -> Squeeze -> Use0, Use1
+      // Firse, we'll privatize Squeeze, this will give us:
+      // In_0 -> cast -> In_1 -> Squeeze -> Use0
+      //                      -> Squeeze1 -> Use1
+      // At this point, the privatized_ops_ holds the pair: Squeeze, Squeeze1
+      // Next when we go to privatize cast, we will create:
+      // In_0 -> cast -> In_1 -> Squeeze -> Use0
+      //      -> cast -> In_2 -> Squeeze1' -> Use0
+      // While doing this we will create a new Squeeze1` (from Squeeze 1 via
+      // replaceValinExprInputs) invalidating the previous Squeeze1.
+      // Thus we need to update the privatized_ops_ to hold the new Squeeze1`.
+      update_privatized_ops(privatized_ops_, expr, new_expr);
+
+      // We need to update expr to new_expr so that when we iterate over
+      // expr we don't hit the old expr which has been invalidated.
+      expr = new_expr;
+
+      auto upcast_op = maybe_upcast_squeeze_out_tv->definition();
+      privatized_ops_[upcast_op].insert(out_tv_clone->definition());
+      privatized = true;
     }
   }
+
+  return privatized;
 }
 
-void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
+void SegmentCandidateFinder::privatizeOps() {
+  bool changed = false;
+  do {
+    changed = privatizeUpCastOrSqueezeOp();
+  } while (changed);
+  return;
+}
+
+std::unordered_set<Expr*> SegmentCandidateFinder::revertPrivatizedOps(
+    SegmentedGroup* group,
+    std::unordered_map<Expr*, std::unordered_set<Expr*>>&
+        remaining_privatized_ops) {
   // If a given consumer edge is a duplicate of another edge of the
   // same producer group, remove the given edge from both the producer
   // and consumer groups.
@@ -4455,75 +4664,80 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
     }
   };
 
-  for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
-    std::vector<UnaryOp*> upcast_in_group;
-    Val* upcast_val_to_keep = nullptr;
-    for (auto uop : ir_utils::filterByType<UnaryOp>(group->exprs())) {
-      if (uop != original_upcast && !clones.count(uop)) {
+  std::unordered_set<Expr*> reverted = {};
+
+  for (const auto& [original, clones] : remaining_privatized_ops) {
+    std::vector<Expr*> expr_in_group;
+    Val* val_to_keep = nullptr;
+    for (auto op : get_upcasts_and_squeezes(group)) {
+      if (op != original && !clones.count(op)) {
         continue;
       }
 
-      upcast_in_group.push_back(uop);
+      expr_in_group.push_back(op);
 
-      auto upcast_tv = uop->out();
+      auto out_tv = op->output(0);
 
-      // Prefer the original upcast if found
-      if (upcast_val_to_keep == nullptr ||
-          upcast_tv == original_upcast->out()) {
-        upcast_val_to_keep = upcast_tv;
+      // Prefer the original upcast/squeeze if found
+      if (val_to_keep == nullptr || out_tv == original->output(0)) {
+        val_to_keep = out_tv;
       }
     }
 
-    if (upcast_in_group.size() < 2) {
+    if (expr_in_group.size() < 2) {
       continue;
     }
 
-    for (auto uop : upcast_in_group) {
-      Val* upcast_val_to_replace = uop->out();
-      if (upcast_val_to_replace == upcast_val_to_keep) {
-        // Keep this uop as is since its output replaces the other
+    for (auto op : expr_in_group) {
+      Val* out_val_to_replace = op->output(0);
+      if (out_val_to_replace == val_to_keep) {
+        // Keep this op as is since its output replaces the other
         // upcast outputs
         continue;
       }
 
       NVF_ERROR(
-          upcast_val_to_replace->uses().size() == 1,
+          out_val_to_replace->uses().size() == 1,
           "Multiple use of replicated upcast tensor found: ",
-          toDelimitedString(upcast_val_to_replace->uses()));
+          toDelimitedString(out_val_to_replace->uses()));
 
-      auto use_of_upcast_val_to_replace = upcast_val_to_replace->uses().at(0);
+      auto use_of_out_val_to_replace = out_val_to_replace->uses().at(0);
 
       auto updated_expr = ir_utils::replaceValInExprInputs(
-          use_of_upcast_val_to_replace,
-          upcast_val_to_replace,
-          upcast_val_to_keep);
+          use_of_out_val_to_replace, out_val_to_replace, val_to_keep);
 
-      // Replace use_of_upcast_val_to_replace with
-      // updated_expr. use_of_upcast_val_to_replace must be in the
+      // In the code above, we keep the original and revert the clone(s).
+      NVF_ERROR(
+          remaining_privatized_ops.find(use_of_out_val_to_replace) ==
+              remaining_privatized_ops.end(),
+          "we should not be updating a key in the map");
+      update_privatized_ops(
+          remaining_privatized_ops, use_of_out_val_to_replace, updated_expr);
+
+      // Replace use_of_out_val_to_replace with
+      // updated_expr. use_of_out_val_to_replace must be in the
       // same group of its consumer groups
-      if (!maybe_replace(group, use_of_upcast_val_to_replace, updated_expr)) {
+      if (!maybe_replace(group, use_of_out_val_to_replace, updated_expr)) {
         for (auto consumer_edge : group->consumer_edges) {
           if (maybe_replace(
-                  consumer_edge->to,
-                  use_of_upcast_val_to_replace,
-                  updated_expr)) {
+                  consumer_edge->to, use_of_out_val_to_replace, updated_expr)) {
             break;
           }
         }
       }
 
       // Update a consumer edge if its val is
-      // upcast_val_to_replace. Again, there must be at most one such
+      // out_val_to_replace. Again, there must be at most one such
       // edge.
       SegmentedEdge* consumer_edge_to_update = nullptr;
       for (auto consumer_edge : group->consumer_edges) {
-        if (consumer_edge->val == upcast_val_to_replace) {
+        if (consumer_edge->val == out_val_to_replace) {
           NVF_ERROR(
               consumer_edge_to_update == nullptr,
               "Multiple consumer edges using ",
-              upcast_val_to_replace->toString(),
+              out_val_to_replace->toString(),
               " found");
-          consumer_edge->val = upcast_val_to_keep;
+          consumer_edge->val = val_to_keep;
           consumer_edge_to_update = consumer_edge;
         }
       }
@@ -4534,13 +4748,31 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         maybe_deduplicate_edge(consumer_edge_to_update);
       }
 
-      std::erase(group->exprs_, uop);
+      std::erase(group->exprs_, op);
 
       // Note that it should not be necessary to do anything with
-      // group->output_vals since the inserted upcast ops should never produce
-      // fusion outputs.
+      // group->output_vals since the inserted upcast ops should never
+      // produce fusion outputs.
     }
+    reverted.insert(original);
   }
+
+  return reverted;
+}
+
+void SegmentCandidateFinder::iterativelyRevertPrivatizedOps(
+    SegmentedGroup* group) {
+  bool reverted_privatized_op = true;
+  auto remaining_privatized_ops = privatized_ops_;
+  while (reverted_privatized_op && !remaining_privatized_ops.empty()) {
+    // Revert privatized upcasts
+    auto reverted = revertPrivatizedOps(group, remaining_privatized_ops);
+    // remove exprs that have been processed.
+    for (const auto& key : reverted) {
+      remaining_privatized_ops.erase(key);
+    }
+    reverted_privatized_op = !reverted.empty();
+  };
 }
 
 // Decides whether we should forward an input (or a forwarded input) of a
@@ -4759,7 +4991,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
   std::unordered_set<Val*> visited;
 
   const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
+    for (IterDomain* id :
+         tv->getMaybeRootDomain() | TensorDomain::kNoReductions) {
       to_visit.push_back(id->getMaybeExpandedExtent());
     }
     if (tv->domain()->hasRoot()) {
@@ -4791,11 +5024,12 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     }
   };
 
-  // Segment TensorView inputs will have their logical extents available, so we
-  // avoid adding them as separate scalar inputs.
+  // Segment TensorView inputs will have their logical extents available, so
+  // we avoid adding them as separate scalar inputs.
   for (auto e : group->producer_edges) {
     if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
+      for (IterDomain* id :
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         visited.insert(id->getMaybeExpandedExtent());
       }
     }
@@ -4813,10 +5047,10 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
                                 return e->val == tv;
                               })) {
         // Intermediate group inputs (producer edges) will have their logical
-        // domain reassigned as the root domain, so there is no need to process
-        // them. Tensors computed inside this group will need processing,
-        // however, as their root->logical transforms must be computed in this
-        // group.
+        // domain reassigned as the root domain, so there is no need to
+        // process them. Tensors computed inside this group will need
+        // processing, however, as their root->logical transforms must be
+        // computed in this group.
         processTV(tv);
       }
     }
@@ -4846,7 +5080,7 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     input_set.insert(inp);
     if (auto tv = dynamic_cast<TensorView*>(inp)) {
       for (IterDomain* id :
-           TensorDomain::noReductions(tv->getLogicalDomain())) {
+           tv->getLogicalDomain() | TensorDomain::kNoReductions) {
         // Extents of inputs will already be bound. This prevents adding them
         // as redundant inputs.
         input_set.insert(id->getMaybeExpandedExtent());
@@ -4864,15 +5098,18 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
     if (visited.count(stack_top_val)) {
       to_visit.pop_back();
     } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def can be a scalar, a tensor dim,
-      //  or a composite fusion input
-      // The first two cases are handled in finalize(),
-      //  the last case needs to add new input_val to this group.
+      // Constant scalars and parallel indices need no definition in the kernel
+      // Other definition-less scalars are added to the group's input_vals_,
+      //  such as fusion inputs or dimensions of tensors outside the group
       visited.insert(stack_top_val);
-      // If this is a composite fusion scalar input, make sure this group has it
-      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
-        group->input_vals_.pushBack(stack_top_val);
-        input_set.insert(stack_top_val);
+      if (!input_set.count(stack_top_val) && !stack_top_val->isConstScalar()) {
+        bool is_parallel_dim_or_index = stack_top_val->isA<NamedScalar>() &&
+            (stack_top_val->as<NamedScalar>()->getParallelDim() ||
+             stack_top_val->as<NamedScalar>()->getParallelIndex());
+        if (!is_parallel_dim_or_index) {
+          group->input_vals_.pushBack(stack_top_val);
+          input_set.insert(stack_top_val);
+        }
       }
       to_visit.pop_back();
     } else {
@@ -5009,7 +5246,7 @@ void SegmentCandidateFinder::finalize() {
   }
 
   for (auto group : segmented_fusion_->groups()) {
-    revertPrivatizedUpcast(group);
+    iterativelyRevertPrivatizedOps(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
@@ -5150,6 +5387,26 @@ void SegmentedFusion::annotateFP16IntermediateTensors() {
       }
     }
   }
+}
+
+RuntimeWorkSpace prepareRuntimeOrder(const SegmentedFusion& segmented_fusion) {
+  RuntimeWorkSpace runtime_workspace;
+
+  // setup the order tensor dimensions are bound
+  runtime_workspace.group_extent_binding_order.reserve(
+      segmented_fusion.inputs().size());
+  for (auto* input_tv :
+       ir_utils::filterByType<TensorView>(segmented_fusion.inputs())) {
+    for (IterDomain* logical_id :
+         input_tv->getLogicalDomain() | TensorDomain::kNoReductions) {
+      runtime_workspace.group_extent_binding_order.push_back(
+          logical_id->getMaybeExpandedExtent());
+    }
+  }
+
+  runtime_workspace.group_run_order = toposort(segmented_fusion.groups());
+
+  return runtime_workspace;
 }
 
 std::string toString(const SegmentCandidateFinderOptions& segment_options) {

@@ -5,15 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <fusion.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
-#include <ir/graphviz.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "ir/graphviz.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -46,7 +47,12 @@ struct RopeConfig {
   }
 };
 
-using RopeTest = NVFuserFixtureParamTest<RopeConfig>;
+class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
+  void SetUp() override {
+    NVFuserFixtureParamTest<RopeConfig>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 using MistralRopeTest = RopeTest;
 
@@ -1650,6 +1656,7 @@ TEST_P(LitgptRopeTest, Bwd) {
 // Testing the scheduling of an ending repeat pattern, which is
 // commonly seen in RoPE.
 TEST_F(RopeTest, EndingRepeat) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -1731,6 +1738,8 @@ TEST_F(RopeTest, EndingRepeat) {
 // input tensor. A similar Pattern appears in the LitGPT Llama RoPE
 // module.
 TEST_F(RopeTest, EndingRepeatWithNoBroadcastOp) {
+  GTEST_SKIP() << "Disabled due to as cancelReshape is disabled";
+
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;

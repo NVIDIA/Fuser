@@ -5,42 +5,60 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
 #include <algorithm>
 #include <iostream>
 
-#include <torch/csrc/jit/codegen/cuda/interface.h>
+#include <gtest/gtest.h>
 
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/multidevice.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
+#include "codegen.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/execution_utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/multidevice.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
 
 namespace nvfuser {
+
+namespace {
+
+void unshard(TensorView* tv) {
+  for (IterDomain* id : tv->getLoopDomain()) {
+    if (id->isDeviceDim()) {
+      id->parallelize(ParallelType::Serial);
+    }
+  }
+  tv->setDeviceMesh(DeviceMesh());
+}
+
+void unshard(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    unshard(tv);
+  }
+}
+
+} // namespace
 
 class PipelineTest : public MultiDeviceTest {
  protected:
@@ -98,7 +116,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
         << "Strides are not equal: Ref: " << ref_output.strides()
         << " Output: " << obtained_output.strides() << std::endl;
 
-    EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
+    EXPECT_TRUE(at::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
         << ". Expected values: " << ref_output
@@ -135,10 +153,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
       std::make_unique<Fusion>(*fusion), *communicator_, params);
-  auto error_msg = runtime->validate();
-  if (error_msg != "") {
-    GTEST_SKIP() << error_msg;
-  }
   outputs = runtime->runWithInput(args);
 
   if (debug_print) {
@@ -240,9 +254,10 @@ TEST_F(PipelineTest, Pipeline) {
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
   unsharded_args = {
-      at::randn(input_shape1, tensor_options),
-      at::randn(input_shape2, tensor_options)};
+      at::randn(input_shape1, tensor_options_),
+      at::randn(input_shape2, tensor_options_)};
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 
@@ -272,7 +287,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
        do_reduction,
        sharded_dim,
        use_fusion_executor_cache] = GetParam();
-  if (!disable_skip && !communicator_->isBackendAvailable(backend)) {
+  if (!communicator_->isBackendAvailable(backend)) {
     GTEST_SKIP() << "Backend not available";
   }
   communicator_->setDefaultBackend(backend);
@@ -317,13 +332,14 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
-  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options)};
+  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options_)};
 
   if (use_fusion_executor_cache) {
     host_ir_executor_params.use_fusion_executor_cache = true;
     host_ir_executor_params.skip_auto_scheduling = true;
   }
 
+  SKIP_IF_NOT_ENOUGH_DEVICES(fusion);
   executeAndValidate();
 }
 

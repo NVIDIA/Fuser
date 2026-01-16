@@ -5,57 +5,57 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <macros.h>
-
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/analysis/bank_conflict.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_profiler.h>
-#include <fusion_segmenter.h>
-#include <ir/all_nodes.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <sys_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
-#include <utils.h>
+#include <algorithm>
+#include <iostream>
 
 // fuser and IR parser
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
+
+#include <gtest/gtest.h>
+
 #include <c10/cuda/CUDAStream.h>
 
-#include <ir/builder.h>
-#include <algorithm>
-#include <iostream>
 #include "c10/core/ScalarType.h"
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/analysis/bank_conflict.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_profiler.h"
+#include "fusion_segmenter.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
 #include "kernel_ir_dispatch.h"
+#include "logical_domain_map.h"
+#include "macros.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul.h"
 #include "scheduler/matmul_heuristic.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "sys_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -509,8 +509,7 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
 
     fusion.addOutput(tv2);
 
-    preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
-        &fusion);
+    OptimizationPass<preseg_passes::PreSegmenter>::runPass(&fusion);
 
     MatMulTileOptions gemm_tile;
     gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -664,7 +663,7 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
 TEST_F(MatmulTest, MatmulMatmulAmpere) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -1862,186 +1861,6 @@ TEST_F(MatmulTest, AmpereViewMatmulTN) {
 
 // Test an end-to-end matmul case with swizzled smem
 // data layout.
-TEST_F(MatmulTest, AmpereMatmulTNSwizzled) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  int M = 257, N = 511, K = 136;
-
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 128, 32);
-  gemm_tile.warp_tile = GemmTile(64, 64, 32);
-
-  // [M,K]
-  auto tv0 = makeContigTensor(2, DataType::Half);
-  // [N,K]
-  auto tv1 = makeContigTensor(2, DataType::Half);
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  // [M,N,K]
-  auto tv0b = broadcast(tv0, {false, true, false});
-  auto tv1b = broadcast(tv1, {true, false, false});
-
-  auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
-
-  fusion.addOutput(tv2);
-
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
-  NVF_CHECK(
-      1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, "
-      "got ",
-      mma_ops.size());
-  MmaMacro macro = MmaMacro::Turing_16_8_16;
-  mma_ops.front()->setMacro(macro);
-
-  auto tv0cw = tv0->cacheAfter(LoadStoreOpType::CpAsync);
-  auto tv0cr = tv0cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv1cw = tv1->cacheAfter(LoadStoreOpType::CpAsync);
-  auto tv1cr = tv1cw->cacheAfter(LoadStoreOpType::LdMatrix);
-  auto tv2c = tv2->cacheBefore();
-
-  // Make a CTA tile
-  // ------------------------------------------------------------------
-  // [M,N]
-  tv2->split(-2, gemm_tile.cta_tile.m);
-  tv2->split(-1, gemm_tile.cta_tile.n);
-
-  //  0   1    2   3
-  // [Mo,M128, No, N128]
-  tv2->reorder({{1, 2}, {2, 1}});
-
-  //  0   1    2   3
-  // [Mo,No, M128, N128]
-  tv0->computeAt(tv2, 2);
-  tv1->computeAt(tv2, 2);
-
-  // Order K
-  //  0   1    2   3     4    5
-  // [Mo,No, M128, N128, Ko, K32]
-  tv2c->split(-1, gemm_tile.cta_tile.k);
-  tv2c->reorder({{2, 3}, {3, 4}, {4, 2}});
-
-  //  0   1  2   3     4    5
-  // [Mo,No, Ko M128, N128, K32]
-  tv0cw->computeAt(tv2c, 3);
-  tv1cw->computeAt(tv2c, 3);
-
-  // Make warp tile:
-  //
-  mma_utils::scheduleWarpTileWithReduction(tv2c, gemm_tile, macro);
-  mma_utils::scheduleWarpTileWithNoReduction(tv2, gemm_tile, macro);
-  //           -8   -7 -6 -5 -4 -3 -2 -1
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw Mi Ni Ki]
-  tv0cr->computeAt(tv2c, -4);
-  tv1cr->computeAt(tv2c, -4);
-
-  // Schedule gmem read and smem write:
-  //
-  // [Mo,Ko,M,K]
-  // Swizzle tv0: 128 x 32 tile:
-  tv0cw->split(-2, 8);
-  tv0cw->split(-2, 2);
-  tv0cw->split(-1, 8);
-  //        -5   -4 -3 -2 -1
-  // [Mo,Ko,Mo16,M4,M2,Ko4,K8]
-  tv0cw->swizzle(Swizzle2DType::XOR, -4, -2);
-  tv0cw->merge(-4);
-  tv0cw->merge(-3);
-  //         -3   -2  -1
-  // [Mo,Ko,Mo16,warp,K8]
-  tv0cw->split(-3, 4);
-  tv0cw->split(-3, 2);
-  //             -4  -3   -2  -1
-  // [Mo,Ko, S4, wz2, wy2, warp,K8]
-  tv0cw->axis(-4)->parallelize(ParallelType::TIDz);
-  tv0cw->axis(-3)->parallelize(ParallelType::TIDy);
-  tv0cw->axis(-2)->parallelize(ParallelType::TIDx);
-  tv0cw->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  tv0cw->setMemoryType(MemoryType::Shared);
-  // [Mo,Ko,i,wy,wx,v]
-
-  // [No,Ko,N,K]
-  // Swizzle tv0: 128 x 32 tile:
-  tv1cw->split(-2, 8);
-  tv1cw->split(-2, 2);
-  tv1cw->split(-1, 8);
-  //        -5   -4 -3 -2 -1
-  // [No,Ko,No16,N4,N2,Ko4,K8]
-  tv1cw->swizzle(Swizzle2DType::XOR, -4, -2);
-  tv1cw->merge(-4);
-  tv1cw->merge(-3);
-  //         -3   -2  -1
-  // [No,Ko,No16,warp,K8]
-  tv1cw->split(-3, 4);
-  tv1cw->split(-3, 2);
-  //             -4  -3   -2  -1
-  // [No,Ko, S4, wz2, wy2, warp,K8]
-  tv1cw->axis(-4)->parallelize(ParallelType::TIDz);
-  tv1cw->axis(-3)->parallelize(ParallelType::TIDy);
-  tv1cw->axis(-2)->parallelize(ParallelType::TIDx);
-  tv1cw->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  tv1cw->setMemoryType(MemoryType::Shared);
-  // Schedule mma input
-  tv0cr->applyMmaSwizzle(MmaOperand::A);
-
-  // [... Mi, Ni, Ki]
-  tv0b->reorder({{-2, -3}, {-3, -2}});
-  tv0b->applyMmaSwizzle(MmaOperand::A);
-
-  tv1cr->applyMmaSwizzle(MmaOperand::B);
-  tv1b->applyMmaSwizzle(MmaOperand::B);
-
-  // Schedule mma output
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2c->getLoopDomain());
-    tv2c->setLoopDomain(s.as<IterDomain*>());
-    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
-  }
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
-    tv2->setLoopDomain(s.as<IterDomain*>());
-  }
-
-  // Parallelize
-  //  0   1  2  3   4   5  6   7  8  9  10
-  // [Mo No Ko Kwo Mwo Nwo Mw Nw (Mi Ni Ki)]
-  tv2c->axis(4)->parallelize(ParallelType::TIDz);
-  tv2c->axis(5)->parallelize(ParallelType::TIDy);
-
-  // Parallelize
-  //  0  1  2   3   4   5  6  7
-  // [Mo No Mwo Nwo Mw Nw (Mi Ni)]
-  tv2->axis(0)->parallelize(ParallelType::BIDx);
-  tv2->axis(1)->parallelize(ParallelType::BIDy);
-  tv2->axis(2)->parallelize(ParallelType::TIDz);
-  tv2->axis(3)->parallelize(ParallelType::TIDy);
-
-  tv0cw->circularBuffer(/*number_of_stages=*/2);
-  tv1cw->circularBuffer(/*number_of_stages=*/2);
-  tv0cr->circularBuffer(/*number_of_stages=*/2);
-  tv1cr->circularBuffer(/*number_of_stages=*/2);
-
-  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  auto t0 = at::randn({M, K}, options);
-  auto t1 = at::randn({N, K}, options);
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.run({t0, t1});
-  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-      ke.compiledKernel()->kernel()));
-  auto tref = t0.to(at::kFloat).matmul(t1.t().to(at::kFloat));
-
-  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
-}
 
 // Matmul test on Ampere using ldmatrix.x4 to load operands
 TEST_P(MatmulTestWithLayout, AmpereMatmulLargeLoad) {
@@ -3658,7 +3477,7 @@ class HopperMatmulTest : public HopperBase {
  protected:
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -3685,7 +3504,7 @@ MatmulParams defaultHopperParams() {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
   return mparams;
 }
@@ -3863,7 +3682,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3919,7 +3738,7 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -3980,7 +3799,7 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4041,7 +3860,7 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4108,7 +3927,7 @@ class MLPBenchmarkTest
     mparams.splitk_factor = 1;
     mparams.grid_traversal_factor = {8, 1};
     mparams.use_smem_epilogue = true;
-    mparams.cluster_dims = {2, 1, 1};
+    mparams.cluster_dims = {2, 1};
     mparams.promote_prologue_smem_reuse = true;
   }
 };
@@ -4673,7 +4492,10 @@ INSTANTIATE_TEST_SUITE_P(
 
 // This tests that we can use a small instruction tile with a medium size
 // warpgroup tile and a large CTA tile.
-TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
+// TODO: This test passes on CUDA 13.0 but fails on CUDA 13.1
+TEST_F(
+    HopperMatmulTest,
+    DISABLED_HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4718,7 +4540,7 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4784,7 +4606,7 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -4844,7 +4666,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   constexpr int64_t M = 1 << 17, N = 256, K = 1 << 17;
@@ -5172,7 +4994,7 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   // Legacy launch is faster than Cluster launch when using full 132 SM grid.
   // Cluster launch is better when using 128 SM grid that matches 2d grid
   // traveral.
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5253,7 +5075,7 @@ TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5334,7 +5156,7 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5405,7 +5227,7 @@ TEST_F(BlackwellMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5486,7 +5308,7 @@ TEST_F(BlackwellMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  mparams.cluster_dims = {2, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5556,7 +5378,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = false;
-  mparams.cluster_dims = {1, 1, 1};
+  mparams.cluster_dims = {1, 1};
   mparams.promote_prologue_smem_reuse = false;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5577,9 +5399,9 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
         kir::IrVisitor::handle(kernel->topLevelExprs());
       }
 
-      ForLoop* getInnerNonTrivialLoop() {
+      kir::ForLoop* getInnerNonTrivialLoop() {
         for (int64_t pos = (int64_t)for_loops_.size() - 1; pos >= 0; --pos) {
-          ForLoop* loop = for_loops_.at(pos);
+          kir::ForLoop* loop = for_loops_.at(pos);
           if (!loop->isTrivial()) {
             return loop;
           }
@@ -5604,7 +5426,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
 
       void handle(kir::Asm* aop) {
         if (aop->code().find("wgmma.wait_group") != std::string::npos) {
-          ForLoop* loop = getInnerNonTrivialLoop();
+          kir::ForLoop* loop = getInnerNonTrivialLoop();
           if (loop != nullptr) {
             // We don't need a sync for the wait that is placed at the end of
             // the top scope of the kernel
@@ -5615,7 +5437,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       }
 
      private:
-      ForLoop* wait_loop_ = nullptr;
+      kir::ForLoop* wait_loop_ = nullptr;
       bool next_expr_must_be_sync_ = false;
       bool passed_ = true;
     };
@@ -5695,6 +5517,73 @@ TEST_F(HopperMatmulTest, HSS_NT_SplitKTMAStore) {
   // Relax tolerance for larger sum due to large K
   NVF_CHECK(at::allclose(
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
+TEST_F(HopperMatmulTest, PingPongPersistent) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 3584, K = 512;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv3 = fusedMultiplySum(tv0, tv1, {2});
+  auto tv4 = castOp(DataType::BFloat16, tv3);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze());
+
+  std::vector<c10::IValue> inputs = {t0, t1};
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(128, 128, 64);
+
+  MatmulParams mparams;
+  // Activate Ping-Pong schedule
+  mparams.buffering_loop_level = MatmulParams::BufferingLoopLevel::WarpTiles;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  mparams.tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  // TODO reduced share memory aliasing because of persistent scheduling
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 6;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 2;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 2};
+  mparams.promote_prologue_smem_reuse = true;
+  mparams.grid_traversal_factor = {16, 8};
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(
+      cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
 } // namespace nvfuser

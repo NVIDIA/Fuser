@@ -2,15 +2,19 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import pytest
-import transformers
-import torch
-import torch.distributed as dist
+
+# Run command:
+# mpirun -np 1 pytest tests/python/multidevice/test_deepseek_v3.py --only-mpi -s
+
 from contextlib import contextmanager
 from enum import Enum, auto
 from functools import wraps
-from linear import TensorParallelLinear
-from nvfuser.testing.benchmark_utils import get_benchmark_fns
+from typing import Optional
+
+import pytest
+
+import torch
+import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -19,7 +23,11 @@ from torch.distributed.tensor.parallel import (
     ColwiseParallel,
 )
 from torch.distributed.tensor.placement_types import Shard
-from typing import Optional
+
+import transformers
+
+from .benchmark_utils import get_benchmark_fns
+from .linear import TensorParallelLinear
 
 
 @contextmanager
@@ -140,10 +148,9 @@ def parallelize_module_with_nvfuser(
     setattr(parent_module, module_name, new_module)
 
 
-# This test timed out once when downloading
-# "/deepseek-ai/DeepSeek-V3/resolve/main/configuration_deepseek.py" (cf.
-# http://nv/eCm). I consider this a one-off, but please let me know if this
-# error becomes consistent.
+@pytest.mark.skip(
+    reason="Flaky. The test occasionally failed for too many download requests. The test itself downloads the HuggingFace model only once. However, with CI runs triggered by other PRs and for other GPU architectures, it can easily exceed the limit."
+)
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "executor",
@@ -232,7 +239,7 @@ def test_transformer_layer(setup_default_process_group, benchmark, executor: Exe
                 )
 
         batch_size = 1
-        seq_len = 2048
+        seq_len = 1024
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0

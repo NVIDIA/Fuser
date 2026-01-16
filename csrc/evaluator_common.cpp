@@ -7,16 +7,19 @@
 // clang-format on
 #include <evaluator_common.h>
 
+#include <concepts>
+#include <optional>
+#include <ranges>
+
 #include <debug.h>
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
-
-#include <optional>
 
 namespace nvfuser {
 
@@ -82,13 +85,14 @@ std::vector<Val*> makeSortedEvaluationList(std::vector<Val*> input) {
 
 //! Kernel IR utility, collects all the symbolic values
 //!  used in allocation nodes.
-void collectBufferSizes(
-    std::vector<Val*>& into,
-    const std::vector<Expr*>& exprs) {
+template <std::ranges::input_range ExprRange>
+requires std::
+    convertible_to<std::ranges::range_reference_t<ExprRange>, Expr*> void
+    collectBufferSizes(std::vector<Val*>& into, const ExprRange& exprs) {
   for (auto expr : exprs) {
     if (auto allocate = dynamic_cast<kir::Allocate*>(expr)) {
       into.push_back(allocate->size());
-    } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+    } else if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
       collectBufferSizes(into, for_loop->body().exprs());
     } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
       collectBufferSizes(into, ite->thenBody().exprs());
@@ -130,6 +134,32 @@ std::vector<Val*> collectRuntimeUsedValues(Fusion* fusion) {
 
 } // namespace
 
+void adjustEvaluatorSizes(
+    const TensorView* tv,
+    std::vector<int64_t>& unsharded_sizes) {
+  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
+  // Early return when no adjustment is needed.
+  if (adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1) {
+    return;
+  }
+  // Adjust the inner most dimension of the logical domain to support DataType
+  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
+  // in type.h for more details.
+  NVF_ERROR(!unsharded_sizes.empty(), "DataType not supported");
+  int64_t last_id_index = -1;
+  for (const auto& [i, id] : enumerate(tv->getLogicalDomain())) {
+    if (id == tv->getMaybeAllocationDomain().back()) {
+      last_id_index = i;
+      break;
+    }
+  }
+  NVF_ERROR(
+      last_id_index != -1,
+      "could not find the last ID in allocation for sub byte data types.");
+  unsharded_sizes[last_id_index] =
+      adjust_last_dim.fromATenToNVF(unsharded_sizes[last_id_index]);
+}
+
 PrecomputedValues::PrecomputedValues(Fusion* fusion) : fusion_(fusion) {
   FUSER_PERF_SCOPE("PrecomputedValues::PrecomputedValues");
   loadSymbols(collectRuntimeUsedValues(fusion));
@@ -156,7 +186,7 @@ void PrecomputedValues::bindParallelExtents(
     auto raw_val = launch_constraint.getRawVal(it.first);
     if (raw_val > 0) {
       for (auto extent : it.second) {
-        bindValue(extent->evaluatorIndex(), raw_val);
+        bindValue(extent->evaluatorIndex(), raw_val, extent);
       }
     }
   }
@@ -168,7 +198,10 @@ void PrecomputedValues::bindConcreteParallelTypeValue(
   auto index_list_it = thread_dim_value_indices_.find(pt);
   if (index_list_it != thread_dim_value_indices_.end()) {
     for (auto index : *(index_list_it->second)) {
-      bindValue(index, value);
+      const Val* ir_node = (index >= 0 && index < (int)symbols_.size())
+          ? symbols_[index]
+          : nullptr;
+      bindValue(index, value, ir_node);
     }
   }
 }
@@ -198,7 +231,7 @@ void PrecomputedValues::bindValues(
         bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), args[i]);
+      bindValue(input->evaluatorIndex(), args[i], input);
     }
   }
 }
@@ -264,7 +297,7 @@ void PrecomputedValues::invalidate() {
 }
 
 PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
-  PrecomputedValues pv(static_cast<Fusion*>(ir_cloner.container()));
+  PrecomputedValues pv(ir_cloner.container()->as<Fusion>());
 
   // this is a map to unique pointers to vectors, so we need to copy the
   // vectors and create new unique pointers
@@ -330,15 +363,19 @@ void PrecomputedValues::initializeNamedScalars() {
 void PrecomputedValues::validate() {
   FUSER_PERF_SCOPE("PrecomputedValuess::Validate");
   using namespace PolymorphicValue_functions;
-  for (const auto& it : binding_log_) {
-    NVF_ERROR(
-        isSame(values_[it.first], it.second),
-        "Precomputed values failed to validate.",
-        "\nSomething unexpected changed between the compilation and "
-        "execution.\n",
-        values_[it.first],
-        " != ",
-        it.second);
+  for (const auto& [index, expected_value, ir_node] : binding_log_) {
+    if (!isSame(values_[index], expected_value)) {
+      std::stringstream error_msg;
+      error_msg << "Precomputed values failed to validate.\n"
+                << "Something unexpected changed between the compilation and "
+                   "execution.\n";
+      if (ir_node != nullptr) {
+        error_msg << "IR node: " << ir_node->toString() << "\n";
+      }
+      error_msg << "Computed value: " << values_[index] << "\n"
+                << "Expected value: " << expected_value;
+      NVF_ERROR(false, error_msg.str());
+    }
   }
   has_valid_values_ = true;
 }
@@ -353,19 +390,7 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-
-  // Adjust the last dimension of the logical domain to support DataType
-  // that is not supported by PyTorch. See the comment of getLastDimAdjustment
-  // in type.h for more details.
-  const auto adjust_last_dim = getLastDimAdjustment(tv->dtype());
-  if (!logical_sizes.empty()) {
-    auto& last_dim = logical_sizes.back();
-    last_dim = adjust_last_dim.fromATenToNVF(last_dim);
-  } else {
-    NVF_ERROR(
-        adjust_last_dim.denominator == 1 && adjust_last_dim.numerator == 1,
-        "DataType not supported");
-  }
+  adjustEvaluatorSizes(tv, logical_sizes);
 
   for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
@@ -373,12 +398,15 @@ void PrecomputedValues::bindTensorMetaData(
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
       // and .ExpandedBroadcast.
-      bindValue(id->extent()->evaluatorIndex(), 1L);
+      bindValue(id->extent()->evaluatorIndex(), 1L, id->extent());
       if (id->hasExpandedExtent()) {
-        bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
+        bindValue(
+            id->expandedExtent()->evaluatorIndex(),
+            dim_size,
+            id->expandedExtent());
       }
     } else {
-      bindValue(id->extent()->evaluatorIndex(), dim_size);
+      bindValue(id->extent()->evaluatorIndex(), dim_size, id->extent());
     }
   }
 
@@ -406,7 +434,7 @@ void PrecomputedValues::bindTensorMetaData(
       tv->toString(),
       " with input tensor ",
       tensor);
-  bindValue(metadata_val->evaluatorIndex(), metadata);
+  bindValue(metadata_val->evaluatorIndex(), metadata, metadata_val);
 }
 
 NaiveValueMachine::NaiveValueMachine(PrecomputedValues& precomputed_values)
@@ -586,6 +614,9 @@ void NaiveValueMachine::runUnaryOp(int index) {
     case UnaryOpType::Abs:
       dest = abs(src);
       break;
+    case UnaryOpType::Ceil:
+      dest = ceil(src);
+      break;
     case UnaryOpType::LogicalNot:
       dest = !src;
       break;
@@ -662,11 +693,17 @@ void NaiveValueMachine::runBinaryOp(int index) {
     case BinaryOpType::BitwiseXor:
       dest = lhs ^ rhs;
       break;
+    case BinaryOpType::FMax:
+      dest = fmax(lhs, rhs);
+      break;
     case BinaryOpType::Max:
-      dest = lhs > rhs ? lhs : rhs;
+      dest = max(lhs, rhs);
+      break;
+    case BinaryOpType::FMin:
+      dest = fmin(lhs, rhs);
       break;
     case BinaryOpType::Min:
-      dest = lhs < rhs ? lhs : rhs;
+      dest = min(lhs, rhs);
       break;
     case BinaryOpType::Gcd:
       dest = gcd(lhs, rhs);

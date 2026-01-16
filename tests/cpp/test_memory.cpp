@@ -5,27 +5,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <filesystem>
+#include <iterator>
+#include <regex>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <regex>
-
-#include <debug.h>
-#include <fusion.h>
-#include <ir/utils.h>
-#include <mma_type.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <options.h>
-#include <scheduler/cache_policy_refiner.h>
-#include <scheduler/mma_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <type.h>
-#include <utils.h>
+#include "debug.h"
+#include "fusion.h"
+#include "ir/utils.h"
+#include "mma_type.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "options.h"
+#include "scheduler/cache_policy_refiner.h"
+#include "scheduler/mma_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "type.h"
+#include "utils.h"
 
 namespace nvfuser {
 
@@ -205,7 +206,7 @@ class XorFinder : private kir::IrVisitor {
     if (found || !visited.insert(expr).second) {
       return;
     }
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -249,7 +250,7 @@ class TMAPredicateChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::Predicate* prev_pred = nullptr;
       if (expr->isA<kir::IfThenElse>()) {
         auto ite = expr->as<kir::IfThenElse>();
@@ -366,7 +367,7 @@ class TMADimChecker : private kir::IrVisitor {
   using kir::IrVisitor::dispatch;
 
   void dispatch(Expr* expr) final {
-    if (expr->isA<ForLoop>() || expr->isA<kir::IfThenElse>()) {
+    if (expr->isA<kir::ForLoop>() || expr->isA<kir::IfThenElse>()) {
       kir::IrVisitor::dispatch(expr);
       return;
     }
@@ -451,7 +452,7 @@ class TMASimpleLdstTest
         NVF_THROW("Invalid dimension");
     }
 
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -557,6 +558,12 @@ TEST_P(TMALoadTestWithABroadcastDim, LoadWithBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto shape = std::get<0>(GetParam());
+
+  uint64_t required_smem = dataTypeSizeByte(dtype);
+  for (auto dim : shape)
+    required_smem *= dim;
+
+  REQUIRE_DEVICE_SMEM_SIZE(required_smem, 0);
 
   auto tv0 = makeContigConcreteTensor(shape, dtype);
   fusion.addInput(tv0);
@@ -960,6 +967,8 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositing2) {
 }
 
 TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
+  REQUIRE_DEVICE_SMEM_SIZE(131080, 0);
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1009,6 +1018,8 @@ TEST_F(TMAIndexingTest, DefineBoxByCompositingShouldNotMerge) {
 }
 
 TEST_F(TMAIndexingTest, DefineBoxByRotation1) {
+  REQUIRE_DEVICE_SMEM_SIZE(124424, 0);
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1566,14 +1577,15 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     auto fl_it = std::find_if(
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
-        [](Expr* expr) { return expr->isA<ForLoop>(); });
+        [](Expr* expr) { return expr->isA<kir::ForLoop>(); });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
-    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 0);
-    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+    EXPECT_TRUE(body.size() >= 2 && is_commit(*std::prev(body.end(), 2)));
 
-    auto flattened_exprs = ir_utils::flattenScopedExprs(body);
+    auto flattened_exprs = ir_utils::flattenScopedExprs(
+        (*fl_it)->as<kir::ForLoop>()->body().exprs());
     EXPECT_EQ(
         std::count_if(
             flattened_exprs.begin(), flattened_exprs.end(), is_commit),
@@ -1625,15 +1637,15 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
         [](Expr* expr) {
-          auto fl = dynamic_cast<ForLoop*>(expr);
+          auto fl = dynamic_cast<kir::ForLoop*>(expr);
           return fl != nullptr &&
               fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
         });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
-    const auto& body = (*fl_it)->as<ForLoop>()->body().exprs();
+    const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
     EXPECT_EQ(body.back()->input(0)->value(), 5);
-    EXPECT_TRUE(is_commit(body.at(body.size() - 2)));
+    EXPECT_TRUE(body.size() >= 2 && is_commit(*std::prev(body.end(), 2)));
 
     auto commit_it = std::find_if(
         kernel->topLevelExprs().begin(),
@@ -2846,7 +2858,7 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2900,7 +2912,7 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -3376,4 +3388,35 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_has_circular_buffer_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// The 32-bit operand size specifies the amount of memory to be prefetched in
+// terms of number of bytes. size must be a multiple of 16. If the value is not
+// a multiple of 16, then the behavior is undefined
+TEST_F(TMATest, CpAsyncBulk1dIllegalSize) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  constexpr int dim0 = 33;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(1);
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0}, options);
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0});
+  EXPECT_THAT(
+      [&]() { ke.run({at_tv0}); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(
+          ::testing::HasSubstr("Expect 1dTMA load of inner-most dimension to "
+                               "be divisible by 16 bytes")));
+}
+
 } // namespace nvfuser

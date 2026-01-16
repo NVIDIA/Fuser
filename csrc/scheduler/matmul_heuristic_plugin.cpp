@@ -139,9 +139,9 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   setConfigTile(config->cta_tile, mparams->tile_sizes.cta_tile);
   setConfigTile(config->warp_tile, mparams->tile_sizes.warp_tile);
   setConfigTile(config->instruction_tile, getMmaOpShape(mparams->mma_macro));
-  config->cluster_dims[0] = mparams->cluster_dims.x;
-  config->cluster_dims[1] = mparams->cluster_dims.y;
-  config->cluster_dims[2] = mparams->cluster_dims.z;
+  config->cluster_dims[0] = mparams->cluster_dims.m;
+  config->cluster_dims[1] = mparams->cluster_dims.n;
+  config->cluster_dims[2] = 1;
   config->splitk_factor = mparams->splitk_factor;
   config->grid_swizzle_factor = mparams->grid_traversal_factor.first;
   config->cta_order =
@@ -164,9 +164,12 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   };
   setGemmTile(mparams->tile_sizes.cta_tile, config->cta_tile);
   setGemmTile(mparams->tile_sizes.warp_tile, config->warp_tile);
-  mparams->cluster_dims.x = config->cluster_dims[0];
-  mparams->cluster_dims.y = config->cluster_dims[1];
-  mparams->cluster_dims.z = config->cluster_dims[2];
+  mparams->cluster_dims.m = config->cluster_dims[0];
+  mparams->cluster_dims.n = config->cluster_dims[1];
+  NVF_CHECK(
+      config->cluster_dims[2] == 1,
+      "cluster_dims[2] must be 1 but found ",
+      config->cluster_dims[2]);
   mparams->circular_buffer_options.smem_circular_buffer_stage =
       config->load_stages;
   mparams->circular_buffer_options.smem_circular_buffer_prefetch_gap =

@@ -10,6 +10,8 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
+#include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
@@ -19,11 +21,12 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder inferOutputSizes(
+KernelArgumentHolder inferOutputShapeAndContiguousStrides(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferOutputSizes");
+  FUSER_PERF_SCOPE(
+      "fusion_executor::allocations::inferOutputShapeAndContiguousStrides");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
@@ -47,7 +50,8 @@ KernelArgumentHolder inferOutputSizes(
         output->isA<TensorView>(),
         "Cannot allocate outputs that are not tensors.");
     auto output_tv = output->as<TensorView>();
-    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+    const auto& [sizes, strides] =
+        inferShapeAndContiguousStrides(output_tv, expr_eval);
     const auto dtype = (output_tv->dtype() == DataType::Index)
         ? data_type_to_aten(arg_index_type)
         : data_type_to_aten(output_tv->dtype());
@@ -63,8 +67,8 @@ int64_t computeSharedMemory(
     int64_t smem_offset) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::computeSharedMemory");
   int64_t total = smem_offset;
-  // align smem_offset at 16 bytes
-  smem_offset = (smem_offset + 15) & (~15);
+  // align smem_offset at kSharedMemoryAlignmentBytes
+  smem_offset = alignSharedMemoryBytes(smem_offset);
   for (auto smem_alloc : buffers) {
     // If this buffer aliases another buffer,
     // then do not allocate memory for this buffer.
@@ -103,15 +107,26 @@ int64_t computeSharedMemory(
       const auto last_byte = first_byte + size_bytes;
 
       total = std::max(total, last_byte);
-      // First byte may not equal to last byte of the previous buffer since
-      // shared memory is forced to align at 128 Bytes. See PR-3023.
-      // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
       if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
         debug() << "buffer: " << smem_alloc->buffer()->toString()
                 << ", first_byte: " << first_byte
                 << ", last_byte: " << last_byte << ", size: " << size_bytes
                 << std::endl;
       }
+    }
+  }
+  if (isDebugDumpEnabled(DebugDumpOption::DynamicSharedMemory)) {
+    int64_t available_shared_memory_bytes = deviceAvailableSharedMemoryBytes();
+    debug() << "total requested shared memory bytes: " << total << std::endl;
+    debug() << "available shared memory bytes: "
+            << available_shared_memory_bytes << std::endl;
+    if (total > 0) {
+      debug() << "shared memory limited blocks per SM: "
+              << available_shared_memory_bytes / total << std::endl;
+    } else {
+      debug() << "shared memory limited blocks per SM: unlimited (no shared "
+                 "memory requested)"
+              << std::endl;
     }
   }
   return total;
@@ -151,12 +166,14 @@ std::vector<int64_t> getContiguousStrides(
 }
 
 // Infer the size and stride of each dimension
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferShapeAndContiguousStride(
     const TensorView* tv,
-    std::vector<Val*> symbolic_sizes,
-    std::vector<bool> expand_flags,
+    const std::vector<Val*>& symbolic_sizes,
+    const std::vector<bool>& expand_flags,
     const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
+  FUSER_PERF_SCOPE(
+      "fusion_executor::allocations::inferShapeAndContiguousStride");
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
@@ -245,7 +262,7 @@ void fillTensorWithNan(at::Tensor& t) {
       break;
 #if NVF_TORCH_VERSION_NO_LESS(2, 8, 0)
     case at::ScalarType::Float4_e2m1fn_x2:
-      t.view(torch::kByte).fill_(0xFF);
+      t.view(at::kByte).fill_(0xFF);
       break;
 #endif
     case at::ScalarType::ComplexHalf:
@@ -272,13 +289,43 @@ KernelArgumentHolder allocateOutputs(
   for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.shape_info.logical_sizes,
-          out_info.shape_info.logical_strides,
-          out_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
+      // NOTE for allocation logic:
+      //   1. Buffer needs to be allocated based on allocation size & strides,
+      //   this is necessary because indexing is computed based on allocation
+      //   domain. By allocating buffer based on allocation size & strides, we
+      //   ensure that no out-of-bound access would occur.
+      //   2. Before returning the buffer, we need to restride it with its
+      //   logical sizes & strides. Because the consumer of the output were
+      //   expecting a tensor matching the logical sizes & strides during
+      //   validation.
+      //
+      // An example of the use case is when we express padding on allocation
+      // domain of an output TensorView, where the logical and allocation sizes
+      // doesn't match.
+      at::Tensor alloc_tensor;
+      if (!out_info.shape_info.allocation_sizes.empty()) {
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.allocation_sizes,
+            out_info.shape_info.allocation_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+        alloc_tensor = alloc_tensor.as_strided_(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides);
+      } else {
+        // A special case where allocation sizes & strides are NOT availabe,
+        // logical sizes & strides are used in place of allocation sizes &
+        // strides, hence no restride is necessary.
+        alloc_tensor = at::native::empty_strided_cuda(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides,
+            out_info.type,
+            c10::nullopt,
+            device,
+            c10::nullopt);
+      }
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -313,28 +360,127 @@ KernelArgumentHolder allocateOutputs(
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs) {
+    const std::vector<Val*>& tvs) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
-  std::vector<GlobalBufferInfo> output_buffer_infos;
-  output_buffer_infos.reserve(fusion_outputs.size());
-  for (const auto out : fusion_outputs) {
+  std::vector<GlobalBufferInfo> buffer_infos;
+  buffer_infos.reserve(tvs.size());
+  for (Val* v : tvs) {
+    auto* tv = dynamic_cast<TensorView*>(v);
     NVF_ERROR(
-        out->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
+        tv != nullptr, "Cannot allocate outputs that are not tensors: ", v);
 
     GlobalBufferInfo info;
-    info.tv = out->as<TensorView>();
-    info.shape_info = inferTensorShapes(info.tv, expr_eval);
-    auto dtype =
-        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+    info.tv = tv;
+    info.shape_info = inferTensorShapes(tv, expr_eval);
+    auto dtype = (tv->dtype() == DataType::Index ? index_dtype : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
-    output_buffer_infos.emplace_back(info);
+    buffer_infos.emplace_back(info);
   }
-  return output_buffer_infos;
+  return buffer_infos;
 }
 
 namespace {
+
+// Helper function to see if the dimension of a tensor
+// which are being merged via the vector new_shape are
+// contiguous or not. This function only allows for two dims
+// to be merged - and the -1 in new_shape indicates the
+// dimension to be merged with the next one.
+bool areDimsToBeMergedContiguous(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Assert that new_shape contains at most one -1
+  NVF_ERROR(
+      std::count(new_shape.begin(), new_shape.end(), -1) <= 1,
+      "new_shape can contain at most one -1");
+
+  auto it = std::find(new_shape.begin(), new_shape.end(), -1);
+  if (it == new_shape.end()) {
+    return true;
+  }
+  size_t merge_dim = std::distance(new_shape.begin(), it);
+
+  if (merge_dim == new_shape.size() - 1) {
+    return true;
+  }
+
+  auto strides = tensor.strides();
+  auto sizes = tensor.sizes();
+
+  // Get the size and stride at merge_dim and merge_dim + 1
+  NVF_ERROR(
+      merge_dim + 1 < sizes.size(), "merge_dim+1 out of bounds for sizes");
+  auto size_outer = sizes[merge_dim];
+  auto stride_outer = strides[merge_dim];
+  auto size_inner = sizes[merge_dim + 1];
+  auto stride_inner = strides[merge_dim + 1];
+
+  // We are just squeezing out a dim.
+  // For example we can call view on the tensor with shape
+  // [1, 1536, 2, 128] and strides [393216, 1, 196608, 1536]
+  // Then we should be able to merge the dims [1, 1536].
+  if (size_outer == 1 || size_inner == 1) {
+    return true;
+  }
+
+  if (stride_outer == size_inner * stride_inner) {
+    return true;
+  }
+
+  return false;
+}
+
+// Helper function to compute the shape and strides needed for merging
+// dimensions in a tensor. Used when merging dimensions in the allocation domain
+// that may have been permuted, making them non-contiguous.
+//
+// For example, if a tensor has shape [8, 16, 4, 32, 4] and strides [8192, 512,
+// 4, 16, 1] after a permute, and we want to merge the [4, 32] dimensions,
+// view() would fail since they are non-contiguous. This function computes the
+// correct shape and strides to use with as_strided() instead.
+//
+// Args:
+//   tensor: The input tensor whose dimensions will be merged
+//   new_shape: Target shape with -1 indicating dimensions to merge with the
+//   next dim
+//
+// Returns:
+//   A pair containing:
+//   - The final shape after merging dimensions
+//   - The strides needed for as_strided() to properly merge the dimensions
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+getShapeAndStrideAfterDimMerged(
+    const at::Tensor& tensor,
+    const std::vector<int64_t>& new_shape) {
+  // Copy tensor shape into std::vector<int64_t>
+  std::vector<int64_t> tensor_shape_vec(
+      tensor.sizes().begin(), tensor.sizes().end());
+  std::vector<int64_t> tensor_new_shape;
+  for (size_t idx = 0; idx < new_shape.size(); ++idx) {
+    if (new_shape[idx] != -1) {
+      tensor_new_shape.push_back(new_shape[idx]);
+    } else {
+      // Multiply the corresponding entry and the next entry in
+      // tensor_shape_vec
+      NVF_ERROR(
+          idx + 1 < tensor_shape_vec.size(),
+          "Index out of bounds for -1 handling in new_shape");
+      tensor_new_shape.push_back(
+          tensor_shape_vec[idx] * tensor_shape_vec[idx + 1]);
+    }
+  }
+
+  // Compute cumulative product from highest index to 0-th index
+  std::vector<int64_t> tensor_new_strides(tensor_new_shape.size(), 1);
+  int64_t prod = 1;
+  for (int i = static_cast<int>(tensor_new_shape.size()) - 1; i >= 0; --i) {
+    tensor_new_strides[i] = prod;
+    prod *= tensor_new_shape[i];
+  }
+
+  return {tensor_new_shape, tensor_new_strides};
+}
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
@@ -431,7 +577,15 @@ class ForwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
+
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = out;
@@ -516,6 +670,7 @@ class BackwardTraverseFromAllocToLogical {
       }
       tensor_ = tensor_.permute(dims);
     }
+
     std::vector<int64_t> new_shape;
     for (auto i : arange(tensor_.dim())) {
       if (i == left) {
@@ -524,7 +679,15 @@ class BackwardTraverseFromAllocToLogical {
         new_shape.emplace_back(tensor_.size(i));
       }
     }
-    tensor_ = tensor_.view(new_shape);
+
+    if (areDimsToBeMergedContiguous(tensor_, new_shape)) {
+      tensor_ = tensor_.view(new_shape);
+    } else {
+      auto [tensor_new_shape, tensor_new_strides] =
+          getShapeAndStrideAfterDimMerged(tensor_, new_shape);
+      tensor_ = tensor_.as_strided(tensor_new_shape, tensor_new_strides);
+    }
+
     // update frontier
     if (inner_dim < outer_dim) {
       *inner_it = in;
@@ -623,6 +786,39 @@ at::Tensor transformFromAllocationToLogical(
   tensor = BackwardTraverseFromAllocToLogical(tensor, ee, frontier)
                .run(logical, alloc);
   NVF_ERROR(frontier.size() == logical.size());
+
+  std::set<IterDomain*> frontier_set(frontier.begin(), frontier.end());
+  std::set<IterDomain*> logical_set(logical.begin(), logical.end());
+  // If propagated frontier_set doesn't match the logical_set, we cannot rely on
+  // a simple permutation of its allocation sizes and strides to project to its
+  // logical sizes and strides.
+  if (frontier_set != logical_set) {
+    // When projection cannot be done properly, we cannot compute correct
+    // combination of logical sizes and strides. We choose to:
+    //
+    //   1. We preserve the correct logical sizes. This is necessary, otherwise,
+    //   downstream consumer wouldn't be able to compute heuristics or shape
+    //   inference.
+    //
+    //   2. We give up on producing the meaningful strides, this is a reasonable
+    //   compromise, since in this scenario, we wouldn't be able to produce
+    //   correct indexing, so strides wouldn't be used anyway.
+    //
+    // One example that relies on this is PreprocessGroupedMatmulInputSf, where
+    // output is padded. Indexing is done via runtime function and stride of the
+    // tensor is not needed.
+    std::vector<int64_t> logical_sizes(logical.size(), 0);
+    std::vector<int64_t> logical_strides(logical.size(), 0);
+    int64_t cur_stride = 1;
+    for (const auto&& [i, id] : enumerate(logical) | std::views::reverse) {
+      int64_t cur_size = ee.evaluate(id->extent()).as<int64_t>();
+      logical_sizes[i] = cur_size;
+      logical_strides[i] = cur_stride;
+      cur_stride *= cur_size;
+    }
+    return tensor.as_strided(logical_sizes, logical_strides);
+  }
+
   // Now that all affine transformations are handled, and frontiers should
   // contain the same set of IDs as logical. We still need to do a final
   // permutation so that their orders are also consistent.
@@ -639,7 +835,8 @@ at::Tensor transformFromAllocationToLogical(
   return tensor.permute(dims);
 }
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferAllocationShapeAndContiguousStride(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
   std::vector<Val*> symbolic_sizes;
@@ -651,11 +848,22 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       continue;
     }
 
-    if (id->isDeviceDim()) {
-      symbolic_sizes.push_back(id->container()->oneVal());
-    } else {
-      symbolic_sizes.push_back(id->getMaybeExpandedExtent());
-    }
+    symbolic_sizes.push_back([&]() {
+      if (id->isDeviceDim()) {
+        return id->container()->oneVal();
+      }
+
+      if (id->isStream()) {
+        // TODO(#5525): hack for MultiDeviceExecutor.
+        if (std::ranges::find(tv->getLogicalDomain(), id) ==
+            tv->getLogicalDomain().end()) {
+          return id->container()->oneVal();
+        }
+      }
+
+      return id->getMaybeExpandedExtent();
+    }());
+
     if (id->hasExpandedExtent()) {
       NVF_ERROR(
           id->isBroadcast(),
@@ -666,20 +874,23 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
       expand_flags.push_back(false);
     }
   }
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+  return inferShapeAndContiguousStride(
+      tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
 } // namespace
 
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferShapeAndContiguousStrides(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
+  FUSER_PERF_SCOPE(
+      "fusion_executor::allocations::inferShapeAndContiguousStrides");
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into
   // account.
 
-  auto size_stride = inferAllocationShape(tv, expr_eval);
+  auto size_stride = inferAllocationShapeAndContiguousStride(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return size_stride;
   }
@@ -729,7 +940,8 @@ TensorShapeInfo inferTensorShapes(
   }
 
   // Non-alias handling:
-  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  auto allocation_size_stride =
+      inferAllocationShapeAndContiguousStride(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return TensorShapeInfo{
         allocation_size_stride.first,

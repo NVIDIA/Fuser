@@ -192,14 +192,25 @@ std::string toString(const BinaryOp* bop) {
     case BinaryOpType::Gcd:
       return "gcd";
       break;
+    case BinaryOpType::FMax:
+      // TODO: Update FMin and FMax with valid python names when python bindings
+      // are added.
+      return "maximum";
+      break;
     case BinaryOpType::Max:
       return "maximum";
+      break;
+    case BinaryOpType::FMin:
+      return "minimum";
       break;
     case BinaryOpType::Min:
       return "minimum";
       break;
     case BinaryOpType::CeilDiv:
       return "ceilDiv";
+      break;
+    case BinaryOpType::Complex:
+      return "complex";
       break;
     default:
       NVF_CHECK(
@@ -243,8 +254,14 @@ std::string toString(const ReductionOp* rop) {
     case BinaryOpType::Mul:
       return "prod";
       break;
+    case BinaryOpType::FMax:
+      return "fmax";
+      break;
     case BinaryOpType::Max:
       return "max";
+      break;
+    case BinaryOpType::FMin:
+      return "fmin";
       break;
     case BinaryOpType::Min:
       return "min";
@@ -256,6 +273,38 @@ std::string toString(const ReductionOp* rop) {
           rop->getReductionOpType(),
           " in ",
           rop->toString());
+  }
+}
+
+std::string toString(const ScanOp* sop) {
+  switch (sop->opType()) {
+    case BinaryOpType::Add:
+      return "cumsum";
+      break;
+    case BinaryOpType::Mul:
+      return "cumprod";
+      break;
+    case BinaryOpType::FMax:
+      // TODO: Update FMin and FMax with valid python names when python bindings
+      // are added.
+      return "cummax";
+      break;
+    case BinaryOpType::Max:
+      return "cummax";
+      break;
+    case BinaryOpType::FMin:
+      return "cummin";
+      break;
+    case BinaryOpType::Min:
+      return "cummin";
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected scan operator type: ",
+          sop->opType(),
+          " in ",
+          sop->toString());
   }
 }
 

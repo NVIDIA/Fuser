@@ -233,6 +233,15 @@ HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
       heuristic_params == nullptr,
       "Heuristic Scheduler is already defined for this UserSchedule");
+
+  // Set scheduler hyperparameters if available for InnerOuterPersistent
+  // scheduler
+  // TODO:: extend to other schedulers if necessary
+  if (scheduler_type == SchedulerType::InnerOuterPersistent &&
+      scheduler_hyperparams) {
+    scheduler->setSchedulerHyperParameters(scheduler_hyperparams.get());
+  }
+
   heuristic_params = scheduler->computeHeuristics(
       fusion(), runtime_info_ref, data_cache.get());
   return heuristic_params.get();
@@ -347,6 +356,27 @@ FusionCache* FusionCache::get(
     if (load_from_default_workspace && fs::exists(file_path)) {
       try {
         singleton_->deserialize(file_path);
+
+        // Check if deserialized cache exceeds max_fusions limit
+        if (singleton_->fusions_.size() > max_fusions) {
+          std::cout
+              << "Warning: Deserialized cache contains "
+              << singleton_->fusions_.size()
+              << " fusions, which exceeds the requested max_fusions limit of "
+              << max_fusions << ". Resetting cache." << std::endl;
+
+          // Delete incompatible workspace
+          std::error_code remove_ec;
+          fs::remove(file_path, remove_ec);
+          if (remove_ec) {
+            std::cout << "Failed to delete common workspace. Exception:\t"
+                      << remove_ec.message() << std::endl;
+          }
+
+          // Reset FusionCache
+          delete singleton_;
+          singleton_ = new FusionCache(max_fusions, selected_device);
+        }
       } catch (const std::exception& deserialize_exception) {
         // The saved workspace can become out-of-date between nvfuser updates.
         // Send warning and delete the incompatible workspace.
@@ -356,11 +386,11 @@ FusionCache* FusionCache::get(
                      "deleting incompatible workspace."
                   << std::endl;
 
-        // Hide exception message because it should be resolved by saving a new
-        // workspace.
-        if (!isOptionDisabled(DisableOption::ParallelSerde)) {
-          std::cout << "Use NVFUSER_DISABLE=parallel_serde to print exception "
-                       "message."
+        // Hide exception message by default because it should be resolved by
+        // saving a new workspace.
+        if (isOptionEnabled(EnableOption::ParallelSerde)) {
+          std::cout << "Remove `parallel_serde` from NVFUSER_ENABLE "
+                       "environment variable to print exception message."
                     << std::endl;
         } else {
           std::cout << deserialize_exception.what() << std::endl;
@@ -888,7 +918,7 @@ void FusionCache::deserialize(std::string filename) {
     // Create an executor so the following code can deserialize it.
     fusion_schedule->createExecutorIfNotExists();
 
-    if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+    if (isOptionEnabled(EnableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
       getThreadPool()->run([=, &detect_exception_in_thread_pool]() {
         FUSER_PERF_SCOPE("FusionCache::deserializeFusionParallel");
@@ -908,13 +938,15 @@ void FusionCache::deserialize(std::string filename) {
     }
   }
 
-  if (!isOptionDisabled(DisableOption::ParallelSerde)) {
+  if (isOptionEnabled(EnableOption::ParallelSerde)) {
     // Wait until all fusion executor caches are deserialized
     getThreadPool()->waitWorkComplete();
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while deserializing fusions in parallel.\n",
-        "Use NVFUSER_DISABLE=parallel_serde to print exception message.");
+        "Print the exception message by disabling parallel serialization. "
+        "i.e., Remove `parallel_serde` from NVFUSER_ENABLE environment "
+        "variable.");
   }
 }
 

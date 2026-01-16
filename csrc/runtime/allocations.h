@@ -46,7 +46,7 @@ struct GlobalBufferInfo {
 //! pushing scalar int 0 as a place-holder.
 //! 2. This API does not allocate output in memory, but only returns the
 //! inferred output sizes. Used in runtime/fusion_executor_cache.cpp.
-KernelArgumentHolder inferOutputSizes(
+KernelArgumentHolder inferOutputShapeAndContiguousStrides(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values = nullptr);
@@ -64,7 +64,8 @@ NVF_API void setFillAllocationWithNan(bool value);
 void fillTensorWithNan(at::Tensor& t);
 
 // Infer the sizes and strides of an output tensor
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>>
+inferShapeAndContiguousStrides(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval);
 
@@ -86,12 +87,11 @@ KernelArgumentHolder allocateOutputs(
     const KernelArgumentHolder& args,
     bool dynamic_evaluate = false);
 
-//! Return information necessary for allocating output tensors. Input
-//! and output tensors are allowed to alias each other, which is
-//! specified by the list of int pairs of input and output indices
+//! Return information necessary for allocating the given TensorViews. `tvs`
+//! has to be a list of TensorViews despite the type `Val*` for convenience.
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs);
+    const std::vector<Val*>& tvs);
 
 } // namespace nvfuser

@@ -8,17 +8,23 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
 using testing::Contains;
 
-using MoveSplitCatTest = NVFuserTest;
+class MoveSplitCatTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+};
 
 TEST_F(MoveSplitCatTest, Cancellable_SplitImmediatelyFollowedByCat) {
   auto fusion = std::make_unique<Fusion>();
@@ -544,7 +550,7 @@ TEST_F(MoveSplitCatTest, MultiplePairs) {
   EXPECT_THAT(exprs, Contains(IsPermute()).Times(1));
   // The two reshapes in region 1 stay as is and the two reshapes in region 2
   // are merged. Therefore, three reshapes in total.
-  EXPECT_THAT(exprs, Contains(IsA<ViewOp>()).Times(3));
+  EXPECT_THAT(exprs, Contains(IsA<ReshapeOp>()).Times(3));
 }
 
 TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {

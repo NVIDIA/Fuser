@@ -26,76 +26,20 @@ constexpr __device__ bool isIter(int STATE) {
   return STATE == 1;
 }
 
-// TODO: We have exactly the same code in argsort.cu, we should refactor it.
-// Type utils for interoperability between our own half types and the
-// CUDA standard types (identical to argsort implementation)
-template <typename T>
-struct CudaType {
-  using type = T;
-
-  __device__ inline static T get(const T& t) {
-    return t;
-  }
-};
-
-template <typename T>
-struct NvFuserType {
-  using type = T;
-
-  __device__ inline static T get(const T& t) {
-    return t;
-  }
-};
-
-#ifdef __NVFUSER_HAS_HALF__
-template <>
-struct CudaType<__half> {
-  using type = __nv_half;
-
-  __device__ inline static type get(const __half& t) {
-    return __ushort_as_half(__NVFUSER_HALF_TO_CUS(t));
-  }
-};
-template <>
-struct NvFuserType<__half> {
-  __device__ inline static __half get(
-      const typename CudaType<__half>::type& t) {
-    return *(reinterpret_cast<const __half*>(&t));
-  }
-};
-#endif // __NVFUSER_HAS_HALF__
-
-#ifdef __NVFUSER_HAS_BFLOAT__
-template <>
-struct CudaType<__bfloat> {
-  using type = __nv_bfloat16;
-
-  __device__ inline static type get(const __bfloat& t) {
-    return __ushort_as_bfloat16(__NVFUSER_BFLOAT_TO_CUS(t));
-  }
-};
-template <>
-struct NvFuserType<__bfloat> {
-  __device__ inline static __bfloat get(
-      const typename CudaType<__bfloat>::type& t) {
-    return *(reinterpret_cast<const __bfloat*>(&t));
-  }
-};
-#endif // __NVFUSER_HAS_BFLOAT__
-
 // Block-parallel topk using CUB BlockRadixSort
 // Following nvFuser dimensional template parameter pattern like
 // fused_reduction.cu and argsort.cu
 //
 // For simplicity, we assume that:
-// - top_values: Output array containing top-K values. Each thread holds
-//   ITEMS_PER_THREAD values.
+// - top_values: Output array containing top-K values.
 // - top_indices: Output array containing original indices of top-K values
-// - Each thread holds exactly ITEMS_PER_THREAD elements in both output arrays
-// - In the actual nvFuser-generated kernel, only the first k elements
-//   that correspond to the logical domain should be used (via predication)
+// - Each thread holds up to ITEMS_PER_THREAD values.
 // - This implementation sorts ALL elements and returns them in the output
 //   arrays, but the consuming kernel should only read the first k elements
+//
+// Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
+// always produces sorted output. Future optimization could skip sorting
+// when sorted=false by using a selection algorithm instead.
 template <
     int BLOCK_DIM_X,
     int BLOCK_DIM_Y,
@@ -107,9 +51,9 @@ template <
     int ITEMS_PER_THREAD,
     typename BlockDimT>
 __device__ void blockTopK(
-    DataT (&top_values)[ITEMS_PER_THREAD],
-    int64_t (&top_indices)[ITEMS_PER_THREAD],
-    const DataT (&input_data)[ITEMS_PER_THREAD],
+    DataT* top_values,
+    int64_t* top_indices,
+    const DataT* input_data,
     int k,
     bool largest,
     bool sorted,
@@ -123,16 +67,16 @@ __device__ void blockTopK(
       "For now, active TID dimensions must participate in sorting");
 
   // Create temporary buffer for CUB operations since input_data is const
-  typename CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
+  typename cub_utils::CudaType<DataT>::type temp_data[ITEMS_PER_THREAD];
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    temp_data[i] = CudaType<DataT>::get(input_data[i]);
+    temp_data[i] = cub_utils::CudaType<DataT>::get(input_data[i]);
   }
 
   // CUB BlockRadixSort setup - with proper multi-dimensional block support
   // CUB supports multi-dimensional blocks when BLOCK_DIM_Y and BLOCK_DIM_Z are
   // specified (identical to argsort configuration)
   using BlockRadixSort = cub::BlockRadixSort<
-      typename CudaType<DataT>::type, // Key type
+      typename cub_utils::CudaType<DataT>::type, // Key type
       BLOCK_DIM_X, // X dimension
       ITEMS_PER_THREAD, // Items per thread
       int64_t, // Value type (for key-value sorting)
@@ -154,9 +98,11 @@ __device__ void blockTopK(
       index_utils::maskedOffset<true, true, true>(threadIdx, block_dim);
 
   // Initialize indices array: 0, 1, 2, ..., n-1 per thread
-  // This creates the mapping between sorted values and their original positions
+  // This creates the mapping between sorted values and their original
+  // positions
+  int64_t temp_indices[ITEMS_PER_THREAD];
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    top_indices[i] = thread_id * ITEMS_PER_THREAD + i;
+    temp_indices[i] = thread_id * ITEMS_PER_THREAD + i;
   }
 
   // Perform key-value sorting using CUB directly on output arrays
@@ -164,28 +110,27 @@ __device__ void blockTopK(
   // After sorting, top_indices array contains mapping to original positions
   if (largest) {
     // For k largest elements, sort in descending order
-    BlockRadixSort(temp_storage).SortDescending(temp_data, top_indices);
+    BlockRadixSort(temp_storage).SortDescending(temp_data, temp_indices);
   } else {
     // For k smallest elements, sort in ascending order
-    BlockRadixSort(temp_storage).Sort(temp_data, top_indices);
+    BlockRadixSort(temp_storage).Sort(temp_data, temp_indices);
   }
 
-  // Copy to outputs. This could be avoided if we used nv_bfloat16
-  // instead of our own custom bfloat16
   for (int i = 0; i < ITEMS_PER_THREAD; i++) {
-    top_values[i] = NvFuserType<DataT>::get(temp_data[i]);
+    // This predicate is necessary when k == 1, where the output iter
+    // domain is just a broadcast, so splitting off ITEMS_PER_THREAD
+    // would still just yield another broadcast, for which we would
+    // not allocate anything. Thus, the output buffer may look
+    // like [b0(TIDx), b1(ITEMS_PER_THREAD)], meaning each thread only
+    // has a buffer of a scalar value.
+    if (thread_id * ITEMS_PER_THREAD + i < k) {
+      top_values[i] = cub_utils::NvFuserType<DataT>::get(temp_data[i]);
+      top_indices[i] = temp_indices[i];
+    }
   }
 
-  // IMPLEMENTATION NOTE: This test implementation populates ALL
-  // ITEMS_PER_THREAD elements in the output arrays with sorted results.
-  // However, in the actual nvFuser-generated kernel, only the first k elements
-  // should be consumed from each thread's output arrays (top_values[0..k-1] and
-  // top_indices[0..k-1]). The remaining elements beyond index k-1 should be
-  // ignored via predication.
-
-  // Note: 'sorted' parameter is currently ignored as CUB BlockRadixSort
-  // always produces sorted output. Future optimization could skip sorting
-  // when sorted=false by using a selection algorithm instead.
+  // Make sure the work buffer can be freely used again
+  __syncthreads();
 }
 
 } // namespace topk

@@ -5,12 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
+
+#include <iterator>
+#include <ranges>
+
 #include <codegen.h>
 #include <debug.h>
 #include <device_lower/analysis/bank_conflict.h>
 #include <device_lower/lower2device.h>
 #include <disjoint_set.h>
-#include <fusion.h>
 #include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <instrumentation.h>
@@ -25,9 +29,77 @@
 #include <runtime/executor_params.h>
 #include <transform_replay.h>
 
-#include <iterator>
-
 namespace nvfuser {
+
+size_t Fusion::hash() const {
+  size_t hash = 0;
+
+  for (const Val* val : inputs()) {
+    hashCombine(hash, val->hash());
+  }
+
+  for (const Expr* expr : exprs()) {
+    hashCombine(hash, expr->hash());
+  }
+
+  for (const Val* val : outputs()) {
+    hashCombine(hash, val->hash());
+  }
+  return hash;
+}
+
+namespace {
+//! Check if the alias info is the same between different Fusion objects
+bool checkAliasInfo(
+    const AliasInfo& this_alias_info,
+    const AliasInfo& other_alias_info) {
+  if (this_alias_info.type != other_alias_info.type) {
+    return false;
+  }
+  if (this_alias_info.visibility != other_alias_info.visibility) {
+    return false;
+  }
+  if (this_alias_info.aliased_io == nullptr) {
+    return other_alias_info.aliased_io == nullptr;
+  }
+  return this_alias_info.aliased_io->sameDefinition(
+      other_alias_info.aliased_io);
+}
+} // namespace
+
+bool Fusion::sameDefinition(const Fusion& other) const {
+  if (inputs().size() != other.inputs().size()) {
+    return false;
+  }
+
+  for (auto&& [input, other_input] : zip(inputs(), other.inputs())) {
+    if (!input->sameDefinition(other_input)) {
+      return false;
+    }
+  }
+
+  if (outputs().size() != other.outputs().size()) {
+    return false;
+  }
+
+  // Call sameDefinition on each output traverses the entire Fusion DAG.
+  // First the output is checked, then the output definition, and on to the
+  // definition's inputs. This repeats until fusion inputs are reached.
+  const auto& this_output_aliases = getOutputAliases();
+  const auto& other_output_aliases = other.getOutputAliases();
+  for (auto&& [output, other_output] : zip(outputs(), other.outputs())) {
+    if (!output->sameDefinition(other_output)) {
+      return false;
+    }
+    if (!checkAliasInfo(
+            this_output_aliases.get(output),
+            other_output_aliases.get(other_output))) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 void swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
@@ -67,13 +139,15 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   }
 
   // TODO: put this into ir_cloner instead
-  for (const auto& [output, alias_info] : from->io_alias_) {
-    Val* copied_output = ir_cloner.clone(output);
-    Val* copied_input = ir_cloner.clone(alias_info.aliased_io);
-    to->io_alias_[copied_output] = {
-        .type = alias_info.type,
-        .aliased_io = copied_input,
-        .hide_output = alias_info.hide_output};
+  for (Val* out : from->outputs_) {
+    const AliasInfo& alias = from->io_alias_.get(out);
+    if (alias.type == AllocationType::New) {
+      continue;
+    }
+
+    Val* copied_out = ir_cloner.clone(out);
+    Val* copied_in = ir_cloner.clone(alias.aliased_io);
+    to->io_alias_.add(copied_out, copied_in, alias.type, alias.visibility);
   }
 
   to->all_tv_uses_valid_ = from->all_tv_uses_valid_;
@@ -169,7 +243,7 @@ void Fusion::removeExpr(Expr* expr) {
   // that removing something that doesn't exist simply does nothing. For now,
   // we're going with the strictest model which errors.
 
-  for (auto out : expr->outputs()) {
+  for (auto* out : expr->outputs()) {
     if (out->isA<TensorView>()) {
       invalidateTvsAndUses();
     }
@@ -177,7 +251,7 @@ void Fusion::removeExpr(Expr* expr) {
   }
 
   // Remove uses in inputs
-  for (auto inp : expr->inputs()) {
+  for (auto* inp : expr->inputs()) {
     // Note that if inp is a TensorView, this may call invalidateTvsAndUses
     inp->removeUse(expr);
     if (inp->isA<TensorView>()) {
@@ -234,7 +308,9 @@ void Fusion::addInput(Val* input) {
 
   if (input->getValType().value() == ValType::TensorView) {
     auto tv = input->as<TensorView>();
-    tv->setMemoryType(MemoryType::Global);
+    if (tv->getMemoryType() != MemoryType::Symmetric) {
+      tv->setMemoryType(MemoryType::Global);
+    }
   } else if (input->getValType().value() == ValType::Others) {
     NVF_CHECK(
         !input->isConst(),
@@ -259,7 +335,10 @@ void Fusion::addOutputInternal(Val* output) {
       output->isA<TensorView>(),
       "Non-TensorView outputs are not supported at this point: ",
       output->toString());
-  output->as<TensorView>()->setMemoryType(MemoryType::Global);
+  auto* tv = output->as<TensorView>();
+  if (tv->getMemoryType() != MemoryType::Symmetric) {
+    tv->setMemoryType(MemoryType::Global);
+  }
 
   outputs_.push_back(output);
   output->setIsFusionOutput(true);
@@ -268,17 +347,18 @@ void Fusion::addOutputInternal(Val* output) {
 }
 
 void Fusion::addOutput(Val* output) {
-  // special handling for returning aliased output. We just need to remove its
+  // Special handling for returning aliased output. We just need to remove its
   // existing entry in the outputs_ used for inplace update
-  if (io_alias_.count(output) != 0) {
+  if (io_alias_.get(output).type != AllocationType::New) {
+    AliasInfo& alias = io_alias_.mutable_at(output);
     // if previous output is only added for aliasing purpose, we should remove
     // the previous entry and add a new one. Otherwise, it may be positioned
     // wrong in the output list.
-    if (io_alias_[output].hide_output) {
+    if (alias.visibility == OutputVisibility::kHidden) {
       removeOutput(output);
     }
     // output shouldn't be hidden any more
-    io_alias_[output].hide_output = false;
+    alias.visibility = OutputVisibility::kVisible;
   }
 
   addOutputInternal(output);
@@ -315,6 +395,11 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 
     if (replacement->getValType().value() == ValType::TensorView) {
       replacement->setIsFusionOutput(true);
+      NVF_CHECK(
+          replacement->as<TensorView>()->getMemoryType() !=
+              MemoryType::Symmetric,
+          "Symmetric memory type not supported for replacement: ",
+          replacement);
       replacement->as<TensorView>()->setMemoryType(MemoryType::Global);
     }
     if (output->getValType().value() == ValType::TensorView) {
@@ -331,10 +416,10 @@ void Fusion::replaceOutput(Val* output, Val* replacement) {
 
   // Temporary WAR for issue #1112
   // (https://github.com/csarofeen/pytorch/issues/1112)
-  if (io_alias_.count(output) != 0) {
-    auto input = io_alias_[output];
+  AliasInfo alias = io_alias_.get(output);
+  if (alias.type != AllocationType::New) {
     io_alias_.erase(output);
-    io_alias_[replacement] = input;
+    io_alias_.add(replacement, alias.aliased_io, alias.type, alias.visibility);
   }
 }
 
@@ -348,13 +433,11 @@ bool Fusion::isNoOp() {
   }
 
   for (auto out_tv : ir_utils::filterByType<TensorView>(outputs())) {
-    const std::vector<IterDomain*>& logical_dom =
-        TensorDomain::noReductions(out_tv->getLogicalDomain());
-    const bool size_zero =
-        std::any_of(logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
-          return id->extent()->isConstScalar() &&
-              id->extent()->evaluate().as<int64_t>() == 0;
-        });
+    auto logical_dom = out_tv->getLogicalDomain() | TensorDomain::kNoReductions;
+    const bool size_zero = std::ranges::any_of(logical_dom, [](IterDomain* id) {
+      return id->extent()->isConstScalar() &&
+          id->extent()->evaluate().as<int64_t>() == 0;
+    });
     if (!size_zero) {
       return false;
     }
@@ -412,7 +495,7 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
   }
 
   os << "\n%kernel {\n";
-  IrMathPrinter op_exprs(os);
+  IrPrinter op_exprs(os);
   op_exprs.handle(this);
   if (include_tensor_transforms) {
     os << "\nTransformPrinter : \n";
@@ -653,7 +736,7 @@ void Fusion::resetTvUses() {
   is_during_update_uses_ = false;
 }
 
-std::vector<Val*> Fusion::usedMathVals() {
+std::vector<Val*> Fusion::usedMathVals() const {
   // Note that using fusion->inputs() as the argument for the first
   // parameter of getAllValsBetween does not grab all used vals as
   // there can be vals that are created inside a fusion without using
@@ -759,6 +842,57 @@ std::vector<Val*> Fusion::getTerminatingOutputs() const {
   return terminating_outputs;
 }
 
+std::ostream& operator<<(std::ostream& os, AllocationType type) {
+  switch (type) {
+    case AllocationType::Evaluate:
+      return os << "Evaluate";
+    case AllocationType::New:
+      return os << "New";
+    case AllocationType::ReuseBuffer:
+      return os << "ReuseBuffer";
+  }
+  std::unreachable();
+}
+
+std::ostream& operator<<(std::ostream& os, OutputVisibility visibility) {
+  switch (visibility) {
+    case OutputVisibility::kVisible:
+      return os << "Visible";
+    case OutputVisibility::kHidden:
+      return os << "Hidden";
+  }
+  std::unreachable();
+}
+
+std::ostream& operator<<(std::ostream& os, const AliasInfo& alias) {
+  os << "AliasInfo{" << std::endl;
+  os << "  type = " << alias.type << "," << std::endl;
+  os << "  aliased_io = " << alias.aliased_io << "," << std::endl;
+  os << "  visibility = " << alias.visibility << std::endl;
+  os << "}" << std::endl;
+  return os;
+}
+
+void AliasInfoMap::add(
+    Val* out,
+    Val* in,
+    AllocationType type,
+    OutputVisibility visibility) {
+  aliases_[out] =
+      AliasInfo{.type = type, .aliased_io = in, .visibility = visibility};
+}
+
+const AliasInfo& AliasInfoMap::get(const Val* v) const {
+  static AliasInfo no_alias_info{
+      .type = AllocationType::New,
+      .aliased_io = nullptr,
+      .visibility = OutputVisibility::kVisible};
+  if (auto search = aliases_.find(v); search != aliases_.end()) {
+    return search->second;
+  }
+  return no_alias_info;
+}
+
 void Fusion::aliasOutputToInput(
     Val* output,
     Val* input,
@@ -772,8 +906,7 @@ void Fusion::aliasOutputToInput(
     NVF_CHECK(
         output->isFusionOutput(),
         "Only fusion outputs can be expression evaluated.");
-    io_alias_[output] =
-        AliasInfo{.type = type, .aliased_io = input, .hide_output = false};
+    io_alias_.add(output, input, type, OutputVisibility::kVisible);
     return;
   }
 
@@ -796,17 +929,17 @@ void Fusion::aliasOutputToInput(
       output->isA<TensorView>() && input->isA<TensorView>(),
       "aliasing output to input is only supported for TensorView");
   TransformReplay::selfReplay(
-      input->as<TensorView>()->domain(),
-      output->as<TensorView>()->domain(),
-      /*ignore_reductions=*/true);
+      input->as<TensorView>()->domain(), output->as<TensorView>()->domain());
 
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
   // batch norm.
-  io_alias_[output] = AliasInfo{
-      .type = type,
-      .aliased_io = input,
-      .hide_output = !output->isFusionOutput()};
+  io_alias_.add(
+      output,
+      input,
+      type,
+      !output->isFusionOutput() ? OutputVisibility::kHidden
+                                : OutputVisibility::kVisible);
 
   // only add output when it's not in outputs_
   if (!output->isFusionOutput()) {
@@ -815,12 +948,7 @@ void Fusion::aliasOutputToInput(
 }
 
 const AliasInfo& Fusion::getOutputAlias(const Val* output) const {
-  static AliasInfo no_alias_info{
-      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
-  if (auto search = io_alias_.find(output); search != io_alias_.end()) {
-    return search->second;
-  }
-  return no_alias_info;
+  return io_alias_.get(output);
 }
 
 bool Fusion::hasDynamicTransform() {

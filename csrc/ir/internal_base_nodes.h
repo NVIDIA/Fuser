@@ -7,9 +7,11 @@
 // clang-format on
 #pragma once
 
+#include <optional>
+#include <ranges>
+
 #include <exceptions.h>
 #include <ir/base_nodes.h>
-#include <optional>
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable
@@ -23,6 +25,8 @@ namespace nvfuser {
 // Friends for direct access to split
 class TensorDomain;
 class IterDomain;
+class RaggedIterDomain;
+class TensorView;
 class ReplayTransformations;
 class IndexReferenceReplay;
 class ViewTransform;
@@ -36,7 +40,7 @@ struct AnalyzeViewResult;
 class IterDomainBuilder {
  public:
   // Match legacy constructor
-  IterDomainBuilder(Val* _start, Val* _extent);
+  IterDomainBuilder(Val* start, Val* extent);
 
   // Grab all the parameters from id to set the IterDomainBuilder
   IterDomainBuilder(const IterDomain* id);
@@ -48,15 +52,16 @@ class IterDomainBuilder {
   // Resets is_rfactor_domain
   IterDomainBuilder& resetRfactor();
 
-  IterDomainBuilder& start(Val* _start);
-  IterDomainBuilder& extent(Val* _extent);
-  IterDomainBuilder& expanded_extent(Val* _expanded_extent);
-  IterDomainBuilder& stop_offset(Val* _stop_offset);
-  IterDomainBuilder& parallel_type(ParallelType _parallel_type);
-  IterDomainBuilder& iter_type(IterType _iter_type);
-  IterDomainBuilder& is_rfactor_domain(bool _is_rfactor_domain);
-  IterDomainBuilder& is_padded_dimension(bool _is_padded_dimension);
-  IterDomainBuilder& padded_to_size(std::optional<int64_t> _padded_to_size);
+  IterDomainBuilder& start(Val* start);
+  IterDomainBuilder& extent(Val* extent);
+  IterDomainBuilder& expanded_extent(Val* expanded_extent);
+  IterDomainBuilder& stop_offset(Val* stop_offset);
+  IterDomainBuilder& parallel_type(ParallelType parallel_type);
+  IterDomainBuilder& iter_type(IterType iter_type);
+  IterDomainBuilder& is_rfactor_domain(bool is_rfactor_domain);
+  IterDomainBuilder& is_padded_dimension(bool is_padded_dimension);
+  IterDomainBuilder& padded_to_size(std::optional<int64_t> padded_to_size);
+  IterDomainBuilder& ragged_extents(TensorView* ragged_extents);
 
   IterDomain* build() const;
 
@@ -73,14 +78,18 @@ class IterDomainBuilder {
   // Only relevant at scheduling time or compile time.
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
+
+  // For RaggedIterDomain: stores the extents tensor
+  TensorView* ragged_extents_ = nullptr;
 };
 
 //! Simply a representation of an annotated 1D iterable from start to extent.
 //! TensorDomains which represent how to iterate over a tensor is made up of
 //! IterDomains to form an ND iterable. We directly set parallization strategies
 //! on IterDomains.
-class IterDomain : public Val {
+class NVF_API IterDomain : public Val {
  public:
   IterDomain(IrBuilderPasskey, const IterDomainBuilder& args);
 
@@ -96,11 +105,14 @@ class IterDomain : public Val {
       IterType iter_type,
       bool is_rfactor_domain,
       bool is_padded_dimension,
+      bool is_clustered_blocks,
       std::optional<int64_t> padded_to_size);
 
   IterDomain(const IterDomain* src, IrCloner* ir_cloner);
 
   NVFUSER_DECLARE_CLONE
+
+  bool sameDefinition(const Val* other) const override;
 
   bool sameAs(const Statement* other) const override;
 
@@ -114,7 +126,7 @@ class IterDomain : public Val {
   //!
   //! When map_with_original is true, the clone of the original is
   //! mapped in the Exact graph.
-  IterDomain* cloneWithoutRFactor(bool map_with_original = false);
+  virtual IterDomain* cloneWithoutRFactor(bool map_with_original = false);
 
   //! Clone a vector domains
   static std::vector<IterDomain*> clone(
@@ -224,7 +236,11 @@ class IterDomain : public Val {
     return isParallelTypeDeviceDim(getParallelType());
   }
 
-  void parallelize(ParallelType t);
+  bool isStream() const {
+    return getParallelType() == ParallelType::Stream;
+  }
+
+  NVF_API void parallelize(ParallelType t);
 
   ParallelType getParallelType() const {
     return parallel_type_;
@@ -300,6 +316,19 @@ class IterDomain : public Val {
     return is_padded_dimension_;
   }
 
+  //! Sets whether this IterDomain uses CUDA thread block clusters (Hopper+).
+  void setClusteredBlocks() {
+    NVF_CHECK(
+        parallel_type_ == ParallelType::BIDx,
+        "setClusteredBlocks: only support set BIDx parallel type");
+    is_clustered_dimension_ = true;
+  }
+
+  //! Returns whether this IterDomain uses clustered blocks.
+  bool isClusteredBlockDim() const {
+    return is_clustered_dimension_;
+  }
+
   //! Returns a concrete value if this iterdomain
   //!  has been padded to a statical size.
   std::optional<int64_t> getMaybeSizeAfterPadding() const {
@@ -366,6 +395,23 @@ class IterDomain : public Val {
   friend TensorDomain;
   friend ReplayTransformations;
   friend IndexReferenceReplay;
+  friend RaggedIterDomain;
+
+  //! Protected constructor for derived classes (e.g., RaggedIterDomain)
+  //! that need to override the ValType
+  IterDomain(
+      IrBuilderPasskey passkey,
+      ValType vtype,
+      Val* start,
+      Val* extent,
+      Val* expanded_extent,
+      Val* stop_offset,
+      ParallelType parallel_type,
+      IterType iter_type,
+      bool is_rfactor_domain,
+      bool is_padded_dimension,
+      bool is_clustered_blocks,
+      std::optional<int64_t> padded_to_size);
 
  private:
   //! Valid range is defined as [start:-stop_offset]
@@ -391,7 +437,91 @@ class IterDomain : public Val {
   IterType iter_type_ = IterType::Iteration;
   bool is_rfactor_domain_ = false;
   bool is_padded_dimension_ = false;
+  bool is_clustered_dimension_ = false;
   std::optional<int64_t> padded_to_size_ = std::nullopt;
+};
+
+//! RaggedIterDomain represents a dimension with variable extents
+//! (ragged/jagged dimension). Used for PyTorch nested tensors.
+//! Unlike IterDomain, the extent varies per component
+//! and is stored as a TensorView rather than a single Val.
+//!
+//! Key properties:
+//! - extents_: TensorView containing extent for each component (1D, 2D, or N-D)
+//! - Uniform execution properties: ParallelType, IterType apply to all
+//! components
+class NVF_API RaggedIterDomain : public IterDomain {
+ public:
+  RaggedIterDomain(IrBuilderPasskey passkey, const IterDomainBuilder& args);
+
+  //! \param extents TensorView containing component extents (must be integer
+  //! type)
+  //! \param iter_type Iteration type (Iteration, Reduction, etc.)
+  //! Only Iteration is allowed ATM.
+  //! \param parallel_type Parallelization strategy (applies
+  //! uniformly)
+  RaggedIterDomain(
+      IrBuilderPasskey passkey,
+      TensorView* extents,
+      IterType iter_type = IterType::Iteration,
+      ParallelType parallel_type = ParallelType::Serial);
+
+  //! Cloning constructor for IR cloning
+  RaggedIterDomain(const RaggedIterDomain* src, IrCloner* ir_cloner);
+
+  NVFUSER_DECLARE_CLONE
+
+  bool sameAs(const Statement* other) const override;
+
+  std::string toString(int indent_size = 0) const override;
+
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Accessor for the extents tensor
+  TensorView* extents() const {
+    return extents_;
+  }
+
+  //! Partition an IterDomain into component and ragged dimensions
+  //! Creates a component IterDomain and a RaggedIterDomain based on extents
+  //!
+  //! \param in Input IterDomain to partition (must be regular IterDomain)
+  //! \param extents Extents tensor defining the size of each component (must be
+  //! 1D)
+  //!        Shape: [num_components], values: [extent0, extent1, ...,
+  //!        extent(n-1)]
+  //! \return Pair of (component_id, ragged_id)
+  //!         component_id: IterDomain with extent = num_components
+  //!         ragged_id: RaggedIterDomain with the provided extents
+  //!
+  //! TODO: Support multi-dimensional extents for nested ragged structures
+  static std::pair<IterDomain*, RaggedIterDomain*> partition(
+      IterDomain* in,
+      TensorView* extents);
+
+  //! Combine a component IterDomain with a RaggedIterDomain to flatten
+  //! This is the inverse of partition, creating a regular IterDomain
+  //!
+  //! \param component Component IterDomain (extent = num_components)
+  //! \param ragged RaggedIterDomain with variable extents per component
+  //! \return Regular IterDomain with extent = sum of all component extents
+  //!
+  //! This operation flattens the ragged structure back into a single dimension.
+  //! Example: component extent=3, ragged extents=[127, 0, 198]
+  //!          -> output extent = 325 (= 127 + 0 + 198)
+  //!
+  //! Note: We use "combine" instead of "merge" to differentiate from the
+  //! regular IterDomain::merge operation which only works with regular
+  //! IterDomains.
+  static IterDomain* combine(IterDomain* component, RaggedIterDomain* ragged);
+
+  //! Override cloneWithoutRFactor to preserve RaggedIterDomain type
+  IterDomain* cloneWithoutRFactor(bool map_with_original = false) override;
+
+ private:
+  //! Extent tensor containing all component extents
+  //! Can be 1D, 2D, or N-D depending on nesting structure
+  TensorView* extents_ = nullptr;
 };
 
 //! TensorDomain holds a vector of IterDomains. It holds an IterDomain for every
@@ -408,7 +538,7 @@ class IterDomain : public Val {
 //! which should give us an operation in the list [split, merge] or similar
 //! operations that take in a TensorDomain, applies a transformation and outputs
 //! a tensor domain.
-class TensorDomain : public Val {
+class NVF_API TensorDomain : public Val {
  public:
   explicit TensorDomain(
       IrBuilderPasskey,
@@ -427,7 +557,8 @@ class TensorDomain : public Val {
       IrBuilderPasskey,
       std::vector<IterDomain*> logical_domain,
       std::vector<IterDomain*> loop_domain,
-      std::vector<std::optional<bool>> contiguity = {});
+      std::vector<std::optional<bool>> contiguity = {},
+      bool skip_loop_validation = false);
 
   TensorDomain(
       IrBuilderPasskey,
@@ -453,7 +584,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> loop_domain,
       std::optional<std::vector<IterDomain*>> alternate_loop_domain,
       std::vector<std::optional<bool>> contiguity = {},
-      std::vector<IterDomain*> additional_ids = {});
+      std::vector<IterDomain*> additional_ids = {},
+      bool skip_validation = false);
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
@@ -469,6 +601,8 @@ class TensorDomain : public Val {
   int64_t nDims() const {
     return static_cast<int64_t>(loop_domain_.size());
   }
+
+  bool sameDefinition(const Val* other) const override;
 
   bool sameAs(const Statement* other) const override;
 
@@ -509,18 +643,15 @@ class TensorDomain : public Val {
     return toDelimitedString(contiguity(), /*delim=*/" ");
   }
 
-  bool hasReduction() const {
-    return has_reduction_;
-  }
+  bool hasReduction() const;
 
   bool hasBlockReduction() const;
+  bool hasClusterReduction() const;
   bool hasGridReduction() const;
   bool hasBlockBroadcast() const;
   bool hasGridBroadcast() const;
 
-  bool hasBroadcast() const {
-    return no_bcast_domain_.size() != loop_domain_.size();
-  }
+  bool hasBroadcast() const;
 
   bool hasRoot() const {
     return !root_domain_.empty();
@@ -537,15 +668,9 @@ class TensorDomain : public Val {
 
   bool hasSymbolicAxis() const;
 
+  bool hasRaggedIterDomain() const;
+
   std::optional<int64_t> getReductionAxis() const;
-
-  const std::vector<IterDomain*>& noReductions() const {
-    return no_reduction_domain_;
-  }
-
-  const std::vector<IterDomain*>& noBroadcasts() const {
-    return no_bcast_domain_;
-  }
 
   // The input logical domain. The root domain of a consumer should equal the
   // logical domain of its producer ignoring reduction dimensions.
@@ -622,6 +747,8 @@ class TensorDomain : public Val {
   // unique.
   std::vector<IterDomain*> allIDs() const;
 
+  std::vector<const std::vector<IterDomain*>*> allDomains() const;
+
   // Similar to allIDs but returns all ID expressions.
   std::vector<Expr*> allExprs() const;
 
@@ -648,25 +775,23 @@ class TensorDomain : public Val {
   // Set the allocation domain of this TensorDomain. Because contiguity is
   // always defined w.r.t. the allocation domain, the contiguity must be updated
   // accordingly.
-  void setAllocationDomain(
+  NVF_API void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      std::vector<std::optional<bool>> new_contiguity);
+      std::vector<std::optional<bool>> new_contiguity,
+      bool skip_validation = false);
 
   // Similar to the previous one, but with new contiguity filled with all true
   // or all false.
   void setAllocationDomain(
       std::vector<IterDomain*> new_allocation_domain,
-      bool new_contiguity) {
+      bool new_contiguity,
+      bool skip_validation = false) {
     auto contiguity_flags =
         getContiguityFilledWith(new_allocation_domain, new_contiguity);
     setAllocationDomain(
-        std::move(new_allocation_domain), std::move(contiguity_flags));
-  }
-
-  void resetDomains() {
-    no_reduction_domain_ = noReductions(loop_domain_);
-    no_bcast_domain_ = noBroadcasts(loop_domain_);
-    has_reduction_ = hasReduction(loop_domain_);
+        std::move(new_allocation_domain),
+        std::move(contiguity_flags),
+        skip_validation);
   }
 
   // i here is int, as we want to accept negative value and ::size_type can be a
@@ -694,6 +819,9 @@ class TensorDomain : public Val {
   // Merge axis_o and axis_i. axis_i is the fast changing dimension. Resulting
   // axis is by default placed at original position axis_o
   void merge(int64_t axis_o, int64_t axis_i);
+
+  // Partition axis into component and ragged dimensions based on extents
+  void partition(int64_t axis, TensorView* extents);
 
   // Reorder axes according to map[old_pos] = new_pos
   void reorder(const std::unordered_map<int64_t, int64_t>& old2new);
@@ -726,6 +854,15 @@ class TensorDomain : public Val {
   static std::vector<IterDomain*> noReductions(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noBroadcasts(const std::vector<IterDomain*>&);
   static std::vector<IterDomain*> noDevices(const std::vector<IterDomain*>&);
+  // Usage example: `domain | TensorDomain::kNoDevices`. Unlike noDevices, this
+  // returns a view so is more efficient. However, make sure `domain` outlives
+  // the view.
+  inline static constexpr auto kNoDevices =
+      std::views::filter([](IterDomain* id) { return !id->isDeviceDim(); });
+  inline static constexpr auto kNoReductions = std::views::filter(
+      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+  inline static constexpr auto kNoBroadcasts =
+      std::views::filter([](IterDomain* id) { return !id->isBroadcast(); });
 
   static bool hasBroadcast(const std::vector<IterDomain*>&);
   static bool hasReduction(const std::vector<IterDomain*>&);
@@ -733,7 +870,7 @@ class TensorDomain : public Val {
   // Get a vector whose size is the number of IDs in the given logical_domain
   // filled with fill_value or nullopt depending on whether its corresponding ID
   // is broadcast.
-  static std::vector<std::optional<bool>> getContiguityFilledWith(
+  static NVF_API std::vector<std::optional<bool>> getContiguityFilledWith(
       const std::vector<IterDomain*>& allocation_domain,
       bool fill_value);
 
@@ -758,10 +895,7 @@ class TensorDomain : public Val {
   std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
 
-  std::vector<IterDomain*> no_bcast_domain_;
-  std::vector<IterDomain*> no_reduction_domain_;
   std::vector<std::optional<bool>> contiguity_;
-  bool has_reduction_ = false;
 };
 
 } // namespace nvfuser

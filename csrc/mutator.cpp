@@ -134,6 +134,31 @@ void OptOutMutator::mutate(IterDomain* id) {
   }
 }
 
+void OptOutMutator::mutate(RaggedIterDomain* id) {
+  // Mutate the extents TensorView
+  auto mutated_extents = maybeMutated(id->extents());
+
+  // Check if anything changed
+  if (mutated_extents->sameAs(id->extents())) {
+    return;
+  }
+
+  // Create a new RaggedIterDomain with mutated extents
+  auto new_id = IrBuilder::createInContainer<RaggedIterDomain>(
+      id->container(),
+      mutated_extents->as<TensorView>(),
+      id->getIterType(),
+      id->getParallelType());
+
+  // Register the mutation
+  registerMutation(id, new_id);
+
+  // Preserve definition if it exists
+  if (Expr* def = id->definition()) {
+    mutateExprOutputsOnly(def);
+  }
+}
+
 void OptOutMutator::mutate(TensorDomain* td) {
   bool mutated = false;
 
@@ -167,6 +192,10 @@ void OptOutMutator::mutate(TensorDomain* td) {
     return;
   }
 
+  // We skip checks in TensorDomain constructor. This is because mutation could
+  // update TensorView with domain that doesn't matching
+  // root/logical/allocation/loop domain. Any sparse operation, like scatter or
+  // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
       td->container(),
       root_dom,
@@ -175,7 +204,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
       domain,
       alternate_domain,
       td->contiguity(),
-      additional_ids);
+      additional_ids,
+      true);
   registerMutation(td, mutated_val);
 }
 

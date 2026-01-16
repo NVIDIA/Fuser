@@ -7,12 +7,12 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <scheduler/tools/inlining.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "scheduler/tools/inlining.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -67,19 +67,26 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
   // intended. Validation could be also done by just string comparison
   // as the parser test, but updating such tests would be tedious.
   for (auto top_level_loop :
-       ir_utils::filterByType<ForLoop>(kernel->topLevelExprs())) {
+       ir_utils::filterByType<kir::ForLoop>(kernel->topLevelExprs())) {
     auto innermost_loop = top_level_loop;
-    while (auto first_expr_loop =
-               dynamic_cast<ForLoop*>(innermost_loop->body().exprs().at(0))) {
+    while (true) {
+      if (innermost_loop->body().empty()) {
+        break;
+      }
+      auto* first_expr_loop =
+          dynamic_cast<kir::ForLoop*>(innermost_loop->body().front());
+      if (first_expr_loop == nullptr) {
+        break;
+      }
       innermost_loop = first_expr_loop;
     }
     const auto& exprs = innermost_loop->body().exprs();
     NVF_CHECK(!exprs.empty(), "No expression found");
     NVF_CHECK(
-        exprs.at(0)->isA<kir::Allocate>(),
+        exprs.front()->isA<kir::Allocate>(),
         "Invalid expression: ",
-        exprs.at(0)->toString());
-    auto hoisted_index = exprs.at(0)->as<kir::Allocate>()->buffer();
+        exprs.front()->toString());
+    auto hoisted_index = exprs.front()->as<kir::Allocate>()->buffer();
     NVF_CHECK(
         hoisted_index->dtype() == DataType::Index,
         "Invalid data type of hoisted indices. Should be nvfuser_index_t but: ",
@@ -88,7 +95,7 @@ TEST_F(ScalarHoistTest, IndexHoist1) {
     for (auto expr : exprs) {
       if (expr->isA<kir::IfThenElse>()) {
         pred = expr->as<kir::IfThenElse>()->predicate();
-        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().exprs().at(0);
+        auto arith_expr = expr->as<kir::IfThenElse>()->thenBody().front();
         auto out_ti = arith_expr->outputs()[0]->as<kir::TensorIndex>();
         if (out_ti->view()->name() == 1) {
           // Ref: T1[*, hoisted_index] = T0[*, hoisted_index * T0.stride];
@@ -378,24 +385,30 @@ TEST_F(ScalarHoistTest, ARange) {
 // Codegen generated code
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
-  i3 = i1 - i0;
+  i3 = -i0;
   int64_t i4;
-  i4 = abs(i3);
+  i4 = i1 + i3;
   int64_t i5;
-  i5 = abs(i2);
+  i5 = abs(i4);
   int64_t i6;
-  i6 = ceilDiv(i4, i5);
+  i6 = abs(i2);
   nvfuser_index_t i7;
-  i7 = __to_index(i6);
+  i7 = __to_index((ceilDiv(abs((i1 - i0)), i6)));
   int64_t i8;
   i8 = __to_int64(i7);
+  int64_t i9;
+  i9 = ceilDiv(i5, i6);
+  nvfuser_index_t i10;
+  i10 = __to_index(i9);
+  int64_t i11;
+  i11 = __to_int64(i10);
   #pragma unroll 1
-  for(nvfuser_index_t i9 = 0LL; i9 < i7; ++i9) {
-    T0[i9] = (i0 + (i2 * i9));
+  for(nvfuser_index_t i12 = 0LL; i12 < i7; ++i12) {
+    T0[i12] = (i0 + (i2 * i12));
   }
   #pragma unroll 1
-  for(nvfuser_index_t i10 = 0LL; i10 < i7; ++i10) {
-    T1[i10] = i8;
+  for(nvfuser_index_t i13 = 0LL; i13 < i7; ++i13) {
+    T1[i13] = i11;
   }
 }
 )";

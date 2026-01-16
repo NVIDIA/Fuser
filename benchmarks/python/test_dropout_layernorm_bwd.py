@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -62,8 +62,7 @@ def dropout_layernorm_bwd_fusion(
     T11 = fd.ops.mul(T9, S10)
     T12 = fd.ops.add(T7, T11)
 
-    V15 = fd.define_vector([T6.size(0), 1], dtype=DataType.Int)
-    T16 = fd.ops.broadcast_in_dim(T2, shape=V15, broadcast_dims=[0])
+    T16 = fd.ops.broadcast_in_dim(T2, shape=[T6.size(0), 1], broadcast_dims=[0])
     V19 = T6.shape()
     T20 = fd.ops.broadcast_in_dim(T16, shape=V19, broadcast_dims=[0, 1])
     T21 = fd.ops.sub(T12, T20)
@@ -79,10 +78,10 @@ def dropout_layernorm_bwd_fusion(
     T41 = fd.ops.mul(T37, T25)
     T42 = fd.ops.mul(T37, T21)
     T43 = fd.ops.sum(T42, dims=[1], keepdim=False, dtype=DataType.Null)
-    T47 = fd.ops.broadcast_in_dim(T43, shape=V15, broadcast_dims=[0])
+    T47 = fd.ops.broadcast_in_dim(T43, shape=[T6.size(0), 1], broadcast_dims=[0])
     T48 = fd.ops.neg(T41)
     T49 = fd.ops.sum(T48, dims=[1], keepdim=False, dtype=DataType.Null)
-    T53 = fd.ops.broadcast_in_dim(T49, shape=V15, broadcast_dims=[0])
+    T53 = fd.ops.broadcast_in_dim(T49, shape=[T6.size(0), 1], broadcast_dims=[0])
     S54 = fd.define_scalar(-0.500000, dtype=DataType.Double)
     T55 = fd.ops.mul(S54, T47)
     S56 = fd.define_scalar(3.00000, dtype=DataType.Double)
@@ -90,9 +89,9 @@ def dropout_layernorm_bwd_fusion(
     T58 = fd.ops.mul(T55, T57)
     T61 = fd.ops.sum(T53, dims=[1], keepdim=False, dtype=DataType.Null)
     T62 = fd.ops.sum(T58, dims=[1], keepdim=False, dtype=DataType.Null)
-    T66 = fd.ops.broadcast_in_dim(T62, shape=V15, broadcast_dims=[0])
+    T66 = fd.ops.broadcast_in_dim(T62, shape=[T6.size(0), 1], broadcast_dims=[0])
     T70 = fd.ops.broadcast_in_dim(T66, shape=V19, broadcast_dims=[0, 1])
-    T74 = fd.ops.broadcast_in_dim(T2, shape=V15, broadcast_dims=[0])
+    T74 = fd.ops.broadcast_in_dim(T2, shape=[T6.size(0), 1], broadcast_dims=[0])
     T78 = fd.ops.broadcast_in_dim(T74, shape=V19, broadcast_dims=[0, 1])
     S79 = fd.define_scalar(2.00000, dtype=DataType.Double)
     T80 = fd.ops.mul(S79, T70)
@@ -100,7 +99,7 @@ def dropout_layernorm_bwd_fusion(
     T82 = fd.ops.mul(T80, T81)
     S84 = fd.ops.reciprocal(T6.size(1))
     T85 = fd.ops.mul(T82, S84)
-    T89 = fd.ops.broadcast_in_dim(T61, shape=V15, broadcast_dims=[0])
+    T89 = fd.ops.broadcast_in_dim(T61, shape=[T6.size(0), 1], broadcast_dims=[0])
     T93 = fd.ops.broadcast_in_dim(T89, shape=V19, broadcast_dims=[0, 1])
     T95 = fd.ops.mul(S84, T93)
     T96 = fd.ops.add(T85, T95)
@@ -195,6 +194,8 @@ def test_dropout_layernorm_bwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_outer_persistent
+@pytest.mark.inner_persistent
 def test_dropout_layernorm_bwd_baseline_benchmark(
     benchmark,
     size: tuple,

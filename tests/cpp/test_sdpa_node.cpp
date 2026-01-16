@@ -5,23 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <multidevice/device_mesh.h>
-#include <ops/all_ops.h>
-#include <ops/utils.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "multidevice/device_mesh.h"
+#include "ops/all_ops.h"
+#include "ops/utils.h"
+#include "optimization_pass.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "preseg_passes/move_split_cat.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
-
-using SDPATest = NVFuserTest;
 
 constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 
@@ -46,8 +44,12 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor>;
+
+using MetaSdpaOut = std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>;
+
 auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
-                                 AtenSdpaOut aten_out) {
+                                 AtenSdpaOut aten_out,
+                                 MetaSdpaOut aten_out_meta) {
   auto
       [attn,
        log_sumexp,
@@ -64,6 +66,17 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
   // garbage values for this case, so we skip validating those values.
   NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
   NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
+
+  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] =
+      aten_out_meta;
+  EXPECT_EQ(attn.sizes(), attn_meta.sizes());
+  EXPECT_EQ(log_sumexp.sizes(), log_sumexp_meta.sizes());
+  EXPECT_EQ(attn.strides(), attn_meta.strides());
+  EXPECT_EQ(log_sumexp.strides(), log_sumexp_meta.strides());
+  EXPECT_EQ(philox_seed.sizes(), philox_seed_meta.sizes());
+  EXPECT_EQ(philox_offset.sizes(), philox_offset_meta.sizes());
+  EXPECT_EQ(philox_seed.strides(), philox_seed_meta.strides());
+  EXPECT_EQ(philox_offset.strides(), philox_offset_meta.strides());
 };
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
@@ -214,6 +227,8 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
   }
 }
 
+using SDPATest = NVFuserTest;
+
 TEST_F(SDPATest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
@@ -234,6 +249,8 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -258,7 +275,19 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, aten_out);
+
+  ExpressionEvaluator ee;
+  ee.bind(executor_cache.fusion()->inputs().at(0), q.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(1), k.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(2), v.to(at::kMeta));
+  auto a = ee.evaluate(executor_cache.fusion()->outputs().at(0));
+  MetaSdpaOut aten_out_meta = {
+      ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
+  };
+  validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
 TEST_F(SDPATest, NonCausalAttnSymbolic) {
@@ -281,6 +310,8 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -305,7 +336,18 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, aten_out);
+
+  ExpressionEvaluator ee;
+  ee.bind(executor_cache.fusion()->inputs().at(0), q.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(1), k.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(2), v.to(at::kMeta));
+  MetaSdpaOut aten_out_meta = {
+      ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
+  };
+  validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
 TEST_F(SDPATest, CausalAttn) {
@@ -328,6 +370,8 @@ TEST_F(SDPATest, CausalAttn) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -351,7 +395,18 @@ TEST_F(SDPATest, CausalAttn) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs({q, k, v});
-  validateSdpaFwdOutputs(nvf_out, aten_out);
+
+  ExpressionEvaluator ee;
+  ee.bind(executor_cache.fusion()->inputs().at(0), q.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(1), k.to(at::kMeta));
+  ee.bind(executor_cache.fusion()->inputs().at(2), v.to(at::kMeta));
+  MetaSdpaOut aten_out_meta = {
+      ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
+  };
+  validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
 TEST_F(SDPATest, PairwiseLogicalDomainMap) {
@@ -374,6 +429,8 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/IrBuilder::create<Val>(1e-3));
@@ -519,6 +576,33 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
           philox_offset,
           /*scale=*/scale);
 
+  // Meta-device shape/stride validation for backward outputs
+  {
+    ExpressionEvaluator ee;
+    ee.bind(executor_cache.fusion()->inputs().at(0), grad_out.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(1), q.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    // Bind RNG state for meta evaluation to unlock node evaluate
+    ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
+    ee.bind(
+        executor_cache.fusion()->inputs().at(7), philox_offset.to(at::kMeta));
+    auto grad_query_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
+    auto grad_key_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>();
+    auto grad_value_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>();
+    EXPECT_EQ(ref_grad_query.sizes(), grad_query_meta.sizes());
+    EXPECT_EQ(ref_grad_key.sizes(), grad_key_meta.sizes());
+    EXPECT_EQ(ref_grad_value.sizes(), grad_value_meta.sizes());
+    EXPECT_EQ(ref_grad_query.strides(), grad_query_meta.strides());
+    EXPECT_EQ(ref_grad_key.strides(), grad_key_meta.strides());
+    EXPECT_EQ(ref_grad_value.strides(), grad_value_meta.strides());
+  }
+
   testValidate(
       executor_cache.fusion(),
       out,
@@ -627,6 +711,33 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           philox_offset,
           /*scale=*/scale);
 
+  // Meta-device shape/stride validation for backward outputs
+  {
+    ExpressionEvaluator ee;
+    ee.bind(executor_cache.fusion()->inputs().at(0), grad_out.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(1), q.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    // Bind RNG state for meta evaluation to unlock node evaluate
+    ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
+    ee.bind(
+        executor_cache.fusion()->inputs().at(7), philox_offset.to(at::kMeta));
+    auto grad_query_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(0)).as<at::Tensor>();
+    auto grad_key_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(1)).as<at::Tensor>();
+    auto grad_value_meta =
+        ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>();
+    EXPECT_EQ(ref_grad_query.sizes(), grad_query_meta.sizes());
+    EXPECT_EQ(ref_grad_key.sizes(), grad_key_meta.sizes());
+    EXPECT_EQ(ref_grad_value.sizes(), grad_value_meta.sizes());
+    EXPECT_EQ(ref_grad_query.strides(), grad_query_meta.strides());
+    EXPECT_EQ(ref_grad_key.strides(), grad_key_meta.strides());
+    EXPECT_EQ(ref_grad_value.strides(), grad_value_meta.strides());
+  }
+
   testValidate(
       executor_cache.fusion(),
       out,
@@ -659,6 +770,8 @@ TEST_F(SDPATest, AttnProgram) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -711,6 +824,8 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -798,6 +913,8 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -828,7 +945,25 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs(
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
-  validateSdpaFwdOutputs(nvf_out, aten_out);
+
+  ExpressionEvaluator ee;
+  ee.bind(
+      executor_cache.fusion()->inputs().at(0), q.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(1), k.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(2), v.to(at::kMeta).unsqueeze(0));
+  MetaSdpaOut aten_out_meta = {
+      ee.evaluate(executor_cache.fusion()->outputs().at(0))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
+  };
+  validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
@@ -986,6 +1121,8 @@ TEST_F(SDPATest, ComputeAt) {
       tvq,
       tvk,
       tvv,
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       /*scale=*/nullptr);
@@ -996,8 +1133,8 @@ TEST_F(SDPATest, ComputeAt) {
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(
+      fusion.get());
 
   checkSdpaFwdMapping(fusion.get(), output.output->definition());
 
@@ -1019,7 +1156,25 @@ TEST_F(SDPATest, ComputeAt) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto nvf_out = executor_cache.runFusionWithInputs(
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
-  validateSdpaFwdOutputs(nvf_out, aten_out);
+
+  ExpressionEvaluator ee;
+  ee.bind(
+      executor_cache.fusion()->inputs().at(0), q.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(1), k.to(at::kMeta).unsqueeze(0));
+  ee.bind(
+      executor_cache.fusion()->inputs().at(2), v.to(at::kMeta).unsqueeze(0));
+  MetaSdpaOut aten_out_meta = {
+      ee.evaluate(executor_cache.fusion()->outputs().at(0))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(1))
+          .as<at::Tensor>()
+          .squeeze(0),
+      ee.evaluate(executor_cache.fusion()->outputs().at(2)).as<at::Tensor>(),
+      ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
+  };
+  validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
 } // namespace nvfuser

@@ -70,19 +70,21 @@ class TensorIndexer {
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index = {},
+      bool ld_st_matrix = false) const;
 
   // Get the index of a loop domain.
-  Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
-      const;
+  Val* getLoopIndex(
+      IterDomain* loop_id,
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Get the index of the given ID groups
   std::vector<Val*> getIndexFor(
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& loops,
+      const std::vector<kir::ForLoop*>& loops,
       bool use_magic_zero = false) const;
 
   // Get the contig indices of the given ID groups with their strides
@@ -91,8 +93,9 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
-      const std::vector<ForLoop*>& loops,
-      const std::unordered_map<IterDomain*, Val*>& override_index) const;
+      const std::vector<kir::ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index,
+      bool ld_st_matrix = false) const;
 
   // Grab all for-loops whose indices are actually used in the given
   // index vals. Note that IndexingInfo.loop_group_dependencies can be
@@ -101,13 +104,13 @@ class TensorIndexer {
   // used in an index Val. For example, unswitch predicates replace loop indices
   // with (N - 1), where N is the extent of an unswitched ID. This
   // function only grabs for-loops whose indices are indeed used.
-  std::vector<ForLoop*> getUsedForLoopsOf(
+  std::vector<kir::ForLoop*> getUsedForLoopsOf(
       const std::vector<Val*>& indices,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Add "pragma unroll" to for-loops whose loop indices are used for
   // the given indexing. This is meant to be used for register tensors.
-  void ensureStaticIndexing(const std::vector<ForLoop*>& loops, Val* index)
+  void ensureStaticIndexing(const std::vector<kir::ForLoop*>& loops, Val* index)
       const;
 
   // The AlmostExact graph is used since size-1 splits and merges
@@ -135,8 +138,8 @@ class TensorIndexer {
   std::vector<PredicateInfo> getPredicates(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& for_loops,
-      ForLoop* unswitched_loop = nullptr) const;
+      const std::vector<kir::ForLoop*>& for_loops,
+      kir::ForLoop* unswitched_loop = nullptr) const;
 
   // Get the indexing traversal path for indexing a given list of IDs
   // for a given expr
@@ -156,7 +159,7 @@ class TensorIndexer {
   // TODO: Revisit if this is still necessary.
   std::vector<Val*> protectIndicesWithMagicZero(
       const std::vector<Val*>& indices,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Check if a given fusion can be indexed with
   // TensorIndexer. Returns fals if the fusion uses features that have
@@ -176,7 +179,7 @@ class TensorIndexer {
   IndexingInfo computeIndex(
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& for_loops,
+      const std::vector<kir::ForLoop*>& for_loops,
       bool use_alternate_loop_domain = false) const;
 
   // Propagate the loop indices of a given list of loop domains to the
@@ -184,7 +187,7 @@ class TensorIndexer {
   // index map, which is built for the Loop graph.
   std::unordered_map<ValGroup, Val*> getInitialIndexMap(
       const std::vector<IterDomain*>& loop_domains,
-      const std::vector<ForLoop*>& for_loops) const;
+      const std::vector<kir::ForLoop*>& for_loops) const;
 
   // Get the loop domains of a given expr. Currently, they're always
   // the loop domains of a consumer tensor, but in the future this
@@ -218,7 +221,7 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& loop_domains,
-      const std::vector<ForLoop*>& for_loops,
+      const std::vector<kir::ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
   // Grab all non-divisible splits whose input IDs need to be
@@ -233,7 +236,7 @@ class TensorIndexer {
   // path need another traversal.
   void updateIndexInfoForNonDivisibleSplits(
       const Expr* expr,
-      const std::vector<ForLoop*>& for_loops,
+      const std::vector<kir::ForLoop*>& for_loops,
       const ValGroups& non_divisible_ids,
       IndexingInfo& index_info) const;
 

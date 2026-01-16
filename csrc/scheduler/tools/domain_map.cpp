@@ -58,6 +58,14 @@ bool canIgnoreIndexedInputDomainID(
                ->isBroadcast()) {
         return false;
       }
+    } else if (
+        auto layout = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+      // since we don't index into offsets, scheduler doesn't need to cover
+      // offset TVs ID.
+      if (input_tv == layout->inputOffsets() ||
+          input_tv == layout->outputOffsets()) {
+        continue;
+      }
     } else {
       // If the input TV is used by any other ops
       return false;
@@ -349,6 +357,10 @@ void DomainMap::eraseifInputMappedThroughRootDomainAndIndexing(
       for (auto producer_of_producer_it = indexed_id_multimap_range.first;
            producer_of_producer_it != indexed_id_multimap_range.second;
            ++producer_of_producer_it) {
+        if (producer_sets.has(producer_of_producer_it->second)) {
+          // Prevent infinite recursion
+          continue;
+        }
         current_sets.pushBack(producer_of_producer_it->second);
       }
     }
@@ -397,7 +409,18 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(fusion_->outputs())) {
     // no need to check for self.
-    if (output_tv == tv) {
+    // If this is the block scaling factor output of a BlockQuantizationOp,
+    // then we skip the check as we only consider the quantized output of the
+    // BlockQuantizationOp when looking for a reference tensor. This is because
+    // the two outputs of block quantization op are not symmetrical and the
+    // logical domains of the scaling factor is not completely mapped.
+    if (output_tv == tv ||
+        (output_tv->definition() &&
+         output_tv->definition()->isA<BlockQuantizationOp>() &&
+         output_tv ==
+             output_tv->definition()
+                 ->as<BlockQuantizationOp>()
+                 ->blockScales())) {
       continue;
     }
     if (!areAllTargetIdsCoveredBy(output_tv, tv)) {

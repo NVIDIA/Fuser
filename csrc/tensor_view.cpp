@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ranges>
+
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
@@ -13,6 +15,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/composite_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/iostream.h>
@@ -46,6 +49,18 @@ TensorView::TensorView(
 
 NVFUSER_DEFINE_CLONE(TensorView)
 
+bool TensorView::sameDefinition(const Val* other) const {
+  // Val::sameDefinition checks nullptr, dtype, vtype, and definition.
+  if (!Val::sameDefinition(other)) {
+    return false;
+  }
+  const TensorView* other_tv = other->as<TensorView>();
+  if (isCpuScalar() != other_tv->isCpuScalar()) {
+    return false;
+  }
+  return domain()->sameDefinition(other_tv->domain());
+}
+
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << ir_utils::varName(this);
@@ -61,6 +76,9 @@ std::string TensorView::toString(int indent_size) const {
       break;
     case MemoryType::Tensor:
       ss << "_t";
+      break;
+    case MemoryType::Symmetric:
+      ss << "_sym";
       break;
     default:
       NVF_THROW("Unknown tensor memory type.");
@@ -159,15 +177,28 @@ void TensorView::inlineAt(
 
   pos = nvfuser::wrapDim(pos, nDims() + 1);
 
+  const auto requested_pos = pos;
+
   int64_t max_inline_pos = (int64_t)calc->getMaxPosAll(this, best_effort);
 
   if (best_effort) {
     pos = std::min<int64_t>(max_inline_pos, pos);
   }
 
+  const auto before_broadcast_adjustment = pos;
+
   // hoist inner most broadcast
   while (pos > 0 && axis(pos - 1)->isBroadcast()) {
     pos--;
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::Inlining)) {
+    debug() << "Inlining position of " << toString() << ": " << pos
+            << " (requested: " << requested_pos
+            << ", best effort: " << (best_effort ? "yes" : "no")
+            << ", max inline pos: " << max_inline_pos
+            << ", without broadcast adjustment: " << before_broadcast_adjustment
+            << ")\n";
   }
 
   NVF_ERROR(
@@ -229,6 +260,12 @@ void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
               this, producer, producer->getComputeWithPosition()));
     }
   }
+}
+
+void TensorView::clearComputePosition() {
+  compute_at_pos_ = 0;
+  clearComputeWith();
+  max_producer_pos_ = 0;
 }
 
 TensorView* TensorView::computeAt(
@@ -525,6 +562,51 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+// Partition "axis" into component and ragged dimensions based on
+// extents. Follow the pattern of TensorView::split.
+TensorView* TensorView::partition(int64_t axis, TensorView* extents) {
+  NVF_ERROR(
+      nDims() > 0,
+      "Tried to do partition on a 0-dim TensorView. ",
+      "Tensor: ",
+      toString());
+
+  axis = wrapDim(axis);
+
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
+      "Cannot partition axis within compute at position. Axis = ",
+      axis,
+      " computePosition = ",
+      getMaxComputePosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
+      "Cannot partition axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaybeMaxProducerPosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Partitioning an axis (",
+      this->axis(axis)->toString(),
+      ") of non-Serial parallel type is not supported at this time."
+      " Parallelization strategy must be set after calling partition: ",
+      toString());
+
+  if (extents->dtype() != DataType::Index) {
+    extents = castOp(DataType::Index, extents);
+  }
+
+  domain()->partition(axis, extents);
+  return this;
+}
+
 TensorView* TensorView::resize(
     int64_t axis,
     Val* left_expansion,
@@ -687,84 +769,6 @@ TensorView* TensorView::swizzle(
   return this;
 }
 
-TensorView* TensorView::swizzle(
-    Swizzle2DType swizzle_type,
-    int64_t x,
-    int64_t y,
-    SwizzleMode swizzle_mode) {
-  has_swizzle_op_ = true;
-  x = wrapDim(x);
-  y = wrapDim(y);
-
-  NVF_CHECK(
-      !(getMemoryType() == MemoryType::Global &&
-        swizzle_mode == SwizzleMode::Data),
-      "Data swizzle on global memory is not supported.");
-
-  NVF_CHECK(
-      x >= getMaxComputePosition(),
-      "Cannot swizzle axes within compute at position. Axis ",
-      x,
-      " is within computePosition = ",
-      getMaxComputePosition());
-
-  NVF_CHECK(
-      y >= getMaybeMaxProducerPosition(),
-      "Cannot swizzle axes within max producer position. Axis ",
-      y,
-      " is within maxProducerPosition = ",
-      getMaybeMaxProducerPosition());
-
-  // Disable unsupported use cases at the current step.
-  //  Currently do not support reducing or broadcasting
-  //   swizzled dimensions.
-  auto all_inputs = InputsOf::outputs({axis(x), axis(y)});
-  for (auto id : ir_utils::filterByType<IterDomain>(all_inputs)) {
-    NVF_ERROR(
-        !id->isBroadcast() && !id->isReduction(),
-        "Unsupported use case for swizzle.");
-  }
-
-  // Also checking that the scheduler is not trying to
-  //  compose swizzles, which is not yet supported either.
-  auto all_exprs = DependencyCheck::getAllValsBetween(
-      {all_inputs.begin(), all_inputs.end()}, {axis(x), axis(y)});
-  for (auto expr : all_exprs) {
-    NVF_ERROR(
-        !expr->isA<Swizzle2D>(), "Composing swizzles is not yet supported");
-  }
-
-  // Check swizzle specific constraints on the input axes:
-  if (swizzle_type != Swizzle2DType::ZShape) {
-    auto x_id = axis(x);
-    auto y_id = axis(y);
-
-    NVF_ERROR(
-        x_id->extent()->isConstInt() && y_id->extent()->isConstInt(),
-        "Only constant iterdomains supported on given swizzle type");
-
-    int64_t in_x_size = x_id->extent()->evaluate().as<int64_t>();
-    int64_t in_y_size = y_id->extent()->evaluate().as<int64_t>();
-
-    // Check size constraints based on swizzle type
-    if (swizzle_type == Swizzle2DType::XOR ||
-        swizzle_type == Swizzle2DType::CyclicShift) {
-      NVF_ERROR(in_x_size == in_y_size, "Swizzle: equal dim iterdomains only");
-    }
-
-    if (swizzle_type == Swizzle2DType::XOR) {
-      // XOR swizzle only support power of 2 swizzle unit sizes:
-      bool is_pow_of_2 = in_x_size > 1 && ((in_x_size & (in_x_size - 1)) == 0);
-      NVF_ERROR(
-          is_pow_of_2, "XOR swizzle only support power of 2 domain sizes.");
-    }
-  }
-
-  domain()->swizzle(swizzle_type, x, y, swizzle_mode);
-
-  return this;
-}
-
 TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
   NVF_ERROR(
       !container()->isA<kir::Kernel>(),
@@ -786,7 +790,8 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
                MmaOp,
                MatmulOp,
                LinearOp,
-               GroupedMmaOp>()),
+               GroupedMmaOp,
+               ScaledMmaOp>()),
       "Error rfactoring ",
       this,
       " because its definition is not a reduction.");
@@ -868,6 +873,45 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
         IrBuilder::create<Val>(0.0, producer->dtype()),
         consumer,
         producer);
+  } else if (auto scaled_mma = dynamic_cast<ScaledMmaOp*>(definition())) {
+    // I'm not sure how we should handle block scale yet.
+    NVF_CHECK(
+        scaled_mma->outScale() == nullptr && scaled_mma->outGamma() == nullptr,
+        "not implemented yet");
+    IrBuilder::create<ScaledMmaOp>(
+        producer,
+        scaled_mma->outScale(),
+        scaled_mma->outGamma(),
+        scaled_mma->matrix1(),
+        scaled_mma->matrix2(),
+        scaled_mma->scale1(),
+        scaled_mma->scale2(),
+        scaled_mma->alpha(),
+        scaled_mma->bias(),
+        scaled_mma->beta());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
+  } else if (
+      auto cutlass_grouped_mma =
+          dynamic_cast<CutlassNvfp4GroupedMmaOp*>(definition())) {
+    IrBuilder::create<CutlassNvfp4GroupedMmaOp>(
+        producer,
+        cutlass_grouped_mma->matrix1(),
+        cutlass_grouped_mma->matrix2(),
+        cutlass_grouped_mma->scale1(),
+        cutlass_grouped_mma->scale2(),
+        cutlass_grouped_mma->alpha(),
+        cutlass_grouped_mma->problemSizes(),
+        cutlass_grouped_mma->expertOffsets(),
+        cutlass_grouped_mma->scalingFactorOffsets());
+    IrBuilder::create<ReductionOp>(
+        BinaryOpType::Add,
+        IrBuilder::create<Val>(0.0, producer->dtype()),
+        consumer,
+        producer);
   } else {
     NVF_THROW("RFactor: unsupported tensor definition: ", definition());
   }
@@ -885,32 +929,8 @@ TensorView* TensorView::multiOutputRFactorHelper(
   // scheduled the same but the user end cannot guarantee that. In order to
   // guarantee that the rFactor is defined meaningfully the scheduling of the
   // output TV that got the rfactor call is force replayed towards the other two
-
   if (this != tv) {
-    auto logical = tv->getLogicalDomain();
-    auto this_logical = getLogicalDomain();
-
-    // construct a trivial logical domain map
-    std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : arange(logical.size())) {
-      id_map[this_logical[i]] = logical[i];
-    }
-
-    // replay on the target tv
-    ReplayTransformations replay(getLoopDomain(), id_map);
-
-    // construct the new tensor domain
-    std::vector<IterDomain*> new_id;
-    for (auto id : getLoopDomain()) {
-      NVF_ERROR(
-          replay.getReplay().count(id), "Multi-output reduction replay failed");
-      new_id.push_back(replay.getReplay().at(id));
-    }
-
-    std::vector<std::optional<bool>> new_contig(tv->domain()->contiguity());
-    // replace tensor domain of target tv
-    tv->setDomain(IrBuilder::create<TensorDomain>(
-        tv->getLogicalDomain(), new_id, new_contig));
+    TransformReplay::selfReplay(this->domain(), tv->domain());
   }
 
   // Split tensor view into 2 parts
@@ -974,7 +994,7 @@ std::vector<TensorView*> TensorView::rFactor(
   std::vector<TensorView*> rf_tvs(tvs.size());
 
   // Make sure this gets rfactored last so everybody gets
-  //  replayed correctly
+  // replayed correctly
   for (const auto i : arange(tvs.size())) {
     if (this != tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
@@ -1070,27 +1090,18 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // This domain will be the consumer which needs a new domain, so replace the
   // producers domain with this domain.
 
-  TensorView* producer = IrBuilder::createInContainer<TensorView>(
+  auto* producer = IrBuilder::createInContainer<TensorView>(
       container(),
-      IrBuilder::createInContainer<TensorDomain>(
-          container(),
-          getRootDomain(),
-          getLogicalDomain(),
-          getAllocationDomain(),
-          getLoopDomain(),
-          getContiguity()),
+      IrBuilder::createInContainer<TensorDomain>(container(), domain()),
       getDataType().value());
 
   // Set domain of consumer
   TensorView* consumer = this;
 
-  size_t i = 0;
-  auto no_reduction_logical_domain =
-      TensorDomain::noReductions(getLogicalDomain());
-  std::vector<IterDomain*> new_logical_domain(
-      no_reduction_logical_domain.size());
-  for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+  std::vector<IterDomain*> new_logical_domain;
+  new_logical_domain.reserve(getLogicalDomain().size());
+  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
+    new_logical_domain.push_back(dom->cloneWithoutRFactor());
   }
 
   // Warning: allocation domain is temporarily discarded. It will be recovered
@@ -1117,10 +1128,22 @@ TensorView* TensorView::cacheBefore(LoadStoreOpType op_type) {
   // definition_ is no longer valid
   // setDefinition(nullptr);
 
-  auto replayed_consumer_pair = TransformReplay::replayCasP(
-      consumer, producer, -1, TransformReplayOptions().replayAllocation());
+  // We do not want to reproduce the loop domain if it's for
+  // scatter. Recall that the loop domain of the scatter op is derived
+  // from the logical domain of the scatter index tensor. Here, the
+  // consumer tensor needs to copy the whole producer tensor, so the
+  // loop domain must be based on the logical domain.
+  if (!producer->definition()->isA<ScatterOp>()) {
+    auto replayed_consumer_pair = TransformReplay::replayCasP(
+        consumer, producer, -1, TransformReplayOptions().replayAllocation());
 
-  consumer->setDomain(replayed_consumer_pair.first);
+    consumer->setDomain(replayed_consumer_pair.first);
+  } else if (producer->hasAllocation()) {
+    consumer->setAllocationDomain(
+        ir_utils::propagateScatterAllocationDomain(
+            producer, consumer->getLogicalDomain()),
+        true);
+  }
 
   if (consumer->hasDeviceMesh()) {
     producer->setDeviceMesh(consumer->getDeviceMesh());
@@ -1153,9 +1176,10 @@ TensorView* TensorView::cacheFork() {
       "computeAt");
 
   // This domain will be the producer, so create the consumer
-  auto logical_domain = TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> logical_domain =
+      TensorDomain::noReductions(getLogicalDomain());
 
-  TensorView* new_output = IrBuilder::createInContainer<TensorView>(
+  auto* new_output = IrBuilder::createInContainer<TensorView>(
       container(),
       IrBuilder::createInContainer<TensorDomain>(
           container(),
@@ -1229,15 +1253,6 @@ TensorView* TensorView::cacheAfter(
       "Caching computed-at tensors is not allowed. Apply caching before "
       "computeAt.");
 
-  // disallow cache on operation where we require data remain in global memory.
-  for (auto use : cached_uses) {
-    NVF_ERROR(
-        !(use->isOneOf<SliceOp, SelectOp, PadOp>()) &&
-            !(use->isA<IndexSelectOp>() && use->input(0) == this),
-        "Right now, caching tensors that are input to the select/slice/pad ops "
-        "are not allowed as they must be in global memory.");
-  }
-
   // It also did additional transformation when this tensor is an
   // input and the outputs of its consumers have computeAt. Make sure
   // we no longer rely on that behavior.
@@ -1256,13 +1271,10 @@ TensorView* TensorView::cacheAfter(
   // Create Consumer Domain
   // Keep Broadcast Axis (Permanent)
   // Remove Reduction Axis
-  size_t i = 0;
-  auto no_reduction_logical_domain =
-      TensorDomain::noReductions(getLogicalDomain());
-  std::vector<IterDomain*> new_logical_domain(
-      no_reduction_logical_domain.size());
-  for (const auto& dom : no_reduction_logical_domain) {
-    new_logical_domain[i++] = dom->cloneWithoutRFactor();
+  std::vector<IterDomain*> new_logical_domain;
+  new_logical_domain.reserve(getLogicalDomain().size());
+  for (IterDomain* dom : getLogicalDomain() | TensorDomain::kNoReductions) {
+    new_logical_domain.push_back(dom->cloneWithoutRFactor());
   }
 
   // This domain will be the producer, so create the consumer
@@ -1308,7 +1320,7 @@ void TensorView::setMemoryType(MemoryType mt) {
   memory_type_ = mt;
   if (isFusionInput() || isFusionOutput()) {
     NVF_ERROR(
-        mt == MemoryType::Global,
+        mt == MemoryType::Global || mt == MemoryType::Symmetric,
         "Tried to set an input or output to the fusion to a non-global memory "
         "type.");
   }
@@ -1318,50 +1330,39 @@ void TensorView::clearReductionIterDomains() {
   NVF_ERROR(
       !domain()->hasRoot(),
       "should not call clearReductionIterDomains on rfactor tv");
+  const std::vector<std::optional<bool>>& contiguity = getContiguity();
+  const std::vector<IterDomain*>& allocation = getMaybeAllocationDomain();
 
-  NVF_ERROR(
-      getLoopDomain() == getLogicalDomain(),
-      "should not call clearReductionIterDomains on already transformed "
-      "TensorDomains");
+  std::vector<IterDomain*> new_logical =
+      TensorDomain::noReductions(getLogicalDomain());
+  std::vector<IterDomain*> new_loop =
+      TensorDomain::noReductions(getLoopDomain());
+  std::vector<IterDomain*> new_allocation =
+      TensorDomain::noReductions(allocation);
 
-  const std::vector<IterDomain*>& logical = getLogicalDomain();
-  const std::vector<IterDomain*>& alloc = getMaybeAllocationDomain();
+  std::vector<std::optional<bool>> new_contiguity;
+  new_contiguity.reserve(contiguity.size());
 
-  NVF_ERROR(
-      std::is_permutation(
-          logical.begin(), logical.end(), alloc.begin(), alloc.end()),
-      "should not call clearReductionIterDomains on transformed allocation "
-      "domain");
-
-  std::vector<IterDomain*> new_logical;
-  std::vector<IterDomain*> new_alloc;
-  std::vector<std::optional<bool>> new_contig;
-  for (const auto i : arange(logical.size())) {
-    auto root_i = logical.at(i);
-    if (!root_i->isReduction()) {
-      new_logical.push_back(root_i);
-    }
-    // contig flag is specified for on allocation domain
-    auto alloc_i = alloc.at(i);
-    if (!alloc_i->isReduction()) {
-      new_alloc.push_back(alloc_i);
-      new_contig.push_back(domain()->contiguity().at(i));
+  // Fill new_contig, ignoring reduction ids
+  for (auto&& [alloc_id, contig_value] : zip(allocation, contiguity)) {
+    if (!alloc_id->isReduction()) {
+      new_contiguity.push_back(contig_value);
     }
   }
 
-  if (new_alloc == new_logical) {
+  if (new_allocation == new_logical) {
     // if new allocation domain is identical to new logical domain, we don't
     // need to specify allocation domain
     setDomain(IrBuilder::createInContainer<TensorDomain>(
-        container(), new_logical, new_contig));
+        container(), new_logical, new_loop, new_contiguity));
   } else {
     setDomain(IrBuilder::createInContainer<TensorDomain>(
         container(),
         std::vector<IterDomain*>(),
         new_logical,
-        new_alloc,
-        new_logical,
-        new_contig));
+        new_allocation,
+        new_loop,
+        new_contiguity));
   }
 }
 

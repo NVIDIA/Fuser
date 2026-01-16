@@ -5,31 +5,31 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <ATen/cuda/Exceptions.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/consecutive_cast.h>
-#include <preseg_passes/move_gather.h>
-#include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
-#include <preseg_passes/translate_repeat_to_expand.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <torch/torch.h>
-
-#include <ATen/cuda/CUDAContext.h>
-#include <ATen/cuda/Exceptions.h>
 #include <c10/cuda/CUDAStream.h>
+
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/consecutive_cast.h"
+#include "preseg_passes/move_gather.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h"
+#include "preseg_passes/translate_repeat_to_expand.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser::preseg_passes {
 
 using testing::ElementsAre;
+using testing::UnorderedElementsAre;
 
 using PresegTest = NVFuserTest;
 
@@ -1245,7 +1245,7 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
         2);
     auto expr_iter =
         std::find_if(new_exprs.begin(), new_exprs.end(), [](Expr* new_expr) {
-          return new_expr->isA<ViewOp>();
+          return new_expr->isA<ReshapeOp>();
         });
     EXPECT_TRUE(
         expr_iter != new_exprs.end() &&
@@ -1505,11 +1505,13 @@ TEST_P(TranslateNoReductionMatmulTest, Test) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
 
-  // Should be scheduled as a pointwise kernel
+  // Should be scheduled as a pointwise & expr-eval kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
-      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
+      UnorderedElementsAre(
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser::preseg_passes

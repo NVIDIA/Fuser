@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
-#include <device_lower/lower2device.h>
+#include <device_lower/analysis/fusion_info.h>
 #include <device_lower/pass/warp_reduce.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
@@ -74,9 +74,10 @@ class EliminateDeadBroadcastAndAllocate {
     findDeadTvs();
   }
 
-  void findLiveTvs(const std::vector<Expr*>& exprs) {
+  template <class ExprContainer>
+  void findLiveTvs(const ExprContainer& exprs) {
     for (auto expr : exprs) {
-      if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
+      if (auto for_loop = dynamic_cast<kir::ForLoop*>(expr)) {
         findLiveTvs(for_loop->body().exprs());
         continue;
       } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
@@ -193,7 +194,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  bool openLoopNestLevel(ForLoop* fl) {
+  bool openLoopNestLevel(kir::ForLoop* fl) {
     // circular buffering duplicates for-loops. Depending on the number of
     // iterations in for-loop and size of circular buffering pipeline, either
     // the main loop or epilogue loops can be trivial. In this case, we do not
@@ -219,7 +220,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     return true;
   }
 
-  void handle(ForLoop* for_loop) final {
+  void handle(kir::ForLoop* for_loop) final {
     // Keep track of visible reduction outputs
     bool open_nest_level = openLoopNestLevel(for_loop);
     if (open_nest_level) {
@@ -406,7 +407,9 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
       return false;
     }
 
-    if (!GpuLower::current()->getWarpPaddedParallelInfo().is_tidx_single_warp) {
+    if (!FusionInfoGuard::current()
+             ->paddedParallelDimensions()
+             .is_tidx_single_warp) {
       return false;
     }
 

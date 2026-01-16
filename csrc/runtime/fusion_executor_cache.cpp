@@ -42,6 +42,8 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
+FusionExecutorCache::~FusionExecutorCache() = default;
+
 KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
@@ -70,11 +72,12 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
 
   // Make sure the forced index type is indeed used
   if (forced_index_type.has_value()) {
-    NVF_ERROR(
-        kernel_runtime->getIndexType() == forced_index_type.value(),
+    NVF_ERROR_EQ(
+        kernel_runtime->getIndexType(),
+        forced_index_type.value(),
         "Enforcing index type of ",
         forced_index_type.value(),
-        " failed");
+        " failed.");
   }
 
   auto outputs = kernel_runtime->runWithInputs(args);
@@ -89,7 +92,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   KernelArgumentHolder unaliased_outputs;
   for (auto out_index : arange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
-    if (!fusion->getOutputAlias(out).hide_output) {
+    if (fusion->getOutputAlias(out).visibility == OutputVisibility::kVisible) {
       unaliased_outputs.push(outputs[out_index]);
     }
   }

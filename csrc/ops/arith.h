@@ -13,6 +13,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
+#include <ops/utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -96,7 +97,7 @@ NVF_API TensorView* binaryOp(
 // Return a new TensorView consistent with reducing `tv` on specified `axes`
 NVF_API TensorView* newForReduction(
     TensorView* tv,
-    const std::vector<unsigned int>& axes,
+    const std::vector<int64_t>& axes,
     DataType data_type = DataType::Null);
 
 // Perform a reduction operation on v1, initial value for reduction is init,
@@ -119,12 +120,6 @@ NVF_API TensorView* reductionOpRaw(
     TensorView* v1,
     bool keep_dim = false,
     DataType dtype = DataType::Null);
-
-struct ScaledTensorView {
-  TensorView* tv;
-  TensorView* block_scaling_factor = nullptr;
-  TensorView* global_scaling_factor = nullptr;
-};
 
 //! Auxiliary Struct holding result of
 //! a single welford op in ternsorview
@@ -152,10 +147,11 @@ struct WelfordResult {
 struct TopKResult {
  public:
   TensorView* values = nullptr; //!< The k largest/smallest values
-  TensorView* indices; //!< Indices of the values in the original tensor
+  TensorView* indices =
+      nullptr; //!< Indices of the values in the original tensor
 
-  //! Constructor ensuring both outputs come from the same TopK operation
-  explicit TopKResult(TensorView* in_values, TensorView* in_indices);
+  explicit TopKResult(TensorView* in_values, TensorView* in_indices)
+      : values(in_values), indices(in_indices) {}
 };
 
 //! Welford operator on specified axes. This is currently the only scan op with
@@ -172,7 +168,7 @@ NVF_API WelfordResult Welford(
 
 //! Create a raw WelfordOp. Don't convert size-1 or size-0 reduction into
 //! squeeze/full.
-WelfordResult WelfordRaw(
+NVF_API WelfordResult WelfordRaw(
     TensorView* tv,
     const std::vector<int64_t>& axes,
     TensorView* init_avg = nullptr,
@@ -592,10 +588,8 @@ NVF_API TensorView* ne(Val* v1, TensorView* v2);
 NVF_API TensorView* ne(TensorView* v1, TensorView* v2);
 
 // complex
-Val* complex(Val* v1, Val* v2);
-TensorView* complex(TensorView* v1, Val* v2);
-TensorView* complex(Val* v1, TensorView* v2);
-TensorView* complex(TensorView* v1, TensorView* v2);
+NVF_API Val* complex(Val* v1, Val* v2);
+NVF_API TensorView* complex(TensorView* v1, TensorView* v2);
 
 // REDUCTION OPERATIONS
 NVF_API TensorView* sum(
@@ -814,7 +808,11 @@ NVF_API TopKResult topk(
 //!   y[0] = x[0]
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
-//! If the dimension being scanned is an expanded broadcast, we throw an error.
+//! If the dimension being scanned is an expanded broadcast, we throw
+//! an error.
+//!
+//! Note that unlike reductions, low precision inputs are not
+//! automatically upcast to float, as that is the PyTorch convention.
 NVF_API TensorView* scan(
     TensorView* in_tv,
     int64_t dim,
@@ -828,5 +826,33 @@ NVF_API TensorView* prefixSum(TensorView* tv, int64_t dim);
 NVF_API inline TensorView* cumsum(TensorView* tv, int64_t dim) {
   return prefixSum(tv, dim);
 }
+
+struct BlockQuantizationResults {
+ public:
+  TensorView* quantized_tensor = nullptr;
+  TensorView* block_scales = nullptr;
+
+  explicit BlockQuantizationResults(
+      TensorView* in_quantized_tensor,
+      TensorView* in_block_scales)
+      : quantized_tensor(in_quantized_tensor), block_scales(in_block_scales) {}
+};
+
+// API for block quantization.
+// Currently We take FP32 or BF16/FP16 inputs and produce two outputs,
+// quantized ouptuts and block scales.
+// Quantized outputs can be nvFP4(DataType::Float4_e2m1fn) or mxFP8
+// (DataType::Float8_e4m3fn).
+// Block scales for nvFP4 is DataType::Float8_e4m3fn and
+// for mxFP8 is DataType::Float8_e8m0fnu.
+// We optionally take a block size as an input but currenlty just support 16 (32
+// for mxFP8). The flag swizzle_scales which generates swizzled block scales is
+// only supported when quantizing to nvFP4.
+NVF_API BlockQuantizationResults blockQuantize(
+    TensorView* input,
+    TensorView* global_scaling_factor = nullptr,
+    int64_t block_size = 16,
+    bool swizzle_scales = false,
+    DataType out_dtype = DataType::Float4_e2m1fn);
 
 } // namespace nvfuser

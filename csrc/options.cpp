@@ -106,6 +106,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"cuda_full", DebugDumpOption::CudaFull},
       {"cuda_kernel", DebugDumpOption::CudaKernel},
       {"cuda_to_file", DebugDumpOption::CudaToFile},
+      {"cutlass_compile", DebugDumpOption::CutlassCompile},
       {"draw_segmented_fusion", DebugDumpOption::FusionSegmentsDrawing},
       {"expr_simplify", DebugDumpOption::ExprSimplification},
       {"expr_sort", DebugDumpOption::ExprSort},
@@ -120,15 +121,15 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"fusion_ir_presched", DebugDumpOption::FusionIrPresched},
       {"fusion_ir_preseg", DebugDumpOption::FusionIrPreseg},
       {"global_zeroed_memory", DebugDumpOption::GlobalZeroedMemory},
-      {"host_ir_lowering_logging", DebugDumpOption::HostIrLoweringLogging},
+      {"host_ir_lowering", DebugDumpOption::HostIrLowering},
       {"host_ir", DebugDumpOption::HostIr},
       {"host_ir_jit", DebugDumpOption::HostIrJit},
       {"index_type", DebugDumpOption::IndexType},
       {"indexing_verbose", DebugDumpOption::IndexingVerbose},
+      {"inlining", DebugDumpOption::Inlining},
       {"kernel_args", DebugDumpOption::KernelArgs},
       {"kernel_ir", DebugDumpOption::KernelIr},
       {"launch_param", DebugDumpOption::LaunchParam},
-      {"loop_rotation", DebugDumpOption::LoopRotation},
       {"lower_verbose", DebugDumpOption::LowerVerbose},
       {"occupancy", DebugDumpOption::Occupancy},
       {"parallel_dimensions", DebugDumpOption::ParallelDimensions},
@@ -149,7 +150,8 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"scheduler_verbose", DebugDumpOption::SchedulerVerbose},
       {"sync_map", DebugDumpOption::SyncMap},
       {"transform_propagator", DebugDumpOption::TransformPropagator},
-      {"communication", DebugDumpOption::Communication}};
+      {"communication", DebugDumpOption::Communication},
+      {"compile_params", DebugDumpOption::CompileParams}};
 
   return parseEnvOptions("DUMP", available_options);
 }
@@ -157,6 +159,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
 const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
   static const std::unordered_map<std::string, EnableOption> available_options =
       {
+          {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
           {"id_model", EnableOption::IdModel},
@@ -171,8 +174,17 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"tma_pointwise", EnableOption::TmaPointwise},
+          {"tma_inner_persistent", EnableOption::TmaInnerPersistent},
+          {"tma_reduction", EnableOption::TmaReduction},
           {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
+          {"host_ir_jit", EnableOption::HostIrJit},
+          {"insert_resharding_after", EnableOption::InsertReshardingAfter},
+          {"fast_math", EnableOption::FastMath},
+          {"p2p_protocol", EnableOption::P2pProtocol},
+          {"multicast_protocol", EnableOption::MulticastProtocol},
+          {"parallel_serde", EnableOption::ParallelSerde},
       };
   return available_options;
 }
@@ -202,16 +214,15 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"expr_simplify", DisableOption::ExprSimplify},
           {"fallback", DisableOption::Fallback},
           {"fma", DisableOption::Fma},
+          {"greedy_scheduler", DisableOption::GreedyScheduler},
           {"grouped_grid_welford_outer_opt",
            DisableOption::GroupedGridWelfordOuterOpt},
-          {"id_model", DisableOption::IdModel},
           {"index_hoist", DisableOption::IndexHoist},
           {"magic_zero", DisableOption::MagicZero},
           {"matmul_expr_eval", DisableOption::MatmulExprEval},
           {"nvrtc_caching", DisableOption::NvrtcCaching},
           {"nvtx", DisableOption::Nvtx},
           {"parallel_compile", DisableOption::ParallelCompile},
-          {"parallel_serde", DisableOption::ParallelSerde},
           {"predicate_elimination", DisableOption::PredicateElimination},
           {"python_inline_definitions", DisableOption::PythonInlineDefinitions},
           {"kernel_reuse", DisableOption::KernelReuse},

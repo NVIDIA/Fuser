@@ -8,15 +8,17 @@
 #pragma once
 
 #include <c10/core/DeviceType.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <host_ir/executor.h>
-#include <host_ir/lower.h>
-#include <ir/cloner.h>
-#include <multidevice/communication.h>
-#include <multidevice/communicator.h>
-#include <multidevice/multidevice.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/lower.h"
+#include "ir/cloner.h"
+#include "multidevice/communication.h"
+#include "multidevice/communicator.h"
+#include "multidevice/multidevice.h"
+#include "runtime/fusion_kernel_runtime.h"
 
 namespace nvfuser {
 
@@ -45,7 +47,7 @@ struct MultiDeviceExecutorParams {
   Summary of the different steps performed by the MultiDeviceExecutor:
   I. At instantiation:
   - resharding "Set" exprs are automatically inserted in the fusion where a
-    network communication is needed. See the function insertReshardings.
+    network communication is needed. See the function DecomposeReshardings.
   - the Fusion is segmented into segments which can be of two types:
       1) compute segments, composed of non-Resharding expressions only,
          that can be purely execute on a single device
@@ -77,27 +79,21 @@ struct MultiDeviceExecutorParams {
 
 class MultiDeviceExecutor {
  public:
-  MultiDeviceExecutor(
+  NVF_API MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
       Communicator& comm = Communicator::getInstance(),
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
+  NVF_API KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
     return &comm_;
   }
 
-  // check if the runtime is valid returns an error msg.
-  // An empty message means that the runtime is valid
-  std::string validate() const {
-    return host_ir_executor_->canRun();
-  }
-
   //! Print to default debugging output stream
-  std::ostream& print(std::ostream& os = debug());
+  NVF_API std::ostream& print(std::ostream& os = debug());
 
   const auto& getFusionExecutorCaches() {
     return host_ir_executor_->getFusionExecutorCaches();

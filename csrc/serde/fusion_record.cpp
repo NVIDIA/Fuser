@@ -74,6 +74,28 @@ python_frontend::RecordFunctor* deserializeReductionRecord(
       mapToNvfuserDtype(data->dtype()));
 }
 
+python_frontend::RecordFunctor* deserializeScanOpRecord(
+    std::function<TensorView*(TensorView*, int64_t)> fusion_op,
+    RecordType record_type,
+    const RecordFunctor* buffer) {
+  auto data = buffer->data_as_ScanOp();
+  BinaryOpType op_type;
+  if (record_type == RecordType::ScanOpCumsum) {
+    op_type = BinaryOpType::Add;
+  } else {
+    NVF_THROW("Only cumsum scan operation is supported.");
+  }
+
+  return new python_frontend::ScanOpRecord(
+      parseStateArgs(buffer->args()),
+      parseStateArgs(buffer->outputs()),
+      buffer->name()->str(),
+      record_type,
+      fusion_op,
+      data->dim(),
+      op_type);
+}
+
 void RecordFunctorFactory::registerAllParsers() {
   auto deserializeStartRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::StartRecord();
@@ -353,6 +375,13 @@ void RecordFunctorFactory::registerAllParsers() {
   registerParser(RecordType::ReductionSum, reduction_sum_parser);
   // END Reduction Parsers
 
+  // START ScanOp Parsers
+  auto scanop_cumsum_parser = [](const RecordFunctor* buffer) {
+    return deserializeScanOpRecord(cumsum, RecordType::ScanOpCumsum, buffer);
+  };
+  registerParser(RecordType::ScanOpCumsum, scanop_cumsum_parser);
+  // END ScanOp Parsers
+
   auto deserializeBatchNormRecord = [](const RecordFunctor* buffer) {
     auto data = buffer->data_as_BatchNorm();
     return new python_frontend::BatchNormOpRecord(
@@ -472,6 +501,14 @@ void RecordFunctorFactory::registerAllParsers() {
         buffer->data_as_Dimension()->dim());
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
+
+  auto deserializeScatterRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::ScatterOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()),
+        buffer->data_as_Dimension()->dim());
+  };
+  registerParser(RecordType::ScatterOp, deserializeScatterRecord);
 
   auto deserializeIndexPutAccumulateRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::IndexPutAccumulateOpRecord(

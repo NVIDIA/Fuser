@@ -16,12 +16,16 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/runtime_info.h>
+#include <scheduler/utils.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
+#include <utils.h>
 #include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
+#include "ir/base_nodes.h"
 
 namespace nvfuser {
 
@@ -45,7 +49,8 @@ class ValidateSiblings : public IterVisitor {
   using IterVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2) {
+    if (!ir_utils::isTvOp(expr) || expr->outputs().size() < 2 ||
+        !ir_utils::hasUniformSiblings(expr)) {
       IterVisitor::dispatch(expr);
       return;
     }
@@ -204,6 +209,661 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
   }
 }
 
+// For each expressions, update the frontier based on merge and
+// split operations. Removes non-contiguous merges from frontier.
+void traverseFrontierWithContiguityCheck(
+    std::deque<IterDomain*>& frontier,
+    Expr* expr) {
+  // expr is skipped if any of the inputs is missing.
+  if (auto merge = dynamic_cast<Merge*>(expr)) {
+    // Check if this merge is logically contiguous merge, that is,
+    // both of the two inputs are adjacent to each other
+    auto outer_it = std::ranges::find(frontier, merge->outer());
+    if (outer_it == frontier.end()) {
+      return;
+    }
+    auto inner_it = std::ranges::find(frontier, merge->inner());
+    if (inner_it == frontier.end()) {
+      return;
+    }
+    auto outer_pos = std::distance(frontier.begin(), outer_it);
+    auto inner_pos = std::distance(frontier.begin(), inner_it);
+
+    bool is_contig = outer_pos + 1 == inner_pos;
+    frontier.erase(inner_it);
+
+    // If it's contig, we can continue the analysis by proceeding to
+    // the output. If not, no further analysis is possible, so the
+    // two inputs are just removed from the frontier list
+    if (is_contig) {
+      frontier[outer_pos] = merge->out();
+    } else {
+      frontier.erase(frontier.begin() + outer_pos);
+    }
+  } else if (auto split = dynamic_cast<Split*>(expr)) {
+    auto in_it = std::ranges::find(frontier, split->in());
+    if (in_it == frontier.end()) {
+      return;
+    }
+    frontier.insert(in_it + 1, split->inner());
+    *in_it = split->outer();
+  } else {
+    NVF_ERROR(expr != nullptr);
+    NVF_THROW("Unexpected expression: ", expr->toString());
+  }
+}
+
+// Check if maybe_innermost_id is derived from base_id and corresponds to the
+// innermost subregion of base_id. The split/merge exprs between
+// base_id and id must not include any ID that is not produced from
+// base_id.
+bool isInnermost(IterDomain* base_id, IterDomain* maybe_innermost_id) {
+  auto exprs =
+      DependencyCheck::getAllExprsBetween({base_id}, {maybe_innermost_id});
+
+  std::deque<IterDomain*> frontier;
+  frontier.push_back(base_id);
+
+  for (auto expr : exprs) {
+    traverseFrontierWithContiguityCheck(frontier, expr);
+  }
+
+  // Once the traversal is done, if the target id located at the
+  // rightmost position of the frontier list, it is guaranteed to
+  // correspond to the innermost subregion of the base ID.
+  return !frontier.empty() && frontier.back() == maybe_innermost_id;
+}
+
+// Validate the swizzling pattern:
+// We support a very restricted pattern from 2D logical to 5D allocation
+// Expected pattern:
+// m, k -> m, k/4, 4 (split k by 4)
+// m, k/4, 4 -> m/128, 128, k/4, 4 (split m by 128)
+// m/128, 128, k/4, 4 -> m/128, 4(m_o), 32(m_i), k/4, 4 (split 128 by 32)
+// Then reorder to: m/128, k/4, 32(m_i), 4(m_o), 4(k)
+void isValidBlockScaleSwizzle(TensorView* block_scale) {
+  auto logical_domain =
+      TensorDomain::noReductions(block_scale->getLogicalDomain());
+  auto allocation_domain =
+      TensorDomain::noReductions(block_scale->getAllocationDomain());
+
+  // check that size of logical domain is 2 and allocation domain is 5
+  NVF_ERROR(
+      logical_domain.size() == 2 && allocation_domain.size() == 5,
+      "Block scale swizzle must have 2D logical domain and 5D allocation "
+      "domain. Found: ",
+      logical_domain.size(),
+      "D logical and ",
+      allocation_domain.size(),
+      "D allocation for TensorView: ",
+      block_scale->toString());
+
+  // keep count of splits
+  int num_splits = 0;
+
+  // keeps track of the split
+  // M -> M/128, 128
+  Split* middle_split = nullptr;
+
+  // A lambda to check the transforms from logical to allocation domain
+  // Each transform must be a split, and there can be only 3 splits.
+  auto check_transform = [block_scale,
+                          &logical_domain,
+                          &num_splits,
+                          &middle_split](Expr* expr) {
+    if (auto split_expr = dynamic_cast<Split*>(expr)) {
+      // Can have a max of 3 splits - checked later
+      num_splits++;
+
+      // If expr and it's input is logical_domain back()
+      // the inner split output should have an extent of 4.
+      // Check K -> K/4, 4
+      if (split_expr->in() == logical_domain.back()) {
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 4,
+            "The innermost split in block scale swizzle must have an extent of "
+            "4. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+      } else if (split_expr->in() == logical_domain.front()) {
+        // Check M -> M/128, 128
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 128,
+            "The outermost split in block scale swizzle must have an extent of "
+            "128. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+
+        // Cache the M -> M/128, 128 split
+        middle_split = split_expr;
+      } else {
+        // Check that the input to this split is the inner output of
+        // middle_split. As we should have 128 -> 4, 32
+        NVF_ERROR(
+            middle_split && split_expr->in() == middle_split->inner(),
+            "The third split in block scale swizzle must split the inner "
+            "output "
+            "(extent 128) of the second split. Expected input to be the inner "
+            "output "
+            "of the M/128, 128 split. Found expr: ",
+            split_expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+
+        NVF_ERROR(
+            split_expr->inner()->extent()->isConstInt() &&
+                split_expr->inner()->extent()->evaluate().as<int64_t>() == 32,
+            "The third split in block scale swizzle (128 -> 4, 32) must have "
+            "an "
+            "inner extent of 32. "
+            "Found extent: ",
+            split_expr->inner()->extent()->toString(),
+            " in expr: ",
+            split_expr->toString(),
+            " for TensorView: ",
+            block_scale->toString());
+      }
+    } else {
+      NVF_THROW(
+          "Logical to allocation domain transforms for block scale swizzle "
+          "can only contain split operations");
+    }
+  };
+
+  // Get all exprs between logical and allocation domain
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {logical_domain.begin(), logical_domain.end()},
+      {allocation_domain.begin(), allocation_domain.end()});
+
+  std::vector<IterDomain*> ids_to_transform = logical_domain;
+
+  // Transform the logical domain to the allocation domain
+  // without the permutation.
+  scheduler_utils::applyTransforms(
+      ids_to_transform, transform_exprs, check_transform);
+
+  // Check that there are exactly 3 splits
+  NVF_ERROR_EQ(
+      num_splits,
+      3,
+      "Block scale swizzle must have exactly 3 splits. Found ",
+      num_splits,
+      " splits in TensorView: ",
+      block_scale->toString());
+
+  // Get the permutation.
+  auto permutation =
+      ir_utils::computePermutation(ids_to_transform, allocation_domain);
+
+  // m/128, 4(m_o), 32(m_i), k/4, 4(k)
+  // -> m/128, k/4, 32(m_i), 4(m_o), 4(k)
+  // check that permutation has a value and it is 0, 3, 2, 1, 4
+  NVF_ERROR(
+      permutation.has_value() &&
+          permutation.value() == std::vector<int64_t>({0, 3, 2, 1, 4}),
+      "Block scale swizzle permutation is invalid for TensorView: ",
+      block_scale->toString());
+}
+
+// Expr-specific validaion
+//
+// TODO: Move individual validations to here, e.g.,
+// validateCpAsyncBulk can be moved here
+class ExprValidator : public OptOutDispatch {
+ public:
+  static void validate(Fusion* fusion) {
+    ExprValidator validator(fusion);
+  }
+
+ private:
+  ExprValidator(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      dispatch(expr);
+    }
+  }
+
+  // The lowering of ArgsortOp depends on specific scheduling
+  // assumptions. This tight coupling isn't ideal, but it's not a
+  // problem for now.
+  void handle(ArgsortOp* aop) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(aop), ir_utils::getTvOutput(aop), aop->dim());
+  }
+
+  void handle(ScanOp* sop) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(sop), ir_utils::getTvOutput(sop), sop->dim());
+  }
+
+  void handle(TopKOp* top) final {
+    validateGroupedOp(
+        ir_utils::getTvInput(top), ir_utils::getTvOutput(top), top->dim());
+  }
+
+  static void validateGroupedOp(
+      TensorView* inp_tv,
+      TensorView* out_tv,
+      int64_t logical_dim_to_group) {
+    IterDomain* grouped_id = nullptr;
+    for (const auto& loop_id : out_tv->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        NVF_ERROR(grouped_id == nullptr, "Multiple IDs found to be grouped");
+        grouped_id = loop_id;
+      }
+    }
+
+    // Even if grouping is not used, CudaKernelGenerator assumes these
+    // properties for simplicity
+
+    // Both input and output must be Local tensors so that the op can be
+    // executed without explicit predication. This makes it simpler to
+    // generate code for grouped calls
+    NVF_ERROR_EQ(inp_tv->getMemoryType(), MemoryType::Local);
+    NVF_ERROR_EQ(out_tv->getMemoryType(), MemoryType::Local);
+
+    // If not grouped, no more validation to do
+    if (grouped_id == nullptr) {
+      return;
+    }
+
+    // The input will be initialized for this op. To avoid any
+    // potential conflict of initialization, require the input to be
+    // exclusively used by the grouped op.
+    NVF_ERROR_EQ(
+        inp_tv->uses().size(), 1, "Invalid tensor uses: ", inp_tv->toString());
+
+    // If it's grouped, it must correspond to the innermost subregion
+    // of the logical ID to group
+    IterDomain* logical_id_to_group =
+        out_tv->getLogicalDomain().at(logical_dim_to_group);
+    NVF_ERROR(
+        isInnermost(logical_id_to_group, grouped_id),
+        "Invalid ID to group: ",
+        grouped_id->toString(),
+        " of ",
+        out_tv->toString());
+
+    // The output is allocated on registers, so the allocation
+    // domain should be just the same as the loop domain. The
+    // grouped ID must have the unit stride, which means all of the
+    // inner IDs must not contribute to the allocation
+    validateUnitStride(out_tv, out_tv->getLoopDomain(), grouped_id);
+
+    // All of the inputs per thread must be provided to the device
+    // function as a contiguous chunk of memory where each element
+    // has a unit stride within its allocated buffer. More
+    // concretely, for example, in the case of argsort, the input would be
+    // passed to the device function as follows:
+    //
+    //  // Each thread computes 8 argsort elements
+    //  float T1[8];
+    //  ...
+    //  blockArgsort(..., T1, ...);
+    //
+    // Here, the input is required to have a loop ID that is exactly
+    // mapped with the grouped loop ID of the output, and that
+    // producer loop ID must be indeed allocated, i.e., not parallelized.
+    // Furthermore, like the output, none of the inner loop
+    // IDs is allowed to contribute to the allocation of the input so that the
+    // grouped ID has a unit stride.
+    //
+    // The requirement of the input being transformed exactly in the
+    // same as the output is a sufficient but not required
+    // condition. It could be relaxed if necessary.
+    const auto& c2p_replay = BestEffortReplay::replayPasC(
+        inp_tv, out_tv, -1, PairwiseLogicalDomainMap(inp_tv, out_tv));
+    auto producer_grouped_id_it = c2p_replay.getReplay().find(grouped_id);
+    NVF_ERROR(
+        producer_grouped_id_it != c2p_replay.getReplay().end(),
+        "No corresponding producer ID for the grouped consumer ID found: ",
+        grouped_id->toString());
+    auto producer_grouped_id = producer_grouped_id_it->second;
+
+    NVF_ERROR(
+        std::ranges::find(inp_tv->getLoopDomain(), producer_grouped_id) !=
+            inp_tv->getLoopDomain().end(),
+        "Corresponding grouped producer ID is not a loop ID: ",
+        producer_grouped_id->toString(),
+        " of ",
+        inp_tv->toString());
+
+    NVF_ERROR(
+        ir_utils::mayRequireAllocation(inp_tv, producer_grouped_id),
+        "The corresponding producer loop ID for grouping must be actualy "
+        "allocated without parallelization");
+
+    // Make sure all inner loop IDs should not contribute to the
+    // allocation
+    validateUnitStride(inp_tv, inp_tv->getLoopDomain(), producer_grouped_id);
+  }
+
+  static void validateUnitStride(
+      TensorView* tv,
+      const std::vector<IterDomain*>& alloc_domain,
+      IterDomain* id) {
+    auto it = std::ranges::find(alloc_domain, id);
+    NVF_ERROR(
+        it != alloc_domain.end(),
+        "ID, ",
+        id->toString(),
+        " not found in ",
+        toDelimitedString(alloc_domain));
+    ++it;
+    for (; it != alloc_domain.end(); ++it) {
+      NVF_ERROR(
+          !ir_utils::mayRequireAllocation(tv, *it),
+          "Not guaranteed to have a unit stride: ",
+          id->toString(),
+          " of ",
+          tv->toString(),
+          " due to ",
+          (*it)->toString());
+    }
+  }
+
+  // The block quantization operator is implemented via a runtime function.
+  // This runtime function expects the inputs to be in local memory. The
+  // quantized output will also be in local memory, but the block scaling
+  // factors will be written out to global memory. The device runtime currently
+  // works on 2/4 elements per thread (also 8 for bf16/fp16). The runtime
+  // function is based on a parallelization scheme that expects TIDx and BIDx,
+  // and optionally TIDy and BIDy. 3D parallelization is not supported. Based
+  // on the above, we have the following basic validation checks:
+
+  // Input is in local memory.
+  // Block scaling factor is in global memory and
+  // quantized output is in local memory.
+  // The Group ID has an extent of 2/4/8 depending on the data
+  // type.
+  // There are no TIDz/BIDz IDs. We don't support 3D parallelization here.
+
+  // For this op, the indices for block scaling factor is partially computed
+  // in nvfuser's index computation. It is done do by linearizing the logical
+  // index of the quantized outputs and the extents of the allocation domain
+  // of the quantized output. This index is passed to the runtime function,
+  // where is it divided by 16 (blocksize) to compute the output index for block
+  // scaling factor. Because of this indexing scheme we have to put the
+  // following restrictions. Our aim for the following checks is to ensure that
+  // the group ID is contiguous and has unit stride, and then after the group
+  // ID, we have TIDx, such that (G -- extent of GID) * ThreadIdx.x + GID is
+  // contiguous. We have these restrictions because 4 threads (x) will be
+  // working on contiguous data in the input (actually #threads *
+  // #elements_per_thread == blocksize(16)) - so we conservatively want all
+  // threads(x) to be accessing contiguous data.
+
+  // We do so by checking that the group ID has unit stride.
+  // It should be derived from the innermost logical IDs via contiguous merges
+  // only.
+  // Next, we check that TIDx is the next inner-most ID, and if there is
+  // any other ID between TIDx and the group ID, then it must have an extent
+  // of 1.
+  // TIDx must also be derived from contiguous merges of the logical IDs.
+  // Any loop ID that is not TIDx, TIDy, BIDx, BIDy, or Group
+  // has an extent of 1. (we don't want the runtime kernel to be called multiple
+  // times by a thread).
+  void handle(BlockQuantizationOp* bqop) final {
+    auto inp_tv = bqop->input(0)->as<TensorView>();
+    auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
+    auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+    auto output_dtype = quantized_output->dtype();
+
+    NVF_ERROR_EQ(
+        inp_tv->getMemoryType(),
+        MemoryType::Local,
+        "Input must be a local memory tensor. Found: ",
+        inp_tv->getMemoryType());
+
+    NVF_ERROR_EQ(
+        quantized_output->getMemoryType(),
+        MemoryType::Local,
+        "Quantized output must be a local memory tensor. Found: ",
+        quantized_output->getMemoryType());
+
+    NVF_ERROR_EQ(
+        block_scaling_factor->getMemoryType(),
+        MemoryType::Global,
+        "Block scaling factor must be a global memory tensor. Found: ",
+        block_scaling_factor->getMemoryType());
+
+    if (output_dtype == DataType::Float8_e4m3fn) {
+      NVF_ERROR(
+          !bqop->hasGlobalScale(),
+          "Global scale is not supported when quantizing to Float8_e4m3fn.");
+
+      NVF_ERROR(
+          !block_scaling_factor->hasAllocation(),
+          "Block scaling factor must not have an allocation domain when "
+          "quantizing to Float8_e4m3fn.");
+    }
+
+    if (bqop->hasGlobalScale()) {
+      auto global_scale = bqop->globalScale()->as<TensorView>();
+
+      NVF_ERROR_EQ(
+          global_scale->getMemoryType(),
+          MemoryType::Global,
+          "Global scaling factor must be a global memory tensor. Found: ",
+          global_scale->getMemoryType());
+
+      NVF_ERROR_EQ(
+          global_scale->dtype(),
+          DataType::Float,
+          "Global scaling factor must be of type float. Found: ",
+          global_scale->dtype());
+    }
+
+    // Outputs have the same allocation domain
+    // as the logical domain - no allocation domain.
+    NVF_ERROR(
+        !quantized_output->hasAllocation(),
+        "Quantized output must not have an allocation domain.");
+
+    // When output scales is swizzled we will need to allow these checks
+    // to be relaxed. We will need to ensure that the swizzling
+    // allocation allowed is a fixed pattern:
+    // 2D logical and 5D allocation domain.
+    // https://docs.nvidia.com/cutlass/media/docs/cpp/blackwell_functionality.html#scale-factor-layouts
+    if (block_scaling_factor->hasAllocation()) {
+      isValidBlockScaleSwizzle(block_scaling_factor);
+      NVF_ERROR_EQ(
+          bqop->isSwizzledScales(),
+          true,
+          "Block scaling factor with allocation domain requires swizzled "
+          "scales.");
+    }
+
+    NVF_ERROR(
+        std::all_of(
+            block_scaling_factor->getContiguity().begin(),
+            block_scaling_factor->getContiguity().end(),
+            [](std::optional<bool> c) { return c.value_or(true); }),
+        "Block scaling factor not contiguous");
+
+    IterDomain* grouped_id = nullptr;
+    IterDomain* thread_x = nullptr;
+    IterDomain* block_x = nullptr;
+    IterDomain* thread_z = nullptr;
+    IterDomain* block_z = nullptr;
+
+    for (const auto& loop_id : quantized_output->getLoopDomain()) {
+      if (loop_id->getParallelType() == ParallelType::Group) {
+        grouped_id = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::TIDx) {
+        thread_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDx) {
+        block_x = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::TIDz) {
+        thread_z = loop_id;
+      } else if (loop_id->getParallelType() == ParallelType::BIDz) {
+        block_z = loop_id;
+      } else if (
+          loop_id->getParallelType() == ParallelType::Serial ||
+          loop_id->getParallelType() == ParallelType::Unswitch ||
+          loop_id->getParallelType() == ParallelType::Unroll) {
+        // Check this is ID has a constant extent and is 1
+        NVF_ERROR(
+            loop_id->extent()->isConstInt(),
+            "Expected constant extent for Serial/Unswitch/Unroll ID in "
+            "BlockQuantizationOp");
+        NVF_ERROR_EQ(
+            loop_id->extent()->evaluate().as<int64_t>(),
+            1,
+            "Expected non-TID/BID/Group ID to have extent of 1 for "
+            "BlockQuantizationOp: ",
+            bqop->toString());
+      }
+    }
+
+    NVF_ERROR(
+        grouped_id != nullptr,
+        "One of the output IDs must be grouped for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        thread_x != nullptr && block_x != nullptr,
+        "Need to have both TIDx and BIDx when using BlockQuantizationOp: ",
+        bqop->toString());
+
+    NVF_ERROR(
+        !thread_z && !block_z,
+        "Parallelization along z axis is not supported for "
+        "BlockQuantizationOp: ",
+        bqop->toString());
+
+    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+    auto input_dtype = inp_tv->dtype();
+
+    NVF_ERROR(
+        ((inner_extent == 4 || inner_extent == 2) &&
+         input_dtype == DataType::Float) ||
+            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+             (input_dtype == DataType::BFloat16 ||
+              input_dtype == DataType::Half)),
+        "The group dimension must be  2/4 (FP32) or 2/4/8 "
+        "(BF16). Found: ",
+        inner_extent,
+        ". Expr: ",
+        bqop->toString());
+
+    //                   M    K
+    //                 │    │
+    //                 ▼    ▼
+    //              ┌────────────┐
+    //              │   merge    │
+    //              └─────┬──────┘
+    //                    │
+    //                    ▼
+    //                   M*K
+    //               ┌──────────┐
+    //               │  split   ┼──┐
+    //               └─┬────────┘  │
+    //                 ▼           ▼
+    //           (M*K)/4          4(G)
+    //           ┌────────┐
+    //           │ split  ┼────┐
+    //           └─┬──────┘    │
+    //             ▼           ▼
+    //         (M*K)/4        1(U)
+    //     ┌─────────┐
+    //     │  split  │
+    //   ┌─┼         ┼───┐
+    //   │ └─────────┘   │
+    //   ▼               ▼
+    // (M*K)/4/128      128(Tx)
+
+    // Next we check the following scheduling requirements for
+    // BlockQuantizationOp - the above figure is an example of a valid schedule.
+    // 1. The Group ID must be derived from the innermost logical IDs
+    // 2. TIDx must follow the Group ID in the schedule -- that is when derived
+    // from the logical domain, group ID must be inner-most, the next
+    // "inner-most" should be TIDx (unless there is an ID with a unit trip
+    // count)
+    // 3. All merges involved from logical domains to group and thread ID must
+    // combine contiguous IDs
+
+    auto transform_exprs = DependencyCheck::getAllExprsBetween(
+        {quantized_output->getLogicalDomain().begin(),
+         quantized_output->getLogicalDomain().end()},
+        {quantized_output->getLoopDomain().begin(),
+         quantized_output->getLoopDomain().end()});
+
+    std::vector<IterDomain*> ids_to_transform =
+        quantized_output->getLogicalDomain();
+
+    std::deque<IterDomain*> frontier(
+        quantized_output->getLogicalDomain().begin(),
+        quantized_output->getLogicalDomain().end());
+
+    // This will get the xforms from logical to loop and apply them on the
+    // logical domain. We will get a loop domain minus the reordering.
+    // This pass also removes all IDs from frontier that were derived using
+    // non-contiguous merges.
+    scheduler_utils::applyTransforms(
+        ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
+          traverseFrontierWithContiguityCheck(frontier, expr);
+        });
+
+    // The grouped ID must correspond to the innermost loop-like domain
+    NVF_ERROR(
+        ids_to_transform.back() == grouped_id,
+        "The grouped ID must correspond to the innermost of all splits "
+        "from logical domains to loop domains for BlockQuantizationOp. "
+        "TV: ",
+        quantized_output->toString());
+
+    // Iterate from the back to find TIDx, skipping group_id (last element)
+    // Ensure all IDs between group_id and TIDx have extent 1
+    bool found_tidx = false;
+    for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
+         ++it) {
+      if (*it == thread_x) {
+        found_tidx = true;
+        break;
+      }
+      // All non-TIDx IDs between Group ID and TIDx must have extent of 1
+      NVF_ERROR(
+          (*it)->extent()->isConstInt() &&
+              (*it)->extent()->evaluate().as<int64_t>() == 1,
+          "Expected IDs between Group ID and TIDx to have extent of 1 for "
+          "BlockQuantizationOp: ",
+          quantized_output->toString());
+    }
+
+    NVF_ERROR(
+        found_tidx,
+        "TIDx must follow the Group ID in the schedule for "
+        "BlockQuantizationOp: ",
+        quantized_output->toString());
+
+    // Check if grouped_id in frontier
+    auto grouped_it = std::ranges::find(frontier, grouped_id);
+    NVF_ERROR(
+        grouped_it != frontier.end(),
+        "All merge operations deriving the grouped ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
+    // Do the same for thread_x
+    auto threadx_it =
+        std::ranges::find(frontier.begin(), frontier.end(), thread_x);
+    NVF_ERROR(
+        threadx_it != frontier.end(),
+        "All merge operations deriving the TIDx ID must combine "
+        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
+        quantized_output->toString());
+  }
+};
+
 } // namespace
 
 void validateIr(Fusion* fusion) {
@@ -226,6 +886,8 @@ void validateIr(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
   validateCpAsyncBulk(all_tvs);
+
+  ExprValidator::validate(fusion);
 }
 
 namespace {
@@ -335,9 +997,9 @@ class VectorizeValidator : public OptInDispatch {
       TensorView* tv,
       Expr* load_store) {
     NVF_ERROR(GpuLower::hasCurrent());
-    NVF_ERROR(GpuLower::current()->hasIdModel());
+    NVF_ERROR(GpuLower::current()->info().hasIdModel());
 
-    const auto& id_model = GpuLower::current()->idModel();
+    const auto& id_model = GpuLower::current()->info().idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
     // Traverse from the complete set of loop IDs to the allocation
@@ -352,12 +1014,13 @@ class VectorizeValidator : public OptInDispatch {
     // domain has a broadcast ID that is promoted to a concrete ID
     // and then is used to generate v_id. See
     // LoopDomainSchedulingTest.VecValidationRepro for a concrete
-    // case. The traversal needs to use the promoted concrete ID
-    // instead of the broadcast allocation ID. Instead, here, we
-    // traverse from the promoted loop IDs to the allocation
-    // domain. This should be always able to reach at least the
-    // vectorized ID.
-    const auto loop_domain = getLoopIds(load_store, id_model);
+    // case.
+    //
+    // Although actual indexing traversal starts from promoted loop
+    // IDs on the AlmostExact graph, the loop IDs of the consumer
+    // tensor is used here without promotion on the Exact graph. This
+    // was changed to avoid the error as reported in issue #5377.
+    const auto loop_domain = ir_utils::getTvOutput(load_store)->getLoopDomain();
     auto expr_path = ValGraphBFS::getExprGroupsBetween(
                          graph,
                          graph.toGroups(loop_domain),
@@ -365,7 +1028,7 @@ class VectorizeValidator : public OptInDispatch {
                          /*require_all_to_visited=*/false)
                          .first;
 
-    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
+    ValGroup cur_group = graph.toGroup(v_id);
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -489,7 +1152,7 @@ class VectorizeValidator : public OptInDispatch {
     size_t last_alloc_dim_pos = 0;
     for (size_t i = tv->getMaybeAllocationDomain().size(); i > 0; i--) {
       auto r_id = tv->getMaybeAllocationDomain()[i - 1];
-      if (r_id->isReduction() || r_id->isBroadcast()) {
+      if (r_id->isReduction() || r_id->isBroadcast() || r_id->isDeviceDim()) {
         continue;
       }
       if ((tv->getMemoryType() == MemoryType::Shared ||
@@ -514,6 +1177,7 @@ class VectorizeValidator : public OptInDispatch {
     }
 
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
     if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
@@ -562,7 +1226,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* load_store,
       int64_t vector_word_size_bit) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
-        GpuLower::current()->hasIdModel()
+        GpuLower::current()->info().hasIdModel()
         ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
@@ -617,11 +1281,17 @@ class VectorizeValidator : public OptInDispatch {
     if (tv_def->isA<LoadStoreOp>()) {
       // Except for TMem, allow half2, float2, float4 and same sized vtypes.
       std::vector<int64_t> allowed_vector_sizes_bit = {8, 16, 32, 64, 128};
+      // with cuda-12.9 or later, devices 10.0 support 256 bit vectorization
+      if (getMaxVectorizationSizeInBit() == 256) {
+        allowed_vector_sizes_bit.push_back(256);
+      }
       // TMem can vectorize up to 4096 bits.
       if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
           (ldst->opType() == LoadStoreOpType::LdTMem ||
            ldst->opType() == LoadStoreOpType::StTMem)) {
-        allowed_vector_sizes_bit.push_back(256);
+        if (allowed_vector_sizes_bit.back() != 256) {
+          allowed_vector_sizes_bit.push_back(256);
+        }
         allowed_vector_sizes_bit.push_back(512);
         allowed_vector_sizes_bit.push_back(1024);
         allowed_vector_sizes_bit.push_back(2048);
@@ -680,6 +1350,11 @@ class VectorizeValidator : public OptInDispatch {
           break;
         }
       }
+      // Schedule operations are Fusion IR dependencies that do not appear in
+      // CUDA kernel, so we skip them here.
+      if (ir_utils::isScheduleOp(input->as<TensorView>())) {
+        continue;
+      }
       NVF_ERROR(
           producer_tv == nullptr,
           "Vectorization validation only support op with a single TensorView "
@@ -711,7 +1386,7 @@ class VectorizeValidator : public OptInDispatch {
     vectorized_set_info.vectorized_consumer_alloc_id = consumer_vectorized_id;
 
     // Validate producer
-    if (GpuLower::current()->hasIdModel()) {
+    if (GpuLower::current()->info().hasIdModel()) {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
@@ -952,7 +1627,7 @@ void validateMmaTensors(MmaOp* mma) {
         if (!tidx_validated) {
           // Check that TIDx is exact lane_id
           const auto& paralel_dim_map =
-              GpuLower::current()->parallelDimensionMap();
+              GpuLower::current()->info().parallelDimensionMap();
           NVF_ERROR(
               lower_utils::isExtentEqualToMaxParallelTypeExtent(id) &&
                   paralel_dim_map.get(ptype)->isConstInt(),
@@ -1191,13 +1866,12 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
         tv->toString());
 
     NVF_CHECK(
-        tv->definition()->isA<ReductionOp>() ||
-            tv->definition()->isA<GroupedReductionOp>() ||
-            tv->definition()->isA<WelfordOp>() ||
-            tv->definition()->isA<GroupedWelfordOp>(),
-        "Invalid use of ParallelType::Group. Only ReductionOp, "
-        "GroupedReductionOp, WelfordOp and GroupedWelfordOp are allowed. ",
-        tv->definition()->toString());
+        def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
+            def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
+            def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
+            def->isA<BlockQuantizationOp>(),
+        "Invalid use of ParallelType::Group: ",
+        def->toString());
 
     // Convert ReductionOp to GroupedReductionOp
     if (tv->definition()->isA<ReductionOp>()) {
@@ -1276,6 +1950,56 @@ void validateLookupTV(Fusion* fusion) {
   }
 }
 
+// 1. Must have one and only one clustered domain
+// 2. clustered domain must be parallelized with ParallelType::BIDx
+// 3. reduction data type must be float or double
+// 4. cluster size must be in the range of [2, max allowed cluster
+// size]
+void validateClusterReduction(ReductionOp* rop) {
+  auto out = rop->out()->as<TensorView>();
+  // 1. Must have one and only one clustered domain
+  NVF_ERROR(
+      std::count_if(
+          out->getLoopDomain().begin(),
+          out->getLoopDomain().end(),
+          [](IterDomain* id) { return id->isClusteredBlockDim(); }) == 1,
+      "Must have one and only one clustered domain.");
+
+  // 2. clustered domain must be parallelized with ParallelType::BIDx
+  auto it = std::find_if(
+      out->getLoopDomain().begin(),
+      out->getLoopDomain().end(),
+      [](IterDomain* id) { return id->isClusteredBlockDim(); });
+  auto clustered_domain = *it;
+  NVF_ERROR(
+      clustered_domain->getParallelType() == ParallelType::BIDx,
+      "Clustered domain must be parallelized with ParallelType::BIDx.");
+
+  // 3. reduction data type must be float or double
+  NVF_ERROR(
+      out->getDataType() == DataType::Float ||
+          out->getDataType() == DataType::Double,
+      "Clustered reduction only supports float or double reduction data type.");
+
+  // 4. cluster size must be in the range of [2, max allowed cluster size].
+  //  This is a runtime check
+  auto is_legal_cluster_size = SimplifyingIrBuilder::logicalAndExpr(
+      SimplifyingIrBuilder::leExpr(
+          clustered_domain->extent(),
+          IrBuilder::create<Val>(
+              scheduler_utils::getMaxClusterSize(), DataType::Index)),
+      SimplifyingIrBuilder::geExpr(
+          clustered_domain->extent(),
+          IrBuilder::create<Val>(2, DataType::Index)));
+  GpuLower::current()->validate(
+      is_legal_cluster_size,
+      "Clustered domain size must be less than or equal to max allowed cluster "
+      "size "
+      "and larger than 1.",
+      clustered_domain->extent()->toInlineString(),
+      " is not.");
+}
+
 void validateReductions(Fusion* fusion) {
   for (auto rop : ir_utils::getOpsOfType<ReductionOp>(fusion)) {
     auto in = rop->in()->as<TensorView>();
@@ -1297,6 +2021,14 @@ void validateReductions(Fusion* fusion) {
             "converted to squeeze before lowering.");
       }
     }
+    // At this point, ReductionOp is not converted to ClusterReductionOp yet.
+    // Do extra checks of ReductionOp when clustered domain is found.
+    if (std::any_of(
+            out->getLoopDomain().begin(),
+            out->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isClusteredBlockDim(); })) {
+      validateClusterReduction(rop);
+    }
   }
 }
 
@@ -1307,13 +2039,28 @@ void validate1dTmaLoad(Fusion* fusion) {
     if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
       continue;
     }
+    // ensure there is one and only one domain that is parallelized with
+    // ParallelType::Bulk
+    std::optional<int64_t> tma_axis = std::nullopt;
+    for (auto id_idx : arange(tv->nDims())) {
+      const auto id = tv->axis(id_idx);
+      if (id->getParallelType() == ParallelType::Bulk) {
+        NVF_ERROR(
+            !tma_axis.has_value(),
+            "Expect one and only one domain that is parallelized with "
+            "ParallelType::Bulk, but found multiple in: ",
+            tv->toString());
+        tma_axis = id_idx;
+      }
+    }
     NVF_ERROR(
-        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
-        "Expect TMA load of inner-most dimension, but got: ",
+        tma_axis.has_value(),
+        "Expect one and only one domain that is parallelized with "
+        "ParallelType::Bulk, but found none in: ",
         tv->toString());
     const auto all_exprs = DependencyCheck::getAllExprsBetween(
         {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-        {tv->axis(-1)});
+        {tv->axis(tma_axis.value())});
     for (auto expr : all_exprs) {
       if (auto split = dynamic_cast<Split*>(expr)) {
         NVFUSER_LOWER_VALIDATE(
@@ -1322,6 +2069,105 @@ void validate1dTmaLoad(Fusion* fusion) {
             "divisible, got: ",
             split->toString());
       }
+    }
+    // size must be divisible by 16 bytes
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+    Val* tma_bytes = SimplifyingIrBuilder::mulExpr(
+        tv->axis(tma_axis.value())->extent(), dataTypeSizeByte(tv->dtype()));
+    Val* tma_bytes_is_multiple_of_16 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            tma_bytes, IrBuilder::create<Val>(16, DataType::Index)),
+        fusion->zeroVal());
+    NVFUSER_LOWER_VALIDATE(
+        tma_bytes_is_multiple_of_16,
+        "Expect 1dTMA load of inner-most dimension to be divisible by 16 "
+        "bytes, "
+        "but got: ",
+        tma_bytes->toInlineString(),
+        " bytes, ",
+        " tv:",
+        tv->toString());
+  }
+}
+
+void validateScatter(Fusion* fusion) {
+  for (auto sop : ir_utils::getOpsOfType<ScatterOp>(fusion)) {
+    auto in_tv = sop->in()->as<TensorView>();
+    auto out_tv = sop->out()->as<TensorView>();
+
+    // TensorIndexer currently only supports exact scatter ops
+    NVF_ERROR(
+        sop->exactSizes(),
+        "Non-exact scatter is not yet supported: ",
+        sop->toString());
+
+    // Scatter is implemented as an in-place op. To lower it safely, it
+    // needs to be able to alias each other. Here are the conditions to
+    // make sure they are valid input and output tensors.
+
+    NVF_ERROR_EQ(
+        in_tv->uses().size(),
+        1,
+        "Scatter input can only be used by the scatter op: ",
+        toDelimitedString(in_tv->uses()));
+
+    NVF_ERROR_EQ(in_tv->getMemoryType(), out_tv->getMemoryType());
+    NVF_ERROR_EQ(in_tv->getDeviceMesh(), out_tv->getDeviceMesh());
+
+    // To avoid making the inference of the allocation domain further
+    // convoluted, both non-global input and output must have
+    // explicitly set allocation domains
+    NVF_ERROR(
+        in_tv->getMemoryType() == MemoryType::Global || in_tv->hasAllocation(),
+        "Non-global scatter input must have an allocation domain");
+    NVF_ERROR(
+        out_tv->getMemoryType() == MemoryType::Global ||
+            out_tv->hasAllocation(),
+        "Non-global scatter output must have an allocation domain");
+
+    auto is_exact_mapped = [](const std::vector<IterDomain*>& ids1,
+                              const std::vector<IterDomain*>& ids2) -> bool {
+      const auto& exact_graph =
+          GpuLower::current()->info().idModel().idGraph(IdMappingMode::EXACT);
+
+      if (ids1.size() != ids2.size()) {
+        return false;
+      }
+
+      for (const auto& [id1, id2] : zip(ids1, ids2)) {
+        if (!exact_graph.disjointValSets().strictAreMapped(id1, id2)) {
+          return false;
+        }
+      }
+
+      return true;
+    };
+
+    NVF_ERROR(
+        is_exact_mapped(
+            in_tv->getAllocationDomain(), out_tv->getAllocationDomain()),
+        "Scatter input and output must have equivalent allocation domains");
+
+    // Fusion input as scatter input is not yet supported
+    NVF_ERROR(
+        !in_tv->isFusionInput(),
+        "Scatter with fusion input not supported: ",
+        in_tv->toString());
+
+    // Fusion output as scatter input is not allowed since aliasing is
+    // not possible between the input and output of the scatter
+    NVF_ERROR(
+        !in_tv->isFusionOutput(),
+        "Scatter with fusion output not allowed: ",
+        in_tv->toString());
+
+    // If the scatter output is a fusion output, aliasing to a fusion
+    // input is not yet supported
+    if (out_tv->isFusionOutput()) {
+      NVF_ERROR(
+          fusion->getOutputAlias(out_tv).aliased_io == nullptr,
+          "Scatter output to an aliasing fusion output is not supported: ",
+          out_tv->toString());
     }
   }
 }

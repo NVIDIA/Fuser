@@ -3,7 +3,27 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from .core import BENCHMARK_CONFIG
-from nvfuser.pytorch_utils import DEVICE_PROPERTIES
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
+import os
+
+ORIGINAL_ENV_VARS = {}
+
+
+def pytest_sessionstart(session):
+    for var, value in [
+        ("TORCHINDUCTOR_COORDINATE_DESCENT_TUNING", "1"),
+        ("TORCHINDUCTOR_COORDINATE_DESCENT_CHECK_ALL_DIRECTIONS", "1"),
+    ]:
+        ORIGINAL_ENV_VARS[var] = os.environ.get(var)
+        os.environ[var] = value
+
+
+def pytest_sessionfinish(session):
+    for var, value in ORIGINAL_ENV_VARS.items():
+        if value is not None:
+            os.environ[var] = value
+        else:
+            os.environ.pop(var, None)
 
 
 def pytest_addoption(parser):
@@ -37,7 +57,16 @@ def pytest_addoption(parser):
         action="store_true",
         help="Benchmarks torch.compile mode.",
     )
-
+    parser.addoption(
+        "--benchmark-flashinfer",
+        action="store_true",
+        help="Benchmarks flashinfer mode.",
+    )
+    parser.addoption(
+        "--benchmark-quack",
+        action="store_true",
+        help="Benchmarks quack mode.",
+    )
     # pytest-benchmark does not have CLI options to set rounds/warmup_rounds for benchmark.pedantic.
     # The following two options are used to overwrite the default values through CLI.
     parser.addoption(
@@ -59,6 +88,13 @@ def pytest_addoption(parser):
         action="store",
         default=None,
         help="Number of inputs to randomly sample for each benchmark.",
+    )
+
+    parser.addoption(
+        "--with-nsys",
+        action="store_true",
+        default=False,
+        help="Run benchmark scripts with nsys. Disable all other profilers.",
     )
 
 
@@ -87,8 +123,12 @@ def pytest_configure(config):
     BENCHMARK_CONFIG["warmup_rounds"] = int(
         config.getoption("--benchmark-warmup-rounds")
     )
+    BENCHMARK_CONFIG["with_nsys"] = config.getoption("--with-nsys")
+
     if config.getoption("--benchmark-num-inputs"):
         BENCHMARK_CONFIG["num_inputs"] = int(config.getoption("--benchmark-num-inputs"))
+
+    # Scheduler markers may become stale and are not 100% accurate.
     config.addinivalue_line(
         "markers",
         "inner_outer_persistent: mark tests using inner_outer_persistent scheduler if not being segmented.",
@@ -99,7 +139,27 @@ def pytest_configure(config):
     )
     config.addinivalue_line(
         "markers",
+        "outer_persistent: mark tests using outer_persistent scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "reduction: mark tests using reduction scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "matmul: mark tests using matmul scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
         "resize: mark tests using resize scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "transpose: mark tests using transpose scheduler if not being segmented.",
+    )
+    config.addinivalue_line(
+        "markers",
+        "pointwise: mark tests using pointwise scheduler if not being segmented.",
     )
 
 
@@ -111,9 +171,16 @@ def pytest_collection_modifyitems(session, config, items):
     default.
     """
 
-    from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
+    from nvfuser_direct.pytorch_utils import retry_on_oom_or_skip_test
 
-    executors = ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
+    executors = [
+        "eager",
+        "torchcompile",
+        "thunder",
+        "thunder-torchcompile",
+        "flashinfer",
+        "quack",
+    ]
 
     def get_test_executor(item) -> str | None:
         if hasattr(item, "callspec") and "executor" in item.callspec.params:

@@ -147,7 +147,7 @@ void NonDivisibleSplitInfo::removeRedundancy() {
   std::unordered_set<IterDomain*> split_to_validate_outer;
   for (auto it = splits_to_validate_.begin();
        it != splits_to_validate_.end();) {
-    auto outer_concrete = gpu_lower->caMap()->getConcreteMappedID(
+    auto outer_concrete = gpu_lower->info().caMap().getConcreteMappedID(
         (*it)->outer(), IdMappingMode::EXACT);
     auto new_domain = split_to_validate_outer.insert(outer_concrete).second;
     if (!new_domain) {
@@ -169,7 +169,7 @@ void NonDivisibleSplitInfo::removeRedundancy() {
               splits_to_validate_.begin(),
               splits_to_validate_.end(),
               [&](Split* split_to_validate) {
-                return gpu_lower->caMap()->areMapped(
+                return gpu_lower->info().caMap().areMapped(
                     split_to_validate->outer(),
                     split_to_predicate->outer(),
                     IdMappingMode::EXACT);
@@ -212,7 +212,13 @@ NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
     }
 
     auto def = tv->definition();
-    if (def == nullptr) {
+    // A block quantization is plumbed down to a runtime function.
+    // The runtime function handles predication so skip this for the
+    // block scales. That's because the inner dimension of that tv is not
+    // mapped to any ID of the input or sibling output.
+    if (def == nullptr ||
+        (tv->definition()->isA<BlockQuantizationOp>() &&
+         tv == tv->definition()->as<BlockQuantizationOp>()->blockScales())) {
       continue;
     }
 

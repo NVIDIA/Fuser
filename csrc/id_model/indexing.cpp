@@ -30,7 +30,6 @@
 #include <val_graph_visitor.h>
 
 #include <algorithm>
-#include <fstream>
 
 namespace nvfuser {
 
@@ -114,7 +113,7 @@ const AllocationDomainInfo& TensorIndexer::getIndexAllocationInfo(
 
 Val* TensorIndexer::getLoopIndex(
     IterDomain* loop_id,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   // loop_id must be a loop domain.
   const auto& loop_group =
       id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
@@ -137,7 +136,7 @@ Val* TensorIndexer::getLoopIndex(
 
 std::unordered_map<ValGroup, Val*> TensorIndexer::getInitialIndexMap(
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   std::unordered_map<ValGroup, Val*> initial_index_map;
 
   // For a given list of the loop domains, assign its corresponding
@@ -171,7 +170,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     bool use_magic_zero) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
@@ -203,8 +202,9 @@ std::vector<Val*> TensorIndexer::getIndexFor(
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
-    const std::unordered_map<IterDomain*, Val*>& override_index) const {
+    const std::vector<kir::ForLoop*>& for_loops,
+    const std::unordered_map<IterDomain*, Val*>& override_index,
+    bool ld_st_matrix) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -224,7 +224,13 @@ Val* TensorIndexer::getLinearIndex(
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      tv, expr, as_consumer, alloc_info, for_loops, override_index);
+      tv,
+      expr,
+      as_consumer,
+      alloc_info,
+      for_loops,
+      override_index,
+      ld_st_matrix);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -279,7 +285,7 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
 IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     bool use_alternate_loop_domain) const {
   const auto loop_ids = getLoopIds(expr, id_model_, use_alternate_loop_domain);
   const ExprPath<ExprGroup> traversal_path =
@@ -339,7 +345,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& loop_domains,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
@@ -352,11 +358,12 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // of the domain, for predication, so the replacement is not
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
+        loop_id->getParallelType() == ParallelType::Group ||
         loop_id->getParallelType() == ParallelType::Bulk ||
         loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      ForLoop* for_loop = indexing_utils::getForLoop(
+      kir::ForLoop* for_loop = indexing_utils::getForLoop(
           loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
 
       // for_loop is nullptr if no matching loop is found, which
@@ -573,7 +580,7 @@ ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
 
 void TensorIndexer::updateIndexInfoForNonDivisibleSplits(
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     const ValGroups& non_divisible_ids,
     IndexingInfo& index_info) const {
   // Non-divisible split input IDs need to be predicated but may not
@@ -612,8 +619,8 @@ void TensorIndexer::updateIndexInfoForNonDivisibleSplits(
 std::vector<PredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops,
-    ForLoop* unswitched_loop) const {
+    const std::vector<kir::ForLoop*>& for_loops,
+    kir::ForLoop* unswitched_loop) const {
   const auto& zero_val = tv->fusion()->zeroVal();
 
   const std::vector<IterDomain*>& predicate_domains =
@@ -884,9 +891,9 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
       {contig_strides.begin(), contig_strides.end()}};
 }
 
-std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
+std::vector<kir::ForLoop*> TensorIndexer::getUsedForLoopsOf(
     const std::vector<Val*>& indices,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   // Grab the loop indices
   std::vector<Val*> loop_indices;
   loop_indices.reserve(for_loops.size());
@@ -899,7 +906,7 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
   const auto dep_vals = DependencyCheck::getAllValsBetween(
       {loop_indices.begin(), loop_indices.end()}, indices);
 
-  std::vector<ForLoop*> dep_loops;
+  std::vector<kir::ForLoop*> dep_loops;
   for (auto [i, for_loop] : enumerate(for_loops)) {
     auto initial_loop_index = loop_indices.at(i);
     if (std::find(dep_vals.begin(), dep_vals.end(), initial_loop_index) !=
@@ -912,7 +919,7 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
 }
 
 void TensorIndexer::ensureStaticIndexing(
-    const std::vector<ForLoop*>& for_loops,
+    const std::vector<kir::ForLoop*>& for_loops,
     Val* index) const {
   for (auto for_loop : getUsedForLoopsOf({index}, for_loops)) {
     for_loop->requireUnroll();
@@ -922,12 +929,24 @@ void TensorIndexer::ensureStaticIndexing(
 namespace {
 
 // Use alternate loop domain for the shared memory tensor for ldmatrix and
-// stmatrix.
-bool isSharedMemoryTvForLdStMatrix(TensorView* tv, const Expr* expr) {
+// stmatrix. Note that the explicit bool indicator of the expr is
+// required to correctly determine it is a ldmatrix/stmatrix op since
+// there can be an initialization op using the same output tensor
+// after the allocation lowering pass.
+bool shouldUseAlternateLoopDomain(
+    TensorView* tv,
+    const Expr* expr,
+    bool ld_st_matrix) {
   // short-circuit: not (ldmatrix or stmatrix)
-  if (!ir_utils::isLdMatrixOp(expr) && !ir_utils::isStMatrixOp(expr)) {
+  if (!ld_st_matrix) {
     return false;
   }
+
+  NVF_ERROR(
+      ir_utils::isLdMatrixOp(expr) || ir_utils::isStMatrixOp(expr),
+      "Unexpected expr: ",
+      expr->toString());
+
   // short-circuit: only the shared memory TensorView uses alternate loop
   // domain. For ldmatrix, it is the input TensorView. For stmatrix, it is the
   // output TensorView.
@@ -959,8 +978,9 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
-        const std::vector<ForLoop*>& for_loops,
-        const std::unordered_map<IterDomain*, Val*>& override_index) const {
+        const std::vector<kir::ForLoop*>& for_loops,
+        const std::unordered_map<IterDomain*, Val*>& override_index,
+        bool ld_st_matrix) const {
   std::vector<IterDomain*> indexed_ids;
   indexed_ids.reserve(alloc_info.ids.size());
   for (const auto& id : alloc_info.ids) {
@@ -969,9 +989,12 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     }
   }
   auto index_info = computeIndex(
-      expr, indexed_ids, for_loops, isSharedMemoryTvForLdStMatrix(tv, expr));
+      expr,
+      indexed_ids,
+      for_loops,
+      shouldUseAlternateLoopDomain(tv, expr, ld_st_matrix));
   for (const auto& [indexed_id, index] : override_index) {
-    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+    index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
   auto replacement_map = getIndexReplacementMap(
@@ -1030,7 +1053,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
 
 std::vector<Val*> TensorIndexer::protectIndicesWithMagicZero(
     const std::vector<Val*>& indices,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<kir::ForLoop*>& for_loops) const {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     return indices;
   }
@@ -1076,11 +1099,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   // The following conditions are those that are known to be
   // unsupported. It may not be a complete list.
 
-  if (fusion->hasManaged("loop_rotation")) {
-    warn("loop rotation is not supported");
-    return false;
-  }
-
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 
@@ -1092,11 +1110,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       for (const auto& id : tv->domain()->allIDs()) {
         if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
-          break;
-        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
-          reason << "Indirect indexing of consumer ID not supported: "
-                 << tv->toString() << ", " << id->toString() << ", "
-                 << tv->definition()->toString();
           break;
         }
       }

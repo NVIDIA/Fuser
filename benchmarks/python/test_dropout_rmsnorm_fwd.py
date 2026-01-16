@@ -2,8 +2,8 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition, DataType
-from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
+from nvfuser_direct import FusionDefinition, DataType
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 from .core import (
     run_benchmark,
     clear_dynamo_cache,
@@ -59,8 +59,7 @@ def dropout_rmsnorm_fwd_fusion(
     T17 = fd.ops.pow(T15, S16)
     T18 = fd.ops.sum(T17, dims=[1], keepdim=False, dtype=DataType.Null)
 
-    V21 = fd.define_vector([T0.size(0), 1], dtype=DataType.Int)
-    T22 = fd.ops.broadcast_in_dim(T18, shape=V21, broadcast_dims=[0])
+    T22 = fd.ops.broadcast_in_dim(T18, shape=[T0.size(0), 1], broadcast_dims=[0])
 
     S24 = fd.ops.reciprocal(T0.size(1))
     T25 = fd.ops.mul(T22, S24)
@@ -100,6 +99,7 @@ def dropout_rmsnorm_fwd_iobytes(size: tuple, dtype: torch.dtype):
 
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_fwd_nvf_benchmark(
     benchmark,
     size: tuple,
@@ -145,6 +145,7 @@ def test_dropout_rmsnorm_fwd_nvf_benchmark(
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
+@pytest.mark.inner_persistent
 def test_dropout_rmsnorm_fwd_baseline_benchmark(
     benchmark,
     size: tuple,
@@ -156,9 +157,9 @@ def test_dropout_rmsnorm_fwd_baseline_benchmark(
     dropout_p = 0.2
 
     inputs = [
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.randn(size, device="cuda", dtype=dtype),
-        torch.ones(size[1], device="cuda", dtype=dtype),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.randn(size, device="cuda", dtype=dtype, requires_grad=True),
+        torch.ones(size[1], device="cuda", dtype=dtype, requires_grad=True),
         dropout_p,
     ]
 

@@ -392,6 +392,34 @@ ValGraph& IdModel::buildExactGraph() {
       }
     }
 
+    // Special additional mappings for ScatterOp
+    if (auto sop = dynamic_cast<ScatterOp*>(expr)) {
+      // Assumes the initial loop domain of the output tensor is
+      // mapped with the logical domain of the index and src tensors.
+      const auto& out_initial_loop =
+          sop->out()->as<TensorView>()->domain()->initialLoop();
+      auto index_logical = TensorDomain::noReductions(
+          sop->index()->as<TensorView>()->getLogicalDomain());
+      NVF_ERROR_EQ(out_initial_loop.size(), index_logical.size());
+      for (const auto i : arange(out_initial_loop.size())) {
+        if (out_initial_loop.at(i)->isBroadcast() ==
+            index_logical.at(i)->isBroadcast()) {
+          graph.mapVals(out_initial_loop.at(i), index_logical.at(i));
+        }
+      }
+      if (sop->src()->isA<TensorView>()) {
+        auto src_logical = TensorDomain::noReductions(
+            sop->src()->as<TensorView>()->getLogicalDomain());
+        NVF_ERROR_EQ(out_initial_loop.size(), src_logical.size());
+        for (const auto i : arange(out_initial_loop.size())) {
+          if (out_initial_loop.at(i)->isBroadcast() ==
+              src_logical.at(i)->isBroadcast()) {
+            graph.mapVals(out_initial_loop.at(i), src_logical.at(i));
+          }
+        }
+      }
+    }
+
     // TODO: Revisit if we really should map domains in the exact map
     mapThroughLoopSwizzles(graph);
   }
@@ -1041,6 +1069,11 @@ ValGraph& IdModel::buildGraph(IdMappingMode mode) {
       return buildBroadcastGraph();
     case IdMappingMode::PERMISSIVE:
       return buildPermissiveGraph();
+    case IdMappingMode::PERMISSIVE_RESIZE:
+      NVF_THROW(
+          "PERMISSIVE_RESIZE graph should be built using "
+          "buildPermissiveResizeGraph() function, not through "
+          "IdModel::buildGraph()");
     case IdMappingMode::LOOP:
       return buildLoopGraph();
     default:
@@ -1055,6 +1088,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   } else {
     return buildGraph(mode);
   }
+}
+
+bool IdModel::hasGraph(IdMappingMode mode) const {
+  return id_graphs_.contains(mode);
 }
 
 void IdModel::removeGraph(IdMappingMode mode) {
@@ -1308,24 +1345,8 @@ void IdModel::allocateLoopIndexVariables() {
 
     ParallelType ptype = getParallelType(loop_group);
 
-    Val* loop_index = nullptr;
-
-    // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
-    // should be used, but that means we would need to consider
-    // multiple outputs with different memory types, though it
-    // should be uncommon in practice.
-    if (shouldUseZeroIndex(loop_group, *this) ||
-        isParallelTypeDeviceDim(ptype)) {
-      loop_index = fusion_->zeroVal();
-    } else if (isParallelTypeThread(ptype)) {
-      loop_index = NamedScalar::getParallelIndex(ptype);
-    }
-
-    if (loop_index != nullptr) {
-      loop_index_variable_map_[loop_group] = loop_index;
-      continue;
-    }
-
+    // This needs to be done before assigning zero or parallel indices
+    // as circular buffer indexing takes precedence.
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
       // Allocate index variable for each stage of the circular
@@ -1342,19 +1363,37 @@ void IdModel::allocateLoopIndexVariables() {
       continue;
     }
 
+    Val* loop_index = nullptr;
+
+    // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
+    // should be used, but that means we would need to consider
+    // multiple outputs with different memory types, though it
+    // should be uncommon in practice.
+    if (shouldUseZeroIndex(loop_group, *this) ||
+        isParallelTypeDeviceDim(ptype)) {
+      loop_index = fusion_->zeroVal();
+    } else if (isParallelTypeThread(ptype) || ptype == ParallelType::Stream) {
+      loop_index = NamedScalar::getParallelIndex(ptype);
+    }
+
+    if (loop_index != nullptr) {
+      loop_index_variable_map_[loop_group] = loop_index;
+      continue;
+    }
+
     // If enabled, allocate own indices. Otherwise, use the one
     // generated for ComputeAtMap for compatibility with the legacy
     // indexing
-    if (GpuLower::current()->idModelOptions().loop()) {
+    if (GpuLower::current()->idModelOptions().isTensorIndexerEnabled()) {
       loop_index = IrBuilder::create<Val>(DataType::Index);
     } else {
-      const auto& ca_map = GpuLower::current()->caMap();
+      const auto& ca_map = FusionInfoGuard::current()->caMap();
       for (const auto& id :
            ir_utils::filterByType<IterDomain>(loop_group->vector())) {
-        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+        if (!ca_map.getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
           continue;
         }
-        loop_index = ca_map->getIndexVariable(id);
+        loop_index = ca_map.getIndexVariable(id);
         break;
       }
       NVF_ERROR(
@@ -1393,6 +1432,12 @@ Val* IdModel::getLoopIndexVariable(
       //  stage defined, and we just default to using the main stage index.
       circular_buffer_loop_stage = CircularBufferLoopStage::Main;
     }
+    NVF_ERROR(
+        circular_buffered_loop_index_variable_map_.contains(loop_group),
+        "Failed to find circular buffer index var for: ",
+        nvfuser::toString(loop_group),
+        ", ",
+        loop_group->front()->toString());
     return circular_buffered_loop_index_variable_map_.at(loop_group)
         ->at(circular_buffer_loop_stage);
   } else {
@@ -1405,6 +1450,23 @@ Val* IdModel::getLoopIndexVariable(
     CircularBufferLoopStage circular_buffer_loop_stage) const {
   const auto& loop_group = idGraph(IdMappingMode::LOOP).toGroup(id);
   return getLoopIndexVariable(loop_group, circular_buffer_loop_stage);
+}
+
+ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph) {
+  ValGraph resize_graph(permissive_graph);
+  // Add resize mappings: if an id's definition is a resize op, map resize input
+  // to id
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    for (Val* val : *val_group) {
+      auto def = val->as<IterDomain>()->definition();
+      if (def && def->isA<Resize>()) {
+        resize_graph.mapVals(def->as<Resize>()->in(), val);
+      }
+    }
+  }
+  resize_graph.validateConsistency();
+  return resize_graph;
 }
 
 } // namespace nvfuser

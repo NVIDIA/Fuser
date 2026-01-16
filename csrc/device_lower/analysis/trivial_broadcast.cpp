@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/utils.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
@@ -59,6 +60,18 @@ std::unordered_set<IterDomain*> ConcretizedBroadcastDomains::
 // have logical domains and instead places new broadcast domains in the output
 // root domain.
 void ConcretizedBroadcastDomains::handle(TensorView* tv) {
+  // TensorViews created via schedule operation only exist in Fusion IR, so its
+  // logical domain is composed of broadcast iterDomains. These iterDomains are
+  // registered as new broadcast origins.
+  if (ir_utils::isScheduleOp(tv)) {
+    for (auto id : tv->getLogicalDomain()) {
+      if (id->isBroadcast()) {
+        broadcast_origin_map_.emplace(
+            id, std::unordered_set<IterDomain*>({id}));
+      }
+    }
+    return;
+  }
   if (!tv->hasRoot()) {
     return;
   }
@@ -88,6 +101,30 @@ void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   }
 }
 
+// TopKOp with K=1 introduces a new broadcast ID
+void ConcretizedBroadcastDomains::handle(TopKOp* top) {
+  auto out_value = top->outValues()->as<TensorView>();
+  auto k_value_id = out_value->getLogicalDomain().at(top->dim());
+  if (k_value_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        k_value_id, std::unordered_set<IterDomain*>({k_value_id}));
+    auto k_indices_id =
+        top->outIndices()->as<TensorView>()->getLogicalDomain().at(top->dim());
+    broadcast_origin_map_.emplace(
+        k_indices_id, std::unordered_set<IterDomain*>({k_indices_id}));
+  }
+}
+
+// BlockQuantizationOp introduces broadcast domains in the block scales output
+void ConcretizedBroadcastDomains::handle(BlockQuantizationOp* bq) {
+  auto out = bq->blockScales()->as<TensorView>();
+  auto bcast_id = out->getLogicalDomain().back();
+  if (bcast_id->isBroadcast()) {
+    broadcast_origin_map_.emplace(
+        bcast_id, std::unordered_set<IterDomain*>({bcast_id}));
+  }
+}
+
 void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
   IterVisitor::dispatch(expr);
 
@@ -109,6 +146,7 @@ void ConcretizedBroadcastDomains::dispatch(Expr* expr) {
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto p2c_map = PairwiseLogicalDomainMap(producer, consumer)
                          .mapProducerToConsumer(&producer_broadcasts);
+
       for (const auto& kv : p2c_map) {
         auto p_id = kv.first;
         auto c_id = kv.second;
