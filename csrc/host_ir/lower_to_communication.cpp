@@ -481,7 +481,8 @@ Layout getCommunicationLayout(
   // For the following communication types, the sharded_id does not have to be
   // outermost in allocation domain. Nonetheless, `tv` still needs to be
   // contiguous and therefore .contiguous() at the beginning of this function.
-  // TODO(prmishra): Fix the layout for AllToAll.
+  // Note: We do not yet reorder for AllToAll and only support cases where the
+  // input and output do not require any reordering.
   if (type == CommunicationType::Reduce ||
       type == CommunicationType::Allreduce ||
       type == CommunicationType::Broadcast ||

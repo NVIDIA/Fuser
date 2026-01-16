@@ -164,3 +164,34 @@ def test_reduce_scatter_noncontiguous(multidevice_test):
     torch.testing.assert_close(
         output, multidevice_test.shard_tensor_1d(unsharded.sum(0), 1, mesh)
     )
+
+
+# AllToAll patterns seen in expert parallelism
+@pytest.mark.mpi
+@pytest.mark.parametrize(
+    "inp_axis,out_axis", [(0, 1), (1, 0)], ids=["dispatch", "combine"]
+)
+def test_alltoall(multidevice_test, inp_axis, out_axis):
+    d = multidevice_test.size
+    mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+    n = 3
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor((d, d * n), contiguity=True, dtype=DataType.Half)
+        out = fd.ops.set(inp)
+        fd.add_output(out)
+
+        inp.set_device_mesh(mesh)
+        inp.outer_split(inp_axis, d)
+        inp.axis(inp_axis).parallelize(nvfuser.ParallelType.mesh_x)
+
+        out.set_device_mesh(mesh)
+        out.outer_split(out_axis, d)
+        out.axis(out_axis).parallelize(nvfuser.ParallelType.mesh_x)
+
+    in_tensor = torch.randn(d, d * n, dtype=torch.float16)
+    sharded = multidevice_test.shard_tensor(in_tensor, inp)
+    (out_tensor,) = fd.execute([sharded])
+    torch.testing.assert_close(
+        out_tensor, multidevice_test.shard_tensor(in_tensor, out)
+    )
