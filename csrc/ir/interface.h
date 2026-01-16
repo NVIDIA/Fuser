@@ -203,19 +203,10 @@ class NVF_API IrInterface : public PolymorphicBase {
     container_->removeVal(val);
   }
 
-  // Naming infrastructure (protected, used by derived classes)
-  StmtNameType getValName(ValType vtype) {
-    return container_->getValName(vtype);
-  }
-
-  StmtNameType getExprName() {
-    return container_->getExprName();
-  }
-
-  // Clear all contents
-  void clear() noexcept {
-    container_->clear();
-  }
+  // Note: getValName, getExprName, and clear are protected in IrContainer
+  // and cannot be directly forwarded. Derived classes that need these
+  // should access them through their own container_ member or implement
+  // their own public wrappers.
 
   //===================================================================
   // Data Members
