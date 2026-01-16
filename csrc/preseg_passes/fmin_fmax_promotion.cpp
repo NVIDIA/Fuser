@@ -14,6 +14,7 @@
 #include <id_model/id_model.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
+#include <ops/arith.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -193,6 +194,13 @@ class FMinFMaxPromoter : public OptOutMutator {
     for (auto expr : fusion->exprs()) {
       dispatchMutate(expr);
     }
+
+    for (Val* outp : fusion->outputs()) {
+      Val* new_outp = maybeMutated(outp);
+      if (new_outp != outp) {
+        fusion->replaceOutput(outp, new_outp);
+      }
+    }
   }
 
   // Check if a reduction is safe (not already promoted to FMin/FMax).
@@ -354,17 +362,27 @@ class FMinFMaxPromoter : public OptOutMutator {
                                                       : BinaryOpType::FMin;
 
     auto init = rop->init();
-    auto out = rop->out();
-    auto in = rop->in();
+    auto out_tv = rop->out_tv()->as<TensorView>();
+    auto in_tv = maybeMutated(rop->in())->as<TensorView>();
 
-    fusion_->removeExpr(rop);
-    IrBuilder::create<ReductionOp>(
-        new_op_type, init, out, in, rop->isAllreduce());
+    std::vector<int64_t> axes;
+    const auto& logical_domain = out_tv->getLogicalDomain();
+    for (int i = 0; i < out_tv->nDims(); ++i) {
+      if (logical_domain[i]->isReduction()) {
+        axes.push_back(i);
+      }
+    }
 
-    // Register the mutation so downstream isUnpromotedReduction checks work
-    registerMutation(out, out);
+    TensorView* new_out = reductionOp(new_op_type, axes, init, in_tv);
+
+    // Register the mutation which will be seen by downstream
+    // isUnpromotedReduction
+    registerMutation(out_tv, new_out);
+
+    OptOutMutator::mutate(expr);
   }
 
+ private:
   Fusion* fusion_;
 };
 
