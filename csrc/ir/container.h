@@ -32,7 +32,9 @@ class IrContainerPasskey {
   explicit IrContainerPasskey() = default;
 };
 
-class IrContainer : public PolymorphicBase {
+// Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
+// Stage 2 (when Fusion inherits from both IrInterface and IrContainer).
+class IrContainer : public virtual PolymorphicBase {
  public:
   NVF_API IrContainer();
 
