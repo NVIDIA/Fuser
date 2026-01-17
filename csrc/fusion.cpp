@@ -106,6 +106,8 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
   using std::swap;
 
+  // Swap both base classes
+  swap(static_cast<IrInterface&>(a), static_cast<IrInterface&>(b));
   swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
 
   swap(a.inputs_, b.inputs_);
@@ -183,16 +185,24 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
+// Default constructor - initialize IrInterface to wrap this (the IrContainer part)
+Fusion::Fusion()
+    : IrInterface(static_cast<IrContainer*>(this), false),  // Wrap this, no ownership
+      IrContainer() {}
+
 // Clang tidy complains when using default constructor for IrContainer instead
 // of copy constructor. Fusion::copy has a call to IrContainer::copy, so it's
 // redundant to use the IrContainer copy constructor, but it is harmless since
 // Fusion::copy starts by calling clear().
-Fusion::Fusion(const Fusion& other) : IrContainer(other) {
+Fusion::Fusion(const Fusion& other)
+    : IrInterface(static_cast<IrContainer*>(this), false),  // Wrap this, no ownership
+      IrContainer(other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
-Fusion::Fusion(Fusion&& other) noexcept {
+Fusion::Fusion(Fusion&& other) noexcept
+    : IrInterface(static_cast<IrContainer*>(this), false) {  // Wrap this, no ownership
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }

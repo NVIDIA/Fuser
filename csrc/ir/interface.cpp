@@ -18,13 +18,29 @@ IrInterface::IrInterface() : container_(std::make_unique<IrContainer>()) {}
 IrInterface::IrInterface(std::unique_ptr<IrContainer> container)
     : container_(std::move(container)) {}
 
+// Special constructor for Stage 2 dual inheritance (temporary)
+// Wraps an existing IrContainer without taking ownership
+IrInterface::IrInterface(IrContainer* existing_container, bool take_ownership)
+    : container_(existing_container), owns_container_(take_ownership) {}
+
 // Copy constructor - clones the container
 IrInterface::IrInterface(const IrInterface& other)
-    : container_(std::make_unique<IrContainer>(*other.container_)) {}
+    : container_(std::make_unique<IrContainer>(*other.container_)),
+      owns_container_(true) {}  // Cloned container is always owned
 
 // Move constructor
 IrInterface::IrInterface(IrInterface&& other) noexcept
-    : container_(std::move(other.container_)) {}
+    : container_(std::move(other.container_)),
+      owns_container_(other.owns_container_) {
+  other.owns_container_ = true;  // Reset moved-from state
+}
+
+// Destructor - releases container without deleting if not owned
+IrInterface::~IrInterface() {
+  if (!owns_container_ && container_) {
+    container_.release();  // Don't delete the container
+  }
+}
 
 // Copy assignment using copy-and-swap idiom
 IrInterface& IrInterface::operator=(const IrInterface& other) {
@@ -38,6 +54,8 @@ IrInterface& IrInterface::operator=(const IrInterface& other) {
 // Move assignment
 IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
   container_ = std::move(other.container_);
+  owns_container_ = other.owns_container_;
+  other.owns_container_ = true;
   return *this;
 }
 
@@ -45,6 +63,7 @@ IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
 void swap(IrInterface& a, IrInterface& b) noexcept {
   using std::swap;
   swap(a.container_, b.container_);
+  swap(a.owns_container_, b.owns_container_);
 }
 
 } // namespace nvfuser
