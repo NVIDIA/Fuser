@@ -204,8 +204,7 @@ class StructHandle {
   inline StructType type() const;
 
   template <typename Ret, typename Class>
-  inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
-      Ret Class::* member) const {
+  inline Ret& operator->*(Ret Class::* member) const {
     return as<Class>().*member;
   }
 
