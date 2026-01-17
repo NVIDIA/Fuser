@@ -218,7 +218,12 @@ NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
     // mapped to any ID of the input or sibling output.
     if (def == nullptr ||
         (tv->definition()->isA<BlockQuantizationOp>() &&
-         tv == tv->definition()->as<BlockQuantizationOp>()->blockScales())) {
+         tv == tv->definition()->as<BlockQuantizationOp>()->blockScales()) ||
+        (tv->definition()->isA<GroupedBlockQuantizationOp>() &&
+         tv ==
+             tv->definition()
+                 ->as<GroupedBlockQuantizationOp>()
+                 ->blockScales())) {
       continue;
     }
 
