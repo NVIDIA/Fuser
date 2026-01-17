@@ -46,7 +46,7 @@ class MatmulScheduler : public SchedulerEntry {
 
 namespace schedule_matmul {
 
-// Base class for AmpereMinus and HopperPlus
+// Base class for HopperPlus
 class Common {
  public:
   Common(Fusion* fusion, const MatmulParams* params)
