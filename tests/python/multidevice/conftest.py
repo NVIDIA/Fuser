@@ -11,6 +11,7 @@ from typing import Iterable
 
 import torch
 import torch.distributed as dist
+import torch.distributed._symmetric_memory as symm_mem
 
 import nvfuser_direct as nvfuser
 
@@ -133,13 +134,21 @@ def setup_default_process_group():
 
     torch.cuda.set_device(local_rank)
 
-    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
+    opts = dist.ProcessGroupNCCL.Options()
+    opts.config.cta_policy = dist.ProcessGroupNCCL.NCCL_CTA_POLICY_ZERO
     dist.init_process_group(
         backend="nccl",
+        pg_options=opts,
+        # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
         init_method="tcp://localhost:29500",
         world_size=world_size,
         rank=rank,
-        device_id=torch.device(f"cuda:{local_rank}"),
+        device_id=local_rank,
     )
+
+    symm_mem.set_backend("NCCL")
+    symm_mem.enable_symm_mem_for_group(dist.group.WORLD.group_name)
+
     yield
+
     dist.destroy_process_group()

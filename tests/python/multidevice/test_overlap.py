@@ -7,6 +7,7 @@ import os
 
 import torch
 import torch.distributed as dist
+import torch.distributed._symmetric_memory as symm_mem
 from torch.distributed.tensor import distribute_tensor, Shard
 
 import nvfuser_direct as nvfuser
@@ -168,15 +169,10 @@ class StreamPool:
 def row_parallel_linear_forward_reference(
     inp_shard: torch.Tensor,
     weight_shard: torch.Tensor,
+    out: torch.Tensor,
     num_chunks: int,
     stream_pool: StreamPool,
 ) -> torch.Tensor:
-    out = torch.empty(
-        inp_shard.size(0),
-        weight_shard.size(0),
-        device="cuda",
-        dtype=inp_shard.dtype,
-    )
     inp_chunks = inp_shard.chunk(num_chunks)
     out_chunks = out.chunk(num_chunks)
 
@@ -222,7 +218,15 @@ def test_row_parallel_linear_forward_reference(setup_default_process_group):
         weight_ref, mesh, placements=[Shard(-1)]
     ).to_local()
     stream_pool = StreamPool()
-    out = row_parallel_linear_forward_reference(inp_shard, weight_shard, s, stream_pool)
+
+    out = symm_mem.empty(
+        inp_shard.size(0),
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    symm_mem.rendezvous(out, group=dist.group.WORLD)
+    row_parallel_linear_forward_reference(inp_shard, weight_shard, out, s, stream_pool)
 
     torch.testing.assert_close(out.cpu(), out_ref)
 
@@ -251,9 +255,16 @@ def test_row_parallel_linear_forward_reference_benchmark(
     ).to_local()
 
     stream_pool = StreamPool()
+    out = symm_mem.empty(
+        inp_shard.size(0),
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    symm_mem.rendezvous(out, group=dist.group.WORLD)
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: row_parallel_linear_forward_reference(
-            inp_shard, weight_shard, s, stream_pool
+            inp_shard, weight_shard, out, s, stream_pool
         )
     )
     warmup_fn()
