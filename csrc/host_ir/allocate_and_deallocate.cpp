@@ -240,6 +240,11 @@ void AllocateAndDeallocate::runPass(Fusion* fusion) {
 
   FusionGuard fg(hic);
   insertAllocations(*hic);
+
+  // Allreduce can be done in place. For each allreduce, if the input is used
+  // only by the allreduce and is allocated, try to remove that allocation and
+  // use the output as the input.
+
   insertDeallocations(*hic);
 }
 
