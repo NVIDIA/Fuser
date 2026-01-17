@@ -10,19 +10,19 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <host_ir/lower_to_communication.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <multidevice/device_mesh.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <runtime/executor_kernel_arg.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "host_ir/lower_to_communication.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "multidevice/device_mesh.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "runtime/executor_kernel_arg.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

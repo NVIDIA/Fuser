@@ -2476,7 +2476,7 @@ ReshapeOp::ReshapeOp(IrBuilderPasskey passkey, Val* out, Val* in)
 
 std::string ReshapeOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = view( "
+  indent(ss, indent_size) << out()->toString() << " = reshape( "
                           << in()->toString() << " )\n";
   return ss.str();
 }
@@ -2707,6 +2707,33 @@ std::string Partition::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Partition)
+
+Combine::Combine(
+    IrBuilderPasskey passkey,
+    IterDomain* out,
+    IterDomain* component,
+    RaggedIterDomain* ragged)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(component);
+  addInput(ragged);
+}
+
+std::string Combine::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Combine: ";
+  ss << "component: " << component()->toString();
+  ss << " + ragged: " << ragged()->toString();
+  ss << " -> " << out()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Combine::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Combine can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Combine)
 
 Swizzle::Swizzle(
     IrBuilderPasskey passkey,

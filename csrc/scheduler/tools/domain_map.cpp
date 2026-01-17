@@ -421,6 +421,8 @@ bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
     // BlockQuantizationOp when looking for a reference tensor. This is because
     // the two outputs of block quantization op are not symmetrical and the
     // logical domains of the scaling factor is not completely mapped.
+    // The same thing applies to GroupedBlockQuantizationOp's block scale
+    // output.
     if (output_tv == tv ||
         (output_tv->definition() &&
          output_tv->definition()->isA<BlockQuantizationOp>() &&

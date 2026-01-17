@@ -690,8 +690,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
       auto loops_it = std::find_if(
           for_loops_.begin(), for_loops_.end(), [&local_id](const auto& loop) {
-            return GpuLower::current()->info().caMap().areMapped(
-                loop->iter_domain(), local_id, IdMappingMode::PERMISSIVE);
+            return GpuLower::current()
+                ->info()
+                .idModel()
+                .idGraph(IdMappingMode::PERMISSIVE)
+                .areMapped(loop->iter_domain(), local_id);
           });
 
       NVF_ERROR(

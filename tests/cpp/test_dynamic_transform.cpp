@@ -8,15 +8,15 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <csrc/exceptions.h>
-#include <dynamic_transform.h>
-#include <expr_evaluator.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "dynamic_transform.h"
+#include "expr_evaluator.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

@@ -83,6 +83,8 @@ struct BarrierOptions {
   std::vector<int64_t> device_ids;
 };
 
+struct AllToAllOptions {};
+
 class Backend : public torch::CustomClassHolder {
  public:
   void startCoalescing() {}
@@ -171,6 +173,15 @@ class Backend : public torch::CustomClassHolder {
   c10::intrusive_ptr<Work> reduce(
       std::vector<at::Tensor>& tensors,
       const ReduceOptions& opts = ReduceOptions()) {
+    return c10::make_intrusive<Work>();
+  }
+
+  c10::intrusive_ptr<Work> alltoall_base(
+      at::Tensor& outputTensor,
+      at::Tensor& inputTensor,
+      std::vector<int64_t>& outputSplitSizes,
+      std::vector<int64_t>& inputSplitSizes,
+      const AllToAllOptions& opts = AllToAllOptions()) {
     return c10::make_intrusive<Work>();
   }
 

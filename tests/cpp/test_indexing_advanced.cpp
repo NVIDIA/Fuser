@@ -5,17 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -23,7 +22,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
  protected:
   void SetUp() override {
     if (GetParam()) {
-      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     } else {
       EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
     }
@@ -33,7 +32,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
 class AdvancedIndexingIdModelTest : public NVFuserTest {
  protected:
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

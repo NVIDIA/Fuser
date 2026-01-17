@@ -5,46 +5,46 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
-#include <gtest/gtest.h>
-
-#include <codegen.h>
-#include <device_lower/lower2device.h>
-#include <disjoint_set.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <grouped_reduction.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/graphviz.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <runtime/executor.h>
-#include <runtime/executor_params.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/reduction_tma.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-#include <transform_replay.h>
-#include <transform_rfactor.h>
+#include <algorithm>
+#include <iostream>
 
 // fuser and IR parser
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
-#include <c10/cuda/CUDAStream.h>
-#include <torch/csrc/jit/codegen/cuda/interface.h>
 
-#include <algorithm>
-#include <iostream>
+#include <gtest/gtest.h>
+
+#include <c10/cuda/CUDAStream.h>
+
+#include "codegen.h"
+#include "csrc/exceptions.h"
+#include "device_lower/lower2device.h"
+#include "disjoint_set.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "grouped_reduction.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/graphviz.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "runtime/executor.h"
+#include "runtime/executor_params.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/reduction_tma.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
+#include "transform_replay.h"
+#include "transform_rfactor.h"
 
 namespace nvfuser {
 
@@ -78,7 +78,7 @@ class ReductionTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2773,24 +2773,24 @@ TEST_P(TmaInnerReductionManualTest, Basic) {
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaInnerReductionManualTest,
-    ::testing::Combine(
-        ::testing::Values(2, 3), // ndims
-        ::testing::ValuesIn([] { // inner_size
+    testing::Combine(
+        testing::Values(2, 3), // ndims
+        testing::ValuesIn([] { // inner_size
           std::vector<int64_t> vals(
               Pow2Vals1to1Million.begin(), Pow2Vals1to1Million.end());
           // Add some irregular numbers
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
         }())),
-    [](const testing::TestParamInfo<TmaInnerReductionManualTestParams>& info) {
-      int64_t ndims = std::get<0>(info.param);
-      int64_t inner_size = std::get<1>(info.param);
+    ([](const testing::TestParamInfo<TmaInnerReductionManualTestParams>& info) {
+      auto [ndims, inner_size] = info.param;
       return "ndim_" + std::to_string(ndims) + "_inner_size_" +
           std::to_string(inner_size);
-    });
+    }));
 
 namespace tma_reduction_check {
 bool isTmaParams(const FusionExecutorCache& executor_cache) {
@@ -2879,7 +2879,7 @@ TEST_P(TmaInnerReductionTest, Sum) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaInnerReductionTest,
-    ::testing::Combine(
+    testing::Combine(
         testing::Values(DataType::Float, DataType::BFloat16),
         testing::ValuesIn([] {
           std::vector<int64_t> vals(
@@ -2888,12 +2888,11 @@ INSTANTIATE_TEST_SUITE_P(
           vals.insert(vals.end(), {1024 * 1024 + 8, 1024 * 1024 + 7, 1023});
           return vals;
         }())),
-    [](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
-      auto dtype = std::get<0>(info.param);
-      auto reduction_size = std::get<1>(info.param);
+    ([](const testing::TestParamInfo<TmaInnerReductionTestParams>& info) {
+      auto [dtype, reduction_size] = info.param;
       std::ostringstream os;
       os << dtype << "_" << reduction_size;
       return os.str();
-    });
+    }));
 
 } // namespace nvfuser

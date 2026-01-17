@@ -11,10 +11,10 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 using testing::UnorderedElementsAre;
@@ -845,7 +845,7 @@ TEST_F(BlockQuantizationValidationTest, GroupIDMustBeInnermost) {
       [&]() { GpuLower(setup.fusion.get()).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "The grouped ID must correspond to the innermost of all splits from "
-          "logical domains to loop domains for BlockQuantizationOp")));
+          "logical domains to loop domains for")));
 }
 
 // We do not allow IDs of types serial, unroll, unswitch to have extent > 1
@@ -880,8 +880,7 @@ TEST_F(BlockQuantizationValidationTest, NonParallelizedIDsMustHaveExtentOfOne) {
   EXPECT_THAT(
       [&]() { GpuLower(setup.fusion.get()).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Expected non-TID/BID/Group ID to have extent of 1 for "
-          "BlockQuantizationOp")));
+          "Expected non-TID/BID/Group ID to have extent of 1 for ")));
 }
 
 // The runtime kernel for block quantization expects TIDx to access contiguous
@@ -919,8 +918,7 @@ TEST_F(BlockQuantizationValidationTest, TIDxMustBeSecondInnermostAfterGroupID) {
   EXPECT_THAT(
       [&]() { GpuLower(setup.fusion.get()).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Expected IDs between Group ID and TIDx to have extent of 1 for "
-          "BlockQuantizationOp:")));
+          "Expected IDs between Group ID and TIDx to have extent of 1 for ")));
 }
 
 // When running validation checks we traverse from loop to logical domain
@@ -968,7 +966,7 @@ TEST_F(BlockQuantizationValidationTest, MergesMustBeContiguous) {
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
           "All merge operations deriving the grouped ID must combine "
           "contiguous "
-          "IDs from the logical domain for BlockQuantizationOp")));
+          "IDs from the logical domain for")));
 }
 
 class BlockQuantizationSchedulingTest

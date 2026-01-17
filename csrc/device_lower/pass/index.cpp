@@ -485,7 +485,7 @@ void IndexLowering::handle(const GroupedBlockQuantizationOp* grouped_bqop) {
       grouped_bqop->k(),
       grouped_bqop->g(),
       grouped_bqop->globalScale(),
-      16,
+      grouped_bqop->blockSize(),
       logical_index[0],
       logical_index[1]));
   GpuLower::current()->propagateExprInfo(grouped_bqop, back());
@@ -520,10 +520,12 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
   const auto in = lowerSrcIndex(uop->in(), uop->out());
   const auto out = lowerDstIndex(uop->out());
   for (auto loop : for_loops_) {
-    if (GpuLower::current()->info().caMap().areMapped(
-            loop->iter_domain(),
-            uop->vector_id()->as<IterDomain>(),
-            IdMappingMode::LOOP)) {
+    if (GpuLower::current()
+            ->info()
+            .idModel()
+            .idGraph(IdMappingMode::LOOP)
+            .areMapped(
+                loop->iter_domain(), uop->vector_id()->as<IterDomain>())) {
       Val* index = loop->indexOrStartIfTrivial();
       pushBack(IrBuilder::create<LoadStoreOp>(
           LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));

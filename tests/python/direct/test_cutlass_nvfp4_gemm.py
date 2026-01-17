@@ -6,11 +6,11 @@
 import pytest
 import torch
 from nvfuser_direct import nvf_cutlass
+from python.direct_utils import microarchitecture_is
 
-compute_cap = torch.cuda.get_device_capability()
-if compute_cap < (10, 0) or compute_cap >= (12, 0):
+if not microarchitecture_is(10, 0):
     pytest.skip(
-        reason="Nvfp4 Requires compute capability 10.",
+        reason="Nvfp4 Requires compute capability 10.0, other arches are not tested.",
         allow_module_level=True,
     )
 

@@ -1652,7 +1652,6 @@ std::string CutlassNvfp4GroupedMmaOp::toInlineString(int indent_size) const {
 std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-#if NVFUSER_CUTLASS_KERNEL_ENABLED
   const auto& mat1 = inputs[0].as<at::Tensor>();
   const auto& mat2 = inputs[1].as<at::Tensor>();
   const auto& scale1 = inputs[2].as<at::Tensor>();
@@ -1661,6 +1660,31 @@ std::vector<PolymorphicValue> CutlassNvfp4GroupedMmaOp::evaluate(
   const auto& problem_sizes = inputs[5].as<at::Tensor>();
   const auto& expert_offsets = inputs[6].as<at::Tensor>();
   const auto& sf_offsets = inputs[7].as<at::Tensor>();
+
+  // Meta-device fast path outside of torch version guard
+  if (mat1.is_meta() || mat2.is_meta() || scale1.is_meta() ||
+      scale2.is_meta() || alpha.is_meta() || problem_sizes.is_meta() ||
+      expert_offsets.is_meta() || sf_offsets.is_meta()) {
+    // For nvfp4_scaled_grouped_mm, the output shape is [M, N]
+    // where M = mat1.size(0) and N = mat2.size(2).
+    // Note: CutlassNvfp4GroupedMmaOp expects mat2 to be [G, K/2, N] (packed) at
+    // runtime and transposes it before calling into CUTLASS.
+    std::vector<int64_t> result_sizes = {mat1.size(0), mat2.size(2)};
+
+    at::ScalarType out_dtype = data_type_to_aten(out()->dtype());
+    auto options =
+        mat1.options().device(c10::Device(c10::kMeta)).dtype(out_dtype);
+    at::Tensor result = at::empty(result_sizes, options);
+
+    if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+        rfactor_did_idx != -1) {
+      result = result.unsqueeze(rfactor_did_idx);
+    }
+
+    return {result};
+  }
+
+#if NVFUSER_CUTLASS_KERNEL_ENABLED
   NVF_CHECK(
       mat1.scalar_type() == at::ScalarType::Float4_e2m1fn_x2 &&
       mat2.scalar_type() == at::ScalarType::Float4_e2m1fn_x2);

@@ -8,20 +8,20 @@
 
 // As test_host_irs.cpp exceeded 1000 lines, this file now contains unit tests
 // specifically for host IRs utilized solely within FusionExecutorCache.
-#include <gtest/gtest.h>
-
 #include <ATen/ops/matmul.h>
 #include <ATen/ops/randn.h>
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
-#include <tests/cpp/utils.h>
+#include <gtest/gtest.h>
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/composite.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser::hir {
 
