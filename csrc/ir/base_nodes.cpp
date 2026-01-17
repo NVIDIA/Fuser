@@ -73,7 +73,10 @@ std::string Statement::toInlineString(int indent_size) const {
 Fusion* Statement::fusion() const {
   NVF_ERROR(
       ir_container_->isA<Fusion>(), "Statement does not belong to a fusion.");
-  return ir_container_->as<Fusion>();
+  // Use owningFusion() to support composition pattern (Stage 3+)
+  // In Stage 2 (dual inheritance), ir_container_ IS a Fusion, so as<IrInterface>() works
+  // In Stage 3+ (composition), ir_container_ will be contained by IrInterface
+  return ir_container_->as<IrInterface>()->owningFusion();
 }
 
 kir::Kernel* Statement::kernel() const {
