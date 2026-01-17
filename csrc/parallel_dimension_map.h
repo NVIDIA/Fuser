@@ -99,7 +99,7 @@ class ParallelDimensionMap {
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1
-  int64_t getThreadCountInDim(ParallelType pt);
+  int64_t getStaticComputeThreadsInDim(ParallelType pt);
 
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
