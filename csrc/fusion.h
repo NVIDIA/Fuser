@@ -21,6 +21,7 @@
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
+#include <ir/interface.h>
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
@@ -142,11 +143,11 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrContainer {
+class NVF_API Fusion : public IrInterface, public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
-  Fusion() = default;
+  Fusion();
 
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
@@ -158,7 +159,40 @@ class NVF_API Fusion : public IrContainer {
 
   friend void swap(Fusion& a, Fusion& b) noexcept;
 
+  // Resolve ambiguity during Stage 2 dual inheritance
+  // Prefer IrContainer base class methods during this temporary phase
+  using IrContainer::vals;
+  using IrContainer::unordered_exprs;
+  using IrContainer::deterministic_vals;
+  using IrContainer::deterministic_exprs;
+  using IrContainer::deterministic_vals_map;
+  using IrContainer::deterministic_exprs_map;
+  using IrContainer::inContainer;
+  using IrContainer::assertInContainer;
+  using IrContainer::numExprs;
+  using IrContainer::numVals;
+  using IrContainer::zeroVal;
+  using IrContainer::oneVal;
+  using IrContainer::falseVal;
+  using IrContainer::trueVal;
+  using IrContainer::magicZeroVal;
+  using IrContainer::metadataOf;
+  using IrContainer::axioms;
+  using IrContainer::assumePositive;
+  using IrContainer::assumeNonNegative;
+  using IrContainer::registerStmt;
+  // Note: registerVal and registerExpr have using declarations in protected
+  // section already (lines 518-519), so not repeated here
+
   void clear() noexcept;
+
+  // Override IrInterface to return this Fusion
+  Fusion* owningFusion() override {
+    return this;
+  }
+  const Fusion* owningFusion() const override {
+    return this;
+  }
 
   // Hash the fusion. This is used to identify the fusion in the cache.
   size_t hash() const;

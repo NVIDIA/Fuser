@@ -31,11 +31,19 @@ class Fusion;
 //
 // This eliminates ~20 forwarding methods from Fusion and provides a reusable
 // pattern for other classes that need IrContainer composition.
-class NVF_API IrInterface : public PolymorphicBase {
+//
+// Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
+// Stage 2 (when Fusion inherits from both IrInterface and IrContainer).
+class NVF_API IrInterface : public virtual PolymorphicBase {
  public:
   // Constructors
   IrInterface();
   explicit IrInterface(std::unique_ptr<IrContainer> container);
+
+  // Special constructor for Stage 2 dual inheritance (temporary)
+  // Wraps an existing IrContainer without taking ownership
+  // Use take_ownership=false when the IrContainer is managed elsewhere
+  explicit IrInterface(IrContainer* existing_container, bool take_ownership);
 
   // Copy/Move
   IrInterface(const IrInterface& other);
@@ -43,7 +51,7 @@ class NVF_API IrInterface : public PolymorphicBase {
   IrInterface& operator=(const IrInterface& other);
   IrInterface& operator=(IrInterface&& other) noexcept;
 
-  ~IrInterface() override = default;
+  ~IrInterface() override;
 
   //===================================================================
   // IrContainer API Forwarding (Public Methods)
@@ -213,6 +221,7 @@ class NVF_API IrInterface : public PolymorphicBase {
   //===================================================================
 
   std::unique_ptr<IrContainer> container_;
+  bool owns_container_ = true;  // Flag for ownership (false during Stage 2 dual inheritance)
 
   friend void swap(IrInterface& a, IrInterface& b) noexcept;
 };
