@@ -427,8 +427,6 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-
-    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
 
   return all_runtime_inputs;
@@ -664,8 +662,6 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-
-    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
   return heuristics;
 }
