@@ -73,9 +73,22 @@ class ParallelDimensionMap {
   //! And this function will return (32 * 16) because the extra one for TIDy is
   //! introduced by warp specialization and only used for loading circular
   //! buffer tensors.
-  Val* getNumComputeThreadsEachBlock() const;
+  Val* getNumComputeThreadsEachBlock(
+      bool only_count_same_compute_warp_groups) const;
 
-  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
+  //! Get the number of compute warps for warp specialized kernels.
+  //! This computes the total number of compute threads across all dimensions
+  //! (TIDx, TIDy, TIDz), using the compute dimension (minus padding) for the
+  //! warp specialized dimension, then divides by 32 to get the number of warps.
+  //! Examples:
+  //!   - If warp specialized on TIDx: (bdimx - pad) * bdimy * bdimz / 32
+  //!   - If warp specialized on TIDy: bdimx * (bdimy - pad) * bdimz / 32
+  //!   - If warp specialized on TIDz: bdimx * bdimy * (bdimz - pad) / 32
+  Val* getNumComputeWarps() const;
+
+  //! For warp-specialization, the CTA is padded so the AsyncWarp contains 128
+  //! threads. This function maps the AsyncWarp CTA to a linear index from
+  //! [0, 128). It is used to divide AsyncWarp into four independent warps.
   Val* getLinearThreadIndexAsync() const;
 
   //! Get if the kernel uses warp specialization
@@ -96,10 +109,26 @@ class ParallelDimensionMap {
   // elect-sync cannot be used.
   bool canUseElectSyncInAsyncWarp() const;
 
+  //! Check if warp-id-based predicates can be used for warp specialization.
+  //! Warp-id-based predicates (e.g., warp_id >= N) only work when the
+  //! warp-specialized dimension produces consecutive warp IDs. This requires
+  //! that the warp-specialized dimension is the outermost dimension > 1,
+  //! meaning ALL dimensions after it must be 1.
+  //!
+  //! Example: warp specialized on TIDy with CTA (32, 6, 2):
+  //!   TIDz=2 after TIDy causes non-consecutive warps (FAILS)
+  //! Example: warp specialized on TIDz with CTA (32, 4, 3):
+  //!   No dimensions after TIDz -> consecutive warps (WORKS)
+  //!
+  //! Returns true if:
+  //!   - No warp specialization is used, OR
+  //!   - All dimensions after the warp-specialized dimension are 1
+  bool canUseWarpIdBasedPredicate() const;
+
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1
-  int64_t getThreadCountInDim(ParallelType pt);
+  int64_t getThreadCountInDim(ParallelType pt) const;
 
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
