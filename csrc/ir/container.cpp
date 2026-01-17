@@ -42,10 +42,10 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
 
   // Fixup the Statement::fusion_ links for b
   for (auto val : b.vals_) {
-    val->ir_container_ = &a;
+    val->ir_container_ = &b;
   }
   for (auto expr : b.exprs_) {
-    expr->ir_container_ = &a;
+    expr->ir_container_ = &b;
   }
 }
 
