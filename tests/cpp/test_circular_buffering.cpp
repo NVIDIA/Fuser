@@ -2515,22 +2515,11 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
 
   constexpr int64_t n_stages = 2;
 
-  // If ws_pt == ParallelType::TIDx and bdim.x == 32, CUDA kernel cannot use
-  // register sharing. ncu reports it uses 26 register per thread.
-  // getNumRegisters expects 168 registers by default, so the register settings
-  // causes nvrtc to hang during compilation.
-  if (ws_pt == ParallelType::TIDx && getTmaPadThreads(ws_pt, bdim) < 32) {
-    CircularBufferType circular_buffer_type = WarpSpecialized(ws_pt);
-    tv1->circularBuffer(
-        n_stages, /*prefetch_distance=*/1, circular_buffer_type);
-  } else {
-    CircularBufferType circular_buffer_type = WarpSpecialized(
-        ws_pt,
-        getNumRegisters(
-            n_computation_threads, n_tma_branch_threads, n_total_threads));
-    tv1->circularBuffer(
-        n_stages, /*prefetch_distance=*/1, circular_buffer_type);
-  }
+  CircularBufferType circular_buffer_type = WarpSpecialized(
+      ws_pt,
+      getNumRegisters(
+          n_computation_threads, n_tma_branch_threads, n_total_threads));
+  tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
@@ -2544,6 +2533,17 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
         R"(The # active threads in other thread dimensions > 128 threads.)";
     if (getOtherActiveThreads(ws_pt, bdim) > n_tma_branch_threads) {
       const char* str_match_pointer = strstr(e.what(), other_active_128_max);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    }
+    // If ws_pt == ParallelType::TIDx and CTA shape is (32, 4, 2), padded
+    // threads in x dim is 16, will cause warp divergence due to thread
+    // linearization.
+    if (ws_pt == ParallelType::TIDx &&
+        getTmaPadThreads(ws_pt, bdim) % 32 != 0) {
+      const char* err_msg =
+          R"(Warp specialization on TIDx requires padded bdimx to be a multiple of 32)";
+      const char* str_match_pointer = strstr(e.what(), err_msg);
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
     }
