@@ -183,7 +183,7 @@ def row_parallel_linear_forward_reference(
     main_stream = torch.cuda.current_stream()
     worker_streams = []
     for i, (inp_chunk, out_chunk) in enumerate(zip(inp_chunks, out_chunks)):
-        worker_stream = stream_pool.get(i)
+        worker_stream = stream_pool.get(i % 2)
         worker_streams.append(worker_stream)
         worker_stream.wait_stream(main_stream)
         with torch.cuda.stream(worker_stream):
@@ -232,7 +232,7 @@ def test_row_parallel_linear_forward_reference(setup_default_process_group):
 def test_row_parallel_linear_forward_reference_benchmark(
     setup_default_process_group, benchmark
 ):
-    h, s, t = 8192, 2, 8192
+    h, s, t = 8192, 4, 8192
     d = dist.get_world_size()
     if (h * 4) % d != 0:
         pytest.skip(
