@@ -620,20 +620,24 @@ std::list<Expr*> processForLoopBodies(
           auto* curr_stream = IrBuilder::create<hir::Stream>(curr_stream_idx);
 
           auto* one = FusionGuard::getCurFusion()->oneVal();
-          auto* next_stream_idx =
-              mod(add(for_loop->index(), one), number_of_streams);
-          auto* next_stream = IrBuilder::create<hir::Stream>(next_stream_idx);
+          auto* next_stream_idx = add(for_loop->index(), one);
+          auto* no_wraparound = IrBuilder::create<kir::Predicate>(
+              lt(next_stream_idx, number_of_streams));
+          auto* sync_if = IrBuilder::create<kir::IfThenElse>(no_wraparound);
 
+          auto* next_stream = IrBuilder::create<hir::Stream>(next_stream_idx);
           auto* set_next_stream =
               IrBuilder::create<hir::SetCurrentStream>(next_stream);
-          new_loop_body.push_back(set_next_stream);
+          sync_if->thenBody().pushBack(set_next_stream);
 
           auto* sync = IrBuilder::create<hir::Synchronize>(curr_stream);
-          new_loop_body.push_back(sync);
+          sync_if->thenBody().pushBack(sync);
 
           auto* set_curr_stream =
               IrBuilder::create<hir::SetCurrentStream>(curr_stream);
-          new_loop_body.push_back(set_curr_stream);
+          sync_if->thenBody().pushBack(set_curr_stream);
+
+          new_loop_body.push_back(sync_if);
         }
       } else {
         // Process inputs and outputs normally

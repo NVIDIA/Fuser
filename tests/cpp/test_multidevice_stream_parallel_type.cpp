@@ -535,6 +535,76 @@ INSTANTIATE_TEST_SUITE_P(
       return p2p + "_" + backend;
     });
 
+
+namespace {
+bool containsConditionalSynchronize(const Expr* expr) {
+  if (auto* ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
+    for (auto* e : ite->thenBody().exprs()) {
+      if (e->isA<hir::Synchronize>()) {
+        return true;
+      }
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+    for (auto* e : ite->elseBody().exprs()) {
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+  }
+
+  if (auto* for_loop = dynamic_cast<const kir::ForLoop*>(expr)) {
+    for (auto* e : for_loop->body().exprs()) {
+      if (containsConditionalSynchronize(e)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+} // namespace
+
+TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherInterStreamSyncNoWrap) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigTensor(3); //[DIDx(D), M/D, K]
+  TensorView* tv1 = makeContigTensor(2); //[K, N]
+  TensorView* tv2 = matmul(tv0, tv1); //[Stream(D), M/D, N]
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  auto mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv2->setDeviceMesh(mesh);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutorParams params;
+  params.lower.offset_stream_indexing_by_rank = true;
+  params.lower.communicator_backend = CommunicatorBackend::kCuda;
+  params.lower.inter_stream_synchronization = true;
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_, params);
+
+  const hir::HostIrContainer& container =
+      executor.hostIrEvaluator()->container();
+  bool found = false;
+  for (auto* expr : container.topLevelExprs()) {
+    if (containsConditionalSynchronize(expr)) {
+      found = true;
+      break;
+    }
+  }
+
+  EXPECT_TRUE(found)
+      << "Expected conditional inter-stream synchronize in lowered Host IR.";
+}
+
 class RSMatmulTest : public MultiDeviceStreamParallelTypeTest,
                      public testing::WithParamInterface<CommunicatorBackend> {};
 
