@@ -535,7 +535,6 @@ INSTANTIATE_TEST_SUITE_P(
       return p2p + "_" + backend;
     });
 
-
 namespace {
 bool containsConditionalSynchronize(const Expr* expr) {
   if (auto* ite = dynamic_cast<const kir::IfThenElse*>(expr)) {
