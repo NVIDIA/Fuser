@@ -6,9 +6,9 @@
  */
 // clang-format on
 #include <bindings.h>
-#include <torch/extension.h>
+#include <nanobind/nanobind.h>
 
-PYBIND11_MODULE(PYTHON_DIRECT_EXTENSION, m) {
+NB_MODULE(PYTHON_DIRECT_EXTENSION, m) {
   m.doc() = "Python bindings for NvFuser Direct CPP API";
-  nvfuser::python::initNvFuserPythonBindings(m.ptr());
+  nvfuser::python::initNvFuserPythonBindings(m);
 }

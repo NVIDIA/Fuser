@@ -13,11 +13,11 @@
 
 namespace nvfuser::python {
 
-void bindEnums(py::module& nvfuser) {
+void bindEnums(nb::module_& nvfuser) {
   //! DataTypes supported by nvFuser in the FusionDefinition. The python
   //! DataType maps to the CPP PrimDataType. On the CPP side, there is also a
   //! DateType enum that includes struct, array, pointer, or opaque datatypes.
-  py::enum_<PrimDataType>(nvfuser, "DataType", py::module_local())
+  nb::enum_<PrimDataType>(nvfuser, "DataType")
       .value("Double", DataType::Double)
       .value("Float", DataType::Float)
       .value("Half", DataType::Half)
@@ -36,7 +36,7 @@ void bindEnums(py::module& nvfuser) {
       .value("ComplexDouble", DataType::ComplexDouble)
       .value("Null", DataType::Null);
 
-  py::enum_<ParallelType>(nvfuser, "ParallelType", py::module_local())
+  nb::enum_<ParallelType>(nvfuser, "ParallelType")
       .value("mesh_x", ParallelType::DIDx)
       .value("mesh_y", ParallelType::DIDy)
       .value("mesh_z", ParallelType::DIDz)
@@ -54,13 +54,12 @@ void bindEnums(py::module& nvfuser) {
       .value("vectorize", ParallelType::Vectorize)
       .value("stream", ParallelType::Stream);
 
-  py::enum_<CommunicatorBackend>(
-      nvfuser, "CommunicatorBackend", py::module_local())
+  nb::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
       .value("nccl", CommunicatorBackend::kNccl)
       .value("ucc", CommunicatorBackend::kUcc)
       .value("cuda", CommunicatorBackend::kCuda);
 
-  py::enum_<SchedulerType>(nvfuser, "SchedulerType", py::module_local())
+  nb::enum_<SchedulerType>(nvfuser, "SchedulerType")
       .value("none", SchedulerType::None)
       .value("no_op", SchedulerType::NoOp)
       .value("pointwise", SchedulerType::PointWise)
@@ -73,34 +72,34 @@ void bindEnums(py::module& nvfuser) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
-  py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType", py::module_local())
+  nb::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
       .value("set", LoadStoreOpType::Set)
       .value("load_matrix", LoadStoreOpType::LdMatrix)
       .value("cp_async", LoadStoreOpType::CpAsync)
       .value("tma", LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  py::enum_<MemoryType>(nvfuser, "MemoryType", py::module_local())
+  nb::enum_<MemoryType>(nvfuser, "MemoryType")
       .value("tensor", MemoryType::Tensor)
       .value("local", MemoryType::Local)
       .value("shared", MemoryType::Shared)
       .value("global", MemoryType::Global)
       .value("symmetric", MemoryType::Symmetric);
 
-  py::enum_<CacheOp>(nvfuser, "CacheOp", py::module_local())
+  nb::enum_<CacheOp>(nvfuser, "CacheOp")
       .value("unspecified", CacheOp::Unspecified)
       .value("all_levels", CacheOp::AllLevels)
       .value("streaming", CacheOp::Streaming)
       .value("global", CacheOp::Global);
 
-  py::enum_<IdMappingMode>(nvfuser, "IdMappingMode")
+  nb::enum_<IdMappingMode>(nvfuser, "IdMappingMode")
       .value("exact", IdMappingMode::EXACT)
       .value("almost_exact", IdMappingMode::ALMOSTEXACT)
       .value("broadcast", IdMappingMode::BROADCAST)
       .value("permissive", IdMappingMode::PERMISSIVE)
       .value("loop", IdMappingMode::LOOP);
 
-  py::enum_<MatmulParams::TilingStrategy> tiling_strategy(
-      nvfuser, "MatmulTilingStrategy", py::module_local());
+  nb::enum_<MatmulParams::TilingStrategy> tiling_strategy(
+      nvfuser, "MatmulTilingStrategy");
   tiling_strategy.value(
       "one_tile_per_cta", MatmulParams::TilingStrategy::OneTilePerCTA);
   tiling_strategy.value(
@@ -110,16 +109,15 @@ void bindEnums(py::module& nvfuser) {
       "distribute_stages_across_sms",
       MatmulParams::TilingStrategy::DistributeStagesAcrossSMs);
 
-  py::enum_<MatmulParams::BufferingLoopLevel> buffering_loop_level(
-      nvfuser, "MatmulBufferingLoopLevel", py::module_local());
+  nb::enum_<MatmulParams::BufferingLoopLevel> buffering_loop_level(
+      nvfuser, "MatmulBufferingLoopLevel");
   buffering_loop_level.value(
       "cta_tiles", MatmulParams::BufferingLoopLevel::CTATiles);
   buffering_loop_level.value(
       "warp_tiles", MatmulParams::BufferingLoopLevel::WarpTiles);
 
-  py::enum_<MatmulParams::CircularBufferingStrategy>
-      circular_buffering_strategy(
-          nvfuser, "MatmulCircularBufferingStrategy", py::module_local());
+  nb::enum_<MatmulParams::CircularBufferingStrategy>
+      circular_buffering_strategy(nvfuser, "MatmulCircularBufferingStrategy");
   circular_buffering_strategy.value(
       "pipelined", MatmulParams::CircularBufferingStrategy::Pipelined);
   circular_buffering_strategy.value(
