@@ -56,7 +56,7 @@ bool validateReductionGrouping(
   NVF_ERROR(inputs.size() == outputs.size());
   NVF_ERROR(!inputs.empty());
 
-  auto fusion = outputs[0]->container()->as<Fusion>();
+  auto fusion = outputs[0]->fusion();
 
   ExactLogicalDomainMap exact_map(fusion);
 
