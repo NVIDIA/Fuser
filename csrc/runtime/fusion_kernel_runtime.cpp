@@ -357,7 +357,6 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
         args_manager.translateValsToArgs(group_to_run->inputs()));
     auto& group_runtime_inputs = all_runtime_inputs.back();
 
-    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
