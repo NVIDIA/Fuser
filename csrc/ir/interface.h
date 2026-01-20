@@ -40,11 +40,6 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
   IrInterface();
   explicit IrInterface(std::unique_ptr<IrContainer> container);
 
-  // Special constructor for Stage 2 dual inheritance (temporary)
-  // Wraps an existing IrContainer without taking ownership
-  // Use take_ownership=false when the IrContainer is managed elsewhere
-  explicit IrInterface(IrContainer* existing_container, bool take_ownership);
-
   // Copy/Move
   IrInterface(const IrInterface& other);
   IrInterface(IrInterface&& other) noexcept;
@@ -222,8 +217,6 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
   //===================================================================
 
   std::unique_ptr<IrContainer> container_;
-  bool owns_container_ =
-      true; // Flag for ownership (false during Stage 2 dual inheritance)
 
   friend void swap(IrInterface& a, IrInterface& b) noexcept;
 };

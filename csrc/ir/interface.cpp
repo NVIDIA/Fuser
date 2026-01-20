@@ -22,28 +22,15 @@ IrInterface::IrInterface(std::unique_ptr<IrContainer> container)
   container_->setParent(this);
 }
 
-// Special constructor for Stage 2 dual inheritance (temporary)
-// Wraps an existing IrContainer without taking ownership
-IrInterface::IrInterface(IrContainer* existing_container, bool take_ownership)
-    : container_(existing_container), owns_container_(take_ownership) {
-  if (existing_container) {
-    existing_container->setParent(this);
-  }
-}
-
 // Copy constructor - clones the container
 IrInterface::IrInterface(const IrInterface& other)
-    : container_(std::make_unique<IrContainer>(*other.container_)),
-      owns_container_(true) { // Cloned container is always owned
+    : container_(std::make_unique<IrContainer>(*other.container_)) {
   container_->setParent(this);
 }
 
 // Move constructor
 IrInterface::IrInterface(IrInterface&& other) noexcept
-    : container_(std::move(other.container_)),
-      owns_container_(other.owns_container_) {
-  other.owns_container_ = true; // Reset moved-from state
-
+    : container_(std::move(other.container_)) {
   // Update parent pointer to point to the new owner
   if (container_) {
     container_->setParent(this);
@@ -52,7 +39,7 @@ IrInterface::IrInterface(IrInterface&& other) noexcept
 
 // Destructor - releases container without deleting if not owned
 IrInterface::~IrInterface() {
-  if (!owns_container_ && container_) {
+  if (container_) {
     container_.release(); // Don't delete the container
   }
 }
@@ -70,8 +57,6 @@ IrInterface& IrInterface::operator=(const IrInterface& other) {
 IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
   if (this != &other) {
     container_ = std::move(other.container_);
-    owns_container_ = other.owns_container_;
-    other.owns_container_ = true;
 
     // Update parent pointer to point to the new owner
     if (container_) {
@@ -86,7 +71,6 @@ IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
 void swap(IrInterface& a, IrInterface& b) noexcept {
   using std::swap;
   swap(a.container_, b.container_);
-  swap(a.owns_container_, b.owns_container_);
 
   // Fix parent pointers after swapping containers
   // After swap, each IrInterface owns a different container, so we must update
