@@ -16,9 +16,6 @@ namespace nvfuser {
 // Checks if container OR parent is of specified type
 template <typename T>
 bool IrBuilderPasskey::isInContainerType() const {
-  if (ir_container_->parent()->isA<T>()) {
-    return true;
-  }
   auto* parent = ir_container_->parent();
   return parent && parent->isA<T>();
 }
@@ -26,9 +23,6 @@ bool IrBuilderPasskey::isInContainerType() const {
 // Helper for checking multiple types
 template <typename T1, typename T2>
 bool IrBuilderPasskey::isInContainerType() const {
-  if (ir_container_->parent()->isOneOf<T1, T2>()) {
-    return true;
-  }
   auto* parent = ir_container_->parent();
   return parent && parent->isOneOf<T1, T2>();
 }
