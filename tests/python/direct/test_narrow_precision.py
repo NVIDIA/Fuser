@@ -14,6 +14,7 @@ from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_MAX,
     pytorch_nvfp4_quantize,
+    microarchitecture_is,
     is_pre_blackwell,
     microarchitecture_is_pre,
     linear_to_swizzled_128_4,
@@ -241,10 +242,7 @@ def test_nv_block_quantization_vs_te(nvfuser_direct_test, swizzle_scales, sizes,
 
 # cannot use opinfo test, because the input tensor dtype and fusion definition dtype doesn't match
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0), reason="Only supported on blackwell compute 10.0."
 )
 @pytest.mark.parametrize("config", [[128, 256, 512], [128, 256, 512]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
@@ -324,7 +322,7 @@ def test_scaled_mm(
 
 
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
+    not microarchitecture_is(10, 0), reason="Only supported on blackwell compute 10.0."
 )
 @pytest.mark.parametrize("config", [[1024, 1024, 1024]])
 @pytest.mark.parametrize("out_dtype", [torch.bfloat16])
@@ -454,10 +452,7 @@ def test_scaled_mm_nv_quantized(
 
 
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0), reason="Only supported on blackwell compute 10.0."
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
@@ -661,10 +656,7 @@ def test_fp4_vectorization(
 #     1. inputs data needs to be changed from `torch.testing.make_tensor` to `torch.randn`;
 #     2. output errors are much more relaxed.
 @pytest.mark.skipif(
-    is_pre_blackwell(), reason="Only supported on blackwell and newer devices."
-)
-@pytest.mark.skipif(
-    not microarchitecture_is_pre(12), reason="Does not support blackwell compute 12.0"
+    not microarchitecture_is(10, 0), reason="Only supported on blackwell compute 10.0."
 )
 @pytest.mark.parametrize("config", [[1024, 128, 256]])
 @pytest.mark.parametrize("tokens_per_expert_neg_one", [[115, 144, 8]])
