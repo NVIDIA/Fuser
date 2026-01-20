@@ -126,7 +126,25 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   auto ir_cloner = IrContainer::copy(from->container_.get(), to->container_.get());
 
   for (auto val : from->vals()) {
-    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
+    // Only copy valid definitions - check in SOURCE fusion first
+    if (val->definition_ != nullptr && from->inContainer(val->definition_)) {
+      Expr* original_def = val->definition_;
+
+      // Verify that the original definition actually produces this val
+      bool is_valid_producer = false;
+      for (Val* out : original_def->outputs()) {
+        if (out == val) {
+          is_valid_producer = true;
+          break;
+        }
+      }
+
+      if (is_valid_producer) {
+        // Valid definition - clone and copy it
+        ir_cloner.clone(val)->setDefinition(ir_cloner.clone(original_def));
+      }
+      // If not a valid producer, leave definition as nullptr (stale pointer from source)
+    }
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
 
@@ -224,9 +242,9 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  // Strategy 3: Recreate container for fresh start (resets shortcuts)
-  container_ = std::make_unique<IrContainer>();
-  container_->setParent(this);
+  // Clear container contents instead of destroying it
+  // This preserves the container object so Statement pointers don't become dangling
+  container_->clear();
 
   inputs_.clear();
   outputs_.clear();
@@ -700,7 +718,35 @@ void Fusion::registerExpr(Expr* expr) {
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
-      removeExpr(output->definition());
+      // BUG FIX for composition pattern: Outputs can have stale definition pointers
+      // from cloning that point to expressions producing different outputs or that
+      // have been deleted. Check if the old definition is valid and actually produces
+      // this output before removing it.
+      Expr* old_def = output->definition();
+
+      // FIRST: Check if old_def is in exprs set WITHOUT dereferencing
+      // (inContainer may call ->container() which can crash on dangling pointers)
+      if (unordered_exprs().count(old_def) > 0) {
+        // THEN: Safe to dereference - check if it produces this output
+        bool is_actual_producer = false;
+        for (Val* old_out : old_def->outputs()) {
+          if (old_out == output) {
+            is_actual_producer = true;
+            break;
+          }
+        }
+
+        if (is_actual_producer) {
+          // Old definition is valid - remove it per SSA semantics
+          removeExpr(old_def);
+        } else {
+          // Stale pointer - clear it without removing unrelated expression
+          output->setDefinition(nullptr);
+        }
+      } else {
+        // old_def is from different container or deleted - clear stale pointer
+        output->setDefinition(nullptr);
+      }
     }
     if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
