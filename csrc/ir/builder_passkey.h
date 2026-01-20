@@ -21,6 +21,16 @@ class IrBuilderPasskey {
   // IrContainer
   IrContainer* const ir_container_ = nullptr;
 
+  // Helper for pure composition pattern
+  // Checks if container OR parent is of specified type
+  // Implementation is in builder_passkey_inline.h (requires IrContainer definition)
+  template <typename T>
+  bool isInContainerType() const;
+
+  // Helper for checking multiple types
+  template <typename T1, typename T2>
+  bool isInContainerType() const;
+
  private:
   explicit IrBuilderPasskey(IrContainer* ir_container)
       : ir_container_(ir_container) {}
