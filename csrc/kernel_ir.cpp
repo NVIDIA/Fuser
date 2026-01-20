@@ -57,10 +57,7 @@ ForLoop::ForLoop(
   // With pure composition, check parent for container type
   auto* parent = passkey.ir_container_->parent();
   NVF_ERROR(
-      (parent &&
-       (parent->isA<kir::Kernel>() || parent->isA<hir::HostIrContainer>())) ||
-          passkey.ir_container_->parent()->isA<kir::Kernel>() ||
-          passkey.ir_container_->parent()->isA<hir::HostIrContainer>(),
+      (parent && parent->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
