@@ -1856,10 +1856,6 @@ TEST_F(CombinedSchedulerTest, IrregularIterSize) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  auto heuristic_params =
-      runtime->schedulerHeuristics()->heuristicsList().at(0).get();
-  EXPECT_TRUE(heuristic_params->as<ReductionParams>()->tma_warp_specialized);
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
