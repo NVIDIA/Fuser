@@ -8,7 +8,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include <ATen/ops/_scaled_dot_product_flash_attention.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_backward.h>
+
+#include "exceptions.h"
 #include "fusion.h"
 #include "multidevice/device_mesh.h"
 #include "ops/all_ops.h"
@@ -1178,8 +1181,10 @@ TEST_F(SDPATest, ComputeAt) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
+// Verifies the flash attention API matches what
+// https://github.com/NVIDIA/Fuser/blob/305907fed8ae18d1b7215dcba621b06f09d70e92/csrc/preseg_passes/allocation_order_inference.cpp#L358
+// expects.
 TEST_F(SDPATest, FlashAttentionStrideOrder) {
-  // FIXME: test backprop too
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   at::Tensor qkv =
@@ -1191,11 +1196,43 @@ TEST_F(SDPATest, FlashAttentionStrideOrder) {
   at::Tensor k = splits.at(1).permute({0, 2, 1, 3});
   at::Tensor v = splits.at(2).permute({0, 2, 1, 3});
 
-  at::Tensor attn_out =
-      std::get<0>(at::_scaled_dot_product_flash_attention(q, k, v));
+  auto outs = at::_scaled_dot_product_flash_attention(q, k, v);
+
+  at::Tensor attn_out = std::get<0>(outs);
+  at::Tensor logsumexp = std::get<1>(outs);
+  at::Tensor cum_seq_q = std::get<2>(outs);
+  at::Tensor cum_seq_k = std::get<3>(outs);
+  at::SymInt max_q = std::get<4>(outs);
+  at::SymInt max_k = std::get<5>(outs);
+  at::Tensor philox_seed = std::get<6>(outs);
+  at::Tensor philox_offset = std::get<7>(outs);
 
   EXPECT_THAT(attn_out.sizes(), ElementsAre(n, h, s, e));
   EXPECT_TRUE(attn_out.transpose(1, 2).is_contiguous()) << attn_out.strides();
+
+  auto [q_grad, k_grad, v_grad] =
+      at::_scaled_dot_product_flash_attention_backward_symint(
+          /*grad_output=*/attn_out, // This test merely verifies sizes and
+                                    // strides so it's fine to reuse `attn_out`
+                                    // as `grad_output`
+          q,
+          k,
+          v,
+          attn_out,
+          logsumexp,
+          cum_seq_q,
+          cum_seq_k,
+          max_q,
+          max_k,
+          /*dropout_p=*/0.0,
+          /*is_causal=*/false,
+          philox_seed,
+          philox_offset);
+
+  for (at::Tensor grad : {q_grad, k_grad, v_grad}) {
+    EXPECT_THAT(grad.sizes(), ElementsAre(n, h, s, e));
+    EXPECT_TRUE(grad.transpose(1, 2).is_contiguous()) << grad.strides();
+  }
 }
 
 } // namespace nvfuser

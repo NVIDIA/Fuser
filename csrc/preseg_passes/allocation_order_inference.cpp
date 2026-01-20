@@ -350,11 +350,12 @@ void inferAllocationOrder(
   }
 }
 
-// Propagate allocation orders from an SDPA's inputs to outputs. This is
-// necessary to make an SPDA's allocation domain consistent with the output
+// Propagates allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SDPA's allocation domain consistent with the output
 // at::Tensor from expression evaluation. Currently, we call ATen to evaluate
 // SDPAs so matching their behavior, despite being fragile, is the best
-// solution.
+// solution I can think of. SdpaTest.FlashAttentionStrideOrder verifies the
+// flash attention API indeed matches our expectations.
 class SdpaPropagator : public OptOutConstDispatch {
  public:
   void handle(const SdpaFwdOp* e) override {
