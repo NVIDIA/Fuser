@@ -71,39 +71,17 @@ std::string Statement::toInlineString(int indent_size) const {
 }
 
 Fusion* Statement::fusion() const {
-  // Pure composition: Navigate through parent pointer
   NVF_ERROR(
-      ir_container_->parent(),
-      "Statement's container has no parent pointer. "
-      "This should not happen in Stage 3.");
-
-  // Direct cast of parent pointer (not polymorphic owningFusion())
-  Fusion* fusion = dynamic_cast<Fusion*>(ir_container_->parent());
-  NVF_ERROR(
-      fusion,
-      "Statement's container has parent but parent is not a Fusion. "
-      "Statement: ",
-      toString());
-
-  return fusion;
+      ir_container_->parent()->isA<Fusion>(),
+      "Statement does not belong to a fusion.");
+  return ir_container_->parent()->as<Fusion>();
 }
 
 kir::Kernel* Statement::kernel() const {
-  // Pure composition: Navigate through parent pointer
   NVF_ERROR(
-      ir_container_->parent(),
-      "Statement's container has no parent pointer. "
-      "This should not happen in Stage 3.");
-
-  // Try to cast parent to Kernel
-  auto* kernel = dynamic_cast<kir::Kernel*>(ir_container_->parent());
-  NVF_ERROR(
-      kernel,
-      "Statement's container has parent but parent is not a Kernel. "
-      "Statement: ",
-      toString());
-
-  return kernel;
+      ir_container_->parent()->isA<kir::Kernel>(),
+      "Statement does not belong to a kernel.");
+  return ir_container_->parent()->as<kir::Kernel>();
 }
 
 NVFUSER_DEFINE_CLONE(Val)
@@ -387,8 +365,7 @@ Expr::Expr(
 Expr* Expr::shallowCopy() const {
   auto result =
       newObjectFunc()(ir_container_, inputs(), outputs(), attributes());
-  auto* parent = container()->parent();
-  if ((parent && parent->isA<kir::Kernel>())) {
+  if (container()->parent()->isA<kir::Kernel>()) {
     result->predicate_ = predicate_;
     result->write_predicate_ = write_predicate_;
   }
@@ -506,17 +483,15 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  auto* parent = container()->parent();
   NVF_ERROR(
-      (parent && parent->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      (container()->parent()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  auto* parent = container()->parent();
   NVF_ERROR(
-      (parent && parent->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      (container()->parent()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
       "Function invalid for fusion.");
   predicate_ = predicate;
 }
@@ -528,16 +503,16 @@ Expr* Expr::withPredicate(kir::Predicate* predicate) {
 }
 
 kir::Predicate* Expr::writePredicate() const {
-  auto* parent = container()->parent();
   NVF_ERROR(
-      (parent && parent->isA<kir::Kernel>()), "Function invalid for fusion.");
+      container()->parent()->isA<kir::Kernel>(),
+      "Function invalid for fusion.");
   return write_predicate_;
 }
 
 void Expr::setWritePredicate(kir::Predicate* write_predicate) {
-  auto* parent = container()->parent();
   NVF_ERROR(
-      (parent && parent->isA<kir::Kernel>()), "Function invalid for fusion.");
+      container()->parent()->isA<kir::Kernel>(),
+      "Function invalid for fusion.");
   write_predicate_ = write_predicate;
 }
 
