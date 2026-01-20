@@ -57,9 +57,10 @@ ForLoop::ForLoop(
   // With pure composition, check parent for container type
   auto* parent = passkey.ir_container_->parent();
   NVF_ERROR(
-      (parent && (parent->isA<kir::Kernel>() || parent->isA<hir::HostIrContainer>())) ||
-      passkey.ir_container_->isA<kir::Kernel>() ||
-      passkey.ir_container_->isA<hir::HostIrContainer>(),
+      (parent &&
+       (parent->isA<kir::Kernel>() || parent->isA<hir::HostIrContainer>())) ||
+          passkey.ir_container_->parent()->isA<kir::Kernel>() ||
+          passkey.ir_container_->parent()->isA<hir::HostIrContainer>(),
       "IR type only valid for Kernel or Host container.");
   NVF_ERROR(isIntegralType(index->dtype()));
   addInput(index);
@@ -318,8 +319,7 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
   static bool exists(const Expr* expr) {
     auto* container = expr->container();
     auto* parent = container->parent();
-    NVF_CHECK(
-        container->isA<kir::Kernel>() || (parent && parent->isA<kir::Kernel>()));
+    NVF_CHECK((parent && parent->isA<kir::Kernel>()));
     RuntimeReductionFinder finder;
     finder.handle(std::vector<const Expr*>{expr});
     return finder.is_found_;

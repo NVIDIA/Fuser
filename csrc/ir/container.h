@@ -18,7 +18,7 @@
 
 namespace nvfuser {
 
-class IrInterface;  // Forward declaration for parent pointer
+class IrInterface; // Forward declaration for parent pointer
 
 class IrBuilderPasskey;
 class ExprPasskey;
@@ -36,7 +36,7 @@ class IrContainerPasskey {
 
 // Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
 // Stage 2 (when Fusion inherits from both IrInterface and IrContainer).
-class IrContainer : public virtual PolymorphicBase {
+class IrContainer {
  public:
   NVF_API IrContainer();
 
@@ -46,7 +46,7 @@ class IrContainer : public virtual PolymorphicBase {
   IrContainer& operator=(const IrContainer& other);
   IrContainer& operator=(IrContainer&& other) noexcept;
 
-  ~IrContainer() override;
+  ~IrContainer();
 
   bool inContainer(const Statement* stmt) const;
 
