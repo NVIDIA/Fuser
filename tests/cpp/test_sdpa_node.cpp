@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "csrc/exceptions.h"
@@ -224,6 +225,8 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
     }
   }
 }
+
+using testing::ElementsAre;
 
 using SDPATest = NVFuserTest;
 
@@ -1173,6 +1176,25 @@ TEST_F(SDPATest, ComputeAt) {
       ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
+}
+
+TEST_F(SDPATest, FlashAttentionStrideOrder) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  at::Tensor qkv =
+      at::randn({n, s, h * e * 3}, at::dtype(at::kHalf).device(at::kCUDA));
+  std::vector<at::Tensor> splits =
+      at::chunk(qkv.view({n, s, h, e * 3}), /*chunks=*/3, /*dim=*/-1);
+  ASSERT_EQ(splits.size(), 3);
+  at::Tensor q = splits.at(0).permute({0, 2, 1, 3});
+  at::Tensor k = splits.at(1).permute({0, 2, 1, 3});
+  at::Tensor v = splits.at(2).permute({0, 2, 1, 3});
+
+  at::Tensor attn_out =
+      std::get<0>(at::_scaled_dot_product_flash_attention(q, k, v));
+
+  EXPECT_THAT(attn_out.sizes(), ElementsAre(n, h, s, e));
+  EXPECT_TRUE(attn_out.transpose(1, 2).is_contiguous()) << attn_out.strides();
 }
 
 } // namespace nvfuser
