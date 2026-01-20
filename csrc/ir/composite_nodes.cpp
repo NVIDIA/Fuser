@@ -436,20 +436,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
       return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
     }
 
-    // Flash attention require the last dimension to be padded to 8.
-    auto pad_last_dim = [last_dim_size](
-                            at::Tensor inp, int alignment_size) -> at::Tensor {
-      if (last_dim_size % alignment_size == 0) {
-        return inp;
-      }
-      auto pad_count = alignment_size - (last_dim_size % alignment_size);
-      auto padded_inp = at::pad(inp, {0, pad_count});
-      return padded_inp;
-    };
-
-    query = pad_last_dim(query, 8);
-    key = pad_last_dim(key, 8);
-    value = pad_last_dim(value, 8);
+    NVF_ERROR(
+        last_dim_size % 8 == 0,
+        "Flash attention requires the last dimension to be a multiple of 8, "
+        "but got: ",
+        last_dim_size);
 
     auto
         [out,
@@ -470,10 +461,6 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    // If the inputs were padded, slice the output to restore the original size
-    if (out.size(-1) != last_dim_size) {
-      out = out.slice(-1, 0, last_dim_size);
-    }
     return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
   }();
 
@@ -591,16 +578,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = bwd_inputs[0].size(-1);
-  auto pad_last_dim = [last_dim_size](
-                          at::Tensor inp, int alignment_size) -> at::Tensor {
-    if (last_dim_size % alignment_size == 0) {
-      return inp;
-    }
-    auto pad_count = alignment_size - (last_dim_size % alignment_size);
-    auto padded_inp = at::pad(inp, {0, pad_count});
-    return padded_inp;
-  };
-
+  NVF_ERROR(
+      last_dim_size % 8 == 0,
+      "Flash attention requires the last dimension to be a multiple of 8, but "
+      "got: ",
+      last_dim_size);
   // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
@@ -619,11 +601,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const auto philox_offset = inputs.at(9).as<at::Tensor>();
     std::tie(grad_query, grad_key, grad_value) =
         at::_scaled_dot_product_flash_attention_backward(
-            /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
-            /*query=*/pad_last_dim(bwd_inputs[1], 8),
-            /*key=*/pad_last_dim(bwd_inputs[2], 8),
-            /*value=*/pad_last_dim(bwd_inputs[3], 8),
-            /*output=*/pad_last_dim(bwd_inputs[4], 8),
+            /*grad_output=*/bwd_inputs[0],
+            /*query=*/bwd_inputs[1],
+            /*key=*/bwd_inputs[2],
+            /*value=*/bwd_inputs[3],
+            /*output=*/bwd_inputs[4],
             /*logsumexp=*/bwd_inputs[5],
             /*cum_seq_q=*/at::Tensor(),
             /*cum_seq_k=*/at::Tensor(),
@@ -637,14 +619,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
             /*scale=*/scale);
   }
 
-  // If the inputs were padded, slice the grads to restore the original size
-  auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
-    if (output.size(-1) != last_dim_size) {
-      return output.slice(-1, 0, last_dim_size);
-    }
-    return output;
-  };
-
   // Add device dimension back to outputs.
   if (first_dim_is_did) {
     grad_query = grad_query.unsqueeze(0);
@@ -652,10 +626,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     grad_value = grad_value.unsqueeze(0);
   }
 
-  return {
-      slice_last_dim(grad_query),
-      slice_last_dim(grad_key),
-      slice_last_dim(grad_value)};
+  return {grad_query, grad_key, grad_value};
 }
 
 EmbeddingFwdOp::EmbeddingFwdOp(
