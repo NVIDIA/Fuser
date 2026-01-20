@@ -143,7 +143,7 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrInterface, public IrContainer {
+class NVF_API Fusion : public IrInterface {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -158,31 +158,6 @@ class NVF_API Fusion : public IrInterface, public IrContainer {
   ~Fusion() override;
 
   friend void swap(Fusion& a, Fusion& b) noexcept;
-
-  // Resolve ambiguity during Stage 2 dual inheritance
-  // Prefer IrContainer base class methods during this temporary phase
-  using IrContainer::vals;
-  using IrContainer::unordered_exprs;
-  using IrContainer::deterministic_vals;
-  using IrContainer::deterministic_exprs;
-  using IrContainer::deterministic_vals_map;
-  using IrContainer::deterministic_exprs_map;
-  using IrContainer::inContainer;
-  using IrContainer::assertInContainer;
-  using IrContainer::numExprs;
-  using IrContainer::numVals;
-  using IrContainer::zeroVal;
-  using IrContainer::oneVal;
-  using IrContainer::falseVal;
-  using IrContainer::trueVal;
-  using IrContainer::magicZeroVal;
-  using IrContainer::metadataOf;
-  using IrContainer::axioms;
-  using IrContainer::assumePositive;
-  using IrContainer::assumeNonNegative;
-  using IrContainer::registerStmt;
-  // Note: registerVal and registerExpr have using declarations in protected
-  // section already (lines 518-519), so not repeated here
 
   void clear() noexcept;
 
@@ -516,9 +491,6 @@ class NVF_API Fusion : public IrInterface, public IrContainer {
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
-
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
 
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
