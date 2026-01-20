@@ -127,26 +127,27 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
       IrContainer::copy(from->container_.get(), to->container_.get());
 
   for (auto val : from->vals()) {
-    // Only copy valid definitions - check in SOURCE fusion first
-    if (val->definition_ != nullptr && from->inContainer(val->definition_)) {
-      Expr* original_def = val->definition_;
+    //// Only copy valid definitions - check in SOURCE fusion first
+    // if (val->definition_ != nullptr && from->inContainer(val->definition_)) {
+    //   Expr* original_def = val->definition_;
 
-      // Verify that the original definition actually produces this val
-      bool is_valid_producer = false;
-      for (Val* out : original_def->outputs()) {
-        if (out == val) {
-          is_valid_producer = true;
-          break;
-        }
-      }
+    //  // Verify that the original definition actually produces this val
+    //  bool is_valid_producer = false;
+    //  for (Val* out : original_def->outputs()) {
+    //    if (out == val) {
+    //      is_valid_producer = true;
+    //      break;
+    //    }
+    //  }
 
-      if (is_valid_producer) {
-        // Valid definition - clone and copy it
-        ir_cloner.clone(val)->setDefinition(ir_cloner.clone(original_def));
-      }
-      // If not a valid producer, leave definition as nullptr (stale pointer
-      // from source)
-    }
+    //  if (is_valid_producer) {
+    //    // Valid definition - clone and copy it
+    //    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(original_def));
+    //  }
+    //  // If not a valid producer, leave definition as nullptr (stale pointer
+    //  // from source)
+    //}
+    ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
 
@@ -204,11 +205,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
-// Default constructor - initialize IrInterface with new container
-Fusion::Fusion() {}
-
 // Copy constructor
-Fusion::Fusion(const Fusion& other) {
+Fusion::Fusion(const Fusion& other) : IrInterface(other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }

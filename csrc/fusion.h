@@ -147,7 +147,7 @@ class NVF_API Fusion : public IrInterface {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
-  Fusion();
+  Fusion() = default;
 
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
