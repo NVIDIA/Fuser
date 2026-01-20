@@ -123,7 +123,8 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner = IrContainer::copy(from->container_.get(), to->container_.get());
+  auto ir_cloner =
+      IrContainer::copy(from->container_.get(), to->container_.get());
 
   for (auto val : from->vals()) {
     // Only copy valid definitions - check in SOURCE fusion first
@@ -143,7 +144,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
         // Valid definition - clone and copy it
         ir_cloner.clone(val)->setDefinition(ir_cloner.clone(original_def));
       }
-      // If not a valid producer, leave definition as nullptr (stale pointer from source)
+      // If not a valid producer, leave definition as nullptr (stale pointer
+      // from source)
     }
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -203,16 +205,16 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Default constructor - initialize IrInterface with new container
-Fusion::Fusion() : IrInterface() {}
+Fusion::Fusion() {}
 
 // Copy constructor
-Fusion::Fusion(const Fusion& other) : IrInterface() {
+Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept : IrInterface() {
+Fusion::Fusion(Fusion&& other) noexcept {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
@@ -243,7 +245,8 @@ void Fusion::clear() noexcept {
   // FUSER_PERF_SCOPE("Fusion clear");
 
   // Clear container contents instead of destroying it
-  // This preserves the container object so Statement pointers don't become dangling
+  // This preserves the container object so Statement pointers don't become
+  // dangling
   container_->clear();
 
   inputs_.clear();
@@ -307,7 +310,7 @@ void Fusion::removeVal(Val* val) {
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : unordered_exprs()) {
+  for (Expr* e : exprs()) {
     if (!inContainer(e)) {
       continue;
     }
@@ -718,35 +721,37 @@ void Fusion::registerExpr(Expr* expr) {
   for (Val* output : expr->outputs()) {
     assertInContainer(output, "Output to expr is invalid, ");
     if (output->definition() != nullptr && is_ssa) {
-      // BUG FIX for composition pattern: Outputs can have stale definition pointers
-      // from cloning that point to expressions producing different outputs or that
-      // have been deleted. Check if the old definition is valid and actually produces
-      // this output before removing it.
-      Expr* old_def = output->definition();
+      removeExpr(output->definition());
+      //// BUG FIX for composition pattern: Outputs can have stale definition
+      /// pointers / from cloning that point to expressions producing different
+      /// outputs or that / have been deleted. Check if the old definition is
+      /// valid and actually produces / this output before removing it.
+      // Expr* old_def = output->definition();
 
-      // FIRST: Check if old_def is in exprs set WITHOUT dereferencing
-      // (inContainer may call ->container() which can crash on dangling pointers)
-      if (unordered_exprs().count(old_def) > 0) {
-        // THEN: Safe to dereference - check if it produces this output
-        bool is_actual_producer = false;
-        for (Val* old_out : old_def->outputs()) {
-          if (old_out == output) {
-            is_actual_producer = true;
-            break;
-          }
-        }
+      //// FIRST: Check if old_def is in exprs set WITHOUT dereferencing
+      //// (inContainer may call ->container() which can crash on dangling
+      /// pointers)
+      // if (unordered_exprs().count(old_def) > 0) {
+      //   // THEN: Safe to dereference - check if it produces this output
+      //   bool is_actual_producer = false;
+      //   for (Val* old_out : old_def->outputs()) {
+      //     if (old_out == output) {
+      //       is_actual_producer = true;
+      //       break;
+      //     }
+      //   }
 
-        if (is_actual_producer) {
-          // Old definition is valid - remove it per SSA semantics
-          removeExpr(old_def);
-        } else {
-          // Stale pointer - clear it without removing unrelated expression
-          output->setDefinition(nullptr);
-        }
-      } else {
-        // old_def is from different container or deleted - clear stale pointer
-        output->setDefinition(nullptr);
-      }
+      //  if (is_actual_producer) {
+      //    // Old definition is valid - remove it per SSA semantics
+      //    removeExpr(old_def);
+      //  } else {
+      //    // Stale pointer - clear it without removing unrelated expression
+      //    output->setDefinition(nullptr);
+      //  }
+      //} else {
+      //  // old_def is from different container or deleted - clear stale
+      //  pointer output->setDefinition(nullptr);
+      //}
     }
     if (is_ssa || output->definition() == nullptr) {
       output->setDefinition(expr);
