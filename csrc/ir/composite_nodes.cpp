@@ -308,6 +308,32 @@ at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
   return t.view(new_shape);
 }
 
+// at::_scaled_dot_product_attention_math and
+// scaled_dot_product_attention_meta produce a contiguous attention output,
+// but SdpaFwdOp requires the attention output to be in the same layout as
+// the query input:
+// https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+// Therefore, we relayout the attention output according to attn_out()'s
+// allocation domain.
+//
+// at::_scaled_dot_product_flash_attention goes through this code as well
+// but the `.contiguous()`  will be a no-op.
+at::Tensor relayoutByTensorView(at::Tensor t, TensorView* tv) {
+  const std::optional<Layout> layout = canonicalizeLayout(tv);
+  NVF_CHECK(layout.has_value(), "Failed to canonicalize output layout of ", tv);
+  const std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(
+          tv->getLogicalDomain(), layout->allocation_domain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "The allocation domain of a canonicalized layout of ",
+      tv,
+      " is not a permutation of its logical domain.");
+  return t.permute(*permutation)
+      .contiguous()
+      .permute(ir_utils::inversePermutation(*permutation));
+}
+
 } // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
@@ -363,7 +389,8 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
-  // 4D SDPA
+  // 4D SDPA. `output`'s strides don't necessarily match `attn_out()`'s
+  // requirements, which will be fixed in the next section.
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
       return scaled_dot_product_attention_meta(query, value);
@@ -442,30 +469,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
   }
 
-  {
-    // at::_scaled_dot_product_attention_math produces a contiguous attention
-    // output, but SdpaFwdOp requires the attention output to be in the same
-    // layout as the query input:
-    // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
-    // Therefore, we relayout the attention output according to attn_out()'s
-    // allocation domain.
-    const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
-    NVF_CHECK(
-        out_layout.has_value(),
-        "Failed to canonicalize output layout of ",
-        attn_out());
-    const std::optional<std::vector<int64_t>> permutation =
-        ir_utils::computePermutation(
-            attn_out()->getLogicalDomain(), out_layout->allocation_domain());
-    NVF_ERROR(
-        permutation.has_value(),
-        "The allocation domain of a canonicalized layout of ",
-        attn_out(),
-        " is not a permutation of its logical domain.");
-    output = output.permute(*permutation)
-                 .contiguous()
-                 .permute(ir_utils::inversePermutation(*permutation));
-  }
+  output = relayoutByTensorView(output, attn_out());
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
