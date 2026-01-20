@@ -269,14 +269,15 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-namespace sdpa_meta {
-
+namespace {
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
-  const int batch_size = query.size(0);
-  const int num_heads = query.size(1);
-  const int seqlen_q = query.size(2);
-  const int out_head_dim = value.size(-1);
+scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
+  NVF_ERROR_EQ(query.dim(), 4);
+  NVF_ERROR_EQ(value.dim(), 4);
+  const auto batch_size = query.size(0);
+  const auto num_heads = query.size(1);
+  const auto seqlen_q = query.size(2);
+  const auto out_head_dim = value.size(-1);
 
   auto out = at::empty(
       {batch_size, num_heads, seqlen_q, out_head_dim}, query.options());
@@ -293,10 +294,6 @@ _scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
 
   return std::make_tuple(out, logsumexp, rng_state, rng_offset);
 }
-
-} // namespace sdpa_meta
-
-namespace {
 
 at::Tensor flattenBatchDims(at::Tensor t) {
   at::DimVector new_shape({-1});
@@ -369,7 +366,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // 4D SDPA
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
-      return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
+      return scaled_dot_product_attention_meta(query, value);
     }
 
     if (attn_bias.defined()) {
