@@ -611,11 +611,11 @@ std::list<Expr*> processForLoopBodies(
         }
 
         if (params.inter_stream_synchronization) {
+          // if i < numberOfStreams, synchronize stream i+1 with stream i
           auto* number_of_streams =
               IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
 
-          // Switch to stream i+1 to make it wait for stream i. This ensures
-          // that iteration i+1 doesn't start comms before iteration i finishes.
+
           auto* curr_stream_idx = mod(for_loop->index(), number_of_streams);
           auto* curr_stream = IrBuilder::create<hir::Stream>(curr_stream_idx);
 
