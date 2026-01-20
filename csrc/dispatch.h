@@ -112,10 +112,12 @@ class Val;
   f(CutlassNvfp4GroupedMmaOp);       \
   f(PreprocessGroupedMatmulInputSf); \
   f(BlockQuantizationOp);            \
+  f(GroupedBlockQuantizationOp);     \
   f(TopKOp);                         \
   f(ScanOp);                         \
   f(Merge);                          \
   f(Partition);                      \
+  f(Combine);                        \
   f(Swizzle);                        \
   f(Swizzle2D);                      \
   f(Resize);                         \

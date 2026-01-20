@@ -6,49 +6,22 @@
 # mpirun -np [num_devices] pytest tests/python/multidevice/[test_name].py --only-mpi -s
 
 import os
-from enum import Enum, auto
-from typing import Iterable
-
-import sys
 import pytest
+from typing import Iterable
 
 import torch
 import torch.distributed as dist
 
-
-class Binding(Enum):
-    LEGACY = auto()
-    DIRECT = auto()
+import nvfuser_direct as nvfuser
 
 
 class MultideviceTest:
-    def __init__(self, binding: Binding):
+    def __init__(self):
         os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
 
-        if binding == Binding.LEGACY:
-            assert (
-                "nvfuser_direct" not in sys.modules
-            ), "nvfuser_direct is already imported"
-            import nvfuser
+        self._communicator = nvfuser.multidevice.Communicator.instance()
 
-            # Reset the cache here to work around a bug in FusionDefintion.execute.
-            # FusionDefinition._finalize_definition maps the same `definition` to the
-            # same FusionSchedules and therefore the same FusionExecutorCache. This was
-            # correct until multiple FusionDefinitions started to have the same
-            # `definition` but different `multidevice_schedule`s. This seems to be a
-            # known issue beacuse a similar workaround for single-GPU schedules is done
-            # here:
-            # https://github.com/NVIDIA/Fuser/blob/f44f1913c26f8325099ab6fe46d678cbea435658/tests/python/test_schedule_ops.py#L115.
-            #
-            # I couldn't think of an easy way to fix this issue properly. Also, that
-            # FusionCache is obsolete makes me less motivated to do so.
-            nvfuser.FusionCache.reset()
-            self._communicator = nvfuser.Communicator.instance()
-        elif binding == Binding.DIRECT:
-            assert "nvfuser" not in sys.modules, "nvfuser is already imported"
-            import nvfuser_direct as nvfd
-
-            self._communicator = nvfd.multidevice.Communicator.instance()
+        torch.cuda.set_device(self._communicator.local_rank())
 
         # This way, when individual tests create unsharded input, each rank
         # receives the same data.
@@ -74,27 +47,62 @@ class MultideviceTest:
     def local_rank(self):
         return self._communicator.local_rank()
 
-    def shard_tensor(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
+    def shard_tensor_1d(self, t: torch.Tensor, dim: int, mesh) -> torch.Tensor:
+        """Shard tensor along a single dimension (1D sharding only).
+
+        Args:
+            t: Tensor to shard (preferably on CPU for memory efficiency)
+            dim: Dimension to shard along
+            mesh: DeviceMesh to use for sharding
+
+        Returns:
+            Sharded tensor on current GPU device
+
+        Example:
+            mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
+            unsharded = torch.randn(num_devices, 4)
+            sharded = self.shard_tensor_1d(unsharded, 0, mesh)
+        """
         assert t.is_cpu, (
             "This is not strictly required but it's a general good practice "
             "for unit tests to create unsharded data on CPU to reduce GPU "
             "memory footprint."
         )
-        return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
+        return mesh.shard_tensor(t, dim).cuda(self.local_rank)
+
+    def shard_tensor(self, t: torch.Tensor, tv) -> torch.Tensor:
+        """Shard tensor using TensorView's parallelization and device mesh.
+
+        Args:
+            t: Tensor to shard (preferably on CPU for memory efficiency)
+            tv: TensorView with device mesh and parallelization information
+
+        Returns:
+            Sharded tensor on current GPU device
+
+        Example:
+            with nvfuser.FusionDefinition() as fd:
+                inp_tv = fd.define_tensor([-1, -1])
+                inp_tv.set_device_mesh(mesh)
+                inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+                # ... rest of fusion
+
+            unsharded = torch.randn(num_devices, 4)
+            sharded = self.shard_tensor(unsharded, inp_tv)
+        """
+        assert t.is_cpu, (
+            "This is not strictly required but it's a general good practice "
+            "for unit tests to create unsharded data on CPU to reduce GPU "
+            "memory footprint."
+        )
+
+        sharded = nvfuser.multidevice.shard_tensor(t, tv)
+        return sharded.cuda(self.local_rank)
 
 
-# Existing tests that use legacy python bindings use this.
 @pytest.fixture
 def multidevice_test():
-    fixture = MultideviceTest(Binding.LEGACY)
-    yield fixture
-    fixture.communicator.barrier()
-
-
-# Migrated tests to new direct python bindings use this.
-@pytest.fixture
-def multidevice_direct_test():
-    fixture = MultideviceTest(Binding.DIRECT)
+    fixture = MultideviceTest()
     yield fixture
     fixture.communicator.barrier()
 

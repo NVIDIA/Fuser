@@ -155,14 +155,6 @@ inline std::optional<int64_t> mergeDims(
   return mergeDims(tv, std::move(to_merge), unused);
 }
 
-// Merge all reduction to the right side and returns total number of
-// reduction axes.
-int64_t mergeReduction(TensorView* tv);
-
-// merge all non-reduction axes to the left side and returns total number of
-// iteration axes.
-int64_t mergeNonReduction(TensorView* tv);
-
 // Propagate the parallelization from the selected dimensions of the reference
 // tensor to their corresponding dimensions in all selected tensors in the DAG.
 // Position `pos` means selecting all the dimensions [0, 1, ..., pos - 1]. pos =
@@ -377,10 +369,10 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
 // Merges tensor view to the form:
 // [IterationDomain, ReductionDomain] Returns if <iteration dimensions,
 // reduction dimensions>
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D = false);
+    bool schedule_3d = false);
 
 // Return a list of tensor views that are outputs of reduction operations,
 // excluding resharding reduce expressions. If multiple outputs of an expression
@@ -1016,5 +1008,13 @@ std::pair<int64_t, int64_t> getRegisterSharing(
     int64_t reg_per_thread,
     int64_t computation_threads,
     int64_t padded_threads);
+
+// Returns the number of leading parallel non-reduction dimensions in a
+// TensorView's loop domain. Asserts the rest are non-parallel or reduction.
+// This function is typically used by intra-GPU schedulers to decide where to
+// set the "breakpoint" in a loop domain so scheduling only affects non-device
+// and non-stream IterDomains.
+int64_t countLeadingParallelDimensions(const TensorView*);
+
 } // namespace scheduler_utils
 } // namespace nvfuser

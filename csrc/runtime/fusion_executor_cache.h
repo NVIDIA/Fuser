@@ -145,8 +145,10 @@ class NVF_API FusionExecutorCache {
   //! query if there's a kernel ready to go for given inputs
   bool isCompiled(const KernelArgumentHolder& inputs, int8_t device = 0);
 
+  // Returns the pointer to the original fusion that's passed into the
+  // constructor. Concretization and pre-segmentation optimizations modify
+  // **copies** of this fusion, not this fusion itself.
   Fusion* fusion();
-
   const Fusion* fusion() const;
 
   void printFusion();

@@ -43,8 +43,7 @@
 #include <type.h>
 #include <val_graph_visitor.h>
 
-namespace nvfuser {
-namespace scheduler_utils {
+namespace nvfuser::scheduler_utils {
 
 // Minimal PTX code for a no-op kernel, used for occupancy queries
 const char* noopPtx = R"(
@@ -254,63 +253,6 @@ std::optional<int64_t> mergeDims(
     inner = outer;
   }
   return inner;
-}
-
-int64_t mergeReduction(TensorView* tv) {
-  int prev_i = -1;
-  int64_t num_merged = 0;
-  for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-    if (!tv->axis(i)->isReduction()) {
-      continue;
-    }
-    if (prev_i == -1) {
-      prev_i = i;
-    } else {
-      tv->merge(i, prev_i);
-      prev_i = i;
-      num_merged++;
-    }
-  }
-  if (prev_i != 0) {
-    tv->reorder({{prev_i, 0}});
-  }
-
-  return prev_i == -1 ? 0 : num_merged + 1;
-}
-
-int64_t mergeNonReduction(TensorView* tv) {
-  bool has_device_dim = false;
-  int prev_i = -1;
-  int64_t num_merged = 0;
-  if (tv->nDims() == 0) {
-    return 0;
-  }
-  for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
-    if (tv->axis(i)->isReduction()) {
-      continue;
-    }
-    if (tv->axis(i)->isDeviceDim()) {
-      has_device_dim = true;
-      continue;
-    }
-    if (prev_i == -1) {
-      prev_i = i;
-    } else {
-      tv->merge(i, prev_i);
-      prev_i = i;
-      num_merged++;
-    }
-  }
-  if (prev_i != -1) {
-    tv->reorder({{prev_i, 0}});
-  }
-  if (has_device_dim) {
-    // in this case the layout at this point is [i, r , d]
-    // we want to put the device dim back to outmost
-    tv->reorder({{prev_i != -1 ? 2 : 1, 0}});
-  }
-
-  return prev_i == -1 ? 0 : num_merged + 1;
 }
 
 void parallelizeAllLike(
@@ -1205,19 +1147,13 @@ PersistentBufferSizeReturn persistentBufferSizeBit(
   return persistent_buffer_size_bit;
 }
 
-std::pair<bool, bool> canonicalDimReduction(
+std::pair<bool, bool> canonicalizeReduction(
     Fusion* fusion,
     TensorView* tv,
-    bool schedule_3D) {
+    bool schedule_3d) {
   NVF_ERROR(tv != nullptr);
 
-  if (!schedule_3D) {
-    // We coalesce all reduction axes to the right;
-    bool has_red_axis = mergeReduction(tv) > 0;
-
-    bool has_iter_axis = mergeNonReduction(tv) > 0;
-    return {has_iter_axis, has_red_axis};
-  } else {
+  if (schedule_3d) {
     NVF_ERROR_EQ(merge_3d(tv), 3, "Tried 3D merge, but result is not 3D.");
     if (tv->axis(1)->isBroadcast()) {
       NVF_ERROR(
@@ -1228,6 +1164,49 @@ std::pair<bool, bool> canonicalDimReduction(
     }
     return {true, true};
   }
+
+  // Merge all reductions and all non-reductions, and reorder them to
+  // [DIDs/Streams..., merged non-reduction, merged reduction]. Merging happens
+  // incrementally -- first the parallel IterDomains, then the non-reductions,
+  // then the reductions.
+  //
+  // At this stage of scheduling, they can only be DIDs or Streams.
+  std::unordered_map<int64_t, int64_t> reorder_map =
+      reorderParallelizedToFront(tv);
+  auto num_ordered_dims = std::ssize(reorder_map);
+
+  // This helper function merges not-yet-ordered IterDomains that satisfy the
+  // predicate from back to front. Returns the index of the last merged
+  // IterDomain, or -1 if no IterDomains were merged.
+  auto merge_all = [&](auto pred) -> int64_t {
+    int64_t merged = -1;
+    for (int64_t i :
+         arange(num_ordered_dims, tv->nDims()) | std::views::reverse) {
+      if (pred(tv->axis(i))) {
+        if (merged >= 0) {
+          tv->merge(i, merged);
+        }
+        merged = i;
+      }
+    }
+    return merged;
+  };
+
+  int64_t merged_non_reduction =
+      merge_all([](IterDomain* id) { return !id->isReduction(); });
+  if (merged_non_reduction >= 0) {
+    tv->reorder({{merged_non_reduction, num_ordered_dims}});
+    num_ordered_dims++;
+  }
+
+  int64_t merged_reduction = merge_all([](IterDomain* id) { return true; });
+  if (merged_reduction >= 0) {
+    tv->reorder({{merged_reduction, num_ordered_dims}});
+    num_ordered_dims++;
+  }
+
+  NVF_ERROR_EQ(num_ordered_dims, tv->nDims(), "Did not merge all IterDomains.");
+  return {merged_non_reduction >= 0, merged_reduction >= 0};
 }
 
 std::vector<TensorView*> getReductionTvs(Fusion* fusion) {
@@ -1354,17 +1333,18 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     // TODO: we might need to explicitly promote offsets to global memory
     // We expect offsets to remain in global memory, so we do not add it to
     // cache
-    auto isPreprocessGroupedMatmulInputSfOffsets = [tv](Expr* use) {
-      if (!use->isA<PreprocessGroupedMatmulInputSf>()) {
-        return false;
+    auto isGroupOffsets = [tv](Expr* use) {
+      if (auto op = dynamic_cast<PreprocessGroupedMatmulInputSf*>(use)) {
+        return tv == op->inputOffsets() || tv == op->outputOffsets();
+      } else if (auto op = dynamic_cast<GroupedBlockQuantizationOp*>(use)) {
+        return tv == op->inputOffsets() || tv == op->outputOffsets();
       }
-      auto layout = use->as<PreprocessGroupedMatmulInputSf>();
-      return tv == layout->inputOffsets() || tv == layout->outputOffsets();
+      return false;
     };
     std::vector<Expr*> cached_uses;
     for (auto use : tv->uses()) {
       if (!use->isOneOf<PadOp, SliceOp>() && !isGatherLookUpTvInUse(use) &&
-          !isPreprocessGroupedMatmulInputSfOffsets(use)) {
+          !isGroupOffsets(use)) {
         cached_uses.push_back(use);
       }
     }
@@ -1408,7 +1388,11 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
             ->isOneOf<ScatterOp, PreprocessGroupedMatmulInputSf>() ||
         (output->definition()->isA<BlockQuantizationOp>() &&
          output->definition()->as<BlockQuantizationOp>()->blockScales() ==
-             output)) {
+             output) ||
+        (output->definition()->isA<GroupedBlockQuantizationOp>() &&
+         output->definition()
+                 ->as<GroupedBlockQuantizationOp>()
+                 ->blockScales() == output)) {
       continue;
     }
     if (!output->uses().empty()) {
@@ -3628,5 +3612,25 @@ std::pair<int64_t, int64_t> getRegisterSharing(
   return std::make_pair(tma_branch_regs, compute_branch_regs);
 }
 
-} // namespace scheduler_utils
-} // namespace nvfuser
+int64_t countLeadingParallelDimensions(const TensorView* tv) {
+  auto is_parallel = [](IterDomain* id) {
+    // Reduction dimensions are treated non-parallel.
+    return id->isParallelized() && !id->isReduction();
+  };
+
+  int64_t i = 0;
+  for (; i < tv->nDims() && is_parallel(tv->axis(i)); i++)
+    ;
+  const int64_t num_parallel_dims = i;
+
+  for (; i < tv->nDims(); i++) {
+    NVF_ERROR(
+        !is_parallel(tv->axis(i)),
+        "Expected only leading parallel non-reduction dimensions in ",
+        tv->toString());
+  }
+
+  return num_parallel_dims;
+}
+
+} // namespace nvfuser::scheduler_utils

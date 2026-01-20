@@ -9,18 +9,18 @@
 
 #include <c10/cuda/CUDAStream.h>
 
-#include <fusion.h>
-#include <fusion_segmenter.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/lower.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <multidevice/symmetric_tensor.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <runtime/executor_kernel_arg.h>
-#include <tests/cpp/utils.h>
+#include "fusion.h"
+#include "fusion_segmenter.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/lower.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "multidevice/symmetric_tensor.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "runtime/executor_kernel_arg.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser::hir {
 
@@ -429,7 +429,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto* post_on_stream = IrBuilder::create<PostOnStream>(
       host_unit, post_on_stream_inputs, post_on_stream_outputs);
 
-  for_loop->body().push_back(post_on_stream);
+  for_loop->body().pushBack(post_on_stream);
 
   hic->addInput(buffer_input);
   hic->pushBackTopLevelExprs(for_loop);
@@ -567,8 +567,8 @@ TEST_F(StreamTest, HostIrDefaultStream) {
 TEST_F(StreamTest, HostIrGetCurrentStream) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
-  auto get_stream = IrBuilder::create<GetCurrentStream>();
-  auto current_stream = get_stream->stream();
+  hir::Stream* current_stream = IrBuilder::create<hir::Stream>();
+  auto* get_stream = IrBuilder::create<hir::GetCurrentStream>(current_stream);
   auto other_stream = IrBuilder::create<Stream>();
   hic->pushBackTopLevelExprs(get_stream);
   hic->pushBackTopLevelExprs(IrBuilder::create<SetCurrentStream>(other_stream));
@@ -1140,9 +1140,9 @@ TEST_F(IfThenElseTest, HostIr) {
       std::vector<Val*>({input_buffer}),
       std::vector<Val*>({output_buffer}));
 
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->thenBody().push_back(add_one_to_buffer);
-  if_then_else->elseBody().push_back(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->thenBody().pushBack(add_one_to_buffer);
+  if_then_else->elseBody().pushBack(add_one_to_buffer);
 
   hic->addInput(input_bool);
   hic->addOutput(input_buffer);
@@ -1214,7 +1214,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   tv0->setMemoryType(MemoryType::Global);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
 
-  for_loop->body().push_back(allocate);
+  for_loop->body().pushBack(allocate);
 
   hic->pushBackTopLevelExprs(for_loop);
   hic->addOutput(tv0);

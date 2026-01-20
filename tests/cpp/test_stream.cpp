@@ -5,29 +5,32 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-
 #include <ATen/ops/randn.h>
 #include <ATen/ops/zeros_like.h>
 
-#include <fusion.h>
-#include <fusion_guard.h>
-#include <ir/interface_nodes.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include <gtest/gtest.h>
+
+#include "fusion.h"
+#include "fusion_guard.h"
+#include "ir/interface_nodes.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
+// The tests in this file verify building blocks for stream parallelism, e.g.,
+// sharding propagation and KernelExecutor. End-to-end tests have been moved to
+// tests/python/direct/test_stream.py because the Python API is sufficient.
 class StreamTest : public NVFuserTest {
  public:
   StreamTest() {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

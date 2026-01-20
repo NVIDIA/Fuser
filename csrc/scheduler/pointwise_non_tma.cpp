@@ -148,7 +148,9 @@ int64_t getUnrollFactor(
           data_cache,
           [fusion]() {
             return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
+                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
+                     .empty());
           })
           .get();
 
@@ -603,10 +605,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // We do so as the runtime function for block quantization expects 2/4/8
   // elements per thread.
   auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+  auto gbq_ops = ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
   std::vector<TensorView*> nvfp4_quantized_outputs = {};
   for (auto bq_op : bq_ops) {
     nvfp4_quantized_outputs.push_back(
         bq_op->quantizedOutput()->as<TensorView>());
+  }
+  for (auto gbq_op : gbq_ops) {
+    nvfp4_quantized_outputs.push_back(
+        gbq_op->quantizedOutput()->as<TensorView>());
   }
 
   if (pparams->vectorization_factor > 1) {

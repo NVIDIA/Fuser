@@ -44,7 +44,8 @@
   fn(cuMulticastAddDevice, 13000);         \
   fn(cuMulticastBindMem, 13000);           \
   fn(cuMulticastGetGranularity, 13000);    \
-  fn(cuMulticastUnbind, 13000)
+  fn(cuMulticastUnbind, 13000);            \
+  fn(cuMemcpyBatchAsync, 13000);
 #else
 #define NVF_FOR_EACH_DRIVER_API_GE_130(fn)
 #endif

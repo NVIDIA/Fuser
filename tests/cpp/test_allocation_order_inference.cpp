@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
-
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ops/all_ops.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/executor.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ops/all_ops.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/executor.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -27,7 +27,7 @@ class AllocationOrderInferenceTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -346,6 +346,8 @@ TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
       chunks[0],
       chunks[1],
       chunks[2],
+      /*bias=*/nullptr,
+      /*mask=*/nullptr,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/nullptr);

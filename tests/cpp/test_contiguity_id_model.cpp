@@ -7,23 +7,18 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-// Core nvfuser headers
-#include <csrc/bfs.h>
-#include <csrc/fusion.h>
-#include <csrc/ir/all_nodes.h>
-#include <ir/builder.h>
-#include <ir/utils.h>
-#include <ops/all_ops.h>
-
-// ID model specific headers
-#include <csrc/id_model/contiguity.h>
-#include <csrc/id_model/id_model.h>
-#include <csrc/id_model/utils.h>
-#include <csrc/val_graph.h>
-#include <csrc/val_graph_nodes.h>
-
-// Testing utilities
-#include <tests/cpp/utils.h> // For FusionWrapper and other test helpers
+#include "bfs.h"
+#include "fusion.h"
+#include "id_model/contiguity.h"
+#include "id_model/id_model.h"
+#include "id_model/utils.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "ir/utils.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "val_graph.h"
+#include "val_graph_nodes.h"
 
 namespace nvfuser {
 
@@ -31,7 +26,7 @@ class ContigIDGroupsTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   // Helper to construct a simple backward path for testing

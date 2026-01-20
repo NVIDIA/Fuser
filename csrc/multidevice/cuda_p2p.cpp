@@ -226,11 +226,11 @@ void postBroadcastWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     SymMemForBroadcast* multicast_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
   const int64_t world_size = communicator.size();
-  const int64_t root = communication->root();
 
   if (my_device_index != root) {
     // Non-root writes kInProgress to its own semaphore
@@ -268,6 +268,11 @@ void postBroadcastWithCudaBackend(
       launchMulticastKernel(
           multicast_handle->bufferMulticastPtr(), src_ptr, count, stream);
     } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION < 12080
+      NVF_THROW(
+          "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+          "12.8");
+#else
       std::vector<void*> dsts(world_size);
       std::vector<const void*> srcs(world_size, src_ptr);
       std::vector<size_t> counts(world_size, count);
@@ -312,6 +317,7 @@ void postBroadcastWithCudaBackend(
           &failIdx,
           (cudaStream_t)stream));
 #endif
+#endif
     } else {
       NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
           multicast_handle->bufferMulticastPtr(),
@@ -343,10 +349,10 @@ void postBroadcastWithCudaBackend(
 void waitBroadcastWithCudaBackend(
     Communication* communication,
     SymMemForBroadcast* multicast_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   Communicator& communicator = Communicator::getInstance();
   const int64_t my_device_index = communicator.deviceId();
-  const int64_t root = communication->root();
 
   if (my_device_index != root) {
     // Non-root waits for its own semaphore to be kIdle
@@ -419,6 +425,11 @@ void postAllgatherWithCudaBackend(
         count,
         stream);
   } else if (protocol == MulticastProtocol::BatchMemcpy) {
+#if CUDA_VERSION < 12080
+    NVF_THROW(
+        "cudaMemcpyBatchAsync backend is not supported for CUDA version < "
+        "12.8");
+#else
     std::vector<void*> dsts(world_size);
     std::vector<const void*> srcs(world_size, src_ptr);
     std::vector<size_t> counts(world_size, count);
@@ -462,6 +473,7 @@ void postAllgatherWithCudaBackend(
         numAttrs,
         &failIdx,
         (cudaStream_t)stream));
+#endif
 #endif
   } else {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
@@ -614,7 +626,8 @@ void postWithCudaBackend(
     Communication* communication,
     at::Tensor input,
     SymmetricMemoryHandle* symmetric_memory_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
@@ -635,7 +648,7 @@ void postWithCudaBackend(
           dynamic_cast<SymMemForBroadcast*>(symmetric_memory_handle);
       NVF_ERROR(broadcast_handle != nullptr, "Invalid broadcast handle");
       postBroadcastWithCudaBackend(
-          communication, input, broadcast_handle, stream);
+          communication, input, broadcast_handle, stream, root);
       break;
     }
     case CommunicationType::Allgather: {
@@ -657,7 +670,8 @@ void postWithCudaBackend(
 void waitWithCudaBackend(
     Communication* communication,
     SymmetricMemoryHandle* symmetric_memory_handle,
-    CUstream stream) {
+    CUstream stream,
+    int64_t root) {
   NVF_ERROR(
       communication->backend() == CommunicatorBackend::kCuda,
       "Invalid backend, expected Cuda, got: ",
@@ -677,7 +691,8 @@ void waitWithCudaBackend(
       auto* broadcast_handle =
           dynamic_cast<SymMemForBroadcast*>(symmetric_memory_handle);
       NVF_ERROR(broadcast_handle != nullptr, "Invalid broadcast handle");
-      waitBroadcastWithCudaBackend(communication, broadcast_handle, stream);
+      waitBroadcastWithCudaBackend(
+          communication, broadcast_handle, stream, root);
       break;
     }
     case CommunicationType::Allgather: {

@@ -5,22 +5,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <runtime/executor.h>
-#include <runtime/fusion_executor_cache.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/transpose.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "runtime/executor.h"
+#include "runtime/fusion_executor_cache.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/transpose.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -56,7 +56,7 @@ class TransposeTest : public NVFuserTest {
 
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
  private:
@@ -1351,7 +1351,7 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
 TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   // The issue is not specific to TensorIndexer but just make sure the
   // fix works with it
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();

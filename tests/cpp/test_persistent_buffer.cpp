@@ -8,20 +8,21 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <device_lower/analysis/bank_conflict.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/normalization_inner_tma.h>
-#include <scheduler/normalization_utils.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/tools/inlining.h>
-#include <scheduler/utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "device_lower/analysis/bank_conflict.h"
 #include "ir/internal_nodes.h"
 #include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/normalization_inner_tma.h"
+#include "scheduler/normalization_utils.h"
+#include "scheduler/reduction_utils.h"
+#include "scheduler/tools/inlining.h"
+#include "scheduler/utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 #include "type.h"
+
 namespace nvfuser {
 
 using testing::Contains;
@@ -31,7 +32,7 @@ class PersistentBufferTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2181,7 +2182,7 @@ class TmaPersistentTestP
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
   }
 };
@@ -2196,8 +2197,8 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
   const float kEps = 1e-6;
   Val* eps_ptr = IrBuilder::create<Val>(kEps);
 
-  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
-  auto tv1 = makeContigConcreteTensor({y}, dtype);
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(1, dtype);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);
@@ -2271,7 +2272,7 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentSoftmax) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeContigTensor(2, dtype);
+  auto tv0 = makeContigConcreteTensor({x, y}, dtype);
   fusion.addInput(tv0);
   tv0 = maybeCastOp(DataType::Float, tv0);
   auto res = softmax(tv0, 1);
@@ -2297,8 +2298,8 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         testing::Values(DataType::BFloat16),
         testing::Values(
-            deviceSMCount() / 2,
-            1024), // batch size, less or larger than sm count
+            deviceSMCount() / 2, // small batch, can't do grid stride loop
+            2048), // batch size, less or larger than sm count
         testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
     [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
       auto dtype = std::get<0>(info.param);
@@ -2308,4 +2309,80 @@ INSTANTIATE_TEST_SUITE_P(
       os << dtype << "_" << x << "_" << y;
       return os.str();
     });
+
+TEST_F(TmaPersistentTestF, KernelReuse) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // Create an RMS norm fusion that will use inner persistent scheduler
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto rms_norm_results = rms_norm(tv0, 1, tv1, eps_ptr);
+  auto output = maybeCastOp(DataType::BFloat16, rms_norm_results.output);
+  fusion.addOutput(output);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+
+  // Helper to get the number of compiled kernel runtimes
+  auto numRuntimes = [&executor_cache]() -> size_t {
+    // this is map<pair<device, conc_info>, vector<FusionKernelRuntime>>
+    const auto& runtime_map = executor_cache.getKernelRuntimes();
+    if (runtime_map.empty()) {
+      return 0;
+    }
+    return runtime_map
+        .begin() // There should be only one device/concretization pair
+        ->second.size();
+  };
+
+  // Helper to run fusion with given dimensions and return the runtime
+  auto runAndValidate = [&](int64_t outer_dim,
+                            int64_t inner_dim) -> FusionKernelRuntime* {
+    auto input = at::randn({outer_dim, inner_dim}, options);
+    auto weight = at::randn({inner_dim}, options);
+    auto outputs = executor_cache.runFusionWithInputs({input, weight});
+    testValidate(
+        executor_cache.fusion(), outputs, {input, weight}, __LINE__, __FILE__);
+    return executor_cache.getMostRecentKernelRuntime();
+  };
+
+  // First run with specific dimensions that will produce launch config A
+  auto first_runtime = runAndValidate(2048, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+
+  // Second run with different outer dimension - should reuse the kernel
+  auto second_runtime = runAndValidate(2048 + 8, 4096);
+  EXPECT_EQ(numRuntimes(), 1);
+  EXPECT_EQ(first_runtime, second_runtime);
+
+  // Third run with slightly smaller inner dimension - should reuse the kernel
+  auto third_runtime = runAndValidate(2048 + 8, 4096 - 8);
+  EXPECT_EQ(first_runtime, third_runtime);
+
+  // Fourth run with slightly larger inner dimension - should NOT reuse the
+  // kernel
+  auto fourth_runtime = runAndValidate(2048 + 8, 4096 + 8);
+  EXPECT_NE(first_runtime, fourth_runtime);
+  EXPECT_EQ(numRuntimes(), 2);
+
+  // Fifth run with different inner dimension - should not reuse the kernel
+  // 1280 after vectorization of 8 is 160, after persistent batch size of 2 is
+  // 80, it requires 80 threads current heuristic pads to 96 threads and won't
+  // use warp specialized version. to use warp specialized version, it should
+  // pad to 128 threads.
+  auto fifth_runtime = runAndValidate(2048, 1280);
+  EXPECT_NE(first_runtime, fifth_runtime);
+  EXPECT_EQ(numRuntimes(), 3);
+}
+
 } // namespace nvfuser

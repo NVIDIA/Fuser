@@ -5,23 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <memory>
+
 #include <gtest/gtest.h>
 
-#include <fusion.h>
-#include <mma_type.h>
-#include <ops/all_ops.h>
-#include <optimization_pass.h>
-#include <options.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <scheduler/all_schedulers.h>
-#include <scheduler/matmul_heuristic_plugin.h>
-#include <scheduler/matmul_heuristic_plugin_api.h>
-#include <scheduler/mma_utils.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
-
-#include <memory>
+#include "csrc/exceptions.h"
+#include "fusion.h"
+#include "mma_type.h"
+#include "ops/all_ops.h"
+#include "optimization_pass.h"
+#include "options.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "scheduler/all_schedulers.h"
+#include "scheduler/matmul_heuristic_plugin.h"
+#include "scheduler/matmul_heuristic_plugin_api.h"
+#include "scheduler/mma_utils.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -29,6 +29,11 @@ namespace {
 class MatmulSchedulerTest : public NVFuserTest {
  protected:
   MatmulSchedulerTest() : optimization_guard_(false) {}
+
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
 
  private:
   // Allocation order set by the pass breaks matmul tests
@@ -2482,6 +2487,11 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
   MatmulSchedulerPluginTest()
       : optimization_guard_(false), factory_guard_(testConfigFactory) {}
 
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+
  private:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
@@ -2917,6 +2927,11 @@ class AllocationDomainTest
     mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
   }
 
+  void SetUp() override {
+    NVFuserFixtureParamTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+  }
+
   std::pair<TensorView*, TensorView*> getInputTVs(
       int M,
       int N,
@@ -3316,6 +3331,8 @@ class HopperPlusMatmulSchedulerTest
     : public NVFuserFixtureParamTest<HopperPlusMatmulSchedulerTestParams> {
  protected:
   void SetUp() {
+    NVFuserFixtureParamTest::SetUp();
+
     std::tie(
         use_smem_epilogue,
         a_k_inner,
@@ -3365,6 +3382,8 @@ class HopperPlusMatmulSchedulerTest
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.circular_buffer_smem_read = true;
     mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
+
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   void TearDown() {

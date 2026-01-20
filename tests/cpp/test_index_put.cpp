@@ -5,13 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
 #include <gtest/gtest.h>
 
-#include <ops/all_ops.h>
-#include <runtime/fusion_executor_cache.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "csrc/exceptions.h"
+#include "ops/all_ops.h"
+#include "runtime/fusion_executor_cache.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 
@@ -42,7 +42,7 @@ std::vector<SizeParams> generateSizeOneParams() {
 class IndexPut : public NVFuserFixtureParamTest<SizeParams> {
  protected:
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     NVFuserTest::SetUp();
   }
 };

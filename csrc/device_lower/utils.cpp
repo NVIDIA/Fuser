@@ -152,6 +152,7 @@ bool isTvOp(const Expr* expr) {
           ScanOp,
           PreprocessGroupedMatmulInputSf,
           BlockQuantizationOp,
+          GroupedBlockQuantizationOp,
           LaunchDependentGridOp,
           WaitForPriorGridOp,
           kir::AllocTMem,
@@ -2126,7 +2127,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID uses the IdModel loop
   // promotion only when opted in.
   if ((GpuLower::hasCurrent() &&
-       GpuLower::current()->idModelOptions().loop()) ||
+       GpuLower::current()->idModelOptions().isTensorIndexerEnabled()) ||
       (!GpuLower::hasCurrent() && FusionInfoGuard::current()->hasIdModel() &&
        FusionInfoGuard::current()->idModel().hasIdGraph(IdMappingMode::LOOP))) {
     // If enabled, the concret ID should be basically just the
@@ -2242,6 +2243,17 @@ bool isCopyOnly(Val* val) {
     }
   }
   return true;
+}
+
+IterDomain* getConcreteMappedId(IterDomain* id) {
+  NVF_ERROR(GpuLower::hasCurrent());
+  return GpuLower::current()
+      ->info()
+      .idModel()
+      .idGraph(IdMappingMode::EXACT)
+      .toGroup(id)
+      ->front()
+      ->as<IterDomain>();
 }
 
 } // namespace lower_utils

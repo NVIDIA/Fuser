@@ -83,7 +83,7 @@ class KIRCleaner : public OptOutDispatch {
       dispatch(expr);
       // Add the expr to the loop body only when the expr is not nop
       if (!is_nop_) {
-        fl->body().push_back(expr);
+        fl->body().pushBack(expr);
       }
     }
     // The loop is nop when no expr exists in the body
@@ -100,7 +100,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : then_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->thenBody().push_back(expr);
+          ite->thenBody().pushBack(expr);
         }
       }
     }
@@ -114,7 +114,7 @@ class KIRCleaner : public OptOutDispatch {
       for (auto expr : else_exprs) {
         dispatch(expr);
         if (!is_nop_) {
-          ite->elseBody().push_back(expr);
+          ite->elseBody().pushBack(expr);
         }
       }
     }
@@ -129,7 +129,7 @@ class KIRCleaner : public OptOutDispatch {
       Val* not_pred = SimplifyingIrBuilder::logicalNotExpr(pred);
       ite->predicate()->setValue(not_pred);
       for (auto expr : ite->elseBody().exprs()) {
-        ite->thenBody().push_back(expr);
+        ite->thenBody().pushBack(expr);
       }
       ite->elseBody().clear();
     }
@@ -298,24 +298,13 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
 
   for (auto expr : fusion->exprs()) {
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
-          ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-        options.setBuildTensorIndexer(true);
-        if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-          options.setInlinePredicate(true);
-        }
+      if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+        options.setTensorIndexer(true);
         continue;
       }
-    } else if (expr->isA<MmaOp>()) {
-      options.setBuildTensorIndexer(true);
-      continue;
     } else if (
         expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
-      options.setProducerIndex(true);
-      options.setConsumerIndex(true);
-      options.setInlinePredicate(true);
-      options.setUnswitchPredicate(true);
-      options.setLoop(true);
+      options.setTensorIndexer(true);
       continue;
     } else if (auto reshape = dynamic_cast<ReshapeOp*>(expr)) {
       // The legacy indexer has an issue when an expand broadcast is
@@ -369,20 +358,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
                       return consumer_expanded_root_ids.count(input);
                     });
               })) {
-        options.setProducerIndex(true);
-        options.setConsumerIndex(true);
-        options.setInlinePredicate(true);
-        options.setUnswitchPredicate(true);
+        options.setTensorIndexer(true);
       }
-    }
-  }
-
-  // If a tensor does not have a nice root->logical/allocation->loop
-  // linear transformation history, use TensorIndexer
-  for (auto tv : fusion->allTvs()) {
-    if (tv->getMemoryType() == MemoryType::Tensor ||
-        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
-      options.setBuildTensorIndexer(true);
     }
   }
 
@@ -390,10 +367,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // still used if explicitly opted-in (see, for example,
   // Index::getConsumerIndex)
   if (!TensorIndexer::isSupported(fusion)) {
-    // Do not disable building of TensorIndexer as it may be still used
-    options.setIndex(false);
-    options.setPredicate(false);
-    options.setLoop(false);
+    options.setTensorIndexer(false);
   }
 
   return options;
@@ -461,14 +435,12 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
-  if (idModelOptions().buildIdModel()) {
-    info().set(std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/false));
-    info().idModel().validateAndPropagatePType();
-  }
+  info().set(std::make_unique<IdModel>(
+      fusion_,
+      /*build_graphs=*/true,
+      /*allow_self_mapping=*/false,
+      /*validate=*/false));
+  info().idModel().validateAndPropagatePType();
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
@@ -578,16 +550,15 @@ void GpuLower::analysis(Fusion* fusion) {
   info().caMap().allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
-  if (idModelOptions().loop()) {
+  if (idModelOptions().isTensorIndexerEnabled()) {
     // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
     info().idModel().allocateLoopIndexVariables();
   }
 
-  if (idModelOptions().buildTensorIndexer()) {
-    tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
-    non_divisible_predicate_info_ =
-        std::make_unique<NonDivisiblePredicateInfo>(fusion_);
-  }
+  tensor_indexer_ = std::make_unique<TensorIndexer>(info().idModel());
+
+  non_divisible_predicate_info_ =
+      std::make_unique<NonDivisiblePredicateInfo>(fusion_);
 
   // Detects all exprssions that don't need predicates. Depends on
   // nonDivisibleSplitInfo.
@@ -663,7 +634,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
 Val* GpuLower::getLoopIndexVariable(
     IterDomain* id,
     CircularBufferLoopStage stage) const {
-  if (idModelOptions().loop()) {
+  if (idModelOptions().isTensorIndexerEnabled()) {
     return info().idModel().getLoopIndexVariable(id, stage);
   } else {
     return info().caMap().getIndexVariable(id, stage);

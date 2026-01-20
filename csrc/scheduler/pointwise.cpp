@@ -300,7 +300,9 @@ bool PointWiseScheduler::canScheduleRunTime(
           data_cache,
           [fusion]() {
             return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty());
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
+                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
+                     .empty());
           })
           .get();
 
@@ -417,6 +419,26 @@ std::unique_ptr<HeuristicParams> PointWiseScheduler::computeHeuristics(
         fusion, runtime_info, data_cache, prop);
   }
   NVF_ERROR(pparams != nullptr);
+
+  // cap vectorization when block quantization op is encountered, since there's
+  // a validation during device_lower
+  auto has_block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+          data_cache,
+          [fusion]() {
+            return std::make_unique<bool>(
+                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
+                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
+                     .empty());
+          })
+          .get();
+  if (has_block_quantization_ops) {
+    // FIXME: this needs to be done per input dtype. I'm capping it as 4 for
+    // simplicity for now.
+    pparams->as<PointwiseParams>()->vectorization_factor = std::min<int64_t>(
+        4, pparams->as<PointwiseParams>()->vectorization_factor);
+  }
+
   return pparams;
 }
 

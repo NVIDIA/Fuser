@@ -8,9 +8,11 @@
 
 #pragma once
 
-#include <cuda_runtime.h>
-#include <torch/torch.h>
 #include <cstdint>
+
+#include <cuda_runtime.h>
+
+#include <torch/torch.h>
 
 namespace nvfuser {
 

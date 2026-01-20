@@ -8,20 +8,20 @@
 
 // As test_host_irs.cpp exceeded 1000 lines, this file now contains unit tests
 // specifically for host IRs utilized solely within FusionExecutorCache.
-#include <gtest/gtest.h>
-
 #include <ATen/ops/matmul.h>
 #include <ATen/ops/randn.h>
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/composite.h>
-#include <tests/cpp/utils.h>
+#include <gtest/gtest.h>
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/composite.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser::hir {
 
@@ -125,9 +125,9 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
         /*stop=*/IrBuilder::create<Val>(3, DataType::Int));
     {
       auto* y = mul(loop_index, IrBuilder::create<Val>(2, DataType::Int));
-      for_loop->body().push_back(y->definition());
+      for_loop->body().pushBack(y->definition());
       y = add(y, IrBuilder::create<Val>(1, DataType::Int));
-      for_loop->body().push_back(y->definition());
+      for_loop->body().pushBack(y->definition());
       auto* launch_kernel = IrBuilder::create<LaunchKernel>(
           0,
           LaunchParams(),
@@ -135,7 +135,7 @@ TEST_F(HostIrEvaluatorTest, InplaceUpdateInLoop) {
           std::vector<Val*>{x, y},
           std::vector<Val*>{x},
           cache_id);
-      for_loop->body().push_back(launch_kernel);
+      for_loop->body().pushBack(launch_kernel);
     }
 
     hic->addInput(x);
@@ -204,7 +204,7 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
         std::vector<Val*>{in, stream_index},
         std::vector<Val*>{out},
         cache_id);
-    for_loop->body().push_back(launch_kernel);
+    for_loop->body().pushBack(launch_kernel);
 
     hic->pushBackTopLevelExprs(allocate_out);
     hic->pushBackTopLevelExprs(for_loop);

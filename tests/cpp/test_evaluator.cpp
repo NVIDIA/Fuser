@@ -6,15 +6,14 @@
  */
 // clang-format on
 
-#include <csrc/exceptions.h>
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <tests/cpp/utils.h>
-
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <ops/all_ops.h>
+#include "csrc/exceptions.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
 
 namespace nvfuser {
 

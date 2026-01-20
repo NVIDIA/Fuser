@@ -147,7 +147,6 @@ enum class DisableOption {
   GreedyScheduler, //! Disable the greedy scheduler
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
-  IdModel, //! Disable IdModel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing

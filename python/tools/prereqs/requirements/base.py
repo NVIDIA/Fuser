@@ -1,0 +1,274 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+"""
+Base classes for requirement types.
+
+This module provides the foundational classes for all dependency requirements.
+Each requirement knows how to format its status and determine if it represents a failure.
+"""
+
+from abc import ABC, abstractmethod
+from typing import Optional, Dict
+from dataclasses import dataclass
+
+from ..colors import colorize
+
+
+@dataclass
+class RequirementStatus:
+    """Validation status constants."""
+
+    SUCCESS = "SUCCESS"
+    NOT_FOUND = "NOT_FOUND"
+    INCOMPATIBLE = "INCOMPATIBLE"
+
+
+class Requirement(ABC):
+    """
+    Base class for all requirement types.
+
+    All requirements must implement:
+    - format_status_line(): Format output for terminal
+    - is_failure(): Determine if this represents a build failure
+    """
+
+    def __init__(
+        self,
+        name: str,
+        cmake_vars: Dict,
+        found_var: str,
+        status_var: str,
+        optional_var: str,
+        location_var: Optional[str] = None,
+    ):
+        """
+        Initialize from CMake variable names.
+
+        Args:
+            name: Dependency name
+            cmake_vars: Dictionary of all CMake variables
+            found_var: Name of CMake variable for found status (e.g., "Python_FOUND")
+            status_var: Name of CMake variable for validation status (e.g., "Python_STATUS")
+            optional_var: Name of CMake variable for optional flag (e.g., "NVFUSER_REQUIREMENT_Python_OPTIONAL")
+            location_var: Optional name of CMake variable for location (e.g., "Python_EXECUTABLE")
+        """
+        self.name = name
+        self.found = self._to_bool(cmake_vars.get(found_var, "FALSE"))
+        self.status = cmake_vars.get(status_var, "UNKNOWN")
+        self.optional = self._to_bool(cmake_vars.get(optional_var, "FALSE"))
+
+        # Look up location if location_var is provided
+        self.location = cmake_vars.get(location_var) if location_var else None
+
+    @staticmethod
+    def _to_bool(value) -> bool:
+        """Convert CMake boolean string to Python bool."""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.upper() in ("TRUE", "ON", "YES", "1")
+        return bool(value)
+
+    @abstractmethod
+    def format_status_line(self, colors) -> str:
+        """Format terminal status line for this requirement."""
+        pass
+
+    def is_failure(self) -> bool:
+        """Check if this requirement represents a failure."""
+        return not self.optional and self.status != RequirementStatus.SUCCESS
+
+    def get_failure_data(self):
+        """Get data for help text generation."""
+        # Return a dict compatible with help system
+        return {
+            "name": self.name,
+            "status": self.status,
+            "found": self.found,
+            "optional": self.optional,
+            "location": self.location,
+        }
+
+    @abstractmethod
+    def generate_help(self, platform_info):
+        """Generate help text for this requirement when it fails.
+
+        Subclasses should override this to provide specific installation instructions.
+        """
+        pass  # Default: no help text
+
+
+class VersionRequirement(Requirement):
+    """
+    Base class for requirements with version checking.
+
+    Provides standard version display formatting.
+    Subclasses inherit all version comparison logic.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        cmake_vars: Dict,
+        found_var: str,
+        status_var: str,
+        optional_var: str,
+        version_found_var: Optional[str] = None,
+        version_required_var: Optional[str] = None,
+        location_var: Optional[str] = None,
+    ):
+        """
+        Initialize version requirement.
+
+        Args:
+            name: Dependency name
+            cmake_vars: Dictionary of all CMake variables
+            found_var: Name of CMake variable for found status
+            status_var: Name of CMake variable for validation status
+            optional_var: Name of CMake variable for optional flag
+            version_found_var: Name of CMake variable for detected version (e.g., "Python_VERSION")
+            version_required_var: Name of CMake variable for minimum required version (e.g., "NVFUSER_REQUIREMENT_Python_VERSION_MIN")
+            location_var: Optional name of CMake variable for location
+        """
+        super().__init__(
+            name, cmake_vars, found_var, status_var, optional_var, location_var
+        )
+        self.version_found = (
+            cmake_vars.get(version_found_var) if version_found_var else None
+        )
+        self.version_required = (
+            cmake_vars.get(version_required_var) if version_required_var else None
+        )
+
+    def format_status_line(self, colors) -> str:
+        """Format status line with version information."""
+        if self.status == RequirementStatus.SUCCESS:
+            return self._format_success(colors)
+        elif self.status == RequirementStatus.NOT_FOUND:
+            return self._format_not_found(colors)
+        elif self.status == RequirementStatus.INCOMPATIBLE:
+            return self._format_incompatible(colors)
+        else:
+            return colorize(colors.BOLD_RED, f"[nvFuser] ✗ {self.name} unknown status")
+
+    def _format_success(self, colors) -> str:
+        """For example:
+        Format success: [nvFuser] ✓ Python        3.12.3 >= 3.10 (/usr/bin/python3)
+        """
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        # Status symbol and name in white/green with padding
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+        status_part = colorize(colors.GREEN, "[nvFuser] ✓ ") + name_padded
+
+        # Version info in green
+        if self.version_found and self.version_required:
+            version_part = colorize(
+                colors.GREEN, f"{self.version_found} >= {self.version_required}"
+            )
+        elif self.version_found:
+            version_part = colorize(colors.GREEN, self.version_found)
+        else:
+            version_part = ""
+
+        # Combine parts
+        if version_part:
+            main_line = f"{status_part} {version_part}"
+        else:
+            main_line = status_part
+
+        # Add location in cyan if available
+        if self.location:
+            main_line += " " + colorize(colors.CYAN, f"({self.location})")
+
+        return main_line
+
+    def _format_not_found(self, colors) -> str:
+        """Format not found line."""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+
+        if self.optional:
+            status_part = colorize(colors.YELLOW, "[nvFuser] ○ ") + name_padded
+            if self.version_required:
+                return (
+                    status_part
+                    + " "
+                    + colorize(
+                        colors.YELLOW,
+                        f"Not found (optional, v{self.version_required}+ recommended)",
+                    )
+                )
+            else:
+                return (
+                    status_part + " " + colorize(colors.YELLOW, "Not found (optional)")
+                )
+        else:
+            status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
+            if self.version_required:
+                return (
+                    status_part
+                    + " "
+                    + colorize(
+                        colors.BOLD_RED,
+                        f"Not found (requires {self.version_required}+)",
+                    )
+                )
+            else:
+                return status_part + " " + colorize(colors.BOLD_RED, "Not found")
+
+    def _format_incompatible(self, colors) -> str:
+        """Format incompatible: [nvFuser] ✗ Python        3.7.0 < 3.8"""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+        status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
+
+        if self.version_found and self.version_required:
+            return (
+                status_part
+                + " "
+                + colorize(
+                    colors.BOLD_RED, f"{self.version_found} < {self.version_required}"
+                )
+            )
+        else:
+            return status_part + " " + colorize(colors.BOLD_RED, "incompatible")
+
+
+class BooleanRequirement(Requirement):
+    """
+    Base class for requirements without version checking.
+
+    Simple pass/fail validation (Git submodules, Ninja).
+    """
+
+    def format_status_line(self, colors) -> str:
+        """Format status line without version information."""
+        # Add asterisk for optional requirements
+        name_with_marker = f"{self.name}*" if self.optional else self.name
+        name_padded = f"{name_with_marker:<15}"  # Left-align with 15 char width
+
+        if self.status == RequirementStatus.SUCCESS:
+            status_part = colorize(colors.GREEN, "[nvFuser] ✓ ") + name_padded
+            if self.location:
+                return status_part + " " + colorize(colors.CYAN, f"({self.location})")
+            return status_part
+        elif self.status == RequirementStatus.NOT_FOUND:
+            if self.optional:
+                status_part = colorize(colors.YELLOW, "[nvFuser] ○ ") + name_padded
+                return (
+                    status_part + " " + colorize(colors.YELLOW, "Not found (optional)")
+                )
+            else:
+                status_part = colorize(colors.BOLD_RED, "[nvFuser] ✗ ") + name_padded
+                return status_part + " " + colorize(colors.BOLD_RED, "Not found")
+        else:
+            return (
+                colorize(colors.BOLD_RED, "[nvFuser] ✗ ")
+                + name_padded
+                + " "
+                + colorize(colors.BOLD_RED, "validation failed")
+            )

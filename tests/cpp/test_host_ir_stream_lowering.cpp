@@ -8,24 +8,24 @@
 
 #include <algorithm>
 
+#include <torch/torch.h>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <torch/torch.h>
-
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <host_ir/evaluator.h>
-#include <host_ir/ir.h>
-#include <host_ir/lower.h>
-#include <host_ir/pass/stream_parallel_type.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
-#include <kernel_ir.h>
-#include <multidevice/executor.h>
-#include <ops/all_ops.h>
-#include <tests/cpp/utils.h>
-#include <tests/cpp/validator.h>
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "host_ir/evaluator.h"
+#include "host_ir/ir.h"
+#include "host_ir/lower.h"
+#include "host_ir/pass/stream_parallel_type.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "kernel_ir.h"
+#include "multidevice/executor.h"
+#include "ops/all_ops.h"
+#include "tests/cpp/utils.h"
+#include "tests/cpp/validator.h"
 
 namespace nvfuser {
 

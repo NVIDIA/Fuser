@@ -87,7 +87,7 @@ void IndexLowering::pushBack(Expr* expr) {
   if (active_scope_ == nullptr) {
     lowered_exprs_.push_back(expr);
   } else {
-    active_scope_->push_back(expr);
+    active_scope_->pushBack(expr);
   }
 }
 
@@ -437,6 +437,60 @@ void IndexLowering::handle(const BlockQuantizationOp* bqop) {
   GpuLower::current()->propagateExprInfo(bqop, back());
 }
 
+void IndexLowering::handle(const GroupedBlockQuantizationOp* grouped_bqop) {
+  const auto in = IrBuilder::create<kir::TensorIndex>(
+      grouped_bqop->in()->as<TensorView>(), grouped_bqop->fusion()->zeroVal());
+
+  const auto out_scales = IrBuilder::create<kir::TensorIndex>(
+      grouped_bqop->blockScales()->as<TensorView>(),
+      grouped_bqop->fusion()->zeroVal());
+  const auto out_quantized = IrBuilder::create<kir::TensorIndex>(
+      grouped_bqop->quantizedOutput()->as<TensorView>(),
+      grouped_bqop->fusion()->zeroVal());
+
+  std::vector<Val*> logical_index = Index::getConsumerPerDimLogicalIndex(
+      grouped_bqop->quantizedOutput()->as<TensorView>(), for_loops_);
+  NVF_ERROR(
+      logical_index.size() == 2,
+      "only matrices are supported in GroupedBlockQuantizationOp");
+
+  // As part of runtime validation
+  // make sure that the inner dimension of the input is divisible by block size.
+  auto* inner_id =
+      grouped_bqop->in()->as<TensorView>()->getLogicalDomain().back();
+  Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+      SimplifyingIrBuilder::modExpr(
+          inner_id->extent(),
+          IrBuilder::create<Val>(grouped_bqop->blockSize(), DataType::Index)),
+      grouped_bqop->fusion()->zeroVal());
+
+  NVFUSER_LOWER_VALIDATE(
+      is_divisible,
+      "Inner dimension of GroupedBlockQuantizationOp input must be divisible "
+      "by block "
+      "size (",
+      grouped_bqop->blockSize(),
+      "), but got extent ",
+      inner_id->extent()->toInlineString(),
+      " in ",
+      grouped_bqop->toString());
+
+  pushBack(IrBuilder::create<GroupedBlockQuantizationOp>(
+      out_scales,
+      out_quantized,
+      in,
+      grouped_bqop->inputOffsets(),
+      grouped_bqop->outputOffsets(),
+      grouped_bqop->layout(),
+      grouped_bqop->k(),
+      grouped_bqop->g(),
+      grouped_bqop->globalScale(),
+      grouped_bqop->blockSize(),
+      logical_index[0],
+      logical_index[1]));
+  GpuLower::current()->propagateExprInfo(grouped_bqop, back());
+}
+
 void IndexLowering::handle(const SelectOp* sop) {
   auto lowered_index = lowerSrcIndex(sop->input(1), sop->output(0));
   auto lowered_index_cast = lowered_index;
@@ -466,10 +520,12 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
   const auto in = lowerSrcIndex(uop->in(), uop->out());
   const auto out = lowerDstIndex(uop->out());
   for (auto loop : for_loops_) {
-    if (GpuLower::current()->info().caMap().areMapped(
-            loop->iter_domain(),
-            uop->vector_id()->as<IterDomain>(),
-            IdMappingMode::LOOP)) {
+    if (GpuLower::current()
+            ->info()
+            .idModel()
+            .idGraph(IdMappingMode::LOOP)
+            .areMapped(
+                loop->iter_domain(), uop->vector_id()->as<IterDomain>())) {
       Val* index = loop->indexOrStartIfTrivial();
       pushBack(IrBuilder::create<LoadStoreOp>(
           LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
