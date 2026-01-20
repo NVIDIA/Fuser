@@ -93,6 +93,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
   const int64_t n_compute_warp_groups = 2;
+  // Each TMA stage processes multiple rows of iterations, must be divisible.
   const int64_t n_rows_per_compute_warp_group =
       total_iter_count % 2 == 0 ? 2 : 1;
   const int64_t iter_limited_stages = total_iter_count /
@@ -114,10 +115,6 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       ws.stage_slice_position = 3;
       // Limitation in grouped reduction runtime function
       NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
-      // NVF_ERROR(
-      //     params->n_grouped_rows > 1,
-      //     "n_grouped_rows must be greater than 1 for TIDy warp
-      //     specialization");
     } else {
       bdimx += kWarpSpecializationPaddedThreads;
     }
