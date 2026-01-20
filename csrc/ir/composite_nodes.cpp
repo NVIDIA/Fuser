@@ -308,6 +308,7 @@ at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
   new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
   return t.view(new_shape);
 }
+
 } // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
@@ -393,7 +394,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [out, log_sumexp] = at::_scaled_dot_product_attention_math(
+      auto [attn_out, log_sumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -402,34 +403,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           is_causal,
           /*dropout_mask=*/std::nullopt,
           scale);
-
-      // at::_scaled_dot_product_attention_math produces a contiguous attention
-      // output, but SdpaFwdOp requires the attention output to be in the same
-      // layout as the query input:
-      // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
-      // Therefore, we relayout the attention output according to attn_out()'s
-      // allocation domain.
-      NVF_ERROR(out.is_contiguous());
-      const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
-      NVF_CHECK(
-          out_layout.has_value(),
-          "Failed to canonicalize output layout of ",
-          attn_out());
-      const std::optional<std::vector<int64_t>> permutation =
-          ir_utils::computePermutation(
-              attn_out()->getLogicalDomain(), out_layout->allocation_domain());
       NVF_ERROR(
-          permutation.has_value(),
-          "The allocation domain of a canonicalized layout of ",
-          attn_out(),
-          " is not a permutation of its logical domain.");
-      out = unflattenBatchDim(out, batch_dims);
-      out = out.permute(*permutation)
-                .contiguous()
-                .permute(ir_utils::inversePermutation(*permutation));
-      out = flattenBatchDims(out);
-
-      return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+          attn_out.is_contiguous(),
+          "attn_out from at::_scaled_dot_product_attention_math is expected to "
+          "be contiguous.");
+      return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
     }
 
     NVF_ERROR(
@@ -439,7 +417,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
         last_dim_size);
 
     auto
-        [out,
+        [attn_out,
          log_sumexp,
          cum_seq_q,
          cum_seq_k,
@@ -457,12 +435,37 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+    return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
     log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
+  }
+
+  {
+    // at::_scaled_dot_product_attention_math produces a contiguous attention
+    // output, but SdpaFwdOp requires the attention output to be in the same
+    // layout as the query input:
+    // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+    // Therefore, we relayout the attention output according to attn_out()'s
+    // allocation domain.
+    const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
+    NVF_CHECK(
+        out_layout.has_value(),
+        "Failed to canonicalize output layout of ",
+        attn_out());
+    const std::optional<std::vector<int64_t>> permutation =
+        ir_utils::computePermutation(
+            attn_out()->getLogicalDomain(), out_layout->allocation_domain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The allocation domain of a canonicalized layout of ",
+        attn_out(),
+        " is not a permutation of its logical domain.");
+    output = output.permute(*permutation)
+                 .contiguous()
+                 .permute(ir_utils::inversePermutation(*permutation));
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
