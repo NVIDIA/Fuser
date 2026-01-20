@@ -13,8 +13,6 @@
 #include "ops/all_ops.h"
 #include "ops/utils.h"
 #include "optimization_pass.h"
-#include "preseg_passes/allocation_order_inference.h"
-#include "preseg_passes/move_split_cat.h"
 #include "preseg_passes/propagate_shardings.h"
 #include "tests/cpp/utils.h"
 #include "tests/cpp/validator.h"
