@@ -1179,6 +1179,7 @@ TEST_F(SDPATest, ComputeAt) {
 }
 
 TEST_F(SDPATest, FlashAttentionStrideOrder) {
+  // FIXME: test backprop too
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   at::Tensor qkv =
