@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/consecutive_cast.h>
+#include "preseg_passes/consecutive_cast.h"
 
-#include <ir/utils.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_iter.h>
-#include <transform_replay.h>
-#include <type.h>
+#include "ir/utils.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_iter.h"
+#include "transform_replay.h"
+#include "type.h"
 
 namespace nvfuser::preseg_passes {
 

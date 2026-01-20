@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/translate_scatter_accumulate.h>
-
-#include <ir/utils.h>
-#include <ops/all_ops.h>
+#include "preseg_passes/translate_scatter_accumulate.h"
 
 #include <sstream>
+
+#include "ir/utils.h"
+#include "ops/all_ops.h"
 
 namespace nvfuser::preseg_passes {
 
