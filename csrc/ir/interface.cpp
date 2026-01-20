@@ -6,8 +6,8 @@
  */
 // clang-format on
 
-#include <ir/interface.h>
 #include <ir/container.h>
+#include <ir/interface.h>
 
 namespace nvfuser {
 
@@ -34,7 +34,7 @@ IrInterface::IrInterface(IrContainer* existing_container, bool take_ownership)
 // Copy constructor - clones the container
 IrInterface::IrInterface(const IrInterface& other)
     : container_(std::make_unique<IrContainer>(*other.container_)),
-      owns_container_(true) {  // Cloned container is always owned
+      owns_container_(true) { // Cloned container is always owned
   container_->setParent(this);
 }
 
@@ -42,7 +42,7 @@ IrInterface::IrInterface(const IrInterface& other)
 IrInterface::IrInterface(IrInterface&& other) noexcept
     : container_(std::move(other.container_)),
       owns_container_(other.owns_container_) {
-  other.owns_container_ = true;  // Reset moved-from state
+  other.owns_container_ = true; // Reset moved-from state
 
   // Update parent pointer to point to the new owner
   if (container_) {
@@ -53,7 +53,7 @@ IrInterface::IrInterface(IrInterface&& other) noexcept
 // Destructor - releases container without deleting if not owned
 IrInterface::~IrInterface() {
   if (!owns_container_ && container_) {
-    container_.release();  // Don't delete the container
+    container_.release(); // Don't delete the container
   }
 }
 
@@ -68,13 +68,15 @@ IrInterface& IrInterface::operator=(const IrInterface& other) {
 
 // Move assignment
 IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
-  container_ = std::move(other.container_);
-  owns_container_ = other.owns_container_;
-  other.owns_container_ = true;
+  if (this != &other) {
+    container_ = std::move(other.container_);
+    owns_container_ = other.owns_container_;
+    other.owns_container_ = true;
 
-  // Update parent pointer to point to the new owner
-  if (container_) {
-    container_->setParent(this);
+    // Update parent pointer to point to the new owner
+    if (container_) {
+      container_->setParent(this);
+    }
   }
 
   return *this;
