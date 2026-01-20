@@ -12,8 +12,8 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <runtime/executor_kernel_arg.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 

@@ -14,7 +14,7 @@
 #include <options.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ranges>
 #include <unordered_set>

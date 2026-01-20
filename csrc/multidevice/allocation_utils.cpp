@@ -13,6 +13,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "base.h"
 #include "exceptions.h"
 #include "ir/allocation_utils.h"
 #include "ir/interface_nodes.h"
@@ -20,7 +21,6 @@
 #include "ir/utils.h"
 #include "linked_hash_map.h"
 #include "multidevice/utils.h"
-#include "utils.h"
 
 namespace nvfuser {
 

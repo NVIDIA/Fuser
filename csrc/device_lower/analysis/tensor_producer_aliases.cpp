@@ -13,8 +13,8 @@
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph.h>
+#include "base.h"
 
 #include <ranges>
 #include <unordered_set>

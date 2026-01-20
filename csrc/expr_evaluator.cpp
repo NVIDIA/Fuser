@@ -20,7 +20,7 @@
 #include <multidevice/execution_utils.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

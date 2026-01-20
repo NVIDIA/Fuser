@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/composite_nodes.h"
+
 #include <algorithm>
 #include <iterator>
 #include <limits>
@@ -23,22 +25,22 @@
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <ir/allocation_utils.h>
-#include <ir/cloner.h>
-#include <ir/composite_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <runtime/allocations.h>
-#include <transform_iter.h>
-#include <transform_rfactor.h>
-#include <transform_view.h>
+#include "device_lower/utils.h"
+#include "expr_evaluator.h"
+#include "ir/allocation_utils.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "runtime/allocations.h"
+#include "transform_iter.h"
+#include "transform_rfactor.h"
+#include "transform_view.h"
+
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
 #include <nvf_cutlass.h>
 #endif

@@ -19,8 +19,8 @@
 #include <parallel_type_bitmap.h>
 #include <tma.h>
 #include <type.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 

@@ -13,7 +13,7 @@
 #include <kernel_db/kernel_db.h>
 #include <kernel_db/utils.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

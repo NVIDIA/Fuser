@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/internal_nodes.h"
+
 #include <algorithm>
 #include <complex>
 #include <iterator>
@@ -20,21 +22,20 @@
 #include <ATen/core/Tensor.h>
 #include <c10/core/SymInt.h>
 
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <ir/allocation_utils.h>
-#include <ir/base_nodes.h>
-#include <ir/cloner.h>
-#include <ir/internal_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <runtime/allocations.h>
-#include <type.h>
+#include "device_lower/utils.h"
+#include "expr_evaluator.h"
+#include "ir/allocation_utils.h"
+#include "ir/base_nodes.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "runtime/allocations.h"
+#include "type.h"
 
 namespace nvfuser {
 
