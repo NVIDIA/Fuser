@@ -28,7 +28,10 @@ namespace nvfuser {
 
 DynamicTransformInitialInfo DynamicTransformInitialInfo::clone(
     IrCloner& ir_cloner) const {
-  DynamicTransformInitialInfo cloned_info(ir_cloner.container()->as<Fusion>());
+  // Direct cast of parent pointer
+  Fusion* fusion = dynamic_cast<Fusion*>(ir_cloner.container()->parent());
+  NVF_ERROR(fusion, "IrCloner container has no parent Fusion");
+  DynamicTransformInitialInfo cloned_info(fusion);
   cloned_info.dynamic_reshaped_tvs_.reserve(dynamic_reshaped_tvs_.size());
   for (const auto tv : dynamic_reshaped_tvs_) {
     cloned_info.dynamic_reshaped_tvs_.push_back(ir_cloner.clone(tv));
