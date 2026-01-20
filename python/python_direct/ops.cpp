@@ -3556,6 +3556,55 @@ tuple[TensorView, TensorView]
     - block_scales: Per-block scaling factors
       )",
       py::return_value_policy::reference);
+  ops.def(
+      "nv_grouped_block_quantize",
+      [](TensorView* input,
+         TensorView* input_offsets,
+         TensorView* output_offsets,
+         TensorView* global_scale,
+         int64_t block_size,
+         PrimDataType dtype) -> py::tuple {
+        auto output = groupedBlockQuantize(
+            input,
+            input_offsets,
+            output_offsets,
+            BlockScalingFactorLayout::Block128x4,
+            global_scale,
+            block_size,
+            dtype);
+        return py::make_tuple(output.quantized_tensor, output.block_scales);
+      },
+      py::arg("input"),
+      py::arg("input_offsets"),
+      py::arg("output_offsets"),
+      py::arg("global_scale").none(true) = py::none(),
+      py::arg("block_size") = 16,
+      py::arg("dtype") = DataType::Float4_e2m1fn,
+      R"(
+Grouped block quantize tensor to NVFP4 format.
+Parameters
+----------
+input : TensorView
+    Input tensor to quantize. Must be a floating point tensor.
+input_offsets: TensorView
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the input tensor view
+output_offsets: TensorView
+    A 1D tensor with length as `number of groups`.
+    Its value notes the offsets of the starting token in each group for the output tensor view.
+global_scale : TensorView, optional
+block_size : int, optional
+    Block size for quantization. Default is 16.
+dtype : PrimDataType, optional
+    Data type of quantized output. Default is DataType::Float4_e2m1fn
+Returns
+-------
+tuple[TensorView, TensorView]
+    A tuple containing (quantized_tensor, block_scales) where:
+    - quantized_tensor: Quantized tensor in NVFP4 format
+    - block_scales: Per-block scaling factors (swizzled in storage)
+      )",
+      py::return_value_policy::reference);
 }
 
 void bindRandomOps(py::module_& ops) {
