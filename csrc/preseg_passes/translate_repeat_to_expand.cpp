@@ -5,14 +5,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/translate_repeat_to_expand.h>
-
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <ops/all_ops.h>
+#include "preseg_passes/translate_repeat_to_expand.h"
 
 #include <unordered_map>
 #include <vector>
+
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "ops/all_ops.h"
 
 namespace nvfuser::preseg_passes {
 

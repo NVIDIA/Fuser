@@ -5,17 +5,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/move_pad.h>
+#include "preseg_passes/move_pad.h"
 
-#include <expr_simplifier.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <ops/utils.h>
-#include <transform_replay.h>
+#include "expr_simplifier.h"
+#include "fusion.h"
+#include "ir/builder.h"
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "ops/utils.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 

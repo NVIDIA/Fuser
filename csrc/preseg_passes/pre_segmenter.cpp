@@ -5,31 +5,30 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <debug.h>
-#include <options.h>
+#include "preseg_passes/pre_segmenter.h"
 
-#include <preseg_passes/pre_segmenter.h>
-
-#include <instrumentation.h>
-#include <preseg_passes/add_axioms.h>
-#include <preseg_passes/allocation_order_inference.h>
-#include <preseg_passes/consecutive_cast.h>
-#include <preseg_passes/decompose_reshardings.h>
-#include <preseg_passes/exact_mapped_extent_substitution.h>
-#include <preseg_passes/finalize_multidevice_domains.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <preseg_passes/move_gather.h>
-#include <preseg_passes/move_pad.h>
-#include <preseg_passes/move_repeat_forward.h>
-#include <preseg_passes/move_split_cat.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <preseg_passes/remove_bcast_squeeze.h>
-#include <preseg_passes/remove_empty.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/segment_inplace_update.h>
-#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
-#include <preseg_passes/translate_repeat_to_expand.h>
-#include <preseg_passes/translate_scatter_accumulate.h>
+#include "debug.h"
+#include "instrumentation.h"
+#include "options.h"
+#include "preseg_passes/add_axioms.h"
+#include "preseg_passes/allocation_order_inference.h"
+#include "preseg_passes/consecutive_cast.h"
+#include "preseg_passes/decompose_reshardings.h"
+#include "preseg_passes/exact_mapped_extent_substitution.h"
+#include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/mark_aliases_prepare.h"
+#include "preseg_passes/move_gather.h"
+#include "preseg_passes/move_pad.h"
+#include "preseg_passes/move_repeat_forward.h"
+#include "preseg_passes/move_split_cat.h"
+#include "preseg_passes/propagate_shardings.h"
+#include "preseg_passes/remove_bcast_squeeze.h"
+#include "preseg_passes/remove_empty.h"
+#include "preseg_passes/reorder_sharded_axis.h"
+#include "preseg_passes/segment_inplace_update.h"
+#include "preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h"
+#include "preseg_passes/translate_repeat_to_expand.h"
+#include "preseg_passes/translate_scatter_accumulate.h"
 
 namespace nvfuser::preseg_passes {
 
