@@ -93,7 +93,8 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
   const int64_t n_compute_warp_groups = 2;
-  const int64_t n_rows_per_compute_warp_group = 2;
+  const int64_t n_rows_per_compute_warp_group =
+      total_iter_count % 2 == 0 ? 2 : 1;
   const int64_t iter_limited_stages = total_iter_count /
       (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
   const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
@@ -113,9 +114,10 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       ws.stage_slice_position = 3;
       // Limitation in grouped reduction runtime function
       NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
-      NVF_ERROR(
-          params->n_grouped_rows > 1,
-          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
+      // NVF_ERROR(
+      //     params->n_grouped_rows > 1,
+      //     "n_grouped_rows must be greater than 1 for TIDy warp
+      //     specialization");
     } else {
       bdimx += kWarpSpecializationPaddedThreads;
     }
@@ -450,7 +452,9 @@ void scheduleInnerPersistentWarpSpecialized(
     reduction_tv->split(iteration_pos, params->lparams.bdimy() - 1);
     tidy_pos = iteration_pos + 1;
     reduction_pos++;
-    group_pos++;
+    if (group_pos >= 0) {
+      group_pos++;
+    }
   }
   if (params->lparams.gdimx() > 1) {
     // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
@@ -458,8 +462,12 @@ void scheduleInnerPersistentWarpSpecialized(
     reduction_tv->split(iteration_pos, params->lparams.gdimx());
     reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::BIDx);
     reduction_pos++;
-    tidy_pos++;
-    group_pos++;
+    if (tidy_pos >= 0) {
+      tidy_pos++;
+    }
+    if (group_pos >= 0) {
+      group_pos++;
+    }
   }
 
   TransformPropagator propagator(reduction_tv);

@@ -83,8 +83,9 @@ class FusionInspector : private IterVisitor {
     // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
     // Check if this reduction can use staticWarpAllReduceTIDX optimization.
-    // Ensure there is only one reduction domain and it is parallelized with
-    // TIDx and its size is a multiple of warp size (32).
+    // Ensure there is only one non-trivial reduction domain and it is
+    // parallelized with TIDx and its size is a multiple of warp size (32).
+    // Trivial reduction domains (extent 1) are skipped.
     auto is_static_warp_reduction = [](TensorView* out,
                                        bool has_warp_specialization) {
       if (!has_warp_specialization) {
@@ -92,20 +93,35 @@ class FusionInspector : private IterVisitor {
       }
 
       constexpr int64_t kThreadsPerWarp = 32L;
-      int reduction_count = 0;
+      int non_trivial_reduction_count = 0;
       bool has_valid_tidx_reduction = false;
       for (auto ld : out->getLoopDomain()) {
         if (ld->isReduction()) {
-          reduction_count++;
-          if (ld->getParallelType() == ParallelType::TIDx &&
-              ld->extent()->isConst() &&
-              ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
-            has_valid_tidx_reduction = true;
+          // Skip trivial reduction domains (extent 1)
+          if (ld->extent()->isOneInt()) {
+            continue;
+          }
+          non_trivial_reduction_count++;
+          if (ld->getParallelType() == ParallelType::TIDx) {
+            // First try: check if the domain extent itself is const
+            if (ld->extent()->isConst() &&
+                ld->extent()->value().as<int64_t>() % kThreadsPerWarp == 0) {
+              has_valid_tidx_reduction = true;
+            } else {
+              // Second try: use parallelDimensionMap to get TIDx extent
+              auto tidx_val =
+                  GpuLower::current()->info().parallelDimensionMap().get(
+                      ParallelType::TIDx);
+              if (tidx_val != nullptr && tidx_val->isConst() &&
+                  tidx_val->value().as<int64_t>() % kThreadsPerWarp == 0) {
+                has_valid_tidx_reduction = true;
+              }
+            }
           }
         }
       }
 
-      return reduction_count == 1 && has_valid_tidx_reduction;
+      return non_trivial_reduction_count == 1 && has_valid_tidx_reduction;
     };
     bool is_cluster_reduction = out->domain()->hasClusterReduction();
     if (out->getMemoryType() == MemoryType::Local &&
