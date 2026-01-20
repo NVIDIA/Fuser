@@ -71,34 +71,37 @@ std::string Statement::toInlineString(int indent_size) const {
 }
 
 Fusion* Statement::fusion() const {
-  // Option A: Navigate through parent pointer (pure composition)
-  if (ir_container_->parent()) {
-    Fusion* fusion = ir_container_->parent()->owningFusion();
-    NVF_ERROR(fusion, "Statement's container has parent but not a Fusion.");
-    return fusion;
-  }
-
-  // Fallback: Direct check for dual inheritance (Stage 2)
+  // Pure composition: Navigate through parent pointer
   NVF_ERROR(
-      ir_container_->isA<Fusion>(), "Statement does not belong to a fusion.");
-  return ir_container_->as<Fusion>();
+      ir_container_->parent(),
+      "Statement's container has no parent pointer. "
+      "This should not happen in Stage 3.");
+
+  // Direct cast of parent pointer (not polymorphic owningFusion())
+  Fusion* fusion = dynamic_cast<Fusion*>(ir_container_->parent());
+  NVF_ERROR(
+      fusion,
+      "Statement's container has parent but parent is not a Fusion. "
+      "Statement: ", toString());
+
+  return fusion;
 }
 
 kir::Kernel* Statement::kernel() const {
-  // Pure composition: Use parent pointer to navigate to owning Kernel
-  if (ir_container_->parent()) {
-    // Try to cast parent to Kernel
-    if (auto* kernel = dynamic_cast<kir::Kernel*>(ir_container_->parent())) {
-      return kernel;
-    }
-    NVF_ERROR(false, "Statement's container has parent but parent is not a Kernel.");
-  }
-
-  // Fallback: Direct check for dual inheritance (Stage 2)
+  // Pure composition: Navigate through parent pointer
   NVF_ERROR(
-      ir_container_->isA<kir::Kernel>(),
-      "Statement does not belong to a kernel.");
-  return ir_container_->as<kir::Kernel>();
+      ir_container_->parent(),
+      "Statement's container has no parent pointer. "
+      "This should not happen in Stage 3.");
+
+  // Try to cast parent to Kernel
+  auto* kernel = dynamic_cast<kir::Kernel*>(ir_container_->parent());
+  NVF_ERROR(
+      kernel,
+      "Statement's container has parent but parent is not a Kernel. "
+      "Statement: ", toString());
+
+  return kernel;
 }
 
 NVFUSER_DEFINE_CLONE(Val)
