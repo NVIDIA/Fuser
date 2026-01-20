@@ -149,17 +149,32 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
     container_->assumeNonNegative(val);
   }
 
+  // Statement removal
+  void removeStatementsCreatedAfter(
+      int64_t num_exprs_before,
+      int64_t num_vals_before) {
+    container_->removeStatementsCreatedAfter(num_exprs_before, num_vals_before);
+  }
+
   // Registration (public API with passkey)
   virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
-    container_->registerStmt(passkey, stmt);
+    // Dispatch to Val or Expr registration, which calls the virtual protected
+    // methods that subclasses (like Fusion) override
+    if (stmt->isVal()) {
+      registerVal(passkey, stmt->asVal());
+    } else {
+      registerExpr(passkey, stmt->asExpr());
+    }
   }
 
   virtual void registerVal(IrBuilderPasskey passkey, Val* val) {
-    container_->registerVal(passkey, val);
+    // Call the protected virtual method that subclasses override
+    registerVal(val);
   }
 
   virtual void registerExpr(IrBuilderPasskey passkey, Expr* expr) {
-    container_->registerExpr(passkey, expr);
+    // Call the protected virtual method that subclasses override
+    registerExpr(expr);
   }
 
   //===================================================================
