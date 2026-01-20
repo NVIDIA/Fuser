@@ -116,7 +116,18 @@ IrContainer::~IrContainer() {
 }
 
 //! Register the Statement with this container
-void IrContainer::registerStmt(IrBuilderPasskey, Statement* stmt) {
+void IrContainer::registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
+  // Only delegate if THIS container is not Kernel or HostIrContainer
+  // AND we have a parent Fusion
+  // (Plain Fusion uses SSA and needs to set output definitions, but Kernel and
+  // HostIrContainer are non-SSA and should handle registration locally)
+  if (parent_ && !this->isA<kir::Kernel>() && !this->isA<hir::HostIrContainer>()) {
+    // Delegate to parent Fusion for SSA handling
+    parent_->registerStmt(passkey, stmt);
+    return;
+  }
+
+  // Handle registration locally for Kernel/HostIrContainer or containers without parents
   if (stmt->isVal()) {
     registerVal(stmt->asVal());
   } else {
@@ -183,6 +194,7 @@ void IrContainer::registerVal(Val* val) {
     return;
   }
 
+  // Otherwise handle registration locally
   vals_up_.emplace_back(val);
   vals_.insert(val);
   val->setName(IrContainerPasskey(), getValName(val->vtype()));
@@ -193,6 +205,8 @@ void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
+
+  // Otherwise handle registration locally
   exprs_up_.emplace_back(expr);
   exprs_.insert(expr);
   expr->setName(IrContainerPasskey(), getExprName());

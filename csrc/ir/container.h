@@ -18,6 +18,8 @@
 
 namespace nvfuser {
 
+class IrInterface;  // Forward declaration for parent pointer
+
 class IrBuilderPasskey;
 class ExprPasskey;
 class OptOutMutator;
@@ -165,6 +167,9 @@ class IrContainer : public virtual PolymorphicBase {
   // Let IrInterface access protected methods for forwarding
   friend class IrInterface;
 
+  // Let Fusion access copy() for Fusion::copy()
+  friend class Fusion;
+
   virtual void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
@@ -239,6 +244,20 @@ class IrContainer : public virtual PolymorphicBase {
   std::unique_ptr<NamedScalar> magic_zero_val_;
   std::unique_ptr<std::vector<Val*>> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+  // Parent IrInterface that owns this container (for pure composition pattern)
+  // Used by Statement::fusion() to navigate back to owning Fusion
+  IrInterface* parent_ = nullptr;
+
+ public:
+  // Allow IrInterface to set parent pointer
+  void setParent(IrInterface* parent) {
+    parent_ = parent;
+  }
+
+  IrInterface* parent() const {
+    return parent_;
+  }
 };
 
 } // namespace nvfuser
