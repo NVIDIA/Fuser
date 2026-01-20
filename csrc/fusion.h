@@ -161,14 +161,6 @@ class NVF_API Fusion : public IrInterface {
 
   void clear() noexcept;
 
-  // Override IrInterface to return this Fusion
-  Fusion* owningFusion() override {
-    return this;
-  }
-  const Fusion* owningFusion() const override {
-    return this;
-  }
-
   // Hash the fusion. This is used to identify the fusion in the cache.
   size_t hash() const;
 
