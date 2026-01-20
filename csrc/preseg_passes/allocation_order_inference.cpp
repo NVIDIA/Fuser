@@ -363,6 +363,7 @@ class SdpaPropagator : public OptOutConstDispatch {
     // Don't propagate allocation to LSE because it's allocated as [B,H,S]:
     // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L454.
   }
+
   void handle(const SdpaBwdOp* e) override {
     // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L904
     propagateAllocation(e->query(), e->grad_query());
