@@ -6,6 +6,8 @@
  */
 // clang-format on
 #include <fusion_guard.h>
+#include <fusion.h>
+#include <ir/container.h>
 
 namespace nvfuser {
 
@@ -22,6 +24,11 @@ FusionGuard::~FusionGuard() {
 // Cast to non-cast because many users need it.
 /*static*/ Fusion* FusionGuard::getCurFusion() {
   return active_fusion_;
+}
+
+/*static*/ IrContainer* FusionGuard::getCurContainer() {
+  Fusion* fusion = getCurFusion();
+  return fusion ? fusion->container() : nullptr;
 }
 
 /*static*/ void FusionGuard::setCurFusion(Fusion* fusion) {

@@ -106,9 +106,8 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
   using std::swap;
 
-  // Swap both base classes
+  // Swap IrInterface base class (contains IrContainer)
   swap(static_cast<IrInterface&>(a), static_cast<IrInterface&>(b));
-  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
 
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
@@ -124,9 +123,9 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner = IrContainer::copy(from, to);
+  auto ir_cloner = IrContainer::copy(from->container_.get(), to->container_.get());
 
-  for (auto val : from->vals_) {
+  for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -185,24 +184,17 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
-// Default constructor - initialize IrInterface to wrap this (the IrContainer part)
-Fusion::Fusion()
-    : IrInterface(static_cast<IrContainer*>(this), false),  // Wrap this, no ownership
-      IrContainer() {}
+// Default constructor - initialize IrInterface with new container
+Fusion::Fusion() : IrInterface() {}
 
-// Clang tidy complains when using default constructor for IrContainer instead
-// of copy constructor. Fusion::copy has a call to IrContainer::copy, so it's
-// redundant to use the IrContainer copy constructor, but it is harmless since
-// Fusion::copy starts by calling clear().
-Fusion::Fusion(const Fusion& other)
-    : IrInterface(static_cast<IrContainer*>(this), false),  // Wrap this, no ownership
-      IrContainer(other) {
+// Copy constructor
+Fusion::Fusion(const Fusion& other) : IrInterface() {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
-Fusion::Fusion(Fusion&& other) noexcept
-    : IrInterface(static_cast<IrContainer*>(this), false) {  // Wrap this, no ownership
+// Move constructor
+Fusion::Fusion(Fusion&& other) noexcept : IrInterface() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
@@ -232,7 +224,9 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  IrContainer::clear();
+  // Strategy 3: Recreate container for fresh start (resets shortcuts)
+  container_ = std::make_unique<IrContainer>();
+  container_->setParent(this);
 
   inputs_.clear();
   outputs_.clear();
@@ -269,7 +263,7 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrContainer::removeExpr(expr);
+  IrInterface::removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -295,7 +289,7 @@ void Fusion::removeVal(Val* val) {
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : exprs_) {
+  for (Expr* e : unordered_exprs()) {
     if (!inContainer(e)) {
       continue;
     }
@@ -308,7 +302,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrContainer::removeVal(val);
+  IrInterface::removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -672,7 +666,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrContainer::registerVal(val);
+  IrInterface::registerVal(val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -685,7 +679,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrContainer::registerExpr(expr);
+  IrInterface::registerExpr(expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
@@ -728,7 +722,7 @@ void Fusion::resetTvUses() {
   // getExprs only uses definition, so even if we've modified uses already to
   // remove dead exprs, this could reinsert them. getExprs is also boundeds by
   // inputs as registered inputs will return nullptr as their definition.
-  const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
+  const auto all_tvs = ir_utils::filterByType<TensorView>(vals());
   const auto used_exprs = StmtSort::getExprs(this);
 
   for (auto tv : all_tvs) {
