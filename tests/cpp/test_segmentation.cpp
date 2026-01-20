@@ -810,16 +810,7 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   auto t0 = at::randn({16, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  KernelArgumentHolder outputs;
-
-  // Make sure NVFUSER_DUMP=segmented_fusion works
-  {
-    DebugDumpOptionsGuard options_guard;
-    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
-    std::ostringstream tmp_buf;
-    DebugStreamGuard debug_stream_guard(tmp_buf);
-    outputs = executor_cache.runFusionWithInputs({t0});
-  }
+  KernelArgumentHolder outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
@@ -904,16 +895,7 @@ TEST_F(SegmentationTest, RevertPrivatizedUpcastAndSqueeze) {
   auto t0 = at::randn({16, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  KernelArgumentHolder outputs;
-
-  // Make sure NVFUSER_DUMP=segmented_fusion works
-  {
-    DebugDumpOptionsGuard options_guard;
-    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
-    std::ostringstream tmp_buf;
-    DebugStreamGuard debug_stream_guard(tmp_buf);
-    outputs = executor_cache.runFusionWithInputs({t0});
-  }
+  KernelArgumentHolder outputs = executor_cache.runFusionWithInputs({t0});
 
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
