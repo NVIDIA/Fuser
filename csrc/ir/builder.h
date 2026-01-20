@@ -34,8 +34,8 @@ class IrBuilder {
   //! constructor and registering with the container
   template <class T, class... Args>
   static T* create(Args&&... args) {
-    Fusion* fusion = FusionGuard::getCurFusion();
-    return createInContainer<T>(fusion, std::forward<Args>(args)...);
+    IrContainer* container = FusionGuard::getCurContainer();
+    return createInContainer<T>(container, std::forward<Args>(args)...);
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate

@@ -60,7 +60,7 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
     NVF_ERROR(input_ids_.size() == 1);
     NVF_ERROR(output_ids_.size() == 2);
     replayed_expr_ = IrBuilder::createInContainer<Split>(
-        split->fusion(),
+        split->fusion()->container(),
         output_ids_[0],
         output_ids_[1],
         input_ids_[0],
@@ -72,14 +72,14 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
     NVF_ERROR(input_ids_.size() == 2);
     NVF_ERROR(output_ids_.size() == 1);
     replayed_expr_ = IrBuilder::createInContainer<Merge>(
-        merge->fusion(), output_ids_[0], input_ids_[0], input_ids_[1]);
+        merge->fusion()->container(), output_ids_[0], input_ids_[0], input_ids_[1]);
   }
 
   void handle(const Resize* resize) final {
     NVF_ERROR(input_ids_.size() == 1);
     NVF_ERROR(output_ids_.size() == 1);
     replayed_expr_ = IrBuilder::createInContainer<Resize>(
-        resize->fusion(),
+        resize->fusion()->container(),
         output_ids_[0],
         input_ids_[0],
         resize->leftExpand(),
