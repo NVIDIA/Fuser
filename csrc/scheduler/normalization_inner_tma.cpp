@@ -494,10 +494,12 @@ void scheduleInnerPersistentWarpSpecialized(
   // reduction This enables a two-stage reduction:
   //   1. Thread-local vectorized reduction (across b and v dimensions)
   //   2. Block-level reduction (across x dimension using warp/block primitives)
-  // rfactor axes: {reduction_pos, vectorize_pos} corresponding to b and v
-  // dimensions
+  // rfactor axes: {reduction_pos, vectorize_pos, unswitch_pos} corresponding to
+  // b, v and us dimensions
+  int64_t unswitch_pos = reduction_pos + 1;
   int64_t vectorize_pos = reduction_pos + 3;
-  auto reference_tv = reduction_tv->rFactor({reduction_pos, vectorize_pos});
+  auto reference_tv =
+      reduction_tv->rFactor({reduction_pos, vectorize_pos, unswitch_pos});
 
   // Propagate transformations from reference_tv to all non-TMA tensors
   // TMA tensors keep their simple [BIDx, Bulk] schedule
