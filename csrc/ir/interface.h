@@ -17,7 +17,8 @@ namespace nvfuser {
 
 class Fusion;
 
-// IrInterface: Base class for types that provide IrContainer API via composition
+// IrInterface: Base class for types that provide IrContainer API via
+// composition
 //
 // This class handles the composition infrastructure and forwarding boilerplate
 // for accessing IrContainer functionality. Derived classes (like Fusion) can
@@ -26,7 +27,6 @@ class Fusion;
 // Key Features:
 // - Owns IrContainer via unique_ptr (can be shared_ptr in Phase 2)
 // - Forwards all IrContainer public methods
-// - Provides virtual owningFusion() for polymorphic casting compatibility
 // - Allows derived classes to override protected IrContainer methods
 //
 // This eliminates ~20 forwarding methods from Fusion and provides a reusable
@@ -190,20 +190,6 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
     return container_.get();
   }
 
-  //===================================================================
-  // Virtual Methods for Derived Classes
-  //===================================================================
-
-  // Returns the owning Fusion if this IrInterface is a Fusion, nullptr otherwise
-  // This enables polymorphic casting patterns like: container()->as<Fusion>()
-  virtual Fusion* owningFusion() {
-    return nullptr;
-  }
-
-  virtual const Fusion* owningFusion() const {
-    return nullptr;
-  }
-
  protected:
   //===================================================================
   // Protected Registration API (for derived class overrides)
@@ -236,7 +222,8 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
   //===================================================================
 
   std::unique_ptr<IrContainer> container_;
-  bool owns_container_ = true;  // Flag for ownership (false during Stage 2 dual inheritance)
+  bool owns_container_ =
+      true; // Flag for ownership (false during Stage 2 dual inheritance)
 
   friend void swap(IrInterface& a, IrInterface& b) noexcept;
 };
