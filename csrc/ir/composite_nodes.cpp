@@ -185,7 +185,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
 SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     TensorView* philox_seed,
     TensorView* philox_offset,
     TensorView* query,
@@ -198,7 +198,7 @@ SdpaFwdOp::SdpaFwdOp(
     Val* scale)
     : Expr(passkey) {
   addOutput(output);
-  addOutput(log_sumexp);
+  addOutput(logsumexp);
   addOutput(philox_seed);
   addOutput(philox_offset);
 
@@ -367,7 +367,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   }
 
   // 4D SDPA
-  auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
+  auto [output, logsumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
       return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
     }
@@ -396,7 +396,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [out, log_sumexp] = at::_scaled_dot_product_attention_math(
+      auto [out, logsumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -432,7 +432,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 .permute(ir_utils::inversePermutation(*permutation));
       out = flattenBatchDims(out);
 
-      return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+      return std::make_tuple(out, logsumexp, philox_seed, philox_offset);
     }
 
     // Flash attention require the last dimension to be padded to 8.
@@ -452,7 +452,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
     auto
         [out,
-         log_sumexp,
+         logsumexp,
          cum_seq_q,
          cum_seq_k,
          query_seq_len,
@@ -473,19 +473,19 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     if (out.size(-1) != last_dim_size) {
       out = out.slice(-1, 0, last_dim_size);
     }
-    return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+    return std::make_tuple(out, logsumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
-    log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
+    logsumexp = unflattenBatchDim(logsumexp, batch_dims);
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
   // computed in non-nested tensor directly. debug_attn_mask is ignored
   // since `return_debug_mask=false`.
-  return {output, log_sumexp, philox_seed, philox_offset};
+  return {output, logsumexp, philox_seed, philox_offset};
 }
 
 SdpaBwdOp::SdpaBwdOp(
@@ -498,7 +498,7 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -513,7 +513,7 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(key);
   addInput(value);
   addInput(output);
-  addInput(log_sumexp);
+  addInput(logsumexp);
   addInput(dropout_p);
   addInput(is_causal);
   addInput(philox_seed);

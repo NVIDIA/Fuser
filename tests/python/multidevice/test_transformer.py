@@ -1097,7 +1097,7 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
         b, h, s, e // h, dtype=torch.bfloat16, device="cpu"
     )
 
-    sdpa_log_sumexp = torch.testing.make_tensor(
+    sdpa_logsumexp = torch.testing.make_tensor(
         b, h, s, dtype=torch.float32, device="cpu"
     )
     mha_linear0_weight = torch.testing.make_tensor(
@@ -1133,7 +1133,7 @@ def test_transformer_backward(multidevice_test, benchmark, parallelism: Parallel
         .transpose(1, 2)
         .contiguous()
         .transpose(1, 2),
-        multidevice_test.shard_tensor_1d(sdpa_log_sumexp, 1, mesh),
+        multidevice_test.shard_tensor_1d(sdpa_logsumexp, 1, mesh),
         sdpa_philox_seed,
         sdpa_philox_offset,
         multidevice_test.shard_tensor_1d(mha_linear0_weight, 0, mesh),
