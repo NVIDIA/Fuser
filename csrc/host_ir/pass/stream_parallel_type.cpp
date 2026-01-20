@@ -615,7 +615,6 @@ std::list<Expr*> processForLoopBodies(
           auto* number_of_streams =
               IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
 
-
           auto* curr_stream_idx = mod(for_loop->index(), number_of_streams);
           auto* curr_stream = IrBuilder::create<hir::Stream>(curr_stream_idx);
 
