@@ -102,7 +102,7 @@ TEST_P(HostIrTest, SingleFusion) {
 
   // [Step 4)] Create TensorViews representing the Fusion's I/O at the Host
   // level
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   std::vector<Val*> post_on_stream_inputs = {
       ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))};
   std::vector<Val*> post_on_stream_outputs = {
@@ -185,7 +185,7 @@ TEST_P(HostIrTest, TwoFusions) {
 
   // [Step 4)a.] Create TensorViews representing the first Fusions I/O at the
   // Host level
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   std::vector<Val*> post_on_stream_inputs_0 = {
       ir_cloner.clone(host_unit_0->fusion_to_execute()->inputs().at(0))};
   std::vector<Val*> post_on_stream_outputs_0 = {
@@ -290,7 +290,7 @@ TEST_P(HostIrTest, ThreeFusions) {
 
   // [Step 4)a.] Create TensorViews representing the first Fusions I/O at the
   // Host level
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   auto clone = [&](std::vector<Val*> vals) {
     std::vector<Val*> ret;
     for (auto val : vals) {
@@ -422,7 +422,7 @@ TEST_P(HostIrTest, ForLoops) {
   auto buffer_input = makeContigConcreteTensor({1}, DataType::Int);
   auto buffer_ouput = makeContigConcreteTensor({1}, DataType::Int);
 
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   std::vector<Val*> post_on_stream_inputs = {index, buffer_input};
   std::vector<Val*> post_on_stream_outputs = {buffer_ouput};
   auto* host_unit = IrBuilder::create<HostUnit>(std::move(fusion));
@@ -476,7 +476,7 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
 
   auto host_unit = IrBuilder::create<HostUnit>(get_fusion());
 
-  IrCloner ir_cloner(hic.get());
+  IrCloner ir_cloner(hic->container());
   std::vector<Val*> post_on_stream_inputs = {
       ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))};
   std::vector<Val*> post_on_stream_outputs = {
@@ -673,7 +673,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // [Step 4)] Create TensorViews representing the Fusion's inputs at the Host
   // level
-  IrCloner ir_cloner_input(hic.get());
+  IrCloner ir_cloner_input(hic->container());
   std::vector<Val*> post_on_stream_inputs = {
       ir_cloner_input.clone(host_unit->fusion_to_execute()->inputs().at(0))};
   hic->addInput(post_on_stream_inputs.at(0));
@@ -681,7 +681,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   for (int i = 0; i < n_iterations; i++) {
     // [Step 4)] Create TensorViews representing the Fusion's ouputs at the Host
     // level
-    IrCloner ir_cloner_output(hic.get());
+    IrCloner ir_cloner_output(hic->container());
     std::vector<Val*> post_on_stream_outputs = {ir_cloner_output.clone(
         host_unit->fusion_to_execute()->outputs().at(0))};
 
