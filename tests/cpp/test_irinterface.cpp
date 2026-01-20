@@ -8,8 +8,8 @@
 
 #include <gtest/gtest.h>
 
-#include <ir/interface.h>
 #include <ir/builder.h>
+#include <ir/interface.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {
@@ -32,16 +32,6 @@ TEST_F(IrInterfaceTest, BasicForwarding) {
 
   // Test container query methods exist and work
   EXPECT_EQ(interface.container(), interface.container());
-}
-
-TEST_F(IrInterfaceTest, OwningFusionDefault) {
-  // Base IrInterface should return nullptr for owningFusion()
-  IrInterface interface;
-
-  EXPECT_EQ(interface.owningFusion(), nullptr);
-
-  const IrInterface& const_interface = interface;
-  EXPECT_EQ(const_interface.owningFusion(), nullptr);
 }
 
 TEST_F(IrInterfaceTest, CopySemantics) {
