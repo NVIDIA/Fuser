@@ -17,8 +17,8 @@
 #include "scheduler/tools/domain_map.h"
 #include "scheduler/tools/inlining.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "type.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

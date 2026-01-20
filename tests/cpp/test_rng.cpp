@@ -19,7 +19,7 @@
 #include "scheduler/all_schedulers.h"
 #include "tests/cpp/rng_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

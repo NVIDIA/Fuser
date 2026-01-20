@@ -15,7 +15,7 @@
 #include "ops/all_ops.h"
 #include "tests/cpp/multidevice.h"
 #include "tests/cpp/multidevice_transformer.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
