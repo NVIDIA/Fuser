@@ -3361,7 +3361,7 @@ void bindSdpaOps(py::module_& ops) {
          ScalarVariant dropout_p,
          ScalarVariant is_causal,
          ScalarVariant scale) -> decltype(auto) {
-        auto [output, log_sumexp, philox_seed, philox_offset] = sdpfa_fwd(
+        auto [output, logsumexp, philox_seed, philox_offset] = sdpfa_fwd(
             query,
             key,
             value,
@@ -3370,7 +3370,7 @@ void bindSdpaOps(py::module_& ops) {
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
             convertToVal(scale));
-        return py::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+        return py::make_tuple(output, logsumexp, philox_seed, philox_offset);
       },
       py::arg("query"),
       py::arg("key"),
@@ -3405,7 +3405,7 @@ scale : Val, optional
 Returns
 -------
 tuple[TensorView, TensorView, TensorView, TensorView]
-    A tuple of (output, log_sumexp, philox_seed, philox_offset).
+    A tuple of (output, logsumexp, philox_seed, philox_offset).
       )",
       py::return_value_policy::reference);
   ops.def(
@@ -3415,7 +3415,7 @@ tuple[TensorView, TensorView, TensorView, TensorView]
          TensorView* key,
          TensorView* value,
          TensorView* output,
-         TensorView* log_sumexp,
+         TensorView* logsumexp,
          ScalarVariant dropout_p,
          ScalarVariant is_causal,
          TensorView* philox_seed,
@@ -3427,7 +3427,7 @@ tuple[TensorView, TensorView, TensorView, TensorView]
             key,
             value,
             output,
-            log_sumexp,
+            logsumexp,
             convertToVal(dropout_p),
             convertToVal(is_causal, DataType::Bool),
             philox_seed,
@@ -3440,7 +3440,7 @@ tuple[TensorView, TensorView, TensorView, TensorView]
       py::arg("key"),
       py::arg("value"),
       py::arg("output"),
-      py::arg("log_sumexp"),
+      py::arg("logsumexp"),
       py::arg("dropout_p"),
       py::arg("is_causal"),
       py::arg("philox_seed"),
@@ -3461,7 +3461,7 @@ value : TensorView
     The value tensor.
 output : TensorView
     The output tensor.
-log_sumexp : TensorView
+logsumexp : TensorView
     The log of the sum of the exponential of the key.
 dropout_p : Val, optional
     The dropout probability.

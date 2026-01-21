@@ -28,7 +28,7 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 namespace {
 void addSdpaFwdOutputs(Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
-  fusion->addOutput(output.log_sumexp);
+  fusion->addOutput(output.logsumexp);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
 }
@@ -52,7 +52,7 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  MetaSdpaOut aten_out_meta) {
   auto
       [attn,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -60,19 +60,19 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
        philox_seed,
        philox_offset,
        debug_attn_mask] = aten_out;
-  // nvf_out = {attn, log_sumexp, philox_seed, philox_offset}.
+  // nvf_out = {attn, logsumexp, philox_seed, philox_offset}.
   // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
   NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
-  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
+  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), logsumexp));
 
-  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] =
+  auto [attn_meta, logsumexp_meta, philox_seed_meta, philox_offset_meta] =
       aten_out_meta;
   EXPECT_EQ(attn.sizes(), attn_meta.sizes());
-  EXPECT_EQ(log_sumexp.sizes(), log_sumexp_meta.sizes());
+  EXPECT_EQ(logsumexp.sizes(), logsumexp_meta.sizes());
   EXPECT_EQ(attn.strides(), attn_meta.strides());
-  EXPECT_EQ(log_sumexp.strides(), log_sumexp_meta.strides());
+  EXPECT_EQ(logsumexp.strides(), logsumexp_meta.strides());
   EXPECT_EQ(philox_seed.sizes(), philox_seed_meta.sizes());
   EXPECT_EQ(philox_offset.sizes(), philox_offset_meta.sizes());
   EXPECT_EQ(philox_seed.strides(), philox_seed_meta.strides());
@@ -448,7 +448,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
 
-    for (TensorView* consumer_tv : {output.output, output.log_sumexp}) {
+    for (TensorView* consumer_tv : {output.output, output.logsumexp}) {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
@@ -464,7 +464,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
           EXPECT_TRUE(
               mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
         }
-        // Mapping for L exists between Q and output, log_sumexp.
+        // Mapping for L exists between Q and output, logsumexp.
         if (idx == 2 && role == AttnRole::Q) {
           EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
         }
@@ -497,7 +497,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -553,7 +553,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   KernelArgumentHolder sdpa_bwd_inputs = {
-      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
+      grad_out, q, k, v, output, logsumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
@@ -565,7 +565,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -584,7 +584,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
-    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), logsumexp.to(at::kMeta));
     // Bind RNG state for meta evaluation to unlock node evaluate
     ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
     ee.bind(
@@ -632,7 +632,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -688,7 +688,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   KernelArgumentHolder sdpa_bwd_inputs = {
-      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
+      grad_out, q, k, v, output, logsumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
@@ -700,7 +700,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -719,7 +719,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
-    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), logsumexp.to(at::kMeta));
     // Bind RNG state for meta evaluation to unlock node evaluate
     ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
     ee.bind(
@@ -839,7 +839,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvk,
       tvv,
       sdpa_fwd_out.output,
-      sdpa_fwd_out.log_sumexp,
+      sdpa_fwd_out.logsumexp,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       sdpa_fwd_out.philox_seed,
@@ -920,7 +920,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       /*scale=*/nullptr);
 
   addSdpaFwdOutputs(fusion.get(), output);
-  for (TensorView* tv : {output.output, output.log_sumexp}) {
+  for (TensorView* tv : {output.output, output.logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -989,7 +989,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -1059,7 +1059,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       k.unsqueeze(0),
       v.unsqueeze(0),
       output.unsqueeze(0),
-      log_sumexp.unsqueeze(0),
+      logsumexp.unsqueeze(0),
       philox_seed,
       philox_offset};
 
@@ -1073,7 +1073,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -1128,7 +1128,7 @@ TEST_F(SDPATest, ComputeAt) {
       /*scale=*/nullptr);
 
   addSdpaFwdOutputs(fusion.get(), output);
-  for (TensorView* tv : {output.output, output.log_sumexp}) {
+  for (TensorView* tv : {output.output, output.logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
