@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-void swap(IrContainer& a, IrContainer& b) noexcept {
+void swap(IrStorage& a, IrStorage& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
   using std::swap;
@@ -49,7 +49,7 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   }
 }
 
-IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
+IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
   IrCloner ir_cloner(to);
 
@@ -84,70 +84,38 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   return ir_cloner;
 }
 
-IrContainer::IrContainer() = default;
+IrStorage::IrStorage() = default;
 
-IrContainer::IrContainer(const IrContainer& other) {
-  FUSER_PERF_SCOPE("IrContainer copy");
-  IrContainer::copy(&other, this);
+IrStorage::IrStorage(const IrStorage& other) {
+  FUSER_PERF_SCOPE("IrStorage copy");
+  IrStorage::copy(&other, this);
 }
 
-IrContainer::IrContainer(IrContainer&& other) noexcept {
-  FUSER_PERF_SCOPE("IrContainer move");
+IrStorage::IrStorage(IrStorage&& other) noexcept {
+  FUSER_PERF_SCOPE("IrStorage move");
   swap(*this, other);
 }
 
-IrContainer& IrContainer::operator=(const IrContainer& other) {
-  FUSER_PERF_SCOPE("IrContainer copy assign");
-  IrContainer copy(other);
+IrStorage& IrStorage::operator=(const IrStorage& other) {
+  FUSER_PERF_SCOPE("IrStorage copy assign");
+  IrStorage copy(other);
   clear();
   swap(*this, copy);
   return *this;
 }
 
-IrContainer& IrContainer::operator=(IrContainer&& other) noexcept {
-  FUSER_PERF_SCOPE("IrContainer move assign");
+IrStorage& IrStorage::operator=(IrStorage&& other) noexcept {
+  FUSER_PERF_SCOPE("IrStorage move assign");
   clear();
   swap(*this, other);
   return *this;
 }
 
-IrContainer::~IrContainer() {
+IrStorage::~IrStorage() {
   clear();
 }
 
-//! Register the Statement with this container
-void IrContainer::registerStmt(IrBuilderPasskey, Statement* stmt) {
-  //// Only delegate if THIS container is not Kernel or HostIrContainer
-  //// AND we have a parent Fusion
-  //// (Plain Fusion uses SSA and needs to set output definitions, but Kernel
-  /// and / HostIrContainer are non-SSA and should handle registration locally)
-  // if (parent_ && !this->isA<kir::Kernel>() &&
-  // !this->isA<hir::HostIrContainer>()) {
-  //   // Delegate to parent Fusion for SSA handling
-  //   parent_->registerStmt(passkey, stmt);
-  //   return;
-  // }
-
-  //// Handle registration locally for Kernel/HostIrContainer or containers
-  /// without parents
-  if (stmt->isVal()) {
-    registerVal(stmt->asVal());
-  } else {
-    registerExpr(stmt->asExpr());
-  }
-}
-
-//! Register the Val with this container
-void IrContainer::registerVal(IrBuilderPasskey, Val* val) {
-  registerVal(val);
-}
-
-//! Register expr with this container.
-void IrContainer::registerExpr(IrBuilderPasskey, Expr* expr) {
-  registerExpr(expr);
-}
-
-void IrContainer::removeExpr(Expr* expr) {
+void IrStorage::removeExpr(Expr* expr) {
   NVF_ERROR(
       exprs_.find(expr) != exprs_.end(),
       "Wanted to remove an expression but it doesn't exist in this container.");
@@ -166,7 +134,7 @@ void IrContainer::removeExpr(Expr* expr) {
 
 //! Completely remove val from the fusion, break all dependencies associated
 //! with it
-void IrContainer::removeVal(Val* val) {
+void IrStorage::removeVal(Val* val) {
   // Don't remove shortcuts
   if (val == true_val_.get() || val == false_val_.get() ||
       val == one_val_.get() || val == zero_val_.get() ||
@@ -191,7 +159,7 @@ void IrContainer::removeVal(Val* val) {
 }
 
 //! Register the Val with this container
-void IrContainer::registerVal(Val* val) {
+void IrStorage::registerVal(Val* val) {
   if (inContainer(val)) {
     return;
   }
@@ -203,7 +171,7 @@ void IrContainer::registerVal(Val* val) {
 }
 
 //! Register expr with this container.
-void IrContainer::registerExpr(Expr* expr) {
+void IrStorage::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
@@ -214,8 +182,8 @@ void IrContainer::registerExpr(Expr* expr) {
   expr->setName(IrContainerPasskey(), getExprName());
 }
 
-void IrContainer::clear() noexcept {
-  FUSER_PERF_SCOPE("IrContainer clear");
+void IrStorage::clear() noexcept {
+  FUSER_PERF_SCOPE("IrStorage clear");
   vals_.clear();
   vals_up_.clear();
   exprs_.clear();
@@ -226,7 +194,7 @@ void IrContainer::clear() noexcept {
   expr_name_counter_ = 0;
 }
 
-bool IrContainer::inContainer(const Statement* const_stmt) const {
+bool IrStorage::inContainer(const Statement* const_stmt) const {
   // We don't use dynamic_cast here because `const_stmt` may be an invalid
   // pointer. Specifically a pointer to a Statement owned by another container
   // that has been freed.
@@ -259,7 +227,7 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Val* IrContainer::zeroVal() {
+Val* IrStorage::zeroVal() {
   if (!zero_val_) {
     auto zero_val =
         IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
@@ -270,7 +238,7 @@ Val* IrContainer::zeroVal() {
   return zero_val_.get();
 }
 
-Val* IrContainer::zeroVal(DataType dtype) {
+Val* IrStorage::zeroVal(DataType dtype) {
   if (dtype == DataType::Index) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
@@ -281,7 +249,7 @@ Val* IrContainer::zeroVal(DataType dtype) {
   }
 }
 
-Val* IrContainer::oneVal() {
+Val* IrStorage::oneVal() {
   if (!one_val_) {
     auto one_val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == one_val);
@@ -291,7 +259,7 @@ Val* IrContainer::oneVal() {
   return one_val_.get();
 }
 
-Val* IrContainer::oneVal(DataType dtype) {
+Val* IrStorage::oneVal(DataType dtype) {
   if (dtype == DataType::Index) {
     return oneVal();
   } else if (isBooleanType(dtype)) {
@@ -302,7 +270,7 @@ Val* IrContainer::oneVal(DataType dtype) {
   }
 }
 
-Val* IrContainer::falseVal() {
+Val* IrStorage::falseVal() {
   if (!false_val_) {
     auto false_val =
         IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
@@ -313,7 +281,7 @@ Val* IrContainer::falseVal() {
   return false_val_.get();
 }
 
-Val* IrContainer::trueVal() {
+Val* IrStorage::trueVal() {
   if (!true_val_) {
     auto true_val =
         IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
@@ -324,7 +292,7 @@ Val* IrContainer::trueVal() {
   return true_val_.get();
 }
 
-NamedScalar* IrContainer::magicZeroVal() {
+NamedScalar* IrStorage::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
         IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
@@ -336,7 +304,7 @@ NamedScalar* IrContainer::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
-Val* IrContainer::metadataOf(Val* v) {
+Val* IrStorage::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
     auto metadata_val =
         IrBuilder::createInContainer<Val>(this, metaDataTypeOf(v));
@@ -347,7 +315,7 @@ Val* IrContainer::metadataOf(Val* v) {
   return metadata_.at(v).first;
 }
 
-void IrContainer::lazyInitAxioms() {
+void IrStorage::lazyInitAxioms() {
   if (!axioms_) {
     axioms_ = std::make_unique<std::vector<Val*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
@@ -362,19 +330,19 @@ void IrContainer::lazyInitAxioms() {
   }
 }
 
-void IrContainer::assumePositive(Val* val) {
+void IrStorage::assumePositive(Val* val) {
   NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
-void IrContainer::assumeNonNegative(Val* val) {
+void IrStorage::assumeNonNegative(Val* val) {
   NVF_ERROR(val->container() == this);
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
-void IrContainer::removeStatementsCreatedAfter(
+void IrStorage::removeStatementsCreatedAfter(
     int64_t prev_num_exprs,
     int64_t prev_num_vals) {
   NVF_ERROR(

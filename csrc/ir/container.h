@@ -20,33 +20,19 @@ namespace nvfuser {
 
 class IrInterface; // Forward declaration for parent pointer
 
-class IrBuilderPasskey;
-class ExprPasskey;
-class OptOutMutator;
-
 class NamedScalar;
 
-// Passkey for container to register names with statements
-class IrContainerPasskey {
-  friend class IrContainer;
-
- private:
-  explicit IrContainerPasskey() = default;
-};
-
-// Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
-// Stage 2 (when Fusion inherits from both IrInterface and IrContainer).
-class IrContainer {
+class IrStorage {
  public:
-  NVF_API IrContainer();
+  NVF_API IrStorage();
 
-  IrContainer(const IrContainer& other);
-  IrContainer(IrContainer&& other) noexcept;
+  IrStorage(const IrStorage& other);
+  IrStorage(IrStorage&& other) noexcept;
 
-  IrContainer& operator=(const IrContainer& other);
-  IrContainer& operator=(IrContainer&& other) noexcept;
+  IrStorage& operator=(const IrStorage& other);
+  IrStorage& operator=(IrStorage&& other) noexcept;
 
-  ~IrContainer();
+  ~IrStorage();
 
   bool inContainer(const Statement* stmt) const;
 
@@ -107,15 +93,6 @@ class IrContainer {
     return exprs_map;
   }
 
-  //! Register the Statement with this container
-  NVF_API virtual void registerStmt(IrBuilderPasskey, Statement* stmt);
-
-  //! Register the Val with this container
-  NVF_API virtual void registerVal(IrBuilderPasskey, Val* val);
-
-  //! Register expr with this container.
-  NVF_API virtual void registerExpr(IrBuilderPasskey, Expr* expr);
-
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
   //! segmented fusions.
@@ -157,9 +134,9 @@ class IrContainer {
   void assumeNonNegative(Val* val);
 
  protected:
-  static IrCloner copy(const IrContainer* from, IrContainer* to);
+  static IrCloner copy(const IrStorage* from, IrStorage* to);
 
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  friend void swap(IrStorage& a, IrStorage& b) noexcept;
 
   // Let mutator remove Exprs.
   friend OptOutMutator;
