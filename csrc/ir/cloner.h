@@ -192,8 +192,8 @@ T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
   const auto* src_stmt = dynamic_cast<const Statement*>(src);
   auto* dest_stmt = dynamic_cast<Statement*>(dest);
 
-  auto dest_container = ir_cloner->container();
-  auto src_container = src_stmt->container();
+  auto dest_container = ir_cloner->container()->parent();
+  auto src_container = src_stmt->container()->parent();
 
   dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
 

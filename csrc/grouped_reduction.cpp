@@ -247,7 +247,7 @@ bool groupReductions(
   }
 
   IrBuilder::createInContainer<GroupedReductionOp>(
-      container, op_types, init_vals, outputs, inputs);
+      container->parent(), op_types, init_vals, outputs, inputs);
 
   for (auto output : ir_utils::filterByType<TensorView>(outputs)) {
     output->updateMaxProducerPosition();

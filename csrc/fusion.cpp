@@ -107,7 +107,8 @@ void swap(Fusion& a, Fusion& b) noexcept {
   using std::swap;
 
   // Swap IrInterface base class (contains IrContainer)
-  swap(static_cast<IrInterface&>(a), static_cast<IrInterface&>(b));
+  // swap(static_cast<IrInterface&>(a), static_cast<IrInterface&>(b));
+  swap(*a.container(), *b.container());
 
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
