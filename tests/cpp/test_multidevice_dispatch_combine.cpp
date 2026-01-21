@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2026-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -32,7 +32,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   const int64_t my_rank = communicator_->deviceId();
   constexpr int64_t kNumExpertsPerRank = 2;
   const int64_t num_experts = world_size * kNumExpertsPerRank;
-  constexpr int64_t kNumTokens = 8;
+  constexpr int64_t kNumTokens = 4;
   constexpr int64_t kHidden = 4;
 
   auto hic = std::make_unique<HostIrContainer>();
@@ -64,7 +64,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       in_topk_weights,
       in_is_token_in_rank,
       num_experts,
-      CommunicatorBackend::kCuda);
+      CommunicatorBackend::kNccl);
 
   auto* combined_x = makeSymbolicTensor(2);
   auto* combined_topk_weights = makeSymbolicTensor(1);
@@ -77,7 +77,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
-      CommunicatorBackend::kCuda);
+      CommunicatorBackend::kNccl);
 
   hic->pushBackTopLevelExprs(dispatch);
   hic->pushBackTopLevelExprs(combine);
@@ -98,13 +98,20 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto x = at::arange(kNumTokens * kHidden, float_options)
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
-  auto topk_idx =
-      (at::arange(kNumTokens, int_options) + my_rank) % num_experts;
+  auto topk_idx = at::zeros({kNumTokens}, int_options);
   auto topk_weights = at::ones({kNumTokens}, float_options);
 
-  auto token_rank = topk_idx.div(kNumExpertsPerRank, "trunc");
+  // Asymmetric example:
+  // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
   auto rank_ids = at::arange(world_size, int_options);
+  auto token_rank = at::tensor({0, 1, 1, 1}, int_options);
   auto is_token_in_rank = token_rank.unsqueeze(1).eq(rank_ids);
+
+  // Experts are partitioned by rank. Use rank0 expert0, rank1 experts0/1.
+  topk_idx.index_put_({0}, 0);
+  topk_idx.index_put_({1}, kNumExpertsPerRank);
+  topk_idx.index_put_({2}, kNumExpertsPerRank + 1);
+  topk_idx.index_put_({3}, kNumExpertsPerRank);
 
   auto outputs = hie.runWithInput(
       {{in_x, x},

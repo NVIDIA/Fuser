@@ -175,7 +175,13 @@ class P2PCommunication : public Expr {
 };
 
 // Dispatch represents intra-node MoE token dispatch. It shuffles tokens from
-// the local rank to destination ranks based on `is_token_in_rank`.
+// the local rank to destination ranks based on `in_is_token_in_rank`.
+//
+// Example shapes (topk=1):
+//   in_x: [T, H], in_topk_idx: [T] or [T, 1], in_topk_weights: [T] or [T, 1],
+//   in_is_token_in_rank: [T, R] (one-hot), num_experts = R * experts_per_rank.
+//   Outputs are recv-aligned tensors: out_x/out_topk_*/out_src_* with [T_recv,
+//   ...] and out_n_tokens_to_rank/out_n_tokens_from_rank with shape [R].
 class MoEDispatch : public Expr {
  public:
   using Expr::Expr;
@@ -266,7 +272,13 @@ class MoEDispatch : public Expr {
 };
 
 // Combine represents intra-node MoE token combine. It shuffles tokens back to
-// their source ranks using `src_rank` and `src_idx`.
+// their source ranks using `in_src_rank` and `in_src_idx`.
+//
+// Example shapes (topk=1):
+//   in_x: [T_recv, H], in_topk_weights: [T_recv], in_src_idx: [T_recv],
+//   in_src_rank: [T_recv], in_n_tokens_to_rank: [R], in_n_tokens_from_rank:
+//   [R]. Outputs are source-aligned: out_x/out_topk_weights with shape [T_src,
+//   ...].
 class MoECombine : public Expr {
  public:
   using Expr::Expr;

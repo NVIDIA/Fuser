@@ -393,14 +393,13 @@ void HostIrEvaluator::handle(MoEDispatch* dispatch) {
       "A valid communicator must be provided");
 
   auto x = getKnownConcreteValue(dispatch->inX()).as<at::Tensor>();
-  auto topk_idx =
-      getKnownConcreteValue(dispatch->inTopkIdx()).as<at::Tensor>();
+  auto topk_idx = getKnownConcreteValue(dispatch->inTopkIdx()).as<at::Tensor>();
   auto topk_weights =
       getKnownConcreteValue(dispatch->inTopkWeights()).as<at::Tensor>();
   auto is_token_in_rank =
       getKnownConcreteValue(dispatch->inIsTokenInRank()).as<at::Tensor>();
 
-  auto result = dispatchWithCudaBackend(
+  auto result = doMoEDispatch(
       x,
       topk_idx,
       topk_weights,
@@ -434,7 +433,7 @@ void HostIrEvaluator::handle(MoECombine* combine) {
   auto n_tokens_from_rank =
       getKnownConcreteValue(combine->inTokensFromRank()).as<at::Tensor>();
 
-  auto result = combineWithCudaBackend(
+  auto result = doMoECombine(
       x,
       topk_weights,
       src_idx,
@@ -445,8 +444,7 @@ void HostIrEvaluator::handle(MoECombine* combine) {
       combine->backend());
 
   expr_evaluator_.bind(combine->outX(), result.combined_x);
-  expr_evaluator_.bind(
-      combine->outTopkWeights(), result.combined_topk_weights);
+  expr_evaluator_.bind(combine->outTopkWeights(), result.combined_topk_weights);
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
