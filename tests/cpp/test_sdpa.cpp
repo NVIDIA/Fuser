@@ -231,9 +231,9 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
 
 using testing::ElementsAre;
 
-using SDPATest = NVFuserTest;
+using SdpaTest = NVFuserTest;
 
-TEST_F(SDPATest, NonCausalAttnConcrete) {
+TEST_F(SdpaTest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -294,7 +294,7 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, NonCausalAttnSymbolic) {
+TEST_F(SdpaTest, NonCausalAttnSymbolic) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -354,7 +354,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, CausalAttn) {
+TEST_F(SdpaTest, CausalAttn) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -413,7 +413,7 @@ TEST_F(SDPATest, CausalAttn) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, PairwiseLogicalDomainMap) {
+TEST_F(SdpaTest, PairwiseLogicalDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -481,7 +481,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   }
 }
 
-TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
+TEST_F(SdpaTest, NonCausalAttnConcreteBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
@@ -616,7 +616,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       __FILE__);
 }
 
-TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
+TEST_F(SdpaTest, NonCausalAttnSymbolicBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
@@ -753,7 +753,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
 // Test SDPA is segmented correctly. See issue #2517:
 // https://github.com/NVIDIA/Fuser/issues/2517
-TEST_F(SDPATest, AttnProgram) {
+TEST_F(SdpaTest, AttnProgram) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -806,7 +806,7 @@ TEST_F(SDPATest, AttnProgram) {
   EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
-TEST_F(SDPATest, AttnFwdBwd) {
+TEST_F(SdpaTest, AttnFwdBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -891,7 +891,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
 // resolved.
-TEST_F(SDPATest, Sharded_SdpaFwd) {
+TEST_F(SdpaTest, Sharded_SdpaFwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -972,7 +972,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
 // resolved.
-TEST_F(SDPATest, Sharded_SdpaBwd) {
+TEST_F(SdpaTest, Sharded_SdpaBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1099,7 +1099,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       __FILE__);
 }
 
-TEST_F(SDPATest, ComputeAt) {
+TEST_F(SdpaTest, ComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1184,7 +1184,7 @@ TEST_F(SDPATest, ComputeAt) {
 // Verifies the flash attention API matches what
 // https://github.com/NVIDIA/Fuser/blob/305907fed8ae18d1b7215dcba621b06f09d70e92/csrc/preseg_passes/allocation_order_inference.cpp#L358
 // expects.
-TEST_F(SDPATest, FlashAttentionStrideOrder) {
+TEST_F(SdpaTest, FlashAttentionStrideOrder) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   at::Tensor qkv =
