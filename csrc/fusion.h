@@ -143,7 +143,7 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrInterface {
+class NVF_API Fusion : public IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:

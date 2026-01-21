@@ -12,34 +12,36 @@
 namespace nvfuser {
 
 // Default constructor - creates new IrContainer
-IrContainer::IrContainer() : container_(std::make_unique<IrContainer>()) {
-  container()->setParent(this);
+IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
+  ir_storage()->setParent(this);
 }
 
 // Copy constructor - clones the container
 IrContainer::IrContainer(const IrContainer& other)
-    : container_(std::make_unique<IrContainer>(*other.container_)) {
-  container()->setParent(this);
+    : ir_storage_(std::make_unique<IrStorage>(*other.ir_storage_)) {
+  ir_storage()->setParent(this);
 }
 
 // Move constructor
 IrContainer::IrContainer(IrContainer&& other) noexcept
-    : container_(std::move(other.container_)) {
-  container()->setParent(this);
+    : ir_storage_(std::move(other.ir_storage_)) {
+  ir_storage()->setParent(this);
 }
 
 // Destructor - releases container without deleting if not owned
 IrContainer::~IrContainer() {
-  // if (container_) {
-  //   container_.release(); // Don't delete the container
+  // if (ir_storage_) {
+  //   ir_storage_.release(); // Don't delete the container
   // }
-  // container()->~IrContainer();
+  // ir_storage()->~IrContainer();
 }
 
 // Copy assignment using copy-and-swap idiom
 IrContainer& IrContainer::operator=(const IrContainer& other) {
   if (this != &other) {
     IrContainer temp(other);
+
+    // swap handles parent reset.
     swap(*this, temp);
   }
   return *this;
@@ -48,11 +50,11 @@ IrContainer& IrContainer::operator=(const IrContainer& other) {
 // Move assignment
 IrContainer& IrContainer::operator=(IrContainer&& other) noexcept {
   if (this != &other) {
-    container_ = std::move(other.container_);
+    ir_storage_ = std::move(other.ir_storage_);
 
     // Update parent pointer to point to the new owner
-    if (container_) {
-      container()->setParent(this);
+    if (ir_storage_) {
+      ir_storage()->setParent(this);
     }
   }
 
@@ -62,16 +64,16 @@ IrContainer& IrContainer::operator=(IrContainer&& other) noexcept {
 // Swap function - enables efficient copy-and-swap idiom
 void swap(IrContainer& a, IrContainer& b) noexcept {
   using std::swap;
-  swap(a.container_, b.container_);
+  swap(a.ir_storage_, b.ir_storage_);
 
   // Fix parent pointers after swapping containers
   // After swap, each IrContainer owns a different IrStorage, so we must update
   // the parent backpointers in those containers to point to their new owners
-  if (a.container_) {
-    a.container()->setParent(&a);
+  if (a.ir_storage_) {
+    a.ir_storage()->setParent(&a);
   }
-  if (b.container_) {
-    b.container()->setParent(&b);
+  if (b.ir_storage_) {
+    b.ir_storage()->setParent(&b);
   }
 }
 
