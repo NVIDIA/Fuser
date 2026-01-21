@@ -13,7 +13,7 @@ namespace nvfuser::python {
 FusionExecutorCache* LRUCache::cacheCompile(
     std::unique_ptr<Fusion> unique_fusion) {
   std::lock_guard<std::mutex> guard(lru_mutex_);
-  std::shared_ptr<Fusion> fusion(std::move(unique_fusion));
+  Fusion* fusion = unique_fusion.get();
   auto it = items_map.find(fusion);
   num_cache_lookups_++;
 
@@ -29,16 +29,17 @@ FusionExecutorCache* LRUCache::cacheCompile(
   // The fusion is new, check for capacity and evict LRU if necessary.
   if (items_map.size() == max_fusions_) {
     // Evict the least recently used item (the one at the back)
-    std::shared_ptr<Fusion> lru_key = items_list.back().fusion;
+    Fusion* lru_key = items_list.back().fusion;
     items_list.pop_back();
     items_map.erase(lru_key);
   }
 
   // Insert the new item at the front of the list
+  // If fusion does not exist in cache, move it to new FusionExecutorCache.
   items_list.push_front(
       {fusion,
        std::make_unique<FusionExecutorCache>(
-           std::make_unique<Fusion>(*fusion),
+           std::move(unique_fusion),
            /*fusion_id=*/numFusionsCompiled()),
        /*visits=*/0});
   // Store the iterator to the new item in the map

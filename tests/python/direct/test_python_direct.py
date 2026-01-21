@@ -670,6 +670,7 @@ def test_lru_cache():
 
     assert cache.num_fusions() == 0
     fd0.fec = cache.cache_compile(fd0.fusion)
+    del fd0._fusion
     # Check that LRUCache caches the first fusion
     assert cache.num_fusions() == 1
 
@@ -678,6 +679,7 @@ def test_lru_cache():
 
     assert cache.num_fusions() == 1
     fd1.fec = cache.cache_compile(fd1.fusion)
+    del fd1._fusion
     # Check that LRUCache creates a separate entry for second fusion
     assert cache.num_fusions() == 2
 

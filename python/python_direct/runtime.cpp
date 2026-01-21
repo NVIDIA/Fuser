@@ -232,7 +232,7 @@ void bindFusionExecutorCache(py::module& nvfuser) {
           py::init([](std::unique_ptr<Fusion> fusion,
                       int64_t fusion_id,
                       bool auto_schedule) {
-            // Make a copy of the fusion for FusionExecutorCache to own.
+            // Move fusion to FusionExecutorCache.
             return std::make_unique<FusionExecutorCache>(
                 std::move(fusion), fusion_id, auto_schedule);
           }),
