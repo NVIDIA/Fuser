@@ -7,8 +7,8 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
