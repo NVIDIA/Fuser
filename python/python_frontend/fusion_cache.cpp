@@ -14,7 +14,7 @@
 #include <python_frontend/fusion_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <serde/fusion_record.h>
-#include <utils.h>
+#include "base.h"
 
 #include <filesystem>
 namespace fs = std::filesystem;

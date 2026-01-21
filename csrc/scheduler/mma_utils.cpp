@@ -31,8 +31,8 @@
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph.h>
+#include "base.h"
 
 namespace nvfuser {
 

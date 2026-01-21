@@ -13,7 +13,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <utils.h>
+#include "base.h"
 
 #include <cstdint>
 

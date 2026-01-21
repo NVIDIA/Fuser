@@ -11,10 +11,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
-#include <utils.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

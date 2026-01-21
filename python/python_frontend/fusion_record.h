@@ -25,7 +25,7 @@
 #include <serde/fusion_cache_generated.h>
 #include <serde/polymorphic_value.h>
 #include <serde/utils.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser::python_frontend {
 

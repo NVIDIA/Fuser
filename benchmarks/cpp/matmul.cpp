@@ -18,7 +18,7 @@
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
 #include <tests/cpp/utils.h>
-#include <utils.h>
+#include "base.h"
 
 #include <benchmark/benchmark.h>
 

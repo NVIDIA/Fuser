@@ -19,12 +19,12 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
+#include "base.h"
 #include "ir/cloner.h"
 #include "ir/iostream.h"
 #include "ir/printer.h"
 #include "multidevice/allocation_utils.h"
 #include "multidevice/utils.h"
-#include "utils.h"
 
 namespace nvfuser {
 

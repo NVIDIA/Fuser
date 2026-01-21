@@ -10,8 +10,8 @@
 #include <string>
 #include <vector>
 
-#include <ir/interface_nodes.h>
-#include <ir/internal_base_nodes.h>
+#include "ir/interface_nodes.h"
+#include "ir/internal_base_nodes.h"
 
 namespace nvfuser {
 

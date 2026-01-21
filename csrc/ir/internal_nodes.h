@@ -9,13 +9,13 @@
 
 #include <list>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <mma_type.h>
-#include <parallel_type_bitmap.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "mma_type.h"
+#include "parallel_type_bitmap.h"
+#include "visibility.h"
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the

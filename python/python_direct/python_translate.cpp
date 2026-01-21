@@ -15,7 +15,7 @@
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ranges>
 #include <type_traits>

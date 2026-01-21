@@ -18,7 +18,7 @@
 #include <kernel_ir_dispatch.h>
 #include <ops/arith.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 #include <unordered_map>
