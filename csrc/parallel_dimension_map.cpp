@@ -152,7 +152,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
+int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) const {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
@@ -267,12 +267,13 @@ Val* ParallelDimensionMap::getRawAsync(ParallelType pt) const {
   return getRaw(pt);
 }
 
-Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
+Val* ParallelDimensionMap::getNumComputeThreadsEachBlock(
+    bool only_count_same_compute_warp_groups) const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     // Skip warp specialized ParallelType if the are computation warp groups
     // are independent.
-    if (isWarpSpecialized(pt) &&
+    if (only_count_same_compute_warp_groups && isWarpSpecialized(pt) &&
         GpuLower::current()
             ->circularBufferInfo()
             .hasIndependentComputeWarpGroups()) {
@@ -285,6 +286,35 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
   return num_threads;
+}
+
+int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
+    ParallelType pt) const {
+  NVF_ERROR(isWarpSpecialized(pt), "Can't find ParallelType: ", pt);
+  if (!warp_specialized_parallel_type_.has_value()) {
+    return 1;
+  }
+  NVF_ERROR(
+      warp_specialized_parallel_type_.value() == pt,
+      "Can't find padded val for: ",
+      pt);
+  return warp_specialized_padding_value_.value();
+}
+
+Val* ParallelDimensionMap::getNumComputeWarps() const {
+  NVF_ERROR(
+      hasWarpSpecialization(),
+      "getNumComputeWarps() should only be called for warp specialized "
+      "kernels");
+
+  Val* num_compute_threads = getNumComputeThreadsEachBlock(
+      /*only_count_same_compute_warp_groups=*/false);
+
+  // Divide by 32 to get the number of warps
+  Val* num_compute_warps = SimplifyingIrBuilder::divExpr(
+      num_compute_threads, IrBuilder::create<Val>(32L, DataType::Index));
+
+  return num_compute_warps;
 }
 
 // For warp-specialization, the CTA is padded so the AsyncWarp contains 128
@@ -320,19 +350,6 @@ Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
   return index;
 }
 
-int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
-    ParallelType pt) const {
-  NVF_ERROR(isWarpSpecialized(pt), "Can't find ParallelType: ", pt);
-  if (!warp_specialized_parallel_type_.has_value()) {
-    return 1;
-  }
-  NVF_ERROR(
-      warp_specialized_parallel_type_.value() == pt,
-      "Can't find padded val for: ",
-      pt);
-  return warp_specialized_padding_value_.value();
-}
-
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   // short-circuit: skip if warp specialization is not enabled
   if (!hasWarpSpecialization()) {
@@ -352,6 +369,31 @@ bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   }
 
   return false;
+}
+
+bool ParallelDimensionMap::canUseWarpIdBasedPredicate() const {
+  if (!hasWarpSpecialization()) {
+    return false;
+  }
+
+  // For consecutive warp IDs, all dimensions after the warp-specialized
+  // dimension must be 1. Otherwise outer dimensions create gaps in warp IDs.
+  NVF_ERROR(warp_specialized_parallel_type_.has_value());
+  ParallelType ws_pt = warp_specialized_parallel_type_.value();
+
+  bool found_ws_pt = false;
+  for (ParallelType pt : kParallelTypeTIDs) {
+    if (pt == ws_pt) {
+      found_ws_pt = true;
+    } else if (found_ws_pt) {
+      int64_t thread_count = getThreadCountInDim(pt);
+      if (thread_count == -1 || thread_count > 1) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 std::string ParallelDimensionMap::toString() const {

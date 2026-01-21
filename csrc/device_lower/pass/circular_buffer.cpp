@@ -1566,17 +1566,30 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
   }
 
   // Create predicate for warp-specialized IfThenElse:
-  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  // If uniform warp ID is available, use warp-ID-based predicate (warp_id >=
+  // num_compute_warps)
   kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
+    const ParallelDimensionMap& pdim_map =
+        GpuLower::current()->info().parallelDimensionMap();
+
+    Val* uniform_warp_id = GpuLower::current()->uniformWarpId();
+    if (uniform_warp_id != nullptr) {
+      // Use uniform warp ID approach: async warps have warp_id >=
+      // num_compute_warps
+      Val* num_compute_warps = pdim_map.getNumComputeWarps();
+      NVF_ERROR(
+          num_compute_warps != nullptr,
+          "num_compute_warps must be initialized");
+      return IrBuilder::create<kir::Predicate>(
+          IrBuilder::geExpr(uniform_warp_id, num_compute_warps));
+    }
+
+    // Fallback: use parallel index comparison
     ParallelType warp_specialize_on =
         std::get<WarpSpecialized>(options.type).on;
     int64_t warp_specialization_pad =
-        GpuLower::current()
-            ->info()
-            .parallelDimensionMap()
-            .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* raw = GpuLower::current()->info().parallelDimensionMap().get(
-        warp_specialize_on);
+        pdim_map.getWarpSpecializationPaddedVal(warp_specialize_on);
+    Val* raw = pdim_map.get(warp_specialize_on);
     Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
         raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
     return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
@@ -2019,7 +2032,7 @@ kir::ForLoop* HopperPingPongMbarriers::initializePingPongMbarrier() {
       GpuLower::current()
           ->info()
           .parallelDimensionMap()
-          .getNumComputeThreadsEachBlock());
+          .getNumComputeThreadsEachBlock(true));
   kir::TensorIndex* ping_pong_mbarrier_index =
       IrBuilder::create<kir::TensorIndex>(mbarriers_, loop->index());
   kir::MBarrierInit* ping_pong_mbarrier_init =

@@ -976,7 +976,8 @@ Expr* initializeCircularBufferMbarrier(
         GpuLower::current()
             ->info()
             .parallelDimensionMap()
-            .getNumComputeThreadsEachBlock());
+            .getNumComputeThreadsEachBlock(
+                /*only_count_same_compute_warp_groups=*/true));
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread
@@ -1229,6 +1230,47 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     return alloc_expr;
+  }
+
+  void computeUniformWarpId(Expr* expr) {
+    // Compute flat thread id: tid = threadIdx.x + threadIdx.y * blockDim.x +
+    // threadIdx.z * blockDim.x * blockDim.y
+    const auto& pdim = GpuLower::current()->info().parallelDimensionMap();
+    Val* tid = FusionGuard::getCurFusion()->zeroVal();
+    Val* bdimx = pdim.getRaw(ParallelType::TIDx);
+    Val* bdimy = pdim.getRaw(ParallelType::TIDy);
+    Val* bdimz = pdim.getRaw(ParallelType::TIDz);
+
+    if (bdimx != nullptr) {
+      tid = NamedScalar::getParallelIndex(ParallelType::TIDx);
+    }
+    if (bdimy != nullptr) {
+      Val* tidy = NamedScalar::getParallelIndex(ParallelType::TIDy);
+      if (bdimx != nullptr) {
+        tidy = SimplifyingIrBuilder::mulExpr(tidy, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidy);
+    }
+    if (bdimz != nullptr) {
+      Val* tidz = NamedScalar::getParallelIndex(ParallelType::TIDz);
+      if (bdimy != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimy);
+      }
+      if (bdimx != nullptr) {
+        tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimx);
+      }
+      tid = SimplifyingIrBuilder::addExpr(tid, tidz);
+    }
+
+    // Compute warp_id = tid / 32
+    Val* warp_size = IrBuilder::create<Val>(32L, DataType::Index);
+    Val* warp_id = SimplifyingIrBuilder::divExpr(tid, warp_size);
+
+    // Cast to UInt32 for use in predicates and store in GpuLower
+    Val* uniform_warp_id =
+        SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, warp_id);
+
+    GpuLower::current()->setUniformWarpId(uniform_warp_id);
   }
 
   // Insert cluster reduction mbarrier allocation and initialization at the
@@ -1679,6 +1721,13 @@ class AllocationInserter : public kir::ExprMutator {
 
   AllocationInserter(const std::vector<Expr*>& exprs)
       : gpu_lower_(GpuLower::current()) {
+    // Warp-id-based predicates (e.g., warp_id >= threshold) only work when
+    // async/compute warps have consecutive warp IDs.
+    if (gpu_lower_->info()
+            .parallelDimensionMap()
+            .canUseWarpIdBasedPredicate()) {
+      computeUniformWarpId(exprs.at(0));
+    }
     // insert cluster reduction mbarrier at top-level scope
     if (GpuLower::current()->clusterReductionCount() >= 1) {
       insertClusterReductionMBarrier(exprs.at(0));
