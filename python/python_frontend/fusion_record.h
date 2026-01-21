@@ -3091,7 +3091,7 @@ struct SdpaFwdOpRecord : RecordFunctor {
     auto output =
         sdpfa_fwd(query, key, value, bias, mask, dropout_p, is_causal, scale);
     fd.setFusionState(outputs_.at(0).index, output.output);
-    fd.setFusionState(outputs_.at(1).index, output.log_sumexp);
+    fd.setFusionState(outputs_.at(1).index, output.logsumexp);
     fd.setFusionState(outputs_.at(2).index, output.philox_seed);
     fd.setFusionState(outputs_.at(3).index, output.philox_offset);
   }
@@ -3115,7 +3115,7 @@ struct SdpaBwdOpRecord : RecordFunctor {
     auto key = fd.getFusionState(args_.at(2).index)->as<TensorView>();
     auto value = fd.getFusionState(args_.at(3).index)->as<TensorView>();
     auto output = fd.getFusionState(args_.at(4).index)->as<TensorView>();
-    auto log_sumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
+    auto logsumexp = fd.getFusionState(args_.at(5).index)->as<TensorView>();
 
     auto dropout_p = (args_.at(6).stype == serde::StateType::Scalar)
         ? fd.getFusionState(args_.at(6).index)->as<Val>()
@@ -3137,7 +3137,7 @@ struct SdpaBwdOpRecord : RecordFunctor {
         key,
         value,
         output,
-        log_sumexp,
+        logsumexp,
         dropout_p,
         is_causal,
         philox_seed,

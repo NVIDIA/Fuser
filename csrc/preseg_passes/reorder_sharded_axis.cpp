@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/reorder_sharded_axis.h>
+#include "preseg_passes/reorder_sharded_axis.h"
 
-#include <fusion.h>
-#include <host_ir/lower_to_communication.h>
-#include <ir/allocation_utils.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <ir/utils.h>
-#include <multidevice/resharding.h>
-#include <multidevice/utils.h>
-#include <ops/alias.h>
-#include <scheduler/utils.h>
-#include <transform_replay.h>
+#include "fusion.h"
+#include "host_ir/lower_to_communication.h"
+#include "ir/allocation_utils.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "ir/utils.h"
+#include "multidevice/resharding.h"
+#include "multidevice/utils.h"
+#include "ops/alias.h"
+#include "scheduler/utils.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 

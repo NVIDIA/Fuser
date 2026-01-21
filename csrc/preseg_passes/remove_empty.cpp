@@ -5,19 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/remove_empty.h>
-
-#include <expr_evaluator.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <polymorphic_value.h>
+#include "preseg_passes/remove_empty.h"
 
 #include <algorithm>
 #include <limits>
 #include <unordered_set>
 #include <vector>
+
+#include "expr_evaluator.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "polymorphic_value.h"
 
 namespace nvfuser::preseg_passes {
 
