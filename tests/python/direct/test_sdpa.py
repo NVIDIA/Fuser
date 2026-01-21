@@ -47,7 +47,7 @@ def test_softmax_logsumexp(nvfuser_direct_test):
         ) = fd.ops.sdpfa_fwd(q, k, v, dropout_p=None, is_causal=None, scale=None)
         fd.add_output(lse)
 
-    n, h, l, s, e = 1, 1, 4, 4, 2
+    n, h, l, s, e = 1, 1, 4, 4, 8
     inputs = [
         torch.ones((n, h, l, e), dtype=torch.bfloat16, device="cuda"),
         torch.ones((n, h, s, e), dtype=torch.bfloat16, device="cuda"),
