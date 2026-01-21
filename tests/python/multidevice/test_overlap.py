@@ -14,7 +14,9 @@ from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
 
 
-def row_parallel_linear_forward(h, mesh, num_chunks):
+def row_parallel_linear_forward(
+    h: int, num_devices: int, num_chunks: int
+) -> FusionDefinition:
     with FusionDefinition() as fd:
         inp = fd.define_tensor(
             shape=[-1, h * 4], contiguity=True, dtype=DataType.BFloat16
@@ -25,6 +27,7 @@ def row_parallel_linear_forward(h, mesh, num_chunks):
         out = fd.ops.linear(inp, weight)
         fd.add_output(out)
 
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
         for tv in (inp, weight):
             tv.set_device_mesh(mesh)
 
@@ -90,8 +93,7 @@ def test_row_parallel_linear_forward(multidevice_test):
         )
     assert t % s == 0
 
-    mesh = nvfuser.multidevice.DeviceMesh(range(d))
-    fd = row_parallel_linear_forward(h, mesh, s)
+    fd = row_parallel_linear_forward(h, d, s)
 
     inp_ref = torch.testing.make_tensor(t, h * 4, dtype=torch.int32, device="cpu").to(
         torch.bfloat16
@@ -101,8 +103,8 @@ def test_row_parallel_linear_forward(multidevice_test):
     ).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
@@ -134,14 +136,13 @@ def test_row_parallel_linear_forward_benchmark(multidevice_test, benchmark, s):
         )
     assert t % s == 0
 
-    mesh = nvfuser.multidevice.DeviceMesh(range(d))
-    fd = row_parallel_linear_forward(h, mesh, s)
+    fd = row_parallel_linear_forward(h, d, s)
 
     inp_ref = torch.randn(t, h * 4, dtype=torch.bfloat16, device="cpu")
     weight_ref = torch.randn(h, h * 4, dtype=torch.bfloat16, device="cpu")
 
-    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
 
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: fd.execute([inp, weight], _enable_options=["host_ir_lowering"])

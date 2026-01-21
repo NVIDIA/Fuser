@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/add_axioms.h>
+#include "preseg_passes/add_axioms.h"
 
 #include <unordered_set>
 #include <vector>
 
-#include <ir/utils.h>
+#include "ir/utils.h"
 
 namespace nvfuser::preseg_passes {
 

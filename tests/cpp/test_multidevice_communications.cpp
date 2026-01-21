@@ -20,7 +20,7 @@
 #include "ops/arith.h"
 #include "ops/utils.h"
 #include "tests/cpp/multidevice.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

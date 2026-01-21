@@ -14,8 +14,8 @@
 #include "fusion.h"
 #include "runtime/executor_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

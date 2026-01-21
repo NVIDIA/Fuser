@@ -184,7 +184,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
 SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     TensorView* philox_seed,
     TensorView* philox_offset,
     TensorView* query,
@@ -197,7 +197,7 @@ SdpaFwdOp::SdpaFwdOp(
     Val* scale)
     : Expr(passkey) {
   addOutput(output);
-  addOutput(log_sumexp);
+  addOutput(logsumexp);
   addOutput(philox_seed);
   addOutput(philox_offset);
 
@@ -391,7 +391,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
   // 4D SDPA. `output`'s strides don't necessarily match `attn_out()`'s
   // requirements, which will be fixed in the next section.
-  auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
+  auto [output, logsumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
       return scaled_dot_product_attention_meta(query, value);
     }
@@ -420,7 +420,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [attn_out, log_sumexp] = at::_scaled_dot_product_attention_math(
+      auto [attn_out, logsumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -433,7 +433,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           attn_out.is_contiguous(),
           "attn_out from at::_scaled_dot_product_attention_math is expected to "
           "be contiguous.");
-      return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
+      return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
     }
 
     NVF_ERROR(
@@ -444,7 +444,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
     auto
         [attn_out,
-         log_sumexp,
+         logsumexp,
          cum_seq_q,
          cum_seq_k,
          query_seq_len,
@@ -461,12 +461,12 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
+    return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
-    log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
+    logsumexp = unflattenBatchDim(logsumexp, batch_dims);
   }
 
   output = relayoutByTensorView(output, attn_out());
@@ -475,7 +475,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // non-nested tensors. We do not store query/key_seq_len since they can be
   // computed in non-nested tensor directly. debug_attn_mask is ignored
   // since `return_debug_mask=false`.
-  return {output, log_sumexp, philox_seed, philox_offset};
+  return {output, logsumexp, philox_seed, philox_offset};
 }
 
 SdpaBwdOp::SdpaBwdOp(
@@ -488,7 +488,7 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -503,7 +503,7 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(key);
   addInput(value);
   addInput(output);
-  addInput(log_sumexp);
+  addInput(logsumexp);
   addInput(dropout_p);
   addInput(is_causal);
   addInput(philox_seed);
@@ -585,7 +585,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       "Flash attention requires the last dimension to be a multiple of 8, but "
       "got: ",
       last_dim_size);
-  // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
