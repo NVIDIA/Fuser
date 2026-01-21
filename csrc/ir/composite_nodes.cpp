@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/composite_nodes.h"
+
 #include <iterator>
 #include <limits>
 #include <sstream>
@@ -22,22 +24,22 @@
 #include <torch/nn/functional/embedding.h>
 #include <torch/nn/options/embedding.h>
 
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <ir/allocation_utils.h>
-#include <ir/cloner.h>
-#include <ir/composite_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <runtime/allocations.h>
-#include <transform_iter.h>
-#include <transform_rfactor.h>
-#include <transform_view.h>
+#include "device_lower/utils.h"
+#include "expr_evaluator.h"
+#include "ir/allocation_utils.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "runtime/allocations.h"
+#include "transform_iter.h"
+#include "transform_rfactor.h"
+#include "transform_view.h"
+
 #if NVFUSER_CUTLASS_KERNEL_ENABLED
 #include <nvf_cutlass.h>
 #endif
@@ -188,7 +190,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
 SdpaFwdOp::SdpaFwdOp(
     IrBuilderPasskey passkey,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     TensorView* philox_seed,
     TensorView* philox_offset,
     TensorView* query,
@@ -201,7 +203,7 @@ SdpaFwdOp::SdpaFwdOp(
     Val* scale)
     : Expr(passkey) {
   addOutput(output);
-  addOutput(log_sumexp);
+  addOutput(logsumexp);
   addOutput(philox_seed);
   addOutput(philox_offset);
 
@@ -312,6 +314,32 @@ at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
   return t.view(new_shape);
 }
 
+// at::_scaled_dot_product_attention_math and
+// scaled_dot_product_attention_meta produce a contiguous attention output,
+// but SdpaFwdOp requires the attention output to be in the same layout as
+// the query input:
+// https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+// Therefore, we relayout the attention output according to attn_out()'s
+// allocation domain.
+//
+// at::_scaled_dot_product_flash_attention goes through this code as well
+// but the `.contiguous()`  will be a no-op.
+at::Tensor relayoutByTensorView(at::Tensor t, TensorView* tv) {
+  const std::optional<Layout> layout = canonicalizeLayout(tv);
+  NVF_CHECK(layout.has_value(), "Failed to canonicalize output layout of ", tv);
+  const std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(
+          tv->getLogicalDomain(), layout->allocation_domain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "The allocation domain of a canonicalized layout of ",
+      tv,
+      " is not a permutation of its logical domain.");
+  return t.permute(*permutation)
+      .contiguous()
+      .permute(ir_utils::inversePermutation(*permutation));
+}
+
 } // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
@@ -367,8 +395,9 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
-  // 4D SDPA
-  auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
+  // 4D SDPA. `output`'s strides don't necessarily match `attn_out()`'s
+  // requirements, which will be fixed in the next section.
+  auto [output, logsumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
       return scaled_dot_product_attention_meta(query, value);
     }
@@ -397,7 +426,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [attn_out, log_sumexp] = at::_scaled_dot_product_attention_math(
+      auto [attn_out, logsumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -410,7 +439,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           attn_out.is_contiguous(),
           "attn_out from at::_scaled_dot_product_attention_math is expected to "
           "be contiguous.");
-      return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
+      return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
     }
 
     NVF_ERROR(
@@ -421,7 +450,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
 
     auto
         [attn_out,
-         log_sumexp,
+         logsumexp,
          cum_seq_q,
          cum_seq_k,
          query_seq_len,
@@ -438,44 +467,21 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
+    return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
-    log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
+    logsumexp = unflattenBatchDim(logsumexp, batch_dims);
   }
 
-  {
-    // at::_scaled_dot_product_attention_math produces a contiguous attention
-    // output, but SdpaFwdOp requires the attention output to be in the same
-    // layout as the query input:
-    // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
-    // Therefore, we relayout the attention output according to attn_out()'s
-    // allocation domain.
-    const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
-    NVF_CHECK(
-        out_layout.has_value(),
-        "Failed to canonicalize output layout of ",
-        attn_out());
-    const std::optional<std::vector<int64_t>> permutation =
-        ir_utils::computePermutation(
-            attn_out()->getLogicalDomain(), out_layout->allocation_domain());
-    NVF_ERROR(
-        permutation.has_value(),
-        "The allocation domain of a canonicalized layout of ",
-        attn_out(),
-        " is not a permutation of its logical domain.");
-    output = output.permute(*permutation)
-                 .contiguous()
-                 .permute(ir_utils::inversePermutation(*permutation));
-  }
+  output = relayoutByTensorView(output, attn_out());
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
   // computed in non-nested tensor directly. debug_attn_mask is ignored
   // since `return_debug_mask=false`.
-  return {output, log_sumexp, philox_seed, philox_offset};
+  return {output, logsumexp, philox_seed, philox_offset};
 }
 
 SdpaBwdOp::SdpaBwdOp(
@@ -488,7 +494,7 @@ SdpaBwdOp::SdpaBwdOp(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -503,7 +509,7 @@ SdpaBwdOp::SdpaBwdOp(
   addInput(key);
   addInput(value);
   addInput(output);
-  addInput(log_sumexp);
+  addInput(logsumexp);
   addInput(dropout_p);
   addInput(is_causal);
   addInput(philox_seed);
@@ -585,7 +591,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       "Flash attention requires the last dimension to be a multiple of 8, but "
       "got: ",
       last_dim_size);
-  // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
@@ -1826,5 +1831,63 @@ std::vector<PolymorphicValue> BlockQuantizationOp::evaluate(
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(BlockQuantizationOp)
+
+GroupedBlockQuantizationOp::GroupedBlockQuantizationOp(
+    IrBuilderPasskey passkey,
+    Val* output_scales,
+    Val* output,
+    Val* input,
+    Val* input_offsets,
+    Val* output_offsets,
+    BlockScalingFactorLayout layout,
+    Val* k,
+    Val* g,
+    Val* global_scale,
+    int64_t block_size,
+    Val* row_idx,
+    Val* col_idx)
+    : Expr(passkey) {
+  addOutput(output);
+  addOutput(output_scales);
+  addInput(input);
+  addInput(input_offsets);
+  addInput(output_offsets);
+  addInput(k);
+  addInput(g);
+  if (global_scale) {
+    addInput(global_scale);
+  }
+  addDataAttribute(block_size);
+  addDataAttribute(layout);
+  if (row_idx != nullptr) {
+    addAttribute(row_idx);
+  }
+  if (col_idx != nullptr) {
+    addAttribute(col_idx);
+  }
+}
+
+std::string GroupedBlockQuantizationOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "(" << blockScales()->toString() << ",\n "
+                          << quantizedOutput()->toString() << ")\n"
+                          << " = grouped_block_quantize(" << in()->toString()
+                          << ",\n " << inputOffsets()->toString() << ",\n "
+                          << outputOffsets()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string GroupedBlockQuantizationOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "GroupedBlockQuantizationOp can not be printed inline");
+}
+
+std::vector<PolymorphicValue> GroupedBlockQuantizationOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  // This is a placeholder, currently we don't have a fallback kernel available
+  NVF_THROW("GroupedBlockQuantizationOp evaluation not yet implemented");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedBlockQuantizationOp)
 
 } // namespace nvfuser

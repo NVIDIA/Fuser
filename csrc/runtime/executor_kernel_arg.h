@@ -18,8 +18,8 @@
 #include <exceptions.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 

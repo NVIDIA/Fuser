@@ -9,13 +9,13 @@
 
 #include <list>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/base_nodes.h>
-#include <ir/interface_nodes.h>
-#include <mma_type.h>
-#include <parallel_type_bitmap.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/base_nodes.h"
+#include "ir/interface_nodes.h"
+#include "mma_type.h"
+#include "parallel_type_bitmap.h"
+#include "visibility.h"
 
 //! Nodes in here should generally not be used by users. They should be behind
 //! the scenes and users shouldn't have to be aware of what they do to use the
@@ -1907,6 +1907,44 @@ class NVF_API Partition : public Expr {
   //! Extents tensor containing extent for each component
   TensorView* extents() const {
     return attributeVal(0)->as<TensorView>();
+  }
+};
+
+//! Combine a component IterDomain with a RaggedIterDomain to flatten
+//! This is the inverse of Partition, merging component and ragged dimensions
+//! into a single regular IterDomain
+class NVF_API Combine : public Expr {
+ public:
+  using Expr::Expr;
+
+  Combine(
+      IrBuilderPasskey,
+      IterDomain* out,
+      IterDomain* component,
+      RaggedIterDomain* ragged);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Combine";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  //! Output IterDomain (combined/flattened dimension)
+  IterDomain* out() const {
+    return output(0)->as<IterDomain>();
+  }
+
+  //! Component dimension input (extent = num_components)
+  IterDomain* component() const {
+    return input(0)->as<IterDomain>();
+  }
+
+  //! Ragged dimension input (variable extents per component)
+  RaggedIterDomain* ragged() const {
+    return input(1)->as<RaggedIterDomain>();
   }
 };
 

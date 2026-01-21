@@ -62,7 +62,8 @@ bool validateGroupedLayout(
                               .transpose(1, 3)
                               .reshape({mn_tile * 4 * 32, k_tile * 4})
                               .slice(0, 0, m_g)
-                              .slice(1, 0, k);
+                              .slice(1, 0, k)
+                              .to(ref.dtype());
     auto ref_g = ref.slice(
         0,
         expert_offsets[i].item().to<int>(),
@@ -375,6 +376,77 @@ TEST_F(LayoutOpTest, Inlining) {
   inlineMost();
 
   EXPECT_EQ(inp_cache->getComputeAtPosition(), 2);
+}
+
+TEST_F(LayoutOpTest, GroupedBlockQuantizeOp) {
+  if (cudaArchGuardShouldSkip(10, 0)) {
+    GTEST_SKIP() << "skipping test because fp8 requires compute capability "
+                    "10.0 or above";
+  }
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto inp = makeSymbolicTensor(2);
+  auto offsets = makeSymbolicTensor(1, DataType::Int32);
+  auto rounded_offsets = makeSymbolicTensor(1, DataType::Int32);
+  fusion.addInput(inp);
+  fusion.addInput(offsets);
+  fusion.addInput(rounded_offsets);
+
+  auto outs = groupedBlockQuantize(
+      inp, offsets, rounded_offsets, BlockScalingFactorLayout::Block128x4);
+  fusion.addOutput(castOp(DataType::Float, outs.quantized_tensor));
+  fusion.addOutput(outs.block_scales);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  int m = 512;
+  int k = 9 * 16; // note: padded column size needs to be a multiple of 16
+  auto t0 = at::randn({m, k}, options);
+
+  // tokens per group are [100, 150, 262] respectively, so each group would be
+  // padded to multiple of 128. Hence the total output row span would cover a
+  // length of 128 + 256 + 384 = 768.
+  auto t1 = at::tensor({0, 100, 250}, options.dtype(at::kInt));
+  auto t2 = at::tensor({0, 128, 384}, options.dtype(at::kInt));
+
+  // automatic scheduling.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  at::Tensor ref_block_sf;
+  at::Tensor ref_scaled_out;
+  // producing reference
+  {
+    std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+    FusionGuard fg2(fusion_new_op.get());
+    auto tv_in = makeContigTensor(2);
+    fusion_new_op->addInput(tv_in);
+    auto quantization_results =
+        blockQuantize(tv_in, nullptr, /*block_size=*/16, false);
+
+    fusion_new_op->addOutput(quantization_results.block_scales);
+    fusion_new_op->addOutput(
+        castOp(DataType::Float, quantization_results.quantized_tensor));
+    FusionExecutorCache executor_cache(std::move(fusion_new_op));
+    auto outputs_new_op = executor_cache.runFusionWithInputs({t0});
+    ref_block_sf = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+    ref_scaled_out = outputs_new_op[1].as<at::Tensor>();
+  }
+
+  // check scaled output
+  EXPECT_TRUE(at::allclose(ref_scaled_out, outputs[0].as<at::Tensor>()));
+  // check block scaling factor
+  ASSERT_TRUE(validateGroupedLayout(
+      BlockScalingFactorLayout::Block128x4,
+      outputs[1].as<at::Tensor>(),
+      ref_block_sf,
+      t1,
+      t2));
+
+  EXPECT_THAT(
+      executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser

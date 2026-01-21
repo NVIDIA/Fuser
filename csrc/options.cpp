@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

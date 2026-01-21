@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <fusion_guard.h>
-#include <ir/builder_passkey.h>
-#include <ir/container.h>
-#include <utils.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "fusion_guard.h"
+#include "ir/builder_passkey.h"
+#include "ir/container.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

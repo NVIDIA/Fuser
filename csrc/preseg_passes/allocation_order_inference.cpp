@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <id_model/id_model.h>
-#include <ir/all_nodes.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <logical_domain_map.h>
-#include <preseg_passes/allocation_order_inference.h>
+#include "preseg_passes/allocation_order_inference.h"
 
 #include <ranges>
+
+#include "id_model/id_model.h"
+#include "ir/all_nodes.h"
+#include "ir/utils.h"
+#include "iter_visitor.h"
+#include "logical_domain_map.h"
 
 namespace nvfuser::preseg_passes {
 
@@ -350,11 +351,12 @@ void inferAllocationOrder(
   }
 }
 
-// Propagate allocation orders from an SDPA's inputs to outputs. This is
-// necessary to make an SPDA's allocation domain consistent with the output
+// Propagates allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SDPA's allocation domain consistent with the output
 // at::Tensor from expression evaluation. Currently, we call ATen to evaluate
 // SDPAs so matching their behavior, despite being fragile, is the best
-// solution.
+// solution I can think of. SdpaTest.FlashAttentionStrideOrder verifies the
+// flash attention API indeed matches our expectations.
 class SdpaPropagator : public OptOutConstDispatch {
  public:
   void handle(const SdpaFwdOp* e) override {

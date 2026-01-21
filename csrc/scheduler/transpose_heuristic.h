@@ -9,7 +9,7 @@
 
 #include <c10/util/hash.h>
 #include <scheduler/heuristic.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 

@@ -19,7 +19,7 @@
 #include <runtime/executor.h>
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
