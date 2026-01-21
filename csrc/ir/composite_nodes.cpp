@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <algorithm>
 #include <iterator>
 #include <limits>
 #include <sstream>
@@ -273,14 +272,15 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-namespace sdpa_meta {
-
+namespace {
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
-  const int batch_size = query.size(0);
-  const int num_heads = query.size(1);
-  const int seqlen_q = query.size(2);
-  const int out_head_dim = value.size(-1);
+scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
+  NVF_ERROR_EQ(query.dim(), 4);
+  NVF_ERROR_EQ(value.dim(), 4);
+  const auto batch_size = query.size(0);
+  const auto num_heads = query.size(1);
+  const auto seqlen_q = query.size(2);
+  const auto out_head_dim = value.size(-1);
 
   auto out = at::empty(
       {batch_size, num_heads, seqlen_q, out_head_dim}, query.options());
@@ -298,10 +298,6 @@ _scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
   return std::make_tuple(out, logsumexp, rng_state, rng_offset);
 }
 
-} // namespace sdpa_meta
-
-namespace {
-
 at::Tensor flattenBatchDims(at::Tensor t) {
   at::DimVector new_shape({-1});
   auto non_batch_dims = t.sizes().slice(t.dim() - 3);
@@ -315,6 +311,7 @@ at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
   new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
   return t.view(new_shape);
 }
+
 } // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
@@ -373,7 +370,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
   // 4D SDPA
   auto [output, log_sumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
-      return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
+      return scaled_dot_product_attention_meta(query, value);
     }
 
     if (attn_bias.defined()) {
@@ -400,7 +397,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [out, log_sumexp] = at::_scaled_dot_product_attention_math(
+      auto [attn_out, log_sumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -409,53 +406,21 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           is_causal,
           /*dropout_mask=*/std::nullopt,
           scale);
-
-      // at::_scaled_dot_product_attention_math produces a contiguous attention
-      // output, but SdpaFwdOp requires the attention output to be in the same
-      // layout as the query input:
-      // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
-      // Therefore, we relayout the attention output according to attn_out()'s
-      // allocation domain.
-      NVF_ERROR(out.is_contiguous());
-      const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
-      NVF_CHECK(
-          out_layout.has_value(),
-          "Failed to canonicalize output layout of ",
-          attn_out());
-      const std::optional<std::vector<int64_t>> permutation =
-          ir_utils::computePermutation(
-              attn_out()->getLogicalDomain(), out_layout->allocation_domain());
       NVF_ERROR(
-          permutation.has_value(),
-          "The allocation domain of a canonicalized layout of ",
-          attn_out(),
-          " is not a permutation of its logical domain.");
-      out = unflattenBatchDim(out, batch_dims);
-      out = out.permute(*permutation)
-                .contiguous()
-                .permute(ir_utils::inversePermutation(*permutation));
-      out = flattenBatchDims(out);
-
-      return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+          attn_out.is_contiguous(),
+          "attn_out from at::_scaled_dot_product_attention_math is expected to "
+          "be contiguous.");
+      return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
     }
 
-    // Flash attention require the last dimension to be padded to 8.
-    auto pad_last_dim = [last_dim_size](
-                            at::Tensor inp, int alignment_size) -> at::Tensor {
-      if (last_dim_size % alignment_size == 0) {
-        return inp;
-      }
-      auto pad_count = alignment_size - (last_dim_size % alignment_size);
-      auto padded_inp = at::pad(inp, {0, pad_count});
-      return padded_inp;
-    };
-
-    query = pad_last_dim(query, 8);
-    key = pad_last_dim(key, 8);
-    value = pad_last_dim(value, 8);
+    NVF_ERROR(
+        last_dim_size % 8 == 0,
+        "Flash attention requires the last dimension to be a multiple of 8, "
+        "but got: ",
+        last_dim_size);
 
     auto
-        [out,
+        [attn_out,
          log_sumexp,
          cum_seq_q,
          cum_seq_k,
@@ -473,16 +438,37 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    // If the inputs were padded, slice the output to restore the original size
-    if (out.size(-1) != last_dim_size) {
-      out = out.slice(-1, 0, last_dim_size);
-    }
-    return std::make_tuple(out, log_sumexp, philox_seed, philox_offset);
+    return std::make_tuple(attn_out, log_sumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
     log_sumexp = unflattenBatchDim(log_sumexp, batch_dims);
+  }
+
+  {
+    // at::_scaled_dot_product_attention_math produces a contiguous attention
+    // output, but SdpaFwdOp requires the attention output to be in the same
+    // layout as the query input:
+    // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+    // Therefore, we relayout the attention output according to attn_out()'s
+    // allocation domain.
+    const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
+    NVF_CHECK(
+        out_layout.has_value(),
+        "Failed to canonicalize output layout of ",
+        attn_out());
+    const std::optional<std::vector<int64_t>> permutation =
+        ir_utils::computePermutation(
+            attn_out()->getLogicalDomain(), out_layout->allocation_domain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The allocation domain of a canonicalized layout of ",
+        attn_out(),
+        " is not a permutation of its logical domain.");
+    output = output.permute(*permutation)
+                 .contiguous()
+                 .permute(ir_utils::inversePermutation(*permutation));
   }
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
@@ -594,16 +580,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Flash attention requires the last dimension to be padded to 8.
   // https://github.com/pytorch/pytorch/blob/c27882ffa8c1c7e4cf8ebc6c2f879e5b6c8814ad/aten/src/ATen/native/transformers/attention.cpp#L675-L677
   const auto last_dim_size = bwd_inputs[0].size(-1);
-  auto pad_last_dim = [last_dim_size](
-                          at::Tensor inp, int alignment_size) -> at::Tensor {
-    if (last_dim_size % alignment_size == 0) {
-      return inp;
-    }
-    auto pad_count = alignment_size - (last_dim_size % alignment_size);
-    auto padded_inp = at::pad(inp, {0, pad_count});
-    return padded_inp;
-  };
-
+  NVF_ERROR(
+      last_dim_size % 8 == 0,
+      "Flash attention requires the last dimension to be a multiple of 8, but "
+      "got: ",
+      last_dim_size);
   // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
@@ -622,11 +603,11 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     const auto philox_offset = inputs.at(9).as<at::Tensor>();
     std::tie(grad_query, grad_key, grad_value) =
         at::_scaled_dot_product_flash_attention_backward(
-            /*grad_output=*/pad_last_dim(bwd_inputs[0], 8),
-            /*query=*/pad_last_dim(bwd_inputs[1], 8),
-            /*key=*/pad_last_dim(bwd_inputs[2], 8),
-            /*value=*/pad_last_dim(bwd_inputs[3], 8),
-            /*output=*/pad_last_dim(bwd_inputs[4], 8),
+            /*grad_output=*/bwd_inputs[0],
+            /*query=*/bwd_inputs[1],
+            /*key=*/bwd_inputs[2],
+            /*value=*/bwd_inputs[3],
+            /*output=*/bwd_inputs[4],
             /*logsumexp=*/bwd_inputs[5],
             /*cum_seq_q=*/at::Tensor(),
             /*cum_seq_k=*/at::Tensor(),
@@ -640,14 +621,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
             /*scale=*/scale);
   }
 
-  // If the inputs were padded, slice the grads to restore the original size
-  auto slice_last_dim = [last_dim_size](at::Tensor output) -> at::Tensor {
-    if (output.size(-1) != last_dim_size) {
-      return output.slice(-1, 0, last_dim_size);
-    }
-    return output;
-  };
-
   // Add device dimension back to outputs.
   if (first_dim_is_did) {
     grad_query = grad_query.unsqueeze(0);
@@ -655,10 +628,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
     grad_value = grad_value.unsqueeze(0);
   }
 
-  return {
-      slice_last_dim(grad_query),
-      slice_last_dim(grad_key),
-      slice_last_dim(grad_value)};
+  return {grad_query, grad_key, grad_value};
 }
 
 EmbeddingFwdOp::EmbeddingFwdOp(

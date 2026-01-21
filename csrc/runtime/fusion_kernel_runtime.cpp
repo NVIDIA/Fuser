@@ -84,7 +84,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     const auto& communicator = Communicator::getInstance();
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
-    if (!communicator.is_available() || communicator.local_rank() == 0) {
+    if (communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
       fusion->print();
@@ -380,22 +380,6 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   return group_runtime_outputs;
 }
 
-void FusionKernelRuntime::updateContiguityOfSegmentOutputs(
-    SegmentedGroup* group_to_run,
-    const KernelArgumentHolder& group_runtime_outputs) const {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::updateContiguityOfSegmentOutputs");
-  if (!isOptionEnabled(EnableOption::InferContiguity)) {
-    return;
-  }
-  for (auto [i, output] : enumerate(group_to_run->outputs())) {
-    auto tv = dynamic_cast<TensorView*>(output);
-    if (tv) {
-      const at::Tensor& tensor = group_runtime_outputs[i].as<at::Tensor>();
-      ir_utils::resetContiguityFromTensor(tv, tensor);
-    }
-  }
-}
-
 std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     const KernelArgumentHolder& args) const {
   std::vector<KernelArgumentHolder> all_runtime_inputs;
@@ -427,8 +411,6 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-
-    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
 
   return all_runtime_inputs;
@@ -664,8 +646,6 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-
-    updateContiguityOfSegmentOutputs(group_to_run, group_runtime_outputs);
   }
   return heuristics;
 }
