@@ -31,20 +31,17 @@ class IrContainerPasskey {
 // composition
 //
 // This class handles the composition infrastructure and forwarding boilerplate
-// for accessing IrContainer functionality. Derived classes (like Fusion) can
+// for accessing IrStorage functionality. Derived classes (like Fusion) can
 // focus on their specific logic while inheriting the full IrContainer API.
 //
 // Key Features:
-// - Owns IrContainer via unique_ptr (can be shared_ptr in Phase 2)
-// - Forwards all IrContainer public methods
+// - Owns IrStorage via unique_ptr (can be shared_ptr in Phase 2)
+// - Forwards all IrStorage public methods
 // - Allows derived classes to override protected IrContainer methods
 //
 // This eliminates ~20 forwarding methods from Fusion and provides a reusable
 // pattern for other classes that need IrContainer composition.
-//
-// Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
-// Stage 2 (when Fusion inherits from both IrContainer and IrContainer).
-class NVF_API IrContainer : public virtual PolymorphicBase {
+class NVF_API IrContainer : public PolymorphicBase {
  public:
   // Constructors
   IrContainer();
@@ -58,106 +55,106 @@ class NVF_API IrContainer : public virtual PolymorphicBase {
   ~IrContainer() override;
 
   //===================================================================
-  // IrContainer API Forwarding (Public Methods)
+  // IrStorage API Forwarding (Public Methods)
   //===================================================================
 
   // Container queries
   bool inContainer(const Statement* stmt) const {
-    return container()->inContainer(stmt);
+    return ir_storage()->inContainer(stmt);
   }
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    container()->assertInContainer(stmt, msg);
+    ir_storage()->assertInContainer(stmt, msg);
   }
 
   // Collections access (return values in insertion order)
   const std::deque<Val*> deterministic_vals() const noexcept {
-    return container()->deterministic_vals();
+    return ir_storage()->deterministic_vals();
   }
 
   const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return container()->deterministic_exprs();
+    return ir_storage()->deterministic_exprs();
   }
 
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
       const noexcept {
-    return container()->deterministic_vals_map();
+    return ir_storage()->deterministic_vals_map();
   }
 
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
       const noexcept {
-    return container()->deterministic_exprs_map();
+    return ir_storage()->deterministic_exprs_map();
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return container()->unordered_exprs();
+    return ir_storage()->unordered_exprs();
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return container()->vals();
+    return ir_storage()->vals();
   }
 
   // Count queries
   int64_t numExprs() const noexcept {
-    return container()->numExprs();
+    return ir_storage()->numExprs();
   }
 
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return container()->numVals(include_shortcuts);
+    return ir_storage()->numVals(include_shortcuts);
   }
 
   // Shortcut values (frequently used constants)
   Val* zeroVal() {
-    return container()->zeroVal();
+    return ir_storage()->zeroVal();
   }
 
   Val* oneVal() {
-    return container()->oneVal();
+    return ir_storage()->oneVal();
   }
 
   Val* falseVal() {
-    return container()->falseVal();
+    return ir_storage()->falseVal();
   }
 
   Val* trueVal() {
-    return container()->trueVal();
+    return ir_storage()->trueVal();
   }
 
   NamedScalar* magicZeroVal() {
-    return container()->magicZeroVal();
+    return ir_storage()->magicZeroVal();
   }
 
   Val* zeroVal(DataType dtype) {
-    return container()->zeroVal(dtype);
+    return ir_storage()->zeroVal(dtype);
   }
 
   Val* oneVal(DataType dtype) {
-    return container()->oneVal(dtype);
+    return ir_storage()->oneVal(dtype);
   }
 
   Val* metadataOf(Val* val) {
-    return container()->metadataOf(val);
+    return ir_storage()->metadataOf(val);
   }
 
   // Axioms (CUDA programming assumptions)
   const std::vector<Val*>& axioms() {
-    return container()->axioms();
+    return ir_storage()->axioms();
   }
 
   void assumePositive(Val* val) {
-    container()->assumePositive(val);
+    ir_storage()->assumePositive(val);
   }
 
   void assumeNonNegative(Val* val) {
-    container()->assumeNonNegative(val);
+    ir_storage()->assumeNonNegative(val);
   }
 
   // Statement removal
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
       int64_t num_vals_before) {
-    container()->removeStatementsCreatedAfter(
+    ir_storage()->removeStatementsCreatedAfter(
         num_exprs_before, num_vals_before);
   }
 
@@ -187,16 +184,16 @@ class NVF_API IrContainer : public virtual PolymorphicBase {
   //===================================================================
 
   // Direct access to underlying container
-  IrContainer* container() {
+  IrStorage* ir_storage() {
     NVF_ERROR(
-        container_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return container_.get();
+        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
+    return ir_storage_.get();
   }
 
-  const IrContainer* container() const {
+  const IrStorage* ir_storage() const {
     NVF_ERROR(
-        container_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return container_.get();
+        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
+    return ir_storage_.get();
   }
 
  protected:
@@ -206,24 +203,24 @@ class NVF_API IrContainer : public virtual PolymorphicBase {
 
   // Derived classes (like Fusion) override these to add custom logic
   virtual void registerVal(Val* val) {
-    container()->registerVal(val);
+    ir_storage()->registerVal(val);
   }
 
   virtual void registerExpr(Expr* expr) {
-    container()->registerExpr(expr);
+    ir_storage()->registerExpr(expr);
   }
 
   virtual void removeExpr(Expr* expr) {
-    container()->removeExpr(expr);
+    ir_storage()->removeExpr(expr);
   }
 
   virtual void removeVal(Val* val) {
-    container()->removeVal(val);
+    ir_storage()->removeVal(val);
   }
 
   // Note: getValName, getExprName, and clear are protected in IrContainer
   // and cannot be directly forwarded. Derived classes that need these
-  // should access them through their own container_ member or implement
+  // should access them through their own ir_storage_ member or implement
   // their own public wrappers.
 
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
@@ -233,7 +230,7 @@ class NVF_API IrContainer : public virtual PolymorphicBase {
   // Data Members
   //===================================================================
 
-  std::unique_ptr<IrContainer> container_;
+  std::unique_ptr<IrStorage> ir_storage_;
 };
 
 // Swap support
