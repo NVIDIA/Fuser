@@ -12,7 +12,6 @@
 namespace nvfuser {
 
 class Fusion;
-class IrContainer;
 
 //! Fusion Guard is our "context manager". It holds the active fusion and
 //! allows it to be accessed anywhere through
@@ -27,7 +26,6 @@ class FusionGuard {
   NVF_API ~FusionGuard();
 
   NVF_API static Fusion* getCurFusion();
-  NVF_API static IrContainer* getCurContainer();
   static void setCurFusion(Fusion* fusion);
 
  private:

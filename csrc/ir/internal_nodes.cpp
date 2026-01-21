@@ -2574,7 +2574,7 @@ std::string LoadStoreOp::toString(int indent_size) const {
   indent(ss, indent_size + 1)
       << " = " << optype << modifier << "( " << in()->toString();
   // Fusion IR does not have predicate
-  if (container()->parent()->isA<kir::Kernel>() && predicate() != nullptr) {
+  if (container()->isA<kir::Kernel>() && predicate() != nullptr) {
     ss << ", " << std::endl;
     indent(ss, indent_size + 1)
         << std::string(optype.size() + 5, ' ') << predicate()->toInlineString();
@@ -3126,10 +3126,10 @@ CatOp::CatOp(
     const std::vector<Val*>& preds)
     : Expr(passkey) {
   NVF_ERROR(
-      passkey.ir_interface_ != nullptr,
+      passkey.ir_container_ != nullptr,
       "IrContainer must be provided to create a CatOp.");
   NVF_ERROR(
-      passkey.ir_interface_->isA<kir::Kernel>(),
+      passkey.ir_container_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
   addOutput(out);
@@ -3161,7 +3161,7 @@ std::string CatOp::toInlineString(int indent_size) const {
 
 Val* CatOp::getConcatenatedDomainIndex() const {
   NVF_ERROR(
-      container()->parent()->isA<kir::Kernel>(),
+      container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
   NVF_ERROR(!attributes().empty(), "No attribute found");
   NVF_ERROR(attribute(1) != nullptr, "nulllptr attribute is invalid");
@@ -3171,7 +3171,7 @@ Val* CatOp::getConcatenatedDomainIndex() const {
 
 Val* CatOp::getPred(int input_idx) const {
   NVF_ERROR(
-      container()->parent()->isA<kir::Kernel>(),
+      container()->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
   const auto num_input_tensors = static_cast<int64_t>(inputs().size());
   NVF_ERROR(input_idx < num_input_tensors, "Invalid input index: ", input_idx);

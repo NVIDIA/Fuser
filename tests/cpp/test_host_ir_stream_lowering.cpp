@@ -480,7 +480,7 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
 
   auto host_unit = IrBuilder::create<HostUnit>(get_fusion());
 
-  IrCloner ir_cloner(hic->container());
+  IrCloner ir_cloner(hic.get());
   TensorView* input =
       ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))
           ->as<TensorView>();

@@ -223,7 +223,7 @@ Communication::Communication(
           in,
           team,
           IrBuilder::createInContainer<Val>(
-              passkey.ir_interface_,
+              passkey.ir_container_,
               root,
               DataType::Index),
           red_op,
