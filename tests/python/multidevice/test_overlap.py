@@ -261,6 +261,106 @@ def test_row_parallel_linear_forward_reference_benchmark(
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
+def column_parallel_linear_forward_reference(
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    num_iterations: int,
+    my_rank: int,
+    stream_pool: StreamPool,
+) -> torch.Tensor:
+    out = torch.empty(
+        inp_shard.size(0) * num_iterations,
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    out_chunks = out.chunk(num_iterations)
+    main_stream = torch.cuda.current_stream()
+    worker_streams = []
+    buffers = [inp_shard] + [
+        torch.empty_like(inp_shard) for _ in range(num_iterations - 1)
+    ]
+    send_reqs = []
+    for i in range(num_iterations):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
+        with torch.cuda.stream(worker_stream):
+            if i > 0:
+                recv_req = torch.distributed.irecv(
+                    buffers[i], src=(my_rank - 1 + num_iterations) % num_iterations
+                )
+                recv_req.wait()
+            if i < num_iterations - 1:
+                send_req = torch.distributed.isend(
+                    buffers[i], dst=(my_rank + 1) % num_iterations
+                )
+                send_reqs.append(send_req)
+            torch.matmul(
+                buffers[i],
+                weight_shard.T,
+                out=out_chunks[(my_rank - i + num_iterations) % num_iterations],
+            )
+    for worker_stream in worker_streams:
+        main_stream.wait_stream(worker_stream)
+    return out
+
+
+@pytest.mark.mpi
+def test_column_parallel_linear_forward_reference(setup_default_process_group):
+    h, t = 6, 24
+    d = dist.get_world_size()
+    torch.manual_seed(0)
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
+    if 4 * h % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {4 * h} to be divisible by world size {d}."
+        )
+    if t % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {t} to be divisible by world size {d}."
+        )
+
+    inp_ref = torch.testing.make_tensor(t, h, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(0)]).to_local()
+    weight_ref = torch.testing.make_tensor(
+        4 * h, h, dtype=torch.int32, device="cpu"
+    ).to(torch.bfloat16)
+    weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
+    out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_shard)
+    stream_pool = StreamPool()
+    out = column_parallel_linear_forward_reference(
+        inp_shard, weight_shard, d, torch.distributed.get_rank(), stream_pool
+    )
+    torch.testing.assert_close(out, out_ref)
+
+
+@pytest.mark.mpi
+@pytest.mark.benchmark
+def test_column_parallel_linear_forward_reference_benchmark(
+    benchmark, setup_default_process_group
+):
+    h, t = 8192, 8192
+    d = dist.get_world_size()
+    torch.manual_seed(0)
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+    inp_ref = torch.randn(t, h, dtype=torch.bfloat16, device="cpu")
+    weight_ref = torch.randn(4 * h, h, dtype=torch.bfloat16, device="cpu")
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(0)]).to_local()
+    weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
+    stream_pool = StreamPool()
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: column_parallel_linear_forward_reference(
+            inp_shard, weight_shard, d, torch.distributed.get_rank(), stream_pool
+        )
+    )
+    warmup_fn()
+    benchmark.pedantic(benchmark_fn, rounds=5)
+
+
 @pytest.mark.mpi
 @pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl])
 @pytest.mark.parametrize("s", [1, 8])
