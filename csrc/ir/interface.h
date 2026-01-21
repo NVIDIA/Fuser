@@ -178,10 +178,14 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
 
   // Direct access to underlying container
   IrContainer* container() {
+    NVF_ERROR(
+        container_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
     return container_.get();
   }
 
   const IrContainer* container() const {
+    NVF_ERROR(
+        container_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
     return container_.get();
   }
 
