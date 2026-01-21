@@ -297,9 +297,7 @@ void PrecomputedValues::invalidate() {
 }
 
 PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
-  // Direct cast of parent pointer
-  Fusion* fusion = ir_cloner.container()->parent()->as<Fusion>();
-  PrecomputedValues pv(fusion);
+  PrecomputedValues pv(ir_cloner.container()->as<Fusion>());
 
   // this is a map to unique pointers to vectors, so we need to copy the
   // vectors and create new unique pointers

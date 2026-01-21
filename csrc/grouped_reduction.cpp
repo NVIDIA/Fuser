@@ -56,7 +56,7 @@ bool validateReductionGrouping(
   NVF_ERROR(inputs.size() == outputs.size());
   NVF_ERROR(!inputs.empty());
 
-  auto fusion = outputs[0]->fusion();
+  auto fusion = outputs[0]->container()->as<Fusion>();
 
   ExactLogicalDomainMap exact_map(fusion);
 
@@ -247,7 +247,7 @@ bool groupReductions(
   }
 
   IrBuilder::createInContainer<GroupedReductionOp>(
-      container->parent(), op_types, init_vals, outputs, inputs);
+      container, op_types, init_vals, outputs, inputs);
 
   for (auto output : ir_utils::filterByType<TensorView>(outputs)) {
     output->updateMaxProducerPosition();

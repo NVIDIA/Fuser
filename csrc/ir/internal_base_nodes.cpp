@@ -180,7 +180,7 @@ IterDomain::IterDomain(
       extent_(extent),
       expanded_extent_(expanded_extent),
       stop_offset_(
-          stop_offset == nullptr ? passkey.ir_interface_->zeroVal()
+          stop_offset == nullptr ? passkey.ir_container_->zeroVal()
                                  : stop_offset),
       parallel_type_(parallel_type),
       iter_type_(iter_type),
@@ -911,8 +911,8 @@ RaggedIterDomain::RaggedIterDomain(
     : IterDomain(
           passkey,
           ValType::RaggedIterDomain,
-          /*start=*/passkey.ir_interface_->zeroVal(),
-          /*extent=*/passkey.ir_interface_->oneVal(), // Placeholder
+          /*start=*/passkey.ir_container_->zeroVal(),
+          /*extent=*/passkey.ir_container_->oneVal(), // Placeholder
           /*expanded_extent=*/nullptr,
           /*stop_offset=*/nullptr,
           parallel_type,

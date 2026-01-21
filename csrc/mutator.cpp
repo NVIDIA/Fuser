@@ -145,7 +145,7 @@ void OptOutMutator::mutate(RaggedIterDomain* id) {
 
   // Create a new RaggedIterDomain with mutated extents
   auto new_id = IrBuilder::createInContainer<RaggedIterDomain>(
-      id->container()->parent(),
+      id->container(),
       mutated_extents->as<TensorView>(),
       id->getIterType(),
       id->getParallelType());
@@ -197,7 +197,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
   // root/logical/allocation/loop domain. Any sparse operation, like scatter or
   // PreprocessGroupedMatmulInputSf in the graph would fail the check.
   Val* mutated_val = IrBuilder::createInContainer<TensorDomain>(
-      td->container()->parent(),
+      td->container(),
       root_dom,
       logical_dom,
       allocation_dom,
