@@ -174,6 +174,168 @@ class P2PCommunication : public Expr {
   }
 };
 
+// Dispatch represents intra-node MoE token dispatch. It shuffles tokens from
+// the local rank to destination ranks based on `is_token_in_rank`.
+class MoEDispatch : public Expr {
+ public:
+  using Expr::Expr;
+
+  MoEDispatch(
+      IrBuilderPasskey passkey,
+      TensorView* out_x,
+      TensorView* out_topk_idx,
+      TensorView* out_topk_weights,
+      TensorView* out_src_idx,
+      TensorView* out_src_rank,
+      TensorView* out_n_tokens_to_rank,
+      TensorView* out_n_tokens_from_rank,
+      TensorView* in_x,
+      TensorView* in_topk_idx,
+      TensorView* in_topk_weights,
+      TensorView* in_is_token_in_rank,
+      int64_t num_experts,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
+  MoEDispatch(const MoEDispatch& other) = delete;
+  MoEDispatch& operator=(const MoEDispatch& other) = delete;
+  MoEDispatch(MoEDispatch&& other) = delete;
+  MoEDispatch& operator=(MoEDispatch&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "MoEDispatch";
+  }
+
+  TensorView* outX() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* outTopkIdx() const {
+    return output(1)->as<TensorView>();
+  }
+
+  TensorView* outTopkWeights() const {
+    return output(2)->as<TensorView>();
+  }
+
+  TensorView* outSrcIdx() const {
+    return output(3)->as<TensorView>();
+  }
+
+  TensorView* outSrcRank() const {
+    return output(4)->as<TensorView>();
+  }
+
+  TensorView* outTokensToRank() const {
+    return output(5)->as<TensorView>();
+  }
+
+  TensorView* outTokensFromRank() const {
+    return output(6)->as<TensorView>();
+  }
+
+  TensorView* inX() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* inTopkIdx() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* inTopkWeights() const {
+    return input(2)->as<TensorView>();
+  }
+
+  TensorView* inIsTokenInRank() const {
+    return input(3)->as<TensorView>();
+  }
+
+  int64_t numExperts() const {
+    return attribute<int64_t>(0);
+  }
+
+  CommunicatorBackend backend() const {
+    return attribute<CommunicatorBackend>(1);
+  }
+
+ private:
+  void validate();
+};
+
+// Combine represents intra-node MoE token combine. It shuffles tokens back to
+// their source ranks using `src_rank` and `src_idx`.
+class MoECombine : public Expr {
+ public:
+  using Expr::Expr;
+
+  MoECombine(
+      IrBuilderPasskey passkey,
+      TensorView* out_x,
+      TensorView* out_topk_weights,
+      TensorView* in_x,
+      TensorView* in_topk_weights,
+      TensorView* in_src_idx,
+      TensorView* in_src_rank,
+      TensorView* in_n_tokens_to_rank,
+      TensorView* in_n_tokens_from_rank,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
+  MoECombine(const MoECombine& other) = delete;
+  MoECombine& operator=(const MoECombine& other) = delete;
+  MoECombine(MoECombine&& other) = delete;
+  MoECombine& operator=(MoECombine&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "MoECombine";
+  }
+
+  TensorView* outX() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* outTopkWeights() const {
+    return output(1)->as<TensorView>();
+  }
+
+  TensorView* inX() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* inTopkWeights() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* inSrcIdx() const {
+    return input(2)->as<TensorView>();
+  }
+
+  TensorView* inSrcRank() const {
+    return input(3)->as<TensorView>();
+  }
+
+  TensorView* inTokensToRank() const {
+    return input(4)->as<TensorView>();
+  }
+
+  TensorView* inTokensFromRank() const {
+    return input(5)->as<TensorView>();
+  }
+
+  CommunicatorBackend backend() const {
+    return attribute<CommunicatorBackend>(0);
+  }
+
+ private:
+  void validate();
+};
+
 // The method "post" triggers the execution of the communication. This call is
 // non-blocking. The communication can be posted multiple times.
 // It is assumed that the current device_index (given by

@@ -25,6 +25,7 @@
 #include "multidevice/allocation_utils.h"
 #include "multidevice/communication.h"
 #include "multidevice/cuda_p2p.h"
+#include "multidevice/dispatch_combine.h"
 #include "multidevice/execution_utils.h"
 #include "multidevice/symmetric_tensor.h"
 #include "multidevice/utils.h"
@@ -384,6 +385,68 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         communicator_->getWorld(communication->backend()),
         buffer);
   }
+}
+
+void HostIrEvaluator::handle(MoEDispatch* dispatch) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  auto x = getKnownConcreteValue(dispatch->inX()).as<at::Tensor>();
+  auto topk_idx =
+      getKnownConcreteValue(dispatch->inTopkIdx()).as<at::Tensor>();
+  auto topk_weights =
+      getKnownConcreteValue(dispatch->inTopkWeights()).as<at::Tensor>();
+  auto is_token_in_rank =
+      getKnownConcreteValue(dispatch->inIsTokenInRank()).as<at::Tensor>();
+
+  auto result = dispatchWithCudaBackend(
+      x,
+      topk_idx,
+      topk_weights,
+      is_token_in_rank,
+      dispatch->numExperts(),
+      communicator_,
+      dispatch->backend());
+
+  expr_evaluator_.bind(dispatch->outX(), result.recv_x);
+  expr_evaluator_.bind(dispatch->outTopkIdx(), result.recv_topk_idx);
+  expr_evaluator_.bind(dispatch->outTopkWeights(), result.recv_topk_weights);
+  expr_evaluator_.bind(dispatch->outSrcIdx(), result.recv_src_idx);
+  expr_evaluator_.bind(dispatch->outSrcRank(), result.recv_src_rank);
+  expr_evaluator_.bind(dispatch->outTokensToRank(), result.n_tokens_to_rank);
+  expr_evaluator_.bind(
+      dispatch->outTokensFromRank(), result.n_tokens_from_rank);
+}
+
+void HostIrEvaluator::handle(MoECombine* combine) {
+  NVF_ERROR(
+      communicator_ != nullptr && communicator_->is_available(),
+      "A valid communicator must be provided");
+
+  auto x = getKnownConcreteValue(combine->inX()).as<at::Tensor>();
+  auto topk_weights =
+      getKnownConcreteValue(combine->inTopkWeights()).as<at::Tensor>();
+  auto src_idx = getKnownConcreteValue(combine->inSrcIdx()).as<at::Tensor>();
+  auto src_rank = getKnownConcreteValue(combine->inSrcRank()).as<at::Tensor>();
+  auto n_tokens_to_rank =
+      getKnownConcreteValue(combine->inTokensToRank()).as<at::Tensor>();
+  auto n_tokens_from_rank =
+      getKnownConcreteValue(combine->inTokensFromRank()).as<at::Tensor>();
+
+  auto result = combineWithCudaBackend(
+      x,
+      topk_weights,
+      src_idx,
+      src_rank,
+      n_tokens_to_rank,
+      n_tokens_from_rank,
+      communicator_,
+      combine->backend());
+
+  expr_evaluator_.bind(combine->outX(), result.combined_x);
+  expr_evaluator_.bind(
+      combine->outTopkWeights(), result.combined_topk_weights);
 }
 
 void HostIrEvaluator::handle(Wait* wait) {

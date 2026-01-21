@@ -118,6 +118,8 @@ class Val;
   f(Merge);                          \
   f(Partition);                      \
   f(Combine);                        \
+  f(MoEDispatch);                    \
+  f(MoECombine);                     \
   f(Swizzle);                        \
   f(Swizzle2D);                      \
   f(Resize);                         \
