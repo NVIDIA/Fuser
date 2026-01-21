@@ -1184,7 +1184,7 @@ TEST_F(SdpaTest, ComputeAt) {
 // Verifies the flash attention API matches what
 // https://github.com/NVIDIA/Fuser/blob/305907fed8ae18d1b7215dcba621b06f09d70e92/csrc/preseg_passes/allocation_order_inference.cpp#L358
 // expects.
-TEST_F(SDPATest, FlashAttentionStrideOrder) {
+TEST_F(SdpaTest, FlashAttentionStrideOrder) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   at::Tensor qkv =
