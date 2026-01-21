@@ -280,7 +280,6 @@ def column_parallel_linear_forward_reference(
     buffers = [inp_shard] + [
         torch.empty_like(inp_shard) for _ in range(num_iterations - 1)
     ]
-    send_reqs = []
     for i in range(num_iterations):
         worker_stream = stream_pool.get(i)
         worker_streams.append(worker_stream)
@@ -292,10 +291,7 @@ def column_parallel_linear_forward_reference(
                 )
                 recv_req.wait()
             if i < num_iterations - 1:
-                send_req = torch.distributed.isend(
-                    buffers[i], dst=(my_rank + 1) % num_iterations
-                )
-                send_reqs.append(send_req)
+                torch.distributed.isend(buffers[i], dst=(my_rank + 1) % num_iterations)
             torch.matmul(
                 buffers[i],
                 weight_shard.T,
