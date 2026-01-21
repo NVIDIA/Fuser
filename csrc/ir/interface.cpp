@@ -12,24 +12,24 @@
 namespace nvfuser {
 
 // Default constructor - creates new IrContainer
-IrInterface::IrInterface() : container_(std::make_unique<IrContainer>()) {
+IrContainer::IrContainer() : container_(std::make_unique<IrContainer>()) {
   container()->setParent(this);
 }
 
 // Copy constructor - clones the container
-IrInterface::IrInterface(const IrInterface& other)
+IrContainer::IrContainer(const IrContainer& other)
     : container_(std::make_unique<IrContainer>(*other.container_)) {
   container()->setParent(this);
 }
 
 // Move constructor
-IrInterface::IrInterface(IrInterface&& other) noexcept
+IrContainer::IrContainer(IrContainer&& other) noexcept
     : container_(std::move(other.container_)) {
   container()->setParent(this);
 }
 
 // Destructor - releases container without deleting if not owned
-IrInterface::~IrInterface() {
+IrContainer::~IrContainer() {
   // if (container_) {
   //   container_.release(); // Don't delete the container
   // }
@@ -37,16 +37,16 @@ IrInterface::~IrInterface() {
 }
 
 // Copy assignment using copy-and-swap idiom
-IrInterface& IrInterface::operator=(const IrInterface& other) {
+IrContainer& IrContainer::operator=(const IrContainer& other) {
   if (this != &other) {
-    IrInterface temp(other);
+    IrContainer temp(other);
     swap(*this, temp);
   }
   return *this;
 }
 
 // Move assignment
-IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
+IrContainer& IrContainer::operator=(IrContainer&& other) noexcept {
   if (this != &other) {
     container_ = std::move(other.container_);
 
@@ -60,12 +60,12 @@ IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
 }
 
 // Swap function - enables efficient copy-and-swap idiom
-void swap(IrInterface& a, IrInterface& b) noexcept {
+void swap(IrContainer& a, IrContainer& b) noexcept {
   using std::swap;
   swap(a.container_, b.container_);
 
   // Fix parent pointers after swapping containers
-  // After swap, each IrInterface owns a different container, so we must update
+  // After swap, each IrContainer owns a different IrStorage, so we must update
   // the parent backpointers in those containers to point to their new owners
   if (a.container_) {
     a.container()->setParent(&a);
