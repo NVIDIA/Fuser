@@ -349,33 +349,33 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
-  if (is_expr_eval && isOptionEnabled(EnableOption::InferContiguity)) {
-    // For expr evaluated fusion, the striding rules follow that of ATen.
-    ExpressionEvaluator eval_fusion;
-    for (auto i : arange(group_to_run->inputs().size())) {
-      const auto& tensor_pv = group_runtime_inputs[i];
-      if (tensor_pv.is<at::Tensor>()) {
-        const auto& t = tensor_pv.as<at::Tensor>();
-        if (t.defined()) {
-          const auto meta_t = at::empty_strided(
-              t.sizes(),
-              t.strides(),
-              at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
-          eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
-        } else {
-          eval_fusion.bind(fusion_to_run->inputs()[i], t);
-        }
-      } else {
-        eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
-      }
-    }
-    for (auto v : fusion_to_run->outputs()) {
-      auto result = eval_fusion.evaluate(v);
-      group_runtime_outputs.push(result);
-    }
-  } else {
+  if (!(is_expr_eval && isOptionEnabled(EnableOption::InferContiguity))) {
     return inferContiguousOutputMetaTensor(
         fusion_to_run, group_runtime_inputs, evaluator_precomputed_values);
+  }
+
+  // For expr evaluated fusion, the striding rules follow that of ATen.
+  ExpressionEvaluator eval_fusion;
+  for (auto i : arange(group_to_run->inputs().size())) {
+    const auto& tensor_pv = group_runtime_inputs[i];
+    if (tensor_pv.is<at::Tensor>()) {
+      const auto& t = tensor_pv.as<at::Tensor>();
+      if (t.defined()) {
+        const auto meta_t = at::empty_strided(
+            t.sizes(),
+            t.strides(),
+            at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
+        eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
+      } else {
+        eval_fusion.bind(fusion_to_run->inputs()[i], t);
+      }
+    } else {
+      eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+    }
+  }
+  for (auto v : fusion_to_run->outputs()) {
+    auto result = eval_fusion.evaluate(v);
+    group_runtime_outputs.push(result);
   }
   return group_runtime_outputs;
 }
