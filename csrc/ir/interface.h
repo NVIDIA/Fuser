@@ -53,101 +53,102 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
 
   // Container queries
   bool inContainer(const Statement* stmt) const {
-    return container_->inContainer(stmt);
+    return container()->inContainer(stmt);
   }
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    container_->assertInContainer(stmt, msg);
+    container()->assertInContainer(stmt, msg);
   }
 
   // Collections access (return values in insertion order)
   const std::deque<Val*> deterministic_vals() const noexcept {
-    return container_->deterministic_vals();
+    return container()->deterministic_vals();
   }
 
   const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return container_->deterministic_exprs();
+    return container()->deterministic_exprs();
   }
 
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
       const noexcept {
-    return container_->deterministic_vals_map();
+    return container()->deterministic_vals_map();
   }
 
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
       const noexcept {
-    return container_->deterministic_exprs_map();
+    return container()->deterministic_exprs_map();
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return container_->unordered_exprs();
+    return container()->unordered_exprs();
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return container_->vals();
+    return container()->vals();
   }
 
   // Count queries
   int64_t numExprs() const noexcept {
-    return container_->numExprs();
+    return container()->numExprs();
   }
 
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return container_->numVals(include_shortcuts);
+    return container()->numVals(include_shortcuts);
   }
 
   // Shortcut values (frequently used constants)
   Val* zeroVal() {
-    return container_->zeroVal();
+    return container()->zeroVal();
   }
 
   Val* oneVal() {
-    return container_->oneVal();
+    return container()->oneVal();
   }
 
   Val* falseVal() {
-    return container_->falseVal();
+    return container()->falseVal();
   }
 
   Val* trueVal() {
-    return container_->trueVal();
+    return container()->trueVal();
   }
 
   NamedScalar* magicZeroVal() {
-    return container_->magicZeroVal();
+    return container()->magicZeroVal();
   }
 
   Val* zeroVal(DataType dtype) {
-    return container_->zeroVal(dtype);
+    return container()->zeroVal(dtype);
   }
 
   Val* oneVal(DataType dtype) {
-    return container_->oneVal(dtype);
+    return container()->oneVal(dtype);
   }
 
   Val* metadataOf(Val* val) {
-    return container_->metadataOf(val);
+    return container()->metadataOf(val);
   }
 
   // Axioms (CUDA programming assumptions)
   const std::vector<Val*>& axioms() {
-    return container_->axioms();
+    return container()->axioms();
   }
 
   void assumePositive(Val* val) {
-    container_->assumePositive(val);
+    container()->assumePositive(val);
   }
 
   void assumeNonNegative(Val* val) {
-    container_->assumeNonNegative(val);
+    container()->assumeNonNegative(val);
   }
 
   // Statement removal
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
       int64_t num_vals_before) {
-    container_->removeStatementsCreatedAfter(num_exprs_before, num_vals_before);
+    container()->removeStatementsCreatedAfter(
+        num_exprs_before, num_vals_before);
   }
 
   // Registration (public API with passkey)
@@ -195,19 +196,19 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
 
   // Derived classes (like Fusion) override these to add custom logic
   virtual void registerVal(Val* val) {
-    container_->registerVal(val);
+    container()->registerVal(val);
   }
 
   virtual void registerExpr(Expr* expr) {
-    container_->registerExpr(expr);
+    container()->registerExpr(expr);
   }
 
   virtual void removeExpr(Expr* expr) {
-    container_->removeExpr(expr);
+    container()->removeExpr(expr);
   }
 
   virtual void removeVal(Val* val) {
-    container_->removeVal(val);
+    container()->removeVal(val);
   }
 
   // Note: getValName, getExprName, and clear are protected in IrContainer
@@ -215,13 +216,14 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
   // should access them through their own container_ member or implement
   // their own public wrappers.
 
+  friend void swap(IrInterface& a, IrInterface& b) noexcept;
+
+ private:
   //===================================================================
   // Data Members
   //===================================================================
 
   std::unique_ptr<IrContainer> container_;
-
-  friend void swap(IrInterface& a, IrInterface& b) noexcept;
 };
 
 // Swap support
