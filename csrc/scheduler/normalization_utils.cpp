@@ -1487,12 +1487,14 @@ void commonScheduleBeforeIterDomainTransform(
   bool unroll = rparams->isUnrolled();
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
-  cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+  cached_inputs = scheduler_utils::cacheInputs(
+      fusion, /*unroll=*/true, /*enable_pdl=*/true);
 
   recomputeNonPersistentUnmappableTvs(persistent_info);
 
   // Cache and fork outputs
-  cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
+  cached_outputs =
+      scheduler_utils::cacheAndForkOutputs(fusion, unroll, /*enable_pdl=*/true);
 
   // Make sure we don't have global memory set on intermediate tensors from
   // fusion segmentation

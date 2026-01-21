@@ -1348,7 +1348,8 @@ void addPdlGridLaunch(
 // vector.
 std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     Fusion* fusion,
-    bool unroll) {
+    bool unroll,
+    bool enable_pdl) {
   if (!unroll) {
     return {};
   }
@@ -1420,7 +1421,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     original_inputs.push_back(tv);
   }
 
-  addPdlGridWait(original_inputs, cached_inputs, /*enable_pdl=*/true);
+  addPdlGridWait(original_inputs, cached_inputs, enable_pdl);
 
   return cached_inputs;
 }
@@ -1429,7 +1430,8 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
 // all outputs.
 std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
-    bool unroll) {
+    bool unroll,
+    bool enable_pdl) {
   std::vector<Val*> original_outputs;
   std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
@@ -1473,8 +1475,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     }
   }
 
-  addPdlGridLaunch(
-      fusion, original_outputs, cached_outputs, /*enable_pdl=*/true);
+  addPdlGridLaunch(fusion, original_outputs, cached_outputs, enable_pdl);
 
   return cached_outputs;
 }

@@ -393,14 +393,16 @@ void clearMemorySpace(Fusion* fusion);
 // vector.
 std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     Fusion* fusion,
-    bool unroll);
+    bool unroll,
+    bool enable_pdl = false);
 
 // Returns the pairs of <cache, output_index> for each cached fusion output.
 // output_index is the position in fusion->outputs(). Otherwise return empty
 // vector.
 std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
-    bool unroll);
+    bool unroll,
+    bool enable_pdl = false);
 
 // Ignores broadcast and reduction, returns iter domain in allocation domain
 // that's "inner most".
