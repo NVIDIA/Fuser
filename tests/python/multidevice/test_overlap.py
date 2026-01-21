@@ -264,38 +264,34 @@ def test_row_parallel_linear_forward_reference_benchmark(
 def column_parallel_linear_forward_reference(
     inp_shard: torch.Tensor,
     weight_shard: torch.Tensor,
-    num_iterations: int,
-    my_rank: int,
     stream_pool: StreamPool,
 ) -> torch.Tensor:
+    d = dist.get_world_size()
+    my_rank = dist.get_rank()
     out = torch.empty(
-        inp_shard.size(0) * num_iterations,
+        inp_shard.size(0) * d,
         weight_shard.size(0),
         device="cuda",
         dtype=inp_shard.dtype,
     )
-    out_chunks = out.chunk(num_iterations)
+    out_chunks = out.chunk(d)
     main_stream = torch.cuda.current_stream()
     worker_streams = []
-    buffers = [inp_shard] + [
-        torch.empty_like(inp_shard) for _ in range(num_iterations - 1)
-    ]
-    for i in range(num_iterations):
+    buffers = [inp_shard] + [torch.empty_like(inp_shard) for _ in range(d - 1)]
+    for i in range(d):
         worker_stream = stream_pool.get(i)
         worker_streams.append(worker_stream)
         worker_stream.wait_stream(main_stream)
         with torch.cuda.stream(worker_stream):
             if i > 0:
-                recv_req = torch.distributed.irecv(
-                    buffers[i], src=(my_rank - 1 + num_iterations) % num_iterations
-                )
+                recv_req = dist.irecv(buffers[i], src=(my_rank - 1 + d) % d)
                 recv_req.wait()
-            if i < num_iterations - 1:
-                torch.distributed.isend(buffers[i], dst=(my_rank + 1) % num_iterations)
+            if i < d - 1:
+                dist.isend(buffers[i], dst=(my_rank + 1) % d)
             torch.matmul(
                 buffers[i],
                 weight_shard.T,
-                out=out_chunks[(my_rank - i + num_iterations) % num_iterations],
+                out=out_chunks[(my_rank - i + d) % d],
             )
     for worker_stream in worker_streams:
         main_stream.wait_stream(worker_stream)
