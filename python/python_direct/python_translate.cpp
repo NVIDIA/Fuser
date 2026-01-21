@@ -1652,6 +1652,31 @@ class PythonTranslator : public OptInConstDispatch {
         std::vector<const nvfuser::Val*>{bqop->output(0), bqop->output(1)});
   }
 
+  void handle(const GroupedBlockQuantizationOp* grouped_bqop) final {
+    NVF_ERROR(grouped_bqop != nullptr);
+    visited_vals_.insert(grouped_bqop->output(0));
+    visited_vals_.insert(grouped_bqop->output(1));
+
+    static const auto default_args = std::make_tuple(
+        KeywordArgument<decltype(grouped_bqop->globalScale())>{
+            "global_scale", nullptr},
+        KeywordArgument<int64_t>{"block_size", 16},
+        KeywordArgument<DataType>{"dtype", DataType::Float4_e2m1fn});
+
+    auto dtype = grouped_bqop->quantizedOutput()->as<TensorView>()->dtype();
+    printer_.generateKwargsOperation(
+        "fd.ops.nv_grouped_block_quantize",
+        std::make_tuple(
+            grouped_bqop->in(),
+            grouped_bqop->inputOffsets(),
+            grouped_bqop->outputOffsets()),
+        default_args,
+        std::make_tuple(
+            grouped_bqop->globalScale(), grouped_bqop->blockSize(), dtype),
+        std::vector<const nvfuser::Val*>{
+            grouped_bqop->output(0), grouped_bqop->output(1)});
+  }
+
  private:
   //! Convert CPP values to python syntax.
   PythonPrinter printer_;

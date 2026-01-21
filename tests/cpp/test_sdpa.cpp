@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include <ATen/ops/_scaled_dot_product_flash_attention.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_backward.h>
+
+#include "exceptions.h"
 #include "fusion.h"
 #include "multidevice/device_mesh.h"
 #include "ops/all_ops.h"
 #include "ops/utils.h"
 #include "optimization_pass.h"
-#include "preseg_passes/allocation_order_inference.h"
-#include "preseg_passes/move_split_cat.h"
 #include "preseg_passes/propagate_shardings.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -28,7 +30,7 @@ constexpr int64_t n = 16, h = 32, l = 64, s = 128, e = 64;
 namespace {
 void addSdpaFwdOutputs(Fusion* fusion, SdpfaFwdResult output) {
   fusion->addOutput(output.output);
-  fusion->addOutput(output.log_sumexp);
+  fusion->addOutput(output.logsumexp);
   fusion->addOutput(output.philox_seed);
   fusion->addOutput(output.philox_offset);
 }
@@ -52,7 +54,7 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  MetaSdpaOut aten_out_meta) {
   auto
       [attn,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -60,19 +62,19 @@ auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
        philox_seed,
        philox_offset,
        debug_attn_mask] = aten_out;
-  // nvf_out = {attn, log_sumexp, philox_seed, philox_offset}.
+  // nvf_out = {attn, logsumexp, philox_seed, philox_offset}.
   // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
   NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
-  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
+  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), logsumexp));
 
-  auto [attn_meta, log_sumexp_meta, philox_seed_meta, philox_offset_meta] =
+  auto [attn_meta, logsumexp_meta, philox_seed_meta, philox_offset_meta] =
       aten_out_meta;
   EXPECT_EQ(attn.sizes(), attn_meta.sizes());
-  EXPECT_EQ(log_sumexp.sizes(), log_sumexp_meta.sizes());
+  EXPECT_EQ(logsumexp.sizes(), logsumexp_meta.sizes());
   EXPECT_EQ(attn.strides(), attn_meta.strides());
-  EXPECT_EQ(log_sumexp.strides(), log_sumexp_meta.strides());
+  EXPECT_EQ(logsumexp.strides(), logsumexp_meta.strides());
   EXPECT_EQ(philox_seed.sizes(), philox_seed_meta.sizes());
   EXPECT_EQ(philox_offset.sizes(), philox_offset_meta.sizes());
   EXPECT_EQ(philox_seed.strides(), philox_seed_meta.strides());
@@ -227,9 +229,11 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
   }
 }
 
-using SDPATest = NVFuserTest;
+using testing::ElementsAre;
 
-TEST_F(SDPATest, NonCausalAttnConcrete) {
+using SdpaTest = NVFuserTest;
+
+TEST_F(SdpaTest, NonCausalAttnConcrete) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -290,7 +294,7 @@ TEST_F(SDPATest, NonCausalAttnConcrete) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, NonCausalAttnSymbolic) {
+TEST_F(SdpaTest, NonCausalAttnSymbolic) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -350,7 +354,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolic) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, CausalAttn) {
+TEST_F(SdpaTest, CausalAttn) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -409,7 +413,7 @@ TEST_F(SDPATest, CausalAttn) {
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
 }
 
-TEST_F(SDPATest, PairwiseLogicalDomainMap) {
+TEST_F(SdpaTest, PairwiseLogicalDomainMap) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -448,7 +452,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
 
-    for (TensorView* consumer_tv : {output.output, output.log_sumexp}) {
+    for (TensorView* consumer_tv : {output.output, output.logsumexp}) {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
@@ -464,7 +468,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
           EXPECT_TRUE(
               mappingExists(producer_tv->axis(idx), consumer_root.at(idx)));
         }
-        // Mapping for L exists between Q and output, log_sumexp.
+        // Mapping for L exists between Q and output, logsumexp.
         if (idx == 2 && role == AttnRole::Q) {
           EXPECT_TRUE(mappingExists(producer_tv->axis(2), consumer_root.at(2)));
         }
@@ -477,7 +481,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   }
 }
 
-TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
+TEST_F(SdpaTest, NonCausalAttnConcreteBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
@@ -497,7 +501,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -553,7 +557,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   KernelArgumentHolder sdpa_bwd_inputs = {
-      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
+      grad_out, q, k, v, output, logsumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
@@ -565,7 +569,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -584,7 +588,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
-    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), logsumexp.to(at::kMeta));
     // Bind RNG state for meta evaluation to unlock node evaluate
     ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
     ee.bind(
@@ -612,7 +616,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       __FILE__);
 }
 
-TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
+TEST_F(SdpaTest, NonCausalAttnSymbolicBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   at::manual_seed(0);
   auto fusion = std::make_unique<Fusion>();
@@ -632,7 +636,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -688,7 +692,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   KernelArgumentHolder sdpa_bwd_inputs = {
-      grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
+      grad_out, q, k, v, output, logsumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
@@ -700,7 +704,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -719,7 +723,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
     ee.bind(executor_cache.fusion()->inputs().at(2), k.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(3), v.to(at::kMeta));
     ee.bind(executor_cache.fusion()->inputs().at(4), output.to(at::kMeta));
-    ee.bind(executor_cache.fusion()->inputs().at(5), log_sumexp.to(at::kMeta));
+    ee.bind(executor_cache.fusion()->inputs().at(5), logsumexp.to(at::kMeta));
     // Bind RNG state for meta evaluation to unlock node evaluate
     ee.bind(executor_cache.fusion()->inputs().at(6), philox_seed.to(at::kMeta));
     ee.bind(
@@ -749,7 +753,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
 // Test SDPA is segmented correctly. See issue #2517:
 // https://github.com/NVIDIA/Fuser/issues/2517
-TEST_F(SDPATest, AttnProgram) {
+TEST_F(SdpaTest, AttnProgram) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -802,7 +806,7 @@ TEST_F(SDPATest, AttnProgram) {
   EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
-TEST_F(SDPATest, AttnFwdBwd) {
+TEST_F(SdpaTest, AttnFwdBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
 
   auto fusion = std::make_unique<Fusion>();
@@ -839,7 +843,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
       tvk,
       tvv,
       sdpa_fwd_out.output,
-      sdpa_fwd_out.log_sumexp,
+      sdpa_fwd_out.logsumexp,
       /*dropout_p=*/IrBuilder::create<Val>(0.0),
       /*is_causal=*/IrBuilder::create<Val>(false),
       sdpa_fwd_out.philox_seed,
@@ -887,7 +891,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
 // resolved.
-TEST_F(SDPATest, Sharded_SdpaFwd) {
+TEST_F(SdpaTest, Sharded_SdpaFwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -920,7 +924,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       /*scale=*/nullptr);
 
   addSdpaFwdOutputs(fusion.get(), output);
-  for (TensorView* tv : {output.output, output.log_sumexp}) {
+  for (TensorView* tv : {output.output, output.logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -968,7 +972,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
 
 // TODO: Remove/update when https://github.com/NVIDIA/Fuser/issues/2563 is
 // resolved.
-TEST_F(SDPATest, Sharded_SdpaBwd) {
+TEST_F(SdpaTest, Sharded_SdpaBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -989,7 +993,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
 
   auto
       [output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -1059,7 +1063,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       k.unsqueeze(0),
       v.unsqueeze(0),
       output.unsqueeze(0),
-      log_sumexp.unsqueeze(0),
+      logsumexp.unsqueeze(0),
       philox_seed,
       philox_offset};
 
@@ -1073,7 +1077,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
           k,
           v,
           output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -1095,7 +1099,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       __FILE__);
 }
 
-TEST_F(SDPATest, ComputeAt) {
+TEST_F(SdpaTest, ComputeAt) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1128,7 +1132,7 @@ TEST_F(SDPATest, ComputeAt) {
       /*scale=*/nullptr);
 
   addSdpaFwdOutputs(fusion.get(), output);
-  for (TensorView* tv : {output.output, output.log_sumexp}) {
+  for (TensorView* tv : {output.output, output.logsumexp}) {
     tv->setDeviceMesh(mesh);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
@@ -1175,6 +1179,60 @@ TEST_F(SDPATest, ComputeAt) {
       ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
+}
+
+// Verifies the flash attention API matches what
+// https://github.com/NVIDIA/Fuser/blob/305907fed8ae18d1b7215dcba621b06f09d70e92/csrc/preseg_passes/allocation_order_inference.cpp#L358
+// expects.
+TEST_F(SdpaTest, FlashAttentionStrideOrder) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  at::Tensor qkv =
+      at::randn({n, s, h * e * 3}, at::dtype(at::kHalf).device(at::kCUDA));
+  std::vector<at::Tensor> splits =
+      at::chunk(qkv.view({n, s, h, e * 3}), /*chunks=*/3, /*dim=*/-1);
+  ASSERT_EQ(splits.size(), 3);
+  at::Tensor q = splits.at(0).permute({0, 2, 1, 3});
+  at::Tensor k = splits.at(1).permute({0, 2, 1, 3});
+  at::Tensor v = splits.at(2).permute({0, 2, 1, 3});
+
+  auto outs = at::_scaled_dot_product_flash_attention(q, k, v);
+
+  at::Tensor attn_out = std::get<0>(outs);
+  at::Tensor logsumexp = std::get<1>(outs);
+  at::Tensor cum_seq_q = std::get<2>(outs);
+  at::Tensor cum_seq_k = std::get<3>(outs);
+  at::SymInt max_q = std::get<4>(outs);
+  at::SymInt max_k = std::get<5>(outs);
+  at::Tensor philox_seed = std::get<6>(outs);
+  at::Tensor philox_offset = std::get<7>(outs);
+
+  EXPECT_THAT(attn_out.sizes(), ElementsAre(n, h, s, e));
+  EXPECT_TRUE(attn_out.transpose(1, 2).is_contiguous()) << attn_out.strides();
+
+  auto [q_grad, k_grad, v_grad] =
+      at::_scaled_dot_product_flash_attention_backward_symint(
+          /*grad_output=*/attn_out, // This test merely verifies sizes and
+                                    // strides so it's fine to reuse `attn_out`
+                                    // as `grad_output`
+          q,
+          k,
+          v,
+          attn_out,
+          logsumexp,
+          cum_seq_q,
+          cum_seq_k,
+          max_q,
+          max_k,
+          /*dropout_p=*/0.0,
+          /*is_causal=*/false,
+          philox_seed,
+          philox_offset);
+
+  for (at::Tensor grad : {q_grad, k_grad, v_grad}) {
+    EXPECT_THAT(grad.sizes(), ElementsAre(n, h, s, e));
+    EXPECT_TRUE(grad.transpose(1, 2).is_contiguous()) << grad.strides();
+  }
 }
 
 } // namespace nvfuser

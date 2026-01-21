@@ -47,10 +47,10 @@
 #include "scheduler/utils.h"
 #include "tensor_metadata.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

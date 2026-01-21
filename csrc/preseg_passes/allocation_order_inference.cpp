@@ -351,11 +351,12 @@ void inferAllocationOrder(
   }
 }
 
-// Propagate allocation orders from an SDPA's inputs to outputs. This is
-// necessary to make an SPDA's allocation domain consistent with the output
+// Propagates allocation orders from an SDPA's inputs to outputs. This is
+// necessary to make an SDPA's allocation domain consistent with the output
 // at::Tensor from expression evaluation. Currently, we call ATen to evaluate
 // SDPAs so matching their behavior, despite being fragile, is the best
-// solution.
+// solution I can think of. SdpaTest.FlashAttentionStrideOrder verifies the
+// flash attention API indeed matches our expectations.
 class SdpaPropagator : public OptOutConstDispatch {
  public:
   void handle(const SdpaFwdOp* e) override {
@@ -364,6 +365,7 @@ class SdpaPropagator : public OptOutConstDispatch {
     // Don't propagate allocation to LSE because it's allocated as [B,H,S]:
     // https://github.com/pytorch/pytorch/blob/0db21a6b23fc6d7ccf6246dfd22f063694996144/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L454.
   }
+
   void handle(const SdpaBwdOp* e) override {
     // https://github.com/pytorch/pytorch/blob/7578a0b26836116fed4daecf2f08ff75a4b2dbea/aten/src/ATen/native/transformers/cuda/flash_attn/flash_api.cpp#L904
     propagateAllocation(e->query(), e->grad_query());

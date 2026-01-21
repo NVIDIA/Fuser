@@ -13,8 +13,8 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "val_graph_visitor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

@@ -84,7 +84,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     const auto& communicator = Communicator::getInstance();
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
-    if (!communicator.is_available() || communicator.local_rank() == 0) {
+    if (communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
       fusion->print();

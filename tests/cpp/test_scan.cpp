@@ -17,7 +17,7 @@
 #include "runtime/fusion_executor_cache.h"
 #include "scheduler/tools/cub_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

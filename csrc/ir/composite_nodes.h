@@ -133,7 +133,7 @@ class SdpaFwdOp : public Expr {
   SdpaFwdOp(
       IrBuilderPasskey,
       TensorView* output,
-      TensorView* log_sumexp,
+      TensorView* logsumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
       TensorView* query,
@@ -266,7 +266,7 @@ class SdpaBwdOp : public Expr {
       TensorView* key,
       TensorView* value,
       TensorView* output,
-      TensorView* log_sumexp,
+      TensorView* logsumexp,
       Val* dropout_p,
       Val* is_causal,
       TensorView* philox_seed,
