@@ -31,7 +31,7 @@ class LRUCache {
   // If the fusion is already in the cache, it will be moved to the front of the
   // cache and returned immediately.
   // If the cache is full, the least recently used fusion will be evicted.
-  FusionExecutorCache* cacheCompile(std::shared_ptr<Fusion> fusion);
+  FusionExecutorCache* cacheCompile(std::unique_ptr<Fusion> fusion);
 
   // Print stats about LRU Cache
   std::string stats() const;

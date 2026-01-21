@@ -10,8 +10,10 @@
 
 namespace nvfuser::python {
 
-FusionExecutorCache* LRUCache::cacheCompile(std::shared_ptr<Fusion> fusion) {
+FusionExecutorCache* LRUCache::cacheCompile(
+    std::unique_ptr<Fusion> unique_fusion) {
   std::lock_guard<std::mutex> guard(lru_mutex_);
+  std::shared_ptr<Fusion> fusion(std::move(unique_fusion));
   auto it = items_map.find(fusion);
   num_cache_lookups_++;
 
