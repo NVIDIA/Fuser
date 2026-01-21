@@ -582,7 +582,6 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
       "Flash attention requires the last dimension to be a multiple of 8, but "
       "got: ",
       last_dim_size);
-  // Conmpute scale using original size of last dimension
   double scale = inputs.size() > 10 ? inputs.back().as<double>()
                                     : 1.0 / std::sqrt(last_dim_size);
 
