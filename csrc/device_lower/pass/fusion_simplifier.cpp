@@ -39,7 +39,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
   void handle(SqueezeOp* sop) final {
     auto out = sop->out();
     auto in = sop->in();
-    auto container = out->container();
+    auto container = out->container()->parent();
     registerReplaceAndPropagate(
         sop,
         IrBuilder::createInContainer<LoadStoreOp>(
@@ -49,7 +49,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
   void handle(ExpandOp* eop) final {
     auto out = eop->out();
     auto in = eop->in();
-    auto container = out->container();
+    auto container = out->container()->parent();
     registerReplaceAndPropagate(
         eop,
         IrBuilder::createInContainer<LoadStoreOp>(
@@ -59,7 +59,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
   void handle(RepeatOp* op) final {
     auto out = op->out();
     auto in = op->in();
-    auto container = out->container();
+    auto container = out->container()->parent();
     registerReplaceAndPropagate(
         op,
         IrBuilder::createInContainer<LoadStoreOp>(
@@ -69,7 +69,7 @@ class LoadStoreOpInserter : private kir::ExprMutator {
   void handle(ReshapeOp* vop) final {
     auto out = vop->out();
     auto in = vop->in();
-    auto container = out->container();
+    auto container = out->container()->parent();
     registerReplaceAndPropagate(
         vop,
         IrBuilder::createInContainer<LoadStoreOp>(

@@ -3126,10 +3126,10 @@ CatOp::CatOp(
     const std::vector<Val*>& preds)
     : Expr(passkey) {
   NVF_ERROR(
-      passkey.ir_container_->parent() != nullptr,
+      passkey.ir_interface_ != nullptr,
       "IrContainer must be provided to create a CatOp.");
   NVF_ERROR(
-      passkey.ir_container_->parent()->isA<kir::Kernel>(),
+      passkey.ir_interface_->isA<kir::Kernel>(),
       "Should only be used for Kernel container.");
 
   addOutput(out);
