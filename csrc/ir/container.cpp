@@ -34,24 +34,24 @@ void swap(IrStorage& a, IrStorage& b) noexcept {
 
   // Fixup the Statement::fusion_ links for a
   for (auto val : a.vals_) {
-    val->ir_container_ = &a;
+    val->ir_container_ = a.parent();
   }
   for (auto expr : a.exprs_) {
-    expr->ir_container_ = &a;
+    expr->ir_container_ = a.parent();
   }
 
   // Fixup the Statement::fusion_ links for b
   for (auto val : b.vals_) {
-    val->ir_container_ = &b;
+    val->ir_container_ = b.parent();
   }
   for (auto expr : b.exprs_) {
-    expr->ir_container_ = &b;
+    expr->ir_container_ = b.parent();
   }
 }
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
-  IrCloner ir_cloner(to);
+  IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
@@ -207,7 +207,7 @@ bool IrStorage::inContainer(const Statement* const_stmt) const {
   }
 
   NVF_ERROR(
-      const_stmt->container() == this,
+      const_stmt->container() == this->parent(),
       "Container claims to own stmt, but stmt disagrees.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -230,7 +230,7 @@ bool IrStorage::inContainer(const Statement* const_stmt) const {
 Val* IrStorage::zeroVal() {
   if (!zero_val_) {
     auto zero_val =
-        IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+        IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -245,13 +245,14 @@ Val* IrStorage::zeroVal(DataType dtype) {
     return falseVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this, 0L, dtype);
+    return IrBuilder::createInContainer<Val>(this->parent(), 0L, dtype);
   }
 }
 
 Val* IrStorage::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+    auto one_val =
+        IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -266,14 +267,14 @@ Val* IrStorage::oneVal(DataType dtype) {
     return trueVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this, 1L, dtype);
+    return IrBuilder::createInContainer<Val>(this->parent(), 1L, dtype);
   }
 }
 
 Val* IrStorage::falseVal() {
   if (!false_val_) {
-    auto false_val =
-        IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+    auto false_val = IrBuilder::createInContainer<Val>(
+        this->parent(), false, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == false_val);
     false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -284,7 +285,7 @@ Val* IrStorage::falseVal() {
 Val* IrStorage::trueVal() {
   if (!true_val_) {
     auto true_val =
-        IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+        IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == true_val);
     true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -307,9 +308,9 @@ NamedScalar* IrStorage::magicZeroVal() {
 Val* IrStorage::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
     auto metadata_val =
-        IrBuilder::createInContainer<Val>(this, metaDataTypeOf(v));
-    auto metadata_expr =
-        IrBuilder::createInContainer<GetMetaData>(this, metadata_val, v);
+        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
+    auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
+        this->parent(), metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;
@@ -331,13 +332,13 @@ void IrStorage::lazyInitAxioms() {
 }
 
 void IrStorage::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this);
+  NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrStorage::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this);
+  NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }

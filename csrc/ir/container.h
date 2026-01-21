@@ -136,9 +136,6 @@ class IrStorage {
 
   friend void swap(IrStorage& a, IrStorage& b) noexcept;
 
-  // Let mutator remove Exprs.
-  friend OptOutMutator;
-
   // Let IrInterface access protected methods for forwarding
   friend class IrContainer;
 
