@@ -5,16 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include <ATen/ops/_scaled_dot_product_flash_attention.h>
+#include <ATen/ops/_scaled_dot_product_flash_attention_backward.h>
+
+#include "exceptions.h"
 #include "fusion.h"
 #include "multidevice/device_mesh.h"
 #include "ops/all_ops.h"
 #include "ops/utils.h"
 #include "optimization_pass.h"
-#include "preseg_passes/allocation_order_inference.h"
-#include "preseg_passes/move_split_cat.h"
 #include "preseg_passes/propagate_shardings.h"
 #include "tests/cpp/utils.h"
 #include "validator_utils.h"
@@ -226,6 +228,8 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
     }
   }
 }
+
+using testing::ElementsAre;
 
 using SDPATest = NVFuserTest;
 
@@ -1175,6 +1179,60 @@ TEST_F(SDPATest, ComputeAt) {
       ee.evaluate(executor_cache.fusion()->outputs().at(3)).as<at::Tensor>(),
   };
   validateSdpaFwdOutputs(nvf_out, aten_out, aten_out_meta);
+}
+
+// Verifies the flash attention API matches what
+// https://github.com/NVIDIA/Fuser/blob/305907fed8ae18d1b7215dcba621b06f09d70e92/csrc/preseg_passes/allocation_order_inference.cpp#L358
+// expects.
+TEST_F(SDPATest, FlashAttentionStrideOrder) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
+
+  at::Tensor qkv =
+      at::randn({n, s, h * e * 3}, at::dtype(at::kHalf).device(at::kCUDA));
+  std::vector<at::Tensor> splits =
+      at::chunk(qkv.view({n, s, h, e * 3}), /*chunks=*/3, /*dim=*/-1);
+  ASSERT_EQ(splits.size(), 3);
+  at::Tensor q = splits.at(0).permute({0, 2, 1, 3});
+  at::Tensor k = splits.at(1).permute({0, 2, 1, 3});
+  at::Tensor v = splits.at(2).permute({0, 2, 1, 3});
+
+  auto outs = at::_scaled_dot_product_flash_attention(q, k, v);
+
+  at::Tensor attn_out = std::get<0>(outs);
+  at::Tensor logsumexp = std::get<1>(outs);
+  at::Tensor cum_seq_q = std::get<2>(outs);
+  at::Tensor cum_seq_k = std::get<3>(outs);
+  at::SymInt max_q = std::get<4>(outs);
+  at::SymInt max_k = std::get<5>(outs);
+  at::Tensor philox_seed = std::get<6>(outs);
+  at::Tensor philox_offset = std::get<7>(outs);
+
+  EXPECT_THAT(attn_out.sizes(), ElementsAre(n, h, s, e));
+  EXPECT_TRUE(attn_out.transpose(1, 2).is_contiguous()) << attn_out.strides();
+
+  auto [q_grad, k_grad, v_grad] =
+      at::_scaled_dot_product_flash_attention_backward_symint(
+          /*grad_output=*/attn_out, // This test merely verifies sizes and
+                                    // strides so it's fine to reuse `attn_out`
+                                    // as `grad_output`
+          q,
+          k,
+          v,
+          attn_out,
+          logsumexp,
+          cum_seq_q,
+          cum_seq_k,
+          max_q,
+          max_k,
+          /*dropout_p=*/0.0,
+          /*is_causal=*/false,
+          philox_seed,
+          philox_offset);
+
+  for (at::Tensor grad : {q_grad, k_grad, v_grad}) {
+    EXPECT_THAT(grad.sizes(), ElementsAre(n, h, s, e));
+    EXPECT_TRUE(grad.transpose(1, 2).is_contiguous()) << grad.strides();
+  }
 }
 
 } // namespace nvfuser

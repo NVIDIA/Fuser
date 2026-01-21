@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <algorithm>
 #include <iterator>
 #include <limits>
 #include <sstream>
@@ -269,14 +268,15 @@ std::string SdpaFwdOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-namespace sdpa_meta {
-
+namespace {
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-_scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
-  const int batch_size = query.size(0);
-  const int num_heads = query.size(1);
-  const int seqlen_q = query.size(2);
-  const int out_head_dim = value.size(-1);
+scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
+  NVF_ERROR_EQ(query.dim(), 4);
+  NVF_ERROR_EQ(value.dim(), 4);
+  const auto batch_size = query.size(0);
+  const auto num_heads = query.size(1);
+  const auto seqlen_q = query.size(2);
+  const auto out_head_dim = value.size(-1);
 
   auto out = at::empty(
       {batch_size, num_heads, seqlen_q, out_head_dim}, query.options());
@@ -294,10 +294,6 @@ _scaled_dot_product_attention_meta(at::Tensor query, at::Tensor value) {
   return std::make_tuple(out, logsumexp, rng_state, rng_offset);
 }
 
-} // namespace sdpa_meta
-
-namespace {
-
 at::Tensor flattenBatchDims(at::Tensor t) {
   at::DimVector new_shape({-1});
   auto non_batch_dims = t.sizes().slice(t.dim() - 3);
@@ -311,6 +307,33 @@ at::Tensor unflattenBatchDim(at::Tensor t, at::IntArrayRef batch_dims) {
   new_shape.append(non_batch_dims.begin(), non_batch_dims.end());
   return t.view(new_shape);
 }
+
+// at::_scaled_dot_product_attention_math and
+// scaled_dot_product_attention_meta produce a contiguous attention output,
+// but SdpaFwdOp requires the attention output to be in the same layout as
+// the query input:
+// https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
+// Therefore, we relayout the attention output according to attn_out()'s
+// allocation domain.
+//
+// at::_scaled_dot_product_flash_attention goes through this code as well
+// but the `.contiguous()`  will be a no-op.
+at::Tensor relayoutByTensorView(at::Tensor t, TensorView* tv) {
+  const std::optional<Layout> layout = canonicalizeLayout(tv);
+  NVF_CHECK(layout.has_value(), "Failed to canonicalize output layout of ", tv);
+  const std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(
+          tv->getLogicalDomain(), layout->allocation_domain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "The allocation domain of a canonicalized layout of ",
+      tv,
+      " is not a permutation of its logical domain.");
+  return t.permute(*permutation)
+      .contiguous()
+      .permute(ir_utils::inversePermutation(*permutation));
+}
+
 } // namespace
 
 std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
@@ -366,10 +389,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
     attn_bias = flattenBatchDims(attn_bias.contiguous());
   }
 
-  // 4D SDPA
+  // 4D SDPA. `output`'s strides don't necessarily match `attn_out()`'s
+  // requirements, which will be fixed in the next section.
   auto [output, logsumexp, philox_seed, philox_offset] = [&]() {
     if (query.is_meta()) {
-      return sdpa_meta::_scaled_dot_product_attention_meta(query, value);
+      return scaled_dot_product_attention_meta(query, value);
     }
 
     if (attn_bias.defined()) {
@@ -396,7 +420,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           "dropout_p is 0.0.");
       auto philox_seed = at::empty({2}, query.options().dtype(at::kUInt64));
       auto philox_offset = at::empty({}, query.options().dtype(at::kUInt64));
-      auto [out, logsumexp] = at::_scaled_dot_product_attention_math(
+      auto [attn_out, logsumexp] = at::_scaled_dot_product_attention_math(
           query,
           key,
           value,
@@ -405,34 +429,11 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
           is_causal,
           /*dropout_mask=*/std::nullopt,
           scale);
-
-      // at::_scaled_dot_product_attention_math produces a contiguous attention
-      // output, but SdpaFwdOp requires the attention output to be in the same
-      // layout as the query input:
-      // https://github.com/NVIDIA/Fuser/blob/fe23484180f47f8ac27a3527fdbcef2ff1be2a66/csrc/preseg_passes/allocation_order_inference.cpp#L361-L362.
-      // Therefore, we relayout the attention output according to attn_out()'s
-      // allocation domain.
-      NVF_ERROR(out.is_contiguous());
-      const std::optional<Layout> out_layout = canonicalizeLayout(attn_out());
-      NVF_CHECK(
-          out_layout.has_value(),
-          "Failed to canonicalize output layout of ",
-          attn_out());
-      const std::optional<std::vector<int64_t>> permutation =
-          ir_utils::computePermutation(
-              attn_out()->getLogicalDomain(), out_layout->allocation_domain());
       NVF_ERROR(
-          permutation.has_value(),
-          "The allocation domain of a canonicalized layout of ",
-          attn_out(),
-          " is not a permutation of its logical domain.");
-      out = unflattenBatchDim(out, batch_dims);
-      out = out.permute(*permutation)
-                .contiguous()
-                .permute(ir_utils::inversePermutation(*permutation));
-      out = flattenBatchDims(out);
-
-      return std::make_tuple(out, logsumexp, philox_seed, philox_offset);
+          attn_out.is_contiguous(),
+          "attn_out from at::_scaled_dot_product_attention_math is expected to "
+          "be contiguous.");
+      return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
     }
 
     NVF_ERROR(
@@ -442,7 +443,7 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
         last_dim_size);
 
     auto
-        [out,
+        [attn_out,
          logsumexp,
          cum_seq_q,
          cum_seq_k,
@@ -460,13 +461,15 @@ std::vector<PolymorphicValue> SdpaFwdOp::evaluate(
                 /*return_debug_mask=*/false,
                 scale);
 
-    return std::make_tuple(out, logsumexp, philox_seed, philox_offset);
+    return std::make_tuple(attn_out, logsumexp, philox_seed, philox_offset);
   }();
 
   if (batch_dims.size() > 1) {
     output = unflattenBatchDim(output, batch_dims);
     logsumexp = unflattenBatchDim(logsumexp, batch_dims);
   }
+
+  output = relayoutByTensorView(output, attn_out());
 
   // We ignore cum_seq_q/k outputs since they are undefined tensors for
   // non-nested tensors. We do not store query/key_seq_len since they can be
