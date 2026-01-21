@@ -324,9 +324,7 @@ def test_column_parallel_linear_forward_reference(setup_default_process_group):
     weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
     out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_shard)
     stream_pool = StreamPool()
-    out = column_parallel_linear_forward_reference(
-        inp_shard, weight_shard, d, torch.distributed.get_rank(), stream_pool
-    )
+    out = column_parallel_linear_forward_reference(inp_shard, weight_shard, stream_pool)
     torch.testing.assert_close(out, out_ref)
 
 
@@ -346,7 +344,7 @@ def test_column_parallel_linear_forward_reference_benchmark(
     stream_pool = StreamPool()
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: column_parallel_linear_forward_reference(
-            inp_shard, weight_shard, d, torch.distributed.get_rank(), stream_pool
+            inp_shard, weight_shard, stream_pool
         )
     )
     warmup_fn()
