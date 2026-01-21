@@ -380,22 +380,6 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   return group_runtime_outputs;
 }
 
-void FusionKernelRuntime::updateContiguityOfSegmentOutputs(
-    SegmentedGroup* group_to_run,
-    const KernelArgumentHolder& group_runtime_outputs) const {
-  FUSER_PERF_SCOPE("FusionKernelRuntime::updateContiguityOfSegmentOutputs");
-  if (!isOptionEnabled(EnableOption::InferContiguity)) {
-    return;
-  }
-  for (auto [i, output] : enumerate(group_to_run->outputs())) {
-    auto tv = dynamic_cast<TensorView*>(output);
-    if (tv) {
-      const at::Tensor& tensor = group_runtime_outputs[i].as<at::Tensor>();
-      ir_utils::resetContiguityFromTensor(tv, tensor);
-    }
-  }
-}
-
 std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     const KernelArgumentHolder& args) const {
   std::vector<KernelArgumentHolder> all_runtime_inputs;
