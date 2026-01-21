@@ -123,8 +123,7 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner =
-      IrContainer::copy(from->container_.get(), to->container_.get());
+  auto ir_cloner = IrContainer::copy(from->container(), to->container());
 
   for (auto val : from->vals()) {
     //// Only copy valid definitions - check in SOURCE fusion first
@@ -245,7 +244,7 @@ void Fusion::clear() noexcept {
   // Clear container contents instead of destroying it
   // This preserves the container object so Statement pointers don't become
   // dangling
-  container_->clear();
+  container()->clear();
 
   inputs_.clear();
   outputs_.clear();

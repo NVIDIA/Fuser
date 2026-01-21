@@ -13,29 +13,27 @@ namespace nvfuser {
 
 // Default constructor - creates new IrContainer
 IrInterface::IrInterface() : container_(std::make_unique<IrContainer>()) {
-  container_->setParent(this);
+  container()->setParent(this);
 }
 
 // Copy constructor - clones the container
 IrInterface::IrInterface(const IrInterface& other)
     : container_(std::make_unique<IrContainer>(*other.container_)) {
-  container_->setParent(this);
+  container()->setParent(this);
 }
 
 // Move constructor
 IrInterface::IrInterface(IrInterface&& other) noexcept
     : container_(std::move(other.container_)) {
-  // Update parent pointer to point to the new owner
-  if (container_) {
-    container_->setParent(this);
-  }
+  container()->setParent(this);
 }
 
 // Destructor - releases container without deleting if not owned
 IrInterface::~IrInterface() {
-  if (container_) {
-    container_.release(); // Don't delete the container
-  }
+  // if (container_) {
+  //   container_.release(); // Don't delete the container
+  // }
+  // container()->~IrContainer();
 }
 
 // Copy assignment using copy-and-swap idiom
@@ -54,7 +52,7 @@ IrInterface& IrInterface::operator=(IrInterface&& other) noexcept {
 
     // Update parent pointer to point to the new owner
     if (container_) {
-      container_->setParent(this);
+      container()->setParent(this);
     }
   }
 
@@ -70,10 +68,10 @@ void swap(IrInterface& a, IrInterface& b) noexcept {
   // After swap, each IrInterface owns a different container, so we must update
   // the parent backpointers in those containers to point to their new owners
   if (a.container_) {
-    a.container_->setParent(&a);
+    a.container()->setParent(&a);
   }
   if (b.container_) {
-    b.container_->setParent(&b);
+    b.container()->setParent(&b);
   }
 }
 
