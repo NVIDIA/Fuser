@@ -38,7 +38,6 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
  public:
   // Constructors
   IrInterface();
-  explicit IrInterface(std::unique_ptr<IrContainer> container);
 
   // Copy/Move
   IrInterface(const IrInterface& other);
