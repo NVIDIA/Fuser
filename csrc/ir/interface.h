@@ -22,6 +22,7 @@ class OptOutMutator;
 // Passkey for container to register names with statements
 class IrContainerPasskey {
   friend class IrContainer;
+  friend class IrStorage;
 
  private:
   explicit IrContainerPasskey() = default;
@@ -53,6 +54,9 @@ class NVF_API IrContainer : public PolymorphicBase {
   IrContainer& operator=(IrContainer&& other) noexcept;
 
   ~IrContainer() override;
+
+  // Let mutator remove Exprs.
+  friend OptOutMutator;
 
   //===================================================================
   // IrStorage API Forwarding (Public Methods)
