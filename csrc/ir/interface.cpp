@@ -16,12 +16,6 @@ IrInterface::IrInterface() : container_(std::make_unique<IrContainer>()) {
   container_->setParent(this);
 }
 
-// Constructor with existing container
-IrInterface::IrInterface(std::unique_ptr<IrContainer> container)
-    : container_(std::move(container)) {
-  container_->setParent(this);
-}
-
 // Copy constructor - clones the container
 IrInterface::IrInterface(const IrInterface& other)
     : container_(std::make_unique<IrContainer>(*other.container_)) {
