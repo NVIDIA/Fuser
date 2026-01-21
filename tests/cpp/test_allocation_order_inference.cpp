@@ -17,7 +17,7 @@
 #include "preseg_passes/mark_aliases_prepare.h"
 #include "runtime/executor.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

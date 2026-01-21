@@ -12,6 +12,8 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <c10/cuda/CUDAStream.h>
@@ -52,10 +54,10 @@
 #include "scheduler/utils.h"
 #include "sys_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

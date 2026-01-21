@@ -22,9 +22,9 @@
 #include "scheduler/tools/inlining.h"
 #include "scheduler/tools/resize_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_iter.h"
 #include "val_graph_visitor.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
