@@ -645,11 +645,6 @@ class NVF_API TensorView : public Val {
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
   TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
-  TensorView* swizzle(
-      Swizzle2DType swizzle_type,
-      int64_t x,
-      int64_t y,
-      SwizzleMode swizzle_mode = SwizzleMode::Data);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of

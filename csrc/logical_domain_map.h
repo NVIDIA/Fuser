@@ -550,6 +550,10 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
+  void handle(GroupedBlockQuantizationOp* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
   void handle(TensorView* tv) override;
 
   //! Maps all pending mappings.

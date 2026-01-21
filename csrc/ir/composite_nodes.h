@@ -133,7 +133,7 @@ class SdpaFwdOp : public Expr {
   SdpaFwdOp(
       IrBuilderPasskey,
       TensorView* output,
-      TensorView* log_sumexp,
+      TensorView* logsumexp,
       TensorView* philox_seed,
       TensorView* philox_offset,
       TensorView* query,
@@ -266,7 +266,7 @@ class SdpaBwdOp : public Expr {
       TensorView* key,
       TensorView* value,
       TensorView* output,
-      TensorView* log_sumexp,
+      TensorView* logsumexp,
       Val* dropout_p,
       Val* is_causal,
       TensorView* philox_seed,
@@ -1029,6 +1029,98 @@ class BlockQuantizationOp : public Expr {
 
   bool isSwizzledScales() const {
     return attribute<bool>(2);
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class GroupedBlockQuantizationOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // This op takes in a high precision input(input)
+  // and returns the quantized output(output) along with the block scaling
+  // factors (output_scales). It can also take as an optional input the global
+  // scaling factor and block size (though we currently only support 16).
+  // logical_index is used for internal implemtation. This op is currently
+  // implemented via a runtime function. During index computation, we compute
+  // the index of the output_scales and pass it to the runtime function.
+  GroupedBlockQuantizationOp(
+      IrBuilderPasskey,
+      Val* output_scales,
+      Val* output,
+      Val* input,
+      Val* input_offsets,
+      Val* output_offsets,
+      BlockScalingFactorLayout layout,
+      Val* k,
+      Val* g,
+      Val* global_scale = nullptr,
+      int64_t block_size = 16,
+      Val* row_idx = nullptr,
+      Val* col_idx = nullptr);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  Val* blockScales() const {
+    return output(1);
+  }
+
+  Val* quantizedOutput() const {
+    return output(0);
+  }
+
+  Val* in() const {
+    return input(0);
+  }
+
+  int64_t blockSize() const {
+    return attribute<int64_t>(0);
+  }
+
+  bool hasGlobalScale() const {
+    if (inputs().size() > 5) {
+      return true;
+    }
+    return false;
+  }
+
+  Val* globalScale() const {
+    if (hasGlobalScale()) {
+      return input(5);
+    }
+    return nullptr;
+  }
+
+  const char* getOpString() const override {
+    return "GroupedBlockQuantizationOp";
+  }
+
+  TensorView* inputOffsets() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* outputOffsets() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // get scalar - column size
+  Val* k() const {
+    return input(3);
+  }
+
+  // get scalar - number of groups
+  Val* g() const {
+    return input(4);
+  }
+
+  // get enum - block scaling factor layout
+  BlockScalingFactorLayout layout() const {
+    return attribute<BlockScalingFactorLayout>(1);
   }
 
   std::string toString(int indent_size = 0) const override;

@@ -1897,6 +1897,130 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall(fn_call, template_args, func_args) << ";\n";
   }
 
+  // Special handling of GroupedBlockQuantizationOp to call the runtime
+  // function.
+  void handle(const GroupedBlockQuantizationOp* grouped_bqop) final {
+    // This operator is plumbed down to a runtime function call.
+    // One of the assumptions is that the device runtime expects
+    // n consecutive inputs per thread. Where n can be 2 or 4 for Float, and 2,
+    // 4, or 8 for Half. We achieve this by having the quantized output tv
+    // scheduled to have the inner dimension grouped by 2/4/8.
+    auto output =
+        grouped_bqop->quantizedOutput()->as<kir::TensorIndex>()->view();
+    auto output_dtype = output->getDataType();
+
+    // Extract group size from the loop domain
+    int64_t group_size = 1;
+    const auto& loop_domain = output->getLoopDomain();
+    for (const auto* domain : loop_domain) {
+      if (domain->getParallelType() == ParallelType::Group &&
+          domain->extent()->isConstInt()) {
+        group_size = domain->extent()->evaluate().as<int64_t>();
+        break;
+      }
+    }
+
+    // Validate group size based on input data type
+    const auto input_dtype = grouped_bqop->in()
+                                 ->as<kir::TensorIndex>()
+                                 ->view()
+                                 ->getDataType()
+                                 .value();
+    const bool is_half_precision =
+        (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half);
+    const bool is_valid_group_size = is_half_precision
+        ? (group_size == 2 || group_size == 4 || group_size == 8)
+        : (group_size == 2 || group_size == 4);
+
+    NVF_ERROR(
+        is_valid_group_size,
+        "Group size should be ",
+        is_half_precision ? "2, 4 or 8" : "2 or 4",
+        " for GroupedBlockQuantizationOp with input type ",
+        input_dtype,
+        ". Found: ",
+        group_size,
+        ". Expr: ",
+        grouped_bqop->toString());
+
+    // Build template arguments
+    ArgumentBuilder template_args;
+    // No global scale is required when quantizing to mxfp8
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      template_args.arg(grouped_bqop->hasGlobalScale());
+    }
+    switch (grouped_bqop->layout()) {
+      case BlockScalingFactorLayout::Block128x4:
+        template_args.arg(32); // block_row_outer
+        template_args.arg(4); // block_row_inner
+        template_args.arg(4); // block_col
+        break;
+      default:
+        NVF_THROW("unrecognized layout");
+        break;
+    }
+    template_args.arg(group_size); // ITEMS_PER_THREAD
+
+    // Build function arguments
+    ArgumentBuilder func_args;
+    func_args.arg(genInline(
+        grouped_bqop->input(0)->as<kir::TensorIndex>()->view())); // input data
+    func_args.arg(genInline(output)); // quantized output
+    func_args.arg(genInline(grouped_bqop->blockScales()
+                                ->as<kir::TensorIndex>()
+                                ->view())); // block scales
+
+    // generate logical index for runtime function
+    func_args.arg(genInline(grouped_bqop->attributeVal(2)));
+    func_args.arg(genInline(grouped_bqop->attributeVal(3)));
+    func_args.arg("&").append(
+        genVariableName(grouped_bqop->inputOffsets()) + "[0]");
+    func_args.arg("&").append(
+        genVariableName(grouped_bqop->outputOffsets()) + "[0]");
+    func_args.arg(genInline(grouped_bqop->k()));
+    func_args.arg(genInline(grouped_bqop->g()));
+
+    if (output_dtype == DataType::Float4_e2m1fn) {
+      func_args.arg(
+          grouped_bqop->hasGlobalScale()
+              ? genInline(grouped_bqop->globalScale())
+              : "{}");
+    }
+
+    // Add swizzled allocation domain parameters if needed
+    // This is always skipped when quantizing to mxfp8
+    auto block_scales_tv =
+        grouped_bqop->blockScales()->as<kir::TensorIndex>()->view();
+    if (block_scales_tv->hasAllocation()) {
+      auto logical_domain =
+          TensorDomain::noReductions(block_scales_tv->getLogicalDomain());
+      auto allocation_domain =
+          TensorDomain::noReductions(block_scales_tv->getAllocationDomain());
+
+      // Swizzled layout: 2D logical -> 5D allocation
+      if (logical_domain.size() == 2 && allocation_domain.size() == 5) {
+        // Add logical domain extent of the inner dimension
+        func_args.arg(genInline(logical_domain[1]->extent()));
+
+        // Add all allocation domain extents
+        for (const auto* alloc_id : allocation_domain) {
+          func_args.arg(genInline(alloc_id->extent()));
+        }
+      }
+    }
+
+    NVF_ERROR(
+        output_dtype == DataType::Float4_e2m1fn,
+        "only nvfp4 output is implemented");
+
+    // Generate the function call
+    indent() << genCall(
+                    "bq::grouped_block_quantize_to_nvfp4",
+                    template_args,
+                    func_args)
+             << ";\n";
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "

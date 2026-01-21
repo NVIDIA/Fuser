@@ -147,8 +147,17 @@ int64_t getUnrollFactor(
       HeuristicDataCacheEntry<HeuristicCompileTime::BlockQuantizationOps>(
           data_cache,
           [fusion]() {
-            return std::make_unique<std::vector<BlockQuantizationOp*>>(
-                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion));
+            auto ops = std::make_unique<std::vector<Expr*>>();
+            // Get BlockQuantizationOp operations
+            auto block_quant_ops =
+                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+            ops->insert(
+                ops->end(), block_quant_ops.begin(), block_quant_ops.end());
+            // Get GroupedBlockQuantizationOp operations
+            auto grouped_ops =
+                ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
+            ops->insert(ops->end(), grouped_ops.begin(), grouped_ops.end());
+            return ops;
           })
           .get();
 
@@ -603,10 +612,15 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
   // We do so as the runtime function for block quantization expects 2/4/8
   // elements per thread.
   auto bq_ops = ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+  auto gbq_ops = ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
   std::vector<TensorView*> nvfp4_quantized_outputs = {};
   for (auto bq_op : bq_ops) {
     nvfp4_quantized_outputs.push_back(
         bq_op->quantizedOutput()->as<TensorView>());
+  }
+  for (auto gbq_op : gbq_ops) {
+    nvfp4_quantized_outputs.push_back(
+        gbq_op->quantizedOutput()->as<TensorView>());
   }
 
   if (pparams->vectorization_factor > 1) {

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
 #include "csrc/exceptions.h"
@@ -23,7 +24,7 @@
 #include "scheduler/tools/cub_utils.h"
 #include "tests/cpp/topk_test_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

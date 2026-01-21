@@ -148,7 +148,7 @@ class ReductionTVs {
 //!  BlockQuantizationOp operations.
 class BlockQuantizationOps {
  public:
-  using DataType = std::vector<BlockQuantizationOp*>;
+  using DataType = std::vector<Expr*>;
   static const CompileTimeEntryType EntryType =
       CompileTimeEntryType::HAS_BLOCK_QUANTIZATION_OPS;
 };

@@ -642,18 +642,18 @@ SdpfaFwdResult sdpfa_fwd(
       out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
   auto* output = IrBuilder::create<TensorView>(attn_td, query->dtype());
 
-  std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
+  std::vector<IterDomain*> logsumexp_dom(ndims_out - 1, nullptr);
   for (auto idx : arange(ndims_out - 2)) {
-    log_sumexp_dom[idx] = ops::newOutputIterDomain(
+    logsumexp_dom[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
-  log_sumexp_dom[ndims_out - 2] =
+  logsumexp_dom[ndims_out - 2] =
       ops::newOutputIterDomain({query_domain.at(ndims_out - 2)});
-  auto* log_sumexp_td = IrBuilder::create<TensorDomain>(
-      log_sumexp_dom,
-      TensorDomain::getContiguityFilledWith(log_sumexp_dom, true));
-  auto* log_sumexp =
-      IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
+  auto* logsumexp_td = IrBuilder::create<TensorDomain>(
+      logsumexp_dom,
+      TensorDomain::getContiguityFilledWith(logsumexp_dom, true));
+  auto* logsumexp =
+      IrBuilder::create<TensorView>(logsumexp_td, DataType::Float);
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
   // API changes in torch 2.7.0
@@ -684,7 +684,7 @@ SdpfaFwdResult sdpfa_fwd(
 
   IrBuilder::create<SdpaFwdOp>(
       output,
-      log_sumexp,
+      logsumexp,
       philox_seed,
       philox_offset,
       query,
@@ -697,7 +697,7 @@ SdpfaFwdResult sdpfa_fwd(
       scale == nullptr
           ? scale
           : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
-  return {output, log_sumexp, philox_seed, philox_offset};
+  return {output, logsumexp, philox_seed, philox_offset};
 }
 
 SdpfaBwdResult sdpfa_bwd(
@@ -706,7 +706,7 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,
@@ -737,12 +737,12 @@ SdpfaBwdResult sdpfa_bwd(
       "expected to be device parallel during expression evaluation: ",
       query_domain);
 
-  auto log_sumexp_domain =
-      TensorDomain::noReductions(log_sumexp->getLogicalDomain());
+  auto logsumexp_domain =
+      TensorDomain::noReductions(logsumexp->getLogicalDomain());
   NVF_CHECK(
-      log_sumexp_domain.size() == query_domain.size() - 1,
-      "Expected log_sumexp to have one less dimension than Q/K/V: ",
-      log_sumexp_domain.size(),
+      logsumexp_domain.size() == query_domain.size() - 1,
+      "Expected logsumexp to have one less dimension than Q/K/V: ",
+      logsumexp_domain.size(),
       " vs ",
       query_domain.size());
 
@@ -780,7 +780,7 @@ SdpfaBwdResult sdpfa_bwd(
       key,
       value,
       output,
-      log_sumexp,
+      logsumexp,
       SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
