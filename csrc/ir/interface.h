@@ -15,7 +15,19 @@
 
 namespace nvfuser {
 
-// IrInterface: Base class for types that provide IrContainer API via
+class IrBuilderPasskey;
+class ExprPasskey;
+class OptOutMutator;
+
+// Passkey for container to register names with statements
+class IrContainerPasskey {
+  friend class IrContainer;
+
+ private:
+  explicit IrContainerPasskey() = default;
+};
+
+// IrContainer: Base class for types that provide IrContainer API via
 // composition
 //
 // This class handles the composition infrastructure and forwarding boilerplate
@@ -31,19 +43,19 @@ namespace nvfuser {
 // pattern for other classes that need IrContainer composition.
 //
 // Note: Uses virtual inheritance to avoid diamond inheritance ambiguity during
-// Stage 2 (when Fusion inherits from both IrInterface and IrContainer).
-class NVF_API IrInterface : public virtual PolymorphicBase {
+// Stage 2 (when Fusion inherits from both IrContainer and IrContainer).
+class NVF_API IrContainer : public virtual PolymorphicBase {
  public:
   // Constructors
-  IrInterface();
+  IrContainer();
 
   // Copy/Move
-  IrInterface(const IrInterface& other);
-  IrInterface(IrInterface&& other) noexcept;
-  IrInterface& operator=(const IrInterface& other);
-  IrInterface& operator=(IrInterface&& other) noexcept;
+  IrContainer(const IrContainer& other);
+  IrContainer(IrContainer&& other) noexcept;
+  IrContainer& operator=(const IrContainer& other);
+  IrContainer& operator=(IrContainer&& other) noexcept;
 
-  ~IrInterface() override;
+  ~IrContainer() override;
 
   //===================================================================
   // IrContainer API Forwarding (Public Methods)
@@ -214,7 +226,7 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
   // should access them through their own container_ member or implement
   // their own public wrappers.
 
-  friend void swap(IrInterface& a, IrInterface& b) noexcept;
+  friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
  private:
   //===================================================================
@@ -225,6 +237,6 @@ class NVF_API IrInterface : public virtual PolymorphicBase {
 };
 
 // Swap support
-void swap(IrInterface& a, IrInterface& b) noexcept;
+void swap(IrContainer& a, IrContainer& b) noexcept;
 
 } // namespace nvfuser
