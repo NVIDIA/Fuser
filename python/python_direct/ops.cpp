@@ -10,7 +10,7 @@
 #include <bindings.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser::python {
 

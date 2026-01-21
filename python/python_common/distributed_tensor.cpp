@@ -10,7 +10,7 @@
 #include <exceptions.h>
 #include <ir/interface_nodes.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

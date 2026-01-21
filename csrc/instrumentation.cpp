@@ -7,7 +7,7 @@
 // clang-format on
 #include <instrumentation.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 #ifdef _WIN32
 #include <c10/util/win32-headers.h>

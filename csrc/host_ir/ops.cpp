@@ -20,7 +20,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <transform_replay.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser::hir {
 

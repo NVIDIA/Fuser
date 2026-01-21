@@ -21,9 +21,9 @@
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
-#include <utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'

@@ -7,7 +7,7 @@
 // clang-format on
 #include <debug.h>
 #include <runtime/executor_params.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 
