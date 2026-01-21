@@ -106,9 +106,9 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
   using std::swap;
 
-  // Swap IrInterface base class (contains IrContainer)
-  // swap(static_cast<IrInterface&>(a), static_cast<IrInterface&>(b));
-  swap(*a.container(), *b.container());
+  // Swap IrContainer base class (contains IrStorage)
+  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  // swap(*a.ir_storage(), *b.ir_storage());
 
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
@@ -124,7 +124,9 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
-  auto ir_cloner = IrContainer::copy(from->container(), to->container());
+
+  // TODO : Review this behaviour.
+  auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
 
   for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
@@ -186,7 +188,7 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Copy constructor
-Fusion::Fusion(const Fusion& other) : IrInterface(other) {
+Fusion::Fusion(const Fusion& other) : IrContainer(other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
@@ -225,7 +227,7 @@ void Fusion::clear() noexcept {
   // Clear container contents instead of destroying it
   // This preserves the container object so Statement pointers don't become
   // dangling
-  container()->clear();
+  ir_storage()->clear();
 
   inputs_.clear();
   outputs_.clear();
@@ -262,7 +264,7 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrInterface::removeExpr(expr);
+  IrContainer::removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -301,7 +303,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrInterface::removeVal(val);
+  IrContainer::removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -665,7 +667,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrInterface::registerVal(val);
+  IrContainer::registerVal(val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -678,7 +680,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrInterface::registerExpr(expr);
+  IrContainer::registerExpr(expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");

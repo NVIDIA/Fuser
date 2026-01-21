@@ -9,7 +9,7 @@
 
 namespace nvfuser {
 
-class IrInterface;
+class IrContainer;
 
 // Passkey for builder to register properties with statements, and to call
 // functions in IrContainer
@@ -17,11 +17,11 @@ class IrBuilderPasskey {
   friend class IrBuilder;
 
  public:
-  IrInterface* const ir_interface_ = nullptr;
+  IrContainer* const ir_container_ = nullptr;
 
  private:
-  explicit IrBuilderPasskey(IrInterface* ir_interface)
-      : ir_interface_(ir_interface) {}
+  explicit IrBuilderPasskey(IrContainer* ir_container)
+      : ir_container_(ir_container) {}
 };
 
 } // namespace nvfuser

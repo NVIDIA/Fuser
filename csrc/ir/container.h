@@ -18,8 +18,6 @@
 
 namespace nvfuser {
 
-class IrInterface; // Forward declaration for parent pointer
-
 class NamedScalar;
 
 class IrStorage {
@@ -142,7 +140,7 @@ class IrStorage {
   friend OptOutMutator;
 
   // Let IrInterface access protected methods for forwarding
-  friend class IrInterface;
+  friend class IrContainer;
 
   // Let Fusion access copy() for Fusion::copy()
   friend class Fusion;
@@ -224,15 +222,15 @@ class IrStorage {
 
   // Parent IrInterface that owns this container (for pure composition pattern)
   // Used by Statement::fusion() to navigate back to owning Fusion
-  IrInterface* parent_ = nullptr;
+  IrContainer* parent_ = nullptr;
 
  public:
-  // Allow IrInterface to set parent pointer
-  void setParent(IrInterface* parent) {
+  // Allow IrContainer to set parent pointer
+  void setParent(IrContainer* parent) {
     parent_ = parent;
   }
 
-  IrInterface* parent() const {
+  IrContainer* parent() const {
     return parent_;
   }
 };

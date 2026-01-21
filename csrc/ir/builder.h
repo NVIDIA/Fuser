@@ -41,24 +41,11 @@ class IrBuilder {
   //! Allocate a new IR node, forwarding the arguments to the appropriate
   //! constructor and registering with the container
   template <class T, class... Args>
-  static T* createInContainer(IrInterface* container, Args&&... args) {
+  static T* createInContainer(IrContainer* container, Args&&... args) {
     NVF_ERROR(container != nullptr, "Need an active container to build IR.");
     T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
 
     container->registerStmt(IrBuilderPasskey(container), node);
-
-    return node;
-  }
-
-  //! Allocate a new IR node, forwarding the arguments to the appropriate
-  //! constructor and registering with the container
-  template <class T, class... Args>
-  static T* createInContainer(IrContainer* container, Args&&... args) {
-    auto parent = container->parent();
-    NVF_ERROR(parent != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(parent), std::forward<Args>(args)...);
-
-    container->registerStmt(IrBuilderPasskey(parent), node);
 
     return node;
   }
