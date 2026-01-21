@@ -312,7 +312,7 @@ namespace {
 class RuntimeReductionFinder : kir::ConstIrVisitor {
  public:
   static bool exists(const Expr* expr) {
-    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    NVF_CHECK(expr->container()->parent()->isA<kir::Kernel>());
     RuntimeReductionFinder finder;
     finder.handle(std::vector<const Expr*>{expr});
     return finder.is_found_;
@@ -1737,7 +1737,7 @@ int64_t GroupedGridWelford::getSmemBufferSize(
     int64_t bdimy,
     int64_t bdimz) const {
   auto out_tv = ir_utils::getTvOutput(this);
-  auto kernel = container()->as<kir::Kernel>();
+  auto kernel = container()->parent()->as<kir::Kernel>();
 
   // By default, the required size is the same as the normal Welford reduction
   if (!useOuterOpt()) {

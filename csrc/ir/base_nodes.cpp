@@ -26,7 +26,7 @@
 namespace nvfuser {
 
 Statement::Statement(IrBuilderPasskey passkey)
-    : ir_container_{passkey.ir_container_} {}
+    : ir_container_{passkey.ir_interface_->container()} {}
 
 Statement::Statement(const Statement* src, IrCloner* ir_cloner)
     : ir_container_{ir_cloner->container()} {}

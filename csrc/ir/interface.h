@@ -15,8 +15,6 @@
 
 namespace nvfuser {
 
-class Fusion;
-
 // IrInterface: Base class for types that provide IrContainer API via
 // composition
 //
