@@ -280,6 +280,9 @@ class NVF_API Kernel final : public Fusion {
   }
 
  protected:
+  using IrContainer::registerExpr;
+  using IrContainer::registerVal;
+
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
 

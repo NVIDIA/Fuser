@@ -21,8 +21,7 @@ Val* numFeatures(
     TensorView* x,
     const std::vector<int64_t>& dims,
     int64_t ndims) {
-  Val* num_features =
-      IrBuilder::createInContainer<Val>(x->container()->parent(), 1.0);
+  Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
   if (ndims == 0) {
     return num_features;
   }
