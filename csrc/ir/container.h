@@ -136,10 +136,13 @@ class IrStorage {
 
   friend void swap(IrStorage& a, IrStorage& b) noexcept;
 
+  // Let IrContainer reset parent_ pointers directly.
+  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+
   // Let IrInterface access protected methods for forwarding
   friend class IrContainer;
 
-  // Let Fusion access copy() for Fusion::copy()
+  // Let Fusion access IrStorage::clear()
   friend class Fusion;
 
   virtual void removeExpr(Expr* expr);
@@ -218,11 +221,6 @@ class IrStorage {
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
  public:
-  // Allow IrContainer to set parent pointer
-  void setParent(IrContainer* parent) {
-    parent_ = parent;
-  }
-
   IrContainer* parent() const {
     NVF_ERROR(
         parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")

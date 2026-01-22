@@ -108,7 +108,6 @@ void swap(Fusion& a, Fusion& b) noexcept {
 
   // Swap IrContainer base class (contains IrStorage)
   swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
-  // swap(*a.ir_storage(), *b.ir_storage());
 
   swap(a.inputs_, b.inputs_);
   swap(a.outputs_, b.outputs_);
@@ -125,8 +124,6 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
 
-  // TODO : Review this behaviour.
-  // auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
   auto ir_cloner = IrContainer::copy(from, to);
 
   for (auto val : from->vals()) {
@@ -189,13 +186,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Copy constructor
-Fusion::Fusion(const Fusion& other) : IrContainer() {
+Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept : IrContainer() {
+Fusion::Fusion(Fusion&& other) noexcept {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
