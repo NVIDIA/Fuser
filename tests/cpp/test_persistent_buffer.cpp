@@ -2302,7 +2302,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(
             deviceSMCount() / 2, // small batch, can't do grid stride loop
             2048), // batch size, less or larger than sm count
-        testing::ValuesIn(Pow2Vals1to1Million)), // hidden size
+        testing::ValuesIn(LLM_EMBEDDING_SIZES)), // hidden size
     [](const testing::TestParamInfo<TmaPersistentTestParams>& info) {
       auto dtype = std::get<0>(info.param);
       auto x = std::get<1>(info.param);
