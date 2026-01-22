@@ -261,7 +261,45 @@ def test_row_parallel_linear_forward_reference_benchmark(
     benchmark.pedantic(benchmark_fn, rounds=5)
 
 
-def column_parallel_linear_forward_reference(
+def column_parallel_linear_forward_cyclic_reference(
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    stream_pool: StreamPool,
+) -> torch.Tensor:
+    d = dist.get_world_size()
+    my_rank = dist.get_rank()
+    out = torch.empty(
+        inp_shard.size(0) * d,
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    out_chunks = out.chunk(d)
+    main_stream = torch.cuda.current_stream()
+    worker_streams = []
+    buffers = [inp_shard] + [torch.empty_like(inp_shard) for _ in range(d - 1)]
+    for i in range(d):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
+        with torch.cuda.stream(worker_stream):
+            if i > 0:
+                send_op = dist.P2POp(dist.isend, buffers[i - 1], (my_rank + 1) % d)
+                recv_op = dist.P2POp(dist.irecv, buffers[i], (my_rank - 1 + d) % d)
+                reqs = dist.batch_isend_irecv([send_op, recv_op])
+                for req in reqs:
+                    req.wait()
+            torch.matmul(
+                buffers[i],
+                weight_shard.T,
+                out=out_chunks[(my_rank - i + d) % d],
+            )
+    for worker_stream in worker_streams:
+        main_stream.wait_stream(worker_stream)
+    return out
+
+
+def column_parallel_linear_forward_uncyclic_reference(
     inp_shard: torch.Tensor,
     weight_shard: torch.Tensor,
     stream_pool: StreamPool,
@@ -302,7 +340,17 @@ def column_parallel_linear_forward_reference(
 
 
 @pytest.mark.mpi
-def test_column_parallel_linear_forward_reference(setup_default_process_group):
+@pytest.mark.parametrize(
+    "column_parallel_linear_fn",
+    [
+        column_parallel_linear_forward_cyclic_reference,
+        column_parallel_linear_forward_uncyclic_reference,
+    ],
+    ids=["cyclic", "uncyclic"],
+)
+def test_column_parallel_linear_forward_reference(
+    setup_default_process_group, column_parallel_linear_fn
+):
     h, t = 6, 24
     d = dist.get_world_size()
     torch.manual_seed(0)
@@ -327,14 +375,22 @@ def test_column_parallel_linear_forward_reference(setup_default_process_group):
     weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
     out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_shard)
     stream_pool = StreamPool()
-    out = column_parallel_linear_forward_reference(inp_shard, weight_shard, stream_pool)
+    out = column_parallel_linear_fn(inp_shard, weight_shard, stream_pool)
     torch.testing.assert_close(out, out_ref)
 
 
 @pytest.mark.mpi
 @pytest.mark.benchmark
+@pytest.mark.parametrize(
+    "column_parallel_linear_fn",
+    [
+        column_parallel_linear_forward_cyclic_reference,
+        column_parallel_linear_forward_uncyclic_reference,
+    ],
+    ids=["cyclic", "uncyclic"],
+)
 def test_column_parallel_linear_forward_reference_benchmark(
-    benchmark, setup_default_process_group
+    benchmark, setup_default_process_group, column_parallel_linear_fn
 ):
     h, t = 8192, 8192
     d = dist.get_world_size()
@@ -346,9 +402,7 @@ def test_column_parallel_linear_forward_reference_benchmark(
     weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
     stream_pool = StreamPool()
     warmup_fn, benchmark_fn = get_benchmark_fns(
-        lambda: column_parallel_linear_forward_reference(
-            inp_shard, weight_shard, stream_pool
-        )
+        lambda: column_parallel_linear_fn(inp_shard, weight_shard, stream_pool)
     )
     warmup_fn()
     benchmark.pedantic(benchmark_fn, rounds=5)
