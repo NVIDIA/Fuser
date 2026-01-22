@@ -63,17 +63,32 @@ IrContainer::~IrContainer() {
 
 // Swap function - enables efficient copy-and-swap idiom
 void swap(IrContainer& a, IrContainer& b) noexcept {
-  using std::swap;
-  swap(a.ir_storage_, b.ir_storage_);
+  // We need to be careful to call IrStorage swap not unique_ptr swap, which
+  // will only swap the ptrs NOT the contents.
+  swap(*(a.ir_storage()), *(b.ir_storage()));
 
   // Fix parent pointers after swapping containers
   // After swap, each IrContainer owns a different IrStorage, so we must update
   // the parent backpointers in those containers to point to their new owners
   if (a.ir_storage_) {
     a.ir_storage()->setParent(&a);
+    // Also update all Statement ir_container_ pointers to point to new owner
+    for (auto val : a.vals()) {
+      val->ir_container_ = &a;
+    }
+    for (auto expr : a.deterministic_exprs()) {
+      expr->ir_container_ = &a;
+    }
   }
   if (b.ir_storage_) {
     b.ir_storage()->setParent(&b);
+    //// Also update all Statement ir_container_ pointers to point to new owner
+    for (auto val : b.vals()) {
+      val->ir_container_ = &b;
+    }
+    for (auto expr : b.deterministic_exprs()) {
+      expr->ir_container_ = &b;
+    }
   }
 }
 
