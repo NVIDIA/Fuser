@@ -43,21 +43,22 @@ class IrContainerPasskey {
 // This eliminates ~20 forwarding methods from Fusion and provides a reusable
 // pattern for other classes that need IrContainer composition.
 class NVF_API IrContainer : public PolymorphicBase {
- public:
+ protected:
   // Constructors
-  IrContainer();
+  explicit IrContainer();
 
   // Copy/Move
-  IrContainer(const IrContainer& other);
-  IrContainer(IrContainer&& other) noexcept;
-  IrContainer& operator=(const IrContainer& other);
-  IrContainer& operator=(IrContainer&& other) noexcept;
+  IrContainer(const IrContainer& other) = delete;
+  IrContainer(IrContainer&& other) noexcept = delete;
+  IrContainer& operator=(const IrContainer& other) = delete;
+  IrContainer& operator=(IrContainer&& other) noexcept = delete;
 
   ~IrContainer() override;
 
   // Let mutator remove Exprs.
   friend OptOutMutator;
 
+ public:
   //===================================================================
   // IrStorage API Forwarding (Public Methods)
   //===================================================================

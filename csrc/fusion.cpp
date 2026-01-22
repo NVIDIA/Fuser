@@ -189,13 +189,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Copy constructor
-Fusion::Fusion(const Fusion& other) : IrContainer(other) {
+Fusion::Fusion(const Fusion& other) : IrContainer() {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept {
+Fusion::Fusion(Fusion&& other) noexcept : IrContainer() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
