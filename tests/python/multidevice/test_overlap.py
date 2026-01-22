@@ -277,22 +277,26 @@ def column_parallel_linear_forward_reference(
     out_chunks = out.chunk(d)
     main_stream = torch.cuda.current_stream()
     worker_streams = []
-    buffers = [inp_shard] + [torch.empty_like(inp_shard) for _ in range(d - 1)]
     for i in range(d):
         worker_stream = stream_pool.get(i)
         worker_streams.append(worker_stream)
         worker_stream.wait_stream(main_stream)
         with torch.cuda.stream(worker_stream):
-            if i > 0:
-                send_op = dist.P2POp(dist.isend, buffers[i - 1], (my_rank + 1) % d)
-                recv_op = dist.P2POp(dist.irecv, buffers[i], (my_rank - 1 + d) % d)
-                req = dist.batch_isend_irecv([send_op, recv_op])
+            if i == 0:
+                buffer = inp_shard
+            else:
+                send_dst = (my_rank - i + d) % d
+                recv_src = (my_rank + i) % d
+                buffer = torch.empty_like(inp_shard)
+                send_req = dist.P2POp(dist.isend, inp_shard, send_dst)
+                recv_req = dist.P2POp(dist.irecv, buffer, recv_src)
+                req = dist.batch_isend_irecv([send_req, recv_req])
                 for req in req:
                     req.wait()
             torch.matmul(
-                buffers[i],
+                buffer,
                 weight_shard.T,
-                out=out_chunks[(my_rank - i + d) % d],
+                out=out_chunks[(my_rank + i) % d],
             )
     for worker_stream in worker_streams:
         main_stream.wait_stream(worker_stream)
