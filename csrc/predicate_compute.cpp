@@ -486,17 +486,35 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 namespace {
 
 // Create elect-sync to pick a thread
+// Computes the appropriate mask based on blockDim.x at runtime
+// Note: elect_sync is a warp-level primitive, so mask is capped at 32 threads
 Val* createElectSyncExpr() {
-  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+  // Get TIDx extent from parallel dimension map
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->info().parallelDimensionMap();
+  Val* tidx_extent = pdim_map.get(ParallelType::TIDx);
+
+  // Cap at warp_size since elect_sync operates at warp granularity
+  Val* warp_size_val = IrBuilder::create<Val>(32, DataType::Int);
+  Val* mask_extent = SimplifyingIrBuilder::minExpr(tidx_extent, warp_size_val);
+
+  // Compute mask = (1u << min(blockDim.x, 32)) - 1u
+  // This creates a mask with min(blockDim.x, 32) number of 1s
+  // e.g., blockDim.x=8  -> mask=0xFF,       blockDim.x=16 -> mask=0xFFFF
+  //       blockDim.x=32 -> mask=0xFFFFFFFF, blockDim.x=64 -> mask=0xFFFFFFFF
+  Val* one_uint32 = IrBuilder::create<Val>(1u, DataType::UInt32);
+  Val* mask_extent_uint32 =
+      IrBuilder::maybeCastExpr(DataType::UInt32, mask_extent);
+  Val* shifted = IrBuilder::lShiftExpr(one_uint32, mask_extent_uint32);
+  Val* mask_val = SimplifyingIrBuilder::subExpr(shifted, one_uint32);
+
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-  IrBuilder::create<UnaryOp>(
-      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  IrBuilder::create<UnaryOp>(UnaryOpType::ElectSync, elect_sync_val, mask_val);
   return elect_sync_val;
 }
 
 // Select first warp of threads along TIDx axis and use ptx::elect_sync if not
 // warp collective.
-// TODO If TIDx is known at compile-time, generate custom mask.
 Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
   Val* select_first_warp = IrBuilder::ltExpr(
@@ -514,7 +532,6 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
 // ptx::elect_sync if not warp collective.
-// TODO If TIDx is known at compile-time, generate custom mask.
 Val* createElectSyncPredicateAsync() {
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);

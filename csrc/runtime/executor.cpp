@@ -705,16 +705,6 @@ void KernelExecutor::initializeExecutorEntry(
   executor_utils::validateIndexCasts(
       compiled_kernel_->kernel(), expr_eval, launch_params);
 
-  // Check that a full warp exists in blockDim.x if the kernel contains
-  // ElectSync predicate.
-  constexpr int64_t warp_size = 32;
-  NVF_ERROR(
-      !compiled_kernel_->kernel()->summary().has_elect_sync_predicate ||
-          launch_params.bdimx() >= warp_size,
-      "This cuda kernel contains electSync predicate. "
-      "Expected blockDim.x >= 32 but found ",
-      launch_params.bdimx());
-
   NVF_ERROR_LE(
       std::ssize(compiled_kernel_->kernel()->inputs()),
       args.size(),
