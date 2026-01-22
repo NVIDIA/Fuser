@@ -11,9 +11,12 @@
 #include <tuple>
 #include <vector>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 
 #include "multidevice/communicator.h"
+#include "multidevice/cuda_p2p.h"
+#include "multidevice/symmetric_tensor.h"
 #include "utils.h"
 
 namespace nvfuser {
@@ -114,53 +117,160 @@ DispatchResult doMoEDispatch(
       my_rank,
       at::TensorOptions().dtype(at::kLong).device(x.device()));
 
-  // For CPU-initiated comms (e.g. NCCL), split metadata must live on CPU, so we
-  // sync/copy here. GPU-initiated comms can avoid this extra sync.
+  // Split metadata is exchanged via CPU (TCPStore), so we sync/copy here.
   auto rank_for_token_cpu = rank_for_token.to(at::kCPU);
   auto n_tokens_to_rank_cpu =
       at::bincount(rank_for_token_cpu, {}, world_size).to(at::kLong);
   auto n_tokens_to_rank = n_tokens_to_rank_cpu.to(x.device());
-  auto n_tokens_from_rank = at::empty_like(n_tokens_to_rank);
+  if (backend == CommunicatorBackend::kNccl) {
+    NVF_CHECK(
+        communicator->isBackendAvailable(backend),
+        "Backend not available for dispatch: ",
+        backend);
+    auto* pg = communicator->getWorld(backend);
+    NVF_CHECK(pg != nullptr, "Dispatch backend is null.");
+
+    auto n_tokens_from_rank = at::empty_like(n_tokens_to_rank);
+    std::vector<int64_t> one_split(world_size, 1);
+    waitWork(pg->alltoall_base(
+        n_tokens_from_rank, n_tokens_to_rank, one_split, one_split));
+
+    auto input_splits = toSplitSizes(n_tokens_to_rank);
+    auto output_splits = toSplitSizes(n_tokens_from_rank);
+    auto total_recv = sumSplitSizes(output_splits);
+
+    auto recv_x = at::empty({total_recv, hidden}, x.options());
+    auto recv_topk_idx = at::empty({total_recv}, topk_idx_flat.options());
+    auto recv_topk_weights =
+        at::empty({total_recv}, topk_weights_flat.options());
+    auto recv_src_idx = at::empty({total_recv}, send_src_idx.options());
+    auto recv_src_rank = at::empty({total_recv}, send_src_rank.options());
+
+    waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_topk_idx, send_topk_idx, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_topk_weights, send_topk_weights, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_src_idx, send_src_idx, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_src_rank, send_src_rank, output_splits, input_splits));
+
+    const int64_t experts_per_rank = num_experts / world_size;
+    auto local_expert = recv_topk_idx - my_rank * experts_per_rank;
+    auto expert_sorted = local_expert.sort();
+    auto expert_order = std::get<1>(expert_sorted);
+    recv_x = recv_x.index_select(0, expert_order);
+    recv_topk_idx = recv_topk_idx.index_select(0, expert_order);
+    recv_topk_weights = recv_topk_weights.index_select(0, expert_order);
+    recv_src_idx = recv_src_idx.index_select(0, expert_order);
+    recv_src_rank = recv_src_rank.index_select(0, expert_order);
+
+    return DispatchResult{
+        recv_x,
+        recv_topk_idx,
+        recv_topk_weights,
+        recv_src_idx,
+        recv_src_rank,
+        n_tokens_to_rank,
+        n_tokens_from_rank};
+  }
 
   NVF_CHECK(
-      backend == CommunicatorBackend::kNccl,
-      "Only NCCL backend is supported for MoEDispatch.");
-  CommunicatorBackend actual_backend = backend;
-  NVF_CHECK(
-      communicator->isBackendAvailable(actual_backend),
-      "Backend not available for dispatch: ",
-      actual_backend);
-  auto* pg = communicator->getWorld(actual_backend);
-  NVF_CHECK(pg != nullptr, "Dispatch backend is null.");
+      backend == CommunicatorBackend::kCuda,
+      "Only CUDA and NCCL backends are supported for MoEDispatch.");
 
-  // Exchange per-rank token counts to build split sizes for alltoall.
-  std::vector<int64_t> one_split(world_size, 1);
-  waitWork(pg->alltoall_base(
-      n_tokens_from_rank, n_tokens_to_rank, one_split, one_split));
+  auto metadata =
+      prepareAlltoallvMetadata(n_tokens_to_rank, "moe_dispatch_counts");
+  auto n_tokens_from_rank = metadata.recv_counts;
+  const int64_t total_recv = metadata.total_recv;
+  const int64_t max_recv = metadata.max_recv;
 
-  // Convert count tensors to CPU split vectors and size the receive buffers.
-  auto input_splits = toSplitSizes(n_tokens_to_rank);
-  auto output_splits = toSplitSizes(n_tokens_from_rank);
-  auto total_recv = sumSplitSizes(output_splits);
+  // Allocate symmetric buffers for send/recv payloads.
+  auto send_x_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total, hidden}, x.scalar_type(), x.device());
+  send_x_sym.narrow(0, 0, num_tokens).copy_(send_x);
+  auto send_topk_idx_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, topk_idx_flat.scalar_type(), x.device());
+  send_topk_idx_sym.narrow(0, 0, num_tokens).copy_(send_topk_idx);
+  auto send_topk_weights_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, topk_weights_flat.scalar_type(), x.device());
+  send_topk_weights_sym.narrow(0, 0, num_tokens).copy_(send_topk_weights);
+  auto send_src_idx_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, send_src_idx.scalar_type(), x.device());
+  send_src_idx_sym.narrow(0, 0, num_tokens).copy_(send_src_idx);
+  auto send_src_rank_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, send_src_rank.scalar_type(), x.device());
+  send_src_rank_sym.narrow(0, 0, num_tokens).copy_(send_src_rank);
 
-  // Allocate receive buffers for payloads and metadata.
-  // TODO: support preallocated buffers.
-  auto recv_x = at::empty({total_recv, hidden}, x.options());
-  auto recv_topk_idx = at::empty({total_recv}, topk_idx_flat.options());
-  auto recv_topk_weights = at::empty({total_recv}, topk_weights_flat.options());
-  auto recv_src_idx = at::empty({total_recv}, send_src_idx.options());
-  auto recv_src_rank = at::empty({total_recv}, send_src_rank.options());
+  auto recv_x_sym = SymmetricTensor::allocate(
+      {max_recv, hidden}, x.scalar_type(), x.device());
+  auto recv_topk_idx_sym = SymmetricTensor::allocate(
+      {max_recv}, topk_idx_flat.scalar_type(), x.device());
+  auto recv_topk_weights_sym = SymmetricTensor::allocate(
+      {max_recv}, topk_weights_flat.scalar_type(), x.device());
+  auto recv_src_idx_sym = SymmetricTensor::allocate(
+      {max_recv}, send_src_idx.scalar_type(), x.device());
+  auto recv_src_rank_sym = SymmetricTensor::allocate(
+      {max_recv}, send_src_rank.scalar_type(), x.device());
 
-  // Alltoall exchange payloads with per-rank splits.
-  waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_topk_idx, send_topk_idx, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_topk_weights, send_topk_weights, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_src_idx, send_src_idx, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_src_rank, send_src_rank, output_splits, input_splits));
+  SymmetricTensor recv_x_handle(recv_x_sym);
+  SymmetricTensor recv_topk_idx_handle(recv_topk_idx_sym);
+  SymmetricTensor recv_topk_weights_handle(recv_topk_weights_sym);
+  SymmetricTensor recv_src_idx_handle(recv_src_idx_sym);
+  SymmetricTensor recv_src_rank_handle(recv_src_rank_sym);
+  recv_x_handle.setupRemoteHandles("moe_dispatch_recv_x");
+  recv_topk_idx_handle.setupRemoteHandles("moe_dispatch_recv_topk_idx");
+  recv_topk_weights_handle.setupRemoteHandles("moe_dispatch_recv_topk_weights");
+  recv_src_idx_handle.setupRemoteHandles("moe_dispatch_recv_src_idx");
+  recv_src_rank_handle.setupRemoteHandles("moe_dispatch_recv_src_rank");
+
+  std::vector<void*> recv_x_ptrs(world_size);
+  std::vector<void*> recv_topk_idx_ptrs(world_size);
+  std::vector<void*> recv_topk_weights_ptrs(world_size);
+  std::vector<void*> recv_src_idx_ptrs(world_size);
+  std::vector<void*> recv_src_rank_ptrs(world_size);
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    recv_x_ptrs[rank] = recv_x_handle.remoteTensor(rank).data_ptr();
+    recv_topk_idx_ptrs[rank] =
+        recv_topk_idx_handle.remoteTensor(rank).data_ptr();
+    recv_topk_weights_ptrs[rank] =
+        recv_topk_weights_handle.remoteTensor(rank).data_ptr();
+    recv_src_idx_ptrs[rank] = recv_src_idx_handle.remoteTensor(rank).data_ptr();
+    recv_src_rank_ptrs[rank] =
+        recv_src_rank_handle.remoteTensor(rank).data_ptr();
+  }
+
+  auto stream =
+      static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
+  alltoallvWithCudaBackend(
+      send_x_sym, recv_x_sym, metadata, recv_x_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_topk_idx_sym,
+      recv_topk_idx_sym,
+      metadata,
+      recv_topk_idx_ptrs,
+      stream);
+  alltoallvWithCudaBackend(
+      send_topk_weights_sym,
+      recv_topk_weights_sym,
+      metadata,
+      recv_topk_weights_ptrs,
+      stream);
+  alltoallvWithCudaBackend(
+      send_src_idx_sym, recv_src_idx_sym, metadata, recv_src_idx_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_src_rank_sym,
+      recv_src_rank_sym,
+      metadata,
+      recv_src_rank_ptrs,
+      stream);
+  alltoallvBarrier("moe_dispatch_counts");
+  auto recv_x = recv_x_sym.narrow(0, 0, total_recv);
+  auto recv_topk_idx = recv_topk_idx_sym.narrow(0, 0, total_recv);
+  auto recv_topk_weights = recv_topk_weights_sym.narrow(0, 0, total_recv);
+  auto recv_src_idx = recv_src_idx_sym.narrow(0, 0, total_recv);
+  auto recv_src_rank = recv_src_rank_sym.narrow(0, 0, total_recv);
 
   // Locally reorder by expert id so each rank processes contiguous experts.
   const int64_t experts_per_rank = num_experts / world_size;
@@ -212,6 +322,7 @@ CombineResult doMoECombine(
       n_tokens_from_rank.numel() == communicator->size(),
       "n_tokens_from_rank must match world size.");
 
+  const int64_t world_size = communicator->size();
   c10::cuda::CUDAGuard device_guard(x.device());
 
   // Sort by source rank so alltoall can send contiguous chunks per rank.
@@ -222,32 +333,100 @@ CombineResult doMoECombine(
   auto send_src_idx = src_idx.index_select(0, sorted_indices);
 
   // Split sizes come from dispatch counts.
-  auto input_splits = toSplitSizes(n_tokens_from_rank);
-  auto output_splits = toSplitSizes(n_tokens_to_rank);
-  auto total_recv = sumSplitSizes(output_splits);
+  if (backend == CommunicatorBackend::kNccl) {
+    NVF_CHECK(
+        communicator->isBackendAvailable(backend),
+        "Backend not available for combine: ",
+        backend);
+    auto* pg = communicator->getWorld(backend);
+    NVF_CHECK(pg != nullptr, "Combine backend is null.");
+
+    auto input_splits = toSplitSizes(n_tokens_from_rank);
+    auto output_splits = toSplitSizes(n_tokens_to_rank);
+    auto total_recv = sumSplitSizes(output_splits);
+    auto hidden = x.size(1);
+
+    auto recv_x = at::empty({total_recv, hidden}, x.options());
+    auto recv_topk_weights = at::empty({total_recv}, topk_weights.options());
+    auto recv_src_idx = at::empty({total_recv}, src_idx.options());
+
+    waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_topk_weights, send_topk_weights, output_splits, input_splits));
+    waitWork(pg->alltoall_base(
+        recv_src_idx, send_src_idx, output_splits, input_splits));
+
+    auto combined_x = at::empty({total_recv, hidden}, x.options());
+    combined_x.index_copy_(0, recv_src_idx, recv_x);
+    auto combined_topk_weights =
+        at::empty({total_recv}, topk_weights.options());
+    combined_topk_weights.index_copy_(0, recv_src_idx, recv_topk_weights);
+
+    return CombineResult{combined_x, combined_topk_weights};
+  }
+
+  NVF_CHECK(
+      backend == CommunicatorBackend::kCuda,
+      "Only CUDA and NCCL backends are supported for MoECombine.");
+
+  auto metadata =
+      prepareAlltoallvMetadata(n_tokens_from_rank, "moe_combine_counts");
+  const int64_t total_recv = metadata.total_recv;
+  const int64_t max_recv = metadata.max_recv;
   auto hidden = x.size(1);
 
-  NVF_CHECK(
-      backend == CommunicatorBackend::kNccl,
-      "Only NCCL backend is supported for MoECombine.");
-  CommunicatorBackend actual_backend = backend;
-  NVF_CHECK(
-      communicator->isBackendAvailable(actual_backend),
-      "Backend not available for combine: ",
-      actual_backend);
-  auto* pg = communicator->getWorld(actual_backend);
-  NVF_CHECK(pg != nullptr, "Combine backend is null.");
+  // Allocate symmetric buffers for send/recv payloads.
+  auto send_x_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total, hidden}, x.scalar_type(), x.device());
+  send_x_sym.narrow(0, 0, x.size(0)).copy_(send_x);
+  auto send_topk_weights_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, topk_weights.scalar_type(), x.device());
+  send_topk_weights_sym.narrow(0, 0, x.size(0)).copy_(send_topk_weights);
+  auto send_src_idx_sym = SymmetricTensor::allocate(
+      {metadata.max_send_total}, src_idx.scalar_type(), x.device());
+  send_src_idx_sym.narrow(0, 0, x.size(0)).copy_(send_src_idx);
 
-  // Allocate receive buffers and exchange payloads back to source ranks.
-  auto recv_x = at::empty({total_recv, hidden}, x.options());
-  auto recv_topk_weights = at::empty({total_recv}, topk_weights.options());
-  auto recv_src_idx = at::empty({total_recv}, src_idx.options());
+  auto recv_x_sym = SymmetricTensor::allocate(
+      {max_recv, hidden}, x.scalar_type(), x.device());
+  auto recv_topk_weights_sym = SymmetricTensor::allocate(
+      {max_recv}, topk_weights.scalar_type(), x.device());
+  auto recv_src_idx_sym =
+      SymmetricTensor::allocate({max_recv}, src_idx.scalar_type(), x.device());
 
-  waitWork(pg->alltoall_base(recv_x, send_x, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_topk_weights, send_topk_weights, output_splits, input_splits));
-  waitWork(pg->alltoall_base(
-      recv_src_idx, send_src_idx, output_splits, input_splits));
+  SymmetricTensor recv_x_handle(recv_x_sym);
+  SymmetricTensor recv_topk_weights_handle(recv_topk_weights_sym);
+  SymmetricTensor recv_src_idx_handle(recv_src_idx_sym);
+  recv_x_handle.setupRemoteHandles("moe_combine_recv_x");
+  recv_topk_weights_handle.setupRemoteHandles("moe_combine_recv_topk_weights");
+  recv_src_idx_handle.setupRemoteHandles("moe_combine_recv_src_idx");
+
+  std::vector<void*> recv_x_ptrs(world_size);
+  std::vector<void*> recv_topk_weights_ptrs(world_size);
+  std::vector<void*> recv_src_idx_ptrs(world_size);
+  for (int64_t rank = 0; rank < world_size; ++rank) {
+    recv_x_ptrs[rank] = recv_x_handle.remoteTensor(rank).data_ptr();
+    recv_topk_weights_ptrs[rank] =
+        recv_topk_weights_handle.remoteTensor(rank).data_ptr();
+    recv_src_idx_ptrs[rank] = recv_src_idx_handle.remoteTensor(rank).data_ptr();
+  }
+
+  auto stream =
+      static_cast<CUstream>(at::cuda::getDefaultCUDAStream().stream());
+  alltoallvWithCudaBackend(
+      send_x_sym, recv_x_sym, metadata, recv_x_ptrs, stream);
+  alltoallvWithCudaBackend(
+      send_topk_weights_sym,
+      recv_topk_weights_sym,
+      metadata,
+      recv_topk_weights_ptrs,
+      stream);
+  alltoallvWithCudaBackend(
+      send_src_idx_sym, recv_src_idx_sym, metadata, recv_src_idx_ptrs, stream);
+  alltoallvBarrier("moe_combine_counts");
+
+  auto recv_x = recv_x_sym.narrow(0, 0, total_recv);
+  auto recv_topk_weights = recv_topk_weights_sym.narrow(0, 0, total_recv);
+  auto recv_src_idx = recv_src_idx_sym.narrow(0, 0, total_recv);
 
   // Scatter by original token index to restore local order.
   auto combined_x = at::empty({total_recv, hidden}, x.options());

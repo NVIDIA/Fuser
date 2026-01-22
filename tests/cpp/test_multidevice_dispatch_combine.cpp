@@ -21,15 +21,21 @@
 namespace nvfuser {
 namespace hir {
 
-class DispatchCombineTest : public MultiDeviceTest {};
+class DispatchCombineTest
+    : public MultiDeviceTest,
+      public ::testing::WithParamInterface<CommunicatorBackend> {};
 
-TEST_F(DispatchCombineTest, DispatchCombineTop1) {
+TEST_P(DispatchCombineTest, DispatchCombineTop1) {
   if (!communicator_->is_available() || communicator_->size() < 2) {
     GTEST_SKIP() << "This test needs at least 2 ranks.";
   }
 
   const int64_t world_size = communicator_->size();
   const int64_t my_rank = communicator_->deviceId();
+  const auto backend = GetParam();
+  if (!communicator_->isBackendAvailable(CommunicatorBackend::kNccl)) {
+    GTEST_SKIP() << "Backend " << backend << " not available.";
+  }
   constexpr int64_t kNumExpertsPerRank = 2;
   const int64_t num_experts = world_size * kNumExpertsPerRank;
   constexpr int64_t kNumTokens = 4;
@@ -64,7 +70,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       in_topk_weights,
       in_is_token_in_rank,
       num_experts,
-      CommunicatorBackend::kNccl);
+      backend);
 
   auto* combined_x = makeSymbolicTensor(2);
   auto* combined_topk_weights = makeSymbolicTensor(1);
@@ -77,7 +83,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
-      CommunicatorBackend::kNccl);
+      backend);
 
   hic->pushBackTopLevelExprs(dispatch);
   hic->pushBackTopLevelExprs(combine);
@@ -119,10 +125,14 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
        {in_topk_weights, topk_weights},
        {in_is_token_in_rank, is_token_in_rank}});
   auto combined = outputs.back().as<at::Tensor>();
-
   EXPECT_TRUE(at::allclose(combined, x))
       << "Dispatch/Combine mismatch on rank " << my_rank;
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    DispatchCombineBackends,
+    DispatchCombineTest,
+    ::testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kCuda));
 
 } // namespace hir
 } // namespace nvfuser

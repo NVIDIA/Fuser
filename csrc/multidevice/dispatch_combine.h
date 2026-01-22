@@ -38,7 +38,7 @@ struct CombineResult {
 //   is_token_in_rank: One-hot token-to-rank assignment, shape [T, R].
 //   num_experts: Total experts across all ranks (must be divisible by R).
 //   communicator: Communicator for alltoall exchange.
-//   backend: Communication backend (only NCCL is supported for now).
+//   backend: Communication backend (CUDA or NCCL).
 //
 // Returns:
 //   DispatchResult with recv_* tensors on this rank.
@@ -86,7 +86,7 @@ NVF_API DispatchResult doMoEDispatch(
 //   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].
 //   n_tokens_from_rank: Tokens received from each rank (from dispatch), shape
 //   [R]. communicator: Communicator for alltoall exchange. backend:
-//   Communication backend (only NCCL is supported for now).
+//   Communication backend (CUDA or NCCL).
 //
 // Returns:
 //   CombineResult with tokens restored to original order on this rank.
