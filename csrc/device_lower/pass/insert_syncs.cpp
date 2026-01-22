@@ -507,8 +507,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           GpuLower::current()->nonCircularBufferedTmaMbarrierMap();
 
       pending_tma_waits_.push_back(IrBuilder::create<kir::MBarrierWaitParity>(
-          non_cb_tma_mbarrier_map.at(expr),
-          expr->fusion()->zeroVal(DataType::UInt32)));
+          non_cb_tma_mbarrier_map.at(expr), getParityValue()));
       // Increment counter and flush if this is the last TMA load
       if (++seen_non_cb_tma_loads_ == total_non_cb_tma_loads_) {
         flushPendingTmaWaits(expr, scope_.empty() ? nullptr : scope_.back());
@@ -831,11 +830,27 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         last_tma_load_expr != nullptr,
         "Expected a TMA load expression for pending waits");
 
-    // Insert all pending waits after the last TMA load
-    // We insert them in reverse order so they appear in the original order
+    // The outermost Bulk for-loop is at
+    // for_loop_stack_[non_bulk_loop_stack_.size()] if we're inside any Bulk
+    // loops, otherwise there are no Bulk loops
+    NVF_ERROR(
+        for_loop_stack_.size() > non_bulk_loop_stack_.size(),
+        "Expected to be inside Bulk loops when flushing TMA waits");
+
+    kir::ForLoop* bulk_loop = for_loop_stack_[non_bulk_loop_stack_.size()];
+
+    // Determine the scope where we should insert after the bulk loop
+    // The scope is the body of the last non-Bulk loop before we entered
+    // the Bulk loop, or global scope if there are no non-Bulk loops
+    Scope* insert_scope = non_bulk_loop_stack_.empty()
+        ? nullptr
+        : &non_bulk_loop_stack_.back()->body();
+
+    // Place waits after the outermost Bulk for-loop
+    // Insert waits in reverse order so they appear in the original order
     for (auto it = pending_tma_waits_.rbegin(); it != pending_tma_waits_.rend();
          ++it) {
-      registerInsertAfter(last_tma_load_expr, *it, last_tma_load_scope);
+      registerInsertAfter(bulk_loop, *it, insert_scope);
     }
 
     pending_tma_waits_.clear();
@@ -1021,6 +1036,66 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
   //! Number of non-circular buffered TMA loads encountered so far
   size_t seen_non_cb_tma_loads_ = 0;
+
+  //! Track for loop stack to compute parity based on loop index
+  std::vector<kir::ForLoop*> for_loop_stack_;
+
+  //! Track non-Bulk for loop stack (used for parity computation and scope
+  //! lookup)
+  std::vector<kir::ForLoop*> non_bulk_loop_stack_;
+
+  //! Helper method to get parity value for mbarrier wait operations.
+  //! If within a non-Bulk for loop, parity is computed as
+  //! (linearized_loop_index % 2). The linearized index considers all non-Bulk
+  //! serial loops in the stack using
+  //! CircularBufferInfo::getLinearIndexRelativeForLoopStack.
+  //! Otherwise, parity is 0.
+  Val* getParityValue() {
+    if (non_bulk_loop_stack_.empty()) {
+      // Not in a non-Bulk for loop, use zero parity
+      return IrBuilder::create<Val>(0, DataType::UInt32);
+    }
+
+    // Compute linearized index across non-Bulk serial for-loops in the stack
+    // This handles nested loops correctly by treating them as a flattened
+    // multi-dimensional iteration space, reusing the same logic as circular
+    // buffer parity calculation.
+    Val* linear_index =
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getLinearIndexRelativeForLoopStack(
+                non_bulk_loop_stack_,
+                /*insertion_position=*/non_bulk_loop_stack_.size(),
+                /*start=*/0);
+
+    // Compute parity as (linear_index % 2)
+    Val* two = IrBuilder::create<Val>(2, DataType::Index);
+    Val* parity = IrBuilder::maybeCastExpr(
+        DataType::UInt32, SimplifyingIrBuilder::modExpr(linear_index, two));
+
+    return parity;
+  }
+
+  void handle(kir::ForLoop* for_loop) final {
+    // Push loop onto stack
+    for_loop_stack_.push_back(for_loop);
+
+    // Also push to non_bulk_loop_stack_ if not a Bulk loop
+    bool is_bulk_loop =
+        for_loop->iter_domain()->getParallelType() == ParallelType::Bulk;
+    if (!is_bulk_loop) {
+      non_bulk_loop_stack_.push_back(for_loop);
+    }
+
+    // Process the expressions in the for loop
+    kir::ExprMutator::handle(for_loop);
+
+    // Pop loop from stacks
+    for_loop_stack_.pop_back();
+    if (!is_bulk_loop) {
+      non_bulk_loop_stack_.pop_back();
+    }
+  }
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& loop_nests) {

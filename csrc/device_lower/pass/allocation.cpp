@@ -1347,7 +1347,9 @@ class AllocationInserter : public kir::ExprMutator {
       // For single mbarrier, invalidate directly without loop
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(non_cb_tma_mbarriers_);
-      exprs_.push_back(mbarrier_inval);
+      Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      exprs_.push_back(pred_mbarrier_inval);
     } else {
       // For multiple mbarriers, create a for loop to invalidate all
       auto fl = ir_utils::createRangeLoop(non_cb_tma_index_);
@@ -1355,7 +1357,9 @@ class AllocationInserter : public kir::ExprMutator {
           non_cb_tma_mbarriers_, fl->index());
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
-      fl->body().pushBack(mbarrier_inval);
+      Expr* pred_mbarrier_inval = mbarrier_inval->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+      fl->body().pushBack(pred_mbarrier_inval);
       exprs_.push_back(fl);
     }
   }
