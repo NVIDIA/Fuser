@@ -1290,6 +1290,12 @@ void clearMemorySpace(Fusion* fusion) {
 namespace {
 
 TensorView* findFirstFusionInput(Fusion* fusion) {
+  // short-circuit
+  if (fusion->inputs().size() == 1) {
+    Val* v = fusion->inputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
   std::unordered_set<Val*> tv_inputs;
   std::copy_if(
       fusion->inputs().begin(),
@@ -1302,6 +1308,35 @@ TensorView* findFirstFusionInput(Fusion* fusion) {
           return tv_inputs.count(v) > 0;
         });
     if (iter == e->inputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
+TensorView* findLastFusionOutput(Fusion* fusion) {
+  // short-circuit
+  if (fusion->outputs().size() == 1) {
+    Val* v = fusion->outputs().front();
+    return (v->isA<TensorView>()) ? v->as<TensorView>() : nullptr;
+  }
+
+  std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
+  std::unordered_set<Val*> tv_outputs;
+  std::copy_if(
+      terminating_outputs.begin(),
+      terminating_outputs.end(),
+      std::inserter(tv_outputs, tv_outputs.end()),
+      [](Val* v) { return v->isA<TensorView>(); });
+
+  auto exprs = StmtSort::getExprs(fusion);
+  for (Expr* e : exprs | std::views::reverse) {
+    auto iter =
+        std::find_if(e->outputs().begin(), e->outputs().end(), [&](Val* v) {
+          return tv_outputs.count(v) > 0;
+        });
+    if (iter == e->outputs().end()) {
       continue;
     }
     return (*iter)->as<TensorView>();
@@ -1336,30 +1371,28 @@ void addPdlGridWait(
 }
 
 void addPdlGridLaunch(
-    Fusion* fusion,
-    const std::vector<Val*>& original_outputs,
-    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs,
+    TensorView* original_output,
+    TensorView* cached_output,
     bool enable_pdl) {
   // PDL is only supported for Hopper+ Devices.
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
     return;
   }
 
-  if (original_outputs.empty()) {
+  if (!enable_pdl) {
     return;
   }
 
-  std::vector<Val*> terminating_outputs = fusion->getTerminatingOutputs();
-  NVF_ERROR(original_outputs.size() == cached_outputs.size());
-  for (auto&& [original, cached] : zip(original_outputs, cached_outputs)) {
-    if (std::count(
-            terminating_outputs.begin(), terminating_outputs.end(), original) ==
-        0) {
-      continue;
-    }
-    TensorView* grid_launch = launch_dependent_grid({cached.first});
-    original->addDependency(grid_launch);
+  if (original_output == nullptr) {
+    return;
   }
+
+  if (cached_output == nullptr) {
+    return;
+  }
+
+  TensorView* grid_launch = launch_dependent_grid({cached_output});
+  original_output->addDependency(grid_launch);
 }
 
 } // namespace
@@ -1457,7 +1490,9 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
     bool unroll,
     bool enable_pdl) {
-  std::vector<Val*> original_outputs;
+  TensorView* last_fusion_output = findLastFusionOutput(fusion);
+  TensorView* cached_last_fusion_output = nullptr;
+
   std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
@@ -1496,11 +1531,13 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     if (unroll) {
       auto cached_output = output->cacheBefore();
       cached_outputs.emplace_back(cached_output, output_idx);
-      original_outputs.push_back(output);
+      if (output == last_fusion_output) {
+        cached_last_fusion_output = cached_output;
+      }
     }
   }
 
-  addPdlGridLaunch(fusion, original_outputs, cached_outputs, enable_pdl);
+  addPdlGridLaunch(last_fusion_output, cached_last_fusion_output, enable_pdl);
 
   return cached_outputs;
 }
