@@ -1574,10 +1574,17 @@ TEST_F(TMAMiscTest, StoreSyncInsertion) {
     GpuLower gpulw(&fusion);
     auto kernel = gpulw.run();
 
+    // return 2nd for loop, the 1st for loop is for mbarrier init
+    int count = 0;
     auto fl_it = std::find_if(
         kernel->topLevelExprs().begin(),
         kernel->topLevelExprs().end(),
-        [](Expr* expr) { return expr->isA<kir::ForLoop>(); });
+        [&count](Expr* expr) {
+          if (expr->isA<kir::ForLoop>()) {
+            count++;
+          }
+          return count == 2;
+        });
     ASSERT_NE(fl_it, kernel->topLevelExprs().end());
     const auto& body = (*fl_it)->as<kir::ForLoop>()->body().exprs();
     EXPECT_TRUE(is_wait(body.back()));
