@@ -483,6 +483,9 @@ class NVF_API Fusion : public IrContainer {
   friend class TranslateApplicableWelford;
   friend Val;
 
+  using IrContainer::registerExpr;
+  using IrContainer::registerVal;
+
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
 
