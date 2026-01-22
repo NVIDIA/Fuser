@@ -285,11 +285,9 @@ def column_parallel_linear_forward_reference(
             if i == 0:
                 buffer = inp_shard
             else:
-                send_dst = (my_rank - i + d) % d
-                recv_src = (my_rank + i) % d
                 buffer = torch.empty_like(inp_shard)
-                send_req = dist.P2POp(dist.isend, inp_shard, send_dst)
-                recv_req = dist.P2POp(dist.irecv, buffer, recv_src)
+                send_req = dist.P2POp(dist.isend, inp_shard, (my_rank - i + d) % d)
+                recv_req = dist.P2POp(dist.irecv, buffer, (my_rank + i) % d)
                 req = dist.batch_isend_irecv([send_req, recv_req])
                 for req in req:
                     req.wait()
