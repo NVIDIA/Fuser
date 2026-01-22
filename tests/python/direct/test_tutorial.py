@@ -5,6 +5,7 @@
 
 import pytest
 import torch
+import torch.nn.functional as F
 from nvfuser_direct import (
     FusionDefinition,
     IdMappingMode,
@@ -1884,3 +1885,115 @@ def test_warp_specialized_circular_buffering_pointwise():
     warp_specialization_if_stmt = "if ((((nvfuser_index_t)threadIdx.y) >= 1LL)) {"
     assert warp_specialization_if_stmt in fd.fusion.print_kernel()
     assert torch.allclose(outputs[0], t0 + t1)
+
+
+@pytest.mark.skipif(
+    is_pre_hopper(), reason="Only supported on Hopper and newer devices."
+)
+def test_pdl():
+    def nvf_fused_add_rmsnorm(fd: FusionDefinition, input_shape, weight_shape, eps):
+        """
+        Fused add root mean square normalization.
+            * a [num_tokens, hidden_size]
+            * residual [num_tokens, hidden_size]
+            * weight [hidden_size]
+            return rmsnorm(a + residual)
+        """
+        normalization_axis = -1
+        keepdim = True
+        a = fd.define_tensor(
+            shape=input_shape,
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+        )
+        residual = fd.define_tensor(
+            shape=input_shape,
+            contiguity=[None, True],
+            dtype=DataType.BFloat16,
+        )
+        weights = fd.define_tensor(
+            shape=weight_shape,
+            contiguity=[True],
+            dtype=DataType.BFloat16,
+        )
+        norm_const = fd.define_scalar(input_shape[normalization_axis])
+        eps_const = fd.define_scalar(eps)
+
+        rmsnorm_input = fd.ops.add(a, residual)
+        rmsnorm_input_sq = fd.ops.mul(rmsnorm_input, rmsnorm_input)
+        sum0 = fd.ops.sum(rmsnorm_input_sq, dims=[normalization_axis], keepdim=keepdim)
+        var = fd.ops.div(sum0, norm_const)
+        var_eps = fd.ops.add(var, eps_const)
+        invstd = fd.ops.rsqrt(var_eps)
+        pre_scale = fd.ops.mul(rmsnorm_input, invstd)
+        weights_bcast = fd.ops.broadcast_in_dim(
+            weights, shape=input_shape, broadcast_dims=[1]
+        )
+        out = fd.ops.mul(pre_scale, weights_bcast)
+        out_bf16 = fd.ops.cast(out, dtype=DataType.BFloat16)
+        # NOTE alias_input does not check if output and alias_input have the same type
+        fd.add_output(out_bf16, alias_input=a)
+
+    def fused_add_rmsnorm(hidden_states, residual, weight, eps):
+        with FusionDefinition() as fd:
+            nvf_fused_add_rmsnorm(
+                fd,
+                input_shape=hidden_states.shape,
+                weight_shape=weight.shape,
+                eps=eps,
+            )
+        fd.execute([hidden_states, residual, weight])
+
+    def nvfuser(hidden_states, residual, layer, eps):
+        fused_add_rmsnorm(hidden_states, residual, layer["post_attn_norm"], eps)
+        router_logits = F.linear(
+            hidden_states, layer["router_weight"], layer["router_bias"]
+        )
+        return hidden_states
+
+    def baseline(hidden_states, residual, layer, eps, use_pdl):
+        hidden_states += residual
+        hidden_states = F.rms_norm(
+            hidden_states, [hidden_states.shape[-1]], layer["post_attn_norm"], eps
+        )
+        router_logits = F.linear(
+            hidden_states, layer["router_weight"], layer["router_bias"]
+        )
+        return hidden_states
+
+    device = "cuda"
+    dtype = torch.bfloat16
+    num_tokens = 1  # decode phase: 1 token per sequence
+    hidden_size = 2880
+    num_experts = 32
+    eps = 1e-6  # rms_norm_eps
+
+    layer = {
+        "post_attn_norm": torch.randn(
+            hidden_size, dtype=dtype, device=device
+        ).contiguous(),
+        "router_weight": torch.randn(
+            num_experts, hidden_size, dtype=dtype, device=device
+        ).contiguous(),
+        "router_bias": torch.randn(
+            num_experts, dtype=dtype, device=device
+        ).contiguous(),
+    }
+
+    # ========== Static tensors for CUDA graph capture ==========
+    static_hidden_states = torch.randn(
+        num_tokens, hidden_size, dtype=dtype, device=device
+    ).contiguous()
+    static_residual = torch.randn(
+        num_tokens, hidden_size, dtype=dtype, device=device
+    ).contiguous()
+
+    baseline_result = baseline(
+        static_hidden_states.clone().detach(),
+        static_residual.clone().detach(),
+        layer,
+        eps,
+        use_pdl=True,
+    )
+    nvf_result = nvfuser(static_hidden_states, static_residual, layer, eps)
+    assert torch.allclose(nvf_result, baseline_result, rtol=1e-2, atol=1e-2)
