@@ -174,6 +174,11 @@ def test_fusion_execution_cache():
     results = fd.execute(inputs)
     torch.testing.assert_close(results[0], inputs[0] + inputs[1])
 
+    # Check that TensorViews are accessible after running fusion
+    assert str(tv0.domain()) == "[iS0{2}, iS1{4}, iS2{8}]"
+    assert str(tv1.domain()) == "[iS3{2}, iS4{4}, iS5{8}]"
+    assert str(tv2.domain()) == "[iS6{2}, iS7{4}, iS8{8}]"
+
     with pytest.raises(
         AssertionError,
         match=r"FusionExecutorCache already exists! Use execute\(\) to execute the fusion.",
@@ -664,7 +669,8 @@ def test_lru_cache():
         nvfuser_fusion_id0(fd0)
 
     assert cache.num_fusions() == 0
-    cache.cache_compile(fd0.fusion)
+    fd0.fec = cache.cache_compile(fd0.fusion)
+    del fd0._fusion
     # Check that LRUCache caches the first fusion
     assert cache.num_fusions() == 1
 
@@ -672,7 +678,8 @@ def test_lru_cache():
         nvfuser_fusion_id1(fd1)
 
     assert cache.num_fusions() == 1
-    cache.cache_compile(fd1.fusion)
+    fd1.fec = cache.cache_compile(fd1.fusion)
+    del fd1._fusion
     # Check that LRUCache creates a separate entry for second fusion
     assert cache.num_fusions() == 2
 
