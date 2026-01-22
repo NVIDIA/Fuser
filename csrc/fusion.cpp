@@ -126,7 +126,8 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
 
   // TODO : Review this behaviour.
-  auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
+  // auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
+  auto ir_cloner = IrContainer::copy(from, to);
 
   for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));

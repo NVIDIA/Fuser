@@ -205,6 +205,8 @@ class NVF_API IrContainer : public PolymorphicBase {
   // Protected Registration API (for derived class overrides)
   //===================================================================
 
+  static IrCloner copy(const IrContainer* from, IrContainer* to);
+
   // Derived classes (like Fusion) override these to add custom logic
   virtual void registerVal(Val* val) {
     ir_storage()->registerVal(val);
