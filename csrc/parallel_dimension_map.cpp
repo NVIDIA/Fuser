@@ -241,7 +241,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   // tidy=0) and 48-63 (original compute threads, tidy=1) occupy the same warp
   // but have different roles, defeating warp specialization's purpose.
   if (ws_pt == ParallelType::TIDx) {
-    int64_t original_tidx = getThreadCountInDim(ws_pt);
+    int64_t original_tidx = getStaticComputeThreadsInDim(ws_pt);
     NVF_ERROR(
         original_tidx % 32 == 0,
         "Warp specialization on TIDx requires bdimx to be a multiple of 32 ",
@@ -251,9 +251,9 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         " with CTA shape (",
         original_tidx,
         ", ",
-        getThreadCountInDim(ParallelType::TIDy),
+        getStaticComputeThreadsInDim(ParallelType::TIDy),
         ", ",
-        getThreadCountInDim(ParallelType::TIDz),
+        getStaticComputeThreadsInDim(ParallelType::TIDz),
         ")");
     NVF_ERROR(
         after_pad % 32 == 0,
