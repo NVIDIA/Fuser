@@ -21,7 +21,6 @@
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
 #include <ir/container.h>
-#include <ir/interface.h>
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
