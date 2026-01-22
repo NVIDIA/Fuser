@@ -1289,16 +1289,32 @@ void clearMemorySpace(Fusion* fusion) {
 
 namespace {
 
+TensorView* findFirstFusionInput(Fusion* fusion) {
+  std::unordered_set<Val*> tv_inputs;
+  std::copy_if(
+      fusion->inputs().begin(),
+      fusion->inputs().end(),
+      std::inserter(tv_inputs, tv_inputs.end()),
+      [](Val* v) { return v->isA<TensorView>(); });
+  for (Expr* e : StmtSort::getExprs(fusion)) {
+    auto iter =
+        std::find_if(e->inputs().begin(), e->inputs().end(), [&](Val* v) {
+          return tv_inputs.count(v) > 0;
+        });
+    if (iter == e->inputs().end()) {
+      continue;
+    }
+    return (*iter)->as<TensorView>();
+  }
+  return nullptr;
+}
+
 void addPdlGridWait(
-    std::vector<Val*> original_inputs,
-    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    TensorView* original_input,
+    TensorView* cached_input,
     bool enable_pdl) {
   // PDL is only supported for Hopper+ Devices.
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
-    return;
-  }
-
-  if (original_inputs.empty()) {
     return;
   }
 
@@ -1306,12 +1322,17 @@ void addPdlGridWait(
     return;
   }
 
-  NVF_ERROR(original_inputs.size() == cached_inputs.size());
-  for (auto&& [original, cached] : zip(original_inputs, cached_inputs)) {
-    // Add wait for prior grid before getting the cached inputs
-    TensorView* grid_wait = wait_for_prior_grid({original});
-    cached.first->addDependency(grid_wait);
+  if (original_input == nullptr) {
+    return;
   }
+
+  if (cached_input == nullptr) {
+    return;
+  }
+
+  // Add wait for prior grid before getting the cached inputs
+  TensorView* grid_wait = wait_for_prior_grid({original_input});
+  cached_input->addDependency(grid_wait);
 }
 
 void addPdlGridLaunch(
@@ -1354,7 +1375,9 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     return {};
   }
 
-  std::vector<Val*> original_inputs;
+  TensorView* first_fusion_input = findFirstFusionInput(fusion);
+  TensorView* cached_first_fusion_input = nullptr;
+
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   // If we're going to unroll, make a cache of the inputs
   for (auto [input_idx, input] : enumerate(fusion->inputs())) {
@@ -1418,10 +1441,12 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
         /*cached_uses=*/cached_uses);
 
     cached_inputs.emplace_back(cached_tv, input_idx);
-    original_inputs.push_back(tv);
+    if (tv == first_fusion_input) {
+      cached_first_fusion_input = cached_tv;
+    }
   }
 
-  addPdlGridWait(original_inputs, cached_inputs, enable_pdl);
+  addPdlGridWait(first_fusion_input, cached_first_fusion_input, enable_pdl);
 
   return cached_inputs;
 }
