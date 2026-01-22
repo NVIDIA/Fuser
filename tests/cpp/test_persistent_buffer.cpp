@@ -2184,6 +2184,8 @@ class TmaPersistentTestP
     NVFuserFixtureParamTest<ParamType>::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
+    // clear allocator cache to avoid OOM errors during test
+    maybeClearAllocator();
   }
 };
 
