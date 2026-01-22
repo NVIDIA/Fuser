@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.109" timestamp="2026-01-22T09:22:22.084" name="AllTests">
+  <testsuite name="ExternalSrcExample" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.109" timestamp="2026-01-22T09:22:22.084">
+    <testcase name="Matmul_CUDA" file="/opt/pytorch/nvfuser/tests/cpp/test_external_src.cpp" line="99" status="run" result="completed" time="0.109" timestamp="2026-01-22T09:22:22.084" classname="ExternalSrcExample" />
+  </testsuite>
+</testsuites>

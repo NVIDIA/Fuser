@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="11" failures="0" disabled="0" errors="0" time="10.04" timestamp="2026-01-22T09:16:46.950" name="AllTests">
+  <testsuite name="SgLangMoETest" tests="11" failures="0" disabled="0" skipped="0" errors="0" time="10.04" timestamp="2026-01-22T09:16:46.950">
+    <testcase name="ComputeProblemSizes/16_32_4_128_manual" value_param="(16, 32, 4, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="61" status="run" result="completed" time="0.326" timestamp="2026-01-22T09:16:46.950" classname="SgLangMoETest" />
+    <testcase name="ComputeProblemSizes/16_1_4_128_auto" value_param="(16, 1, 4, 128, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="61" status="run" result="completed" time="0.084" timestamp="2026-01-22T09:16:47.276" classname="SgLangMoETest" />
+    <testcase name="ComputeProblemSizes/16_1_1_128_manual" value_param="(16, 1, 1, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="61" status="run" result="completed" time="0.072" timestamp="2026-01-22T09:16:47.361" classname="SgLangMoETest" />
+    <testcase name="ComputeExpertOffsets/16_32_1_128_auto" value_param="(16, 32, 1, 128, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="110" status="run" result="completed" time="1.192" timestamp="2026-01-22T09:16:47.433" classname="SgLangMoETest" />
+    <testcase name="ComputeExpertOffsets/16_1_4_128_manual" value_param="(16, 1, 4, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="110" status="run" result="completed" time="1.129" timestamp="2026-01-22T09:16:48.626" classname="SgLangMoETest" />
+    <testcase name="ComputeExpertBlockScaleOffsets/16_32_4_128_auto" value_param="(16, 32, 4, 128, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="154" status="run" result="completed" time="1.199" timestamp="2026-01-22T09:16:49.756" classname="SgLangMoETest" />
+    <testcase name="ComputeExpertBlockScaleOffsets/16_32_1_128_manual" value_param="(16, 32, 1, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="154" status="run" result="completed" time="1.163" timestamp="2026-01-22T09:16:50.956" classname="SgLangMoETest" />
+    <testcase name="ComputeExpertBlockScaleOffsets/16_1_1_128_auto" value_param="(16, 1, 1, 128, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="154" status="run" result="completed" time="1.076" timestamp="2026-01-22T09:16:52.119" classname="SgLangMoETest" />
+    <testcase name="ComputeArgSort/16_32_4_128_manual" value_param="(16, 32, 4, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="217" status="run" result="completed" time="1.272" timestamp="2026-01-22T09:16:53.195" classname="SgLangMoETest" />
+    <testcase name="ComputeArgSort/16_1_4_128_auto" value_param="(16, 1, 4, 128, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="217" status="run" result="completed" time="1.282" timestamp="2026-01-22T09:16:54.468" classname="SgLangMoETest" />
+    <testcase name="ComputeArgSort/16_1_1_128_manual" value_param="(16, 1, 1, 128, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_moe.cpp" line="217" status="run" result="completed" time="1.24" timestamp="2026-01-22T09:16:55.750" classname="SgLangMoETest" />
+  </testsuite>
+</testsuites>

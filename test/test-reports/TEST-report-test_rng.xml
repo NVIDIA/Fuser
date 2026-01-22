@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="5" failures="0" disabled="0" errors="0" time="2.609" timestamp="2026-01-22T09:09:15.232" name="AllTests">
+  <testsuite name="RNGTest" tests="5" failures="0" disabled="0" skipped="0" errors="0" time="2.609" timestamp="2026-01-22T09:09:15.232">
+    <testcase name="ManualScheduleValidateWithCURand" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="107" status="run" result="completed" time="0.46" timestamp="2026-01-22T09:09:15.232" classname="RNGTest" />
+    <testcase name="BroadcastingRNG2" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="207" status="run" result="completed" time="1.006" timestamp="2026-01-22T09:09:15.693" classname="RNGTest" />
+    <testcase name="Uniform" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="313" status="run" result="completed" time="0.349" timestamp="2026-01-22T09:09:16.700" classname="RNGTest" />
+    <testcase name="FunctionalUniform" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="423" status="run" result="completed" time="0.792" timestamp="2026-01-22T09:09:17.049" classname="RNGTest" />
+    <testcase name="SameAsRNGOpDeterministic" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="586" status="run" result="completed" time="0." timestamp="2026-01-22T09:09:17.841" classname="RNGTest" />
+  </testsuite>
+</testsuites>

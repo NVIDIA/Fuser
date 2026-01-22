@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="0" disabled="0" errors="0" time="0.408" timestamp="2026-01-22T09:09:14.380" name="AllTests">
+  <testsuite name="HostIrJitTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.408" timestamp="2026-01-22T09:09:14.380">
+    <testcase name="HostIrContainer" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_jit.cpp" line="57" status="run" result="completed" time="0.19" timestamp="2026-01-22T09:09:14.380" classname="HostIrJitTest" />
+    <testcase name="Reorder" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_jit.cpp" line="151" status="run" result="completed" time="0.107" timestamp="2026-01-22T09:09:14.571" classname="HostIrJitTest" />
+    <testcase name="BroadcastTest" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_jit.cpp" line="229" status="run" result="completed" time="0.004" timestamp="2026-01-22T09:09:14.678" classname="HostIrJitTest" />
+    <testcase name="Linear" file="/opt/pytorch/nvfuser/tests/cpp/test_host_ir_jit.cpp" line="356" status="run" result="completed" time="0.106" timestamp="2026-01-22T09:09:14.682" classname="HostIrJitTest" />
+  </testsuite>
+</testsuites>

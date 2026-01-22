@@ -1241,6 +1241,44 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto outputs = fec.runFusionWithInputs(inputs);
 }
 
+class PrecisionTest : public BlackwellBase {};
+
+// Test: Negate input tensor and compute max reduction
+TEST_F(PrecisionTest, NegMaxReduction_SimpleNegMax) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // Create input tensor
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+
+  // Apply negation
+  auto tv1 = neg(tv0);
+
+  // Compute max over all dimensions
+  auto tv2 = max(tv1, {0, 1});
+
+  // Add output
+  fusion.addOutput(tv2);
+
+  // Create test input
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({32, 64}, options);
+
+  // Compile and execute
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  // Compute reference
+  auto t1 = -t0;
+  auto ref = t1.max();
+
+  // Validate
+  testValidate(
+      ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     NVFP4QuantizeTest,

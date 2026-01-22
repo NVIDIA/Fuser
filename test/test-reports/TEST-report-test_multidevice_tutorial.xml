@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="3" failures="0" disabled="0" errors="0" time="0.931" timestamp="2026-01-22T09:16:35.782" name="AllTests">
+  <testsuite name="MultiDeviceTutorial" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.719" timestamp="2026-01-22T09:16:35.782">
+    <testcase name="DeviceMeshesNoResharding" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_tutorial.cpp" line="160" status="run" result="completed" time="0.434" timestamp="2026-01-22T09:16:35.782" classname="MultiDeviceTutorial" />
+    <testcase name="HostIrLaunchingFusion" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_tutorial.cpp" line="677" status="run" result="completed" time="0.124" timestamp="2026-01-22T09:16:36.217" classname="MultiDeviceTutorial" />
+    <testcase name="HostIrKernelPipelining" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_tutorial.cpp" line="996" status="run" result="completed" time="0.16" timestamp="2026-01-22T09:16:36.341" classname="MultiDeviceTutorial" />
+  </testsuite>
+</testsuites>

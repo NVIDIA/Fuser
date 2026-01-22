@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.315" timestamp="2026-01-22T09:21:49.159" name="AllTests">
+  <testsuite name="FusionProfilerTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.315" timestamp="2026-01-22T09:21:49.159">
+    <testcase name="ProfileNocupti1Segment" file="/opt/pytorch/nvfuser/tests/cpp/test_fusion_profiler.cpp" line="111" status="run" result="completed" time="0.315" timestamp="2026-01-22T09:21:49.159" classname="FusionProfilerTest" />
+  </testsuite>
+</testsuites>

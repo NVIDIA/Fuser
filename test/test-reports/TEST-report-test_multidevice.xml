@@ -1,0 +1,862 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="197" failures="0" disabled="0" errors="0" time="9.931" timestamp="2026-01-22T09:21:49.942" name="AllTests">
+  <testsuite name="P2PCommHostIrTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.463" timestamp="2026-01-22T09:21:49.942">
+    <testcase name="CoalescedRingPairwiseExchange" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir.cpp" line="316" status="run" result="completed" time="0.463" timestamp="2026-01-22T09:21:49.942" classname="P2PCommHostIrTest" />
+  </testsuite>
+  <testsuite name="MultiDeviceTest" tests="9" failures="0" disabled="0" skipped="0" errors="0" time="0.797" timestamp="2026-01-22T09:21:50.405">
+    <testcase name="Slice" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="152" status="run" result="completed" time="0.011" timestamp="2026-01-22T09:21:50.405" classname="MultiDeviceTest" />
+    <testcase name="LayerNorm" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="258" status="run" result="completed" time="0.218" timestamp="2026-01-22T09:21:50.417" classname="MultiDeviceTest" />
+    <testcase name="LoopSplit" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="376" status="run" result="completed" time="0.002" timestamp="2026-01-22T09:21:50.636" classname="MultiDeviceTest" />
+    <testcase name="ShardTensor_InnerSplit" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="554" status="run" result="completed" time="0." timestamp="2026-01-22T09:21:50.638" classname="MultiDeviceTest" />
+    <testcase name="ViewWithMerge" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="652" status="run" result="completed" time="0.086" timestamp="2026-01-22T09:21:50.638" classname="MultiDeviceTest" />
+    <testcase name="LoopShardedMergeReshapeIds" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="864" status="run" result="completed" time="0.006" timestamp="2026-01-22T09:21:50.725" classname="MultiDeviceTest" />
+    <testcase name="DecomposeRowParallelLinearWithBias" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="957" status="run" result="completed" time="0.205" timestamp="2026-01-22T09:21:50.731" classname="MultiDeviceTest" />
+    <testcase name="PointwiseSchedulerReordering" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="1119" status="run" result="completed" time="0.089" timestamp="2026-01-22T09:21:50.936" classname="MultiDeviceTest" />
+    <testcase name="MultipleIncompatibleReshapes" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="1241" status="run" result="completed" time="0.176" timestamp="2026-01-22T09:21:51.026" classname="MultiDeviceTest" />
+  </testsuite>
+  <testsuite name="CollectiveBasedOverlapTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.029" timestamp="2026-01-22T09:21:51.203">
+    <testcase name="ReduceScatterBasedPipeliningHostIrImplementation" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir_overlap.cpp" line="307" status="run" result="completed" time="0.029" timestamp="2026-01-22T09:21:51.203" classname="CollectiveBasedOverlapTest" />
+  </testsuite>
+  <testsuite name="AllgatherOverlapTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.004" timestamp="2026-01-22T09:21:51.232">
+    <testcase name="AllgatherBasedPipeliningATenImplementation" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir_overlap.cpp" line="768" status="run" result="completed" time="0.004" timestamp="2026-01-22T09:21:51.232" classname="AllgatherOverlapTest" />
+  </testsuite>
+  <testsuite name="RingAllgatherOverlapTest" tests="1" failures="0" disabled="0" skipped="1" errors="0" time="0." timestamp="2026-01-22T09:21:51.237">
+    <testcase name="RingAllgatherBasedPipeliningHostIRImplementationCudaIpc" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir_overlap.cpp" line="1097" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.237" classname="RingAllgatherOverlapTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir_overlap.cpp:1101&#x0A;Skipping test for single device&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir_overlap.cpp:1101
+Skipping test for single device
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="IpcTest" tests="2" failures="0" disabled="0" skipped="2" errors="0" time="0." timestamp="2026-01-22T09:21:51.237">
+    <testcase name="IpcMemHandlePtrArithmeticAtReceiver" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp" line="70" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.237" classname="IpcTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp:72&#x0A;Skipping test for single device&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp:72
+Skipping test for single device
+]]></skipped>
+    </testcase>
+    <testcase name="IpcNvlsMulticastBroadcast" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp" line="338" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.237" classname="IpcTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp:340&#x0A;Skipping test for single device&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_ipc.cpp:340
+Skipping test for single device
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="LowerCollectiveCudaTest" tests="1" failures="0" disabled="0" skipped="1" errors="0" time="0." timestamp="2026-01-22T09:21:51.237">
+    <testcase name="Allgather" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="786" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.237" classname="LowerCollectiveCudaTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:790&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:790
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="DistributedMatmulTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.213" timestamp="2026-01-22T09:21:51.237">
+    <testcase name="Matmul_LayoutTN_NoComms" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_matmul.cpp" line="126" status="run" result="completed" time="0.081" timestamp="2026-01-22T09:21:51.237" classname="DistributedMatmulTest" />
+    <testcase name="Matmul_LayoutNT_ReduceScatter" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_matmul.cpp" line="296" status="run" result="completed" time="0.12" timestamp="2026-01-22T09:21:51.319" classname="DistributedMatmulTest" />
+    <testcase name="RowParallelLinear" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_matmul.cpp" line="449" status="run" result="completed" time="0.011" timestamp="2026-01-22T09:21:51.440" classname="DistributedMatmulTest" />
+  </testsuite>
+  <testsuite name="MultiDeviceStreamParallelTypeTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.108" timestamp="2026-01-22T09:21:51.451">
+    <testcase name="Allreduce" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="64" status="run" result="completed" time="0.009" timestamp="2026-01-22T09:21:51.451" classname="MultiDeviceStreamParallelTypeTest" />
+    <testcase name="matmul_RS_through_bcast" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="315" status="run" result="completed" time="0.098" timestamp="2026-01-22T09:21:51.460" classname="MultiDeviceStreamParallelTypeTest" />
+  </testsuite>
+  <testsuite name="SymmetricTensorTest" tests="2" failures="0" disabled="0" skipped="2" errors="0" time="0." timestamp="2026-01-22T09:21:51.559">
+    <testcase name="PreallocatedTensor" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp" line="57" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.559" classname="SymmetricTensorTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp:59&#x0A;Skipping test for single device&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp:59
+Skipping test for single device
+]]></skipped>
+    </testcase>
+    <testcase name="SmallAllocation" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp" line="231" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.559" classname="SymmetricTensorTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp:233&#x0A;Skipping test for single device&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_symmetric_tensor.cpp:233
+Skipping test for single device
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="CommunicationTest" tests="3" failures="0" disabled="0" skipped="1" errors="0" time="0.003" timestamp="2026-01-22T09:21:51.559">
+    <testcase name="Allgather/NCCL" value_param="NCCL" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp" line="108" status="run" result="completed" time="0.002" timestamp="2026-01-22T09:21:51.559" classname="CommunicationTest" />
+    <testcase name="SendRecv/NCCL" value_param="NCCL" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp" line="215" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.562" classname="CommunicationTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp:217&#x0A;This test needs at least 2 GPUs and 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp:217
+This test needs at least 2 GPUs and 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allreduce/NCCL" value_param="NCCL" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp" line="338" status="run" result="completed" time="0." timestamp="2026-01-22T09:21:51.562" classname="CommunicationTest" />
+  </testsuite>
+  <testsuite name="P2PCommunicationTest" tests="1" failures="0" disabled="0" skipped="1" errors="0" time="0." timestamp="2026-01-22T09:21:51.562">
+    <testcase name="CudaComm/Put" value_param="Put" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp" line="427" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.562" classname="P2PCommunicationTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp:432&#x0A;This test needs at least 2 GPUs and 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_communications.cpp:432
+This test needs at least 2 GPUs and 2 ranks.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Manual/MultiDeviceHostIrTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.423" timestamp="2026-01-22T09:21:51.562">
+    <testcase name="SingleFusionSingleComm/useFusionExecutorCache_withoutShardingAnnotations" value_param="(true, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir.cpp" line="47" status="run" result="completed" time="0.089" timestamp="2026-01-22T09:21:51.562" classname="Manual/MultiDeviceHostIrTest" />
+    <testcase name="SingleCommTwoFusionAndWait/useFusionExecutor_withShardingAnnotations" value_param="(false, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_host_ir.cpp" line="143" status="run" result="completed" time="0.333" timestamp="2026-01-22T09:21:51.652" classname="Manual/MultiDeviceHostIrTest" />
+  </testsuite>
+  <testsuite name="LowerGatherTest" tests="2" failures="0" disabled="0" skipped="2" errors="0" time="0." timestamp="2026-01-22T09:21:51.986">
+    <testcase name="InMesh_0_1_OutMesh_0_NonHostIr" value_param="((DeviceMesh{0 1}, DeviceMesh{0}), false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="54" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerGatherTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:74&#x0A;T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{0 1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:74
+T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{0 1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="InMesh_0_1_OutMesh_1_HostIr" value_param="((DeviceMesh{0 1}, DeviceMesh{1}), true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="54" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerGatherTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:74&#x0A;T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{0 1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:74
+T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{0 1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="LowerScatterTest" tests="2" failures="0" disabled="0" skipped="2" errors="0" time="0." timestamp="2026-01-22T09:21:51.986">
+    <testcase name="InMesh_0_OutMesh_0_1_NonHostIr" value_param="((DeviceMesh{0}, DeviceMesh{0 1}), false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="126" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerScatterTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:146&#x0A;T1_g_float[ideviceIdx.x2{i0}, iS3{i2}] (DeviceMesh{0 1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:146
+T1_g_float[ideviceIdx.x2{i0}, iS3{i2}] (DeviceMesh{0 1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="InMesh_1_OutMesh_0_1_HostIr" value_param="((DeviceMesh{1}, DeviceMesh{0 1}), true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="126" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerScatterTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:146&#x0A;T0_g_float[iS0{i0}, iS1{i2}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:146
+T0_g_float[iS0{i0}, iS1{i2}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="LowerSendRecvTest" tests="3" failures="0" disabled="0" skipped="3" errors="0" time="0." timestamp="2026-01-22T09:21:51.986">
+    <testcase name="InMesh_0_OutMesh_1_NonHostIr" value_param="((DeviceMesh{0}, DeviceMesh{1}), false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="176" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerSendRecvTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198&#x0A;T1_g_float[ideviceIdx.x2{i0}, iS3{i2}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198
+T1_g_float[ideviceIdx.x2{i0}, iS3{i2}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="InMesh_1_OutMesh_0_HostIr" value_param="((DeviceMesh{1}, DeviceMesh{0}), true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="176" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerSendRecvTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198&#x0A;T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198
+T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="InMesh_1_2_OutMesh_1_0_NonHostIr" value_param="((DeviceMesh{1 2}, DeviceMesh{1 0}), false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="176" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:51.986" classname="LowerSendRecvTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198&#x0A;T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{1 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:198
+T0_g_float[ideviceIdx.x0{i0}, iS1{i2}] (DeviceMesh{1 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="LowerCollectiveTest" tests="9" failures="0" disabled="0" skipped="2" errors="0" time="0.156" timestamp="2026-01-22T09:21:51.986">
+    <testcase name="Allgather/NCCL_HostIr" value_param="(NCCL, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="247" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:51.986" classname="LowerCollectiveTest" />
+    <testcase name="Broadcast/NCCL_NonHostIr" value_param="(NCCL, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="306" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:51.988" classname="LowerCollectiveTest" />
+    <testcase name="Reduce/NCCL_HostIr" value_param="(NCCL, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="338" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:51.989" classname="LowerCollectiveTest" />
+    <testcase name="Allreduce_Concrete/NCCL_NonHostIr" value_param="(NCCL, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="397" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:51.990" classname="LowerCollectiveTest" />
+    <testcase name="ReduceScatter/NCCL_HostIr" value_param="(NCCL, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="428" status="run" result="completed" time="0.134" timestamp="2026-01-22T09:21:51.992" classname="LowerCollectiveTest" />
+    <testcase name="ReduceScatter_Allgather/NCCL_NonHostIr" value_param="(NCCL, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="515" status="run" result="completed" time="0.014" timestamp="2026-01-22T09:21:52.126" classname="LowerCollectiveTest" />
+    <testcase name="ReduceScatterNoncontig/NCCL_HostIr" value_param="(NCCL, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="547" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.141" classname="LowerCollectiveTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:549&#x0A;This test exercises ReorderShardedAxisPass, and requires at least 2 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:549
+This test exercises ReorderShardedAxisPass, and requires at least 2 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather_CompliantAllocation/NCCL_NonHostIr" value_param="(NCCL, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="635" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:52.141" classname="LowerCollectiveTest" />
+    <testcase name="Allgather_NonCompliantAllocation/NCCL_HostIr" value_param="(NCCL, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp" line="673" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:675&#x0A;Should pass with one GPU, but doesn&apos;t.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication.cpp:675
+Should pass with one GPU, but doesn't.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="LowerCollectiveCudaAndNcclTest" tests="32" failures="0" disabled="0" skipped="32" errors="0" time="0." timestamp="2026-01-22T09:21:52.143">
+    <testcase name="Allgather/memcpy_128KB" value_param="(131072, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/batch_memcpy_128KB" value_param="(131072, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/multimem_256KB" value_param="(262144, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/nccl_512KB" value_param="(524288, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/memcpy_1MB" value_param="(1048576, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/batch_memcpy_1MB" value_param="(1048576, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/multimem_2MB" value_param="(2097152, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/nccl_4MB" value_param="(4194304, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/memcpy_8MB" value_param="(8388608, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/batch_memcpy_8MB" value_param="(8388608, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/multimem_16MB" value_param="(16777216, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/nccl_32MB" value_param="(33554432, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/memcpy_64MB" value_param="(67108864, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/batch_memcpy_64MB" value_param="(67108864, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/multimem_128MB" value_param="(134217728, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Allgather/nccl_256MB" value_param="(268435456, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="180" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:187
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/memcpy_128KB" value_param="(131072, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/batch_memcpy_128KB" value_param="(131072, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/multimem_256KB" value_param="(262144, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/nccl_512KB" value_param="(524288, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/memcpy_1MB" value_param="(1048576, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/batch_memcpy_1MB" value_param="(1048576, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/multimem_2MB" value_param="(2097152, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/nccl_4MB" value_param="(4194304, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/memcpy_8MB" value_param="(8388608, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/batch_memcpy_8MB" value_param="(8388608, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/multimem_16MB" value_param="(16777216, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/nccl_32MB" value_param="(33554432, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.143" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/memcpy_64MB" value_param="(67108864, 4-byte object &lt;01-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.144" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/batch_memcpy_64MB" value_param="(67108864, 4-byte object &lt;03-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.144" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/multimem_128MB" value_param="(134217728, 4-byte object &lt;02-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.144" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+    <testcase name="Broadcast/nccl_256MB" value_param="(268435456, 4-byte object &lt;00-00 00-00&gt;)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp" line="248" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.144" classname="LowerCollectiveCudaAndNcclTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255&#x0A;This test needs at least 2 ranks.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_lower_communication_cuda.cpp:255
+This test needs at least 2 ranks.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Gather/PipelineTestTwoStages" tests="24" failures="0" disabled="0" skipped="23" errors="0" time="0.104" timestamp="2026-01-22T09:21:52.144">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="completed" time="0.101" timestamp="2026-01-22T09:21:52.144" classname="Gather/PipelineTestTwoStages" />
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.245" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/6" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/9" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[bS8{1}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/12" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/15" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/18" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/21" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/24" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/27" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/30" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.246" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/33" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/36" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/39" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/42" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/45" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/48" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/51" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/54" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/57" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.247" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/60" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/63" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/66" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0 2 3}, true, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/69" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1 0 2}, true, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Gather/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Scatter/PipelineTestTwoStages" tests="4" failures="0" disabled="0" skipped="4" errors="0" time="0." timestamp="2026-01-22T09:21:52.248">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0 1 2 3}, false, true, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Scatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[ideviceIdx.x8{4}, iS9{2}, iS10{3}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[ideviceIdx.x8{4}, iS9{2}, iS10{3}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1 0 2}, false, true, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Scatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[ideviceIdx.x8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[ideviceIdx.x8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/6" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0 1 2 3}, false, true, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Scatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/9" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1 0 2}, false, true, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.248" classname="Scatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Bcast/PipelineTestTwoStages" tests="48" failures="0" disabled="0" skipped="46" errors="0" time="0.181" timestamp="2026-01-22T09:21:52.248">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="completed" time="0.103" timestamp="2026-01-22T09:21:52.249" classname="Bcast/PipelineTestTwoStages" />
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="completed" time="0.072" timestamp="2026-01-22T09:21:52.352" classname="Bcast/PipelineTestTwoStages" />
+    <testcase name="Communication/6" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/9" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/12" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/15" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/18" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/21" value_param="(NCCL, DeviceMesh{0}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T2_l_float[iS8{3}, iS9{2}, iS10{3}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/24" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.425" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/27" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/30" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/33" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/36" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/39" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/42" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/45" value_param="(NCCL, DeviceMesh{1}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/48" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/51" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.426" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/54" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/57" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/60" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/63" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/66" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/69" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/72" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/75" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/78" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.427" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/81" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/84" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/87" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/90" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/93" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/96" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/99" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/102" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/105" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.428" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/108" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/111" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/114" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/117" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/120" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/123" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/126" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/129" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0 1 2 3}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/132" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0 2 3}, false, false, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.429" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/135" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0 2 3}, false, false, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/138" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1 0 2}, false, false, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/141" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1 0}, false, false, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Bcast_sharded/PipelineTestTwoStages" tests="6" failures="0" disabled="0" skipped="6" errors="0" time="0." timestamp="2026-01-22T09:21:52.430">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, true, true, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, true, true, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/6" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1 0 2}, true, true, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/9" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 2 3}, true, true, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/12" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0 2}, true, true, false, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/15" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0 2}, true, true, false, 1, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.430" classname="Bcast_sharded/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Bcast_sharded_same_mesh/PipelineTestTwoStages" tests="2" failures="0" disabled="0" skipped="1" errors="0" time="0.103" timestamp="2026-01-22T09:21:52.431">
+    <testcase name="Communication/2" value_param="(NCCL, DeviceMesh{0}, DeviceMesh, true, true, false, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="completed" time="0.102" timestamp="2026-01-22T09:21:52.431" classname="Bcast_sharded_same_mesh/PipelineTestTwoStages" />
+    <testcase name="Communication/5" value_param="(NCCL, DeviceMesh{1}, DeviceMesh, true, true, false, 0, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Bcast_sharded_same_mesh/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[bdeviceIdx.x0{1}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="Reduce/PipelineTestTwoStages" tests="16" failures="0" disabled="0" skipped="16" errors="0" time="0.001" timestamp="2026-01-22T09:21:52.534">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/6" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{0 2 3}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/9" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh{1 0 2}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/12" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/15" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/18" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{0 2 3}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.534" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/21" value_param="(NCCL, DeviceMesh{0 2 3}, DeviceMesh{1 0 2}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{0 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/24" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/27" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/30" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{0 2 3}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{3}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/33" value_param="(NCCL, DeviceMesh{1 0 2}, DeviceMesh{1 0 2}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{3}, iS2{3}, iS3{5}] (DeviceMesh{1 0 2})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/36" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/39" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/42" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{0 2 3}, true, false, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.535" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/45" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh{1 0 2}, true, false, true, 1, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.536" classname="Reduce/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[iS0{3}, ideviceIdx.x1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[iS0{3}, ideviceIdx.x1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="ReduceScatter/PipelineTestTwoStages" tests="2" failures="0" disabled="0" skipped="2" errors="0" time="0." timestamp="2026-01-22T09:21:52.536">
+    <testcase name="Communication/0" value_param="(NCCL, DeviceMesh{0 1 2 3}, DeviceMesh, true, true, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.536" classname="ReduceScatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{4}, iS1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{4}, iS1{4}, iS2{3}, iS3{5}] (DeviceMesh{0 1 2 3})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+    <testcase name="Communication/3" value_param="(NCCL, DeviceMesh{1 0}, DeviceMesh, true, true, true, 0, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp" line="280" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:52.536" classname="ReduceScatter/PipelineTestTwoStages">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342&#x0A;T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_pipeline.cpp:342
+T0_g_float[ideviceIdx.x0{2}, iS1{2}, iS2{3}, iS3{5}] (DeviceMesh{1 0})) requires more than 1 devices.
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="MultiDeviceReductionTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.202" timestamp="2026-01-22T09:21:52.536">
+    <testcase name="UnshardedInput_ShardedOutput/concrete_sharded_along_dim_0" value_param="(true, 0)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="34" status="run" result="completed" time="0.103" timestamp="2026-01-22T09:21:52.536" classname="MultiDeviceReductionTest" />
+    <testcase name="ShardedInput_ReplicatedOutput/symbolic_sharded_along_dim_1" value_param="(false, 1)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="78" status="run" result="completed" time="0.098" timestamp="2026-01-22T09:21:52.640" classname="MultiDeviceReductionTest" />
+  </testsuite>
+  <testsuite name="MultiDeviceBroadcastTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.003" timestamp="2026-01-22T09:21:52.738">
+    <testcase name="NotExpanded/0" value_param="false" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="457" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:21:52.738" classname="MultiDeviceBroadcastTest" />
+    <testcase name="Expanded/1" value_param="true" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="489" status="run" result="completed" time="0.002" timestamp="2026-01-22T09:21:52.740" classname="MultiDeviceBroadcastTest" />
+  </testsuite>
+  <testsuite name="InsertReshardingTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.507" timestamp="2026-01-22T09:21:52.742">
+    <testcase name="Execute/2" value_param="(false, true, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="699" status="run" result="completed" time="0.249" timestamp="2026-01-22T09:21:52.742" classname="InsertReshardingTest" />
+    <testcase name="Execute/5" value_param="(true, false, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_sharding.cpp" line="699" status="run" result="completed" time="0.258" timestamp="2026-01-22T09:21:52.991" classname="InsertReshardingTest" />
+  </testsuite>
+  <testsuite name="AGMatmulTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.12" timestamp="2026-01-22T09:21:53.249">
+    <testcase name="CollectiveBasedPipeline/AG_before_Matmul" value_param="false" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="148" status="run" result="completed" time="0.12" timestamp="2026-01-22T09:21:53.249" classname="AGMatmulTest" />
+  </testsuite>
+  <testsuite name="StreamParallelBackendTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.262" timestamp="2026-01-22T09:21:53.370">
+    <testcase name="AllgatherP2p/Broadcast_Cuda" value_param="(false, CUDA)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="400" status="run" result="completed" time="0.008" timestamp="2026-01-22T09:21:53.370" classname="StreamParallelBackendTest" />
+    <testcase name="AG_matmul_P2p/Broadcast_Nccl" value_param="(false, NCCL)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="456" status="run" result="completed" time="0.123" timestamp="2026-01-22T09:21:53.379" classname="StreamParallelBackendTest" />
+    <testcase name="AG_matmul_P2p/p2p_Cuda" value_param="(true, CUDA)" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_stream_parallel_type.cpp" line="456" status="run" result="completed" time="0.13" timestamp="2026-01-22T09:21:53.502" classname="StreamParallelBackendTest" />
+  </testsuite>
+  <testsuite name="DistributedTransformerTest" tests="8" failures="0" disabled="0" skipped="3" errors="0" time="6.179" timestamp="2026-01-22T09:21:53.633">
+    <testcase name="MLP_Layer/__half" value_param="__half" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="219" status="run" result="completed" time="0.442" timestamp="2026-01-22T09:21:53.633" classname="DistributedTransformerTest" />
+    <testcase name="Sequence_Parallel_MLP_Layer/__bfloat" value_param="__bfloat" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="284" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:54.076" classname="DistributedTransformerTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:289&#x0A;Requires &gt;1 devices, D=1&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:289
+Requires >1 devices, D=1
+]]></skipped>
+    </testcase>
+    <testcase name="MultiheadAttention_SP/__half" value_param="__half" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="428" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:54.076" classname="DistributedTransformerTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:434&#x0A;Requires &gt;1 devices, D=1&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:434
+Requires >1 devices, D=1
+]]></skipped>
+    </testcase>
+    <testcase name="MLP_Backward/__bfloat" value_param="__bfloat" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="494" status="run" result="completed" time="2.858" timestamp="2026-01-22T09:21:54.076" classname="DistributedTransformerTest" />
+    <testcase name="Forward_SP/__half" value_param="__half" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="670" status="run" result="skipped" time="0." timestamp="2026-01-22T09:21:56.934" classname="DistributedTransformerTest">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:676&#x0A;Requires &gt;1 devices, D=1&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp:676
+Requires >1 devices, D=1
+]]></skipped>
+    </testcase>
+    <testcase name="Forward/__bfloat" value_param="__bfloat" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="744" status="run" result="completed" time="1.826" timestamp="2026-01-22T09:21:56.934" classname="DistributedTransformerTest" />
+    <testcase name="LoopSplitMLP/__half" value_param="__half" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="988" status="run" result="completed" time="0.381" timestamp="2026-01-22T09:21:58.760" classname="DistributedTransformerTest" />
+    <testcase name="LoopSplitMHAFwd/__bfloat" value_param="__bfloat" file="/opt/pytorch/nvfuser/tests/cpp/test_multidevice_transformer.cpp" line="1053" status="run" result="completed" time="0.671" timestamp="2026-01-22T09:21:59.141" classname="DistributedTransformerTest" />
+  </testsuite>
+</testsuites>

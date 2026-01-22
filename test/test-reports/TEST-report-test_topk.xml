@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="13" failures="0" disabled="0" errors="0" time="8.282" timestamp="2026-01-22T09:16:37.181" name="AllTests">
+  <testsuite name="TopKDynamicTest" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.208" timestamp="2026-01-22T09:16:37.181">
+    <testcase name="K1BroadcastConcretization" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="81" status="run" result="completed" time="0.207" timestamp="2026-01-22T09:16:37.181" classname="TopKDynamicTest" />
+    <testcase name="TopKThenReshape" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="274" status="run" result="completed" time="0." timestamp="2026-01-22T09:16:37.389" classname="TopKDynamicTest" />
+    <testcase name="KZeroConcretization" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="438" status="run" result="completed" time="0." timestamp="2026-01-22T09:16:37.389" classname="TopKDynamicTest" />
+  </testsuite>
+  <testsuite name="TopKTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.09" timestamp="2026-01-22T09:16:37.390">
+    <testcase name="ZeroDimensionalInput" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="643" status="run" result="completed" time="0.089" timestamp="2026-01-22T09:16:37.390" classname="TopKTest" />
+  </testsuite>
+  <testsuite name="TopkDeviceFuncTest" tests="2" failures="0" disabled="0" skipped="0" errors="0" time="0.043" timestamp="2026-01-22T09:16:37.480">
+    <testcase name="VariableKValues" file="/opt/pytorch/nvfuser/tests/cpp/test_topk_device_func.cpp" line="68" status="run" result="completed" time="0.043" timestamp="2026-01-22T09:16:37.480" classname="TopkDeviceFuncTest" />
+    <testcase name="MultiDim2dTopkFloat" file="/opt/pytorch/nvfuser/tests/cpp/test_topk_device_func.cpp" line="243" status="run" result="completed" time="0." timestamp="2026-01-22T09:16:37.523" classname="TopkDeviceFuncTest" />
+  </testsuite>
+  <testsuite name="TopKTest/TopKTestBasicExecution" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="1.365" timestamp="2026-01-22T09:16:37.523">
+    <testcase name="ParameterizedBasicExecution/Half" value_param="__half" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="543" status="run" result="completed" time="1.365" timestamp="2026-01-22T09:16:37.523" classname="TopKTest/TopKTestBasicExecution" />
+  </testsuite>
+  <testsuite name="TopKParameterizedWithBlockandBatch" tests="6" failures="0" disabled="0" skipped="0" errors="0" time="6.575" timestamp="2026-01-22T09:16:38.888">
+    <testcase name="SharedMemoryRequirement/128_1_0_0" value_param="(128, 1, false, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="1.261" timestamp="2026-01-22T09:16:38.888" classname="TopKParameterizedWithBlockandBatch" />
+    <testcase name="SharedMemoryRequirement/128_1_1_1" value_param="(128, 1, true, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="1.347" timestamp="2026-01-22T09:16:40.150" classname="TopKParameterizedWithBlockandBatch" />
+    <testcase name="SharedMemoryRequirement/256_1_1_0" value_param="(256, 1, true, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="1.314" timestamp="2026-01-22T09:16:41.498" classname="TopKParameterizedWithBlockandBatch" />
+    <testcase name="SharedMemoryRequirement/512_1_0_1" value_param="(512, 1, false, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="1.334" timestamp="2026-01-22T09:16:42.813" classname="TopKParameterizedWithBlockandBatch" />
+    <testcase name="SharedMemoryRequirement/1024_1_0_0" value_param="(1024, 1, false, false)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="1.316" timestamp="2026-01-22T09:16:44.147" classname="TopKParameterizedWithBlockandBatch" />
+    <testcase name="SharedMemoryRequirement/1024_1_1_1" value_param="(1024, 1, true, true)" file="/opt/pytorch/nvfuser/tests/cpp/test_topk.cpp" line="704" status="run" result="completed" time="0." timestamp="2026-01-22T09:16:45.464" classname="TopKParameterizedWithBlockandBatch" />
+  </testsuite>
+</testsuites>

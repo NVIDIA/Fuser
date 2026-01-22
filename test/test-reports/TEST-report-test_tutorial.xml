@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="14" failures="0" disabled="0" errors="0" time="2.285" timestamp="2026-01-22T09:16:57.477" name="AllTests">
+  <testsuite name="Tutorial" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.988" timestamp="2026-01-22T09:16:57.477">
+    <testcase name="Reduction" file="/opt/pytorch/nvfuser/tests/cpp/test_tutorial.cpp" line="174" status="run" result="completed" time="0.854" timestamp="2026-01-22T09:16:57.477" classname="Tutorial" />
+    <testcase name="IdModelReshapeAnalysis" file="/opt/pytorch/nvfuser/tests/cpp/test_tutorial.cpp" line="631" status="run" result="completed" time="0." timestamp="2026-01-22T09:16:58.332" classname="Tutorial" />
+    <testcase name="PointwiseBroadcastTMA" file="/opt/pytorch/nvfuser/tests/cpp/test_tutorial.cpp" line="1353" status="run" result="completed" time="0.133" timestamp="2026-01-22T09:16:58.332" classname="Tutorial" />
+  </testsuite>
+  <testsuite name="CuTeTutorial" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.683" timestamp="2026-01-22T09:16:58.466">
+    <testcase name="VectorizeThreadLayout" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_cute_tv_layout.cpp" line="215" status="run" result="completed" time="0.683" timestamp="2026-01-22T09:16:58.466" classname="CuTeTutorial" />
+  </testsuite>
+  <testsuite name="TMemTutorialC" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.007" timestamp="2026-01-22T09:16:59.149">
+    <testcase name="TooManyLanes" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="332" status="run" result="completed" time="0.003" timestamp="2026-01-22T09:16:59.149" classname="TMemTutorialC" />
+    <testcase name="NotContiguous" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="517" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:16:59.153" classname="TMemTutorialC" />
+    <testcase name="WrongSubpartition2" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="621" status="run" result="completed" time="0.001" timestamp="2026-01-22T09:16:59.155" classname="TMemTutorialC" />
+  </testsuite>
+  <testsuite name="TMemTutorialR" tests="3" failures="0" disabled="0" skipped="3" errors="0" time="0." timestamp="2026-01-22T09:16:59.157">
+    <testcase name="WarpGroupXYColZ" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="735" status="run" result="skipped" time="0." timestamp="2026-01-22T09:16:59.157" classname="TMemTutorialR">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/utils.h:474&#x0A;skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/utils.h:474
+skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)
+]]></skipped>
+    </testcase>
+    <testcase name="Complicated1" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="905" status="run" result="skipped" time="0." timestamp="2026-01-22T09:16:59.157" classname="TMemTutorialR">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/utils.h:474&#x0A;skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/utils.h:474
+skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)
+]]></skipped>
+    </testcase>
+    <testcase name="Vectorization" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_tmem.cpp" line="1123" status="run" result="skipped" time="0." timestamp="2026-01-22T09:16:59.157" classname="TMemTutorialR">
+      <skipped message="/opt/pytorch/nvfuser/tests/cpp/utils.h:474&#x0A;skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)&#x0A;"><![CDATA[/opt/pytorch/nvfuser/tests/cpp/utils.h:474
+skipping tests on non-Blackwell GPUs (requires sm_100/sm_104, not sm_110+)
+]]></skipped>
+    </testcase>
+  </testsuite>
+  <testsuite name="HopperLdStMatrixTutorial" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="0.605" timestamp="2026-01-22T09:16:59.157">
+    <testcase name="SetShmoo/swizzle_32B_cta_m_64_cta_n_256" value_param="(32B, 1, 1)" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_ldmatrix_stmatrix.cpp" line="397" status="run" result="completed" time="0.146" timestamp="2026-01-22T09:16:59.157" classname="HopperLdStMatrixTutorial" />
+    <testcase name="SetShmoo/swizzle_32B_cta_m_128_cta_n_512" value_param="(32B, 2, 2)" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_ldmatrix_stmatrix.cpp" line="397" status="run" result="completed" time="0.185" timestamp="2026-01-22T09:16:59.304" classname="HopperLdStMatrixTutorial" />
+    <testcase name="SetShmoo/swizzle_64B_cta_m_128_cta_n_256" value_param="(64B, 2, 1)" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_ldmatrix_stmatrix.cpp" line="397" status="run" result="completed" time="0.133" timestamp="2026-01-22T09:16:59.490" classname="HopperLdStMatrixTutorial" />
+    <testcase name="SetShmoo/swizzle_128B_cta_m_64_cta_n_512" value_param="(128B, 1, 2)" file="/opt/pytorch/nvfuser/tests/cpp/tutorial_ldmatrix_stmatrix.cpp" line="397" status="run" result="completed" time="0.138" timestamp="2026-01-22T09:16:59.623" classname="HopperLdStMatrixTutorial" />
+  </testsuite>
+</testsuites>
