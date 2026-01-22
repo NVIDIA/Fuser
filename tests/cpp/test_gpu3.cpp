@@ -23,6 +23,7 @@
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "device_lower/pass/replace_size.h"
+#include "device_lower/utils.h"
 #include "disjoint_set.h"
 #include "exceptions.h"
 #include "expr_evaluator.h"
@@ -8324,6 +8325,9 @@ TEST_F(Gpu3Test, MoveNonConcretizedBroadcastInNormalization) {
   const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
+      continue;
+    }
+    if (ir_utils::isScheduleOp(tv)) {
       continue;
     }
 
