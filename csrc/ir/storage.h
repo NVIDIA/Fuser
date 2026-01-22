@@ -145,17 +145,17 @@ class IrStorage {
   // Let Fusion access IrStorage::clear()
   friend class Fusion;
 
-  virtual void removeExpr(Expr* expr);
+  void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  virtual void removeVal(Val* val);
+  void removeVal(Val* val);
 
   //! Register the Val with this container
-  virtual void registerVal(Val* val);
+  void registerVal(Val* val);
 
   //! Register expr with this container.
-  virtual void registerExpr(Expr* expr);
+  void registerExpr(Expr* expr);
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {

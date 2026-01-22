@@ -7,6 +7,8 @@
 // clang-format on
 
 #include <ir/container.h>
+
+#include <ir/cloner.h>
 #include <ir/storage.h>
 
 namespace nvfuser {
