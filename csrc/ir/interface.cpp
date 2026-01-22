@@ -77,4 +77,17 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   }
 }
 
+IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
+  auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
+
+  // Ensure ir container for statements is updated.
+  for (auto val : to->vals()) {
+    val->ir_container_ = to;
+  }
+  for (auto expr : to->deterministic_exprs()) {
+    expr->ir_container_ = to;
+  }
+
+  return ir_cloner;
+}
 } // namespace nvfuser
