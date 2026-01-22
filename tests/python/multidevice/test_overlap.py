@@ -284,10 +284,11 @@ def column_parallel_linear_forward_reference(
         worker_stream.wait_stream(main_stream)
         with torch.cuda.stream(worker_stream):
             if i > 0:
-                recv_req = dist.irecv(buffers[i], src=(my_rank - 1 + d) % d)
-                recv_req.wait()
-            if i < d - 1:
-                dist.isend(buffers[i], dst=(my_rank + 1) % d)
+                send_op = dist.P2POp(dist.isend, buffers[i - 1], (my_rank + 1) % d)
+                recv_op = dist.P2POp(dist.irecv, buffers[i], (my_rank - 1 + d) % d)
+                req = dist.batch_isend_irecv([send_op, recv_op])
+                for req in req:
+                    req.wait()
             torch.matmul(
                 buffers[i],
                 weight_shard.T,
