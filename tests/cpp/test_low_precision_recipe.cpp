@@ -1241,16 +1241,16 @@ TEST_P(NVFP4QuantizeTest, WithPerTensorAmax) {
   auto outputs = fec.runFusionWithInputs(inputs);
 }
 
-class PrecisionTest : public BlackwellBase {};
+class PrecisionTest : public NVFuserTest {};
 
 // Test: Negate input tensor and compute max reduction
 TEST_F(PrecisionTest, NegMaxReduction_SimpleNegMax) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
   // Create input tensor
   auto tv0 = makeSymbolicTensor(2);
-  fusion.addInput(tv0);
+  fusion->addInput(tv0);
 
   // Apply negation
   auto tv1 = neg(tv0);
@@ -1259,24 +1259,25 @@ TEST_F(PrecisionTest, NegMaxReduction_SimpleNegMax) {
   auto tv2 = max(tv1, {0, 1});
 
   // Add output
-  fusion.addOutput(tv2);
+  fusion->addOutput(tv2);
+
+  FusionExecutorCache fec(std::move(fusion));
 
   // Create test input
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({32, 64}, options);
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(
+      at::randn({1024, 1024}, at::device(at::kCUDA).dtype(at::kFloat)));
 
-  // Compile and execute
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0});
-  auto outputs = ke.run({t0});
+  auto outputs = fec.runFusionWithInputs(inputs);
 
   // Compute reference
-  auto t1 = -t0;
+  auto t1 = -inputs[0];
   auto ref = t1.max();
 
   // Validate
-  testValidate(
-      ke.compiledKernel()->kernel(), outputs, {t0}, {ref}, __LINE__, __FILE__);
+  auto output = outputs[0].as<at::Tensor>();
+  EXPECT_TRUE(output.allclose(ref, 1e-5, 1e-5))
+      << "Max reduction output does not match reference";
 }
 
 INSTANTIATE_TEST_SUITE_P(
