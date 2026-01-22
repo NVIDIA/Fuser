@@ -830,27 +830,33 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         last_tma_load_expr != nullptr,
         "Expected a TMA load expression for pending waits");
 
-    // The outermost Bulk for-loop is at
-    // for_loop_stack_[non_bulk_loop_stack_.size()] if we're inside any Bulk
-    // loops, otherwise there are no Bulk loops
+    // Find the first Bulk loop in for_loop_stack_
+    size_t first_bulk_index = for_loop_stack_.size();
+    for (size_t i = 0; i < for_loop_stack_.size(); ++i) {
+      if (for_loop_stack_[i]->iter_domain()->getParallelType() ==
+          ParallelType::Bulk) {
+        first_bulk_index = i;
+        break;
+      }
+    }
+
     NVF_ERROR(
-        for_loop_stack_.size() > non_bulk_loop_stack_.size(),
-        "Expected to be inside Bulk loops when flushing TMA waits");
+        first_bulk_index < for_loop_stack_.size(),
+        "Expected to find at least one Bulk loop when flushing TMA waits");
 
-    kir::ForLoop* bulk_loop = for_loop_stack_[non_bulk_loop_stack_.size()];
+    // Insert after the first Bulk loop
+    kir::ForLoop* first_bulk_loop = for_loop_stack_[first_bulk_index];
 
-    // Determine the scope where we should insert after the bulk loop
-    // The scope is the body of the last non-Bulk loop before we entered
-    // the Bulk loop, or global scope if there are no non-Bulk loops
-    Scope* insert_scope = non_bulk_loop_stack_.empty()
+    // Determine scope: the scope is the body of the parent of the first Bulk
+    // loop If first_bulk_index is 0, the parent is global scope (nullptr)
+    // Otherwise, it's the body of for_loop_stack_[first_bulk_index - 1]
+    Scope* insert_scope = (first_bulk_index == 0)
         ? nullptr
-        : &non_bulk_loop_stack_.back()->body();
+        : &for_loop_stack_[first_bulk_index - 1]->body();
 
-    // Place waits after the outermost Bulk for-loop
-    // Insert waits in reverse order so they appear in the original order
     for (auto it = pending_tma_waits_.rbegin(); it != pending_tma_waits_.rend();
          ++it) {
-      registerInsertAfter(bulk_loop, *it, insert_scope);
+      registerInsertAfter(first_bulk_loop, *it, insert_scope);
     }
 
     pending_tma_waits_.clear();
