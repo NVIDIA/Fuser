@@ -7,16 +7,16 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <ir/all_nodes.h>
-#include <type.h>
-#include <visibility.h>
-
 #include <algorithm>
 #include <iterator>
 #include <unordered_map>
 #include <vector>
+
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "ir/all_nodes.h"
+#include "type.h"
+#include "visibility.h"
 
 namespace nvfuser::MmaOpUtils {
 

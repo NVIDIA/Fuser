@@ -15,7 +15,7 @@
 #include "ops/all_ops.h"
 #include "scheduler/vectorize_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

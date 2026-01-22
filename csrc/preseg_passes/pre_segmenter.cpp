@@ -16,6 +16,7 @@
 #include "preseg_passes/decompose_reshardings.h"
 #include "preseg_passes/exact_mapped_extent_substitution.h"
 #include "preseg_passes/finalize_multidevice_domains.h"
+#include "preseg_passes/fmin_fmax_promotion.h"
 #include "preseg_passes/mark_aliases_prepare.h"
 #include "preseg_passes/move_gather.h"
 #include "preseg_passes/move_pad.h"
@@ -50,6 +51,7 @@ namespace nvfuser::preseg_passes {
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
+  OptimizationPass<FMinFMaxPromotionPass>::runPass(fusion);
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and

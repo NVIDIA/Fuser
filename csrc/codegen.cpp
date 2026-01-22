@@ -22,7 +22,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <type.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 namespace codegen {

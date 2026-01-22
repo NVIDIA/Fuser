@@ -18,7 +18,7 @@
 #include "preseg_passes/pre_segmenter.h"
 #include "preseg_passes/remove_bcast_squeeze.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

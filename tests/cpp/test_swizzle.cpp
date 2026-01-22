@@ -17,8 +17,8 @@
 #include "scheduler/tools/inlining.h"
 #include "swizzle.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_iter.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

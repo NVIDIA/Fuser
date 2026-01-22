@@ -15,7 +15,7 @@
 #include "ops/all_ops.h"
 #include "tests/cpp/multidevice.h"
 #include "tests/cpp/multidevice_transformer.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -142,7 +142,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   }
   auto
       [sdpa_output,
-       log_sumexp,
+       logsumexp,
        cum_seq_q,
        cum_seq_k,
        query_seq_len,
@@ -176,7 +176,7 @@ std::vector<at::Tensor> reference_mha_backwards(
           qkv[1],
           qkv[2],
           sdpa_output,
-          log_sumexp,
+          logsumexp,
           cum_seq_q,
           cum_seq_k,
           /*max_q=*/*query_seq_len.maybe_as_int(),
@@ -199,7 +199,7 @@ std::vector<at::Tensor> reference_mha_backwards(
   // and become inputs to the nvfuser mha backwards pass
   std::vector<at::Tensor> tensors = {
       sdpa_output,
-      log_sumexp,
+      logsumexp,
       philox_seed,
       philox_offset,
       dropout_grad,
@@ -583,7 +583,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   TensorView* tvmask = makeContigConcreteTensor({B * S, E}, DataType::Bool);
   TensorView* tvsdpa_out =
       makeContigConcreteTensor({D, B, H / D, S, E / H}, dtype);
-  TensorView* tvsdpa_log_sumexp =
+  TensorView* tvsdpa_logsumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
   auto [tvsdpa_seed, tvsdpa_offset] = createSdpaRngTvs();
   TensorView* linear0 = makeSymbolicTensor(3, dtype);
@@ -594,7 +594,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
   fusion->addInput(tvgrad);
   fusion->addInput(tvmask);
   fusion->addInput(tvsdpa_out);
-  fusion->addInput(tvsdpa_log_sumexp);
+  fusion->addInput(tvsdpa_logsumexp);
   fusion->addInput(tvsdpa_seed);
   fusion->addInput(tvsdpa_offset);
   fusion->addInput(linear0);
@@ -605,7 +605,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       tvw1,
       tvmask,
       tvsdpa_out,
-      tvsdpa_log_sumexp,
+      tvsdpa_logsumexp,
       tvsdpa_seed,
       tvsdpa_offset,
       tvgrad,
@@ -641,7 +641,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       grad,
       mask,
       shardTensor1D(reference_outs[0], 1, mesh).unsqueeze(0), // sdpa.output
-      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0), // sdpa.log_sumexp
+      shardTensor1D(reference_outs[1], 1, mesh).unsqueeze(0), // sdpa.logsumexp
       reference_outs[2], // sdpa.seed
       reference_outs[3], // sdpa.offset
       shardTensor1D(reference_outs[13], 1, mesh).unsqueeze(0) // linear0

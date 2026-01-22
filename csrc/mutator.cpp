@@ -9,8 +9,8 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <utils.h>
 #include <vector>
+#include "base.h"
 
 /*
  * Mutators are the mechanism used to modify IR nodes. Since most nodes are

@@ -3543,7 +3543,7 @@ void initNvFuserPythonBindings(PyObject* module) {
          Tensor key,
          Tensor value,
          Tensor output,
-         Tensor log_sumexp,
+         Tensor logsumexp,
          std::optional<Scalar> dropout_p,
          std::optional<Scalar> is_causal,
          Tensor philox_seed,
@@ -3574,7 +3574,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              fd->recordingState(key()),
              fd->recordingState(value()),
              fd->recordingState(output()),
-             fd->recordingState(log_sumexp()),
+             fd->recordingState(logsumexp()),
              dropout_p_state,
              is_causal_state,
              fd->recordingState(philox_seed()),
@@ -3590,7 +3590,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("key"),
       py::arg("value"),
       py::arg("output"),
-      py::arg("log_sumexp"),
+      py::arg("logsumexp"),
       py::arg("dropout_p").none(true) = py::none(),
       py::arg("is_causal").none(true) = py::none(),
       py::arg("philox_seed"),
@@ -3615,7 +3615,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
-        Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
+        Tensor logsumexp = fd->defineTensor(/*dims=*/ndims - 1);
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
         int64_t philox_ndims = 1;
 #else
@@ -3650,10 +3650,10 @@ void initNvFuserPythonBindings(PyObject* module) {
              is_causal_state,
              scale_state},
             {fd->recordingState(output()),
-             fd->recordingState(log_sumexp()),
+             fd->recordingState(logsumexp()),
              fd->recordingState(philox_seed()),
              fd->recordingState(philox_offset())}));
-        return std::make_tuple(output, log_sumexp, philox_seed, philox_offset);
+        return std::make_tuple(output, logsumexp, philox_seed, philox_offset);
       },
       py::arg("query"),
       py::arg("key"),
