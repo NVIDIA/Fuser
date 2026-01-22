@@ -95,7 +95,7 @@ class ExprPasskey {
 //! a Statment at runtime. This is currently implemented in dispatch.h
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
-  friend void swap(IrStorage& a, IrStorage& b) noexcept;
+  friend void swap(IrContainer& a, IrContainer& b) noexcept;
   friend class IrContainer;
 
  public:

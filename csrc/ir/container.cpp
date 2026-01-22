@@ -32,21 +32,7 @@ void swap(IrStorage& a, IrStorage& b) noexcept {
 
   swap(a.metadata_, b.metadata_);
 
-  // Fixup the Statement::fusion_ links for a
-  for (auto val : a.vals_) {
-    val->ir_container_ = a.parent();
-  }
-  for (auto expr : a.exprs_) {
-    expr->ir_container_ = a.parent();
-  }
-
-  // Fixup the Statement::fusion_ links for b
-  for (auto val : b.vals_) {
-    val->ir_container_ = b.parent();
-  }
-  for (auto expr : b.exprs_) {
-    expr->ir_container_ = b.parent();
-  }
+  swap(a.parent_, b.parent_);
 }
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
