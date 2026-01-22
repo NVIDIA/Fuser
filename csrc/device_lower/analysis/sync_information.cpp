@@ -519,7 +519,8 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
         if (error_on_failure) {
           if (raw_dims.hasBID()) {
             NVF_ERROR(
-                producer->getMemoryType() == MemoryType::Global,
+                ir_utils::isScheduleOp(consumer) ||
+                    producer->getMemoryType() == MemoryType::Global,
                 "Inconsistent parallelization found between T",
                 producer->name(),
                 " (",
