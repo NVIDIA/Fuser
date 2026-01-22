@@ -51,6 +51,7 @@ void swap(IrStorage& a, IrStorage& b) noexcept {
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
+  NVF_ERROR(to->parent() != nullptr, "IrStorage parent is not nullptr!")
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order

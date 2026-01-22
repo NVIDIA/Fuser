@@ -217,10 +217,6 @@ class IrStorage {
   std::unique_ptr<std::vector<Val*>> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
-  // Parent IrInterface that owns this container (for pure composition pattern)
-  // Used by Statement::fusion() to navigate back to owning Fusion
-  IrContainer* parent_ = nullptr;
-
  public:
   // Allow IrContainer to set parent pointer
   void setParent(IrContainer* parent) {
@@ -228,8 +224,15 @@ class IrStorage {
   }
 
   IrContainer* parent() const {
+    NVF_ERROR(
+        parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
     return parent_;
   }
+
+ private:
+  // Parent IrInterface that owns this container (for pure composition pattern)
+  // Used by Statement::fusion() to navigate back to owning Fusion
+  IrContainer* parent_ = nullptr;
 };
 
 } // namespace nvfuser
