@@ -17,7 +17,6 @@ namespace nvfuser {
 struct DispatchResult {
   at::Tensor recv_x; // Dispatched tokens received on this rank.
   at::Tensor recv_topk_idx; // Expert ids aligned with recv_x.
-  at::Tensor recv_topk_weights; // Gating weights aligned with recv_x.
   at::Tensor recv_src_idx; // Source token indices for combine.
   at::Tensor recv_src_rank; // Source ranks for combine.
   at::Tensor n_tokens_to_rank; // Tokens sent to each rank (this rank's view).
@@ -26,7 +25,6 @@ struct DispatchResult {
 
 struct CombineResult {
   at::Tensor combined_x; // Combined tokens back in original order.
-  at::Tensor combined_topk_weights; // Combined gating weights per token.
 };
 
 // Dispatch MoE tokens to the owning ranks. Only k=1 is supported for now.
@@ -34,7 +32,8 @@ struct CombineResult {
 // Args:
 //   x: Token embeddings on this rank, shape [T, H].
 //   topk_idx: Global expert ids per token (topk=1), shape [T] or [T, 1].
-//   topk_weights: Gating weights per token (topk=1), shape [T] or [T, 1].
+//   topk_weights: Apply gating weights either before dispatch or after combine.
+//   They are intentionally not forwarded through dispatch/combination.
 //   is_token_in_rank: One-hot token-to-rank assignment, shape [T, R].
 //   num_experts: Total experts across all ranks (must be divisible by R).
 //   communicator: Communicator for alltoall exchange.
@@ -65,12 +64,10 @@ struct CombineResult {
 //   //   recv_topk_idx aligned with recv_x (e.g., [2, 3, 2])
 //   //   recv_src_idx tells original token positions (e.g., [1, 2, 3])
 //   auto out = doMoEDispatch(
-//       x, topk_idx, topk_weights, is_token_in_rank, 4, comm,
-//       CommunicatorBackend::kNccl);
+//       x, topk_idx, is_token_in_rank, 4, comm, CommunicatorBackend::kNccl);
 NVF_API DispatchResult doMoEDispatch(
     const at::Tensor& x, // [T, H]
     const at::Tensor& topk_idx, // [T] or [T, 1]
-    const at::Tensor& topk_weights, // [T] or [T, 1]
     const at::Tensor& is_token_in_rank, // [T, R]
     int64_t num_experts,
     Communicator* communicator,
@@ -80,7 +77,6 @@ NVF_API DispatchResult doMoEDispatch(
 //
 // Args:
 //   x: Token embeddings after expert compute, shape [T_recv, H].
-//   topk_weights: Gating weights aligned with x, shape [T_recv].
 //   src_idx: Original token indices for each row of x, shape [T_recv].
 //   src_rank: Original source rank per token, shape [T_recv].
 //   n_tokens_to_rank: Tokens sent to each rank (from dispatch), shape [R].
@@ -101,11 +97,10 @@ NVF_API DispatchResult doMoEDispatch(
 //   // n_tokens_to_rank and n_tokens_from_rank are [R] counts per rank.
 //   // Combine scatters results back to original token order per rank.
 //   auto combined = doMoECombine(
-//       x, topk_weights, src_idx, src_rank, n_tokens_to_rank,
+//       x, src_idx, src_rank, n_tokens_to_rank,
 //       n_tokens_from_rank, comm, CommunicatorBackend::kNccl);
 NVF_API CombineResult doMoECombine(
     const at::Tensor& x,
-    const at::Tensor& topk_weights,
     const at::Tensor& src_idx,
     const at::Tensor& src_rank,
     const at::Tensor& n_tokens_to_rank,

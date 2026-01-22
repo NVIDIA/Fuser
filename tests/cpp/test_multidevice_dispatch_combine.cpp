@@ -5,11 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <gtest/gtest.h>
-#include <torch/torch.h>
-
 #include <memory>
 #include <utility>
+
+#include <ATen/ATen.h>
+#include <gtest/gtest.h>
 
 #include "fusion.h"
 #include "host_ir/container.h"
@@ -40,12 +40,10 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
 
   auto* in_x = makeSymbolicTensor(2);
   auto* in_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* in_topk_weights = makeSymbolicTensor(1);
   auto* in_is_token_in_rank = makeSymbolicTensor(2, DataType::Bool);
 
   auto* recv_x = makeSymbolicTensor(2);
   auto* recv_topk_idx = makeSymbolicTensor(1, DataType::Int);
-  auto* recv_topk_weights = makeSymbolicTensor(1);
   auto* recv_src_idx = makeSymbolicTensor(1, DataType::Int);
   auto* recv_src_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
@@ -54,25 +52,20 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto* dispatch = IrBuilder::create<MoEDispatch>(
       recv_x,
       recv_topk_idx,
-      recv_topk_weights,
       recv_src_idx,
       recv_src_rank,
       n_tokens_to_rank,
       n_tokens_from_rank,
       in_x,
       in_topk_idx,
-      in_topk_weights,
       in_is_token_in_rank,
       num_experts,
       CommunicatorBackend::kNccl);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combined_topk_weights = makeSymbolicTensor(1);
   auto* combine = IrBuilder::create<MoECombine>(
       combined_x,
-      combined_topk_weights,
       recv_x,
-      recv_topk_weights,
       recv_src_idx,
       recv_src_rank,
       n_tokens_to_rank,
@@ -84,7 +77,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
 
   hic->addInput(in_x);
   hic->addInput(in_topk_idx);
-  hic->addInput(in_topk_weights);
   hic->addInput(in_is_token_in_rank);
   hic->addOutput(combined_x);
 
@@ -99,7 +91,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
                .reshape({kNumTokens, kHidden}) +
       static_cast<double>(my_rank) * 1000.0;
   auto topk_idx = at::zeros({kNumTokens}, int_options);
-  auto topk_weights = at::ones({kNumTokens}, float_options);
 
   // Asymmetric example:
   // token->rank: [0, 1, 1, 1] so rank0 gets 1 token, rank1 gets 3 tokens.
@@ -116,7 +107,6 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto outputs = hie.runWithInput(
       {{in_x, x},
        {in_topk_idx, topk_idx},
-       {in_topk_weights, topk_weights},
        {in_is_token_in_rank, is_token_in_rank}});
   auto combined = outputs.back().as<at::Tensor>();
 

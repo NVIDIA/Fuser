@@ -175,13 +175,16 @@ class P2PCommunication : public Expr {
 };
 
 // Dispatch represents intra-node MoE token dispatch. It shuffles tokens from
-// the local rank to destination ranks based on `in_is_token_in_rank`.
+// the local rank to destination ranks based on explicit routing.
 //
 // Example shapes (topk=1):
-//   in_x: [T, H], in_topk_idx: [T] or [T, 1], in_topk_weights: [T] or [T, 1],
+//   in_x: [T, H], in_topk_idx: [T] or [T, 1],
 //   in_is_token_in_rank: [T, R] (one-hot), num_experts = R * experts_per_rank.
-//   Outputs are recv-aligned tensors: out_x/out_topk_*/out_src_* with [T_recv,
-//   ...] and out_n_tokens_to_rank/out_n_tokens_from_rank with shape [R].
+//   topk_weights are intentionally not forwarded; apply them before dispatch or
+//   after combine.
+//   Outputs are recv-aligned tensors: out_x/out_topk_idx/out_src_* with
+//   [T_recv, ...] and out_n_tokens_to_rank/out_n_tokens_from_rank with shape
+//   [R].
 class MoEDispatch : public Expr {
  public:
   using Expr::Expr;
@@ -190,17 +193,18 @@ class MoEDispatch : public Expr {
       IrBuilderPasskey passkey,
       TensorView* out_x,
       TensorView* out_topk_idx,
-      TensorView* out_topk_weights,
       TensorView* out_src_idx,
       TensorView* out_src_rank,
       TensorView* out_n_tokens_to_rank,
       TensorView* out_n_tokens_from_rank,
       TensorView* in_x,
       TensorView* in_topk_idx,
-      TensorView* in_topk_weights,
       TensorView* in_is_token_in_rank,
       int64_t num_experts,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
+  TensorView* inIsTokenInRank() const {
+    return input(2)->as<TensorView>();
+  }
 
   MoEDispatch(const MoEDispatch& other) = delete;
   MoEDispatch& operator=(const MoEDispatch& other) = delete;
@@ -223,24 +227,20 @@ class MoEDispatch : public Expr {
     return output(1)->as<TensorView>();
   }
 
-  TensorView* outTopkWeights() const {
+  TensorView* outSrcIdx() const {
     return output(2)->as<TensorView>();
   }
 
-  TensorView* outSrcIdx() const {
+  TensorView* outSrcRank() const {
     return output(3)->as<TensorView>();
   }
 
-  TensorView* outSrcRank() const {
+  TensorView* outTokensToRank() const {
     return output(4)->as<TensorView>();
   }
 
-  TensorView* outTokensToRank() const {
-    return output(5)->as<TensorView>();
-  }
-
   TensorView* outTokensFromRank() const {
-    return output(6)->as<TensorView>();
+    return output(5)->as<TensorView>();
   }
 
   TensorView* inX() const {
@@ -249,14 +249,6 @@ class MoEDispatch : public Expr {
 
   TensorView* inTopkIdx() const {
     return input(1)->as<TensorView>();
-  }
-
-  TensorView* inTopkWeights() const {
-    return input(2)->as<TensorView>();
-  }
-
-  TensorView* inIsTokenInRank() const {
-    return input(3)->as<TensorView>();
   }
 
   int64_t numExperts() const {
@@ -275,10 +267,9 @@ class MoEDispatch : public Expr {
 // their source ranks using `in_src_rank` and `in_src_idx`.
 //
 // Example shapes (topk=1):
-//   in_x: [T_recv, H], in_topk_weights: [T_recv], in_src_idx: [T_recv],
-//   in_src_rank: [T_recv], in_n_tokens_to_rank: [R], in_n_tokens_from_rank:
-//   [R]. Outputs are source-aligned: out_x/out_topk_weights with shape [T_src,
-//   ...].
+//   in_x: [T_recv, H], in_src_idx: [T_recv], in_src_rank: [T_recv],
+//   in_n_tokens_to_rank: [R], in_n_tokens_from_rank: [R].
+//   Outputs are source-aligned: out_x with shape [T_src, ...].
 class MoECombine : public Expr {
  public:
   using Expr::Expr;
@@ -286,9 +277,7 @@ class MoECombine : public Expr {
   MoECombine(
       IrBuilderPasskey passkey,
       TensorView* out_x,
-      TensorView* out_topk_weights,
       TensorView* in_x,
-      TensorView* in_topk_weights,
       TensorView* in_src_idx,
       TensorView* in_src_rank,
       TensorView* in_n_tokens_to_rank,
@@ -312,32 +301,24 @@ class MoECombine : public Expr {
     return output(0)->as<TensorView>();
   }
 
-  TensorView* outTopkWeights() const {
-    return output(1)->as<TensorView>();
-  }
-
   TensorView* inX() const {
     return input(0)->as<TensorView>();
   }
 
-  TensorView* inTopkWeights() const {
+  TensorView* inSrcIdx() const {
     return input(1)->as<TensorView>();
   }
 
-  TensorView* inSrcIdx() const {
+  TensorView* inSrcRank() const {
     return input(2)->as<TensorView>();
   }
 
-  TensorView* inSrcRank() const {
+  TensorView* inTokensToRank() const {
     return input(3)->as<TensorView>();
   }
 
-  TensorView* inTokensToRank() const {
-    return input(4)->as<TensorView>();
-  }
-
   TensorView* inTokensFromRank() const {
-    return input(5)->as<TensorView>();
+    return input(4)->as<TensorView>();
   }
 
   CommunicatorBackend backend() const {
