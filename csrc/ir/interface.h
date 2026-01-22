@@ -39,15 +39,17 @@ class IrContainerPasskey {
 // - Owns IrStorage via unique_ptr (can be shared_ptr in Phase 2)
 // - Forwards all IrStorage public methods
 // - Allows derived classes to override protected IrContainer methods
-//
-// This eliminates ~20 forwarding methods from Fusion and provides a reusable
-// pattern for other classes that need IrContainer composition.
 class NVF_API IrContainer : public PolymorphicBase {
  protected:
   // Constructors
   explicit IrContainer();
 
-  // Copy/Move
+  // TODO: The semantics of IrContainers are largely driven through copy/swap
+  // function behavior. It might be better if this behaviour was properly
+  // defined through class semantics directly.
+  //
+  // Copy/Move are deleted. IrContainer is a forwarding interface class. We
+  // rely on copy/swap function behavior to handle the semantics of IrStorage.
   IrContainer(const IrContainer& other) = delete;
   IrContainer(IrContainer&& other) noexcept = delete;
   IrContainer& operator=(const IrContainer& other) = delete;
@@ -224,11 +226,6 @@ class NVF_API IrContainer : public PolymorphicBase {
   virtual void removeVal(Val* val) {
     ir_storage()->removeVal(val);
   }
-
-  // Note: getValName, getExprName, and clear are protected in IrContainer
-  // and cannot be directly forwarded. Derived classes that need these
-  // should access them through their own ir_storage_ member or implement
-  // their own public wrappers.
 
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
 
