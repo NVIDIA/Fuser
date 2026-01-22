@@ -2223,8 +2223,6 @@ TEST_P(TmaPersistentTestP, TmaInnerPersistentRmsNorm) {
 }
 
 TEST_P(TmaPersistentTestP, TmaInnerPersistentLayerNorm) {
-  // clear allocator cache to avoid OOM errors during test
-  maybeClearAllocator();
   auto dtype = std::get<0>(GetParam());
   auto x = std::get<1>(GetParam());
   auto y = std::get<2>(GetParam());
