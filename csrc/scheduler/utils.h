@@ -15,7 +15,7 @@
 #include <scheduler/reduction_heuristic.h>
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
-#include "utils.h"
+#include "base.h"
 
 namespace nvfuser {
 

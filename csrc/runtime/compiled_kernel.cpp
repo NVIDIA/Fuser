@@ -33,7 +33,7 @@
 #include <runtime/executor_utils.h>
 #include <serde/utils.h>
 #include <tensor_metadata.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>

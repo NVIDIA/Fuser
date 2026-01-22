@@ -22,7 +22,7 @@
 #include <options.h>
 #include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
-#include <utils.h>
+#include "base.h"
 
 #include <cuda_occupancy.h>
 

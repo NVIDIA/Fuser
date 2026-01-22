@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/internal_nodes.h"
+
 #include <algorithm>
 #include <complex>
 #include <iterator>
@@ -20,21 +22,20 @@
 #include <ATen/core/Tensor.h>
 #include <c10/core/SymInt.h>
 
-#include <device_lower/utils.h>
-#include <expr_evaluator.h>
-#include <ir/allocation_utils.h>
-#include <ir/base_nodes.h>
-#include <ir/cloner.h>
-#include <ir/internal_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <logical_domain_map.h>
-#include <multidevice/utils.h>
-#include <ops/arith.h>
-#include <runtime/allocations.h>
-#include <type.h>
+#include "device_lower/utils.h"
+#include "expr_evaluator.h"
+#include "ir/allocation_utils.h"
+#include "ir/base_nodes.h"
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "logical_domain_map.h"
+#include "multidevice/utils.h"
+#include "ops/arith.h"
+#include "runtime/allocations.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -2707,6 +2708,33 @@ std::string Partition::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Partition)
+
+Combine::Combine(
+    IrBuilderPasskey passkey,
+    IterDomain* out,
+    IterDomain* component,
+    RaggedIterDomain* ragged)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(component);
+  addInput(ragged);
+}
+
+std::string Combine::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << "Combine: ";
+  ss << "component: " << component()->toString();
+  ss << " + ragged: " << ragged()->toString();
+  ss << " -> " << out()->toString();
+  ss << "\n";
+  return ss.str();
+}
+
+std::string Combine::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Combine can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Combine)
 
 Swizzle::Swizzle(
     IrBuilderPasskey passkey,

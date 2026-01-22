@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <optimization_pass.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "optimization_pass.h"
+#include "visibility.h"
 
 namespace nvfuser::preseg_passes {
 

@@ -845,9 +845,14 @@ bool SchedulerTopologyChecker::hasNonNormalizePostReductionBCast(
 // is not the fusion/segment output.
 bool hasNonTerminalBlockQuantizeOp(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
-    if (expr->isA<BlockQuantizationOp>()) {
-      auto block_scales =
-          expr->as<BlockQuantizationOp>()->blockScales()->as<TensorView>();
+    if (auto bqop = dynamic_cast<BlockQuantizationOp*>(expr)) {
+      auto block_scales = bqop->blockScales()->as<TensorView>();
+      if (!block_scales->isFusionOutput()) {
+        return true;
+      }
+    } else if (
+        auto grouped_bqop = dynamic_cast<GroupedBlockQuantizationOp*>(expr)) {
+      auto block_scales = grouped_bqop->blockScales()->as<TensorView>();
       if (!block_scales->isFusionOutput()) {
         return true;
       }
@@ -1081,6 +1086,19 @@ bool SchedulerTopologyChecker::rejectScheduleFusionGlobalBufferRequirement(
               layout_op, layout_op->inputOffsets(), scheduler_type) ||
           rejectScheduleFusionInputRequirement(
               layout_op, layout_op->outputOffsets(), scheduler_type)) {
+        return true;
+      }
+    } else if (expr->isA<GroupedBlockQuantizationOp>()) {
+      // The runtime function of GroupedBlockQuantizationOp needs:
+      //   1. Write scale output directly to global memory
+      //   2. Read two offset inputs directly from global memory
+      auto grouped_bop = expr->as<GroupedBlockQuantizationOp>();
+      if (rejectScheduleFusionOutputRequirement(
+              grouped_bop, grouped_bop->blockScales(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->inputOffsets(), scheduler_type) ||
+          rejectScheduleFusionInputRequirement(
+              grouped_bop, grouped_bop->outputOffsets(), scheduler_type)) {
         return true;
       }
     }

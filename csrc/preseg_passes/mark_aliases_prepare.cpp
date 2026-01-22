@@ -5,14 +5,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <alias_analysis.h>
-#include <debug.h>
-#include <ir/iostream.h> // for operator<<(ostream&, TensorView*)
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <options.h>
-#include <preseg_passes/mark_aliases_prepare.h>
-#include <transform_replay.h>
+#include "preseg_passes/mark_aliases_prepare.h"
+
+#include "alias_analysis.h"
+#include "debug.h"
+#include "ir/iostream.h" // for operator<<(ostream&, TensorView*)
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "options.h"
+#include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {
 

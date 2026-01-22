@@ -10,8 +10,8 @@
 #include <unordered_map>
 
 #include <exceptions.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 // dispatch.h prevents the need from adding manual dispatch in every class that
 // wants to define how to process a series of nodes. dispatch.h provides 4
@@ -112,10 +112,12 @@ class Val;
   f(CutlassNvfp4GroupedMmaOp);       \
   f(PreprocessGroupedMatmulInputSf); \
   f(BlockQuantizationOp);            \
+  f(GroupedBlockQuantizationOp);     \
   f(TopKOp);                         \
   f(ScanOp);                         \
   f(Merge);                          \
   f(Partition);                      \
+  f(Combine);                        \
   f(Swizzle);                        \
   f(Swizzle2D);                      \
   f(Resize);                         \

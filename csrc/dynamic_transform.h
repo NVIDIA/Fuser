@@ -17,7 +17,7 @@
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <transform_view.h>
-#include <utils.h>
+#include "base.h"
 
 #include <memory>
 #include <vector>

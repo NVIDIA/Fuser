@@ -7,17 +7,17 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <dispatch.h>
-#include <exceptions.h>
-#include <ir/builder.h>
-#include <visibility.h>
-
 #include <optional>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "disjoint_set.h"
+#include "dispatch.h"
+#include "exceptions.h"
+#include "ir/builder.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

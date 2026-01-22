@@ -21,8 +21,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 #include "ir/base_nodes.h"
@@ -251,6 +251,185 @@ void traverseFrontierWithContiguityCheck(
     NVF_ERROR(expr != nullptr);
     NVF_THROW("Unexpected expression: ", expr->toString());
   }
+}
+
+void validateQuantizedOutputScheduling(
+    TensorView* quantized_output,
+    DataType input_dtype) {
+  // Outputs have the same allocation domain
+  // as the logical domain - no allocation domain.
+  NVF_ERROR(
+      !quantized_output->hasAllocation(),
+      "Quantized output must not have an allocation domain.");
+
+  IterDomain* grouped_id = nullptr;
+  IterDomain* thread_x = nullptr;
+  IterDomain* block_x = nullptr;
+  IterDomain* thread_z = nullptr;
+  IterDomain* block_z = nullptr;
+
+  for (const auto& loop_id : quantized_output->getLoopDomain()) {
+    if (loop_id->getParallelType() == ParallelType::Group) {
+      grouped_id = loop_id;
+    } else if (loop_id->getParallelType() == ParallelType::TIDx) {
+      thread_x = loop_id;
+    } else if (loop_id->getParallelType() == ParallelType::BIDx) {
+      block_x = loop_id;
+    } else if (loop_id->getParallelType() == ParallelType::TIDz) {
+      thread_z = loop_id;
+    } else if (loop_id->getParallelType() == ParallelType::BIDz) {
+      block_z = loop_id;
+    } else if (
+        loop_id->getParallelType() == ParallelType::Serial ||
+        loop_id->getParallelType() == ParallelType::Unswitch ||
+        loop_id->getParallelType() == ParallelType::Unroll) {
+      // Check this is ID has a constant extent and is 1
+      NVF_ERROR(
+          loop_id->extent()->isConstInt(),
+          "Expected constant extent for Serial/Unswitch/Unroll ID in ",
+          quantized_output->definition()->toString());
+      NVF_ERROR_EQ(
+          loop_id->extent()->evaluate().as<int64_t>(),
+          1,
+          "Expected non-TID/BID/Group ID to have extent of 1 for ",
+          quantized_output->definition()->toString());
+    }
+  }
+
+  NVF_ERROR(
+      grouped_id != nullptr,
+      "One of the output IDs must be grouped for ",
+      quantized_output->definition()->toString());
+
+  NVF_ERROR(
+      thread_x != nullptr && block_x != nullptr,
+      "Need to have both TIDx and BIDx when using: ",
+      quantized_output->definition()->toString());
+
+  NVF_ERROR(
+      !thread_z && !block_z,
+      "Parallelization along z axis is not supported for ",
+      quantized_output->definition()->toString());
+
+  auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+
+  NVF_ERROR(
+      ((inner_extent == 4 || inner_extent == 2) &&
+       input_dtype == DataType::Float) ||
+          ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+           (input_dtype == DataType::BFloat16 ||
+            input_dtype == DataType::Half)),
+      "The group dimension must be  2/4 (FP32) or 2/4/8 "
+      "(BF16). Found: ",
+      inner_extent,
+      ". Expr: ",
+      quantized_output->definition()->toString());
+
+  // [ NOTE: check scheduling requirements for block quantization ]
+  //
+  //                   M    K
+  //                 │    │
+  //                 ▼    ▼
+  //              ┌────────────┐
+  //              │   merge    │
+  //              └─────┬──────┘
+  //                    │
+  //                    ▼
+  //                   M*K
+  //               ┌──────────┐
+  //               │  split   ┼──┐
+  //               └─┬────────┘  │
+  //                 ▼           ▼
+  //           (M*K)/4          4(G)
+  //           ┌────────┐
+  //           │ split  ┼────┐
+  //           └─┬──────┘    │
+  //             ▼           ▼
+  //         (M*K)/4        1(U)
+  //     ┌─────────┐
+  //     │  split  │
+  //   ┌─┼         ┼───┐
+  //   │ └─────────┘   │
+  //   ▼               ▼
+  // (M*K)/4/128      128(Tx)
+
+  // Next we check the following scheduling requirements for
+  // BlockQuantizationOp/GroupedBlockQuantizationOp - the above figure is an
+  // example of a valid schedule.
+  // 1. The Group ID must be derived from the innermost logical IDs
+  // 2. TIDx must follow the Group ID in the schedule -- that is when derived
+  // from the logical domain, group ID must be inner-most, the next
+  // "inner-most" should be TIDx (unless there is an ID with a unit trip
+  // count)
+  // 3. All merges involved from logical domains to group and thread ID must
+  // combine contiguous IDs
+
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {quantized_output->getLogicalDomain().begin(),
+       quantized_output->getLogicalDomain().end()},
+      {quantized_output->getLoopDomain().begin(),
+       quantized_output->getLoopDomain().end()});
+
+  std::vector<IterDomain*> ids_to_transform =
+      quantized_output->getLogicalDomain();
+
+  std::deque<IterDomain*> frontier(
+      quantized_output->getLogicalDomain().begin(),
+      quantized_output->getLogicalDomain().end());
+
+  // This will get the xforms from logical to loop and apply them on the
+  // logical domain. We will get a loop domain minus the reordering.
+  // This pass also removes all IDs from frontier that were derived using
+  // non-contiguous merges.
+  scheduler_utils::applyTransforms(
+      ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
+        traverseFrontierWithContiguityCheck(frontier, expr);
+      });
+
+  // The grouped ID must correspond to the innermost loop-like domain
+  NVF_ERROR(
+      ids_to_transform.back() == grouped_id,
+      "The grouped ID must correspond to the innermost of all splits "
+      "from logical domains to loop domains for TV: ",
+      quantized_output->toString());
+
+  // Iterate from the back to find TIDx, skipping group_id (last element)
+  // Ensure all IDs between group_id and TIDx have extent 1
+  bool found_tidx = false;
+  for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
+       ++it) {
+    if (*it == thread_x) {
+      found_tidx = true;
+      break;
+    }
+    // All non-TIDx IDs between Group ID and TIDx must have extent of 1
+    NVF_ERROR(
+        (*it)->extent()->isConstInt() &&
+            (*it)->extent()->evaluate().as<int64_t>() == 1,
+        "Expected IDs between Group ID and TIDx to have extent of 1 for ",
+        quantized_output->toString());
+  }
+
+  NVF_ERROR(
+      found_tidx,
+      "TIDx must follow the Group ID in the schedule for ",
+      quantized_output->toString());
+
+  // Check if grouped_id in frontier
+  auto grouped_it = std::ranges::find(frontier, grouped_id);
+  NVF_ERROR(
+      grouped_it != frontier.end(),
+      "All merge operations deriving the grouped ID must combine "
+      "contiguous IDs from the logical domain for: ",
+      quantized_output->toString());
+  // Do the same for thread_x
+  auto threadx_it =
+      std::ranges::find(frontier.begin(), frontier.end(), thread_x);
+  NVF_ERROR(
+      threadx_it != frontier.end(),
+      "All merge operations deriving the TIDx ID must combine "
+      "contiguous IDs from the logical domain for: ",
+      quantized_output->toString());
 }
 
 // Check if maybe_innermost_id is derived from base_id and corresponds to the
@@ -662,12 +841,6 @@ class ExprValidator : public OptOutDispatch {
           global_scale->dtype());
     }
 
-    // Outputs have the same allocation domain
-    // as the logical domain - no allocation domain.
-    NVF_ERROR(
-        !quantized_output->hasAllocation(),
-        "Quantized output must not have an allocation domain.");
-
     // When output scales is swizzled we will need to allow these checks
     // to be relaxed. We will need to ensure that the swizzling
     // allocation allowed is a fixed pattern:
@@ -689,178 +862,54 @@ class ExprValidator : public OptOutDispatch {
             [](std::optional<bool> c) { return c.value_or(true); }),
         "Block scaling factor not contiguous");
 
-    IterDomain* grouped_id = nullptr;
-    IterDomain* thread_x = nullptr;
-    IterDomain* block_x = nullptr;
-    IterDomain* thread_z = nullptr;
-    IterDomain* block_z = nullptr;
+    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
+  }
 
-    for (const auto& loop_id : quantized_output->getLoopDomain()) {
-      if (loop_id->getParallelType() == ParallelType::Group) {
-        grouped_id = loop_id;
-      } else if (loop_id->getParallelType() == ParallelType::TIDx) {
-        thread_x = loop_id;
-      } else if (loop_id->getParallelType() == ParallelType::BIDx) {
-        block_x = loop_id;
-      } else if (loop_id->getParallelType() == ParallelType::TIDz) {
-        thread_z = loop_id;
-      } else if (loop_id->getParallelType() == ParallelType::BIDz) {
-        block_z = loop_id;
-      } else if (
-          loop_id->getParallelType() == ParallelType::Serial ||
-          loop_id->getParallelType() == ParallelType::Unswitch ||
-          loop_id->getParallelType() == ParallelType::Unroll) {
-        // Check this is ID has a constant extent and is 1
-        NVF_ERROR(
-            loop_id->extent()->isConstInt(),
-            "Expected constant extent for Serial/Unswitch/Unroll ID in "
-            "BlockQuantizationOp");
-        NVF_ERROR_EQ(
-            loop_id->extent()->evaluate().as<int64_t>(),
-            1,
-            "Expected non-TID/BID/Group ID to have extent of 1 for "
-            "BlockQuantizationOp: ",
-            bqop->toString());
-      }
+  void handle(GroupedBlockQuantizationOp* bqop) final {
+    auto inp_tv = bqop->input(0)->as<TensorView>();
+    auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
+    auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
+    auto output_dtype = quantized_output->dtype();
+
+    NVF_ERROR_EQ(
+        inp_tv->getMemoryType(),
+        MemoryType::Local,
+        "Input must be a local memory tensor. Found: ",
+        inp_tv->getMemoryType());
+
+    NVF_ERROR_EQ(
+        quantized_output->getMemoryType(),
+        MemoryType::Local,
+        "Quantized output must be a local memory tensor. Found: ",
+        quantized_output->getMemoryType());
+
+    NVF_ERROR_EQ(
+        block_scaling_factor->getMemoryType(),
+        MemoryType::Global,
+        "Block scaling factor must be a global memory tensor. Found: ",
+        block_scaling_factor->getMemoryType());
+
+    NVF_ERROR(
+        output_dtype != DataType::Float8_e4m3fn,
+        "output of Float8_e4m3fn is not yet implemented");
+
+    if (bqop->hasGlobalScale()) {
+      auto global_scale = bqop->globalScale()->as<TensorView>();
+
+      NVF_ERROR_EQ(
+          global_scale->getMemoryType(),
+          MemoryType::Global,
+          "Global scaling factor must be a global memory tensor. Found: ",
+          global_scale->getMemoryType());
+
+      NVF_ERROR_EQ(
+          global_scale->dtype(),
+          DataType::Float,
+          "Global scaling factor must be of type float. Found: ",
+          global_scale->dtype());
     }
 
-    NVF_ERROR(
-        grouped_id != nullptr,
-        "One of the output IDs must be grouped for "
-        "BlockQuantizationOp: ",
-        bqop->toString());
-
-    NVF_ERROR(
-        thread_x != nullptr && block_x != nullptr,
-        "Need to have both TIDx and BIDx when using BlockQuantizationOp: ",
-        bqop->toString());
-
-    NVF_ERROR(
-        !thread_z && !block_z,
-        "Parallelization along z axis is not supported for "
-        "BlockQuantizationOp: ",
-        bqop->toString());
-
-    auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
-    auto input_dtype = inp_tv->dtype();
-
-    NVF_ERROR(
-        ((inner_extent == 4 || inner_extent == 2) &&
-         input_dtype == DataType::Float) ||
-            ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
-             (input_dtype == DataType::BFloat16 ||
-              input_dtype == DataType::Half)),
-        "The group dimension must be  2/4 (FP32) or 2/4/8 "
-        "(BF16). Found: ",
-        inner_extent,
-        ". Expr: ",
-        bqop->toString());
-
-    //                   M    K
-    //                 │    │
-    //                 ▼    ▼
-    //              ┌────────────┐
-    //              │   merge    │
-    //              └─────┬──────┘
-    //                    │
-    //                    ▼
-    //                   M*K
-    //               ┌──────────┐
-    //               │  split   ┼──┐
-    //               └─┬────────┘  │
-    //                 ▼           ▼
-    //           (M*K)/4          4(G)
-    //           ┌────────┐
-    //           │ split  ┼────┐
-    //           └─┬──────┘    │
-    //             ▼           ▼
-    //         (M*K)/4        1(U)
-    //     ┌─────────┐
-    //     │  split  │
-    //   ┌─┼         ┼───┐
-    //   │ └─────────┘   │
-    //   ▼               ▼
-    // (M*K)/4/128      128(Tx)
-
-    // Next we check the following scheduling requirements for
-    // BlockQuantizationOp - the above figure is an example of a valid schedule.
-    // 1. The Group ID must be derived from the innermost logical IDs
-    // 2. TIDx must follow the Group ID in the schedule -- that is when derived
-    // from the logical domain, group ID must be inner-most, the next
-    // "inner-most" should be TIDx (unless there is an ID with a unit trip
-    // count)
-    // 3. All merges involved from logical domains to group and thread ID must
-    // combine contiguous IDs
-
-    auto transform_exprs = DependencyCheck::getAllExprsBetween(
-        {quantized_output->getLogicalDomain().begin(),
-         quantized_output->getLogicalDomain().end()},
-        {quantized_output->getLoopDomain().begin(),
-         quantized_output->getLoopDomain().end()});
-
-    std::vector<IterDomain*> ids_to_transform =
-        quantized_output->getLogicalDomain();
-
-    std::deque<IterDomain*> frontier(
-        quantized_output->getLogicalDomain().begin(),
-        quantized_output->getLogicalDomain().end());
-
-    // This will get the xforms from logical to loop and apply them on the
-    // logical domain. We will get a loop domain minus the reordering.
-    // This pass also removes all IDs from frontier that were derived using
-    // non-contiguous merges.
-    scheduler_utils::applyTransforms(
-        ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
-          traverseFrontierWithContiguityCheck(frontier, expr);
-        });
-
-    // The grouped ID must correspond to the innermost loop-like domain
-    NVF_ERROR(
-        ids_to_transform.back() == grouped_id,
-        "The grouped ID must correspond to the innermost of all splits "
-        "from logical domains to loop domains for BlockQuantizationOp. "
-        "TV: ",
-        quantized_output->toString());
-
-    // Iterate from the back to find TIDx, skipping group_id (last element)
-    // Ensure all IDs between group_id and TIDx have extent 1
-    bool found_tidx = false;
-    for (auto it = ids_to_transform.rbegin() + 1; it != ids_to_transform.rend();
-         ++it) {
-      if (*it == thread_x) {
-        found_tidx = true;
-        break;
-      }
-      // All non-TIDx IDs between Group ID and TIDx must have extent of 1
-      NVF_ERROR(
-          (*it)->extent()->isConstInt() &&
-              (*it)->extent()->evaluate().as<int64_t>() == 1,
-          "Expected IDs between Group ID and TIDx to have extent of 1 for "
-          "BlockQuantizationOp: ",
-          quantized_output->toString());
-    }
-
-    NVF_ERROR(
-        found_tidx,
-        "TIDx must follow the Group ID in the schedule for "
-        "BlockQuantizationOp: ",
-        quantized_output->toString());
-
-    // Check if grouped_id in frontier
-    auto grouped_it = std::ranges::find(frontier, grouped_id);
-    NVF_ERROR(
-        grouped_it != frontier.end(),
-        "All merge operations deriving the grouped ID must combine "
-        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
-        quantized_output->toString());
-    // Do the same for thread_x
-    auto threadx_it =
-        std::ranges::find(frontier.begin(), frontier.end(), thread_x);
-    NVF_ERROR(
-        threadx_it != frontier.end(),
-        "All merge operations deriving the TIDx ID must combine "
-        "contiguous IDs from the logical domain for BlockQuantizationOp: ",
-        quantized_output->toString());
+    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
   }
 };
 
@@ -1869,7 +1918,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
         def->isA<ReductionOp>() || def->isA<GroupedReductionOp>() ||
             def->isA<WelfordOp>() || def->isA<GroupedWelfordOp>() ||
             def->isA<ArgsortOp>() || def->isA<ScanOp>() || def->isA<TopKOp>() ||
-            def->isA<BlockQuantizationOp>(),
+            def->isA<BlockQuantizationOp>() ||
+            def->isA<GroupedBlockQuantizationOp>(),
         "Invalid use of ParallelType::Group: ",
         def->toString());
 

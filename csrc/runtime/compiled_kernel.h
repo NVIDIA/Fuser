@@ -24,7 +24,7 @@
 #include <runtime/executor_params.h>
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

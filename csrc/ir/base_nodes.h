@@ -7,21 +7,21 @@
 // clang-format on
 #pragma once
 
-#include <c10/core/ScalarType.h>
-#include <exceptions.h>
-
-#include <ir/builder_passkey.h>
-#include <polymorphic_value.h>
-#include <type.h>
-#include <utils.h>
-#include <visibility.h>
-
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+
+#include <c10/core/ScalarType.h>
+
+#include "base.h"
+#include "exceptions.h"
+#include "ir/builder_passkey.h"
+#include "polymorphic_value.h"
+#include "type.h"
+#include "visibility.h"
 
 // TODO: Add more types (int32, int64)
 // TODO: sameAs should have better logic to check against any type and return

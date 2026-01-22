@@ -166,6 +166,14 @@ void bindMultiDeviceExecutor(py::module& nvfuser) {
           },
           [](MultiDeviceExecutorParams& self, bool value) {
             self.lower.offset_stream_indexing_by_rank = value;
+          })
+      .def_property(
+          "inter_stream_synchronization",
+          [](const MultiDeviceExecutorParams& self) {
+            return self.lower.inter_stream_synchronization;
+          },
+          [](MultiDeviceExecutorParams& self, bool value) {
+            self.lower.inter_stream_synchronization = value;
           });
 
   py::class_<MultiDeviceExecutor> multi_device_executor(
