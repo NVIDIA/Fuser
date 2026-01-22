@@ -1287,6 +1287,79 @@ class AllocationInserter : public kir::ExprMutator {
     registerInsertBefore(expr, cluster_sync, nullptr);
   }
 
+  void insertNonCircularBufferedTmaMbarriers(
+      const int64_t non_cb_tma_count,
+      Expr* expr) {
+    TensorView* all_mbarriers =
+        TensorViewBuilder()
+            .shape(std::vector<int64_t>{non_cb_tma_count})
+            .dtype(DataType::UInt64)
+            .contiguity(true)
+            .build();
+    all_mbarriers->setMemoryType(MemoryType::Shared);
+    kir::Allocate* mbarrier_alloc =
+        IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
+    registerInsertBefore(expr, mbarrier_alloc, nullptr);
+
+    if (non_cb_tma_count == 1) {
+      // For single mbarrier, use TensorView directly without loop
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          all_mbarriers,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      registerInsertBefore(expr, pred_mbarrier_init, nullptr);
+    } else {
+      // For multiple mbarriers, create a for loop using the utility function
+      auto fl = ir_utils::createRangeLoop(non_cb_tma_count);
+      kir::TensorIndex* indexed_mbarrier =
+          IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
+
+      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+          indexed_mbarrier,
+          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+              DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+      Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+          IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+      fl->body().pushBack(pred_mbarrier_init);
+
+      registerInsertBefore(expr, fl, nullptr);
+    }
+
+    non_cb_tma_mbarriers_ = all_mbarriers;
+
+    // Insert blockSync after mbarrier initialization to ensure mbarrier is
+    // visible to other CTAs
+    auto block_sync = IrBuilder::create<kir::BlockSync>();
+    registerInsertBefore(expr, block_sync, nullptr);
+  }
+
+  void invalidateNonCircularBufferedTmaMbarriers() {
+    // Insert blockSync before mbarrier invalidation to ensure all operations
+    // are complete
+    auto block_sync = IrBuilder::create<kir::BlockSync>();
+    exprs_.push_back(block_sync);
+
+    if (non_cb_tma_index_ == 1) {
+      // For single mbarrier, invalidate directly without loop
+      auto mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(non_cb_tma_mbarriers_);
+      exprs_.push_back(mbarrier_inval);
+    } else {
+      // For multiple mbarriers, create a for loop to invalidate all
+      auto fl = ir_utils::createRangeLoop(non_cb_tma_index_);
+      kir::TensorIndex* indexed_mbarrier = IrBuilder::create<kir::TensorIndex>(
+          non_cb_tma_mbarriers_, fl->index());
+      auto mbarrier_inval =
+          IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
+      fl->body().pushBack(mbarrier_inval);
+      exprs_.push_back(fl);
+    }
+  }
+
   void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
         expr->isA<kir::AllocTMem>()) {
@@ -1482,8 +1555,7 @@ class AllocationInserter : public kir::ExprMutator {
     // circular buffering pass.
     // * Assume that the tma load is in ComputeWarp if it is not circular
     // buffered.
-    if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
-        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
+    if (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell()) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
@@ -1514,6 +1586,12 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
       registerInsertAfter(expr, sync_inval, expr_scope);
       GpuLower::current()->mbarrierMap()[expr] = mbarrier;
+    }
+    if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
+      auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+          non_cb_tma_mbarriers_,
+          IrBuilder::create<Val>(non_cb_tma_index_++, DataType::Index));
+      GpuLower::current()->nonCircularBufferedTmaMbarrierMap()[expr] = mbarrier;
     }
   }
 
@@ -1683,11 +1761,27 @@ class AllocationInserter : public kir::ExprMutator {
     if (GpuLower::current()->clusterReductionCount() >= 1) {
       insertClusterReductionMBarrier(exprs.at(0));
     }
+    const auto& tma_info = GpuLower::current()->consumerToTMAInfo();
+    int64_t non_cb_tma_count =
+        std::count_if(tma_info.begin(), tma_info.end(), [](const auto& pair) {
+          return !pair.first->isCircularBuffered();
+        });
+    if (non_cb_tma_count > 0) {
+      insertNonCircularBufferedTmaMbarriers(non_cb_tma_count, exprs.at(0));
+    }
     kir::ExprMutator::traverseAndInsert(exprs);
+
+    // Insert mbarrier invalidation at the end of the kernel for non-circular
+    // buffered TMA operations
+    if (non_cb_tma_count > 0) {
+      invalidateNonCircularBufferedTmaMbarriers();
+    }
   }
 
  private:
   GpuLower* gpu_lower_ = nullptr;
+  TensorView* non_cb_tma_mbarriers_ = nullptr;
+  int64_t non_cb_tma_index_ = 0;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {

@@ -2215,4 +2215,40 @@ TEST_F(TmaPointwiseTestF, OneBcastOneNonBcast) {
   EXPECT_TRUE(pparams->use_tma_load);
   testValidate(fusion, cg_results.outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+TEST_F(TmaPointwiseTestF, MultipleInputs) {
+  int64_t dim0 = 8192;
+  int64_t dim1 = 8192;
+  DataType dtype = DataType::Float;
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv2 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv3 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addInput(tv2);
+  fusion->addInput(tv3);
+  auto tv4 = add(tv0, tv1);
+  auto tv5 = add(tv2, tv3);
+  auto tv6 = add(tv4, tv5);
+  fusion->addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1}, options);
+  auto t2 = at::randn({dim0, dim1}, options);
+  auto t3 = at::randn({dim0, dim1}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2, t3},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

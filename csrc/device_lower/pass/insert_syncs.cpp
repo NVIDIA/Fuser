@@ -498,6 +498,21 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     expr->fusion()->zeroVal()),
                 expr->fusion()->zeroVal(DataType::UInt32)));
       }
+    } else if (
+        ir_utils::isCpAsyncBulkLoad(expr) &&
+        !expr->output(0)->as<TensorView>()->isCircularBuffered()) {
+      // For non-circular buffered TMA loads, collect MBarrierWaitParity
+      // to be inserted after the last TMA load
+      const auto& non_cb_tma_mbarrier_map =
+          GpuLower::current()->nonCircularBufferedTmaMbarrierMap();
+
+      pending_tma_waits_.push_back(IrBuilder::create<kir::MBarrierWaitParity>(
+          non_cb_tma_mbarrier_map.at(expr),
+          expr->fusion()->zeroVal(DataType::UInt32)));
+      // Increment counter and flush if this is the last TMA load
+      if (++seen_non_cb_tma_loads_ == total_non_cb_tma_loads_) {
+        flushPendingTmaWaits(expr, scope_.empty() ? nullptr : scope_.back());
+      }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
       // visible to the async proxy.
@@ -804,7 +819,33 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     return last_writes;
   }
 
+  // Flush all pending TMA wait expressions after the last TMA load
+  void flushPendingTmaWaits(
+      Expr* last_tma_load_expr,
+      Scope* last_tma_load_scope) {
+    if (pending_tma_waits_.empty()) {
+      return;
+    }
+
+    NVF_ERROR(
+        last_tma_load_expr != nullptr,
+        "Expected a TMA load expression for pending waits");
+
+    // Insert all pending waits after the last TMA load
+    // We insert them in reverse order so they appear in the original order
+    for (auto it = pending_tma_waits_.rbegin(); it != pending_tma_waits_.rend();
+         ++it) {
+      registerInsertAfter(last_tma_load_expr, *it, last_tma_load_scope);
+    }
+
+    pending_tma_waits_.clear();
+  }
+
   ReadAfterWriteSyncs(const std::vector<Expr*>& _exprs) {
+    // Initialize total number of non-circular buffered TMA loads
+    total_non_cb_tma_loads_ =
+        GpuLower::current()->nonCircularBufferedTmaMbarrierMap().size();
+
     // Fusion shared_memory values
     // Tracks if shared memory is modified
     std::unordered_map<Val*, Expr*> smem;
@@ -971,6 +1012,15 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   //! expressions, there is no "first read", but still, to be waited before
   //! exiting the kernel.
   std::vector<Expr*> async_exprs_writing_fusion_output_;
+
+  //! Pending TMA wait expressions to be inserted after the last TMA load
+  std::vector<Expr*> pending_tma_waits_;
+
+  //! Total number of non-circular buffered TMA loads
+  size_t total_non_cb_tma_loads_ = 0;
+
+  //! Number of non-circular buffered TMA loads encountered so far
+  size_t seen_non_cb_tma_loads_ = 0;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& loop_nests) {
