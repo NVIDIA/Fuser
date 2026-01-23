@@ -43,56 +43,18 @@ class IrStorage {
   }
 
   //! Return values in insertion order
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    std::deque<Val*> vals_deque;
-    std::transform(
-        vals_up_.begin(),
-        vals_up_.end(),
-        std::back_inserter(vals_deque),
-        [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
-    return vals_deque;
-  }
+  const std::deque<Val*> deterministic_vals() const noexcept;
 
   //! Return expression in insertion order
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    std::deque<Expr*> exprs_deque;
-    std::transform(
-        exprs_up_.begin(),
-        exprs_up_.end(),
-        std::back_inserter(exprs_deque),
-        [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
-    return exprs_deque;
-  }
+  const std::deque<Expr*> deterministic_exprs() const noexcept;
 
   //! Return mapping from value to integer id
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    std::unordered_map<Val*, int64_t> vals_map;
-    int64_t count = 0;
-    std::transform(
-        vals_up_.begin(),
-        vals_up_.end(),
-        std::inserter(vals_map, vals_map.end()),
-        [&count](const std::unique_ptr<Val>& val_up) {
-          return std::make_pair(val_up.get(), count++);
-        });
-    return vals_map;
-  }
+      const noexcept;
 
   //! Return mapping from expression to integer id
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    std::unordered_map<Expr*, int64_t> exprs_map;
-    int64_t count = 0;
-    std::transform(
-        exprs_up_.begin(),
-        exprs_up_.end(),
-        std::inserter(exprs_map, exprs_map.end()),
-        [&count](const std::unique_ptr<Expr>& expr_up) {
-          return std::make_pair(expr_up.get(), count++);
-        });
-    return exprs_map;
-  }
+      const noexcept;
 
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
