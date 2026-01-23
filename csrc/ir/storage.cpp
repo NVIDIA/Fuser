@@ -72,31 +72,6 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
 
 IrStorage::IrStorage() = default;
 
-IrStorage::IrStorage(const IrStorage& other) {
-  FUSER_PERF_SCOPE("IrStorage copy");
-  IrStorage::copy(&other, this);
-}
-
-IrStorage::IrStorage(IrStorage&& other) noexcept {
-  FUSER_PERF_SCOPE("IrStorage move");
-  swap(*this, other);
-}
-
-IrStorage& IrStorage::operator=(const IrStorage& other) {
-  FUSER_PERF_SCOPE("IrStorage copy assign");
-  IrStorage copy(other);
-  clear();
-  swap(*this, copy);
-  return *this;
-}
-
-IrStorage& IrStorage::operator=(IrStorage&& other) noexcept {
-  FUSER_PERF_SCOPE("IrStorage move assign");
-  clear();
-  swap(*this, other);
-  return *this;
-}
-
 IrStorage::~IrStorage() {
   clear();
 }
