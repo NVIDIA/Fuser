@@ -1935,6 +1935,7 @@ def test_pdl():
         fd.add_output(out_bf16, alias_input=a)
 
     def fused_add_rmsnorm(hidden_states, residual, weight, eps):
+        inputs = [hidden_states, residual, weight]
         with FusionDefinition() as fd:
             nvf_fused_add_rmsnorm(
                 fd,
@@ -1942,7 +1943,12 @@ def test_pdl():
                 weight_shape=weight.shape,
                 eps=eps,
             )
-        fd.execute([hidden_states, residual, weight])
+            # Apply selected scheduler
+            heuristic_params = check_auto_schedule(schedule.schedule)(
+                fd.fusion, SchedulerType.inner_persistent, inputs
+            )
+        fd.manual_execute(inputs, heuristic_params)
+        assert fd.ke.is_programmatic_dependent_launch_enabled()
 
     def nvfuser(hidden_states, residual, layer, eps):
         fused_add_rmsnorm(hidden_states, residual, layer["post_attn_norm"], eps)

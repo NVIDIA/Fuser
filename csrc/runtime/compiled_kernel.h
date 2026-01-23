@@ -235,7 +235,7 @@ class CompiledKernel : public CompiledKernelBase {
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
 
-  kir::Kernel* kernel() const;
+  NVF_API kir::Kernel* kernel() const;
 
   std::unique_ptr<GpuLower>& lowered() {
     return lowered_;
