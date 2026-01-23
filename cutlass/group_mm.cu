@@ -368,7 +368,12 @@ void run_group_mm(
   auto status = gemm_op.initialize(args, workspace.data_ptr());
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to initialize GEMM");
 
-  status = gemm_op.run(args, workspace.data_ptr(), stream);
+  status = gemm_op.run(
+      args,
+      workspace.data_ptr(),
+      stream,
+      /*cuda_adapter=*/nullptr,
+      /*launch_with_pdl=*/true);
   NVF_CHECK(status == cutlass::Status::kSuccess, "Failed to run GEMM");
 }
 #else
