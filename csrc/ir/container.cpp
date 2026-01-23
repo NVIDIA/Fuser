@@ -19,10 +19,10 @@ IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
 
 IrContainer::~IrContainer() {}
 
-void swap(IrContainer& a, IrContainer& b) noexcept {
+void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   // We need to be careful to call IrStorage swap not unique_ptr swap, which
   // will only swap the ptrs NOT the contents.
-  swap(*(a.ir_storage()), *(b.ir_storage()));
+  IrStorage::swap(*(a.ir_storage()), *(b.ir_storage()));
 
   // Fix parent pointers after swapping containers
   // After swap, each IrContainer owns a different IrStorage, so we must update

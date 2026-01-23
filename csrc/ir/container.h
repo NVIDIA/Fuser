@@ -209,6 +209,7 @@ class NVF_API IrContainer : public PolymorphicBase {
   //===================================================================
 
   static IrCloner copy(const IrContainer* from, IrContainer* to);
+  static void swap(IrContainer& a, IrContainer& b) noexcept;
 
   // Derived classes (like Fusion) override these to add custom logic
   virtual void registerVal(Val* val) {
@@ -227,8 +228,6 @@ class NVF_API IrContainer : public PolymorphicBase {
     ir_storage()->removeVal(val);
   }
 
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
-
  private:
   //===================================================================
   // Data Members
@@ -236,8 +235,5 @@ class NVF_API IrContainer : public PolymorphicBase {
 
   std::unique_ptr<IrStorage> ir_storage_;
 };
-
-// Swap support
-void swap(IrContainer& a, IrContainer& b) noexcept;
 
 } // namespace nvfuser

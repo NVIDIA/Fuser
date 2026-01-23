@@ -15,24 +15,22 @@
 
 namespace nvfuser {
 
-void swap(IrStorage& a, IrStorage& b) noexcept {
+void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  using std::swap;
-
   // Swap the content
-  swap(a.vals_up_, b.vals_up_);
-  swap(a.vals_, b.vals_);
+  std::swap(a.vals_up_, b.vals_up_);
+  std::swap(a.vals_, b.vals_);
 
-  swap(a.exprs_up_, b.exprs_up_);
-  swap(a.exprs_, b.exprs_);
+  std::swap(a.exprs_up_, b.exprs_up_);
+  std::swap(a.exprs_, b.exprs_);
 
-  swap(a.val_type_name_map_, b.val_type_name_map_);
-  swap(a.expr_name_counter_, b.expr_name_counter_);
+  std::swap(a.val_type_name_map_, b.val_type_name_map_);
+  std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  swap(a.metadata_, b.metadata_);
+  std::swap(a.metadata_, b.metadata_);
 
-  swap(a.parent_, b.parent_);
+  std::swap(a.parent_, b.parent_);
 }
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {

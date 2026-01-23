@@ -101,18 +101,16 @@ bool Fusion::sameDefinition(const Fusion& other) const {
   return true;
 }
 
-void swap(Fusion& a, Fusion& b) noexcept {
+void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  using std::swap;
-
   // Swap IrContainer base class (contains IrStorage)
-  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  IrContainer::swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
 
-  swap(a.inputs_, b.inputs_);
-  swap(a.outputs_, b.outputs_);
+  std::swap(a.inputs_, b.inputs_);
+  std::swap(a.outputs_, b.outputs_);
 
-  swap(a.io_alias_, b.io_alias_);
+  std::swap(a.io_alias_, b.io_alias_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(

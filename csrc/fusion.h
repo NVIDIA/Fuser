@@ -156,7 +156,7 @@ class NVF_API Fusion : public IrContainer {
 
   ~Fusion() override;
 
-  friend void swap(Fusion& a, Fusion& b) noexcept;
+  static void swap(Fusion& a, Fusion& b) noexcept;
 
   void clear() noexcept;
 
