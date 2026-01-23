@@ -1289,7 +1289,7 @@ void clearMemorySpace(Fusion* fusion) {
 
 namespace {
 
-TensorView* findFirstFusionInput(Fusion* fusion) {
+TensorView* findFirstInput(Fusion* fusion, const std::vector<Expr*>& exprs) {
   // short-circuit
   if (fusion->inputs().size() == 1) {
     Val* v = fusion->inputs().front();
@@ -1302,7 +1302,8 @@ TensorView* findFirstFusionInput(Fusion* fusion) {
       fusion->inputs().end(),
       std::inserter(tv_inputs, tv_inputs.end()),
       [](Val* v) { return v->isA<TensorView>(); });
-  for (Expr* e : StmtSort::getExprs(fusion)) {
+
+  for (Expr* e : exprs) {
     auto iter =
         std::find_if(e->inputs().begin(), e->inputs().end(), [&](Val* v) {
           return tv_inputs.count(v) > 0;
@@ -1315,7 +1316,7 @@ TensorView* findFirstFusionInput(Fusion* fusion) {
   return nullptr;
 }
 
-TensorView* findLastFusionOutput(Fusion* fusion) {
+TensorView* findLastOutput(Fusion* fusion, const std::vector<Expr*>& exprs) {
   // short-circuit
   if (fusion->outputs().size() == 1) {
     Val* v = fusion->outputs().front();
@@ -1330,7 +1331,6 @@ TensorView* findLastFusionOutput(Fusion* fusion) {
       std::inserter(tv_outputs, tv_outputs.end()),
       [](Val* v) { return v->isA<TensorView>(); });
 
-  auto exprs = StmtSort::getExprs(fusion);
   for (Expr* e : exprs | std::views::reverse) {
     auto iter =
         std::find_if(e->outputs().begin(), e->outputs().end(), [&](Val* v) {
@@ -1344,16 +1344,30 @@ TensorView* findLastFusionOutput(Fusion* fusion) {
   return nullptr;
 }
 
-void addPdlGridWait(
-    TensorView* original_input,
-    TensorView* cached_input,
-    bool enable_pdl) {
+std::pair<TensorView*, TensorView*> findFirstInputAndLastOutput(
+    Fusion* fusion) {
+  // short-circuit: only one input and output
+  if (fusion->inputs().size() == 1 && fusion->outputs().size() == 1) {
+    Val* input = fusion->inputs().front();
+    TensorView* tv_input = nullptr;
+    if (input->isA<TensorView>()) {
+      tv_input = input->as<TensorView>();
+    }
+    Val* output = fusion->outputs().front();
+    TensorView* tv_output = nullptr;
+    if (output->isA<TensorView>()) {
+      tv_output = output->as<TensorView>();
+    }
+    return std::pair(tv_input, tv_output);
+  }
+  auto exprs = StmtSort::getExprs(fusion);
+  return std::make_pair(
+      findFirstInput(fusion, exprs), findLastOutput(fusion, exprs));
+}
+
+void addPdlGridWait(TensorView* original_input, TensorView* cached_input) {
   // PDL is only supported for Hopper+ Devices.
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
-    return;
-  }
-
-  if (!enable_pdl) {
     return;
   }
 
@@ -1370,16 +1384,9 @@ void addPdlGridWait(
   cached_input->addDependency(grid_wait);
 }
 
-void addPdlGridLaunch(
-    TensorView* original_output,
-    TensorView* cached_output,
-    bool enable_pdl) {
+void addPdlGridLaunch(TensorView* original_output, TensorView* cached_output) {
   // PDL is only supported for Hopper+ Devices.
   if (at::cuda::getCurrentDeviceProperties()->major < 9) {
-    return;
-  }
-
-  if (!enable_pdl) {
     return;
   }
 
@@ -1397,19 +1404,40 @@ void addPdlGridLaunch(
 
 } // namespace
 
+void applyPDL(
+    Fusion* fusion,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs) {
+  auto&& [first_input, last_output] = findFirstInputAndLastOutput(fusion);
+
+  auto input_iter = std::find_if(
+      cached_inputs.begin(), cached_inputs.end(), [&](auto cache_input) {
+        return ir_utils::getSoleProducerTv(cache_input.first) == first_input;
+      });
+  if (input_iter != cached_inputs.end()) {
+    addPdlGridWait(first_input, (*input_iter).first);
+  }
+
+  auto output_iter = std::find_if(
+      cached_outputs.begin(), cached_outputs.end(), [&](auto cache_output) {
+        auto consumers = ir_utils::consumerTvsOf(cache_output.first);
+        NVF_ERROR(consumers.size() == 1);
+        return consumers.front() == last_output;
+      });
+  if (output_iter != cached_outputs.end()) {
+    addPdlGridLaunch(last_output, (*output_iter).first);
+  }
+}
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
 std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
     Fusion* fusion,
-    bool unroll,
-    bool enable_pdl) {
+    bool unroll) {
   if (!unroll) {
     return {};
   }
-
-  TensorView* first_fusion_input = findFirstFusionInput(fusion);
-  TensorView* cached_first_fusion_input = nullptr;
 
   std::vector<std::pair<TensorView*, int64_t>> cached_inputs;
   // If we're going to unroll, make a cache of the inputs
@@ -1474,12 +1502,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
         /*cached_uses=*/cached_uses);
 
     cached_inputs.emplace_back(cached_tv, input_idx);
-    if (tv == first_fusion_input) {
-      cached_first_fusion_input = cached_tv;
-    }
   }
-
-  addPdlGridWait(first_fusion_input, cached_first_fusion_input, enable_pdl);
 
   return cached_inputs;
 }
@@ -1488,11 +1511,7 @@ std::vector<std::pair<TensorView*, int64_t>> cacheInputs(
 // all outputs.
 std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     Fusion* fusion,
-    bool unroll,
-    bool enable_pdl) {
-  TensorView* last_fusion_output = findLastFusionOutput(fusion);
-  TensorView* cached_last_fusion_output = nullptr;
-
+    bool unroll) {
   std::vector<std::pair<TensorView*, int64_t>> cached_outputs;
   // For intermediate outputs, apply cacheFork
   for (auto [output_idx, output_val] : enumerate(fusion->outputs())) {
@@ -1531,13 +1550,8 @@ std::vector<std::pair<TensorView*, int64_t>> cacheAndForkOutputs(
     if (unroll) {
       auto cached_output = output->cacheBefore();
       cached_outputs.emplace_back(cached_output, output_idx);
-      if (output == last_fusion_output) {
-        cached_last_fusion_output = cached_output;
-      }
     }
   }
-
-  addPdlGridLaunch(last_fusion_output, cached_last_fusion_output, enable_pdl);
 
   return cached_outputs;
 }
