@@ -59,7 +59,7 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   if (from->axioms_ != nullptr) {
     to->axioms_ = std::make_unique<std::vector<Val*>>();
     for (auto pred : *from->axioms_) {
-      to->axioms_->emplace_back(ir_cloner.clone(pred));
+      to->axioms_->push_back(ir_cloner.clone(pred));
     }
   }
 
