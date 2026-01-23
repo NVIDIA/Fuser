@@ -125,7 +125,7 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   //        -> [I, R/tidx/unroll, unroll, tidx]
 
   // Split 1: TIDx (always applied)
-  reduction_tv->split(inner_reduce_axis, 256);
+  reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
   reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
 
