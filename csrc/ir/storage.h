@@ -152,10 +152,10 @@ class IrStorage {
   void removeVal(Val* val);
 
   //! Register the Val with this container
-  void registerVal(Val* val);
+  NVF_API void registerVal(Val* val);
 
   //! Register expr with this container.
-  void registerExpr(Expr* expr);
+  NVF_API void registerExpr(Expr* expr);
 
   StmtNameType getValName(ValType vtype) {
     if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
