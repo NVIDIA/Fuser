@@ -144,8 +144,8 @@ class ReductionTVs {
 };
 
 //! Entry type definition class for `HAS_BLOCK_QUANTIZATION_OPS`,
-//!  stores a boolean flag indicating whether the fusion contains any
-//!  BlockQuantizationOp operations.
+//!  stores any BlockQuantizationOp operations (including
+//!  GroupedBlockQuantizationOp).
 class BlockQuantizationOps {
  public:
   using DataType = std::vector<Expr*>;

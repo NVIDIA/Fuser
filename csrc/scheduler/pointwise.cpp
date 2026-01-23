@@ -329,7 +329,7 @@ bool PointWiseScheduler::canScheduleRunTime(
                                   ->getDataType()
                                   .value());
 
-        if (data_type_width < 8) {
+        if (data_type_width % 8 != 0) {
           scheduler_debug_utils::canScheduleRejectReason(
               schedulerType(),
               "Block Quantization Op requires vectorization factor to be at "
