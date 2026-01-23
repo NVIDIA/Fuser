@@ -137,10 +137,7 @@ class IrStorage {
  protected:
   static IrCloner copy(const IrStorage* from, IrStorage* to);
 
-  friend void swap(IrStorage& a, IrStorage& b) noexcept;
-
-  // Let IrContainer reset parent_ pointers directly.
-  friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  static void swap(IrStorage& a, IrStorage& b) noexcept;
 
   // Let IrInterface access protected methods for forwarding
   friend class IrContainer;
