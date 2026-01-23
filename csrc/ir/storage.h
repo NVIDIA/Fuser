@@ -24,11 +24,14 @@ class IrStorage {
  public:
   NVF_API IrStorage();
 
-  IrStorage(const IrStorage& other);
-  IrStorage(IrStorage&& other) noexcept;
+  // Copy/Move Constructors and Operators are deleted. IrStorage is managed
+  // through a smart pointer in IrContainer. Semantic operations for Fusion
+  // types are handled directly through copy and swap functions.
+  IrStorage(const IrStorage& other) = delete;
+  IrStorage(IrStorage&& other) noexcept = delete;
 
-  IrStorage& operator=(const IrStorage& other);
-  IrStorage& operator=(IrStorage&& other) noexcept;
+  IrStorage& operator=(const IrStorage& other) = delete;
+  IrStorage& operator=(IrStorage&& other) noexcept = delete;
 
   ~IrStorage();
 
