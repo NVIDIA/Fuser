@@ -1337,13 +1337,13 @@ class AllocationInserter : public kir::ExprMutator {
     registerInsertBefore(expr, block_sync, nullptr);
   }
 
-  void invalidateNonCircularBufferedTmaMbarriers() {
+  void invalidateNonCircularBufferedTmaMbarriers(int64_t non_cb_tma_count) {
     // Insert blockSync before mbarrier invalidation to ensure all operations
     // are complete
     auto block_sync = IrBuilder::create<kir::BlockSync>();
     exprs_.push_back(block_sync);
 
-    if (non_cb_tma_index_ == 1) {
+    if (non_cb_tma_count == 1) {
       // For single mbarrier, invalidate directly without loop
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(non_cb_tma_mbarriers_);
@@ -1352,7 +1352,7 @@ class AllocationInserter : public kir::ExprMutator {
       exprs_.push_back(pred_mbarrier_inval);
     } else {
       // For multiple mbarriers, create a for loop to invalidate all
-      auto fl = ir_utils::createRangeLoop(non_cb_tma_index_);
+      auto fl = ir_utils::createRangeLoop(non_cb_tma_count);
       kir::TensorIndex* indexed_mbarrier = IrBuilder::create<kir::TensorIndex>(
           non_cb_tma_mbarriers_, fl->index());
       auto mbarrier_inval =
@@ -1766,9 +1766,14 @@ class AllocationInserter : public kir::ExprMutator {
       insertClusterReductionMBarrier(exprs.at(0));
     }
     const auto& tma_info = GpuLower::current()->consumerToTMAInfo();
+    for (auto [tv, tma_info] : tma_info) {
+      std::cout << "tv: " << tv->toString()
+                << " definition: " << tv->definition()->toString() << std::endl;
+    }
     int64_t non_cb_tma_count =
         std::count_if(tma_info.begin(), tma_info.end(), [](const auto& pair) {
-          return !pair.first->isCircularBuffered();
+          return !pair.first->isCircularBuffered() &&
+              ir_utils::isCpAsyncBulkLoad(pair.first->definition());
         });
     if (non_cb_tma_count > 0) {
       insertNonCircularBufferedTmaMbarriers(non_cb_tma_count, exprs.at(0));
@@ -1778,7 +1783,7 @@ class AllocationInserter : public kir::ExprMutator {
     // Insert mbarrier invalidation at the end of the kernel for non-circular
     // buffered TMA operations
     if (non_cb_tma_count > 0) {
-      invalidateNonCircularBufferedTmaMbarriers();
+      invalidateNonCircularBufferedTmaMbarriers(non_cb_tma_count);
     }
   }
 
