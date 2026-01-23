@@ -1437,9 +1437,17 @@ namespace {
 void recomputeNonPersistentUnmappableTvs(
     const scheduler_utils::PersistentBufferInfo& persistent_info) {
   for (auto non_persistent_buffer : persistent_info.non_persistent_buffers) {
+    std::vector<Expr*> filtered_uses;
+    std::copy_if(
+        non_persistent_buffer->uses().begin(),
+        non_persistent_buffer->uses().end(),
+        std::back_inserter(filtered_uses),
+        [](Expr* e) {
+          return !e->isOneOf<LaunchDependentGridOp, WaitForPriorGridOp>();
+        });
     // If there's only one use, it must be cached
-    if (non_persistent_buffer->uses().size() == 1) {
-      auto caching_load = non_persistent_buffer->uses().at(0);
+    if (filtered_uses.size() == 1) {
+      auto caching_load = filtered_uses.at(0);
       NVF_ERROR(caching_load->isA<LoadStoreOp>());
       non_persistent_buffer =
           caching_load->as<LoadStoreOp>()->out()->as<TensorView>();
