@@ -345,7 +345,6 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
   NVF_ERROR(heuristics != nullptr);
   Fusion* fusion_to_run = group_to_run->getFusion();
-  KernelArgumentHolder group_runtime_outputs;
   const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
@@ -356,8 +355,8 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
 
   // For expr evaluated fusion, the striding rules follow that of ATen.
   ExpressionEvaluator eval_fusion;
-  for (auto i : arange(group_to_run->inputs().size())) {
-    const auto& tensor_pv = group_runtime_inputs[i];
+  for (const auto& [in, tensor_pv] :
+       zip(fusion_to_run->inputs(), group_runtime_inputs)) {
     if (tensor_pv.is<at::Tensor>()) {
       const auto& t = tensor_pv.as<at::Tensor>();
       if (t.defined()) {
@@ -365,15 +364,16 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
             t.sizes(),
             t.strides(),
             at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
-        eval_fusion.bind(fusion_to_run->inputs()[i], meta_t);
+        eval_fusion.bind(in, meta_t);
       } else {
-        eval_fusion.bind(fusion_to_run->inputs()[i], t);
+        eval_fusion.bind(in, t);
       }
     } else {
-      eval_fusion.bind(fusion_to_run->inputs()[i], tensor_pv);
+      eval_fusion.bind(in, tensor_pv);
     }
   }
-  for (auto v : fusion_to_run->outputs()) {
+  KernelArgumentHolder group_runtime_outputs;
+  for (Val* v : fusion_to_run->outputs()) {
     auto result = eval_fusion.evaluate(v);
     group_runtime_outputs.push(result);
   }
