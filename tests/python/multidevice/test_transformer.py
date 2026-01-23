@@ -8,7 +8,12 @@ import torch.nn.functional as F
 
 import nvfuser_direct as nvfuser
 from . import Parallelism
-from .benchmark_utils import get_benchmark_fns
+from .benchmark_utils import (
+    get_benchmark_fns,
+    make_benchmark_fn,
+    setup_profiler,
+    teardown_profiler,
+)
 from nvfuser_direct import DataType, FusionDefinition
 from python.direct_utils import (
     create_sdpa_rng_tensors,
@@ -530,7 +535,14 @@ def test_transformer_forward(multidevice_test, benchmark, parallelism: Paralleli
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, rounds=5)
+    benchmark.pedantic(
+        make_benchmark_fn(lambda: fd.execute(ins), multidevice_test),
+        warmup_rounds=1,
+        rounds=5,
+        setup=lambda: setup_profiler(multidevice_test),
+        teardown=lambda: teardown_profiler(),
+    )
+    # benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 def transformer_backward_definition(

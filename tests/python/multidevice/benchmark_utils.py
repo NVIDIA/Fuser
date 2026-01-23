@@ -3,6 +3,18 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import torch
+from nvfuser_direct.pytorch_utils import DEVICE_PROPERTIES
+
+L2_CACHE_SIZE = DEVICE_PROPERTIES["gpu_l2_bytes"]
+
+
+def clear_l2_cache() -> None:
+    """
+    Flushes the L2 cache by creating a buffer of the same size.
+    """
+    n_elements = L2_CACHE_SIZE // 4
+    x = torch.empty(n_elements, dtype=torch.float32, device="cuda", requires_grad=False)
+    y = torch.clone(x)
 
 
 def get_benchmark_fn(func, /, profile: bool):
@@ -16,6 +28,30 @@ def get_benchmark_fn(func, /, profile: bool):
         return result
 
     return wrapper
+
+
+def make_benchmark_fn(func, multidevice_test):
+    """
+    Wraps a function to ensure GPU synchronization for accurate benchmarking.
+    Use with setup_profiler/teardown_profiler to exclude profiler API overhead.
+    """
+
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        multidevice_test.communicator.barrier()
+        return result
+
+    return wrapper
+
+
+def setup_profiler(multidevice_test):
+    clear_l2_cache()
+    torch.cuda.cudart().cudaProfilerStart()
+    multidevice_test.communicator.barrier()
+
+
+def teardown_profiler():
+    torch.cuda.cudart().cudaProfilerStop()
 
 
 # Returns two functors, the first with profiler off and the second with profiler
@@ -34,4 +70,4 @@ def get_benchmark_fn(func, /, profile: bool):
 # https://github.com/NVIDIA/Fuser/pull/5751/files#r2663586669 for my
 # experiment.
 def get_benchmark_fns(func):
-    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=True)
+    return get_benchmark_fn(func, profile=False), get_benchmark_fn(func, profile=False)
