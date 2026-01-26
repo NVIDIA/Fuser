@@ -12,6 +12,7 @@ from torch.distributed.tensor import distribute_tensor, Shard
 import nvfuser_direct as nvfuser
 from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
+from nvfuser_direct.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
 
 def row_parallel_linear_forward(
@@ -545,3 +546,65 @@ def test_overlap_allgather_matmul_shard_outermost(
 
     # benchmark
     benchmark.pedantic(lambda: multidevice_executor.run(ins), rounds=N_ITERATIONS)
+
+
+@pytest.mark.mpi
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.cuda]
+)
+def test_allgather_matmul_no_overlap(multidevice_test, backend_type):
+    def fusion_definition(
+        fd: FusionDefinition, m: int, k: int, n: int, d: int
+    ) -> list[TensorView]:
+        a = fd.define_tensor(
+            shape=[d, m // d, k],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+        )
+        b = fd.define_tensor(
+            shape=[k, n],
+            contiguity=True,
+            dtype=torch_dtype_to_nvfuser_dtype(dtype),
+        )
+
+        c = fd.ops.matmul(a, b)
+        if backend_type == CommunicatorBackend.cuda:
+            c.set_memory_type(nvfuser.MemoryType.symmetric)
+        fd.add_output(c)
+        return [a, b, c]
+
+    def multidevice_schedule(tensors: list[TensorView], num_devices: int) -> None:
+        mesh = nvfuser.multidevice.DeviceMesh(range(num_devices))
+        for tv in tensors:
+            tv.set_device_mesh(mesh)
+
+        a, _, _ = tensors
+        a.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+
+    d = multidevice_test.size
+    m, k, n = 128, 64, 96
+    if m % d != 0:
+        pytest.skip(f"m ({m}) must be divisible by world size ({d}).")
+
+    dtype = torch.bfloat16
+    with FusionDefinition() as fd:
+        tensors = fusion_definition(fd, m, k, n, d)
+        multidevice_schedule(tensors, d)
+
+    a_ref = torch.testing.make_tensor(d, m // d, k, dtype=torch.int32, device="cpu").to(
+        dtype
+    )
+    b_ref = torch.testing.make_tensor(k, n, dtype=torch.int32, device="cpu").to(dtype)
+
+    a = multidevice_test.shard_tensor(a_ref, fd.fusion.inputs()[0])
+    b = b_ref.cuda(multidevice_test.local_rank)
+
+    params = nvfuser.multidevice.MultiDeviceExecutorParams()
+    params.backend_type = backend_type
+    multidevice_executor = nvfuser.multidevice.MultiDeviceExecutor(fd.fusion, params)
+
+    # Set a new CUDA stream because cudaMemcpyBatchAsync does not support default stream
+    with torch.cuda.Stream(device=multidevice_test.local_rank):
+        (out,) = multidevice_executor.run([a, b])
+        out_ref = torch.matmul(a_ref, b_ref)
+        torch.testing.assert_close(out.cpu(), out_ref)
