@@ -8,13 +8,10 @@
 
 #include "multidevice/dispatch_combine.h"
 
-#include <tuple>
 #include <vector>
 
-#include <c10/cuda/CUDAGuard.h>
-
+#include "exceptions.h"
 #include "multidevice/communicator.h"
-#include "utils.h"
 
 namespace nvfuser {
 namespace {
@@ -53,6 +50,12 @@ DispatchResult doMoEDispatch(
   NVF_CHECK(topk_idx.is_cuda(), "Dispatch topk_idx must be on CUDA.");
   NVF_CHECK(
       is_token_in_rank.is_cuda(), "Dispatch is_token_in_rank must be on CUDA.");
+  NVF_CHECK(
+      x.device() == topk_idx.device(),
+      "Dispatch expects x and topk_idx on the same device.");
+  NVF_CHECK(
+      x.device() == is_token_in_rank.device(),
+      "Dispatch expects x and is_token_in_rank on the same device.");
   NVF_CHECK_EQ(
       is_token_in_rank.dim(),
       2,
@@ -70,18 +73,6 @@ DispatchResult doMoEDispatch(
       "is_token_in_rank second dim must match world size.");
   NVF_CHECK_EQ(num_experts % world_size, 0, "num_experts must be divisible.");
   const int64_t experts_per_rank = num_experts / world_size;
-
-  // Ensure subsequent allocations/ops are on x's device.
-  c10::cuda::CUDAGuard device_guard(x.device());
-  NVF_CHECK(
-      [&]() {
-        auto token_counts = is_token_in_rank.to(at::kLong).sum(1);
-        auto min_val = token_counts.min().item<int64_t>();
-        auto max_val = token_counts.max().item<int64_t>();
-        return min_val == 1 && max_val == 1;
-      }(),
-      "Only topk=1 is supported. Each token must be assigned to exactly one "
-      "rank.");
 
   const bool topk_is_1d = topk_idx.dim() == 1 && topk_idx.size(0) == num_tokens;
   const bool topk_is_2d = topk_idx.dim() == 2 &&
@@ -197,8 +188,6 @@ CombineResult doMoECombine(
       n_tokens_from_rank.numel(),
       communicator->size(),
       "n_tokens_from_rank must match world size.");
-
-  c10::cuda::CUDAGuard device_guard(x.device());
 
   // Sort by source rank so alltoall can send contiguous chunks per rank.
   auto sorted_indices = at::argsort(src_rank);

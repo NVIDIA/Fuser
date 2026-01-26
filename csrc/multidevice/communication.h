@@ -182,6 +182,8 @@ class P2PCommunication : public Expr {
 //   in_is_token_in_rank: [T, R] (one-hot), num_experts = R * experts_per_rank.
 //   topk_weights are intentionally not forwarded; apply them before dispatch or
 //   after combine.
+//   out_src_idx/out_src_rank are returned for the combine step to restore the
+//   original token order.
 //   Outputs are recv-aligned tensors: out_x/out_topk_idx/out_src_* with
 //   [T_recv, ...] and out_n_tokens_to_rank/out_n_tokens_from_rank with shape
 //   [R].

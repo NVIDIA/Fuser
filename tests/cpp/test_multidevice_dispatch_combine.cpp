@@ -14,14 +14,13 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
-#include "ir/all_nodes.h"
 #include "multidevice/communication.h"
 #include "tests/cpp/multidevice.h"
 
 namespace nvfuser {
 namespace hir {
 
-class DispatchCombineTest : public MultiDeviceTest {};
+using DispatchCombineTest = MultiDeviceTest;
 
 TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   if (!communicator_->is_available() || communicator_->size() < 2) {

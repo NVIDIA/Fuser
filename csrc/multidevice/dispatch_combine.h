@@ -34,7 +34,8 @@ struct CombineResult {
 //   topk_idx: Global expert ids per token (topk=1), shape [T] or [T, 1].
 //   topk_weights: Apply gating weights either before dispatch or after combine.
 //   They are intentionally not forwarded through dispatch/combination.
-//   is_token_in_rank: One-hot token-to-rank assignment, shape [T, R].
+//   is_token_in_rank: One-hot token-to-rank assignment, shape [T, R], enabling
+//   non-trivial device meshes or uneven expert-to-rank mappings.
 //   num_experts: Total experts across all ranks (must be divisible by R).
 //   communicator: Communicator for alltoall exchange.
 //   backend: Communication backend (only NCCL is supported for now).
