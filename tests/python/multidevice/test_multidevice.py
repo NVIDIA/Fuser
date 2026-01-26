@@ -43,11 +43,13 @@ def test_pointwise(multidevice_test):
         inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
 
     inp_ref = torch.randn(num_devices, 4)
-    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    out_ref = inp_ref.relu() * 2
 
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
     (out,) = fd.execute([inp])
+    torch.testing.assert_close(out.cpu(), out_ref)
+
     (out_sharding,) = fd.fec.get_output_shardings()
-    torch.testing.assert_close(out.cpu(), inp_ref.relu() * 2)
     assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
