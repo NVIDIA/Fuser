@@ -190,7 +190,6 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Split 1: TIDx (always applied)
   reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
-  reduction_tv->axis(inner_reduce_axis + 1)->padToMultipleOfWarp();
 
   // Split 2: Inner unroll (outside of TIDx)
   if (rparams->unroll_factor > 1) {
