@@ -2825,8 +2825,10 @@ class TmaInnerReductionTest
 
     uint64_t total_reduction_bytes = reduction_size * dtype_bytes;
 
-    // Skip TMA for small reductions
-    if (total_reduction_bytes < 16384) {
+    // Minimum TMA transfer size, below which it seems much slower than non-TMA.
+    uint64_t min_tma_bytes = 16384;
+
+    if (total_reduction_bytes < min_tma_bytes) {
       return false;
     }
 

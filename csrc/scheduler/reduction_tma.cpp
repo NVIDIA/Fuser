@@ -74,21 +74,14 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   FusionGuard fg(fusion);
 
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
-  const int64_t target_threads_per_sm = max_threads_per_sm / 2;
-
-  auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(
-      props.max_dtype_size_bit_for_vectorization,
-      props.vectorize_factor,
-      props.n_tensor_inputs,
-      target_threads_per_sm,
-      props.has_mufu_computation);
 
   uint64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
   uint64_t smem_elems = dev_prop->sharedMemPerBlockOptin / dtype_bytes;
 
-  // Heuristics: Require TMA loads are at least 16KB, and consume up to half of
-  // shared memory.
+  // Search for a suitable split factor. Lower and upper bounds are based on
+  // heuristics. We require TMA loads are at least 16KB to overcome TMA
+  // overhead. And we require those loads consume less than half of available
+  // shared memory, to maintain reasonable occupancy.
   constexpr int64_t min_tma_bytes = 16384;
   const int64_t lower_elem_bound = min_tma_bytes / dtype_bytes;
   const int64_t upper_elem_bound = smem_elems / 2;
@@ -96,7 +89,6 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   // TMA requires 16-byte alignment after any splits
   const int64_t aligned_elems = 16 / dtype_bytes;
 
-  // Search for a suitable split factor
   const int64_t tma_split_factor = getTmaSplit(
       props.inner_most_dimension_numel,
       aligned_elems,
@@ -108,7 +100,21 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     return nullptr;
   }
 
-  int64_t threads_per_block = 256;
+  // These are derived from benchmarking.
+  int64_t threads_per_block = has_mufu_computation ? 512 : 256;
+
+  const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
+  const int64_t target_threads_per_sm = max_threads_per_sm / 2;
+
+  auto target_vect_unroll = reduction_scheduler_utils::getVectUnroll(
+      props.max_dtype_size_bit_for_vectorization,
+      props.vectorize_factor,
+      props.n_tensor_inputs,
+      target_threads_per_sm,
+      props.has_mufu_computation);
+
+  // TMA kernel doesn't do vectorization due to working out of shared memory.
+  // Instead, fold the entire vect_unroll into unroll_factor.
   int64_t unroll_factor = scheduler_utils::lastPow2(target_vect_unroll);
 
   auto params = std::make_unique<TmaInnerReductionParams>();
