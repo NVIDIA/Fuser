@@ -26,6 +26,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
     } else {
       EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
     }
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 
@@ -33,6 +34,7 @@ class AdvancedIndexingIdModelTest : public NVFuserTest {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 

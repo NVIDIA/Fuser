@@ -26,6 +26,7 @@ class PointwiseTest : public NVFuserTest {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 

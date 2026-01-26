@@ -21,12 +21,12 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder inferOutputShapeAndContiguousStrides(
+KernelArgumentHolder inferContiguousOutputMetaTensor(
     Fusion* fusion,
     const KernelArgumentHolder& args,
     PrecomputedValues* evaluator_precomputed_values) {
   FUSER_PERF_SCOPE(
-      "fusion_executor::allocations::inferOutputShapeAndContiguousStrides");
+      "fusion_executor::allocations::inferContiguousOutputMetaTensor");
   ExpressionEvaluator expr_eval;
 
   std::unique_ptr<PrecomputedValues> evaluator_precomputed_values_up = nullptr;
