@@ -430,30 +430,27 @@ def test_reduction_with_2d_mesh(multidevice_test):
     mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
 
     with FusionDefinition() as fd:
-        inp = fd.define_tensor([-1, -1], dtype=DataType.Float, contiguity=True)
-        out = fd.ops.sum(inp, [1])
+        inp_tv = fd.define_tensor([-1, -1], dtype=DataType.Float, contiguity=True)
+        out = fd.ops.sum(inp_tv, [1])
         fd.add_output(out)
 
-        inp.set_device_mesh(mesh)
-        inp.outer_split(0, dp_size)
-        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
-        inp.outer_split(-1, tp_size)
-        inp.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+        inp_tv.set_device_mesh(mesh)
+        inp_tv.outer_split(0, dp_size)
+        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        inp_tv.outer_split(-1, tp_size)
+        inp_tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     rank = multidevice_test.rank
-    dp_rank = rank // tp_size
-    tp_rank = rank % tp_size
     rows_per_rank, cols_per_rank = 2, 3
     rows, cols = dp_size * rows_per_rank, tp_size * cols_per_rank
 
     inp_ref = torch.arange(rows * cols, dtype=torch.float).reshape(rows, cols)
     out_ref = inp_ref.sum([-1])
 
-    inp = inp_ref[
-        dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank,
-        tp_rank * cols_per_rank : (tp_rank + 1) * cols_per_rank,
-    ].cuda()
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
     (out,) = fd.execute([inp])
+
+    dp_rank = rank // tp_size
     torch.testing.assert_close(
         out.cpu(), out_ref[dp_rank * rows_per_rank : (dp_rank + 1) * rows_per_rank]
     )

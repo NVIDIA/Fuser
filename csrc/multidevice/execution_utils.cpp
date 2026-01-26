@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "exceptions.h"
+#include "expr_evaluator.h"
 #include "fusion.h"
+#include "linked_hash_map.h"
 #include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/utils.h"
@@ -49,19 +51,82 @@ at::Tensor shardTensor1D(
 }
 
 at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-
   NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const DeviceMesh& mesh = tv->getDeviceMesh();
 
-  // This function still assumes the mesh is 1D at this very moment. But the
-  // plan is to support multi-dimensional meshes here and leave shardTensor1D
-  // for 1D meshes only and eventually deprecated.
-  NVF_ERROR_EQ(mesh.rank(), 1);
-  return shardTensor1D(
-      tensor, getShardedLogicalAxis(tv, ParallelType::DIDx), mesh);
+  auto source = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  auto target = tv->getLoopDomain() |
+      std::views::filter(std::mem_fn(&IterDomain::isDeviceDim)) |
+      TensorDomain::kNoReductions;
+  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {source.begin(), source.end()}, {target.begin(), target.end()});
+
+  ExpressionEvaluator evaluator;
+  LinkedHashMap<IterDomain*, int64_t> id_to_size;
+  for (auto [id, size] :
+       zip(source | TensorDomain::kNoReductions, tensor.sizes())) {
+    // FIXME: for expanded broadcast
+    evaluator.bind(id->extent(), size);
+    id_to_size.pushBack(id, size);
+  }
+
+  for (Expr* transform : transforms) {
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(split != nullptr);
+
+    auto [in_size, i] = id_to_size.erase(split->in());
+    id_to_size.insert(
+        i,
+        split->outer(),
+        evaluator.evaluate(split->outer()->extent()).as<int64_t>());
+    id_to_size.insert(
+        i,
+        split->inner(),
+        evaluator.evaluate(split->inner()->extent()).as<int64_t>());
+
+    std::vector<int64_t> new_sizes;
+    new_sizes.reserve(id_to_size.size());
+    for (auto [_, size] : id_to_size) {
+      new_sizes.push_back(size);
+    }
+    tensor = tensor.reshape(new_sizes);
+  }
+
+  {
+    const auto device_id = Communicator::getInstance().deviceId();
+    at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+    int64_t axis = 0;
+    for (auto [id, size] : id_to_size) {
+      if (id->isParallelized()) {
+        auto mesh_size = mesh.size(id->getParallelType());
+        NVF_ERROR_EQ(size, mesh_size);
+        auto mesh_axis = mesh.parallelTypeToAxis(id->getParallelType());
+        auto index = md_index[mesh_axis].item<int64_t>();
+        tensor = tensor.slice(axis, index, index + 1);
+      }
+      axis++;
+    }
+  }
+
+  LinkedHashMap<IterDomain*, std::monostate> ids;
+  for (auto [id, _] : id_to_size) {
+    ids.pushBack(id, std::monostate());
+  }
+
+  for (Expr* transform : transforms | std::views::reverse) {
+    auto* split = dynamic_cast<Split*>(transform);
+    NVF_ERROR(split != nullptr);
+
+    auto i = ids.erase(split->outer()).second;
+    auto axis = std::ranges::distance(ids.begin(), i);
+    NVF_ERROR(i != ids.end() && i->first == split->inner());
+    i = ids.erase(split->inner()).second;
+    ids.insert(i, split->in(), std::monostate());
+
+    tensor = tensor.flatten(axis, axis + 1);
+  }
+
+  return tensor;
 }
 
 std::vector<int64_t> unshardedSizes(
