@@ -7,7 +7,7 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "kernel_ir_dispatch.h"
 #include "ops/all_ops.h"
