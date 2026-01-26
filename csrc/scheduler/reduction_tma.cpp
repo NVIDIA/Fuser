@@ -101,7 +101,7 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
   }
 
   // These are derived from benchmarking.
-  int64_t threads_per_block = has_mufu_computation ? 512 : 256;
+  int64_t threads_per_block = props.has_mufu_computation ? 512 : 256;
 
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
