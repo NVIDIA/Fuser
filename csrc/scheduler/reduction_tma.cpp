@@ -17,6 +17,54 @@
 namespace nvfuser {
 namespace reduction {
 namespace tma {
+namespace {
+
+// Find the smallest split factor that:
+// 1. Evenly divides reduction_numel
+// 2. Results in an element count that is divisible by alignment
+// 3. Results in an element count that is inside [lower_elem_bound,
+//    upper_elem_bound]
+int64_t getTmaSplit(
+    int64_t numel,
+    int64_t alignment,
+    int64_t lower_elem_bound,
+    int64_t upper_elem_bound) {
+  // Lower & upper bounds for the split factor
+  const int64_t split_lower = ceilDiv(numel, upper_elem_bound);
+  const int64_t split_upper = std::max(int64_t(1), numel / lower_elem_bound);
+
+  // Rather than linearly searching the whole range, use the fact that any
+  // divisor <= sqrt(numel) will be paired with another divisor >= sqrt(numel).
+  // Therefore we can stop at sqrt(numel) since we want to minimize the split
+  // divisor.
+  int64_t sqrt_n = int64_t(std::ceil(std::sqrt(double(numel))));
+  for (int64_t d = split_lower; d <= std::min(split_upper, sqrt_n); d++) {
+    if (numel % d == 0) {
+      int64_t tma_elems = numel / d;
+      if (tma_elems % alignment == 0) {
+        return d;
+      }
+    }
+  }
+
+  // The previous loop searched where the small divisor is within the range
+  // [split_lower, split_upper]. Now we check for cases where the large divisor
+  // is within that range.
+  for (int64_t d = sqrt_n; d >= 1; d--) {
+    if (numel % d == 0) {
+      int64_t paired = numel / d;
+      if (split_lower <= paired && paired <= split_upper) {
+        int64_t tma_elems = numel / paired;
+        if (tma_elems % alignment == 0) {
+          return paired;
+        }
+      }
+    }
+  }
+
+  return 0;
+}
+} // namespace
 
 std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
     Fusion* fusion,
@@ -36,14 +84,29 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       target_threads_per_sm,
       props.has_mufu_computation);
 
-  const int64_t smem_elems = (dev_prop->sharedMemPerBlockOptin * 8) /
-      props.max_dtype_size_bit_for_vectorization;
+  uint64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
+  uint64_t smem_elems = dev_prop->sharedMemPerBlockOptin / dtype_bytes;
 
-  const int64_t half_smem_elems = scheduler_utils::lastPow2(smem_elems) / 2;
+  // Heuristics: Require TMA loads are at least 16KB, and consume up to half of
+  // shared memory.
+  constexpr int64_t min_tma_bytes = 16384;
+  const int64_t lower_elem_bound = min_tma_bytes / dtype_bytes;
+  const int64_t upper_elem_bound = smem_elems / 2;
 
-  // Split the reduction dimension to reduce smem usage.
-  uint64_t tma_split_factor =
-      ceilDiv(props.inner_most_dimension_numel, half_smem_elems);
+  // TMA requires 16-byte alignment after any splits
+  const int64_t aligned_elems = 16 / dtype_bytes;
+
+  // Search for a suitable split factor
+  const int64_t tma_split_factor = getTmaSplit(
+      props.inner_most_dimension_numel,
+      aligned_elems,
+      lower_elem_bound,
+      upper_elem_bound);
+
+  // If no valid split factor was found, fallback to non-TMA
+  if (tma_split_factor == 0) {
+    return nullptr;
+  }
 
   int64_t threads_per_block = 256;
   int64_t unroll_factor = scheduler_utils::lastPow2(target_vect_unroll);

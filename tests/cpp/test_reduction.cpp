@@ -2830,6 +2830,12 @@ class TmaInnerReductionTest
       return false;
     }
 
+    // This test has a few large, non-power-2 shapes, which TMA will reject
+    // when searching for a suitable split.
+    if (reduction_size > 1024 * 1024 && (reduction_size % 32) != 0) {
+      return false;
+    }
+
     return true;
   }
 
