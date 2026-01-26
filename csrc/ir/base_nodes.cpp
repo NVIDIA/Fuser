@@ -29,7 +29,11 @@ Statement::Statement(IrBuilderPasskey passkey)
     : ir_container_{passkey.ir_container_} {}
 
 Statement::Statement(const Statement* src, IrCloner* ir_cloner)
-    : ir_container_{ir_cloner->container()} {}
+    : ir_container_{ir_cloner->container()} {
+  NVF_ERROR(
+      ir_container_ != nullptr,
+      "Statement cloning constructor received NULL container from IrCloner");
+}
 
 NVFUSER_DEFINE_CLONE(Statement)
 
@@ -349,7 +353,14 @@ Expr::Expr(const Expr* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner),
       attributes_(ir_cloner->clone(src->attributes_)),
       inputs_(ir_cloner->clone(src->inputs_)),
-      outputs_(ir_cloner->clone(src->outputs_)) {}
+      outputs_(ir_cloner->clone(src->outputs_)) {
+  // Validate that the source Expr has a valid container
+  NVF_ERROR(
+      src->ir_container_ != nullptr,
+      "Source Expr being cloned has NULL ir_container_. ",
+      "This indicates the source Fusion was destroyed but its Statements are "
+      "still referenced.");
+}
 
 Expr::Expr(
     IrBuilderPasskey passkey,
