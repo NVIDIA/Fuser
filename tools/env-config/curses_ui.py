@@ -290,29 +290,112 @@ class CursesUI:
             opt = item["option"]
 
             if opt.var_type in ["int", "string", "multi"]:
-                # Show input dialog
                 height, width = self.stdscr.getmaxyx()
-                input_y = height // 2
 
-                # Draw input box
-                self.stdscr.attron(curses.color_pair(1))
-                prompt = f"Enter value for {opt.get_display_name()}: "
-                self.stdscr.addstr(input_y, 2, " " * (width - 4))
-                self.stdscr.addstr(input_y, 2, prompt)
-                self.stdscr.attroff(curses.color_pair(1))
+                # Calculate the Y position of the current row on screen
+                # Rows start at y=2 (after header), and we need to account for scroll
+                screen_y = 2 + (self.current_row - self.top_row)
 
-                # Get input
-                curses.echo()
+                # Make sure we're within visible area
+                if screen_y < 2 or screen_y >= height - 5:
+                    # Fall back to center if somehow out of range
+                    screen_y = height // 2
+
+                # Build the display name with [multi] tag if applicable
+                display_name = opt.get_display_name()
+                if opt.var_type == "multi":
+                    display_name += " [multi]"
+
+                # Get current value to pre-fill
+                current_val = opt.current_value if opt.current_value else ""
+
+                # Create prompt: "name = |cursor here|"
+                prefix = "    "
+                prompt_text = f"{prefix}{display_name} = "
+
+                # Clear the line and show the prompt
+                self.stdscr.move(screen_y, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.addstr(screen_y, 0, prompt_text, curses.A_BOLD)
+
+                # Pre-fill with current value
+                if current_val:
+                    self.stdscr.addstr(screen_y, len(prompt_text), current_val)
+
+                self.stdscr.refresh()
+
+                # Position cursor at the end of the current value
+                cursor_pos = len(prompt_text) + len(current_val)
+                self.stdscr.move(screen_y, cursor_pos)
+
+                # Enable cursor and echo
                 curses.curs_set(1)
+                curses.echo()
+
                 try:
-                    input_str = self.stdscr.getstr(
-                        input_y, 2 + len(prompt), width - 4 - len(prompt)
-                    )
-                    value = input_str.decode("utf-8").strip()
-                    if value:
-                        opt.current_value = value
-                        self.modified = True
-                except InputError:
+                    # Manual text editing with basic line editing support
+                    buffer = list(current_val)  # Start with current value
+                    cursor_offset = len(buffer)  # Cursor at end
+                    max_len = width - len(prompt_text) - 2
+
+                    while True:
+                        # Display current buffer
+                        self.stdscr.move(screen_y, len(prompt_text))
+                        self.stdscr.clrtoeol()
+                        display_text = "".join(buffer)
+                        if len(display_text) > max_len:
+                            display_text = display_text[:max_len]
+                        self.stdscr.addstr(screen_y, len(prompt_text), display_text)
+                        self.stdscr.move(screen_y, len(prompt_text) + cursor_offset)
+                        self.stdscr.refresh()
+
+                        # Get key
+                        key = self.stdscr.getch()
+
+                        if key == ord("\n") or key == curses.KEY_ENTER:
+                            # Accept input
+                            value = "".join(buffer).strip()
+                            if value or opt.current_value:  # Allow clearing
+                                opt.current_value = value if value else None
+                                self.modified = True
+                            break
+                        elif key == 27:  # Escape
+                            # Cancel editing
+                            break
+                        elif key == curses.KEY_BACKSPACE or key == 127 or key == 8:
+                            # Backspace
+                            if cursor_offset > 0:
+                                buffer.pop(cursor_offset - 1)
+                                cursor_offset -= 1
+                        elif key == curses.KEY_DC:
+                            # Delete key
+                            if cursor_offset < len(buffer):
+                                buffer.pop(cursor_offset)
+                        elif key == curses.KEY_LEFT:
+                            # Move cursor left
+                            if cursor_offset > 0:
+                                cursor_offset -= 1
+                        elif key == curses.KEY_RIGHT:
+                            # Move cursor right
+                            if cursor_offset < len(buffer):
+                                cursor_offset += 1
+                        elif key == curses.KEY_HOME or key == 1:  # Ctrl-A
+                            # Move to start
+                            cursor_offset = 0
+                        elif key == curses.KEY_END or key == 5:  # Ctrl-E
+                            # Move to end
+                            cursor_offset = len(buffer)
+                        elif key == 21:  # Ctrl-U
+                            # Clear line
+                            buffer = []
+                            cursor_offset = 0
+                        elif 32 <= key <= 126:
+                            # Printable character
+                            if len(buffer) < max_len:
+                                buffer.insert(cursor_offset, chr(key))
+                                cursor_offset += 1
+
+                except Exception:
                     pass
                 finally:
                     curses.noecho()
