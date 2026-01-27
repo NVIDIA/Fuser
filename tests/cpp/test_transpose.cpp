@@ -20,6 +20,7 @@
 #include "scheduler/transpose.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
+#include "type.h"
 #include "validator_utils.h"
 
 namespace nvfuser {
@@ -1407,6 +1408,43 @@ TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, NoTransposeMaverick17B) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::BFloat16;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  auto tv1 = makeContigConcreteTensor({262144, 1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto tv3 = castOp(DataType::Float, tv1);
+  auto tv4 = mul(tv2, tv3);
+  auto tv5 = castOp(dtype, tv4);
+  fusion.addOutput(tv5);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+  at::Tensor input1 = at::randn({262144, 1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0, input1});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->scheduler_type;
+  NVF_CHECK(
+      heuristic == SchedulerType::PointWise,
+      "Unexpected heuristic: ",
+      heuristic);
+  testValidate(
+      executor_cache.fusion(), outputs, {input0, input1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
