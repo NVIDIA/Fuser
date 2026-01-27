@@ -456,6 +456,25 @@ void FusionExecutorCache::deserialize(
     }
 
     for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
+      // Validate fusion_ before copying
+      NVF_ERROR(
+          fusion_ != nullptr,
+          "FusionExecutorCache::deserialize: fusion_ is nullptr");
+      NVF_ERROR(
+          fusion_->ir_storage() != nullptr,
+          "FusionExecutorCache::deserialize: fusion_->ir_storage() is nullptr");
+
+      // Check that fusion_ is in a valid state
+      try {
+        [[maybe_unused]] auto num_vals = fusion_->numVals(false);
+        [[maybe_unused]] auto num_exprs = fusion_->numExprs();
+      } catch (...) {
+        NVF_ERROR(
+            false,
+            "FusionExecutorCache::deserialize: fusion_ appears corrupted - "
+            "cannot access basic properties");
+      }
+
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 

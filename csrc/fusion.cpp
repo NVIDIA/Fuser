@@ -120,6 +120,29 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
+  // Validate source fusion before attempting copy
+  NVF_ERROR(from != nullptr, "Fusion::copy called with NULL source");
+  NVF_ERROR(to != nullptr, "Fusion::copy called with NULL target");
+  NVF_ERROR(
+      from->ir_storage() != nullptr,
+      "Source Fusion has NULL ir_storage. Memory corruption detected.");
+  NVF_ERROR(
+      to->ir_storage() != nullptr,
+      "Target Fusion has NULL ir_storage. Memory corruption detected.");
+
+  // Try to access some basic properties to ensure the object is valid
+  try {
+    auto num_vals = from->numVals(false);
+    auto num_exprs = from->numExprs();
+    (void)num_vals; // Suppress unused variable warning
+    (void)num_exprs;
+  } catch (...) {
+    NVF_ERROR(
+        false,
+        "Exception while accessing source Fusion properties. "
+        "The Fusion object appears to be corrupted or destroyed.");
+  }
+
   to->clear();
 
   auto ir_cloner = IrContainer::copy(from, to);
