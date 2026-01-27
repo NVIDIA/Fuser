@@ -67,10 +67,11 @@ class TestShardTensor:
         inp_ref = torch.arange(2 * d * 3, dtype=torch.float).reshape(2, d * 3)
         out_ref = inp_ref.sum([1])
 
+        rank = multidevice_test.rank
         inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+        torch.testing.assert_close(inp.cpu(), inp_ref[:, rank * 3 : (rank + 1) * 3])
         out = multidevice_test.shard_tensor(out_ref, out_tv)
-        print(inp)
-        print(out)
+        torch.testing.assert_close(out.cpu(), out_ref)
 
     @pytest.mark.mpi
     def test_2d_sharded_matrix(self, multidevice_test):
