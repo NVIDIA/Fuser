@@ -37,13 +37,7 @@ void checkGetAllStmts(Fusion* fusion) {
 
 } // namespace
 
-class LoopDomainSchedulingTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
-  }
-};
+using LoopDomainSchedulingTest = NVFuserTest;
 
 TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   Fusion fusion;
