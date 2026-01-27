@@ -10,6 +10,8 @@ This module provides a loader for env_options.yaml that replaces the
 hardcoded Python definitions in configure_env.py.
 """
 
+from __future__ import annotations
+
 import yaml
 from pathlib import Path
 from dataclasses import dataclass, field

@@ -16,6 +16,8 @@ Usage:
     python tools/configure_env.py --generate-script  # Generate shell script
 """
 
+from __future__ import annotations
+
 import argparse
 import os
 from pathlib import Path
@@ -31,7 +33,7 @@ CATEGORY_NAMES, ENV_VAR_DEFINITIONS = load_options_from_yaml(_yaml_path)
 class EnvVarConfig:
     """Manages the current configuration state."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # Use (name, env_var) tuple as key to handle options with same name
         # but different env vars (e.g., expr_simplify in DUMP vs DISABLE)
         self.options: dict[tuple[str, str | None], EnvVarOption] = {
@@ -51,7 +53,7 @@ class EnvVarConfig:
             categories[opt.category].append(opt)
         return categories
 
-    def _load_current_values(self):
+    def _load_current_values(self) -> None:
         """Load current values from environment."""
         for opt in self.all_options:
             env_var_name = opt.get_env_var_name()
@@ -136,7 +138,7 @@ class EnvVarConfig:
         return sorted(list(unset_vars))
 
 
-def simple_prompt_mode(config: EnvVarConfig):
+def simple_prompt_mode(config: EnvVarConfig) -> None:
     """Simple prompt-based configuration mode (no curses)."""
     # ANSI color codes
     GREEN = "\033[92m"
@@ -172,17 +174,18 @@ def simple_prompt_mode(config: EnvVarConfig):
             print(f"  Description: {opt.description}")
             print(f"  Current: {current}")
 
-            if opt.var_type == "bool":
-                response = input("  Enable? [y/N]: ").strip().lower()
-                opt.current_value = "1" if response in ["y", "yes"] else None
-            elif opt.var_type == "multi":
-                print(f"  Choices: {', '.join(repr(c) for c in opt.choices)}")
-                default = opt.choices[0] if opt.choices else ""
-                response = input(f"  Select [{default}]: ").strip()
-                opt.current_value = response if response else default
-            elif opt.var_type in ["int", "string"]:
-                response = input("  Value: ").strip()
-                opt.current_value = response if response else None
+            match opt.var_type:
+                case "bool":
+                    response = input("  Enable? [y/N]: ").strip().lower()
+                    opt.current_value = "1" if response in ["y", "yes"] else None
+                case "multi":
+                    print(f"  Choices: {', '.join(repr(c) for c in opt.choices)}")
+                    default = opt.choices[0] if opt.choices else ""
+                    response = input(f"  Select [{default}]: ").strip()
+                    opt.current_value = response if response else default
+                case "int" | "string":
+                    response = input("  Value: ").strip()
+                    opt.current_value = response if response else None
 
     print("\n" + "=" * 70)
     print(f"{BOLD}Configuration Summary{RESET}")
@@ -207,7 +210,7 @@ def save_config(
     exports: dict[str, str],
     unsets: list[str] | None = None,
     filename: str = "nvfuser_env.sh",
-):
+) -> None:
     """Save configuration to shell script with both exports and unsets"""
     with open(filename, "w") as f:
         f.write("#!/bin/bash\n")
@@ -230,7 +233,7 @@ def save_config(
     os.chmod(filename, 0o755)
 
 
-def generate_script_mode(config: EnvVarConfig):
+def generate_script_mode(config: EnvVarConfig) -> None:
     """Generate a shell script with current environment configuration."""
     exports = config.get_env_exports()
 
@@ -245,7 +248,7 @@ def generate_script_mode(config: EnvVarConfig):
     print("To apply: source nvfuser_env.sh")
 
 
-def try_curses_mode(config: EnvVarConfig):
+def try_curses_mode(config: EnvVarConfig) -> None:
     """Try to run curses-based TUI mode."""
     try:
         import curses
@@ -262,7 +265,7 @@ def try_curses_mode(config: EnvVarConfig):
         simple_prompt_mode(config)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Interactive nvFuser environment configuration tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,

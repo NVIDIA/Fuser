@@ -8,23 +8,30 @@ Curses-based TUI for nvFuser environment configuration.
 Provides a ccmake-like interface for navigating and configuring options.
 """
 
+from __future__ import annotations
+
 import curses
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from configure_env import EnvVarConfig
+
 from configure_env import CATEGORY_NAMES
 
 
 class CursesUI:
     """Curses-based UI for environment configuration."""
 
-    def __init__(self, stdscr, config):
+    def __init__(self, stdscr, config: EnvVarConfig) -> None:
         self.stdscr = stdscr
         self.config = config
-        self.current_row = 0
-        self.top_row = 0
-        self.modified = False
-        self.should_exit = False
+        self.current_row: int = 0
+        self.top_row: int = 0
+        self.modified: bool = False
+        self.should_exit: bool = False
 
         # Build flat list of all options with category headers
-        self.display_items = []
+        self.display_items: list[dict[str, str | object]] = []
 
         # Display categories in the order defined in CATEGORY_NAMES
         for category in CATEGORY_NAMES.keys():
@@ -54,7 +61,7 @@ class CursesUI:
         curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Enabled/Set
         curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)  # Multi tag
 
-    def draw_header(self):
+    def draw_header(self) -> None:
         """Draw the top header."""
         height, width = self.stdscr.getmaxyx()
         self.stdscr.attron(curses.color_pair(2) | curses.A_BOLD)
@@ -62,7 +69,7 @@ class CursesUI:
         self.stdscr.addstr(0, (width - len(header)) // 2, header)
         self.stdscr.attroff(curses.color_pair(2) | curses.A_BOLD)
 
-    def draw_footer(self):
+    def draw_footer(self) -> None:
         """Draw the bottom help text."""
         height, width = self.stdscr.getmaxyx()
 
@@ -75,13 +82,14 @@ class CursesUI:
 
         if item and item["type"] == "option":
             opt = item["option"]
-            if opt.var_type == "bool":
-                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
-            elif opt.var_type == "multi":
-                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [a] Apply  [g] Gen  [q] Quit"
-            else:
-                # String/Int - Enter to edit
-                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [a] Apply  [g] Gen  [q] Quit"
+            match opt.var_type:
+                case "bool":
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
+                case "multi":
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [a] Apply  [g] Gen  [q] Quit"
+                case _:
+                    # String/Int - Enter to edit
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [a] Apply  [g] Gen  [q] Quit"
         else:
             help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
 
@@ -92,7 +100,9 @@ class CursesUI:
         self.stdscr.addstr(height - 1, 0, help_text.ljust(width - 1))
         self.stdscr.attroff(curses.color_pair(2))
 
-    def draw_option(self, y: int, item: dict, is_selected: bool):
+    def draw_option(
+        self, y: int, item: dict[str, str | object], is_selected: bool
+    ) -> None:
         """Draw a single option or header."""
         height, width = self.stdscr.getmaxyx()
 
@@ -192,7 +202,7 @@ class CursesUI:
                     self.stdscr.addstr(y, total_len, " " * (width - 1 - total_len))
                 self.stdscr.attroff(line_attr)
 
-    def draw_description(self):
+    def draw_description(self) -> None:
         """Draw description of currently selected item."""
         height, width = self.stdscr.getmaxyx()
 
@@ -234,7 +244,7 @@ class CursesUI:
                 if desc_y + i < height - 1:
                     self.stdscr.addstr(desc_y + i, 1, line)
 
-    def draw(self):
+    def draw(self) -> None:
         """Draw the entire UI."""
         self.stdscr.clear()
         height, width = self.stdscr.getmaxyx()
@@ -253,7 +263,7 @@ class CursesUI:
 
         self.stdscr.refresh()
 
-    def handle_toggle(self):
+    def handle_toggle(self) -> None:
         """Handle toggling/editing current item."""
         if self.current_row >= len(self.display_items):
             return
@@ -263,36 +273,37 @@ class CursesUI:
         if item["type"] == "option":
             opt = item["option"]
 
-            if opt.var_type == "bool":
-                # Toggle boolean
-                opt.current_value = "1" if opt.current_value != "1" else None
-                self.modified = True
+            match opt.var_type:
+                case "bool":
+                    # Toggle boolean
+                    opt.current_value = "1" if opt.current_value != "1" else None
+                    self.modified = True
 
-            elif opt.var_type == "multi":
-                # Cycle through choices, including unset at the end
-                # Note: Some choices may include "" (empty string) as a valid choice
-                if opt.current_value is None:
-                    # Currently unset, go to first choice
-                    opt.current_value = opt.choices[0] if opt.choices else ""
-                elif opt.current_value not in opt.choices:
-                    # Invalid value, go to first choice
-                    opt.current_value = opt.choices[0] if opt.choices else ""
-                else:
-                    # Valid value, cycle to next (or back to None after last)
-                    idx = opt.choices.index(opt.current_value)
-                    if idx == len(opt.choices) - 1:
-                        # Last choice, cycle back to unset (None)
-                        opt.current_value = None
+                case "multi":
+                    # Cycle through choices, including unset at the end
+                    # Note: Some choices may include "" (empty string) as a valid choice
+                    if opt.current_value is None:
+                        # Currently unset, go to first choice
+                        opt.current_value = opt.choices[0] if opt.choices else ""
+                    elif opt.current_value not in opt.choices:
+                        # Invalid value, go to first choice
+                        opt.current_value = opt.choices[0] if opt.choices else ""
                     else:
-                        # Go to next choice
-                        opt.current_value = opt.choices[idx + 1]
-                self.modified = True
+                        # Valid value, cycle to next (or back to None after last)
+                        idx = opt.choices.index(opt.current_value)
+                        if idx == len(opt.choices) - 1:
+                            # Last choice, cycle back to unset (None)
+                            opt.current_value = None
+                        else:
+                            # Go to next choice
+                            opt.current_value = opt.choices[idx + 1]
+                    self.modified = True
 
-            elif opt.var_type in ["int", "string"]:
-                # For string/int, Enter opens the editor
-                self.handle_edit()
+                case "int" | "string":
+                    # For string/int, Enter opens the editor
+                    self.handle_edit()
 
-    def handle_edit(self):
+    def handle_edit(self) -> None:
         """Handle editing current item value."""
         if self.current_row >= len(self.display_items):
             return
@@ -415,7 +426,7 @@ class CursesUI:
                     curses.curs_set(0)
 
     def show_confirmation(self, message: str, prompt: str) -> str:
-        """Show a simple y/n confirmation dialog
+        """Show a simple y/n confirmation dialog.
 
         Returns the character pressed by the user (y/n/etc).
         """
@@ -442,7 +453,7 @@ class CursesUI:
 
     def show_message(
         self, message: str, submessage: str = "", wait_for_key: bool = True
-    ):
+    ) -> None:
         """Show a simple message dialog"""
         self.stdscr.clear()
         height, width = self.stdscr.getmaxyx()
@@ -469,7 +480,7 @@ class CursesUI:
         if wait_for_key:
             self.stdscr.getch()
 
-    def handle_apply_now(self):
+    def handle_apply_now(self) -> None:
         """Show confirmation, generate apply script, and signal to exit"""
         # Import save_config here to avoid circular import
         from configure_env import save_config
@@ -492,7 +503,7 @@ class CursesUI:
         self.should_exit = True
         self.modified = False  # Prevent quit prompt
 
-    def handle_generate(self):
+    def handle_generate(self) -> None:
         """Prompt for filename and generate script"""
         # Import save_config here to avoid circular import
         from configure_env import save_config
@@ -545,7 +556,7 @@ class CursesUI:
         self.should_exit = True
         self.modified = False
 
-    def jump_to_next_section(self):
+    def jump_to_next_section(self) -> None:
         """Jump to the next section header."""
         for i in range(self.current_row + 1, len(self.display_items)):
             if self.display_items[i]["type"] == "header":
@@ -557,7 +568,7 @@ class CursesUI:
                     self.top_row = self.current_row - visible_rows + 1
                 break
 
-    def jump_to_prev_section(self):
+    def jump_to_prev_section(self) -> None:
         """Jump to the previous section header."""
         for i in range(self.current_row - 1, -1, -1):
             if self.display_items[i]["type"] == "header":
@@ -567,12 +578,12 @@ class CursesUI:
                     self.top_row = self.current_row
                 break
 
-    def jump_to_top(self):
+    def jump_to_top(self) -> None:
         """Jump to the first item."""
         self.current_row = 0
         self.top_row = 0
 
-    def jump_to_bottom(self):
+    def jump_to_bottom(self) -> None:
         """Jump to the last item."""
         self.current_row = len(self.display_items) - 1
         # Adjust scroll to show bottom
@@ -580,7 +591,7 @@ class CursesUI:
         visible_rows = height - 7
         self.top_row = max(0, self.current_row - visible_rows + 1)
 
-    def run(self):
+    def run(self) -> None:
         """Main event loop."""
         while True:
             self.draw()
@@ -716,7 +727,7 @@ class CursesUI:
                     break  # Exit immediately after generate
 
 
-def run_curses_ui(stdscr, config):
+def run_curses_ui(stdscr, config: EnvVarConfig) -> None:
     """Entry point for curses UI."""
     ui = CursesUI(stdscr, config)
     ui.run()
