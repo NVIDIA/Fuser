@@ -1976,11 +1976,22 @@ TEST_F(PersistentBufferTest, BufferGatherLookupTv) {
   // register So, we should expect two uses of tv0, one is a gather op, the
   // other is a load op
   const auto& tv0_uses = tv0->uses();
-  EXPECT_THAT(
-      tv0_uses,
-      testing::UnorderedElementsAre(
-          testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
-          testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  if (at::cuda::getCurrentDeviceProperties()->major < 9) {
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  } else {
+    // Expect Programmatic Dependent Launch for Hopper+ devices
+    EXPECT_THAT(
+        tv0_uses,
+        testing::UnorderedElementsAre(
+            testing::Truly(
+                [](Expr* e) { return e->isA<WaitForPriorGridOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<GatherOp>(); }),
+            testing::Truly([](Expr* e) { return e->isA<LoadStoreOp>(); })));
+  }
 
   // index_tv is a indicies tv, should be cached in register
   // Gather op will use the cached version

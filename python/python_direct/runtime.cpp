@@ -591,6 +591,25 @@ void bindKernelExecutor(py::module& nvfuser) {
                -------
                bool
                    True if the kernel has been compiled, False otherwise.
+             )")
+      .def(
+          "is_programmatic_dependent_launch_enabled",
+          [](KernelExecutor& self) -> bool {
+            if (!self.isCompiled()) {
+              return false;
+            }
+            return self.compiledKernel()
+                ->kernel()
+                ->summary()
+                .enable_programmatic_dependent_launch;
+          },
+          R"(
+               Check if programmatic dependent launch is enabled for this kernel.
+
+               Returns
+               -------
+               bool
+                   True if programmatic dependent launch is enabled, False otherwise.
              )");
 }
 
