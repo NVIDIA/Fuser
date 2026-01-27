@@ -34,6 +34,56 @@ class EnvVarOption:
     choices: List[str] = field(default_factory=list)
     current_value: Optional[str] = None
 
+    def get_display_name(self) -> str:
+        """Get the display name for this option (full env var name)."""
+        # For dump, enable, disable - show as they appear in comma-separated list
+        if self.category in ["dump", "enable", "disable"]:
+            return self.name
+
+        # For build options, show full NVFUSER_BUILD_* name
+        if self.category in ["build", "build_advanced"]:
+            if self.name == "max_jobs":
+                return "MAX_JOBS"
+            elif self.name in ["build_dir", "install_dir"]:
+                return f"NVFUSER_BUILD_{self.name.upper()}"
+            elif self.name == "cutlass_max_jobs":
+                return "NVFUSER_CUTLASS_MAX_JOBS"
+            elif self.name in [
+                "build_type",
+                "cpp_standard",
+                "enable_pch",
+                "explicit_error_check",
+            ]:
+                return f"NVFUSER_BUILD_{self.name.upper()}"
+            else:
+                # no_python -> NVFUSER_BUILD_NO_PYTHON
+                return f"NVFUSER_BUILD_{self.name.upper()}"
+
+        # For environment options, show actual env var name
+        if self.category == "environment":
+            env_map = {
+                "cc": "CC",
+                "cxx": "CXX",
+                "cuda_home": "CUDA_HOME",
+                "nvfuser_source_dir": "NVFUSER_SOURCE_DIR",
+                "torch_cuda_arch_list": "TORCH_CUDA_ARCH_LIST",
+                "cflags": "CFLAGS",
+                "cxxflags": "CXXFLAGS",
+                "ldflags": "LDFLAGS",
+            }
+            return env_map.get(self.name, self.name.upper())
+
+        # For compilation options
+        if self.category == "compilation":
+            return f"NVFUSER_{self.name.upper()}"
+
+        # For profiler
+        if self.category == "profiler":
+            return "NVFUSER_PROF"
+
+        # Default: uppercase the name
+        return self.name.upper()
+
 
 # Define all nvFuser environment variables organized by category
 ENV_VAR_DEFINITIONS = [

@@ -132,7 +132,7 @@ class CursesUI:
                     status = " "
                     attr = base_attr
                 checkbox = f"{prefix}{status}] "
-                name_part = opt.name
+                name_part = opt.get_display_name()
 
                 line = f"{checkbox}{name_part}"
                 max_len = width - 1
@@ -145,7 +145,7 @@ class CursesUI:
 
             else:
                 # String/int/multi option with value display
-                name_part = f"{prefix}{opt.name}"
+                name_part = f"{prefix}{opt.get_display_name()}"
 
                 # Draw name part (no color)
                 self.stdscr.attron(base_attr)
@@ -273,7 +273,7 @@ class CursesUI:
 
                 # Draw input box
                 self.stdscr.attron(curses.color_pair(1))
-                prompt = f"Enter value for {opt.name}: "
+                prompt = f"Enter value for {opt.get_display_name()}: "
                 self.stdscr.addstr(input_y, 2, " " * (width - 4))
                 self.stdscr.addstr(input_y, 2, prompt)
                 self.stdscr.attroff(curses.color_pair(1))
