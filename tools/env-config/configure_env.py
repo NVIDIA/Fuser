@@ -80,14 +80,16 @@ ENV_VAR_DEFINITIONS = [
     EnvVarOption("CFLAGS", "Additional C compiler flags", "string", "environment"),
     EnvVarOption("CXXFLAGS", "Additional C++ compiler flags", "string", "environment"),
     EnvVarOption("LDFLAGS", "Additional linker flags", "string", "environment"),
+    EnvVarOption(
+        "NVFUSER_SOURCE_DIR", "nvFuser source directory", "string", "environment"
+    ),
     # ========================================================================
     # BUILD-TIME OPTIONS (NVFUSER_BUILD_*)
     # ========================================================================
     # Build Configuration
-    EnvVarOption("NVFUSER_SOURCE_DIR", "nvFuser source directory", "string", "build"),
     EnvVarOption(
         "NVFUSER_BUILD_BUILD_TYPE",
-        "Build type: Release, Debug, RelWithDebInfo",
+        "Build type:",
         "multi",
         "build",
         choices=["Release", "Debug", "RelWithDebInfo"],
@@ -474,7 +476,12 @@ def simple_prompt_mode(config: EnvVarConfig):
             else:
                 current = "(not set)"
 
-            print(f"\n{opt.name}:")
+            # Format the option name with type indicator
+            opt_name = opt.name
+            if opt.var_type == "multi":
+                opt_name += " [multi]"
+
+            print(f"\n{opt_name}:")
             print(f"  Description: {opt.description}")
             print(f"  Current: {current}")
 
@@ -482,9 +489,10 @@ def simple_prompt_mode(config: EnvVarConfig):
                 response = input("  Enable? [y/N]: ").strip().lower()
                 opt.current_value = "1" if response in ["y", "yes"] else None
             elif opt.var_type == "multi":
-                print(f"  Choices: {', '.join(opt.choices)}")
-                response = input(f"  Select [{opt.choices[0]}]: ").strip()
-                opt.current_value = response if response else opt.choices[0]
+                print(f"  Choices: {', '.join(repr(c) for c in opt.choices)}")
+                default = opt.choices[0] if opt.choices else ""
+                response = input(f"  Select [{default}]: ").strip()
+                opt.current_value = response if response else default
             elif opt.var_type in ["int", "string"]:
                 response = input("  Value: ").strip()
                 opt.current_value = response if response else None

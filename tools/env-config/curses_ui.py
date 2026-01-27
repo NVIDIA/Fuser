@@ -52,7 +52,7 @@ class CursesUI:
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Highlight
         curses.init_pair(2, curses.COLOR_CYAN, curses.COLOR_BLACK)  # Header
         curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Enabled/Set
-        curses.init_pair(4, curses.COLOR_YELLOW, curses.COLOR_BLACK)  # Modified
+        curses.init_pair(4, curses.COLOR_BLUE, curses.COLOR_BLACK)  # Multi tag
 
     def draw_header(self):
         """Draw the top header."""
@@ -65,9 +65,26 @@ class CursesUI:
     def draw_footer(self):
         """Draw the bottom help text."""
         height, width = self.stdscr.getmaxyx()
-        help_text = (
-            "[↑↓] Navigate  [Enter] Toggle  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+
+        # Show context-sensitive help based on current selection
+        item = (
+            self.display_items[self.current_row]
+            if self.current_row < len(self.display_items)
+            else None
         )
+
+        if item and item["type"] == "option":
+            opt = item["option"]
+            if opt.var_type == "bool":
+                help_text = (
+                    "[↑↓] Navigate  [Enter] Toggle  [a] Apply  [g] Generate  [q] Quit"
+                )
+            elif opt.var_type == "multi":
+                help_text = "[↑↓] Navigate  [Enter] Cycle  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+            else:
+                help_text = "[↑↓] Navigate  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+        else:
+            help_text = "[↑↓] Navigate  [Enter] Toggle  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
 
         if self.modified:
             help_text = "[MODIFIED] " + help_text
@@ -125,11 +142,22 @@ class CursesUI:
 
             else:
                 # String/int/multi option with value display
-                name_part = f"{prefix}{opt.get_display_name()}"
+                display_name = opt.get_display_name()
+                name_part = f"{prefix}{display_name}"
 
                 # Draw name part (no color)
                 self.stdscr.attron(base_attr)
                 self.stdscr.addstr(y, 0, name_part)
+                self.stdscr.attroff(base_attr)
+
+                # Add [multi] tag in yellow for multi-choice options
+                if opt.var_type == "multi":
+                    multi_tag = " [multi]"
+                    multi_attr = base_attr | curses.color_pair(4)  # Yellow
+                    self.stdscr.attron(multi_attr)
+                    self.stdscr.addstr(y, len(name_part), multi_tag)
+                    self.stdscr.attroff(multi_attr)
+                    name_part += multi_tag  # Update for length calculation below
 
                 # Draw value part with color if set
                 if opt.current_value:
@@ -175,6 +203,11 @@ class CursesUI:
 
             # Wrap description text
             desc_text = f"Description: {opt.description}"
+
+            # Add choices for multi options
+            if opt.var_type == "multi" and opt.choices:
+                desc_text += f" | Choices: {', '.join(repr(c) for c in opt.choices)}"
+
             words = desc_text.split()
             lines = []
             current_line = ""
