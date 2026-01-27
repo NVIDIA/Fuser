@@ -179,7 +179,8 @@ TEST_F(MultiDeviceTest, Slice) {
       executor_cache.fusion(),
       outputs,
       args,
-      {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
+      {shardTensor(expected_out[0], x_slice0),
+       shardTensor(expected_out[1], x_slice1)},
       __LINE__,
       __FILE__);
 }
