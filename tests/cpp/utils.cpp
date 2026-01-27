@@ -59,7 +59,6 @@ void NVFuserTest::SetUp() {
     GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
   }
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
 }
 
 NVFuserTest::~NVFuserTest() {
