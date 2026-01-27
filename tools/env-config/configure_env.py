@@ -26,63 +26,26 @@ from typing import List, Dict, Optional, Literal
 class EnvVarOption:
     """Represents a single environment variable option."""
 
-    name: str
+    name: str  # The actual environment variable name (e.g., "CC", "NVFUSER_BUILD_NO_PYTHON", or value for lists)
     description: str
     var_type: Literal["bool", "string", "int", "multi"]
     category: str
+    env_var: Optional[
+        str
+    ] = None  # For list items (dump/enable/disable), this is the parent env var
     default: str = ""
     choices: List[str] = field(default_factory=list)
     current_value: Optional[str] = None
 
     def get_display_name(self) -> str:
-        """Get the display name for this option (full env var name)."""
-        # For dump, enable, disable - show as they appear in comma-separated list
-        if self.category in ["dump", "enable", "disable"]:
-            return self.name
+        """Get the display name for this option."""
+        return self.name
 
-        # For build options, show full NVFUSER_BUILD_* name
-        if self.category in ["build", "build_advanced"]:
-            if self.name == "max_jobs":
-                return "MAX_JOBS"
-            elif self.name in ["build_dir", "install_dir"]:
-                return f"NVFUSER_BUILD_{self.name.upper()}"
-            elif self.name == "cutlass_max_jobs":
-                return "NVFUSER_CUTLASS_MAX_JOBS"
-            elif self.name in [
-                "build_type",
-                "cpp_standard",
-                "enable_pch",
-                "explicit_error_check",
-            ]:
-                return f"NVFUSER_BUILD_{self.name.upper()}"
-            else:
-                # no_python -> NVFUSER_BUILD_NO_PYTHON
-                return f"NVFUSER_BUILD_{self.name.upper()}"
-
-        # For environment options, show actual env var name
-        if self.category == "environment":
-            env_map = {
-                "cc": "CC",
-                "cxx": "CXX",
-                "cuda_home": "CUDA_HOME",
-                "nvfuser_source_dir": "NVFUSER_SOURCE_DIR",
-                "torch_cuda_arch_list": "TORCH_CUDA_ARCH_LIST",
-                "cflags": "CFLAGS",
-                "cxxflags": "CXXFLAGS",
-                "ldflags": "LDFLAGS",
-            }
-            return env_map.get(self.name, self.name.upper())
-
-        # For compilation options
-        if self.category == "compilation":
-            return f"NVFUSER_{self.name.upper()}"
-
-        # For profiler
-        if self.category == "profiler":
-            return "NVFUSER_PROF"
-
-        # Default: uppercase the name
-        return self.name.upper()
+    def get_env_var_name(self) -> str:
+        """Get the actual environment variable name (for list items, return the parent)."""
+        if self.env_var:
+            return self.env_var
+        return self.name
 
 
 # Define all nvFuser environment variables organized by category
@@ -90,121 +53,92 @@ ENV_VAR_DEFINITIONS = [
     # ========================================================================
     # ENVIRONMENT AND COMPILER CONFIGURATION
     # ========================================================================
-    EnvVarOption("cc", "C compiler to use (CC)", "string", "environment"),
-    EnvVarOption("cxx", "C++ compiler to use (CXX)", "string", "environment"),
+    EnvVarOption("CC", "C compiler to use", "string", "environment"),
+    EnvVarOption("CXX", "C++ compiler to use", "string", "environment"),
+    EnvVarOption("CUDA_HOME", "CUDA installation directory", "string", "environment"),
     EnvVarOption(
-        "cuda_home", "CUDA installation directory (CUDA_HOME)", "string", "environment"
+        "NVFUSER_SOURCE_DIR", "nvFuser source directory", "string", "environment"
     ),
     EnvVarOption(
-        "nvfuser_source_dir",
-        "nvFuser source directory (NVFUSER_SOURCE_DIR)",
+        "TORCH_CUDA_ARCH_LIST",
+        "Target CUDA architectures (e.g., '8.0;9.0')",
         "string",
         "environment",
     ),
-    EnvVarOption(
-        "torch_cuda_arch_list",
-        "Target CUDA architectures (TORCH_CUDA_ARCH_LIST, e.g., '8.0;9.0')",
-        "string",
-        "environment",
-    ),
-    EnvVarOption(
-        "cflags", "Additional C compiler flags (CFLAGS)", "string", "environment"
-    ),
-    EnvVarOption(
-        "cxxflags", "Additional C++ compiler flags (CXXFLAGS)", "string", "environment"
-    ),
-    EnvVarOption(
-        "ldflags", "Additional linker flags (LDFLAGS)", "string", "environment"
-    ),
+    EnvVarOption("CFLAGS", "Additional C compiler flags", "string", "environment"),
+    EnvVarOption("CXXFLAGS", "Additional C++ compiler flags", "string", "environment"),
+    EnvVarOption("LDFLAGS", "Additional linker flags", "string", "environment"),
     # ========================================================================
     # BUILD-TIME OPTIONS (NVFUSER_BUILD_*)
     # ========================================================================
     # Build Configuration
+    EnvVarOption("NVFUSER_BUILD_NO_PYTHON", "Skip Python bindings", "bool", "build"),
     EnvVarOption(
-        "no_python", "Skip Python bindings (NVFUSER_BUILD_NO_PYTHON)", "bool", "build"
+        "NVFUSER_BUILD_NO_CUTLASS", "Skip building CUTLASS kernels", "bool", "build"
+    ),
+    EnvVarOption("NVFUSER_BUILD_NO_TEST", "Skip C++ tests", "bool", "build"),
+    EnvVarOption("NVFUSER_BUILD_NO_BENCHMARK", "Skip benchmarks", "bool", "build"),
+    EnvVarOption(
+        "NVFUSER_BUILD_NO_NINJA", "Use make instead of ninja", "bool", "build"
     ),
     EnvVarOption(
-        "no_cutlass",
-        "Skip building CUTLASS kernels (NVFUSER_BUILD_NO_CUTLASS)",
-        "bool",
-        "build",
-    ),
-    EnvVarOption("no_test", "Skip C++ tests (NVFUSER_BUILD_NO_TEST)", "bool", "build"),
-    EnvVarOption(
-        "no_benchmark", "Skip benchmarks (NVFUSER_BUILD_NO_BENCHMARK)", "bool", "build"
-    ),
-    EnvVarOption(
-        "no_ninja",
-        "Use make instead of ninja (NVFUSER_BUILD_NO_NINJA)",
-        "bool",
-        "build",
-    ),
-    EnvVarOption(
-        "build_type",
-        "Build type: Release, Debug, RelWithDebInfo (NVFUSER_BUILD_BUILD_TYPE)",
+        "NVFUSER_BUILD_BUILD_TYPE",
+        "Build type: Release, Debug, RelWithDebInfo",
         "multi",
         "build",
         choices=["Release", "Debug", "RelWithDebInfo"],
     ),
     EnvVarOption(
-        "cpp_standard",
-        "C++ standard version (NVFUSER_BUILD_CPP_STANDARD)",
+        "NVFUSER_BUILD_CPP_STANDARD",
+        "C++ standard version",
         "int",
         "build",
         default="20",
     ),
     EnvVarOption(
-        "enable_pch",
-        "Enable precompiled headers (NVFUSER_BUILD_ENABLE_PCH)",
-        "bool",
-        "build",
+        "NVFUSER_BUILD_ENABLE_PCH", "Enable precompiled headers", "bool", "build"
     ),
     # Advanced Build Options
     EnvVarOption(
-        "build_with_ucc",
-        "Build with UCC support for multi-device (NVFUSER_BUILD_WITH_UCC)",
+        "NVFUSER_BUILD_WITH_UCC",
+        "Build with UCC support for multi-device",
         "bool",
         "build_advanced",
     ),
     EnvVarOption(
-        "build_with_asan",
-        "Build with Address Sanitizer (NVFUSER_BUILD_WITH_ASAN)",
+        "NVFUSER_BUILD_WITH_ASAN",
+        "Build with Address Sanitizer",
         "bool",
         "build_advanced",
     ),
     EnvVarOption(
-        "build_without_distributed",
-        "Build without multidevice support (NVFUSER_BUILD_WITHOUT_DISTRIBUTED)",
+        "NVFUSER_BUILD_WITHOUT_DISTRIBUTED",
+        "Build without multidevice support",
         "bool",
         "build_advanced",
     ),
     EnvVarOption(
-        "explicit_error_check",
-        "Enable explicit error checking (NVFUSER_BUILD_EXPLICIT_ERROR_CHECK)",
+        "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK",
+        "Enable explicit error checking",
         "bool",
         "build_advanced",
     ),
     EnvVarOption(
-        "cutlass_max_jobs",
-        "Max parallel jobs for CUTLASS build (NVFUSER_CUTLASS_MAX_JOBS)",
+        "NVFUSER_CUTLASS_MAX_JOBS",
+        "Max parallel jobs for CUTLASS build",
         "int",
         "build_advanced",
     ),
     EnvVarOption(
-        "build_dir",
-        "Custom build directory (NVFUSER_BUILD_DIR)",
+        "NVFUSER_BUILD_DIR", "Custom build directory", "string", "build_advanced"
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_INSTALL_DIR",
+        "Custom install directory",
         "string",
         "build_advanced",
     ),
-    EnvVarOption(
-        "install_dir",
-        "Custom install directory (NVFUSER_BUILD_INSTALL_DIR)",
-        "string",
-        "build_advanced",
-    ),
-    EnvVarOption(
-        "max_jobs", "Max parallel compilation jobs (MAX_JOBS)", "int", "build_advanced"
-    ),
+    EnvVarOption("MAX_JOBS", "Max parallel compilation jobs", "int", "build_advanced"),
     # ========================================================================
     # RUNTIME OPTIONS
     # ========================================================================
@@ -214,35 +148,74 @@ ENV_VAR_DEFINITIONS = [
         "Dump the original fusion IR built by the Python API",
         "bool",
         "dump",
+        env_var="NVFUSER_DUMP",
     ),
     EnvVarOption(
         "fusion_ir",
         "Dump the Fusion IR before lowering (fed to KernelExecutor::compile)",
         "bool",
         "dump",
+        env_var="NVFUSER_DUMP",
     ),
-    EnvVarOption("kernel_ir", "Dump the compiler Kernel IR", "bool", "dump"),
     EnvVarOption(
-        "cuda_kernel", "Dump the generated CUDA C++ kernel code", "bool", "dump"
+        "kernel_ir",
+        "Dump the compiler Kernel IR",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
     ),
-    EnvVarOption("cuda_full", "Dump the complete CUDA C++ code", "bool", "dump"),
-    EnvVarOption("ptx", "Dump compiled PTX", "bool", "dump"),
-    EnvVarOption("sass", "Dump disassembled SASS", "bool", "dump"),
-    EnvVarOption("sass_to_file", "Dump disassembled SASS to file", "bool", "dump"),
     EnvVarOption(
-        "launch_param", "Dump the launch parameters of kernel", "bool", "dump"
+        "cuda_kernel",
+        "Dump the generated CUDA C++ kernel code",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "cuda_full",
+        "Dump the complete CUDA C++ code",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption("ptx", "Dump compiled PTX", "bool", "dump", env_var="NVFUSER_DUMP"),
+    EnvVarOption(
+        "sass", "Dump disassembled SASS", "bool", "dump", env_var="NVFUSER_DUMP"
+    ),
+    EnvVarOption(
+        "sass_to_file",
+        "Dump disassembled SASS to file",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "launch_param",
+        "Dump the launch parameters of kernel",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
     ),
     EnvVarOption(
         "kernel_args",
         "Print the runtime kernel arguments when launching kernels",
         "bool",
         "dump",
+        env_var="NVFUSER_DUMP",
     ),
     EnvVarOption(
-        "scheduler_params", "Dump scheduler heuristic parameters", "bool", "dump"
+        "scheduler_params",
+        "Dump scheduler heuristic parameters",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
     ),
     EnvVarOption(
-        "scheduler_verbose", "Dump detailed scheduler logging", "bool", "dump"
+        "scheduler_verbose",
+        "Dump detailed scheduler logging",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
     ),
     # Feature Enable Options (NVFUSER_ENABLE)
     EnvVarOption(
@@ -250,41 +223,75 @@ ENV_VAR_DEFINITIONS = [
         "Enable the CUTLASS scheduler and executor",
         "bool",
         "enable",
+        env_var="NVFUSER_ENABLE",
     ),
     EnvVarOption(
         "fuse_matmul",
         "Enable automatic fusion of matmul and linear ops",
         "bool",
         "enable",
+        env_var="NVFUSER_ENABLE",
     ),
     EnvVarOption(
-        "kernel_profile", "Enable intra-kernel performance profiling", "bool", "enable"
+        "kernel_profile",
+        "Enable intra-kernel performance profiling",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
     ),
     EnvVarOption(
         "fast_math",
         "Enable fast math optimizations (--use_fast_math)",
         "bool",
         "enable",
+        env_var="NVFUSER_ENABLE",
     ),
-    EnvVarOption("tma_pointwise", "Enable TMA pointwise kernel", "bool", "enable"),
-    EnvVarOption("tma_reduction", "Enable TMA reduction kernel", "bool", "enable"),
+    EnvVarOption(
+        "tma_pointwise",
+        "Enable TMA pointwise kernel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "tma_reduction",
+        "Enable TMA reduction kernel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
     # Feature Disable Options (NVFUSER_DISABLE)
     EnvVarOption(
         "compile_to_sass",
         "Disable direct compilation to SASS (compile to PTX instead)",
         "bool",
         "disable",
-    ),
-    EnvVarOption("expr_simplify", "Disable expression simplifier", "bool", "disable"),
-    EnvVarOption(
-        "predicate_elimination", "Disable predicate elimination", "bool", "disable"
+        env_var="NVFUSER_DISABLE",
     ),
     EnvVarOption(
-        "fallback", "Disable fallback to eager mode on errors", "bool", "disable"
+        "expr_simplify",
+        "Disable expression simplifier",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "predicate_elimination",
+        "Disable predicate elimination",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "fallback",
+        "Disable fallback to eager mode on errors",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
     ),
     # Profiler Options (NVFUSER_PROF)
     EnvVarOption(
-        "profiler",
+        "NVFUSER_PROF",
         "Profiler mode",
         "multi",
         "profiler",
@@ -299,10 +306,16 @@ ENV_VAR_DEFINITIONS = [
     ),
     # Compilation Control
     EnvVarOption(
-        "max_reg_count", "Maximum number of registers per thread", "int", "compilation"
+        "NVFUSER_MAX_REG_COUNT",
+        "Maximum number of registers per thread",
+        "int",
+        "compilation",
     ),
     EnvVarOption(
-        "jit_opt_level", "PTX optimization level (0-4, default 4)", "int", "compilation"
+        "NVFUSER_JIT_OPT_LEVEL",
+        "PTX optimization level (0-4, default 4)",
+        "int",
+        "compilation",
     ),
 ]
 
@@ -326,177 +339,54 @@ class EnvVarConfig:
 
     def _load_current_values(self):
         """Load current values from environment."""
-        # Load BUILD options (NVFUSER_BUILD_*)
-        build_env_map = {
-            "no_python": "NVFUSER_BUILD_NO_PYTHON",
-            "no_cutlass": "NVFUSER_BUILD_NO_CUTLASS",
-            "no_test": "NVFUSER_BUILD_NO_TEST",
-            "no_benchmark": "NVFUSER_BUILD_NO_BENCHMARK",
-            "no_ninja": "NVFUSER_BUILD_NO_NINJA",
-            "build_with_ucc": "NVFUSER_BUILD_WITH_UCC",
-            "build_with_asan": "NVFUSER_BUILD_WITH_ASAN",
-            "build_without_distributed": "NVFUSER_BUILD_WITHOUT_DISTRIBUTED",
-            "explicit_error_check": "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK",
-            "enable_pch": "NVFUSER_BUILD_ENABLE_PCH",
-            "build_type": "NVFUSER_BUILD_BUILD_TYPE",
-            "cpp_standard": "NVFUSER_BUILD_CPP_STANDARD",
-            "cutlass_max_jobs": "NVFUSER_CUTLASS_MAX_JOBS",
-            "build_dir": "NVFUSER_BUILD_DIR",
-            "install_dir": "NVFUSER_BUILD_INSTALL_DIR",
-            "max_jobs": "MAX_JOBS",
-        }
+        for opt in self.options.values():
+            env_var_name = opt.get_env_var_name()
 
-        for opt_name, env_var in build_env_map.items():
-            if env_var in os.environ and opt_name in self.options:
-                val = os.environ[env_var]
-                opt = self.options[opt_name]
-                if opt.var_type == "bool":
-                    if val.upper() in ["ON", "1", "YES", "TRUE", "Y"]:
+            if opt.category in ["dump", "enable", "disable"]:
+                # These are comma-separated list values
+                list_val = os.environ.get(env_var_name, "")
+                if list_val:
+                    list_items = [item.strip() for item in list_val.split(",")]
+                    if opt.name in list_items:
                         opt.current_value = "1"
-                else:
-                    opt.current_value = val
-
-        # Load ENVIRONMENT options
-        env_map = {
-            "cc": "CC",
-            "cxx": "CXX",
-            "cuda_home": "CUDA_HOME",
-            "nvfuser_source_dir": "NVFUSER_SOURCE_DIR",
-            "torch_cuda_arch_list": "TORCH_CUDA_ARCH_LIST",
-            "cflags": "CFLAGS",
-            "cxxflags": "CXXFLAGS",
-            "ldflags": "LDFLAGS",
-        }
-
-        for opt_name, env_var in env_map.items():
-            if env_var in os.environ and opt_name in self.options:
-                self.options[opt_name].current_value = os.environ[env_var]
-
-        # Load NVFUSER_DUMP values
-        dump_val = os.environ.get("NVFUSER_DUMP", "")
-        if dump_val:
-            dump_opts = dump_val.split(",")
-            for opt_name in dump_opts:
-                if opt_name in self.options:
-                    self.options[opt_name].current_value = "1"
-
-        # Load NVFUSER_ENABLE values
-        enable_val = os.environ.get("NVFUSER_ENABLE", "")
-        if enable_val:
-            enable_opts = enable_val.split(",")
-            for opt_name in enable_opts:
-                if opt_name in self.options:
-                    self.options[opt_name].current_value = "1"
-
-        # Load NVFUSER_DISABLE values
-        disable_val = os.environ.get("NVFUSER_DISABLE", "")
-        if disable_val:
-            disable_opts = disable_val.split(",")
-            for opt_name in disable_opts:
-                if opt_name in self.options:
-                    self.options[opt_name].current_value = "1"
-
-        # Load NVFUSER_PROF
-        prof_val = os.environ.get("NVFUSER_PROF", "")
-        if prof_val and "profiler" in self.options:
-            self.options["profiler"].current_value = prof_val
-
-        # Load compilation options
-        if "NVFUSER_MAX_REG_COUNT" in os.environ:
-            self.options["max_reg_count"].current_value = os.environ[
-                "NVFUSER_MAX_REG_COUNT"
-            ]
-
-        if "NVFUSER_JIT_OPT_LEVEL" in os.environ:
-            self.options["jit_opt_level"].current_value = os.environ[
-                "NVFUSER_JIT_OPT_LEVEL"
-            ]
+            else:
+                # Regular environment variables
+                if env_var_name in os.environ:
+                    val = os.environ[env_var_name]
+                    if opt.var_type == "bool":
+                        if val.upper() in ["ON", "1", "YES", "TRUE", "Y"]:
+                            opt.current_value = "1"
+                    else:
+                        opt.current_value = val
 
     def get_env_exports(self) -> Dict[str, str]:
         """Generate environment variable exports based on current configuration."""
         exports = {}
 
-        # Handle BUILD options (NVFUSER_BUILD_*)
-        build_env_map = {
-            "no_python": "NVFUSER_BUILD_NO_PYTHON",
-            "no_cutlass": "NVFUSER_BUILD_NO_CUTLASS",
-            "no_test": "NVFUSER_BUILD_NO_TEST",
-            "no_benchmark": "NVFUSER_BUILD_NO_BENCHMARK",
-            "no_ninja": "NVFUSER_BUILD_NO_NINJA",
-            "build_with_ucc": "NVFUSER_BUILD_WITH_UCC",
-            "build_with_asan": "NVFUSER_BUILD_WITH_ASAN",
-            "build_without_distributed": "NVFUSER_BUILD_WITHOUT_DISTRIBUTED",
-            "explicit_error_check": "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK",
-            "enable_pch": "NVFUSER_BUILD_ENABLE_PCH",
-            "build_type": "NVFUSER_BUILD_BUILD_TYPE",
-            "cpp_standard": "NVFUSER_BUILD_CPP_STANDARD",
-            "cutlass_max_jobs": "NVFUSER_CUTLASS_MAX_JOBS",
-            "build_dir": "NVFUSER_BUILD_DIR",
-            "install_dir": "NVFUSER_BUILD_INSTALL_DIR",
-            "max_jobs": "MAX_JOBS",
-        }
+        # Collect values for list-based env vars (DUMP, ENABLE, DISABLE)
+        list_vars = {}  # Maps env_var_name -> list of values
 
-        for opt_name, env_var in build_env_map.items():
-            if opt_name in self.options:
-                opt = self.options[opt_name]
+        for opt in self.options.values():
+            if opt.category in ["dump", "enable", "disable"]:
+                # List items
+                if opt.current_value == "1":
+                    env_var = opt.get_env_var_name()
+                    if env_var not in list_vars:
+                        list_vars[env_var] = []
+                    list_vars[env_var].append(opt.name)
+            else:
+                # Regular env vars
                 if opt.current_value:
-                    if opt.var_type == "bool" and opt.current_value == "1":
-                        exports[env_var] = "1"
-                    elif opt.var_type in ["int", "string", "multi"]:
+                    env_var = opt.get_env_var_name()
+                    if opt.var_type == "bool":
+                        if opt.current_value == "1":
+                            exports[env_var] = "1"
+                    else:
                         exports[env_var] = opt.current_value
 
-        # Handle ENVIRONMENT options
-        env_map = {
-            "cc": "CC",
-            "cxx": "CXX",
-            "cuda_home": "CUDA_HOME",
-            "nvfuser_source_dir": "NVFUSER_SOURCE_DIR",
-            "torch_cuda_arch_list": "TORCH_CUDA_ARCH_LIST",
-            "cflags": "CFLAGS",
-            "cxxflags": "CXXFLAGS",
-            "ldflags": "LDFLAGS",
-        }
-
-        for opt_name, env_var in env_map.items():
-            if opt_name in self.options:
-                opt = self.options[opt_name]
-                if opt.current_value:
-                    exports[env_var] = opt.current_value
-
-        # Collect NVFUSER_DUMP options
-        dump_opts = []
-        for opt in self.categories.get("dump", []):
-            if opt.current_value == "1":
-                dump_opts.append(opt.name)
-        if dump_opts:
-            exports["NVFUSER_DUMP"] = ",".join(dump_opts)
-
-        # Collect NVFUSER_ENABLE options
-        enable_opts = []
-        for opt in self.categories.get("enable", []):
-            if opt.current_value == "1":
-                enable_opts.append(opt.name)
-        if enable_opts:
-            exports["NVFUSER_ENABLE"] = ",".join(enable_opts)
-
-        # Collect NVFUSER_DISABLE options
-        disable_opts = []
-        for opt in self.categories.get("disable", []):
-            if opt.current_value == "1":
-                disable_opts.append(opt.name)
-        if disable_opts:
-            exports["NVFUSER_DISABLE"] = ",".join(disable_opts)
-
-        # Handle profiler
-        for opt in self.categories.get("profiler", []):
-            if opt.current_value and opt.current_value != "":
-                exports["NVFUSER_PROF"] = opt.current_value
-
-        # Handle compilation options
-        for opt in self.categories.get("compilation", []):
-            if opt.current_value:
-                var_name = f"NVFUSER_{opt.name.upper()}"
-                exports[var_name] = opt.current_value
+        # Add list-based env vars as comma-separated strings
+        for env_var, values in list_vars.items():
+            exports[env_var] = ",".join(values)
 
         return exports
 
@@ -506,89 +396,30 @@ class EnvVarConfig:
         This unsets all known nvFuser variables that aren't configured, ensuring a
         clean slate when the script is sourced.
         """
-        unset_vars = []
+        unset_vars = set()  # Use set to avoid duplicates
 
-        # Build environment variable mapping
-        build_env_map = {
-            "no_python": "NVFUSER_BUILD_NO_PYTHON",
-            "no_cutlass": "NVFUSER_BUILD_NO_CUTLASS",
-            "no_test": "NVFUSER_BUILD_NO_TEST",
-            "no_benchmark": "NVFUSER_BUILD_NO_BENCHMARK",
-            "no_ninja": "NVFUSER_BUILD_NO_NINJA",
-            "build_with_ucc": "NVFUSER_BUILD_WITH_UCC",
-            "build_with_asan": "NVFUSER_BUILD_WITH_ASAN",
-            "build_without_distributed": "NVFUSER_BUILD_WITHOUT_DISTRIBUTED",
-            "explicit_error_check": "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK",
-            "enable_pch": "NVFUSER_BUILD_ENABLE_PCH",
-            "build_type": "NVFUSER_BUILD_BUILD_TYPE",
-            "cpp_standard": "NVFUSER_BUILD_CPP_STANDARD",
-            "cutlass_max_jobs": "NVFUSER_CUTLASS_MAX_JOBS",
-            "build_dir": "NVFUSER_BUILD_DIR",
-            "install_dir": "NVFUSER_BUILD_INSTALL_DIR",
-            "max_jobs": "MAX_JOBS",
-        }
+        # Track which env vars have values
+        env_vars_with_values = set()
 
-        # Check build options
-        for opt_name, env_var in build_env_map.items():
-            if opt_name in self.options:
-                opt = self.options[opt_name]
-                if not opt.current_value:
-                    unset_vars.append(env_var)
+        for opt in self.options.values():
+            if opt.category in ["dump", "enable", "disable"]:
+                # List-based vars - only track if any are set
+                if opt.current_value == "1":
+                    env_vars_with_values.add(opt.get_env_var_name())
+            else:
+                # Regular env vars
+                env_var = opt.get_env_var_name()
+                if opt.current_value:
+                    env_vars_with_values.add(env_var)
+                else:
+                    unset_vars.add(env_var)
 
-        # Environment options
-        env_map = {
-            "cc": "CC",
-            "cxx": "CXX",
-            "cuda_home": "CUDA_HOME",
-            "nvfuser_source_dir": "NVFUSER_SOURCE_DIR",
-            "torch_cuda_arch_list": "TORCH_CUDA_ARCH_LIST",
-            "cflags": "CFLAGS",
-            "cxxflags": "CXXFLAGS",
-            "ldflags": "LDFLAGS",
-        }
+        # Unset list vars that have no values set
+        for list_var in ["NVFUSER_DUMP", "NVFUSER_ENABLE", "NVFUSER_DISABLE"]:
+            if list_var not in env_vars_with_values:
+                unset_vars.add(list_var)
 
-        for opt_name, env_var in env_map.items():
-            if opt_name in self.options:
-                opt = self.options[opt_name]
-                if not opt.current_value:
-                    unset_vars.append(env_var)
-
-        # Check if any dump options are set
-        dump_opts_set = any(
-            opt.current_value == "1" for opt in self.categories.get("dump", [])
-        )
-        if not dump_opts_set:
-            unset_vars.append("NVFUSER_DUMP")
-
-        # Check if any enable options are set
-        enable_opts_set = any(
-            opt.current_value == "1" for opt in self.categories.get("enable", [])
-        )
-        if not enable_opts_set:
-            unset_vars.append("NVFUSER_ENABLE")
-
-        # Check if any disable options are set
-        disable_opts_set = any(
-            opt.current_value == "1" for opt in self.categories.get("disable", [])
-        )
-        if not disable_opts_set:
-            unset_vars.append("NVFUSER_DISABLE")
-
-        # Check profiler
-        profiler_set = any(
-            opt.current_value and opt.current_value != ""
-            for opt in self.categories.get("profiler", [])
-        )
-        if not profiler_set:
-            unset_vars.append("NVFUSER_PROF")
-
-        # Check compilation options
-        for opt in self.categories.get("compilation", []):
-            if not opt.current_value:
-                var_name = f"NVFUSER_{opt.name.upper()}"
-                unset_vars.append(var_name)
-
-        return unset_vars
+        return sorted(list(unset_vars))
 
 
 def simple_prompt_mode(config: EnvVarConfig):
