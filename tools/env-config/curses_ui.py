@@ -25,9 +25,9 @@ class CursesUI:
         # Build flat list of all options with category headers
         self.display_items = []
         category_names = {
+            "environment": "Environment & Compiler Settings (CC, CXX, CUDA_HOME, etc.)",
             "build": "Build Configuration (NVFUSER_BUILD_*)",
             "build_advanced": "Advanced Build Options (NVFUSER_BUILD_*)",
-            "environment": "Environment & Compiler Settings (CC, CXX, CUDA_HOME, etc.)",
             "dump": "Debug/Diagnostic Options (NVFUSER_DUMP)",
             "enable": "Feature Enable Options (NVFUSER_ENABLE)",
             "disable": "Feature Disable Options (NVFUSER_DISABLE)",
@@ -35,7 +35,22 @@ class CursesUI:
             "compilation": "Runtime Compilation Control",
         }
 
-        for category, opts in config.categories.items():
+        # Display categories in a specific order
+        category_order = [
+            "environment",
+            "build",
+            "build_advanced",
+            "dump",
+            "enable",
+            "disable",
+            "profiler",
+            "compilation",
+        ]
+
+        for category in category_order:
+            if category not in config.categories:
+                continue
+            opts = config.categories[category]
             # Add category header
             self.display_items.append(
                 {

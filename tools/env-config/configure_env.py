@@ -38,6 +38,35 @@ class EnvVarOption:
 # Define all nvFuser environment variables organized by category
 ENV_VAR_DEFINITIONS = [
     # ========================================================================
+    # ENVIRONMENT AND COMPILER CONFIGURATION
+    # ========================================================================
+    EnvVarOption("cc", "C compiler to use (CC)", "string", "environment"),
+    EnvVarOption("cxx", "C++ compiler to use (CXX)", "string", "environment"),
+    EnvVarOption(
+        "cuda_home", "CUDA installation directory (CUDA_HOME)", "string", "environment"
+    ),
+    EnvVarOption(
+        "nvfuser_source_dir",
+        "nvFuser source directory (NVFUSER_SOURCE_DIR)",
+        "string",
+        "environment",
+    ),
+    EnvVarOption(
+        "torch_cuda_arch_list",
+        "Target CUDA architectures (TORCH_CUDA_ARCH_LIST, e.g., '8.0;9.0')",
+        "string",
+        "environment",
+    ),
+    EnvVarOption(
+        "cflags", "Additional C compiler flags (CFLAGS)", "string", "environment"
+    ),
+    EnvVarOption(
+        "cxxflags", "Additional C++ compiler flags (CXXFLAGS)", "string", "environment"
+    ),
+    EnvVarOption(
+        "ldflags", "Additional linker flags (LDFLAGS)", "string", "environment"
+    ),
+    # ========================================================================
     # BUILD-TIME OPTIONS (NVFUSER_BUILD_*)
     # ========================================================================
     # Build Configuration
@@ -125,33 +154,6 @@ ENV_VAR_DEFINITIONS = [
     ),
     EnvVarOption(
         "max_jobs", "Max parallel compilation jobs (MAX_JOBS)", "int", "build_advanced"
-    ),
-    # Environment and Compiler Configuration
-    EnvVarOption("cc", "C compiler to use (CC)", "string", "environment"),
-    EnvVarOption("cxx", "C++ compiler to use (CXX)", "string", "environment"),
-    EnvVarOption(
-        "cuda_home", "CUDA installation directory (CUDA_HOME)", "string", "environment"
-    ),
-    EnvVarOption(
-        "nvfuser_source_dir",
-        "nvFuser source directory (NVFUSER_SOURCE_DIR)",
-        "string",
-        "environment",
-    ),
-    EnvVarOption(
-        "torch_cuda_arch_list",
-        "Target CUDA architectures (TORCH_CUDA_ARCH_LIST, e.g., '8.0;9.0')",
-        "string",
-        "environment",
-    ),
-    EnvVarOption(
-        "cflags", "Additional C compiler flags (CFLAGS)", "string", "environment"
-    ),
-    EnvVarOption(
-        "cxxflags", "Additional C++ compiler flags (CXXFLAGS)", "string", "environment"
-    ),
-    EnvVarOption(
-        "ldflags", "Additional linker flags (LDFLAGS)", "string", "environment"
     ),
     # ========================================================================
     # RUNTIME OPTIONS
