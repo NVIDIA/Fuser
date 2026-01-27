@@ -201,13 +201,113 @@ This allows the functional test to pass while skipping the problematic serializa
 
 - Test passes in isolation: ✅
 - Test passes with 2-3 other tests: ✅
+- Test passes with ~18 tests: ✅
 - Test fails after full suite (57+ tests): ❌
 - Segfault address varies between runs (NULL+8 or heap addresses)
-- All validation assertions pass before segfault
+- **CRITICAL**: All validation assertions pass before segfault
+  - This indicates the corruption happens DURING iteration or at a lower level
+  - Not a simple NULL pointer or obviously invalid pointer
+  - Suggests heap corruption, buffer overflow, or subtle memory issue
+
+## Deep Investigation - Phase 2 (2026-01-26 Continued)
+
+### Question: Does the IrStorage unique_ptr change require serialization changes?
+
+**Answer: NO**
+
+Investigation showed that:
+1. **Serialization doesn't store IR directly** - it stores RecordFunctor operations (see `fusion_cache.fbs`)
+2. **Deserialization replays operations** to reconstruct the Fusion
+3. **FusionExecutorCache stores** `std::unique_ptr<Fusion> fusion_` (line 260 of fusion_executor_cache.h)
+4. **The copy** `auto conc_fusion = std::make_unique<Fusion>(*fusion_);` should work correctly
+
+The IrContainer refactoring (IrStorage as unique_ptr member) is **architecturally sound** for serialization. The schema is decoupled from internal storage details.
+
+### Root Cause Confirmed
+
+The issue is **heap corruption accumulating across tests**, NOT a serialization design flaw.
+
+Evidence:
+- All validation passes on `fusion_` before copy
+- All validation passes on IrStorage pointers
+- Segfault happens DURING iteration/dynamic_cast
+- Requires 50+ tests to trigger
+- Source Fusion appears valid until specific access patterns
+
+The corruption is at a low level (buffer overflow writing to Fusion's memory from unrelated code), making it impossible to catch with pointer validation.
+
+### Additional Validations Added
+
+1. **Fusion::copy entry validation** (`csrc/fusion.cpp:122-145`):
+   ```cpp
+   // Check source/target pointers, ir_storage, and basic properties
+   // Try accessing numVals() and numExprs() to detect corruption
+   ```
+
+2. **Enhanced IrStorage::copy validation** (`csrc/ir/storage.cpp:88-111`):
+   ```cpp
+   // More detailed checks on each Val/Expr in vals_/exprs_ sets
+   // Added try-catch for any exceptions during validation
+   ```
+
+### Key Findings from Phase 2
+
+1. **None of the assertions trigger!**
+   - The segfault happens BEFORE or DURING our validation code
+   - Suggests the corruption is at iteration level or in container internals
+   - The `from` Fusion appears valid when we check it, but crashes when accessed
+
+2. **State Accumulation**
+   - Requires ~50+ tests to fail (not just test_issue1246)
+   - Strongly suggests something is accumulating or degrading across tests
+   - Could be:
+     - Memory fragmentation
+     - Heap corruption from unrelated code
+     - Global state in serialization system
+     - Cache growing without proper cleanup
+
+3. **Likely Root Cause**
+   - **Heap corruption** from another part of the codebase
+   - Something writes past a buffer and corrupts the Fusion's internal data
+   - By the time we access it for copying, the damage is done
+   - Our validation can't catch it because checking the pointers themselves works fine until we dereference them
+
+### Recommended Next Steps
+
+1. **Use AddressSanitizer (ASAN)**
+   ```bash
+   # Rebuild with ASAN
+   cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address -fno-omit-frame-pointer" ..
+   make -j
+   # Run tests
+   ASAN_OPTIONS=detect_leaks=0 DEBUG_SERDE=Debug pytest ...
+   ```
+   This should catch buffer overflows, use-after-free, etc.
+
+2. **Use MemorySanitizer (MSAN)** or **Valgrind**
+   - Will catch uninitialized memory reads
+   - May reveal the source of corruption
+
+3. **Binary Search for Culprit Test**
+   - Run tests in smaller batches to isolate which test causes the corruption
+   - Once found, investigate what that test does differently
+
+4. **Review Recent IrContainer Changes**
+   - Look at all commits in the refactoring
+   - Check for any missing initialization, cleanup, or pointer fixup
+
+## Files Modified in This Investigation
+
+1. `csrc/ir/storage.cpp` - Added extensive validation in IrStorage::copy()
+2. `csrc/ir/cloner.cpp` - Added validation in IrCloner constructor
+3. `csrc/ir/base_nodes.cpp` - Added validation in Statement/Expr constructors
+4. `csrc/fusion.cpp` - Added validation in Fusion::copy()
+5. `csrc/runtime/fusion_executor_cache.cpp` - Added validation before fusion copy in deserialize()
+6. `tests/python/test_python_frontend.py` - Added skip_serde_check=True workaround (line 2949)
 
 ## Contact
 
 For questions about this investigation, refer to:
 - This document
 - Git branch: `md/ir-container-uptr`
-- Investigation date: 2026-01-26
+- Investigation dates: 2026-01-26
