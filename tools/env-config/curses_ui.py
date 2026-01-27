@@ -76,15 +76,13 @@ class CursesUI:
         if item and item["type"] == "option":
             opt = item["option"]
             if opt.var_type == "bool":
-                help_text = (
-                    "[↑↓] Navigate  [Enter] Toggle  [a] Apply  [g] Generate  [q] Quit"
-                )
+                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
             elif opt.var_type == "multi":
-                help_text = "[↑↓] Navigate  [Enter] Cycle  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [a] Apply  [g] Gen  [q] Quit"
             else:
-                help_text = "[↑↓] Navigate  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [e] Edit  [a] Apply  [g] Gen  [q] Quit"
         else:
-            help_text = "[↑↓] Navigate  [Enter] Toggle  [e] Edit  [a] Apply  [g] Generate  [q] Quit"
+            help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
 
         if self.modified:
             help_text = "[MODIFIED] " + help_text
@@ -451,6 +449,41 @@ class CursesUI:
         self.should_exit = True
         self.modified = False
 
+    def jump_to_next_section(self):
+        """Jump to the next section header."""
+        for i in range(self.current_row + 1, len(self.display_items)):
+            if self.display_items[i]["type"] == "header":
+                self.current_row = i
+                # Adjust scroll if needed
+                height, _ = self.stdscr.getmaxyx()
+                visible_rows = height - 7
+                if self.current_row >= self.top_row + visible_rows:
+                    self.top_row = self.current_row - visible_rows + 1
+                break
+
+    def jump_to_prev_section(self):
+        """Jump to the previous section header."""
+        for i in range(self.current_row - 1, -1, -1):
+            if self.display_items[i]["type"] == "header":
+                self.current_row = i
+                # Adjust scroll if needed
+                if self.current_row < self.top_row:
+                    self.top_row = self.current_row
+                break
+
+    def jump_to_top(self):
+        """Jump to the first item."""
+        self.current_row = 0
+        self.top_row = 0
+
+    def jump_to_bottom(self):
+        """Jump to the last item."""
+        self.current_row = len(self.display_items) - 1
+        # Adjust scroll to show bottom
+        height, _ = self.stdscr.getmaxyx()
+        visible_rows = height - 7
+        self.top_row = max(0, self.current_row - visible_rows + 1)
+
     def run(self):
         """Main event loop."""
         while True:
@@ -536,6 +569,39 @@ class CursesUI:
                     visible_rows = height - 7
                     if self.current_row >= self.top_row + visible_rows:
                         self.top_row = self.current_row - visible_rows + 1
+
+            # Vim-style navigation
+            elif key == ord("k") or key == ord("K"):
+                # Up (same as arrow up)
+                if self.current_row > 0:
+                    self.current_row -= 1
+                    if self.current_row < self.top_row:
+                        self.top_row = self.current_row
+
+            elif key == ord("j") or key == ord("J"):
+                # Down (same as arrow down)
+                if self.current_row < len(self.display_items) - 1:
+                    self.current_row += 1
+                    height, width = self.stdscr.getmaxyx()
+                    visible_rows = height - 7
+                    if self.current_row >= self.top_row + visible_rows:
+                        self.top_row = self.current_row - visible_rows + 1
+
+            elif key == ord("}"):
+                # Jump to next section
+                self.jump_to_next_section()
+
+            elif key == ord("{"):
+                # Jump to previous section
+                self.jump_to_prev_section()
+
+            elif key == curses.KEY_PPAGE:
+                # Page Up - jump to top
+                self.jump_to_top()
+
+            elif key == curses.KEY_NPAGE:
+                # Page Down - jump to bottom
+                self.jump_to_bottom()
 
             elif key == ord(" ") or key == ord("\n") or key == curses.KEY_ENTER:
                 self.handle_toggle()
