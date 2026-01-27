@@ -17,7 +17,7 @@
 
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "expr_simplifier.h"
 #include "ops/all_ops.h"
 #include "tests/cpp/utils.h"

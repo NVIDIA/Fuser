@@ -186,6 +186,10 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       TensorView* new_input = set(input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
       new_input->setDeviceMesh(output->getDeviceMesh());
+      if (output->getMemoryType() == MemoryType::Symmetric) {
+        new_input->setMemoryType(output->getMemoryType());
+        output->setMemoryType(MemoryType::Global);
+      }
       shardLoopLike(
           /*ref=*/output,
           /*target=*/new_input,

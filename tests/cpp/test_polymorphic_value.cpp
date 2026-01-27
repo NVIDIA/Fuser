@@ -9,7 +9,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "polymorphic_value.h"
 #include "tests/cpp/utils.h"
 #include "type.h"

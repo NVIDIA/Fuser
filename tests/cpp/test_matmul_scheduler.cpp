@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "mma_type.h"
 #include "ops/all_ops.h"

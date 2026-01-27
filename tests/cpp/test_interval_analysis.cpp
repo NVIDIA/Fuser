@@ -11,7 +11,7 @@
 
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "expr_simplifier.h"
 #include "interval_analysis.h"
 #include "iter_visitor.h"
