@@ -1700,6 +1700,27 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         new_ldst, mbarrier);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
+  } else if (GpuLower::current()->numOfBatchedTmaLoads() > 1) {
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->batchedTmaMbarrierMap().at(ldst);
+    Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
+
+    // gmem indexing and expect_bytes for mbarrier
+    auto [in, expect_bytes] =
+        Index::getCpAsyncBulkGmemIndex(ldst, mbarrier_index, for_loops_);
+
+    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
+        nullptr, mbarrier_index, expect_bytes));
+
+    // indexing ldst op
+    Val* out = lowerDstIndex(
+        ldst->out(), /*override_index=*/{}, /*generate_pointer=*/true);
+    Expr* new_ldst =
+        IrBuilder::create<LoadStoreOp>(ldst->opType(), out, in, ldst->cacheOp())
+            ->withPredicate(ldst->predicate());
+    pushBack(new_ldst);
+
+    GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
     TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
