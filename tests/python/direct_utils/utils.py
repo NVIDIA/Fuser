@@ -38,7 +38,14 @@ def is_pre_blackwell():
 # Get string representation for FusionDefinition
 # Run captured python definition
 # Check that the result of captured python definition matches original results
-def check_captured_python_definition(reference_outputs, fd, inputs, device=None):
+def check_captured_python_definition(
+    reference_outputs,
+    fd,
+    inputs,
+    device=None,
+    enable_options=None,
+    disable_options=None,
+):
     try:
         fd_str = fd.__repr__()
         func_name = "nvfuser_fusion"
@@ -49,7 +56,16 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
             eval(func_name)(fd_cap)
 
         torch.manual_seed(0)
-        captured_outputs = fd_cap.execute(inputs, device=device)
+        if enable_options is None:
+            enable_options = []
+        if disable_options is None:
+            disable_options = []
+        captured_outputs = fd_cap.execute(
+            inputs,
+            device=device,
+            _enable_options=enable_options,
+            _disable_options=disable_options,
+        )
 
         if len(reference_outputs) != len(captured_outputs):
             return False

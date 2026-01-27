@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "iter_visitor.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
@@ -41,6 +41,7 @@ class LoopDomainSchedulingTest : public NVFuserTest {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 

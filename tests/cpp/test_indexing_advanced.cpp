@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
@@ -26,6 +26,7 @@ class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
     } else {
       EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
     }
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 
@@ -33,6 +34,7 @@ class AdvancedIndexingIdModelTest : public NVFuserTest {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 

@@ -11,7 +11,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ops/all_ops.h"
@@ -69,6 +69,7 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
 class RNGTest : public NVFuserTest {
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 };
 

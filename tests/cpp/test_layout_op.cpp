@@ -7,7 +7,7 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ops/all_ops.h"
@@ -88,6 +88,7 @@ class LayoutOpTest : public NVFuserTest {
   void SetUp() override {
     NVFuserTest::SetUp();
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
+    EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
   }
 };
 
