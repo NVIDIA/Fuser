@@ -145,44 +145,45 @@ class CursesUI:
                 display_name = opt.get_display_name()
                 name_part = f"{prefix}{display_name}"
 
-                # Draw name part (no color)
-                self.stdscr.attron(base_attr)
+                # Determine if this option has a value (affects whole line color)
+                has_value = opt.current_value is not None
+                line_attr = base_attr | curses.color_pair(3) if has_value else base_attr
+
+                # Draw name part (green if value is set)
+                self.stdscr.attron(line_attr)
                 self.stdscr.addstr(y, 0, name_part)
-                self.stdscr.attroff(base_attr)
+                self.stdscr.attroff(line_attr)
 
                 # Add [multi] tag in yellow for multi-choice options
+                multi_tag_len = 0
                 if opt.var_type == "multi":
                     multi_tag = " [multi]"
+                    multi_tag_len = len(multi_tag)
                     multi_attr = base_attr | curses.color_pair(4)  # Yellow
                     self.stdscr.attron(multi_attr)
                     self.stdscr.addstr(y, len(name_part), multi_tag)
                     self.stdscr.attroff(multi_attr)
-                    name_part += multi_tag  # Update for length calculation below
 
-                # Draw value part with color if set
+                # Draw value part (green if set)
                 if opt.current_value:
                     value_part = f" = {opt.current_value}"
-                    value_attr = base_attr | curses.color_pair(
-                        3
-                    )  # Green for set values
                 else:
                     value_part = " = (not set)"
-                    value_attr = base_attr
 
                 # Calculate remaining space
-                remaining_space = width - 1 - len(name_part)
+                total_prefix = len(name_part) + multi_tag_len
+                remaining_space = width - 1 - total_prefix
                 if len(value_part) > remaining_space:
                     value_part = value_part[: remaining_space - 3] + "..."
 
-                self.stdscr.attroff(base_attr)
-                self.stdscr.attron(value_attr)
-                self.stdscr.addstr(y, len(name_part), value_part)
+                self.stdscr.attron(line_attr)
+                self.stdscr.addstr(y, total_prefix, value_part)
 
                 # Pad the rest of the line
-                total_len = len(name_part) + len(value_part)
+                total_len = total_prefix + len(value_part)
                 if total_len < width - 1:
                     self.stdscr.addstr(y, total_len, " " * (width - 1 - total_len))
-                self.stdscr.attroff(value_attr)
+                self.stdscr.attroff(line_attr)
 
     def draw_description(self):
         """Draw description of currently selected item."""
