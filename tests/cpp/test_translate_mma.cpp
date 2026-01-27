@@ -6,10 +6,10 @@
 #include <gtest/gtest.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/analysis/bank_conflict.h"
 #include "device_lower/lower2device.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"

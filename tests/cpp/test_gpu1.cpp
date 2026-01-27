@@ -20,10 +20,10 @@
 #include <c10/cuda/CUDAStream.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/pass/magic_zero.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_segmenter.h"
