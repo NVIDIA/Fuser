@@ -12,16 +12,18 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/Exceptions.h>
 
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <c10/cuda/CUDAStream.h>
 
 #include "c10/core/ScalarType.h"
 #include "codegen.h"
-#include "csrc/exceptions.h"
 #include "device_lower/analysis/bank_conflict.h"
 #include "device_lower/lower2device.h"
 #include "disjoint_set.h"
+#include "exceptions.h"
 #include "expr_evaluator.h"
 #include "fusion.h"
 #include "fusion_profiler.h"
@@ -52,10 +54,10 @@
 #include "scheduler/utils.h"
 #include "sys_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
 #include "transform_rfactor.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

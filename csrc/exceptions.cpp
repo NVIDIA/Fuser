@@ -12,12 +12,12 @@
 #include <exceptions.h>
 #include <execinfo.h>
 
-#include <utils.h>
 #include <cstdlib>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <ostream>
+#include "base.h"
 
 namespace nvfuser {
 

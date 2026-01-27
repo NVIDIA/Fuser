@@ -29,8 +29,8 @@
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/mma_utils.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph.h>
+#include "base.h"
 
 #include <algorithm>
 #include <limits>

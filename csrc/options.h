@@ -130,6 +130,7 @@ enum class EnableOption {
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
+  InferContiguity, //! Enable contiguity inference
   EndOfOption //! Placeholder for counting the number of elements
 };
 

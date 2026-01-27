@@ -14,7 +14,9 @@ from .benchmark_utils import get_benchmark_fns
 from nvfuser_direct import DataType, FusionDefinition, CommunicatorBackend, TensorView
 
 
-def row_parallel_linear_forward(h, mesh, num_chunks):
+def row_parallel_linear_forward(
+    h: int, num_devices: int, num_chunks: int
+) -> FusionDefinition:
     with FusionDefinition() as fd:
         inp = fd.define_tensor(
             shape=[-1, h * 4], contiguity=True, dtype=DataType.BFloat16
@@ -25,6 +27,7 @@ def row_parallel_linear_forward(h, mesh, num_chunks):
         out = fd.ops.linear(inp, weight)
         fd.add_output(out)
 
+        mesh = nvfuser.multidevice.DeviceMesh(torch.arange(num_devices))
         for tv in (inp, weight):
             tv.set_device_mesh(mesh)
 
@@ -90,8 +93,7 @@ def test_row_parallel_linear_forward(multidevice_test):
         )
     assert t % s == 0
 
-    mesh = nvfuser.multidevice.DeviceMesh(range(d))
-    fd = row_parallel_linear_forward(h, mesh, s)
+    fd = row_parallel_linear_forward(h, d, s)
 
     inp_ref = torch.testing.make_tensor(t, h * 4, dtype=torch.int32, device="cpu").to(
         torch.bfloat16
@@ -101,8 +103,8 @@ def test_row_parallel_linear_forward(multidevice_test):
     ).to(torch.bfloat16)
     out_ref = torch.nn.functional.linear(inp_ref, weight_ref)
 
-    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
     # nvfuser_direct.PythonProfiler failed with host IR lowering. The main
     # reason is that HostIrContainer doesn't keep segments while SegmentProfiler
     # is still expecting data.  It's unclear to me whether we should relax
@@ -134,14 +136,13 @@ def test_row_parallel_linear_forward_benchmark(multidevice_test, benchmark, s):
         )
     assert t % s == 0
 
-    mesh = nvfuser.multidevice.DeviceMesh(range(d))
-    fd = row_parallel_linear_forward(h, mesh, s)
+    fd = row_parallel_linear_forward(h, d, s)
 
     inp_ref = torch.randn(t, h * 4, dtype=torch.bfloat16, device="cpu")
     weight_ref = torch.randn(h, h * 4, dtype=torch.bfloat16, device="cpu")
 
-    inp = multidevice_test.shard_tensor_1d(inp_ref, -1, mesh)
-    weight = multidevice_test.shard_tensor_1d(weight_ref, -1, mesh)
+    inp = multidevice_test.shard_tensor(inp_ref, fd.fusion.inputs()[0])
+    weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
 
     warmup_fn, benchmark_fn = get_benchmark_fns(
         lambda: fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
@@ -255,6 +256,153 @@ def test_row_parallel_linear_forward_reference_benchmark(
         lambda: row_parallel_linear_forward_reference(
             inp_shard, weight_shard, s, stream_pool
         )
+    )
+    warmup_fn()
+    benchmark.pedantic(benchmark_fn, rounds=5)
+
+
+def column_parallel_linear_forward_cyclic_reference(
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    stream_pool: StreamPool,
+) -> torch.Tensor:
+    d = dist.get_world_size()
+    my_rank = dist.get_rank()
+    out = torch.empty(
+        inp_shard.size(0) * d,
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    out_chunks = out.chunk(d)
+    main_stream = torch.cuda.current_stream()
+    worker_streams = []
+    buffers = [inp_shard] + [torch.empty_like(inp_shard) for _ in range(d - 1)]
+    for i in range(d):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
+        with torch.cuda.stream(worker_stream):
+            if i > 0:
+                send_op = dist.P2POp(dist.isend, buffers[i - 1], (my_rank + 1) % d)
+                recv_op = dist.P2POp(dist.irecv, buffers[i], (my_rank - 1 + d) % d)
+                reqs = dist.batch_isend_irecv([send_op, recv_op])
+                for req in reqs:
+                    req.wait()
+            torch.matmul(
+                buffers[i],
+                weight_shard.T,
+                out=out_chunks[(my_rank - i + d) % d],
+            )
+    for worker_stream in worker_streams:
+        main_stream.wait_stream(worker_stream)
+    return out
+
+
+def column_parallel_linear_forward_uncyclic_reference(
+    inp_shard: torch.Tensor,
+    weight_shard: torch.Tensor,
+    stream_pool: StreamPool,
+) -> torch.Tensor:
+    d = dist.get_world_size()
+    my_rank = dist.get_rank()
+    out = torch.empty(
+        inp_shard.size(0) * d,
+        weight_shard.size(0),
+        device="cuda",
+        dtype=inp_shard.dtype,
+    )
+    out_chunks = out.chunk(d)
+    main_stream = torch.cuda.current_stream()
+    worker_streams = []
+    for i in range(d):
+        worker_stream = stream_pool.get(i)
+        worker_streams.append(worker_stream)
+        worker_stream.wait_stream(main_stream)
+        with torch.cuda.stream(worker_stream):
+            if i == 0:
+                buffer = inp_shard
+            else:
+                buffer = torch.empty_like(inp_shard)
+                send_op = dist.P2POp(dist.isend, inp_shard, (my_rank - i + d) % d)
+                recv_op = dist.P2POp(dist.irecv, buffer, (my_rank + i) % d)
+                reqs = dist.batch_isend_irecv([send_op, recv_op])
+                for req in reqs:
+                    req.wait()
+            torch.matmul(
+                buffer,
+                weight_shard.T,
+                out=out_chunks[(my_rank + i) % d],
+            )
+    for worker_stream in worker_streams:
+        main_stream.wait_stream(worker_stream)
+    return out
+
+
+@pytest.mark.mpi
+@pytest.mark.parametrize(
+    "column_parallel_linear_fn",
+    [
+        column_parallel_linear_forward_cyclic_reference,
+        column_parallel_linear_forward_uncyclic_reference,
+    ],
+    ids=["cyclic", "uncyclic"],
+)
+def test_column_parallel_linear_forward_reference(
+    setup_default_process_group, column_parallel_linear_fn
+):
+    h, t = 6, 24
+    d = dist.get_world_size()
+    torch.manual_seed(0)
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
+    if 4 * h % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {4 * h} to be divisible by world size {d}."
+        )
+    if t % d != 0:
+        pytest.skip(
+            f"Column-parallel linear requires {t} to be divisible by world size {d}."
+        )
+
+    inp_ref = torch.testing.make_tensor(t, h, dtype=torch.int32, device="cpu").to(
+        torch.bfloat16
+    )
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(0)]).to_local()
+    weight_ref = torch.testing.make_tensor(
+        4 * h, h, dtype=torch.int32, device="cpu"
+    ).to(torch.bfloat16)
+    weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
+    out_ref = torch.nn.functional.linear(inp_ref.cuda(), weight_shard)
+    stream_pool = StreamPool()
+    out = column_parallel_linear_fn(inp_shard, weight_shard, stream_pool)
+    torch.testing.assert_close(out, out_ref)
+
+
+@pytest.mark.mpi
+@pytest.mark.benchmark
+@pytest.mark.parametrize(
+    "column_parallel_linear_fn",
+    [
+        column_parallel_linear_forward_cyclic_reference,
+        column_parallel_linear_forward_uncyclic_reference,
+    ],
+    ids=["cyclic", "uncyclic"],
+)
+def test_column_parallel_linear_forward_reference_benchmark(
+    benchmark, setup_default_process_group, column_parallel_linear_fn
+):
+    h, t = 8192, 8192
+    d = dist.get_world_size()
+    torch.manual_seed(0)
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+    inp_ref = torch.randn(t, h, dtype=torch.bfloat16, device="cpu")
+    weight_ref = torch.randn(4 * h, h, dtype=torch.bfloat16, device="cpu")
+    inp_shard = distribute_tensor(inp_ref, mesh, placements=[Shard(0)]).to_local()
+    weight_shard = distribute_tensor(weight_ref, mesh, placements=[Shard(0)]).to_local()
+    stream_pool = StreamPool()
+    warmup_fn, benchmark_fn = get_benchmark_fns(
+        lambda: column_parallel_linear_fn(inp_shard, weight_shard, stream_pool)
     )
     warmup_fn()
     benchmark.pedantic(benchmark_fn, rounds=5)

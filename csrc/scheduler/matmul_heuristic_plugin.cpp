@@ -11,7 +11,7 @@
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/mma_utils.h>
 #include <sys_utils.h>
-#include <utils.h>
+#include "base.h"
 
 #include <cstdint>
 #include <memory>

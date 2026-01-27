@@ -9,7 +9,7 @@
 
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "mma_type.h"
 #include "ops/all_ops.h"
@@ -21,7 +21,7 @@
 #include "scheduler/matmul_heuristic_plugin_api.h"
 #include "scheduler/mma_utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -2802,6 +2802,7 @@ class MatmulFusionTest
       EnableOptionsGuard::getCurOptions().set(
           EnableOption::FuseMultipleMatmuls);
     }
+    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 
   bool fusion_enabled = GetParam().first;

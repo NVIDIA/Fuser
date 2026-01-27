@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -185,6 +185,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"p2p_protocol", EnableOption::P2pProtocol},
           {"multicast_protocol", EnableOption::MulticastProtocol},
           {"parallel_serde", EnableOption::ParallelSerde},
+          {"infer_contiguity", EnableOption::InferContiguity},
       };
   return available_options;
 }

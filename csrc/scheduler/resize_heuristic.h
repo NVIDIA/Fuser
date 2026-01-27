@@ -10,7 +10,7 @@
 #include <c10/util/hash.h>
 #include <ir/interface_nodes.h>
 #include <scheduler/heuristic.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 

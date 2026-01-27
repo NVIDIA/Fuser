@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ops/all_ops.h"
 #include "optimization_pass.h"
 #include "preseg_passes/allocation_order_inference.h"
@@ -20,7 +20,7 @@
 #include "scheduler/transpose.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

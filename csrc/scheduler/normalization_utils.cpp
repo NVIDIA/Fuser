@@ -19,8 +19,8 @@
 #include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
-#include <utils.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 

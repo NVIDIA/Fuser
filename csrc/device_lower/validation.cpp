@@ -21,8 +21,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 #include "ir/base_nodes.h"

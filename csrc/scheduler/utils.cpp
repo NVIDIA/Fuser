@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include "utils.h"
 #include <scheduler/utils.h>
+#include "base.h"
 
 #include <algorithm>
 #include <queue>

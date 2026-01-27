@@ -12,7 +12,7 @@
 #include <python_frontend/translation.h>
 #include <python_frontend/translation_utils.h>
 #include <translation_names.h>
-#include <utils.h>
+#include "base.h"
 
 #include <vector>
 

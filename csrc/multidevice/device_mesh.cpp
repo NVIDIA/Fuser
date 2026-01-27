@@ -15,8 +15,8 @@
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
 
+#include "base.h"
 #include "type.h"
-#include "utils.h"
 
 namespace nvfuser {
 

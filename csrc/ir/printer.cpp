@@ -6,12 +6,13 @@
  */
 // clang-format on
 
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <instrumentation.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel_ir.h>
+#include "ir/printer.h"
+
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "instrumentation.h"
+#include "ir/utils.h"
+#include "kernel_ir.h"
 
 namespace nvfuser {
 

@@ -18,7 +18,7 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
