@@ -66,12 +66,7 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
   return generate_random_numbers(size, dtype, RNGTest_t::Normal);
 }
 
-class RNGTest : public NVFuserTest {
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
-  }
-};
+using RNGTest = NVFuserTest;
 
 TEST_F(RNGTest, ValidateWithCURand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
