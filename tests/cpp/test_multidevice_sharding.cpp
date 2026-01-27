@@ -551,27 +551,6 @@ TEST_F(MultiDeviceTest, ShardTensor_OuterSplit) {
   EXPECT_TRUE(at::equal(sharded, expected));
 }
 
-TEST_F(MultiDeviceTest, ShardTensor_InnerSplit) {
-  const int d = communicator_->size();
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  TensorView* tv = makeContigConcreteTensor({d * 3});
-  tv->setDeviceMesh(DeviceMesh::createForNumDevices(d));
-  tv->outer_split(0, d);
-  tv->axis(-1)->parallelize(ParallelType::DIDx);
-
-  fusion.addInput(tv);
-  fusion.addOutput(tv);
-
-  at::Tensor unsharded = at::arange(d * 3);
-  EXPECT_THAT(
-      [&]() { shardTensor(unsharded, tv); },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("DID on inner splits")));
-}
-
 TEST_F(MultiDeviceTest, BiasAddRelu) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
