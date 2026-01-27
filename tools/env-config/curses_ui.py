@@ -115,21 +115,20 @@ class CursesUI:
                 base_attr |= curses.A_REVERSE
 
             # Format the option display
-            prefix = "  [" if opt.var_type == "bool" else "    "
-            status = ""
+            prefix = "    "
 
             if opt.var_type == "bool":
-                # Boolean option with checkbox
-                if opt.current_value == "1":
-                    status = "X"
-                    attr = base_attr | curses.color_pair(3)  # Green for enabled
-                else:
-                    status = " "
-                    attr = base_attr
-                checkbox = f"{prefix}{status}] "
+                # Boolean option with checkbox after name
                 name_part = opt.get_display_name()
 
-                line = f"{checkbox}{name_part}"
+                if opt.current_value == "1":
+                    checkbox = " [X]"
+                    attr = base_attr | curses.color_pair(3)  # Green for enabled
+                else:
+                    checkbox = " [ ]"
+                    attr = base_attr
+
+                line = f"{prefix}{name_part}{checkbox}"
                 max_len = width - 1
                 if len(line) > max_len:
                     line = line[: max_len - 3] + "..."
