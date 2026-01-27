@@ -154,6 +154,54 @@ ENV_VAR_DEFINITIONS = [
         "build_advanced",
     ),
     EnvVarOption("MAX_JOBS", "Max parallel compilation jobs", "int", "build_advanced"),
+    EnvVarOption(
+        "NVFUSER_BUILD_VERSION_TAG",
+        "Tag for build nvfuser version",
+        "string",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_WHEEL_NAME",
+        "Wheel name for pip package",
+        "string",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_INSTALL_REQUIRES",
+        "Package dependencies for install (comma-separated)",
+        "string",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_EXTRAS_REQUIRE",
+        "Extra requirements (Python dict string)",
+        "string",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_NVMMH_INCLUDE_DIR",
+        "Location to find nvMatmulHeuristics.h",
+        "string",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_OVERWRITE_VERSION",
+        "Overwrite version",
+        "bool",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_CMAKE_ONLY",
+        "Only generate build directory without building",
+        "bool",
+        "build_advanced",
+    ),
+    EnvVarOption(
+        "NVFUSER_BUILD_SETUP",
+        "Run build setup",
+        "bool",
+        "build_advanced",
+    ),
     # ========================================================================
     # RUNTIME OPTIONS
     # ========================================================================
@@ -232,6 +280,294 @@ ENV_VAR_DEFINITIONS = [
         "dump",
         env_var="NVFUSER_DUMP",
     ),
+    # Additional NVFUSER_DUMP options
+    EnvVarOption(
+        "fusion_ir_concretized",
+        "Dump the Fusion IR after concretization",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "fusion_ir_preseg",
+        "Dump the Fusion IR after pre-segmenter optimization and before segmentation",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "fusion_ir_presched",
+        "Dump the segmented Fusion IR before scheduling",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "fusion_ir_graph",
+        "Dump a GraphViz graph of the Fusion IR",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "fusion_ir_math",
+        "Dump just the compute (math) part of the Fusion IR for conciseness",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "cuda_to_file",
+        "Dump CUDA strings to file",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "cubin",
+        "Dump compiled CUBIN",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "fusion_args",
+        "Print the runtime fusion arguments",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "global_zeroed_memory",
+        "Print the log for zeroed global memory allocator",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "host_ir",
+        "Dump the Host IR program",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "host_ir_lowering",
+        "Dump the Host IR after each lowering pass",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "host_ir_jit",
+        "Dump the LLVM IR lowered from Host IR",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "inlining",
+        "Verbose information about tensor inlining",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "segmented_fusion",
+        "Dump segmented fusion graph",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "draw_segmented_fusion",
+        "Dump segmented fusion graph drawing",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "segmenter_logging",
+        "Dump detailed segmenter logging",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "dynamic_shared_memory",
+        "Dump the dynamic shared memory allocation",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "pre_segmenter_logging",
+        "Pre-segmenter logging",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "python_definition",
+        "Python Frontend Fusion Definition",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "python_definition_segments",
+        "Python Frontend Fusion Definition of segments",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "python_frontend_debug",
+        "Python Frontend debug information",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "transform_propagator",
+        "Print propagation path and replay result",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "bank_conflict",
+        "Dump bank conflict info",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "sync_map",
+        "RAW dependency info",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "ca_map",
+        "Dump the computeAt map",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "parallel_dimensions",
+        "Dump known parallel dimensions",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "buffer_reuse_verbose",
+        "Dump the analysis details of local/shared buffer re-use",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "lower_verbose",
+        "Print all passes' transform in GpuLower::lower",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "expr_simplify",
+        "Print all passes' transform in simplifyExpr",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "expr_sort",
+        "Print merging decisions on expression sorting",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "expr_sort_verbose",
+        "Print verbose debug info on expression sorting",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "occupancy",
+        "Dump occupancy information",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "index_type",
+        "Print the index type of the launched kernel",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "predicate_elimination",
+        "Print the predicate elimination information",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "indexing_verbose",
+        "Print verbose debug info on indexing",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "communication",
+        "Print multi-GPU communications posted",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "compile_params",
+        "Print NVRTC compile parameters",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "ptxas_verbose",
+        "Print the ptxas verbose log including register usage",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "perf_debug_verbose",
+        "Print verbose information when running kernels",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "ftrace",
+        "Dump the function trace of selected internal functions",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
+    EnvVarOption(
+        "cutlass_compile",
+        "Dump compile commands and compile times for CutlassExecutor",
+        "bool",
+        "dump",
+        env_var="NVFUSER_DUMP",
+    ),
     # Feature Enable Options (NVFUSER_ENABLE)
     EnvVarOption(
         "cutlass_scheduler",
@@ -275,6 +611,156 @@ ENV_VAR_DEFINITIONS = [
         "enable",
         env_var="NVFUSER_ENABLE",
     ),
+    # Additional NVFUSER_ENABLE options
+    EnvVarOption(
+        "fuse_multiple_matmuls",
+        "Allow fusing more than one matmul in a single kernel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "id_model",
+        "Enable IdModel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "id_model_extra_validation",
+        "Enable extra error checking when building IdModel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "io_to_lower_precision",
+        "Enable castInputOutputToLowerPrecision",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "kernel_db",
+        "Enable Kernel Database",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "kernel_debug",
+        "Enable debug mode in nvrtc",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "kernel_lineinfo",
+        "Embed line info to compiled kernel and dump full CUDA C++ code",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "memory_promotion",
+        "Enable promotion of memory types for non-pointwise ops",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "reuse_zeroed_memory",
+        "Re-use zeroed memory used for grid synchronization",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "static_fusion_count",
+        "Enable using single static count in kernel name",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "warn_register_spill",
+        "Enable warnings of register spill",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "tma_inner_persistent",
+        "Enable TMA inner persistent kernel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "ws_normalization",
+        "Enable warp specialized persistent kernel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "host_ir_lowering",
+        "Enable FusionKernelRuntime lowering to host IR",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "host_ir_jit",
+        "Enable Host IR JIT compilation with LLVM",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "insert_resharding_after",
+        "Insert resharding set after the expression",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "p2p_protocol",
+        "Prescribe P2P protocol: put|get",
+        "multi",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+        choices=["", "put", "get"],
+    ),
+    EnvVarOption(
+        "multicast_protocol",
+        "Prescribe multicast protocol: memcpy|multimem|batch_memcpy",
+        "multi",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+        choices=["", "memcpy", "multimem", "batch_memcpy"],
+    ),
+    EnvVarOption(
+        "parallel_serde",
+        "Enable deserializing FusionExecutorCache in parallel",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "wait_debugger",
+        "Wait for gdb attach at start for specified rank (value is rank number)",
+        "int",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
+    EnvVarOption(
+        "infer_contiguity",
+        "Enable contiguity inference",
+        "bool",
+        "enable",
+        env_var="NVFUSER_ENABLE",
+    ),
     # Feature Disable Options (NVFUSER_DISABLE)
     EnvVarOption(
         "compile_to_sass",
@@ -300,6 +786,126 @@ ENV_VAR_DEFINITIONS = [
     EnvVarOption(
         "fallback",
         "Disable fallback to eager mode on errors",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    # Additional NVFUSER_DISABLE options
+    EnvVarOption(
+        "contig_indexing",
+        "Disable contiguous indexing",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "index_hoist",
+        "Disable index hoisting",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "magic_zero",
+        "Disable nvfuser_zero",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "fma",
+        "Disable FMA instructions (warning: negatively affects performance)",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "greedy_scheduler",
+        "Disable the greedy scheduler",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "resize_scheduler",
+        "Disable the resize scheduler",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "grouped_grid_welford_outer_opt",
+        "Disable use of outer-optimized grouped grid welford kernel",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "nvrtc_caching",
+        "Disable compilation caching by nvrtc",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "parallel_compile",
+        "Disable compiling Fusion segments in parallel",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "kernel_reuse",
+        "Disable re-using cached FusionKernelRuntimes with different input shapes",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "matmul_expr_eval",
+        "Disable ATen evaluation for entire fusion containing matmul",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "nvtx",
+        "Disable NVTX instrumentation",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "python_inline_definitions",
+        "Disable printing of inline definitions",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "var_name_remapping",
+        "Disable variable name remapping",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "welford_vectorization",
+        "Disable vectorization of Welford ops",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "reuse_mismatched_type_registers",
+        "Disable explicitly re-using registers unless types match",
+        "bool",
+        "disable",
+        env_var="NVFUSER_DISABLE",
+    ),
+    EnvVarOption(
+        "multidevice",
+        "Disable creation of multidevice communicator (mainly for debugging)",
         "bool",
         "disable",
         env_var="NVFUSER_DISABLE",
@@ -332,6 +938,36 @@ ENV_VAR_DEFINITIONS = [
         "int",
         "compilation",
     ),
+    EnvVarOption(
+        "NVFUSER_USE_BLOCK_SYNC_ATOMIC",
+        "Use atomic-based block synchronization instead of barriers",
+        "bool",
+        "compilation",
+    ),
+    EnvVarOption(
+        "NVFUSER_EXTERNAL_SRC",
+        "Load kernel code from external CUDA files (comma-separated paths)",
+        "string",
+        "compilation",
+    ),
+    EnvVarOption(
+        "NVFUSER_TRACE",
+        "Generate Chrome tracing format JSON file (specify file path)",
+        "string",
+        "compilation",
+    ),
+    EnvVarOption(
+        "NVFUSER_MATMUL_HEURISTIC_PLUGIN",
+        "Shared library path for custom matmul scheduling heuristics",
+        "string",
+        "compilation",
+    ),
+    EnvVarOption(
+        "NVFUSER_NUM_THREADS",
+        "Number of threads for parallel compilation (default 8)",
+        "int",
+        "compilation",
+    ),
     # ========================================================================
     # Misc OPTIONS
     # ========================================================================
@@ -342,6 +978,18 @@ ENV_VAR_DEFINITIONS = [
         "misc",
         choices=["debug", "disable"],
     ),
+    EnvVarOption(
+        "NVFUSER_MASTER_ADDR",
+        "Master node address for multi-node execution (required for multi-node)",
+        "string",
+        "misc",
+    ),
+    EnvVarOption(
+        "NVFUSER_MASTER_PORT",
+        "Master node port for multi-node execution (default: 29500)",
+        "int",
+        "misc",
+    ),
 ]
 
 
@@ -349,16 +997,20 @@ class EnvVarConfig:
     """Manages the current configuration state."""
 
     def __init__(self):
-        self.options: dict[str, EnvVarOption] = {
-            opt.name: opt for opt in ENV_VAR_DEFINITIONS
+        # Use (name, env_var) tuple as key to handle options with same name
+        # but different env vars (e.g., expr_simplify in DUMP vs DISABLE)
+        self.options: dict[tuple[str, str | None], EnvVarOption] = {
+            (opt.name, opt.env_var): opt for opt in ENV_VAR_DEFINITIONS
         }
+        # Also maintain a list of all options for iteration
+        self.all_options: list[EnvVarOption] = ENV_VAR_DEFINITIONS.copy()
         self.categories: dict[str, list[EnvVarOption]] = self._organize_by_category()
         self._load_current_values()
 
     def _organize_by_category(self) -> dict[str, list[EnvVarOption]]:
         """Organize options by category."""
         categories: dict[str, list[EnvVarOption]] = {}
-        for opt in self.options.values():
+        for opt in self.all_options:
             if opt.category not in categories:
                 categories[opt.category] = []
             categories[opt.category].append(opt)
@@ -366,7 +1018,7 @@ class EnvVarConfig:
 
     def _load_current_values(self):
         """Load current values from environment."""
-        for opt in self.options.values():
+        for opt in self.all_options:
             env_var_name = opt.get_env_var_name()
 
             if opt.category in ["dump", "enable", "disable"]:
@@ -393,7 +1045,7 @@ class EnvVarConfig:
         # Collect values for list-based env vars (DUMP, ENABLE, DISABLE)
         list_vars: dict[str, list[str]] = {}  # Maps env_var_name -> list of values
 
-        for opt in self.options.values():
+        for opt in self.all_options:
             if opt.category in ["dump", "enable", "disable"]:
                 # List items
                 if opt.current_value == "1":
@@ -428,7 +1080,7 @@ class EnvVarConfig:
         # Track which env vars have values
         env_vars_with_values: set[str] = set()
 
-        for opt in self.options.values():
+        for opt in self.all_options:
             if opt.category in ["dump", "enable", "disable"]:
                 # List-based vars - only track if any are set
                 if opt.current_value == "1":
