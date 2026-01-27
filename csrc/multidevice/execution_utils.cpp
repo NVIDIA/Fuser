@@ -65,8 +65,10 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
   LinkedHashMap<IterDomain*, int64_t> id_to_size;
   for (auto [id, size] :
        zip(source | TensorDomain::kNoReductions, tensor.sizes())) {
-    // FIXME: for expanded broadcast
-    evaluator.bind(id->extent(), size);
+    evaluator.bind(id->getMaybeExpandedExtent(), size);
+    if (id->isBroadcast()) {
+      evaluator.bind(id->extent(), 1);
+    }
     id_to_size.pushBack(id, size);
   }
 
@@ -78,11 +80,13 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     id_to_size.insert(
         i,
         split->outer(),
-        evaluator.evaluate(split->outer()->extent()).as<int64_t>());
+        evaluator.evaluate(split->outer()->getMaybeExpandedExtent())
+            .as<int64_t>());
     id_to_size.insert(
         i,
         split->inner(),
-        evaluator.evaluate(split->inner()->extent()).as<int64_t>());
+        evaluator.evaluate(split->inner()->getMaybeExpandedExtent())
+            .as<int64_t>());
 
     std::vector<int64_t> new_sizes;
     new_sizes.reserve(id_to_size.size());

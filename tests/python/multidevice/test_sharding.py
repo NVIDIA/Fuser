@@ -152,3 +152,47 @@ class TestShardTensor:
                 dp_rank, :, tp_rank, :
             ].flatten(),
         )
+
+    @pytest.mark.mpi
+    def test_expanded_broadcast(self, multidevice_test):
+        d = multidevice_test.size
+        with nvfuser.FusionDefinition() as fd:
+            tv = fd.define_tensor([-1, -1], contiguity=[True, None])
+            fd.add_output(tv)
+
+            mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+            tv.set_device_mesh(mesh)
+            tv.outer_split(1, d)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+        # When d=2, t_ref =
+        #   [[0, 0, 0, 0, 0, 0],
+        #    [1, 1, 1, 1, 1, 1]]
+        #
+        # GPU 0 gets the left half, and GPU 1 gets the right half. So t =
+        #   [[0, 0, 0],
+        #    [1, 1, 1]]
+        # regardless of which GPU.
+        t_ref = torch.arange(2, dtype=torch.float).unsqueeze(-1).expand(-1, d * 3)
+        t = multidevice_test.shard_tensor(t_ref, tv)
+        torch.testing.assert_close(
+            t.cpu(), torch.arange(2, dtype=torch.float).unsqueeze(-1).expand(-1, 3)
+        )
+
+    @pytest.mark.mpi
+    def test_broadcast(self, multidevice_test):
+        d = multidevice_test.size
+        with nvfuser.FusionDefinition() as fd:
+            tv = fd.define_tensor([1, -1], contiguity=[None, True])
+            fd.add_output(tv)
+
+            mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
+            tv.set_device_mesh(mesh)
+            tv.outer_split(1, d)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+
+        # When d=2, t_ref = [[0, 1, 2, 3, 4, 5]]. GPU 0 gets [[0, 1, 2]], and GPU 1 gets [[3, 4, 5]].
+        t_ref = torch.arange(d * 3, dtype=torch.float).unsqueeze(0)
+        t = multidevice_test.shard_tensor(t_ref, tv)
+        rank = multidevice_test.rank
+        torch.testing.assert_close(t.cpu(), t_ref[:, rank * 3 : (rank + 1) * 3])
