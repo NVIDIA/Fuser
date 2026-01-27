@@ -51,20 +51,37 @@ at::Tensor shardTensor1D(
 }
 
 at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
+  NVF_CHECK(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const DeviceMesh& mesh = tv->getDeviceMesh();
 
+  // The following is similar to
+  // [transformFromAllocationToLogical](https://github.com/NVIDIA/Fuser/blob/538ea84fe75c8b516114a46ac159e888ec8ac684/csrc/runtime/allocations.cpp#L771).
+  // I didn't reuse the code yet because
+  // 1.
+  // https://github.com/NVIDIA/Fuser/blob/538ea84fe75c8b516114a46ac159e888ec8ac684/csrc/runtime/allocations.cpp#L902
+  // suggests the code may want to move away from manipulating tensors.
+  // 2. I'm not comfortable with how merges are handled. See code comments
+  // below.
+  // 3. I prefer using LinkedHashMap, avoiding some linear scans.
+
+  // Ignore reduction dimensions because they won't appear in tensor.sizes().
   auto source = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  NVF_CHECK(
+      std::ranges::none_of(
+          tv->getMaybeAllocationDomain(), std::mem_fn(&IterDomain::isStream)),
+      "shardTensor is expected to be called in tests on the complete fusion's "
+      "inputs and outputs, whose allocation is not stream-parallelized: ",
+      toDelimitedString(tv->getMaybeAllocationDomain()));
   auto target = tv->getLoopDomain() |
       std::views::filter(std::mem_fn(&IterDomain::isDeviceDim)) |
       TensorDomain::kNoReductions;
   std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
       {source.begin(), source.end()}, {target.begin(), target.end()});
 
+  // Bind the logical domain.
   ExpressionEvaluator evaluator;
   LinkedHashMap<IterDomain*, int64_t> id_to_size;
-  for (auto [id, size] :
-       zip(source | TensorDomain::kNoReductions, tensor.sizes())) {
+  for (auto [id, size] : zip(source, tensor.sizes())) {
     evaluator.bind(id->getMaybeExpandedExtent(), size);
     if (id->isBroadcast()) {
       evaluator.bind(id->extent(), 1);
@@ -72,9 +89,31 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     id_to_size.pushBack(id, size);
   }
 
+  // Traverse down to view `tensor` as the loop domain.
   for (Expr* transform : transforms) {
     auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(split != nullptr);
+    // For example, tv =
+    //   [4, 3]
+    //    \ /
+    //     12
+    //    / \.
+    //   3   4
+    //      / \.
+    //     2   2(DIDx)
+    //
+    // tensor = [[0, 1, 2],
+    //           [3, 4, 5],
+    //           [6, 7, 8],
+    //           [9, 10, 11]]
+    //
+    // GPU 0 is supposed to hold values 0, 2, 4, 6, 8, 10, and GPU 1 is supposed
+    // to hold values 1, 3, 5, 7, 9, 11. But in what shape?
+    NVF_CHECK(
+        split != nullptr,
+        "Stay simple for now. It's tricky to support merges (see code "
+        "comments). I don't expect to see merges between **logical** (not "
+        "root) and loop in the foreseeable future: ",
+        transform->toString());
 
     auto [in_size, i] = id_to_size.erase(split->in());
     id_to_size.insert(
@@ -90,12 +129,13 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
 
     std::vector<int64_t> new_sizes;
     new_sizes.reserve(id_to_size.size());
-    for (auto [_, size] : id_to_size) {
+    for (auto size : id_to_size | std::views::values) {
       new_sizes.push_back(size);
     }
     tensor = tensor.reshape(new_sizes);
   }
 
+  // Slice the tensor so it contains data only for the current GPU.
   {
     const auto device_id = Communicator::getInstance().deviceId();
     at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
@@ -112,22 +152,25 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
     }
   }
 
-  LinkedHashMap<IterDomain*, std::monostate> ids;
-  for (auto [id, _] : id_to_size) {
-    ids.pushBack(id, std::monostate());
-  }
+  // Traverse up to view the sharded tensor as the logical domain.
+  {
+    LinkedHashMap<IterDomain*, std::monostate> ids;
+    for (auto [id, _] : id_to_size) {
+      ids.pushBack(id, std::monostate());
+    }
 
-  for (Expr* transform : transforms | std::views::reverse) {
-    auto* split = dynamic_cast<Split*>(transform);
-    NVF_ERROR(split != nullptr);
+    for (Expr* transform : transforms | std::views::reverse) {
+      auto* split = dynamic_cast<Split*>(transform);
+      NVF_ERROR(split != nullptr);
 
-    auto i = ids.erase(split->outer()).second;
-    auto axis = std::ranges::distance(ids.begin(), i);
-    NVF_ERROR(i != ids.end() && i->first == split->inner());
-    i = ids.erase(split->inner()).second;
-    ids.insert(i, split->in(), std::monostate());
+      auto i = ids.erase(split->outer()).second;
+      auto axis = std::ranges::distance(ids.begin(), i);
+      NVF_ERROR(i != ids.end() && i->first == split->inner());
+      i = ids.erase(split->inner()).second;
+      ids.insert(i, split->in(), std::monostate());
 
-    tensor = tensor.flatten(axis, axis + 1);
+      tensor = tensor.flatten(axis, axis + 1);
+    }
   }
 
   return tensor;
