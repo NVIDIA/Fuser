@@ -22,6 +22,21 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Literal
 
 
+# Category metadata - display names in desired order
+# Dict maintains insertion order in Python 3.7+, so order here = display order
+CATEGORY_NAMES = {
+    "environment": "Environment & Compiler Settings (CC, CXX, CUDA_HOME, etc.)",
+    "build": "Build Configuration (NVFUSER_BUILD_*)",
+    "build_advanced": "Advanced Build Options (NVFUSER_BUILD_*)",
+    "dump": "Debug/Diagnostic Options (NVFUSER_DUMP)",
+    "enable": "Feature Enable Options (NVFUSER_ENABLE)",
+    "disable": "Feature Disable Options (NVFUSER_DISABLE)",
+    "profiler": "Profiler Options (NVFUSER_PROF)",
+    "compilation": "Runtime Compilation Control",
+    "misc": "Miscellaneous Options",
+}
+
+
 @dataclass
 class EnvVarOption:
     """Represents a single environment variable option."""
@@ -57,9 +72,6 @@ ENV_VAR_DEFINITIONS = [
     EnvVarOption("CXX", "C++ compiler to use", "string", "environment"),
     EnvVarOption("CUDA_HOME", "CUDA installation directory", "string", "environment"),
     EnvVarOption(
-        "NVFUSER_SOURCE_DIR", "nvFuser source directory", "string", "environment"
-    ),
-    EnvVarOption(
         "TORCH_CUDA_ARCH_LIST",
         "Target CUDA architectures (e.g., '8.0;9.0')",
         "string",
@@ -72,15 +84,7 @@ ENV_VAR_DEFINITIONS = [
     # BUILD-TIME OPTIONS (NVFUSER_BUILD_*)
     # ========================================================================
     # Build Configuration
-    EnvVarOption("NVFUSER_BUILD_NO_PYTHON", "Skip Python bindings", "bool", "build"),
-    EnvVarOption(
-        "NVFUSER_BUILD_NO_CUTLASS", "Skip building CUTLASS kernels", "bool", "build"
-    ),
-    EnvVarOption("NVFUSER_BUILD_NO_TEST", "Skip C++ tests", "bool", "build"),
-    EnvVarOption("NVFUSER_BUILD_NO_BENCHMARK", "Skip benchmarks", "bool", "build"),
-    EnvVarOption(
-        "NVFUSER_BUILD_NO_NINJA", "Use make instead of ninja", "bool", "build"
-    ),
+    EnvVarOption("NVFUSER_SOURCE_DIR", "nvFuser source directory", "string", "build"),
     EnvVarOption(
         "NVFUSER_BUILD_BUILD_TYPE",
         "Build type: Release, Debug, RelWithDebInfo",
@@ -94,6 +98,15 @@ ENV_VAR_DEFINITIONS = [
         "int",
         "build",
         default="20",
+    ),
+    EnvVarOption("NVFUSER_BUILD_NO_PYTHON", "Skip Python bindings", "bool", "build"),
+    EnvVarOption(
+        "NVFUSER_BUILD_NO_CUTLASS", "Skip building CUTLASS kernels", "bool", "build"
+    ),
+    EnvVarOption("NVFUSER_BUILD_NO_TEST", "Skip C++ tests", "bool", "build"),
+    EnvVarOption("NVFUSER_BUILD_NO_BENCHMARK", "Skip benchmarks", "bool", "build"),
+    EnvVarOption(
+        "NVFUSER_BUILD_NO_NINJA", "Use make instead of ninja", "bool", "build"
     ),
     EnvVarOption(
         "NVFUSER_BUILD_ENABLE_PCH", "Enable precompiled headers", "bool", "build"
@@ -317,6 +330,16 @@ ENV_VAR_DEFINITIONS = [
         "int",
         "compilation",
     ),
+    # ========================================================================
+    # Misc OPTIONS
+    # ========================================================================
+    EnvVarOption(
+        "DEBUG_SERDE",
+        "Serde debugging flags",
+        "multi",
+        "misc",
+        choices=["debug", "disable"],
+    ),
 ]
 
 
@@ -435,19 +458,11 @@ def simple_prompt_mode(config: EnvVarConfig):
     print("=" * 70)
     print()
 
-    category_names = {
-        "build": "Build Configuration (NVFUSER_BUILD_*)",
-        "build_advanced": "Advanced Build Options (NVFUSER_BUILD_*)",
-        "environment": "Environment & Compiler Settings (CC, CXX, CUDA_HOME, etc.)",
-        "dump": "Debug/Diagnostic Options (NVFUSER_DUMP)",
-        "enable": "Feature Enable Options (NVFUSER_ENABLE)",
-        "disable": "Feature Disable Options (NVFUSER_DISABLE)",
-        "profiler": "Profiler Options (NVFUSER_PROF)",
-        "compilation": "Runtime Compilation Control",
-    }
-
-    for category, opts in config.categories.items():
-        print(f"\n{CYAN}{BOLD}{category_names.get(category, category.upper())}{RESET}")
+    for category in CATEGORY_NAMES.keys():
+        if category not in config.categories:
+            continue
+        opts = config.categories[category]
+        print(f"\n{CYAN}{BOLD}{CATEGORY_NAMES[category]}{RESET}")
         print("-" * 70)
 
         for opt in opts:
