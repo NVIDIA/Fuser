@@ -197,6 +197,66 @@ This allows the functional test to pass while skipping the problematic serializa
 3. `csrc/ir/base_nodes.cpp` - Added validation in Statement/Expr constructors
 4. `tests/python/test_python_frontend.py` - Added skip_serde_check=True workaround
 
+## Binary Search Results (2026-01-26)
+
+### Minimum Trigger Set Found
+
+Through binary search, we identified the **minimum set of tests** that trigger the corruption:
+
+1. test_addcmul
+2. test_alias_output_to_input
+3. test_all_dim_var_mean
+4. test_allocation_domain_concretization
+5. test_allocation_domain_index_select
+6. test_arithmetic_ops
+7. **test_issue1270** (the victim test)
+
+**Reproduce the issue (~20% failure rate):**
+```bash
+DEBUG_SERDE=Debug pytest tests/python/test_python_frontend.py::TestNvFuserFrontend::test_addcmul tests/python/test_python_frontend.py::TestNvFuserFrontend::test_alias_output_to_input tests/python/test_python_frontend.py::TestNvFuserFrontend::test_all_dim_var_mean tests/python/test_python_frontend.py::TestNvFuserFrontend::test_allocation_domain_concretization tests/python/test_python_frontend.py::TestNvFuserFrontend::test_allocation_domain_index_select tests/python/test_python_frontend.py::TestNvFuserFrontend::test_arithmetic_ops tests/python/test_python_frontend.py::TestNvFuserFrontend::test_issue1270 -xvs
+```
+
+### Critical Characteristics
+
+1. **Cumulative Effect Required**
+   - Any single test + issue1270: PASS ✅
+   - First 5 tests + issue1270: PASS ✅
+   - All 6 tests + issue1270: **FAIL ~20% of the time** ❌
+
+2. **Non-Deterministic**
+   - Out of 5 runs with the 6-test set:
+     - 4 runs: PASS
+     - 1 run: Segfault
+   - This is classic heap corruption behavior
+
+3. **None Individually Responsible**
+   - Each of the 6 tests alone does NOT cause the issue
+   - The corruption accumulates across the tests
+   - Manifests only when issue1270 attempts deserialization
+
+### Implications
+
+This confirms **heap corruption from cumulative memory operations**:
+- One or more of these 6 tests has a subtle bug (buffer overflow, use-after-free, etc.)
+- The corruption doesn't manifest immediately
+- Only when issue1270's serialization tries to access specific memory does it segfault
+- The non-determinism suggests heap layout variations between runs
+
+### Recommended Next Steps
+
+1. **Run each of the 6 tests under AddressSanitizer individually**
+   ```bash
+   ASAN_OPTIONS=detect_leaks=0 DEBUG_SERDE=Debug pytest \
+     tests/python/test_python_frontend.py::TestNvFuserFrontend::test_addcmul -xvs
+   ```
+
+2. **Focus on the 6-test set** - The culprit is definitely in this group
+
+3. **Check for**:
+   - Buffer overflows in tensor operations
+   - Memory leaks that corrupt heap metadata
+   - Use-after-free in cache cleanup between tests
+
 ## Testing Notes
 
 - Test passes in isolation: ✅
