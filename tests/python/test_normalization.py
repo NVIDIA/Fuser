@@ -150,9 +150,6 @@ def test_instance_norm(
                 assert_close(m.bias.grad, reference_m.bias.grad)
 
 
-@pytest.mark.skip(
-    reason="disable failing test, see https://github.com/NVIDIA/Fuser/issues/1728"
-)
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="more than 1 GPU required")
 def test_instance_norm_multigpu():
     class Model(nn.Module):
