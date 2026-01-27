@@ -16,6 +16,13 @@
 
 #include "utils.h"
 
+// Helper to check if subscript operator is available (SFINAE-friendly)
+template <typename LHS, typename RHS, typename = void>
+struct has_subscript : std::false_type {};
+
+template <typename LHS, typename RHS>
+struct has_subscript<LHS, RHS, std::void_t<decltype(std::declval<LHS>()[std::declval<RHS>()])>> : std::true_type {};
+
 TEST_F(DynamicTypeTest, FromContainerToContainer) {
   using IntOrVec = DynamicType<Containers<std::vector>, int>;
   using Vec = DynamicType<Containers<std::vector>>;
@@ -30,22 +37,20 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
                 IntOrVec,
                 std::vector<std::vector<std::vector<std::vector<int>>>>>);
 
-  static_assert(opcheck<IntOrVec>.canCastTo(opcheck<std::vector<double>>));
+  static_assert(requires { (std::vector<double>)(std::declval<IntOrVec>()); });
   static_assert(
-      opcheck<IntOrVec>.canCastTo(opcheck<std::vector<std::vector<double>>>));
-  static_assert(opcheck<IntOrVec>.canCastTo(
-      opcheck<std::vector<std::vector<std::vector<double>>>>));
-  static_assert(opcheck<IntOrVec>.canCastTo(
-      opcheck<std::vector<std::vector<std::vector<std::vector<double>>>>>));
+      requires { (std::vector<std::vector<double>>)(std::declval<IntOrVec>()); });
+  static_assert(requires { (std::vector<std::vector<std::vector<double>>>)(std::declval<IntOrVec>()); });
+  static_assert(requires { (std::vector<std::vector<std::vector<std::vector<double>>>>)(std::declval<IntOrVec>()); });
 
-  static_assert(opcheck<IntOrVec>[opcheck<IntOrVec>]);
-  static_assert(!opcheck<Vec>[opcheck<Vec>]);
-  static_assert(opcheck<const IntOrVec>[opcheck<IntOrVec>]);
-  static_assert(!opcheck<const Vec>[opcheck<Vec>]);
-  static_assert(opcheck<IntOrVec>[opcheck<const IntOrVec>]);
-  static_assert(!opcheck<Vec>[opcheck<const Vec>]);
-  static_assert(opcheck<const IntOrVec>[opcheck<const IntOrVec>]);
-  static_assert(!opcheck<const Vec>[opcheck<const Vec>]);
+  static_assert(has_subscript<IntOrVec, IntOrVec>::value);
+  static_assert(!has_subscript<Vec, Vec>::value);
+  static_assert(has_subscript<const IntOrVec, IntOrVec>::value);
+  static_assert(!has_subscript<const Vec, Vec>::value);
+  static_assert(has_subscript<IntOrVec, const IntOrVec>::value);
+  static_assert(!has_subscript<Vec, const Vec>::value);
+  static_assert(has_subscript<const IntOrVec, const IntOrVec>::value);
+  static_assert(!has_subscript<const Vec, const Vec>::value);
 
   IntOrVec zero = 0;
   IntOrVec one = 1;

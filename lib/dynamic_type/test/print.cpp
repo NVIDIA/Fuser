@@ -25,7 +25,7 @@ TEST_F(DynamicTypeTest, Printing) {
   EXPECT_EQ(ss.str(), "299792458, 3.14159, 1");
 
   std::stringstream ss2;
-  static_assert(opcheck<std::stringstream&> << opcheck<IntSomeType>);
+  static_assert(requires { std::declval<std::stringstream&>() << std::declval<IntSomeType>(); });
   ss2 << IntSomeType(299792458);
   EXPECT_EQ(ss2.str(), "299792458");
 

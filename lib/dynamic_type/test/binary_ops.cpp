@@ -19,20 +19,20 @@
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #endif
 
-#define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
+#define TEST_BINARY_OP_ALLTYPE(name, op, opname)                               \
   TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64Bool, DoubleInt64Bool>()); \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVec>()); \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64Bool, int>());    \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64BoolVec, int>()); \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64Bool, DoubleInt64BoolTwo>()); \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
-    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
-    static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
-    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+        dynamic_type::opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVecTwo>()); \
+    static_assert(dynamic_type::opname##_defined<int, DoubleInt64Bool>());    \
+    static_assert(dynamic_type::opname##_defined<int, DoubleInt64BoolVec>()); \
+    static_assert(dynamic_type::opname##_defined<DoubleInt64BoolTwo, DoubleInt64Bool>()); \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
+        dynamic_type::opname##_defined<DoubleInt64BoolVecTwo, DoubleInt64BoolVec>()); \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
             .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
@@ -75,34 +75,34 @@
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
+    static_assert(dynamic_type::opname##_defined<IntSomeType, IntSomeType>()); \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_BINARY_OP_ALLTYPE(Add, +);
-TEST_BINARY_OP_ALLTYPE(Minus, -);
-TEST_BINARY_OP_ALLTYPE(Mul, *);
-TEST_BINARY_OP_ALLTYPE(Div, /);
-TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
-TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
+TEST_BINARY_OP_ALLTYPE(Add, +, add);
+TEST_BINARY_OP_ALLTYPE(Minus, -, minus);
+TEST_BINARY_OP_ALLTYPE(Mul, *, mul);
+TEST_BINARY_OP_ALLTYPE(Div, /, div);
+TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&, land);
+TEST_BINARY_OP_ALLTYPE(LogicalOr, ||, lor);
 
-#define TEST_COMPARE_OP(name, op)                                              \
+#define TEST_COMPARE_OP(name, op, opname)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<int>);                   \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int>);                \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(opname##_defined<DoubleInt64Bool, DoubleInt64Bool>());      \
+    static_assert(opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVec>()); \
+    static_assert(opname##_defined<DoubleInt64Bool, int>());                   \
+    static_assert(opname##_defined<DoubleInt64BoolVec, int>());                \
+    static_assert(opname##_defined<DoubleInt64Bool, DoubleInt64BoolTwo>());    \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
-    static_assert(opcheck<int> op opcheck<DoubleInt64Bool>);                   \
-    static_assert(opcheck<int> op opcheck<DoubleInt64BoolVec>);                \
-    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+        opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVecTwo>());        \
+    static_assert(opname##_defined<int, DoubleInt64Bool>());                   \
+    static_assert(opname##_defined<int, DoubleInt64BoolVec>());                \
+    static_assert(opname##_defined<DoubleInt64BoolTwo, DoubleInt64Bool>());    \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
+        opname##_defined<DoubleInt64BoolVecTwo, DoubleInt64BoolVec>());        \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
     static_assert(                                                             \
@@ -158,19 +158,19 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(opcheck<IntSomeType> op opcheck<IntSomeType>);               \
+    static_assert(opname##_defined<IntSomeType, IntSomeType>());               \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_COMPARE_OP(Eq, ==);
-TEST_COMPARE_OP(Ne, !=);
-TEST_COMPARE_OP(Lt, <);
-TEST_COMPARE_OP(Gt, >);
-TEST_COMPARE_OP(Le, <=);
-TEST_COMPARE_OP(Ge, >=);
+TEST_COMPARE_OP(Eq, ==, eq);
+TEST_COMPARE_OP(Ne, !=, neq);
+TEST_COMPARE_OP(Lt, <, lt);
+TEST_COMPARE_OP(Gt, >, gt);
+TEST_COMPARE_OP(Le, <=, le);
+TEST_COMPARE_OP(Ge, >=, ge);
 
 #define TEST_NAMED_COMPARE_OP(name, op, func)                                \
   TEST_F(DynamicTypeTest, name) {                                            \
@@ -245,20 +245,20 @@ TEST_NAMED_COMPARE_OP(NamedGt, >, gt);
 TEST_NAMED_COMPARE_OP(NamedLe, <=, le);
 TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
 
-#define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
+#define TEST_BINARY_OP_INT_ONLY(name, op, opname)                              \
   TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64Bool>);       \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVec>); \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<int64_t>);               \
-    static_assert(opcheck<DoubleInt64BoolVec> op opcheck<int64_t>);            \
-    static_assert(opcheck<DoubleInt64Bool> op opcheck<DoubleInt64BoolTwo>);    \
+    static_assert(opname##_defined<DoubleInt64Bool, DoubleInt64Bool>());      \
+    static_assert(opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVec>()); \
+    static_assert(opname##_defined<DoubleInt64Bool, int64_t>());               \
+    static_assert(opname##_defined<DoubleInt64BoolVec, int64_t>());            \
+    static_assert(opname##_defined<DoubleInt64Bool, DoubleInt64BoolTwo>());    \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVec> op opcheck<DoubleInt64BoolVecTwo>);        \
-    static_assert(opcheck<int64_t> op opcheck<DoubleInt64Bool>);               \
-    static_assert(opcheck<int64_t> op opcheck<DoubleInt64BoolVec>);            \
-    static_assert(opcheck<DoubleInt64BoolTwo> op opcheck<DoubleInt64Bool>);    \
+        opname##_defined<DoubleInt64BoolVec, DoubleInt64BoolVecTwo>());        \
+    static_assert(opname##_defined<int64_t, DoubleInt64Bool>());               \
+    static_assert(opname##_defined<int64_t, DoubleInt64BoolVec>());            \
+    static_assert(opname##_defined<DoubleInt64BoolTwo, DoubleInt64Bool>());    \
     static_assert(                                                             \
-        opcheck<DoubleInt64BoolVecTwo> op opcheck<DoubleInt64BoolVec>);        \
+        opname##_defined<DoubleInt64BoolVecTwo, DoubleInt64BoolVec>());        \
     static_assert(                                                             \
         (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==          \
         (3L op 2L));                                                           \
@@ -294,19 +294,19 @@ TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(opcheck<IntSomeType> + opcheck<IntSomeType>);                \
+    static_assert(add_defined<IntSomeType, IntSomeType>());                    \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_BINARY_OP_INT_ONLY(Mod, %);
-TEST_BINARY_OP_INT_ONLY(BinaryAnd, &);
-TEST_BINARY_OP_INT_ONLY(BinaryOr, |);
-TEST_BINARY_OP_INT_ONLY(Xor, ^);
-TEST_BINARY_OP_INT_ONLY(LShift, <<);
-TEST_BINARY_OP_INT_ONLY(RShift, >>);
+TEST_BINARY_OP_INT_ONLY(Mod, %, mod);
+TEST_BINARY_OP_INT_ONLY(BinaryAnd, &, band);
+TEST_BINARY_OP_INT_ONLY(BinaryOr, |, bor);
+TEST_BINARY_OP_INT_ONLY(Xor, ^, xor);
+TEST_BINARY_OP_INT_ONLY(LShift, <<, lshift);
+TEST_BINARY_OP_INT_ONLY(RShift, >>, rshift);
 
 TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   struct Type1 {};
@@ -327,24 +327,22 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   };
   // not defined compile time because Type2+Type2 is not in type list
   static_assert(
-      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> +
-        opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+      !(add_defined<DynamicType<NoContainers, Type2, SomeType>, DynamicType<NoContainers, Type2, SomeType>>()));
   static_assert(
-      !(opcheck<DynamicType<NoContainers, Type2, SomeType>> + opcheck<Type2>));
+      !(add_defined<DynamicType<NoContainers, Type2, SomeType>, Type2>()));
   static_assert(
-      !(opcheck<Type2> + opcheck<DynamicType<NoContainers, Type2, SomeType>>));
+      !(add_defined<Type2, DynamicType<NoContainers, Type2, SomeType>>()));
   // defined compile time because Type2+Type2 is constructible to Type3
   using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
-  static_assert(opcheck<Type2Type3> + opcheck<Type2Type3>);
+  static_assert(add_defined<Type2Type3, Type2Type3>());
   static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
-  static_assert(opcheck<Type2Type3> + opcheck<Type2>);
+  static_assert(add_defined<Type2Type3, Type2>());
   static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
-  static_assert(opcheck<Type2> + opcheck<Type2Type3>);
+  static_assert(add_defined<Type2, Type2Type3>());
   static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
   // defined compile time because int+int is in type list
   static_assert(
-      opcheck<DynamicType<NoContainers, Type2, int>> +
-      opcheck<DynamicType<NoContainers, Type2, int>>);
+      add_defined<DynamicType<NoContainers, Type2, int>, DynamicType<NoContainers, Type2, int>>());
   // runtime error because Type2+Type2 is not in type list
   auto bad = [&]() {
     DynamicType<NoContainers, Type2, int> x(Type2{});

@@ -15,6 +15,13 @@
 
 using namespace dynamic_type;
 
+// Helper to check if arrow-star operator is available (SFINAE-friendly)
+template <typename LHS, typename RHS, typename = void>
+struct has_arrow_star : std::false_type {};
+
+template <typename LHS, typename RHS>
+struct has_arrow_star<LHS, RHS, std::void_t<decltype(std::declval<LHS>()->*std::declval<RHS>())>> : std::true_type {};
+
 class DynamicTypeTest : public ::testing::Test {};
 
 struct A {
@@ -82,11 +89,11 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   EXPECT_EQ(d->*&D::x, 7);
   EXPECT_EQ(d->*&D::y, 8);
 #endif
-  static_assert(opcheck<ABCD>->*opcheck<int A::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int B::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int C::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int D::*>);
-  static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
+  static_assert(has_arrow_star<ABCD, int A::*>::value);
+  static_assert(has_arrow_star<ABCD, int B::*>::value);
+  static_assert(has_arrow_star<ABCD, int C::*>::value);
+  static_assert(has_arrow_star<ABCD, int D::*>::value);
+  static_assert(!has_arrow_star<ABCD, int E::*>::value);
 
   ABCD aa = a;
   EXPECT_EQ(aa->*&A::x, 1);
@@ -151,8 +158,8 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
   EXPECT_EQ(g->*"y", 4);
 #endif
 
-  static_assert(opcheck<EFG>->*opcheck<std::string_view>);
-  static_assert(!(opcheck<EFG>->*opcheck<int>));
+  static_assert(has_arrow_star<EFG, std::string_view>::value);
+  static_assert(!has_arrow_star<EFG, int>::value);
 
   EFG ff = f;
   EXPECT_EQ(ff->*"x", 1);
@@ -227,8 +234,8 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(i->*"x", 3);
   EXPECT_EQ(i->*"y", 4);
 
-  static_assert(opcheck<EHI>->*opcheck<std::string_view>);
-  static_assert(!(opcheck<EHI>->*opcheck<int>));
+  static_assert(has_arrow_star<EHI, std::string_view>::value);
+  static_assert(!has_arrow_star<EHI, int>::value);
 
   EHI hh = h;
   EXPECT_EQ(hh->*"x", 1);

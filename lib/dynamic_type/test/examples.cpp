@@ -58,7 +58,7 @@ namespace example_3 {
 struct CustomType {};
 struct CustomType2 {};
 using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
-static_assert(!(opcheck<Custom12> + opcheck<Custom12>));
+static_assert(!(add_defined<Custom12, Custom12>()));
 
 } // namespace example_3
 
@@ -70,11 +70,11 @@ float operator+(bfloat16_zero, half_zero) {
 
 TEST_F(Examples, Example4) {
   using BFloatOrHalfZero = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-  static_assert(!(opcheck<BFloatOrHalfZero> + opcheck<BFloatOrHalfZero>));
+  static_assert(!(add_defined<BFloatOrHalfZero, BFloatOrHalfZero>()));
   using BFloatOrHalfZeroOrInt =
       DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
   static_assert(
-      opcheck<BFloatOrHalfZeroOrInt> + opcheck<BFloatOrHalfZeroOrInt>);
+      add_defined<BFloatOrHalfZeroOrInt, BFloatOrHalfZeroOrInt>());
   EXPECT_THAT(
       [&]() {
         BFloatOrHalfZeroOrInt(half_zero{}) +
@@ -93,8 +93,8 @@ static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
 static_assert((x + y).as<float>() == 3.5f);
 static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
 static_assert((y + x).as<float>() == 3.5f);
-static_assert(!(opcheck<IntOrFloat> + opcheck<double>));
-static_assert(!(opcheck<double> + opcheck<IntOrFloat>));
+static_assert(!(add_defined<IntOrFloat, double>()));
+static_assert(!(add_defined<double, IntOrFloat>()));
 
 } // namespace example_5
 
