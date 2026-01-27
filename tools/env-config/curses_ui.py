@@ -228,12 +228,23 @@ class CursesUI:
                 self.modified = True
 
             elif opt.var_type == "multi":
-                # Cycle through choices
-                if not opt.current_value or opt.current_value not in opt.choices:
+                # Cycle through choices, including unset at the end
+                # Note: Some choices may include "" (empty string) as a valid choice
+                if opt.current_value is None:
+                    # Currently unset, go to first choice
+                    opt.current_value = opt.choices[0] if opt.choices else ""
+                elif opt.current_value not in opt.choices:
+                    # Invalid value, go to first choice
                     opt.current_value = opt.choices[0] if opt.choices else ""
                 else:
+                    # Valid value, cycle to next (or back to None after last)
                     idx = opt.choices.index(opt.current_value)
-                    opt.current_value = opt.choices[(idx + 1) % len(opt.choices)]
+                    if idx == len(opt.choices) - 1:
+                        # Last choice, cycle back to unset (None)
+                        opt.current_value = None
+                    else:
+                        # Go to next choice
+                        opt.current_value = opt.choices[idx + 1]
                 self.modified = True
 
     def handle_edit(self):
