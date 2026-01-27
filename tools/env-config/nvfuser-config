@@ -1,0 +1,37 @@
+#!/bin/bash
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
+# nvFuser Configuration Tool Wrapper
+# This script launches the configuration tool and optionally applies the configuration
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APPLY_SCRIPT="/tmp/nvfuser_apply_now.sh"
+
+# Check if we should apply after configuring
+APPLY_AFTER=0
+if [ "$1" = "--apply" ] || [ "$1" = "-a" ]; then
+    APPLY_AFTER=1
+    shift
+fi
+
+# Run the configuration tool
+python "$SCRIPT_DIR/configure_env.py" "$@"
+EXIT_CODE=$?
+
+# If successful and apply was requested, check for the apply script
+if [ $EXIT_CODE -eq 0 ] && [ $APPLY_AFTER -eq 1 ] && [ -f "$APPLY_SCRIPT" ]; then
+    echo ""
+    echo "Applying configuration to current shell..."
+    source "$APPLY_SCRIPT"
+else
+    # Show how to apply if the script exists
+    if [ -f "$APPLY_SCRIPT" ]; then
+        echo ""
+        echo "Configuration saved to: $APPLY_SCRIPT"
+        echo "To apply, run: source $APPLY_SCRIPT"
+    fi
+fi
+
+exit $EXIT_CODE

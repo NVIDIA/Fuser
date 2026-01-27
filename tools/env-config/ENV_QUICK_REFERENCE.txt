@@ -1,0 +1,157 @@
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                nvFuser Environment Variable Quick Reference              ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+
+CONFIGURATION TOOL
+──────────────────────────────────────────────────────────────────────────
+  Recommended (shell function):
+    source tools/nvfuser-config-shell.sh    # Add to ~/.bashrc
+    nvfuser-configure                        # Run and auto-apply!
+
+  Manual mode:
+    python tools/configure_env.py            # Interactive TUI
+    python tools/configure_env.py --simple   # Simple mode
+    python tools/configure_env.py --generate # Export current
+
+  TUI Shortcuts:
+    [↑↓]   Navigate options
+    [Enter] Toggle/cycle values
+    [e]    Edit string/int values
+    [a]    Apply - Generate /tmp/nvfuser_apply_now.sh
+    [g]    Generate - Create nvfuser_env.sh
+    [q]    Quit - Prompts: Apply/Generate/Quit if changes made
+    [Esc]  Cancel quit prompt
+
+  Improved Workflow:
+    1. Configure options in TUI
+    2. Press 'q' to quit
+    3. Choose: [a] Apply / [g] Generate / [q] Quit
+    4. Source the generated script to apply!
+
+  ⚠️  IMPORTANT: Python cannot set parent shell vars!
+      After configuring, you must:
+        source /tmp/nvfuser_apply_now.sh   # if you pressed 'a'
+        source nvfuser_env.sh              # if you pressed 'g'
+
+ENVIRONMENT & COMPILER SETTINGS
+──────────────────────────────────────────────────────────────────────────
+  CC=/usr/bin/gcc-13                 C compiler
+  CXX=/usr/bin/g++-13                C++ compiler
+  CUDA_HOME=/usr/local/cuda-12.6     CUDA installation path
+  NVFUSER_SOURCE_DIR=/path/to/fuser  nvFuser source directory
+  TORCH_CUDA_ARCH_LIST="8.0;9.0"     Target GPU architectures
+  CFLAGS="-O3"                       Additional C flags
+  CXXFLAGS="-O3"                     Additional C++ flags
+  LDFLAGS="-L/custom/path"           Additional linker flags
+
+  Example: export CC=gcc-13 CXX=g++-13 CUDA_HOME=/usr/local/cuda-12.6
+
+BUILD CONFIGURATION (NVFUSER_BUILD_*)
+──────────────────────────────────────────────────────────────────────────
+  NVFUSER_BUILD_NO_PYTHON=1          Skip Python bindings
+  NVFUSER_BUILD_NO_CUTLASS=1         Skip CUTLASS kernels
+  NVFUSER_BUILD_NO_TEST=1            Skip C++ tests
+  NVFUSER_BUILD_NO_BENCHMARK=1       Skip benchmarks
+  NVFUSER_BUILD_NO_NINJA=1           Use make instead of ninja
+  NVFUSER_BUILD_BUILD_TYPE=Debug     Build type (Release/Debug/RelWithDebInfo)
+  NVFUSER_BUILD_CPP_STANDARD=20      C++ standard version
+  NVFUSER_BUILD_ENABLE_PCH=1         Enable precompiled headers
+  NVFUSER_BUILD_WITH_ASAN=1          Build with Address Sanitizer
+  NVFUSER_BUILD_WITHOUT_DISTRIBUTED=1 Build without multi-device support
+  NVFUSER_CUTLASS_MAX_JOBS=4         Parallel jobs for CUTLASS build
+  MAX_JOBS=8                         Max parallel compilation jobs
+
+  Example: export NVFUSER_BUILD_BUILD_TYPE=Debug MAX_JOBS=4
+
+COMMON DEBUG FLAGS (NVFUSER_DUMP)
+──────────────────────────────────────────────────────────────────────────
+  fusion_ir              Show fusion IR structure
+  cuda_kernel            Show generated CUDA kernel code
+  ptx                    Show compiled PTX assembly
+  sass                   Show disassembled SASS
+  kernel_args            Show kernel launch arguments
+  launch_param           Show launch parameters
+  scheduler_params       Show scheduler heuristic parameters
+  scheduler_verbose      Detailed scheduler debugging
+
+  Example: export NVFUSER_DUMP="fusion_ir,cuda_kernel,scheduler_verbose"
+
+PERFORMANCE FEATURES (NVFUSER_ENABLE)
+──────────────────────────────────────────────────────────────────────────
+  fast_math              Enable fast math optimizations
+  cutlass_scheduler      Use CUTLASS kernels for matmul
+  fuse_matmul            Fuse matmul/linear operations
+  kernel_profile         Enable intra-kernel profiling
+  tma_pointwise          Enable TMA pointwise kernels
+  tma_reduction          Enable TMA reduction kernels
+
+  Example: export NVFUSER_ENABLE="fast_math,cutlass_scheduler"
+
+DEBUG/TESTING DISABLES (NVFUSER_DISABLE)
+──────────────────────────────────────────────────────────────────────────
+  compile_to_sass        Compile to PTX instead of SASS
+  expr_simplify          Disable expression simplifier
+  predicate_elimination  Disable predicate elimination
+  fallback               Disable eager mode fallback
+
+  Example: export NVFUSER_DISABLE="expr_simplify,predicate_elimination"
+
+PROFILING (NVFUSER_PROF)
+──────────────────────────────────────────────────────────────────────────
+  enable                 Enable profiler (query from code)
+  print                  Enable and print to console
+  print.nocupti          Print without CUPTI overhead
+  print.verbose          Print with all columns
+
+  Example: export NVFUSER_PROF="print"
+
+COMPILATION CONTROL
+──────────────────────────────────────────────────────────────────────────
+  NVFUSER_MAX_REG_COUNT     Maximum registers per thread
+  NVFUSER_JIT_OPT_LEVEL     PTX optimization level (0-4)
+
+  Example: export NVFUSER_MAX_REG_COUNT=128
+
+COMMON WORKFLOWS
+──────────────────────────────────────────────────────────────────────────
+  Debug kernel generation:
+    export NVFUSER_DUMP="fusion_ir,cuda_kernel,ptx"
+    python my_script.py
+
+  Performance profiling:
+    export NVFUSER_PROF="print"
+    export NVFUSER_ENABLE="fast_math,kernel_profile"
+    python my_script.py
+
+  Validation/testing:
+    export NVFUSER_DUMP="kernel_args,launch_param"
+    export NVFUSER_DISABLE="expr_simplify,predicate_elimination"
+    python my_script.py
+
+  Clear all settings:
+    unset NVFUSER_DUMP NVFUSER_ENABLE NVFUSER_DISABLE NVFUSER_PROF
+
+USING CONFIGURATION SCRIPTS
+──────────────────────────────────────────────────────────────────────────
+  1. Configure: python tools/configure_env.py
+  2. Generate: Press 'g' to create nvfuser_env.sh
+  3. Apply:    source nvfuser_env.sh
+  4. Run:      python your_script.py
+
+  Or in one command:
+    source nvfuser_env.sh && python your_script.py
+
+MULTI-GPU SETUP
+──────────────────────────────────────────────────────────────────────────
+  NVFUSER_MASTER_ADDR       Master node address
+  NVFUSER_MASTER_PORT       Master node port
+
+  Example: export NVFUSER_MASTER_ADDR=node001
+
+MORE INFORMATION
+──────────────────────────────────────────────────────────────────────────
+  Full docs:  CLAUDE.md (Runtime Configuration section)
+  Tool docs:  tools/CONFIGURE_ENV.md
+  Examples:   tools/examples/configure_env_example.py
+
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
