@@ -545,9 +545,9 @@ struct DynamicType {
       typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type;     \
                                                                                 \
   template <typename MemberT>                                                   \
-  constexpr std::enable_if_t<                                                   \
-      all_arrow_star_ret_types_are_same##__const<MemberT>,                      \
-      typename ArrowStarRetType##__const<MemberT>::type>                        \
+  requires(all_arrow_star_ret_types_are_same##__const<MemberT> &&              \
+           std::tuple_size_v<AllArrowStarRetTypes##__const<MemberT>> > 0)       \
+  constexpr typename ArrowStarRetType##__const<MemberT>::type                   \
   operator->*(const MemberT& member) __const {                                  \
     using RetT = typename ArrowStarRetType##__const<MemberT>::type;             \
     std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                   \
