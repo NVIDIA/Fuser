@@ -80,7 +80,8 @@ class CursesUI:
             elif opt.var_type == "multi":
                 help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [a] Apply  [g] Gen  [q] Quit"
             else:
-                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [e] Edit  [a] Apply  [g] Gen  [q] Quit"
+                # String/Int - Enter to edit
+                help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [a] Apply  [g] Gen  [q] Quit"
         else:
             help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
 
@@ -115,20 +116,21 @@ class CursesUI:
                 base_attr |= curses.A_REVERSE
 
             # Format the option display
-            prefix = "    "
+            # All options get a checkbox at the beginning showing if they're set
+            prefix = "   "  # 3 spaces for better visual separation
 
             if opt.var_type == "bool":
-                # Boolean option with checkbox after name
+                # Boolean option - checkbox shows enabled/disabled status
                 name_part = opt.get_display_name()
 
                 if opt.current_value == "1":
-                    checkbox = " [X]"
+                    checkbox = "[X] "
                     attr = base_attr | curses.color_pair(3)  # Green for enabled
                 else:
-                    checkbox = " [ ]"
+                    checkbox = "[ ] "
                     attr = base_attr
 
-                line = f"{prefix}{name_part}{checkbox}"
+                line = f"{prefix}{checkbox}{name_part}"
                 max_len = width - 1
                 if len(line) > max_len:
                     line = line[: max_len - 3] + "..."
@@ -138,15 +140,22 @@ class CursesUI:
                 self.stdscr.attroff(attr)
 
             else:
-                # String/int/multi option with value display
+                # String/int/multi option with value display and checkbox
                 display_name = opt.get_display_name()
-                name_part = f"{prefix}{display_name}"
 
-                # Determine if this option has a value (affects whole line color)
+                # Determine if this option has a value (affects checkbox and color)
                 has_value = opt.current_value is not None
                 line_attr = base_attr | curses.color_pair(3) if has_value else base_attr
 
-                # Draw name part (green if value is set)
+                # Add checkbox at the beginning - checked if value is set
+                if has_value:
+                    checkbox = "[X] "
+                else:
+                    checkbox = "[ ] "
+
+                name_part = f"{prefix}{checkbox}{display_name}"
+
+                # Draw name part with checkbox (green if value is set)
                 self.stdscr.attron(line_attr)
                 self.stdscr.addstr(y, 0, name_part)
                 self.stdscr.attroff(line_attr)
@@ -165,7 +174,8 @@ class CursesUI:
                 if opt.current_value:
                     value_part = f" = {opt.current_value}"
                 else:
-                    value_part = " = (not set)"
+                    # Show = "" for empty string/int/multi to indicate they expect values
+                    value_part = ' = ""'
 
                 # Calculate remaining space
                 total_prefix = len(name_part) + multi_tag_len
@@ -244,7 +254,7 @@ class CursesUI:
         self.stdscr.refresh()
 
     def handle_toggle(self):
-        """Handle toggling current item."""
+        """Handle toggling/editing current item."""
         if self.current_row >= len(self.display_items):
             return
 
@@ -277,6 +287,10 @@ class CursesUI:
                         # Go to next choice
                         opt.current_value = opt.choices[idx + 1]
                 self.modified = True
+
+            elif opt.var_type in ["int", "string"]:
+                # For string/int, Enter opens the editor
+                self.handle_edit()
 
     def handle_edit(self):
         """Handle editing current item value."""
