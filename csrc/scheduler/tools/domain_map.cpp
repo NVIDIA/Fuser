@@ -515,15 +515,6 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   if (ref1 == nullptr || ref2 == nullptr) {
     return false;
   }
-  // ref1 and ref2 has the same number of non-broadcast/reduction/device
-  // dimensions. This is to reject cases like tv0[i0, i1] and tv1[i0, 1] for
-  // which the non-vectorized load of tv1 is not the bottleneck and pointwise
-  // scheudler is prefered.
-  if (scheduler_utils::nLogicalDims(ref1) !=
-      scheduler_utils::nLogicalDims(ref2)) {
-    return false;
-  }
-
   // reference 1 is the global reference, so it must have dim mapped the
   // innermost dim of both groups
   auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);

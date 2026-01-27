@@ -491,9 +491,16 @@ std::string getTransposeRuntimeRejectReason(
       getReferenceTensors(data_cache, domain_map, grouped_inputs_outputs);
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
-
+  TensorView* reference2 = reference_tensors[1];
   auto [shape_in_ref1, n_elems] =
       getLoopDomainSizes(data_cache, runtime_info, reference1, domain_map);
+  auto [_, n_elems2] =
+      getLoopDomainSizes(data_cache, runtime_info, reference2, domain_map);
+  if (n_elems != n_elems2) {
+    return "Transpose scheduler does not perform well on problem sizes with "
+           "different number of elements. n_elems1: " +
+        std::to_string(n_elems) + " n_elems2: " + std::to_string(n_elems2);
+  }
 
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);

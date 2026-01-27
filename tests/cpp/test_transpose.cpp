@@ -286,11 +286,14 @@ TEST_F(TransposeTest, FusionScheduleTransposeNoReference) {
 
 // x->broadcast--add->z
 // y->broadcast-/
+// pointwise: 61%
+// transpose: 39%
 TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
   for (bool contig0 : {true, false}) {
     for (bool contig1 : {true, false}) {
-      Fusion fusion;
-      FusionGuard fg(&fusion);
+      auto fusion_ptr = std::make_unique<Fusion>();
+      FusionGuard fg(fusion_ptr.get());
+      Fusion& fusion = *fusion_ptr;
       auto tv0 = contig0 ? makeContigConcreteTensor({-1, 1, -1})
                          : makeConcreteTensor({-1, 1, -1});
       auto tv1 = contig1 ? makeContigConcreteTensor({-1, -1, 1})
@@ -304,10 +307,24 @@ TEST_F(TransposeTest, FusionScheduleBroadcastOnly) {
       at::Tensor input0 = at::randn({1024, 1, 256}, options);
       at::Tensor input1 = at::randn({1024, 1024, 1}, options);
 
-      auto cg_outputs =
-          scheduleAndRun(&fusion, SchedulerType::Transpose, {input0, input1})
-              .outputs;
-      testValidate(&fusion, cg_outputs, {input0, input1}, __LINE__, __FILE__);
+      FusionExecutorCache executor_cache(std::move(fusion_ptr));
+      auto outputs = executor_cache.runFusionWithInputs({input0, input1});
+      auto runtime = executor_cache.getMostRecentKernelRuntime();
+      auto heuristic = runtime->schedulerHeuristics()
+                           ->heuristicsList()
+                           .at(0)
+                           .get()
+                           ->scheduler_type;
+      NVF_CHECK(
+          heuristic == SchedulerType::PointWise,
+          "Unexpected heuristic: ",
+          heuristic);
+      testValidate(
+          executor_cache.fusion(),
+          outputs,
+          {input0, input1},
+          __LINE__,
+          __FILE__);
     }
   }
 }
@@ -629,8 +646,9 @@ TEST_F(TransposeTest, FusionTransposeViewSelfMapping) {
 // t2->broadcast->sub->mul->relu->t6
 // t1------------------'
 TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
 
   auto tv0 = makeContigTensor(3);
   auto tv1 = makeContigConcreteTensor({1, -1, 1});
@@ -649,12 +667,24 @@ TEST_F(TransposeTest, FusionScheduleTransposeMissingDim) {
   at::Tensor input1 = at::randn({1, 512, 1}, options);
   at::Tensor input2 = at::randn({512}, options);
 
-  auto cg_outputs =
-      scheduleAndRun(
-          &fusion, SchedulerType::Transpose, {input0, input1, input2})
-          .outputs;
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0, input1, input2});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  auto heuristic = runtime->schedulerHeuristics()
+                       ->heuristicsList()
+                       .at(0)
+                       .get()
+                       ->scheduler_type;
+  NVF_CHECK(
+      heuristic == SchedulerType::PointWise,
+      "Unexpected heuristic: ",
+      heuristic);
   testValidate(
-      &fusion, cg_outputs, {input0, input1, input2}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      {input0, input1, input2},
+      __LINE__,
+      __FILE__);
 }
 
 // x->sin->transpose->cos->y
@@ -1410,7 +1440,7 @@ TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, NoTransposeMaverick17B) {
+TEST_F(TransposeTest, NoTransposeMaverick17B) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
