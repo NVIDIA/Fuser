@@ -65,12 +65,12 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_ANY_THROW(DoubleInt64BoolVec(1.0).as<std::vector>());
 
   struct CustomType {};
-  static_assert(requires { (double)(std::declval<IntSomeType>()); });
-  static_assert(requires { (int64_t)(std::declval<IntSomeType>()); });
-  static_assert(requires { (bool)(std::declval<IntSomeType>()); });
-  static_assert(requires { (int)(std::declval<IntSomeType>()); });
-  static_assert(requires { (float)(std::declval<IntSomeType>()); });
-  static_assert(requires { (SomeType)(std::declval<IntSomeType>()); });
+  static_assert(requires(IntSomeType t) { (double)(t); });
+  static_assert(requires(IntSomeType t) { (int64_t)(t); });
+  static_assert(requires(IntSomeType t) { (bool)(t); });
+  static_assert(requires(IntSomeType t) { (int)(t); });
+  static_assert(requires(IntSomeType t) { (float)(t); });
+  static_assert(requires(IntSomeType t) { (SomeType)(t); });
   // Note: Negative check for CustomType removed - requires expressions with
   // local types cause hard template errors.
   static_assert((int64_t)IntSomeType(1) == 1);

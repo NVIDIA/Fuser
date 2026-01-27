@@ -30,29 +30,22 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
                 IntOrVec,
                 std::vector<std::vector<std::vector<std::vector<int>>>>>);
 
-  static_assert(requires { (std::vector<double>)(std::declval<IntOrVec>()); });
-  static_assert(requires {
-    (std::vector<std::vector<double>>)(std::declval<IntOrVec>());
+  static_assert(requires(IntOrVec iov) { (std::vector<double>)(iov); });
+  static_assert(
+      requires(IntOrVec iov) { (std::vector<std::vector<double>>)(iov); });
+  static_assert(requires(IntOrVec iov) {
+    (std::vector<std::vector<std::vector<double>>>)(iov);
   });
-  static_assert(requires {
-    (std::vector<std::vector<std::vector<double>>>)(std::declval<IntOrVec>());
-  });
-  static_assert(requires {
-    (std::vector<std::vector<std::vector<std::vector<double>>>>)(std::declval<
-                                                                 IntOrVec>());
+  static_assert(requires(IntOrVec iov) {
+    (std::vector<std::vector<std::vector<std::vector<double>>>>)(iov);
   });
 
-  static_assert(
-      requires { std::declval<IntOrVec>()[std::declval<IntOrVec>()]; });
+  static_assert(requires(IntOrVec a, IntOrVec idx) { a[idx]; });
   // Note: Negative checks for Vec removed - requires expressions with local
   // types cause hard template errors.
-  static_assert(
-      requires { std::declval<const IntOrVec>()[std::declval<IntOrVec>()]; });
-  static_assert(
-      requires { std::declval<IntOrVec>()[std::declval<const IntOrVec>()]; });
-  static_assert(requires {
-    std::declval<const IntOrVec>()[std::declval<const IntOrVec>()];
-  });
+  static_assert(requires(const IntOrVec a, IntOrVec idx) { a[idx]; });
+  static_assert(requires(IntOrVec a, const IntOrVec idx) { a[idx]; });
+  static_assert(requires(const IntOrVec a, const IntOrVec idx) { a[idx]; });
 
   IntOrVec zero = 0;
   IntOrVec one = 1;

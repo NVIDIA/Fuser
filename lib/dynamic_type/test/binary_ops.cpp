@@ -21,37 +21,21 @@
 
 #define TEST_BINARY_OP_ALLTYPE(name, op, opname)                               \
   TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64Bool>();      \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op                                    \
-      std::declval<DoubleInt64BoolVec>();                                      \
-    });                                                                        \
+    static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
     static_assert(                                                             \
-        requires { std::declval<DoubleInt64Bool>() op std::declval<int>(); }); \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op std::declval<int>();               \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64BoolTwo>();   \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op                                    \
-      std::declval<DoubleInt64BoolVecTwo>();                                   \
-    });                                                                        \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVec b) { a op b; });     \
+    static_assert(requires(DoubleInt64Bool a, int b) { a op b; });             \
+    static_assert(requires(DoubleInt64BoolVec a, int b) { a op b; });          \
     static_assert(                                                             \
-        requires { std::declval<int>() op std::declval<DoubleInt64Bool>(); }); \
-    static_assert(requires {                                                   \
-      std::declval<int>() op std::declval<DoubleInt64BoolVec>();               \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolTwo>() op std::declval<DoubleInt64Bool>();   \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVecTwo>() op                                 \
-      std::declval<DoubleInt64BoolVec>();                                      \
-    });                                                                        \
+        requires(DoubleInt64Bool a, DoubleInt64BoolTwo b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVecTwo b) { a op b; });  \
+    static_assert(requires(int a, DoubleInt64Bool b) { a op b; });             \
+    static_assert(requires(int a, DoubleInt64BoolVec b) { a op b; });          \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolTwo a, DoubleInt64Bool b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVecTwo a, DoubleInt64BoolVec b) { a op b; });  \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.5))                          \
             .as<decltype(2L op 2.5)>() == (2L op 2.5));                        \
@@ -94,9 +78,7 @@
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(requires {                                                   \
-      std::declval<IntSomeType>() op std::declval<IntSomeType>();              \
-    });                                                                        \
+    static_assert(requires(IntSomeType a, IntSomeType b) { a op b; });         \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
@@ -112,37 +94,21 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||, lor);
 
 #define TEST_COMPARE_OP(name, op, opname)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64Bool>();      \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op                                    \
-      std::declval<DoubleInt64BoolVec>();                                      \
-    });                                                                        \
+    static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
     static_assert(                                                             \
-        requires { std::declval<DoubleInt64Bool>() op std::declval<int>(); }); \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op std::declval<int>();               \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64BoolTwo>();   \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVec>() op                                    \
-      std::declval<DoubleInt64BoolVecTwo>();                                   \
-    });                                                                        \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVec b) { a op b; });     \
+    static_assert(requires(DoubleInt64Bool a, int b) { a op b; });             \
+    static_assert(requires(DoubleInt64BoolVec a, int b) { a op b; });          \
     static_assert(                                                             \
-        requires { std::declval<int>() op std::declval<DoubleInt64Bool>(); }); \
-    static_assert(requires {                                                   \
-      std::declval<int>() op std::declval<DoubleInt64BoolVec>();               \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolTwo>() op std::declval<DoubleInt64Bool>();   \
-    });                                                                        \
-    static_assert(requires {                                                   \
-      std::declval<DoubleInt64BoolVecTwo>() op                                 \
-      std::declval<DoubleInt64BoolVec>();                                      \
-    });                                                                        \
+        requires(DoubleInt64Bool a, DoubleInt64BoolTwo b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVecTwo b) { a op b; });  \
+    static_assert(requires(int a, DoubleInt64Bool b) { a op b; });             \
+    static_assert(requires(int a, DoubleInt64BoolVec b) { a op b; });          \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolTwo a, DoubleInt64Bool b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVecTwo a, DoubleInt64BoolVec b) { a op b; });  \
     static_assert(                                                             \
         (DoubleInt64Bool(2L) op DoubleInt64Bool(2.0)) == (2L op 2.0));         \
     static_assert(                                                             \
@@ -198,9 +164,7 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||, lor);
         },                                                                     \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
             "Result is dynamic but not convertible to result type")));         \
-    static_assert(requires {                                                   \
-      std::declval<IntSomeType>() op std::declval<IntSomeType>();              \
-    });                                                                        \
+    static_assert(requires(IntSomeType a, IntSomeType b) { a op b; });         \
     EXPECT_THAT(                                                               \
         [&]() { IntSomeType(SomeType{}) op IntSomeType(SomeType{}); },         \
         ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
@@ -287,83 +251,63 @@ TEST_NAMED_COMPARE_OP(NamedGt, >, gt);
 TEST_NAMED_COMPARE_OP(NamedLe, <=, le);
 TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
 
-#define TEST_BINARY_OP_INT_ONLY(name, op, opname)                            \
-  TEST_F(DynamicTypeTest, name) {                                            \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64Bool>();    \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64BoolVec>() op                                  \
-      std::declval<DoubleInt64BoolVec>();                                    \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64Bool>() op std::declval<int64_t>();            \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64BoolVec>() op std::declval<int64_t>();         \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64Bool>() op std::declval<DoubleInt64BoolTwo>(); \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64BoolVec>() op                                  \
-      std::declval<DoubleInt64BoolVecTwo>();                                 \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<int64_t>() op std::declval<DoubleInt64Bool>();            \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<int64_t>() op std::declval<DoubleInt64BoolVec>();         \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64BoolTwo>() op std::declval<DoubleInt64Bool>(); \
-    });                                                                      \
-    static_assert(requires {                                                 \
-      std::declval<DoubleInt64BoolVecTwo>() op                               \
-      std::declval<DoubleInt64BoolVec>();                                    \
-    });                                                                      \
-    static_assert(                                                           \
-        (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==        \
-        (3L op 2L));                                                         \
-    static_assert(                                                           \
-        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{})                        \
-            .as<decltype(3L op 2L)>() == (3L op 2L));                        \
-    static_assert(                                                           \
-        (DoubleInt64BoolTwo {} op DoubleInt64Bool(3L))                       \
-            .as<decltype(2L op 3L)>() == (2L op 3L));                        \
-    EXPECT_EQ(                                                               \
-        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVec(2L)).as<int64_t>(),    \
-        (3L op 2L));                                                         \
-    EXPECT_EQ(                                                               \
-        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{})                  \
-            .as<decltype(3L op 2L)>(),                                       \
-        (3L op 2L));                                                         \
-    EXPECT_EQ(                                                               \
-        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L))                 \
-            .as<decltype(2L op 3L)>(),                                       \
-        (2L op 3L));                                                         \
-    static_assert((DoubleInt64Bool(3L) op 2L).as<int64_t>() == (3L op 2L));  \
-    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L).as<int64_t>(), (3L op 2L));     \
-    static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));  \
-    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));     \
-    EXPECT_THAT(                                                             \
-        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                 \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
-            "Result is dynamic but not convertible to result type")));       \
-    EXPECT_THAT(                                                             \
-        [&]() {                                                              \
-          DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})              \
-              op DoubleInt64BoolVec(2L);                                     \
-        },                                                                   \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
-            "Result is dynamic but not convertible to result type")));       \
-    static_assert(requires {                                                 \
-      std::declval<IntSomeType>() + std::declval<IntSomeType>();             \
-    });                                                                      \
-    EXPECT_THAT(                                                             \
-        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },        \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
-            "Result is dynamic but not convertible to result type")));       \
+#define TEST_BINARY_OP_INT_ONLY(name, op, opname)                              \
+  TEST_F(DynamicTypeTest, name) {                                              \
+    static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVec b) { a op b; });     \
+    static_assert(requires(DoubleInt64Bool a, int64_t b) { a op b; });         \
+    static_assert(requires(DoubleInt64BoolVec a, int64_t b) { a op b; });      \
+    static_assert(                                                             \
+        requires(DoubleInt64Bool a, DoubleInt64BoolTwo b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVec a, DoubleInt64BoolVecTwo b) { a op b; });  \
+    static_assert(requires(int64_t a, DoubleInt64Bool b) { a op b; });         \
+    static_assert(requires(int64_t a, DoubleInt64BoolVec b) { a op b; });      \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolTwo a, DoubleInt64Bool b) { a op b; });        \
+    static_assert(                                                             \
+        requires(DoubleInt64BoolVecTwo a, DoubleInt64BoolVec b) { a op b; });  \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3L) op DoubleInt64Bool(2L)).as<int64_t>() ==          \
+        (3L op 2L));                                                           \
+    static_assert(                                                             \
+        (DoubleInt64Bool(3L) op DoubleInt64BoolTwo{})                          \
+            .as<decltype(3L op 2L)>() == (3L op 2L));                          \
+    static_assert(                                                             \
+        (DoubleInt64BoolTwo {} op DoubleInt64Bool(3L))                         \
+            .as<decltype(2L op 3L)>() == (2L op 3L));                          \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVec(2L)).as<int64_t>(),      \
+        (3L op 2L));                                                           \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVec(3L) op DoubleInt64BoolVecTwo{})                    \
+            .as<decltype(3L op 2L)>(),                                         \
+        (3L op 2L));                                                           \
+    EXPECT_EQ(                                                                 \
+        (DoubleInt64BoolVecTwo {} op DoubleInt64BoolVec(3L))                   \
+            .as<decltype(2L op 3L)>(),                                         \
+        (2L op 3L));                                                           \
+    static_assert((DoubleInt64Bool(3L) op 2L).as<int64_t>() == (3L op 2L));    \
+    EXPECT_EQ((DoubleInt64BoolVec(3L) op 2L).as<int64_t>(), (3L op 2L));       \
+    static_assert((3L op DoubleInt64Bool(2L)).as<int64_t>() == (3L op 2L));    \
+    EXPECT_EQ((3L op DoubleInt64BoolVec(2L)).as<int64_t>(), (3L op 2L));       \
+    EXPECT_THAT(                                                               \
+        [&]() { DoubleInt64Bool() op DoubleInt64Bool(2L); },                   \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    EXPECT_THAT(                                                               \
+        [&]() {                                                                \
+          DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{})                \
+              op DoubleInt64BoolVec(2L);                                       \
+        },                                                                     \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
+    static_assert(requires(IntSomeType a, IntSomeType b) { a + b; });          \
+    EXPECT_THAT(                                                               \
+        [&]() { IntSomeType(SomeType{}) + IntSomeType(SomeType{}); },          \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(     \
+            "Result is dynamic but not convertible to result type")));         \
   }
 
 TEST_BINARY_OP_INT_ONLY(Mod, %, mod);

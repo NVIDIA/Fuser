@@ -82,10 +82,10 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   EXPECT_EQ(d->*&D::x, 7);
   EXPECT_EQ(d->*&D::y, 8);
 #endif
-  static_assert(requires { std::declval<ABCD>()->*std::declval<int A::*>(); });
-  static_assert(requires { std::declval<ABCD>()->*std::declval<int B::*>(); });
-  static_assert(requires { std::declval<ABCD>()->*std::declval<int C::*>(); });
-  static_assert(requires { std::declval<ABCD>()->*std::declval<int D::*>(); });
+  static_assert(requires(ABCD obj, int A::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int B::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int C::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int D::* ptr) { obj->*ptr; });
   // Note: Negative check for E removed - requires expressions with local types
   // cause hard template errors.
 
@@ -152,8 +152,7 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
   EXPECT_EQ(g->*"y", 4);
 #endif
 
-  static_assert(
-      requires { std::declval<EFG>()->*std::declval<std::string_view>(); });
+  static_assert(requires(EFG obj, std::string_view sv) { obj->*sv; });
   // Note: Negative check for int removed - requires expressions with local
   // types cause hard template errors.
 
@@ -230,8 +229,7 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(i->*"x", 3);
   EXPECT_EQ(i->*"y", 4);
 
-  static_assert(
-      requires { std::declval<EHI>()->*std::declval<std::string_view>(); });
+  static_assert(requires(EHI obj, std::string_view sv) { obj->*sv; });
   // Note: Negative check for int removed - requires expressions with local
   // types cause hard template errors.
 
