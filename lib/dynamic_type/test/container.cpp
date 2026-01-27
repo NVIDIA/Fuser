@@ -37,11 +37,11 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
                 IntOrVec,
                 std::vector<std::vector<std::vector<std::vector<int>>>>>);
 
-  static_assert(requires { (std::vector<double>)(std::declval<IntOrVec>()); });
+  static_assert(requires(IntOrVec iov) { (std::vector<double>)(iov); });
   static_assert(
-      requires { (std::vector<std::vector<double>>)(std::declval<IntOrVec>()); });
-  static_assert(requires { (std::vector<std::vector<std::vector<double>>>)(std::declval<IntOrVec>()); });
-  static_assert(requires { (std::vector<std::vector<std::vector<std::vector<double>>>>)(std::declval<IntOrVec>()); });
+      requires(IntOrVec iov) { (std::vector<std::vector<double>>)(iov); });
+  static_assert(requires(IntOrVec iov) { (std::vector<std::vector<std::vector<double>>>)(iov); });
+  static_assert(requires(IntOrVec iov) { (std::vector<std::vector<std::vector<std::vector<double>>>>)(iov); });
 
   static_assert(has_subscript<IntOrVec, IntOrVec>::value);
   static_assert(!has_subscript<Vec, Vec>::value);

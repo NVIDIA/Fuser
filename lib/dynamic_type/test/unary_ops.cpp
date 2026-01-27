@@ -18,16 +18,16 @@ template <typename T, typename Op>
 struct has_unary_op : std::false_type {};
 
 template <typename T>
-struct has_unary_op<T, std::integral_constant<int, '+'>> : std::bool_constant<requires { +std::declval<T>(); }> {};
+struct has_unary_op<T, std::integral_constant<int, '+'>> : std::bool_constant<requires(T t) { +t; }> {};
 
 template <typename T>
-struct has_unary_op<T, std::integral_constant<int, '-'>> : std::bool_constant<requires { -std::declval<T>(); }> {};
+struct has_unary_op<T, std::integral_constant<int, '-'>> : std::bool_constant<requires(T t) { -t; }> {};
 
 template <typename T>
-struct has_unary_op<T, std::integral_constant<int, '~'>> : std::bool_constant<requires { ~std::declval<T>(); }> {};
+struct has_unary_op<T, std::integral_constant<int, '~'>> : std::bool_constant<requires(T t) { ~t; }> {};
 
 template <typename T>
-struct has_unary_op<T, std::integral_constant<int, '!'>> : std::bool_constant<requires { !std::declval<T>(); }> {};
+struct has_unary_op<T, std::integral_constant<int, '!'>> : std::bool_constant<requires(T t) { !t; }> {};
 
 #define TEST_UNARY_OP(name, op, int_or_bool, opchar)                          \
   TEST_F(DynamicTypeTest, name) {                                             \

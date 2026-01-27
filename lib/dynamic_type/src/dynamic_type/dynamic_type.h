@@ -148,8 +148,8 @@ struct DynamicType {
   static constexpr bool can_cast_to = any_check(
       [](auto t) {
         using From = typename decltype(t)::type;
-        return requires {
-          (T)(std::declval<From>());
+        return requires(From from) {
+          (T)(from);
         };
       },
       type_identities_as_tuple);
@@ -351,7 +351,7 @@ struct DynamicType {
     return dispatch(
         [](auto x) -> decltype(auto) {
           using X = decltype(x);
-          if constexpr (requires { (T)(std::declval<X>()); }) {
+          if constexpr (requires(X xx) { (T)(xx); }) {
             return (T)x;
           }
         },
@@ -397,7 +397,7 @@ struct DynamicType {
           using XD = std::decay_t<X>;
           if constexpr (std::is_pointer_v<XD>) {
             return (std::decay_t<X>)(x);
-          } else if constexpr (requires { std::declval<XD>().operator->(); }) {
+          } else if constexpr (requires(XD xd) { xd.operator->(); }) {
             return std::forward<X>(x).operator->();
           }
         },
@@ -408,7 +408,7 @@ struct DynamicType {
   static constexpr bool has_square_bracket = any_check(
       [](auto t) {
         using T = typename decltype(t)::type;
-        if constexpr (requires { std::declval<T>()[std::declval<IndexT>()]; }) {
+        if constexpr (requires(T tt, IndexT idx) { tt[idx]; }) {
           return std::is_same_v<
               decltype(std::declval<T>()[std::declval<IndexT>()]),
               DynamicType&>;
@@ -426,7 +426,7 @@ struct DynamicType {
         std::nullopt;                                                          \
     for_all_types([this, &ret, &i](auto t) {                                   \
       using T = typename decltype(t)::type;                                    \
-      if constexpr (requires { std::declval<T>()[std::declval<IndexT>()]; }) { \
+      if constexpr (requires(T tt, IndexT idx) { tt[idx]; }) { \
         if constexpr (std::is_same_v<                                          \
                           decltype(std::declval<T>()[std::declval<IndexT>()]), \
                           DynamicType&>) {                                     \
