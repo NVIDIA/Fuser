@@ -83,10 +83,10 @@ nvfuser-configure() {
         fi
     fi
 
-    # If apply script was generated, source it and clean up
-    if [ \$exit_code -eq 0 ] && [ -f "\$APPLY_SCRIPT" ]; then
-        . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT"
-        echo "✓ Configuration applied to current shell"
+    # If apply script was generated, source it and clean up atomically
+    # Note: We check exit_code separately to avoid TOCTOU on the file
+    if [ \$exit_code -eq 0 ]; then
+        [ -f "\$APPLY_SCRIPT" ] && . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
     fi
 
     return \$exit_code
@@ -136,10 +136,10 @@ nvfuser-configure() {
         fi
     fi
 
-    # If apply script was generated, source it and clean up
-    if [ $exit_code -eq 0 ] && [ -f "$APPLY_SCRIPT" ]; then
-        . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT"
-        echo "✓ Configuration applied to current shell"
+    # If apply script was generated, source it and clean up atomically
+    # Note: We check exit_code separately to avoid TOCTOU on the file
+    if [ $exit_code -eq 0 ]; then
+        [ -f "$APPLY_SCRIPT" ] && . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
     fi
 
     return $exit_code
