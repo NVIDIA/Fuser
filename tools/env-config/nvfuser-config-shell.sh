@@ -54,7 +54,6 @@ if ! _is_sourced; then
     cat << EOF
 nvfuser-configure() {
     local SCRIPT_DIR="$EMBED_SCRIPT_DIR"
-    local APPLY_SCRIPT="\$(pwd)/.nvfuser_apply_now.sh"
     local TOOL_PATH="\$SCRIPT_DIR/configure_env.py"
 
     # If file not found, try alternative locations
@@ -124,7 +123,6 @@ nvfuser-configure() {
         local SCRIPT_DIR="$(pwd)"
     fi
 
-    local APPLY_SCRIPT="$(pwd)/.nvfuser-apply."*.sh
     local TOOL_PATH="$SCRIPT_DIR/configure_env.py"
 
     # If SCRIPT_DIR detection failed, try to find configure_env.py in PATH

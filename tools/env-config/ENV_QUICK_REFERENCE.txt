@@ -17,7 +17,7 @@ CONFIGURATION TOOL
     [↑↓]   Navigate options
     [Enter] Toggle/cycle values
     [e]    Edit string/int values
-    [a]    Apply - Generate .nvfuser_apply_now.sh
+    [a]    Apply - Generate .nvfuser_apply.*.sh
     [g]    Generate - Create nvfuser_env.sh
     [q]    Quit - Prompts: Apply/Generate/Quit if changes made
     [Esc]  Cancel quit prompt
@@ -30,7 +30,7 @@ CONFIGURATION TOOL
 
   ⚠️  IMPORTANT: Python cannot set parent shell vars!
       After configuring, you must:
-        source .nvfuser_apply_now.sh   # if you pressed 'a'
+        source .nvfuser_apply_.*.sh   # if you pressed 'a'
         source nvfuser_env.sh         # if you pressed 'g'
 
 ENVIRONMENT & COMPILER SETTINGS

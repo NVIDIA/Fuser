@@ -643,7 +643,7 @@ class CursesUI:
                         "",
                         "What would you like to do?",
                         "",
-                        "  [a] Apply Now    - Generate .nvfuser_apply_now.sh in current dir",
+                        "  [a] Apply Now    - Generate .nvfuser_apply.*.sh in current dir",
                         "                     (sourced automatically after exit)",
                         "",
                         "  [g] Generate     - Create nvfuser_env.sh",
