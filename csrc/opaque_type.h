@@ -86,7 +86,7 @@ class Opaque {
 
 template <typename T>
 bool OpaqueEquals<T>::operator()(const Opaque& a, const Opaque& b) const {
-  if constexpr (requires { std::declval<T>() == std::declval<T>(); }) {
+  if constexpr (requires(const T& x, const T& y) { x == y; }) {
     // If T == T exists, use it
     return a.as<T>() == b.as<T>();
   } else {
