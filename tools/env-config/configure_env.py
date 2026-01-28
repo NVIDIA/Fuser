@@ -230,7 +230,12 @@ def save_config(
             for var, val in sorted(exports.items()):
                 f.write(f'export {var}="{val}"\n')
 
-    os.chmod(filename, 0o700)
+    # Set secure permissions (600 for apply scripts, 755 for user-generated scripts)
+    # If filename starts with a dot, it's likely a temporary apply script
+    if os.path.basename(filename).startswith("."):
+        os.chmod(filename, 0o600)  # Apply scripts: owner read/write only
+    else:
+        os.chmod(filename, 0o755)  # User scripts: executable by all
 
 
 def generate_script_mode(config: EnvVarConfig) -> None:
