@@ -138,8 +138,6 @@ def test_row_parallel_linear_with_bias(multidevice_test):
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
         bias_tv.set_device_mesh(mesh)
 
-        bias_tv.set_device_mesh(mesh)
-
     b, s = 2, 3
     inp_ref = torch.randn(b, s, d * e)
     weight_ref = torch.randn(e, d * e)
