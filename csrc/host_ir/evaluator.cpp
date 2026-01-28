@@ -806,14 +806,21 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  auto stream_index =
-      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  auto index = expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+
+  if (stream_id->definition() != nullptr) {
+    NVF_CHECK(stream_id->definition()->isA<hir::Swizzle>());
+    auto* swizzle = stream_id->definition()->as<hir::Swizzle>();
+    int64_t offset = swizzle->offset()->evaluate().as<int64_t>();
+    index += offset;
+  }
+
   at::Tensor out_tensor =
       in_tensor
           .chunk(
-              stream_id->extent()->evaluate().as<int64_t>(),
+              expr_evaluator_.evaluate(stream_id->extent()).as<int64_t>(),
               getShardedLogicalAxis(out_tv, ParallelType::Stream))
-          .at(stream_index);
+          .at(index);
 
   expr_evaluator_.bind(out_tv, out_tensor);
 }

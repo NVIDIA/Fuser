@@ -24,6 +24,32 @@
 
 namespace nvfuser::hir {
 
+IterDomain* swizzle(IterDomain* in, Val* offset) {
+  NVF_ERROR(in != nullptr, "Input IterDomain cannot be null");
+  NVF_ERROR(offset != nullptr, "Swizzle offset parameter cannot be null");
+
+  // Create output IterDomain with same properties as input
+  auto* out = IterDomainBuilder(in).build();
+
+  // Create the Swizzle expression
+  IrBuilder::create<Swizzle>(in, out, offset);
+
+  return out;
+}
+
+TensorView* swizzle(TensorView* in, int64_t axis, Val* offset) {
+  NVF_ERROR(in != nullptr);
+  NVF_ERROR(offset != nullptr);
+
+  IterDomain* out_id = swizzle(in->axis(axis), offset);
+  std::vector<IterDomain*> loop_domain = in->getLoopDomain();
+  loop_domain.erase(loop_domain.begin() + axis);
+  loop_domain.insert(loop_domain.begin() + axis, out_id);
+  in->setLoopDomain(loop_domain);
+
+  return in;
+}
+
 TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
   NVF_ERROR(
       getShardedIterDomain(

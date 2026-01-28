@@ -16,6 +16,7 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
+#include "host_ir/ops.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
 #include "ops/alias.h"
@@ -220,6 +221,74 @@ TEST_F(HostIrEvaluatorTest, AddInLoop) {
   expected_out_tensor.chunk(c, 1)[0].zero_();
   EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor))
       << out_tensor << " vs " << expected_out_tensor;
+}
+
+TEST_F(HostIrEvaluatorTest, SwizzleCopy) {
+  constexpr int64_t c = 3;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({c * 5}, options);
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  {
+    TensorView* in_tv = makeContigTensor(1);
+    TensorView* out_tv = set(in_tv);
+    hic->addInput(in_tv);
+    hic->addOutput(out_tv);
+
+    for (auto* tv : {in_tv, out_tv}) {
+      tv->setMemoryType(MemoryType::Global);
+      tv->outer_split(0, c);
+    }
+    auto* allocate_out = IrBuilder::create<kir::Allocate>(
+        out_tv, MemoryType::Global, std::vector<Val*>({}), /*zero_init=*/true);
+
+    Val* offset = IrBuilder::create<Val>(1, DataType::Index);
+    in_tv = swizzle(in_tv, 0, offset);
+    out_tv = swizzle(out_tv, 0, offset);
+    in_tv->axis(0)->parallelize(ParallelType::Stream);
+    out_tv->axis(0)->parallelize(ParallelType::Stream);
+
+    auto* stream_index = IrBuilder::create<Val>(DataType::Index);
+    auto* for_loop = IrBuilder::create<ForLoop>(
+        stream_index,
+        /*start=*/hic->zeroVal(DataType::Index),
+        /*stop=*/IrBuilder::create<Val>(c - 1, DataType::Index));
+
+    TensorView* in_shard =
+        ops::newValLike(in_tv, *in_tv->getDataType())->as<TensorView>();
+    TensorView* out_shard =
+        ops::newValLike(out_tv, *out_tv->getDataType())->as<TensorView>();
+
+    for (auto* tv : {in_shard, out_shard}) {
+      tv->outer_split(0, c);
+      tv = swizzle(tv, 0, offset);
+      tv->axis(0)->parallelize(ParallelType::Stream);
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+    }
+
+    IrBuilder::create<ShardByStream>(in_shard, in_tv, stream_index);
+    IrBuilder::create<ShardByStream>(out_shard, out_tv, stream_index);
+    auto* copy = IrBuilder::create<LoadStoreOp>(
+        LoadStoreOpType::Set, out_shard, in_shard);
+
+    for_loop->body().pushBack(in_shard->definition());
+    for_loop->body().pushBack(out_shard->definition());
+    for_loop->body().pushBack(copy);
+
+    hic->pushBackTopLevelExprs(allocate_out);
+    hic->pushBackTopLevelExprs(for_loop);
+  }
+
+  HostIrEvaluator hie(std::move(hic));
+  KernelArgumentHolder ins(in_tensor);
+  ins.setCacheId(0);
+  KernelArgumentHolder outs = hie.runWithInputs(ins);
+  auto out_tensor = outs[0].as<at::Tensor>();
+  auto expected_out_tensor = in_tensor;
+  expected_out_tensor.chunk(c, 0)[0].zero_();
+  EXPECT_TRUE(at::allclose(out_tensor, expected_out_tensor));
 }
 
 } // namespace nvfuser::hir
