@@ -137,6 +137,8 @@ def test_row_parallel_linear_with_bias(multidevice_test):
             t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
+        bias_tv.set_device_mesh(mesh)
+
     b, s = 2, 3
     inp_ref = torch.randn(b, s, d * e)
     weight_ref = torch.randn(e, d * e)
@@ -161,18 +163,18 @@ def test_linear_reduce_scatter(multidevice_test):
         inp_tv = fd.define_tensor([-1, d * s, d * e], dtype=DataType.BFloat16)
         weight_tv = fd.define_tensor([-1, d * e], dtype=DataType.BFloat16)
         bias_tv = fd.define_tensor([e], dtype=DataType.BFloat16)
-        out = fd.ops.linear(inp_tv, weight_tv, bias_tv)
-        fd.add_output(out)
+        out_tv = fd.ops.linear(inp_tv, weight_tv, bias_tv)
+        fd.add_output(out_tv)
 
         mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
         bias_tv.set_device_mesh(mesh)
-        for tv in [inp_tv, weight_tv, out]:
+        for tv in [inp_tv, weight_tv, out_tv]:
             tv.set_device_mesh(mesh)
             tv.split(-1, d, inner_split=False)
             tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
-        out.outer_split(1, d)
-        out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+        out_tv.outer_split(1, d)
+        out_tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     inp_ref = torch.randint(-2, 3, (b, d * s, d * e)).to(torch.bfloat16)
     weight_ref = torch.randint(-2, 3, (e, d * e)).to(torch.bfloat16)
@@ -193,7 +195,7 @@ def test_linear_reduce_scatter(multidevice_test):
 
     torch.testing.assert_close(
         out,
-        multidevice_test.shard_tensor_1d(out_ref, 1, mesh),
+        multidevice_test.shard_tensor(out_ref, out_tv),
     )
 
 
@@ -415,11 +417,11 @@ def test_sequence_parallel_linear(multidevice_test):
         inp_tv = fd.define_tensor(shape=[-1, -1, -1], contiguity=True)  # [b, s, e]
         weight_tv = fd.define_tensor(shape=[-1, -1], contiguity=True)  # [e, e]
         bias_tv = fd.define_tensor(shape=[-1], contiguity=True)  # [e]
-        out = fd.ops.linear(inp_tv, weight_tv, bias_tv)  # [b, s, e]
-        fd.add_output(out)
+        out_tv = fd.ops.linear(inp_tv, weight_tv, bias_tv)  # [b, s, e]
+        fd.add_output(out_tv)
 
         mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d))
-        for t in [inp_tv, weight_tv, bias_tv, out]:
+        for t in [inp_tv, weight_tv, bias_tv, out_tv]:
             t.set_device_mesh(mesh)
 
         inp_tv.outer_split(1, d)
@@ -428,8 +430,8 @@ def test_sequence_parallel_linear(multidevice_test):
         weight_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
         bias_tv.outer_split(0, d)
         bias_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
-        out.outer_split(1, d)
-        out.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+        out_tv.outer_split(1, d)
+        out_tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
 
     inp_ref = torch.randn(b, s, e)
     weight_ref = torch.randn(e, e)
@@ -441,7 +443,7 @@ def test_sequence_parallel_linear(multidevice_test):
     bias = multidevice_test.shard_tensor(bias_ref, bias_tv)
     (out,) = fd.execute([inp, weight, bias])
     torch.testing.assert_close(
-        out, multidevice_test.shard_tensor_1d(out_ref, 1, mesh), rtol=1e-3, atol=1e-2
+        out, multidevice_test.shard_tensor(out_ref, out_tv), rtol=1e-3, atol=1e-2
     )
 
 
