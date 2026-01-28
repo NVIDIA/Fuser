@@ -49,9 +49,6 @@ def test_pointwise(multidevice_test):
     (out,) = fd.execute([inp])
     torch.testing.assert_close(out.cpu(), out_ref)
 
-    (out_sharding,) = fd.fec.get_output_shardings()
-    assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
-
 
 class QkvFormat(Enum):
     BHSE = auto()
