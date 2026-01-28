@@ -338,7 +338,6 @@ exclude_patterns = [
     '**/git-pre-commit',
     '**/git-clang-format',
     'third_party/**',
-    '**/nvfuser-config',
 ]
 command = [
     'python3',
