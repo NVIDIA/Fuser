@@ -1,3 +1,8 @@
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
 # nvFuser Environment Configuration Tool
 
 Interactive tool for managing nvFuser's 49 build and runtime environment variables.
