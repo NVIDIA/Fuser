@@ -7,12 +7,29 @@
 
 Interactive tool for managing nvFuser's 49 build and runtime environment variables.
 
-## Setup (ONE LINE in ~/.bashrc or ~/.zshrc)
+## Quick Setup (Auto-install)
 
-From Fuser/main directory:
+From Fuser/main directory, copy-paste ONE command:
 
 ```bash
-# Add to ~/.bashrc (for bash) or ~/.zshrc (for zsh) - ONE LINE
+# For bash
+echo 'eval "$('$PWD'/tools/env-config/nvfuser-config-shell.sh)"' >> ~/.bashrc && source ~/.bashrc
+
+# For zsh
+echo 'eval "$('$PWD'/tools/env-config/nvfuser-config-shell.sh)"' >> ~/.zshrc && source ~/.zshrc
+```
+
+This appends the setup line to your RC file and immediately activates it.
+
+**Verify:** `type nvfuser-configure` should show the function definition.
+
+**Note:** Running this multiple times will add duplicate lines. If you need to remove duplicates later, edit your RC file manually.
+
+## Manual Setup (if preferred)
+
+Add this ONE LINE to your `~/.bashrc` (bash) or `~/.zshrc` (zsh):
+
+```bash
 eval "$($PWD/tools/env-config/nvfuser-config-shell.sh)"
 ```
 
@@ -24,8 +41,6 @@ source ~/.bashrc
 # For zsh
 source ~/.zshrc
 ```
-
-**Verify:** `type nvfuser-configure` should show the function definition.
 
 **Note:** The script works with bash, zsh, and other POSIX-compatible shells.
 
