@@ -19,7 +19,7 @@
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #endif
 
-#define TEST_BINARY_OP_ALLTYPE(name, op, opname)                               \
+#define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
     static_assert(                                                             \
@@ -85,14 +85,14 @@
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_BINARY_OP_ALLTYPE(Add, +, add);
-TEST_BINARY_OP_ALLTYPE(Minus, -, minus);
-TEST_BINARY_OP_ALLTYPE(Mul, *, mul);
-TEST_BINARY_OP_ALLTYPE(Div, /, div);
-TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&, land);
-TEST_BINARY_OP_ALLTYPE(LogicalOr, ||, lor);
+TEST_BINARY_OP_ALLTYPE(Add, +);
+TEST_BINARY_OP_ALLTYPE(Minus, -);
+TEST_BINARY_OP_ALLTYPE(Mul, *);
+TEST_BINARY_OP_ALLTYPE(Div, /);
+TEST_BINARY_OP_ALLTYPE(LogicalAnd, &&);
+TEST_BINARY_OP_ALLTYPE(LogicalOr, ||);
 
-#define TEST_COMPARE_OP(name, op, opname)                                      \
+#define TEST_COMPARE_OP(name, op)                                              \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
     static_assert(                                                             \
@@ -171,12 +171,12 @@ TEST_BINARY_OP_ALLTYPE(LogicalOr, ||, lor);
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_COMPARE_OP(Eq, ==, eq);
-TEST_COMPARE_OP(Ne, !=, neq);
-TEST_COMPARE_OP(Lt, <, lt);
-TEST_COMPARE_OP(Gt, >, gt);
-TEST_COMPARE_OP(Le, <=, le);
-TEST_COMPARE_OP(Ge, >=, ge);
+TEST_COMPARE_OP(Eq, ==);
+TEST_COMPARE_OP(Ne, !=);
+TEST_COMPARE_OP(Lt, <);
+TEST_COMPARE_OP(Gt, >);
+TEST_COMPARE_OP(Le, <=);
+TEST_COMPARE_OP(Ge, >=);
 
 #define TEST_NAMED_COMPARE_OP(name, op, func)                                \
   TEST_F(DynamicTypeTest, name) {                                            \
@@ -251,7 +251,7 @@ TEST_NAMED_COMPARE_OP(NamedGt, >, gt);
 TEST_NAMED_COMPARE_OP(NamedLe, <=, le);
 TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
 
-#define TEST_BINARY_OP_INT_ONLY(name, op, opname)                              \
+#define TEST_BINARY_OP_INT_ONLY(name, op)                                      \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
     static_assert(                                                             \
@@ -310,12 +310,12 @@ TEST_NAMED_COMPARE_OP(NamedGe, >=, ge);
             "Result is dynamic but not convertible to result type")));         \
   }
 
-TEST_BINARY_OP_INT_ONLY(Mod, %, mod);
-TEST_BINARY_OP_INT_ONLY(BinaryAnd, &, band);
-TEST_BINARY_OP_INT_ONLY(BinaryOr, |, bor);
-TEST_BINARY_OP_INT_ONLY(Xor, ^, xor);
-TEST_BINARY_OP_INT_ONLY(LShift, <<, lshift);
-TEST_BINARY_OP_INT_ONLY(RShift, >>, rshift);
+TEST_BINARY_OP_INT_ONLY(Mod, %);
+TEST_BINARY_OP_INT_ONLY(BinaryAnd, &);
+TEST_BINARY_OP_INT_ONLY(BinaryOr, |);
+TEST_BINARY_OP_INT_ONLY(Xor, ^);
+TEST_BINARY_OP_INT_ONLY(LShift, <<);
+TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
 TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   struct Type1 {};
