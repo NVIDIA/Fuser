@@ -1,11 +1,9 @@
-#!/bin/sh
+#!/bin/bash
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
 # nvFuser Configuration Tool - Shell Integration
-#
-# Works with bash, zsh, and other POSIX shells
 #
 # Setup (ONE LINE in ~/.bashrc or ~/.zshrc):
 #   eval "$(/absolute/path/to/Fuser/tools/env-config/nvfuser-config-shell.sh)"
