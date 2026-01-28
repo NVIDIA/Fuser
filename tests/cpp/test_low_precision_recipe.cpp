@@ -256,6 +256,192 @@ TEST_P(MXFP8QuantizationTest, AutoScheduleOp) {
       << ", atol=" << atol << ")";
 }
 
+TEST_F(MXFP8QuantizationTest, AutoScheduleOpHandleNoVectorizedInput) {
+  const auto data_hp_dtype = DataType::Float;
+  const int m = 1024;
+  const int n = 1024;
+
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  createMXFP8QuantizationFusion(fusion.get(), data_hp_dtype);
+
+  FusionExecutorCache fec(std::move(fusion));
+
+  // Create misaligned tensor by slicing - this ensures non-vectorizable input
+  auto input_tensor =
+      at::randn({m * n + 1}, at::device(at::kCUDA).dtype(at::kFloat))
+          .to(data_type_to_aten(data_hp_dtype))
+          .index({at::indexing::Slice(1)})
+          .view({m, n});
+
+  std::vector<at::Tensor> inputs;
+  inputs.push_back(input_tensor);
+  auto outputs_baseline = fec.runFusionWithInputs(inputs);
+
+  // Using the block quantization op in nvFuser.
+  std::unique_ptr<Fusion> fusion_new_op = std::make_unique<Fusion>();
+  FusionGuard fg2(fusion_new_op.get());
+
+  auto tv_in_1 = makeContigTensor(2, data_hp_dtype);
+  fusion_new_op->addInput(tv_in_1);
+
+  auto quantization_results =
+      blockQuantize(tv_in_1, nullptr, 32, false, DataType::Float8_e4m3fn);
+
+  fusion_new_op->addOutput(quantization_results.block_scales);
+  fusion_new_op->addOutput(quantization_results.quantized_tensor);
+
+  FusionExecutorCache executor_cache(std::move(fusion_new_op));
+  auto outputs_new_op = executor_cache.runFusionWithInputs(inputs);
+
+  auto baseline_block_scales =
+      outputs_baseline[0].as<at::Tensor>().to(at::kFloat);
+  auto baseline_quantized_tensor =
+      outputs_baseline[1].as<at::Tensor>().to(at::kFloat);
+
+  auto block_scales = outputs_new_op[0].as<at::Tensor>().to(at::kFloat);
+  auto quantized_tensor = outputs_new_op[1].as<at::Tensor>().to(at::kFloat);
+
+  // Compare block scales - expect exact match
+  EXPECT_TRUE(baseline_block_scales.equal(block_scales))
+      << "Block scales do not match exactly";
+
+  constexpr double atol = 0.1;
+  constexpr double rtol = 1;
+
+  EXPECT_TRUE(baseline_quantized_tensor.allclose(quantized_tensor, rtol, atol))
+      << "Quantized tensors do not match within tolerance (rtol=" << rtol
+      << ", atol=" << atol << ")";
+}
+
+// Test class for MXFP8 quantization scheduling validation
+class MXFP8QuantizationValidationTest : public BlackwellBase {
+ protected:
+  struct Tensors {
+    TensorView* tv_data_hp;
+    TensorView* t0;
+    TensorView* block_scales;
+    TensorView* quantized_tensor;
+    TensorView* tv_quantized_out;
+  };
+
+  std::unique_ptr<Fusion> fusion;
+  std::unique_ptr<FusionGuard> fg;
+  Tensors tensors;
+
+  void setupFusion(int32_t block_size = 32) {
+    fusion = std::make_unique<Fusion>();
+    fg = std::make_unique<FusionGuard>(fusion.get());
+
+    tensors.tv_data_hp = makeContigTensor(2, DataType::Float);
+    fusion->addInput(tensors.tv_data_hp);
+
+    tensors.t0 = set(tensors.tv_data_hp);
+    auto quantization_results = blockQuantize(
+        tensors.t0, nullptr, block_size, false, DataType::Float8_e4m3fn);
+    tensors.block_scales = quantization_results.block_scales;
+    tensors.quantized_tensor = quantization_results.quantized_tensor;
+    tensors.tv_quantized_out = set(tensors.quantized_tensor);
+
+    fusion->addOutput(tensors.tv_quantized_out);
+    fusion->addOutput(tensors.block_scales);
+  }
+};
+
+TEST_F(MXFP8QuantizationValidationTest, BlockSizeNotDivisible) {
+  setupFusion(32);
+
+  // Split by 16 which is not divisible by block dim x size 32
+  for (auto t :
+       {tensors.tv_data_hp,
+        tensors.t0,
+        tensors.quantized_tensor,
+        tensors.block_scales,
+        tensors.tv_quantized_out}) {
+    t->merge(-2);
+    t->split(-1, 16);
+    t->split(-2, 1);
+
+    if (t != tensors.tv_data_hp) {
+      if (t == tensors.block_scales || t == tensors.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+        t->axis(-3)->parallelize(ParallelType::BIDx);
+      }
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block dim X of BlockQuantizationOp input must be divisible by "
+          "block size 32")));
+}
+
+TEST_F(MXFP8QuantizationValidationTest, ThreadXNotInnermost) {
+  setupFusion(32);
+
+  // Parallelize TIDx on a non-innermost dimension
+  for (auto t :
+       {tensors.tv_data_hp,
+        tensors.t0,
+        tensors.quantized_tensor,
+        tensors.block_scales,
+        tensors.tv_quantized_out}) {
+    t->merge(-2);
+    t->split(-1, 32);
+
+    if (t != tensors.tv_data_hp) {
+      if (t == tensors.block_scales || t == tensors.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::BIDx);
+        t->axis(-2)->parallelize(ParallelType::TIDx);
+      }
+    }
+  }
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+          "innermost ID.")));
+}
+
+TEST_F(MXFP8QuantizationValidationTest, AllocationDomainNotSupported) {
+  setupFusion(32);
+
+  for (auto t :
+       {tensors.tv_data_hp,
+        tensors.t0,
+        tensors.quantized_tensor,
+        tensors.block_scales,
+        tensors.tv_quantized_out}) {
+    t->merge(-2);
+    t->split(-1, 32);
+    t->split(-2, 1);
+
+    if (t != tensors.tv_data_hp) {
+      if (t == tensors.block_scales || t == tensors.quantized_tensor) {
+        t->axis(-1)->parallelize(ParallelType::TIDx);
+        t->axis(-3)->parallelize(ParallelType::BIDx);
+      }
+    }
+  }
+
+  // Set an allocation domain on block scales, which is not supported
+  std::vector<IterDomain*> tv_alloc{
+      tensors.block_scales->axis(0),
+      tensors.block_scales->axis(2),
+      tensors.block_scales->axis(1)};
+
+  tensors.block_scales->setAllocationDomain(tv_alloc, true);
+
+  EXPECT_THAT(
+      [&]() { GpuLower(fusion.get()).run(); },
+      testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
+          "Block scaling factor must not have an allocation domain when "
+          "quantizing to Float8_e4m3fn.")));
+}
+
 TEST_P(NVFP4QuantizeTest, WithoutPerTensorAmax) {
   auto data_hp_dtype = GetParam();
 
@@ -1304,6 +1490,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Values(
             std::make_pair(1024, 1024),
             std::make_pair(2048, 128),
+            std::make_pair(128, 64), // Doesn't vectorize
             std::make_pair(2048, 2048))),
     [](const testing::TestParamInfo<std::tuple<DataType, std::pair<int, int>>>&
            info) {
