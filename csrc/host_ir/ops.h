@@ -20,9 +20,7 @@
 
 namespace nvfuser::hir {
 
-IterDomain* swizzle(IterDomain* in, Val* offset);
-
-TensorView* swizzle(TensorView* in, int64_t axis, Val* offset);
+TensorView* swizzle(TensorView* in, int64_t axis, ParallelType pt);
 
 // Creates a ShardByStream without needing the destination TensorView. Returns
 // the destination TensorView. `e` is the Expr from which we propagate the loop

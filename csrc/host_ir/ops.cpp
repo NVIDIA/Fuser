@@ -24,27 +24,16 @@
 
 namespace nvfuser::hir {
 
-IterDomain* swizzle(IterDomain* in, Val* offset) {
-  NVF_ERROR(in != nullptr, "Input IterDomain cannot be null");
-  NVF_ERROR(offset != nullptr, "Swizzle offset parameter cannot be null");
-
-  // Create output IterDomain with same properties as input
-  auto* out = IterDomainBuilder(in).build();
-
-  // Create the Swizzle expression
-  IrBuilder::create<Swizzle>(in, out, offset);
-
-  return out;
-}
-
-TensorView* swizzle(TensorView* in, int64_t axis, Val* offset) {
+TensorView* swizzle(TensorView* in, int64_t axis, ParallelType pt) {
   NVF_ERROR(in != nullptr);
-  NVF_ERROR(offset != nullptr);
 
-  IterDomain* out_id = swizzle(in->axis(axis), offset);
+  IterDomain* swizzle_in = in->axis(axis);
+  IterDomain* swizzle_out = IterDomainBuilder(swizzle_in).build();
+  IrBuilder::create<Swizzle>(swizzle_in, swizzle_out, pt);
+
   std::vector<IterDomain*> loop_domain = in->getLoopDomain();
   loop_domain.erase(loop_domain.begin() + axis);
-  loop_domain.insert(loop_domain.begin() + axis, out_id);
+  loop_domain.insert(loop_domain.begin() + axis, swizzle_out);
   in->setLoopDomain(loop_domain);
 
   return in;

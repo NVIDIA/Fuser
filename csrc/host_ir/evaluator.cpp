@@ -811,8 +811,17 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   if (stream_id->definition() != nullptr) {
     NVF_CHECK(stream_id->definition()->isA<hir::Swizzle>());
     auto* swizzle = stream_id->definition()->as<hir::Swizzle>();
-    int64_t offset = swizzle->offset()->evaluate().as<int64_t>();
-    index += offset;
+    ParallelType pt = swizzle->pt();
+
+    auto mesh = out_tv->getDeviceMesh();
+    // Find the index of the current device in the slice of mesh corresponding
+    // to the parallel type
+    auto team_size = mesh.size(pt);
+    at::Tensor md_index =
+        mesh.multiDimensionalIndexOf(communicator_->deviceId());
+    auto pt_axis = mesh.parallelTypeToAxis(pt);
+    int64_t team_index = md_index[pt_axis].item<int64_t>();
+    index = (index + team_index) % team_size;
   }
 
   at::Tensor out_tensor =

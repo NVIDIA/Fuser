@@ -577,7 +577,7 @@ class Swizzle : public Expr {
       IrBuilderPasskey passkey,
       IterDomain* in,
       IterDomain* out,
-      Val* offset);
+      ParallelType pt);
 
   Swizzle(const Swizzle& other) = delete;
   Swizzle& operator=(const Swizzle& other) = delete;
@@ -602,9 +602,8 @@ class Swizzle : public Expr {
     return outputs().at(0)->as<IterDomain>();
   }
 
-  // Swizzle offset parameter
-  Val* offset() const {
-    return attributeVal(0);
+  ParallelType pt() const {
+    return attribute<ParallelType>(0);
   }
 };
 
