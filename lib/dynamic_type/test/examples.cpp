@@ -16,6 +16,11 @@
 
 using namespace dynamic_type;
 
+template <typename T, typename U>
+concept HasPlus = requires(T t, U u) {
+  t + u;
+};
+
 // This is the test for the examples in the README.md, if you updated that note,
 // please update this test as well. On the other hand, if you have to do
 // something that breaks this test, please update the note as well.
@@ -58,9 +63,7 @@ namespace example_3 {
 struct CustomType {};
 struct CustomType2 {};
 using Custom12 = DynamicType<NoContainers, CustomType, CustomType2>;
-// Note: Negative check removed - requires expressions with local namespace
-// types cause hard template errors. The runtime behavior is verified in
-// Example2 test.
+static_assert(!HasPlus<Custom12, Custom12>);
 
 } // namespace example_3
 
@@ -72,8 +75,7 @@ float operator+(bfloat16_zero, half_zero) {
 
 TEST_F(Examples, Example4) {
   using BFloatOrHalfZero = DynamicType<NoContainers, bfloat16_zero, half_zero>;
-  // Note: Negative check removed - requires expressions with local types
-  // cause hard template errors. The runtime behavior is verified below.
+  static_assert(!HasPlus<BFloatOrHalfZero, BFloatOrHalfZero>);
   using BFloatOrHalfZeroOrInt =
       DynamicType<NoContainers, bfloat16_zero, half_zero, int>;
   static_assert(
@@ -96,9 +98,8 @@ static_assert(std::is_same_v<decltype(x + y), IntOrFloat>);
 static_assert((x + y).as<float>() == 3.5f);
 static_assert(std::is_same_v<decltype(y + x), IntOrFloat>);
 static_assert((y + x).as<float>() == 3.5f);
-// Note: Negative checks removed - requires expressions with local namespace
-// types cause hard template errors. These cases are not defined and would fail
-// at compile time.
+static_assert(!HasPlus<IntOrFloat, double>);
+static_assert(!HasPlus<double, IntOrFloat>);
 
 } // namespace example_5
 

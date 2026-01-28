@@ -21,6 +21,35 @@
 #pragma clang diagnostic ignored "-Wliteral-conversion"
 #endif
 
+namespace {
+
+template <typename T, typename U>
+concept HasPlus = requires(T t, U u) { t + u; };
+
+struct AdvancedType1 {};
+struct AdvancedType2 {
+  constexpr AdvancedType1 operator+(AdvancedType2) const {
+    return AdvancedType1{};
+  }
+  constexpr AdvancedType1 operator+() const {
+    return AdvancedType1{};
+  }
+};
+struct AdvancedType3 {
+  constexpr AdvancedType3() = default;
+  constexpr AdvancedType3(AdvancedType1) {}
+  constexpr bool operator==(AdvancedType3) const {
+    return true;
+  }
+};
+
+using AdvancedType2SomeType =
+    DynamicType<NoContainers, AdvancedType2, SomeType>;
+using AdvancedType2Type3 = DynamicType<NoContainers, AdvancedType2, AdvancedType3>;
+using AdvancedType2Int = DynamicType<NoContainers, AdvancedType2, int>;
+
+} // namespace
+
 #define TEST_BINARY_OP_ALLTYPE(name, op)                                       \
   TEST_F(DynamicTypeTest, name) {                                              \
     static_assert(requires(DoubleInt64Bool a, DoubleInt64Bool b) { a op b; }); \
@@ -387,42 +416,26 @@ TEST_BINARY_OP_INT_ONLY(LShift, <<);
 TEST_BINARY_OP_INT_ONLY(RShift, >>);
 
 TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
-  struct Type1 {};
-  struct Type2 {
-    constexpr Type1 operator+(Type2) const {
-      return Type1{};
-    }
-    constexpr Type1 operator+() const {
-      return Type1{};
-    }
-  };
-  struct Type3 {
-    constexpr Type3() = default;
-    constexpr Type3(Type1) {}
-    constexpr bool operator==(Type3) const {
-      return true;
-    }
-  };
-
-  // Note: Negative checks for local types removed because requires expressions
-  // with local types cause hard template errors. The behavior is still verified
-  // at runtime below.
+  static_assert(!HasPlus<AdvancedType2SomeType, AdvancedType2SomeType>);
+  static_assert(!HasPlus<AdvancedType2SomeType, AdvancedType2>);
+  static_assert(!HasPlus<AdvancedType2, AdvancedType2SomeType>);
 
   // defined compile time because Type2+Type2 is constructible to Type3
-  using Type2Type3 = DynamicType<NoContainers, Type2, Type3>;
-  static_assert(requires(Type2Type3 a, Type2Type3 b) { a + b; });
-  static_assert(Type2Type3(Type2{}) + Type2Type3(Type2{}) == Type3{});
-  static_assert(requires(Type2Type3 a, Type2 b) { a + b; });
-  static_assert(Type2Type3(Type2{}) + Type2{} == Type3{});
-  static_assert(requires(Type2 a, Type2Type3 b) { a + b; });
-  static_assert(Type2{} + Type2Type3(Type2{}) == Type3{});
+  static_assert(requires(AdvancedType2Type3 a, AdvancedType2Type3 b) { a + b; });
+  static_assert(AdvancedType2Type3(AdvancedType2{}) +
+                    AdvancedType2Type3(AdvancedType2{}) ==
+                AdvancedType3{});
+  static_assert(requires(AdvancedType2Type3 a, AdvancedType2 b) { a + b; });
+  static_assert(AdvancedType2Type3(AdvancedType2{}) + AdvancedType2{} ==
+                AdvancedType3{});
+  static_assert(requires(AdvancedType2 a, AdvancedType2Type3 b) { a + b; });
+  static_assert(AdvancedType2{} + AdvancedType2Type3(AdvancedType2{}) ==
+                AdvancedType3{});
   // defined compile time because int+int is in type list
-  static_assert(requires(
-      DynamicType<NoContainers, Type2, int> a,
-      DynamicType<NoContainers, Type2, int> b) { a + b; });
+  static_assert(requires(AdvancedType2Int a, AdvancedType2Int b) { a + b; });
   // runtime error because Type2+Type2 is not in type list
   auto bad = [&]() {
-    DynamicType<NoContainers, Type2, int> x(Type2{});
+    AdvancedType2Int x(AdvancedType2{});
     x + x;
   };
   EXPECT_THAT(

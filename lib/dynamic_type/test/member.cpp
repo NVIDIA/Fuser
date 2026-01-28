@@ -17,6 +17,11 @@ using namespace dynamic_type;
 
 class DynamicTypeTest : public ::testing::Test {};
 
+template <typename T, typename U>
+concept HasArrowStar = requires(T t, U u) {
+  t->*u;
+};
+
 struct A {
   int x;
   int y;
@@ -86,8 +91,7 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   static_assert(requires(ABCD obj, int B::* ptr) { obj->*ptr; });
   static_assert(requires(ABCD obj, int C::* ptr) { obj->*ptr; });
   static_assert(requires(ABCD obj, int D::* ptr) { obj->*ptr; });
-  // Note: Negative check for E removed - requires expressions with local types
-  // cause hard template errors.
+  static_assert(!HasArrowStar<ABCD, int E::*>);
 
   ABCD aa = a;
   EXPECT_EQ(aa->*&A::x, 1);
@@ -153,8 +157,7 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
 #endif
 
   static_assert(requires(EFG obj, std::string_view sv) { obj->*sv; });
-  // Note: Negative check for int removed - requires expressions with local
-  // types cause hard template errors.
+  static_assert(!HasArrowStar<EFG, int>);
 
   EFG ff = f;
   EXPECT_EQ(ff->*"x", 1);
@@ -230,8 +233,7 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(i->*"y", 4);
 
   static_assert(requires(EHI obj, std::string_view sv) { obj->*sv; });
-  // Note: Negative check for int removed - requires expressions with local
-  // types cause hard template errors.
+  static_assert(!HasArrowStar<EHI, int>);
 
   EHI hh = h;
   EXPECT_EQ(hh->*"x", 1);

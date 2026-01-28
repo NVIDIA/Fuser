@@ -16,6 +16,15 @@
 #include <list>
 #include <vector>
 
+namespace {
+struct CustomType {};
+} // namespace
+
+template <typename From, typename To>
+concept CanCast = requires(From f) {
+  (To) f;
+};
+
 // Utilities for testing if we have T->as<U> defined
 template <typename T, typename U>
 static auto hasAsHelper(int)
@@ -64,15 +73,13 @@ TEST_F(DynamicTypeTest, Typing) {
   EXPECT_ANY_THROW(DoubleInt64Bool(1.0).as<bool>());
   EXPECT_ANY_THROW(DoubleInt64BoolVec(1.0).as<std::vector>());
 
-  struct CustomType {};
   static_assert(requires(IntSomeType t) { (double)(t); });
   static_assert(requires(IntSomeType t) { (int64_t)(t); });
   static_assert(requires(IntSomeType t) { (bool)(t); });
   static_assert(requires(IntSomeType t) { (int)(t); });
   static_assert(requires(IntSomeType t) { (float)(t); });
   static_assert(requires(IntSomeType t) { (SomeType)(t); });
-  // Note: Negative check for CustomType removed - requires expressions with
-  // local types cause hard template errors.
+  static_assert(!CanCast<IntSomeType, CustomType>);
   static_assert((int64_t)IntSomeType(1) == 1);
   EXPECT_THAT(
       // suppress unused value warning

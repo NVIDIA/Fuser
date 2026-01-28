@@ -16,6 +16,11 @@
 
 #include "utils.h"
 
+template <typename T, typename IndexT>
+concept HasIndex = requires(T t, IndexT idx) {
+  t[idx];
+};
+
 TEST_F(DynamicTypeTest, FromContainerToContainer) {
   using IntOrVec = DynamicType<Containers<std::vector>, int>;
   using Vec = DynamicType<Containers<std::vector>>;
@@ -41,11 +46,13 @@ TEST_F(DynamicTypeTest, FromContainerToContainer) {
   });
 
   static_assert(requires(IntOrVec a, IntOrVec idx) { a[idx]; });
-  // Note: Negative checks for Vec removed - requires expressions with local
-  // types cause hard template errors.
+  static_assert(!HasIndex<Vec, Vec>);
   static_assert(requires(const IntOrVec a, IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<const Vec, Vec>);
   static_assert(requires(IntOrVec a, const IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<Vec, const Vec>);
   static_assert(requires(const IntOrVec a, const IntOrVec idx) { a[idx]; });
+  static_assert(!HasIndex<const Vec, const Vec>);
 
   IntOrVec zero = 0;
   IntOrVec one = 1;

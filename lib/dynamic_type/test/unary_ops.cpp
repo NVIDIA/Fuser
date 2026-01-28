@@ -15,6 +15,11 @@
 
 #include "utils.h"
 
+template <typename T>
+concept HasDeref = requires(T t) {
+  *t;
+};
+
 #define TEST_UNARY_OP(name, op, int_or_bool, opchar)                         \
   TEST_F(DynamicTypeTest, name) {                                            \
     static_assert(requires(DoubleInt64Bool t) { op t; });                    \
@@ -94,8 +99,7 @@ TEST_F(DynamicTypeTest, UnaryOpAdvancedTyping) {
 TEST_F(DynamicTypeTest, Star) {
   using IntOrPtr = DynamicType<Containers<std::shared_ptr>, int>;
   static_assert(requires(IntOrPtr t) { *t; });
-  // Note: Negative check for DoubleInt64Bool removed - requires expressions
-  // with local types cause hard template errors.
+  static_assert(!HasDeref<DoubleInt64Bool>);
   IntOrPtr x = 299792458;
   IntOrPtr y = std::make_shared<IntOrPtr>(x);
   EXPECT_EQ(*y, 299792458);
