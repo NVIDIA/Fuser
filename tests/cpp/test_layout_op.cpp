@@ -83,14 +83,7 @@ bool validateGroupedLayout(
 
 using testing::UnorderedElementsAre;
 
-class LayoutOpTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
-  }
-};
+using LayoutOpTest = NVFuserTest;
 
 TEST_F(LayoutOpTest, CppApi) {
   auto fusion_ptr = std::make_unique<Fusion>();

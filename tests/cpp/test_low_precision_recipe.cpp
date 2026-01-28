@@ -976,7 +976,6 @@ class BlockQuantizationSchedulingTest
  protected:
   void SetUp() override {
     BlackwellBase::SetUp();
-    EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
   }
 };
 

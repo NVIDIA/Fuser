@@ -49,19 +49,18 @@ at::Tensor shardTensor1D(
 }
 
 at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
+  NVF_CHECK(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const DeviceMesh& mesh = tv->getDeviceMesh();
 
   // This function still assumes the mesh is 1D at this very moment. But the
   // plan is to support multi-dimensional meshes here and leave shardTensor1D
   // for 1D meshes only and eventually deprecated.
   NVF_ERROR_EQ(mesh.rank(), 1);
-  return shardTensor1D(
-      tensor, getShardedLogicalAxis(tv, ParallelType::DIDx), mesh);
+  const int64_t axis = getShardedLogicalAxis(tv, ParallelType::DIDx);
+  if (axis == -1) {
+    return tensor;
+  }
+  return shardTensor1D(tensor, axis, mesh);
 }
 
 std::vector<int64_t> unshardedSizes(

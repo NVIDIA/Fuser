@@ -22,13 +22,7 @@
 
 namespace nvfuser {
 
-class PointwiseTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
-  }
-};
+using PointwiseTest = NVFuserTest;
 
 // Base class for parameterized pointwise tests using TEST_P
 // Sets up IdModel configuration for parameterized tests

@@ -497,9 +497,6 @@ TEST_F(AliasTest, Issue1452) {
 }
 
 TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::InferContiguity);
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
