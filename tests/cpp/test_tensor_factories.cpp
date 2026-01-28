@@ -9,7 +9,7 @@
 #include <gtest/gtest.h>
 
 #include "codegen.h"
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ir/iostream.h"

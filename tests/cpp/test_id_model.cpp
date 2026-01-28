@@ -11,7 +11,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "id_model/id_model.h"
 #include "id_model/loop_promotion.h"

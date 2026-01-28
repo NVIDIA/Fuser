@@ -207,8 +207,8 @@ class PolymorphicBase {
   }
 };
 
-template <class T, std::enable_if_t<std::is_enum<T>::value, bool> = true>
-constexpr unsigned int switch_pair(T t1, T t2) {
+template <class T>
+requires std::is_enum_v<T> constexpr unsigned int switch_pair(T t1, T t2) {
   constexpr unsigned int _WORD_SHIFT = 16;
   return ((unsigned int)t1 << _WORD_SHIFT) + (unsigned int)t2;
 }
@@ -538,12 +538,8 @@ NVF_API const char* getNvFuserEnv(
     const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
-template <
-    typename MapKey,
-    typename Value,
-    typename Key,
-    typename = std::enable_if_t<std::is_convertible_v<Key, MapKey>>>
-Value getOrDefault(
+template <typename MapKey, typename Value, typename Key>
+requires std::is_convertible_v<Key, MapKey> Value getOrDefault(
     const std::unordered_map<MapKey, Value>& map,
     const Key& key,
     const Value& default_value = Value()) {

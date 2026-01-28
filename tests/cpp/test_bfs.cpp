@@ -8,7 +8,7 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/utils.h"
