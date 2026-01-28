@@ -69,14 +69,6 @@ nvfuser-configure() {
         fi
     fi
 
-    # Ensure Python scripts are executable (linter may strip +x bit)
-    if [ -f "\$TOOL_PATH" ] && [ ! -x "\$TOOL_PATH" ]; then
-        chmod +x "\$TOOL_PATH" 2>/dev/null || true
-    fi
-    if [ -f "\$SCRIPT_DIR/curses_ui.py" ] && [ ! -x "\$SCRIPT_DIR/curses_ui.py" ]; then
-        chmod +x "\$SCRIPT_DIR/curses_ui.py" 2>/dev/null || true
-    fi
-
     python "\$TOOL_PATH" "\$@"
     local exit_code=\$?
 
