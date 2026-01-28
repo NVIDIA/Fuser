@@ -6,11 +6,12 @@
  */
 // clang-format on
 
-#include <distributed_tensor.h>
-#include <exceptions.h>
-#include <ir/interface_nodes.h>
-#include <type.h>
+#include "distributed_tensor.h"
+
 #include "base.h"
+#include "exceptions.h"
+#include "ir/interface_nodes.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -45,23 +46,26 @@ std::vector<Sharding> getOutputShardings(Fusion* fusion) {
   std::vector<Sharding> output_shardings;
   output_shardings.reserve(fusion->outputs().size());
   for (Val* out_val : fusion->outputs()) {
-    if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {
-      if (fusion->getOutputAlias(out_tv).visibility ==
-          OutputVisibility::kHidden) {
-        continue;
-      }
-      const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      Sharding& output_sharding = output_shardings.emplace_back(mesh);
-      if (mesh.size() > 0) {
-        for (const ParallelType parallel_type : kParallelTypeDIDs) {
-          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
-              axis != -1) {
-            output_sharding.setAxisIsShardedOn(axis, parallel_type);
-          }
+    auto* out_tv = dynamic_cast<TensorView*>(out_val);
+    if (out_tv == nullptr) {
+      output_shardings.emplace_back();
+      continue;
+    }
+
+    if (fusion->getOutputAlias(out_tv).visibility ==
+        OutputVisibility::kHidden) {
+      continue;
+    }
+
+    const DeviceMesh& mesh = out_tv->getDeviceMesh();
+    Sharding& output_sharding = output_shardings.emplace_back(mesh);
+    if (mesh.size() > 0) {
+      for (const ParallelType parallel_type : kParallelTypeDIDs) {
+        if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
+            axis != -1) {
+          output_sharding.setAxisIsShardedOn(axis, parallel_type);
         }
       }
-    } else {
-      output_shardings.emplace_back(DeviceMesh());
     }
   }
 
