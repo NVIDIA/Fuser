@@ -576,6 +576,7 @@ class CursesUI:
         self.config._load_current_values()
         self.modified = False
 
+    def jump_to_next_section(self) -> None:
         """Jump to the next section header."""
         for i in range(self.current_row + 1, len(self.display_items)):
             if self.display_items[i]["type"] == "header":
