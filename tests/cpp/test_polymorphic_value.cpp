@@ -135,9 +135,9 @@ TEST_F(PolymorphicValueTest, Struct) {
       double y;
     };
     // Note: With C++20 requires expressions instead of opcheck, we can't easily
-    // static_assert that certain operations are NOT supported without triggering
-    // template instantiation errors. The runtime behavior is still correctly
-    // enforcing that these operations fail.
+    // static_assert that certain operations are NOT supported without
+    // triggering template instantiation errors. The runtime behavior is still
+    // correctly enforcing that these operations fail.
     // static_assert(!(requires {
     //   std::declval<PolymorphicValue>()->*std::declval<int64_t A::*>();
     // }));

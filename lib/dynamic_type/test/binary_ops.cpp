@@ -24,7 +24,9 @@
 namespace {
 
 template <typename T, typename U>
-concept HasPlus = requires(T t, U u) { t + u; };
+concept HasPlus = requires(T t, U u) {
+  t + u;
+};
 
 struct AdvancedType1 {};
 struct AdvancedType2 {
@@ -45,7 +47,8 @@ struct AdvancedType3 {
 
 using AdvancedType2SomeType =
     DynamicType<NoContainers, AdvancedType2, SomeType>;
-using AdvancedType2Type3 = DynamicType<NoContainers, AdvancedType2, AdvancedType3>;
+using AdvancedType2Type3 =
+    DynamicType<NoContainers, AdvancedType2, AdvancedType3>;
 using AdvancedType2Int = DynamicType<NoContainers, AdvancedType2, int>;
 
 } // namespace
@@ -421,16 +424,18 @@ TEST_F(DynamicTypeTest, BinaryOpAdvancedTyping) {
   static_assert(!HasPlus<AdvancedType2, AdvancedType2SomeType>);
 
   // defined compile time because Type2+Type2 is constructible to Type3
-  static_assert(requires(AdvancedType2Type3 a, AdvancedType2Type3 b) { a + b; });
-  static_assert(AdvancedType2Type3(AdvancedType2{}) +
-                    AdvancedType2Type3(AdvancedType2{}) ==
-                AdvancedType3{});
+  static_assert(
+      requires(AdvancedType2Type3 a, AdvancedType2Type3 b) { a + b; });
+  static_assert(
+      AdvancedType2Type3(AdvancedType2{}) +
+          AdvancedType2Type3(AdvancedType2{}) ==
+      AdvancedType3{});
   static_assert(requires(AdvancedType2Type3 a, AdvancedType2 b) { a + b; });
-  static_assert(AdvancedType2Type3(AdvancedType2{}) + AdvancedType2{} ==
-                AdvancedType3{});
+  static_assert(
+      AdvancedType2Type3(AdvancedType2{}) + AdvancedType2{} == AdvancedType3{});
   static_assert(requires(AdvancedType2 a, AdvancedType2Type3 b) { a + b; });
-  static_assert(AdvancedType2{} + AdvancedType2Type3(AdvancedType2{}) ==
-                AdvancedType3{});
+  static_assert(
+      AdvancedType2{} + AdvancedType2Type3(AdvancedType2{}) == AdvancedType3{});
   // defined compile time because int+int is in type list
   static_assert(requires(AdvancedType2Int a, AdvancedType2Int b) { a + b; });
   // runtime error because Type2+Type2 is not in type list
