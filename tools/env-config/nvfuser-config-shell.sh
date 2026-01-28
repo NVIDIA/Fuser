@@ -72,11 +72,20 @@ nvfuser-configure() {
     python "\$TOOL_PATH" "\$@"
     local exit_code=\$?
 
+    # Find the apply script (Python creates it with unpredictable name for security)
+    local APPLY_SCRIPT
+    for script in "\$(pwd)"/.nvfuser-apply.*.sh; do
+        if [ -f "\$script" ]; then
+            APPLY_SCRIPT="\$script"
+            break
+        fi
+    done
+
     # Debug: Show what happened
     if [ "\$NVFUSER_CONFIG_DEBUG" = "1" ]; then
         echo "[DEBUG] Python exit code: \$exit_code"
-        echo "[DEBUG] Apply script path: \$APPLY_SCRIPT"
-        if [ -f "\$APPLY_SCRIPT" ]; then
+        echo "[DEBUG] Apply script path: \${APPLY_SCRIPT:-(not found)}"
+        if [ -n "\$APPLY_SCRIPT" ] && [ -f "\$APPLY_SCRIPT" ]; then
             echo "[DEBUG] Apply script exists"
         else
             echo "[DEBUG] Apply script NOT found"
@@ -85,7 +94,7 @@ nvfuser-configure() {
 
     # If apply script was generated, source it and clean up atomically
     # Note: We check exit_code separately to avoid TOCTOU on the file
-    if [ \$exit_code -eq 0 ]; then
+    if [ \$exit_code -eq 0 ] && [ -n "\$APPLY_SCRIPT" ]; then
         [ -f "\$APPLY_SCRIPT" ] && . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
     fi
 
@@ -109,7 +118,7 @@ nvfuser-configure() {
         local SCRIPT_DIR="$(pwd)"
     fi
 
-    local APPLY_SCRIPT="$(pwd)/.nvfuser_apply_now.sh"
+    local APPLY_SCRIPT="$(pwd)/.nvfuser-apply."*.sh
     local TOOL_PATH="$SCRIPT_DIR/configure_env.py"
 
     # If SCRIPT_DIR detection failed, try to find configure_env.py in PATH
@@ -125,11 +134,20 @@ nvfuser-configure() {
     python "$TOOL_PATH" "$@"
     local exit_code=$?
 
+    # Find the apply script (Python creates it with unpredictable name for security)
+    local APPLY_SCRIPT
+    for script in "$(pwd)"/.nvfuser-apply.*.sh; do
+        if [ -f "$script" ]; then
+            APPLY_SCRIPT="$script"
+            break
+        fi
+    done
+
     # Debug: Show what happened
     if [ "$NVFUSER_CONFIG_DEBUG" = "1" ]; then
         echo "[DEBUG] Python exit code: $exit_code"
-        echo "[DEBUG] Apply script path: $APPLY_SCRIPT"
-        if [ -f "$APPLY_SCRIPT" ]; then
+        echo "[DEBUG] Apply script path: ${APPLY_SCRIPT:-(not found)}"
+        if [ -n "$APPLY_SCRIPT" ] && [ -f "$APPLY_SCRIPT" ]; then
             echo "[DEBUG] Apply script exists"
         else
             echo "[DEBUG] Apply script NOT found"
@@ -138,7 +156,7 @@ nvfuser-configure() {
 
     # If apply script was generated, source it and clean up atomically
     # Note: We check exit_code separately to avoid TOCTOU on the file
-    if [ $exit_code -eq 0 ]; then
+    if [ $exit_code -eq 0 ] && [ -n "$APPLY_SCRIPT" ]; then
         [ -f "$APPLY_SCRIPT" ] && . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
     fi
 

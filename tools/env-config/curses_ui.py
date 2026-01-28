@@ -486,6 +486,7 @@ class CursesUI:
         from configure_env import save_config
         import os
         import sys
+        import tempfile
 
         # Show confirmation dialog
         response = self.show_confirmation("Apply configuration and exit?", "[y/N]")
@@ -497,8 +498,12 @@ class CursesUI:
         exports = self.config.get_env_exports()
         unsets = self.config.get_unset_vars()
 
-        # Generate apply script in current working directory (not /tmp for security)
-        apply_script = os.path.join(os.getcwd(), ".nvfuser_apply_now.sh")
+        # Generate apply script with unpredictable name in current directory
+        # Using mktemp pattern for security (prevents race conditions)
+        fd, apply_script = tempfile.mkstemp(
+            suffix=".sh", prefix=".nvfuser-apply.", dir=os.getcwd(), text=True
+        )
+        os.close(fd)  # Close the file descriptor, we'll write via save_config
 
         # Debug output
         if os.environ.get("NVFUSER_CONFIG_DEBUG") == "1":
