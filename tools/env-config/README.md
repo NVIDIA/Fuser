@@ -101,7 +101,7 @@ unset NVFUSER_DUMP NVFUSER_ENABLE
 python tools/env-config/configure_env.py              # TUI mode
 python tools/env-config/configure_env.py --simple     # Prompt mode
 # Note: Without shell function setup, you'll need to manually source generated scripts
-# After pressing 'a': source nvfuser_apply_now.sh
+# After pressing 'a': source .nvfuser_apply_now.sh
 # After pressing 'g': source nvfuser_env.sh
 ```
 
