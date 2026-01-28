@@ -1409,4 +1409,26 @@ TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TransposeTest, Tma) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::BFloat16;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = transpose(tv2, 0, 1);
+  auto tv4 = mul(tv3, tv3);
+  auto tv5 = castOp(dtype, tv4);
+  fusion.addOutput(tv5);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({input0});
+  testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

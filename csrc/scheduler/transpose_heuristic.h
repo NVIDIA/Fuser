@@ -51,6 +51,11 @@ class TransposeParams : public HeuristicParams {
   // Tile size for the inner most dim of tensors in the second group
   int64_t tile_size2 = getDefaultTileSize();
 
+  // Use Hopper+ TMA (cp.async.bulk.tensor) for group2 cached-input loads
+  // (global -> shared). This is intentionally conservative and only affects
+  // the shared-memory staging tensors used for the thread-binding swap.
+  bool use_tma_load = false;
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
@@ -65,7 +70,8 @@ class TransposeParams : public HeuristicParams {
         other->dims_merged_with_2 == dims_merged_with_2 &&
         other->vectorize_factor1 == vectorize_factor1 &&
         other->vectorize_factor2 == vectorize_factor2 &&
-        other->tile_size1 == tile_size1 && other->tile_size2 == tile_size2;
+        other->tile_size1 == tile_size1 && other->tile_size2 == tile_size2 &&
+        other->use_tma_load == use_tma_load;
     return attr_equal;
   }
 
@@ -76,6 +82,7 @@ class TransposeParams : public HeuristicParams {
        << " BlckX: " << lparams.bdimx() << "\n";
     ss << " input tile size: " << tile_size1 << "\n";
     ss << " output tile size: " << tile_size2 << "\n";
+    ss << " use_tma_load: " << use_tma_load << "\n";
     int64_t elements_per_tile = tile_size1 * tile_size2;
     ss << " elements per tile: " << elements_per_tile << "\n";
     int64_t elements_per_thread = elements_per_tile / lparams.bdimx();
@@ -146,7 +153,8 @@ class TransposeParams : public HeuristicParams {
         vectorize_factor1,
         vectorize_factor2,
         tile_size1,
-        tile_size2);
+        tile_size2,
+        use_tma_load);
   }
 
   std::unique_ptr<HeuristicParams> clone() const override {
