@@ -92,10 +92,16 @@ nvfuser-configure() {
         fi
     fi
 
-    # If apply script was generated, source it and clean up atomically
-    # Note: We check exit_code separately to avoid TOCTOU on the file
-    if [ \$exit_code -eq 0 ] && [ -n "\$APPLY_SCRIPT" ]; then
-        [ -f "\$APPLY_SCRIPT" ] && . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
+    # If apply script was generated, verify and source it
+    # Security: Verify ownership and permissions to prevent TOCTOU attacks
+    if [ \$exit_code -eq 0 ] && [ -n "\$APPLY_SCRIPT" ] && [ -f "\$APPLY_SCRIPT" ]; then
+        # Verify file is owned by current user and has mode 600
+        if [ -O "\$APPLY_SCRIPT" ] && [ "\$(stat -c '%a' "\$APPLY_SCRIPT" 2>/dev/null)" = "600" ]; then
+            . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
+        else
+            echo "Warning: Apply script has unexpected ownership/permissions, skipping for security" >&2
+            rm -f "\$APPLY_SCRIPT"
+        fi
     fi
 
     return \$exit_code
@@ -154,10 +160,16 @@ nvfuser-configure() {
         fi
     fi
 
-    # If apply script was generated, source it and clean up atomically
-    # Note: We check exit_code separately to avoid TOCTOU on the file
-    if [ $exit_code -eq 0 ] && [ -n "$APPLY_SCRIPT" ]; then
-        [ -f "$APPLY_SCRIPT" ] && . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
+    # If apply script was generated, verify and source it
+    # Security: Verify ownership and permissions to prevent TOCTOU attacks
+    if [ $exit_code -eq 0 ] && [ -n "$APPLY_SCRIPT" ] && [ -f "$APPLY_SCRIPT" ]; then
+        # Verify file is owned by current user and has mode 600
+        if [ -O "$APPLY_SCRIPT" ] && [ "$(stat -c '%a' "$APPLY_SCRIPT" 2>/dev/null)" = "600" ]; then
+            . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
+        else
+            echo "Warning: Apply script has unexpected ownership/permissions, skipping for security" >&2
+            rm -f "$APPLY_SCRIPT"
+        fi
     fi
 
     return $exit_code
