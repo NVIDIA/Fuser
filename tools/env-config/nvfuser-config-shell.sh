@@ -13,124 +13,36 @@
 # Usage:
 #   nvfuser-configure       # Configure and auto-apply
 
-# Detect if being sourced vs executed - works in both bash and zsh
-# If sourced, return 0; if executed, return 1
+# Detect if being sourced vs executed
 _is_sourced() {
     if [ -n "$ZSH_VERSION" ]; then
-        # zsh: use ZSH_EVAL_CONTEXT
         case $ZSH_EVAL_CONTEXT in
-            *:file:*) return 0;;  # Sourced
-            *:file) return 1;;     # Executed
-            *) return 1;;          # Executed
+            *:file:*) return 0;;
+            *) return 1;;
         esac
     elif [ -n "$BASH_VERSION" ]; then
-        # bash: compare BASH_SOURCE with $0
-        if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
-            return 0  # Sourced
-        else
-            return 1  # Executed
-        fi
+        [ "${BASH_SOURCE[0]}" != "${0}" ]
     else
-        # Other shells: assume sourced if $0 looks like a shell name
         case "$(basename "$0" 2>/dev/null)" in
-            sh|dash|ksh) return 0;;  # Likely sourced
-            *) return 1;;            # Likely executed
+            sh|dash|ksh) return 0;;
+            *) return 1;;
         esac
     fi
 }
 
-# If being executed (not sourced), print the function definition for eval
-if ! _is_sourced; then
-    # Get the absolute path to this script's directory
-    # This will be embedded in the function definition
-    if [ -n "$BASH_VERSION" ]; then
-        EMBED_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    else
-        # For sh/dash, use $0
-        EMBED_SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    fi
-
-    # Print function with embedded path
-    cat << EOF
-nvfuser-configure() {
-    local SCRIPT_DIR="$EMBED_SCRIPT_DIR"
-    local TOOL_PATH="\$SCRIPT_DIR/configure_env.py"
-
-    # If file not found, try alternative locations
-    if [ ! -f "\$TOOL_PATH" ]; then
-        # Try to find configure_env.py in PATH
-        TOOL_PATH="\$(command -v configure_env.py 2>/dev/null || echo "")"
-        if [ -z "\$TOOL_PATH" ]; then
-            echo "Error: configure_env.py not found"
-            echo "Expected location: $EMBED_SCRIPT_DIR/configure_env.py"
-            echo "Make sure you use the full path in your setup command"
-            return 1
-        fi
-    fi
-
-    python "\$TOOL_PATH" "\$@"
-    local exit_code=\$?
-
-    # Find the apply script (Python creates it with unpredictable name for security)
-    local APPLY_SCRIPT
-    for script in "\$(pwd)"/.nvfuser-apply.*.sh; do
-        if [ -f "\$script" ]; then
-            APPLY_SCRIPT="\$script"
-            break
-        fi
-    done
-
-    # Debug: Show what happened
-    if [ "\$NVFUSER_CONFIG_DEBUG" = "1" ]; then
-        echo "[DEBUG] Python exit code: \$exit_code"
-        echo "[DEBUG] Apply script path: \${APPLY_SCRIPT:-(not found)}"
-        if [ -n "\$APPLY_SCRIPT" ] && [ -f "\$APPLY_SCRIPT" ]; then
-            echo "[DEBUG] Apply script exists"
-        else
-            echo "[DEBUG] Apply script NOT found"
-        fi
-    fi
-
-    # If apply script was generated, verify and source it
-    # Security: Verify ownership and permissions to prevent TOCTOU attacks
-    if [ \$exit_code -eq 0 ] && [ -n "\$APPLY_SCRIPT" ] && [ -f "\$APPLY_SCRIPT" ]; then
-        # Verify file is owned by current user and has mode 600
-        if [ -O "\$APPLY_SCRIPT" ] && [ "\$(stat -c '%a' "\$APPLY_SCRIPT" 2>/dev/null)" = "600" ]; then
-            . "\$APPLY_SCRIPT" && rm -f "\$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
-        else
-            echo "Warning: Apply script has unexpected ownership/permissions, skipping for security" >&2
-            rm -f "\$APPLY_SCRIPT"
-        fi
-    fi
-
-    return \$exit_code
-}
-EOF
-    exit 0
-fi
-
-# If being sourced, define the function directly
-nvfuser-configure() {
-    # Portable way to get script directory (works in bash and zsh)
-    if [ -n "$ZSH_VERSION" ]; then
-        # zsh: use parameter expansion modifiers
-        local SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" && pwd)"
-    elif [ -n "$BASH_VERSION" ]; then
-        # bash: use BASH_SOURCE
-        local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    else
-        # Fallback: use current directory
-        local SCRIPT_DIR="$(pwd)"
-    fi
+# Main implementation (shared by both eval and sourced versions)
+_nvfuser_configure_impl() {
+    local SCRIPT_DIR="$1"
+    shift
 
     local TOOL_PATH="$SCRIPT_DIR/configure_env.py"
 
-    # If SCRIPT_DIR detection failed, try to find configure_env.py in PATH
+    # If file not found, try PATH
     if [ ! -f "$TOOL_PATH" ]; then
         TOOL_PATH="$(command -v configure_env.py 2>/dev/null || echo "")"
         if [ -z "$TOOL_PATH" ]; then
-            echo "Error: configure_env.py not found"
-            echo "Make sure nvfuser/tools is in your PATH or use absolute path in setup"
+            echo "Error: configure_env.py not found" >&2
+            echo "Expected location: $SCRIPT_DIR/configure_env.py" >&2
             return 1
         fi
     fi
@@ -138,7 +50,7 @@ nvfuser-configure() {
     python "$TOOL_PATH" "$@"
     local exit_code=$?
 
-    # Find the apply script (Python creates it with unpredictable name for security)
+    # Find the apply script (created with unpredictable name for security)
     local APPLY_SCRIPT
     for script in "$(pwd)"/.nvfuser-apply.*.sh; do
         if [ -f "$script" ]; then
@@ -147,21 +59,15 @@ nvfuser-configure() {
         fi
     done
 
-    # Debug: Show what happened
+    # Debug output
     if [ "$NVFUSER_CONFIG_DEBUG" = "1" ]; then
-        echo "[DEBUG] Python exit code: $exit_code"
-        echo "[DEBUG] Apply script path: ${APPLY_SCRIPT:-(not found)}"
-        if [ -n "$APPLY_SCRIPT" ] && [ -f "$APPLY_SCRIPT" ]; then
-            echo "[DEBUG] Apply script exists"
-        else
-            echo "[DEBUG] Apply script NOT found"
-        fi
+        echo "[DEBUG] Python exit code: $exit_code" >&2
+        echo "[DEBUG] Apply script: ${APPLY_SCRIPT:-(not found)}" >&2
     fi
 
-    # If apply script was generated, verify and source it
-    # Security: Verify ownership and permissions to prevent TOCTOU attacks
+    # Verify and source apply script if it exists
+    # Security: Check ownership and permissions to prevent TOCTOU attacks
     if [ $exit_code -eq 0 ] && [ -n "$APPLY_SCRIPT" ] && [ -f "$APPLY_SCRIPT" ]; then
-        # Verify file is owned by current user and has mode 600
         if [ -O "$APPLY_SCRIPT" ] && [ "$(stat -c '%a' "$APPLY_SCRIPT" 2>/dev/null)" = "600" ]; then
             . "$APPLY_SCRIPT" && rm -f "$APPLY_SCRIPT" && echo "✓ Configuration applied to current shell"
         else
@@ -171,4 +77,41 @@ nvfuser-configure() {
     fi
 
     return $exit_code
+}
+
+# If executed (not sourced), output function definition for eval
+if ! _is_sourced; then
+    # Get script directory and this script's path
+    if [ -n "$BASH_VERSION" ]; then
+        THIS_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    else
+        THIS_SCRIPT="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    fi
+
+    SCRIPT_DIR="$(dirname "$THIS_SCRIPT")"
+
+    # Output function that sources this script and calls the implementation
+    cat << EOF
+nvfuser-configure() {
+    # Source the script to get the implementation function
+    . "$THIS_SCRIPT"
+    _nvfuser_configure_impl "$SCRIPT_DIR" "\$@"
+}
+EOF
+    exit 0
+fi
+
+# If sourced, define function directly
+nvfuser-configure() {
+    # Detect script directory
+    local SCRIPT_DIR
+    if [ -n "$ZSH_VERSION" ]; then
+        SCRIPT_DIR="$(cd "$(dirname "${(%):-%x}")" && pwd)"
+    elif [ -n "$BASH_VERSION" ]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    else
+        SCRIPT_DIR="$(pwd)"
+    fi
+
+    _nvfuser_configure_impl "$SCRIPT_DIR" "$@"
 }
