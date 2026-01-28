@@ -112,6 +112,14 @@ This approach is:
 nvfuser-configure
 ```
 
+**Navigation:**
+- ↑↓ or j/k - Move up/down
+- {} - Jump to prev/next section
+- PgUp/PgDn - Jump to top/bottom
+- **/** - Search for options (like vim)
+- **n** - Jump to next search match
+- **N** - Jump to previous search match
+
 **Apply Workflow (Immediate):**
 1. Navigate (↑↓), Toggle (Enter), Edit (e) to configure variables
 2. Press **a** to apply
@@ -165,10 +173,17 @@ nvfuser-configure
 source my_compiler_config.sh
 # Use this script anytime you want this configuration
 
-# Example 3: Inspect current configuration
+# Example 3: Search for options
+nvfuser-configure
+# Press /
+# Type: matmul
+# Press Enter to jump to first match
+# Press n to cycle through matches (n for next, N for previous)
+
+# Example 4: Inspect current configuration
 env | grep -E '^(NVFUSER_|MAX_JOBS|CC|CXX|CUDA_HOME)' | sort
 
-# Example 4: Clear specific variables manually
+# Example 5: Clear specific variables manually
 unset NVFUSER_DUMP NVFUSER_ENABLE
 ```
 
