@@ -10,6 +10,7 @@ import torch
 from dataclasses import dataclass
 from enum import Enum, auto
 
+import nvfuser_direct as nvfuser
 from nvfuser_direct import FusionDefinition, DataType, TensorView
 
 
@@ -71,11 +72,19 @@ def gating(
 @pytest.mark.parametrize(
     "direction", [Direction.OUTGOING, Direction.INCOMING], ids=lambda d: d.name.lower()
 )
-def test_triangle_updates(direction):
+def test_triangle_updates(direction, multidevice_test):
+    d = multidevice_test.size
+    cp_size = 1
+    if d % (cp_size * cp_size) != 0:
+        pytest.skip(
+            f"We only support even split, so {d} has to be divisible by {cp_size * cp_size} for {cp_size=}."
+        )
+    dp_size = d // (cp_size * cp_size)
+
     c_z = _DEFAULT_CONFIG.c_z
 
     with FusionDefinition() as fd:
-        z_in = fd.define_tensor(
+        z_in_tv = fd.define_tensor(
             shape=[-1, -1, -1, c_z],
             dtype=DataType.BFloat16,
             contiguity=True,
@@ -105,17 +114,19 @@ def test_triangle_updates(direction):
             shape=[c_z, c_z], dtype=DataType.BFloat16, contiguity=True
         )
         # Masking is used in an internal implementation: http://nv/e-4
-        mask = fd.define_tensor(
+        mask_tv = fd.define_tensor(
             shape=[-1, -1, -1], dtype=DataType.Bool, contiguity=True
         )  # [b, i, j]
 
-        batch_size = fd.ops.size(z_in, 0)
-        n_tokens = fd.ops.size(z_in, 1)
+        batch_size = fd.ops.size(z_in_tv, 0)
+        n_tokens = fd.ops.size(z_in_tv, 1)
 
-        z_in = layer_norm(fd, z_in, w_norm_in, b_norm_in)
-        z = gating(fd, z_in, w_p_in, z_in, w_g_in)
+        z_in = layer_norm(fd, z_in_tv, w_norm_in, b_norm_in)
+        z = gating(fd, z_in_tv, w_p_in, z_in, w_g_in)
         mask = fd.ops.broadcast_in_dim(
-            mask, shape=[batch_size, n_tokens, n_tokens, c_z], broadcast_dims=[0, 1, 2]
+            mask_tv,
+            shape=[batch_size, n_tokens, n_tokens, c_z],
+            broadcast_dims=[0, 1, 2],
         )
         z = fd.ops.where(mask, z, 0.0)
         a = fd.ops.slice(z, [0, 0, 0, 0], [batch_size, n_tokens, n_tokens, c_z])
@@ -137,11 +148,50 @@ def test_triangle_updates(direction):
         z = gating(fd, z, w_p_out, z_in, w_g_out)
         fd.add_output(z)
 
-    batch_size = 3
-    n_tokens = 5
-    z_in = torch.testing.make_tensor(
-        batch_size, n_tokens, n_tokens, c_z, dtype=torch.bfloat16, device="cuda"
+        mesh = nvfuser.multidevice.DeviceMesh(
+            torch.arange(d).reshape(dp_size, cp_size, cp_size)
+        )
+        for tv in [
+            z_in_tv,
+            w_norm_in,
+            b_norm_in,
+            w_p_in,
+            w_g_in,
+            w_norm_out,
+            b_norm_out,
+            w_p_out,
+            w_g_out,
+            mask_tv,
+        ]:
+            tv.set_device_mesh(mesh)
+
+        for tv in [z_in, mask]:
+            tv.outer_split(2, cp_size)
+            tv.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
+            tv.outer_split(1, cp_size)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_y)
+            tv.outer_split(0, dp_size)
+            tv.axis(0).parallelize(nvfuser.ParallelType.mesh_z)
+
+    batch_per_rank = 3
+    n_tokens_per_rank = 5
+    z_in_ref = torch.testing.make_tensor(
+        batch_per_rank * dp_size,
+        n_tokens_per_rank * cp_size,
+        n_tokens_per_rank * cp_size,
+        c_z,
+        dtype=torch.bfloat16,
+        device="cpu",
     )
+    mask_ref = torch.testing.make_tensor(
+        batch_per_rank * dp_size,
+        n_tokens_per_rank * cp_size,
+        n_tokens_per_rank * cp_size,
+        dtype=torch.bool,
+        device="cpu",
+    )
+
+    z_in = multidevice_test.shard_tensor(z_in_ref, z_in_tv)
     w_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
     b_norm_in = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
     w_p_in = torch.testing.make_tensor(
@@ -154,9 +204,7 @@ def test_triangle_updates(direction):
     b_norm_out = torch.testing.make_tensor(c_z, dtype=torch.bfloat16, device="cuda")
     w_p_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
     w_g_out = torch.testing.make_tensor(c_z, c_z, dtype=torch.bfloat16, device="cuda")
-    mask = torch.testing.make_tensor(
-        batch_size, n_tokens, n_tokens, dtype=torch.bool, device="cuda"
-    )
+    mask = multidevice_test.shard_tensor(mask_ref, mask_tv)
     (z_out,) = fd.execute(
         [
             z_in,
@@ -171,4 +219,4 @@ def test_triangle_updates(direction):
             mask,
         ]
     )
-    assert z_out.shape == (batch_size, n_tokens, n_tokens, c_z)
+    assert z_out.shape == (batch_per_rank, n_tokens_per_rank, n_tokens_per_rank, c_z)
