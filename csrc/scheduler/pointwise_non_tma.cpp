@@ -143,18 +143,25 @@ int64_t getUnrollFactor(
   // Check if fusion has BlockQuantizationOp(s)
   // Limit unroll factor for fusions with BlockQuantizationOp(s). The runtime
   // function which implements quantization assumes no unrolling
-  auto has_block_quantization_ops =
-      HeuristicDataCacheEntry<HeuristicCompileTime::HasBlockQuantizationOps>(
+  auto block_quantization_ops =
+      HeuristicDataCacheEntry<HeuristicCompileTime::BlockQuantizationOps>(
           data_cache,
           [fusion]() {
-            return std::make_unique<bool>(
-                !ir_utils::getOpsOfType<BlockQuantizationOp>(fusion).empty() ||
-                !ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion)
-                     .empty());
+            auto ops = std::make_unique<std::vector<Expr*>>();
+            // Get BlockQuantizationOp operations
+            auto block_quant_ops =
+                ir_utils::getOpsOfType<BlockQuantizationOp>(fusion);
+            ops->insert(
+                ops->end(), block_quant_ops.begin(), block_quant_ops.end());
+            // Get GroupedBlockQuantizationOp operations
+            auto grouped_ops =
+                ir_utils::getOpsOfType<GroupedBlockQuantizationOp>(fusion);
+            ops->insert(ops->end(), grouped_ops.begin(), grouped_ops.end());
+            return ops;
           })
           .get();
 
-  if (has_block_quantization_ops) {
+  if (!block_quantization_ops.empty()) {
     // Runtime function implementing Block Quantization Op requires unroll
     // factor to be 1
     return 1;

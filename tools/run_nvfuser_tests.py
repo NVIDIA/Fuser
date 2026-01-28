@@ -64,7 +64,7 @@ def get_python_tests(python_test_dir):
 
 def get_test_timeout(test_name):
     """Return timeout in seconds for a given test"""
-    if test_name in ["test_nvfuser", "test_matmul", "test_ops.py"]:
+    if test_name in ["test_nvfuser", "test_matmul", "test_direct_ops.py"]:
         return 3600  # 1 hour
     return 600  # 10 minutes
 
