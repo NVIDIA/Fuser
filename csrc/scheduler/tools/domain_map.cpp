@@ -8,6 +8,8 @@
 #include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 
+#include <ranges>
+
 namespace nvfuser {
 namespace scheduler_tools {
 
@@ -515,25 +517,29 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
   if (ref1 == nullptr || ref2 == nullptr) {
     return false;
   }
-  // when all loop domains are mapped to each other, it means the two groups
-  // are due to broadcast. They are not considered as valid groups since
-  // pointwise scheduler handles broadcast well.
-  int64_t num_mapped = 0, bcast_domains = 0;
+
+  // For grouping caused by permutation, the corresponding loop domains should
+  // not be all mapped to each other. If they are, it means the two groups are
+  // due to broadcast. In this case, they are not considered as valid groups
+  // since the broadcast tensor has a smaller size and pointwise scheduler
+  // handles broadcast well through unrolling and caching at all levels.
   const auto& ref1_loop = ref1->getLoopDomain();
   const auto& ref2_loop = ref2->getLoopDomain();
-  if (ref1_loop.size() == ref2_loop.size()) {
-    for (auto i : arange(ref1_loop.size())) {
-      if (domain_map.getComputeAtMap().areMapped(
-              ref1_loop[i], ref2_loop[i], IdMappingMode::PERMISSIVE)) {
-        num_mapped++;
-      }
-      if (ref1_loop[i]->isBroadcast() || ref2_loop[i]->isBroadcast()) {
-        bcast_domains++;
-      }
-    }
-    if (num_mapped == (int64_t)ref1_loop.size() && bcast_domains > 0) {
-      return false;
-    }
+  const auto& ca_map = domain_map.getComputeAtMap();
+  const bool all_mapped = std::ranges::equal(
+      ref1_loop, ref2_loop, [&](IterDomain* id1, IterDomain* id2) {
+        return ca_map.areMapped(id1, id2, IdMappingMode::PERMISSIVE);
+      });
+  if (all_mapped) {
+    // Not required, just to validate the assumption that all_mapped implies
+    // any_bcast
+    const bool any_bcast =
+        std::ranges::any_of(
+            ref1_loop, [](IterDomain* id) { return id->isBroadcast(); }) ||
+        std::ranges::any_of(
+            ref2_loop, [](IterDomain* id) { return id->isBroadcast(); });
+    NVF_ERROR(any_bcast, "all_mapped implies any_bcast");
+    return false;
   }
   // reference 1 is the global reference, so it must have dim mapped the
   // innermost dim of both groups
