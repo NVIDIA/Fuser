@@ -81,11 +81,9 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
   // Bind the logical domain.
   ExpressionEvaluator evaluator;
   LinkedHashMap<IterDomain*, int64_t> id_to_size;
+  NVF_CHECK_EQ(std::ranges::distance(source), tensor.dim());
   for (auto [id, size] : zip(source, tensor.sizes())) {
     evaluator.bind(id->getMaybeExpandedExtent(), size);
-    if (id->isBroadcast()) {
-      evaluator.bind(id->extent(), 1);
-    }
     id_to_size.pushBack(id, size);
   }
 
@@ -116,16 +114,14 @@ at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
         transform->toString());
 
     auto [in_size, i] = id_to_size.erase(split->in());
-    id_to_size.insert(
-        i,
-        split->outer(),
+    const auto outer_size =
         evaluator.evaluate(split->outer()->getMaybeExpandedExtent())
-            .as<int64_t>());
-    id_to_size.insert(
-        i,
-        split->inner(),
+            .as<int64_t>();
+    id_to_size.insert(i, split->outer(), outer_size);
+    const auto inner_size =
         evaluator.evaluate(split->inner()->getMaybeExpandedExtent())
-            .as<int64_t>());
+            .as<int64_t>();
+    id_to_size.insert(i, split->inner(), inner_size);
 
     std::vector<int64_t> new_sizes;
     new_sizes.reserve(id_to_size.size());

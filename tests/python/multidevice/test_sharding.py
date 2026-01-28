@@ -155,6 +155,41 @@ class TestShardTensor:
         )
 
     @pytest.mark.mpi
+    def test_context_and_tensor_parallel(self, multidevice_test):
+        d = multidevice_test.size
+        tp_size = 2
+        if d % tp_size != 0:
+            pytest.skip(
+                f"Number of devices ({d}) must be divisible by tp_size ({tp_size})"
+            )
+        cp_size = d // tp_size
+        e = 5
+
+        with nvfuser.FusionDefinition() as fd:
+            tv = fd.define_tensor([-1, -1, e])  # [b, s, e]
+            fd.add_output(tv)
+
+            mesh = nvfuser.multidevice.DeviceMesh(
+                torch.arange(d).reshape(cp_size, tp_size)
+            )
+            tv.set_device_mesh(mesh)
+            tv.outer_split(1, tp_size)
+            tv.axis(1).parallelize(nvfuser.ParallelType.mesh_x)
+            tv.outer_split(2, cp_size)
+            tv.axis(2).parallelize(nvfuser.ParallelType.mesh_y)
+            tv.reorder({2: 0, 1: 1})
+
+        b, s = 2, tp_size * cp_size * 3
+        t_ref = torch.arange(b * s * e, dtype=torch.float).reshape(b, s, e)
+        t = multidevice_test.shard_tensor(t_ref, tv)
+
+        cp_rank = multidevice_test.rank // tp_size
+        tp_rank = multidevice_test.rank % tp_size
+        torch.testing.assert_close(
+            t.cpu(), t_ref.reshape(b, tp_size, cp_size, 3, e)[:, tp_rank, cp_rank, :, :]
+        )
+
+    @pytest.mark.mpi
     def test_expanded_broadcast(self, multidevice_test):
         d = multidevice_test.size
         with nvfuser.FusionDefinition() as fd:

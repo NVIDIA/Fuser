@@ -135,7 +135,7 @@ int64_t DeviceMesh::parallelTypeToAxis(ParallelType parallel_type) const {
       parallel_type);
   auto offset = static_cast<int64_t>(parallel_type) -
       static_cast<int64_t>(ParallelType::DIDx);
-  const auto ndims = rank();
+  const int64_t ndims = rank();
   if (offset >= ndims) {
     return -1;
   }
