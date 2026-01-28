@@ -5,44 +5,106 @@
 -->
 # nvFuser Environment Configuration Tool
 
-Interactive tool for managing nvFuser's 49 build and runtime environment variables.
+Interactive tool for managing nvFuser's build and runtime environment variables.
 
-## Quick Setup (Auto-install)
+## Quick Setup (Portable, Project-Scoped - Recommended)
 
-From Fuser/main directory, copy-paste ONE command:
+Add these lines to your `~/.zshrc` or `~/.bashrc` for automatic loading when you enter an nvFuser directory:
 
+**For bash:**
 ```bash
-# For bash
-echo 'eval "$('$PWD'/tools/env-config/nvfuser-config-shell.sh)"' >> ~/.bashrc && source ~/.bashrc
+cat >> ~/.bashrc << 'EOF'
 
-# For zsh
-echo 'eval "$('$PWD'/tools/env-config/nvfuser-config-shell.sh)"' >> ~/.zshrc && source ~/.zshrc
+# nvFuser: Auto-load configuration tool
+_load_nvfuser_shell() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+PROMPT_COMMAND="_load_nvfuser_shell${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+_load_nvfuser_shell
+EOF
+source ~/.bashrc
 ```
 
-This appends the setup line to your RC file and immediately activates it.
+**For zsh (Option 1 - Simple):**
+```bash
+cat >> ~/.zshrc << 'EOF'
+
+# nvFuser: Auto-load configuration tool
+chpwd() {
+  [[ -f .nvfuser-shell ]] && source .nvfuser-shell
+}
+[[ -f .nvfuser-shell ]] && source .nvfuser-shell
+EOF
+source ~/.zshrc
+```
+
+**For zsh (Option 2 - If you have existing chpwd hooks):**
+```bash
+cat >> ~/.zshrc << 'EOF'
+
+# nvFuser: Auto-load configuration tool
+_load_nvfuser_shell() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+chpwd_functions+=(_load_nvfuser_shell)
+_load_nvfuser_shell
+EOF
+source ~/.zshrc
+```
+
+**Verify:** `cd` into the Fuser directory, then run `type nvfuser-configure` - you should see the function definition.
+
+**Benefits:**
+- ✅ Portable (no hard-coded paths)
+- ✅ Project-scoped (only loaded in nvFuser directories)
+- ✅ "Apply" feature works (modifies current shell)
+- ✅ Works across all your nvFuser checkouts
+- ✅ Fast (guard in .nvfuser-shell prevents re-loading)
+- ✅ Clean (doesn't pollute global namespace when outside project)
+
 
 **Verify:** `type nvfuser-configure` should show the function definition.
 
 **Note:** Running this multiple times will add duplicate lines. If you need to remove duplicates later, edit your RC file manually.
 
-## Manual Setup (if preferred)
+## Manual Setup
 
-Add this ONE LINE to your `~/.bashrc` (bash) or `~/.zshrc` (zsh):
+If you prefer not to use the quick setup, add these lines to your `~/.bashrc` (bash) or `~/.zshrc` (zsh):
 
+**For bash:**
 ```bash
-eval "$($PWD/tools/env-config/nvfuser-config-shell.sh)"
+_load_nvfuser_shell() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+PROMPT_COMMAND="_load_nvfuser_shell${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+_load_nvfuser_shell
+```
+
+**For zsh (simple):**
+```bash
+chpwd() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+[[ -f .nvfuser-shell ]] && source .nvfuser-shell
+```
+
+**For zsh (with existing hooks):**
+```bash
+_load_nvfuser_shell() { [[ -f .nvfuser-shell ]] && source .nvfuser-shell; }
+chpwd_functions+=(_load_nvfuser_shell)
+_load_nvfuser_shell
 ```
 
 Then reload your shell:
 ```bash
-# For bash
-source ~/.bashrc
-
-# For zsh
-source ~/.zshrc
+source ~/.bashrc  # for bash
+source ~/.zshrc   # for zsh
 ```
 
-**Note:** The script works with bash, zsh, and other POSIX-compatible shells.
+This is portable and will work for all nvFuser checkouts on all machines.
+
+## How It Works
+
+The setup line `[[ -f .nvfuser-shell ]] && source .nvfuser-shell` runs automatically in every directory you `cd` into. When you're in an nvFuser directory, it finds the `.nvfuser-shell` file and loads the `nvfuser-configure` function. When you leave the directory, the function remains available in that shell session but won't be loaded in new shells unless you're in an nvFuser directory.
+
+This approach is:
+- **Portable:** No hard-coded paths, works on any machine
+- **Project-scoped:** Only activates in nvFuser directories
+- **Fast:** Minimal overhead
+- **Standard:** Similar to how `.env`, `.nvmrc`, and other tools work
+
 
 ## Usage
 
