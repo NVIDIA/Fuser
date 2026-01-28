@@ -84,14 +84,14 @@ class CursesUI:
             opt = item["option"]
             match opt.var_type:
                 case "bool":
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
                 case "multi":
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [a] Apply  [g] Gen  [q] Quit"
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
                 case _:
                     # String/Int - Enter to edit
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [a] Apply  [g] Gen  [q] Quit"
+                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
         else:
-            help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [a] Apply  [g] Gen  [q] Quit"
+            help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
 
         if self.modified:
             help_text = "[MODIFIED] " + help_text
@@ -484,6 +484,8 @@ class CursesUI:
         """Show confirmation, generate apply script, and signal to exit"""
         # Import save_config here to avoid circular import
         from configure_env import save_config
+        import os
+        import sys
 
         # Show confirmation dialog
         response = self.show_confirmation("Apply configuration and exit?", "[y/N]")
@@ -495,9 +497,22 @@ class CursesUI:
         exports = self.config.get_env_exports()
         unsets = self.config.get_unset_vars()
 
-        # Generate apply script
-        apply_script = "/tmp/nvfuser_apply_now.sh"
+        # Generate apply script in current working directory (not /tmp for security)
+        apply_script = os.path.join(os.getcwd(), ".nvfuser_apply_now.sh")
+
+        # Debug output
+        if os.environ.get("NVFUSER_CONFIG_DEBUG") == "1":
+            sys.stderr.write(f"[DEBUG] Creating apply script at: {apply_script}\n")
+            sys.stderr.write(f"[DEBUG] Exports: {len(exports)} variables\n")
+            sys.stderr.write(f"[DEBUG] Unsets: {len(unsets)} variables\n")
+
         save_config(exports, unsets, apply_script)
+
+        if os.environ.get("NVFUSER_CONFIG_DEBUG") == "1":
+            if os.path.exists(apply_script):
+                sys.stderr.write("[DEBUG] Apply script created successfully\n")
+            else:
+                sys.stderr.write("[DEBUG] ERROR: Apply script was NOT created!\n")
 
         # Set flag to exit
         self.should_exit = True
@@ -556,7 +571,11 @@ class CursesUI:
         self.should_exit = True
         self.modified = False
 
-    def jump_to_next_section(self) -> None:
+    def reload_from_environment(self) -> None:
+        """Reload configuration values from current environment."""
+        self.config._load_current_values()
+        self.modified = False
+
         """Jump to the next section header."""
         for i in range(self.current_row + 1, len(self.display_items)):
             if self.display_items[i]["type"] == "header":
@@ -618,8 +637,8 @@ class CursesUI:
                         "",
                         "What would you like to do?",
                         "",
-                        "  [a] Apply Now    - Generate /tmp/nvfuser_apply_now.sh",
-                        "                     (then source it after exit)",
+                        "  [a] Apply Now    - Generate .nvfuser_apply_now.sh in current dir",
+                        "                     (sourced automatically after exit)",
                         "",
                         "  [g] Generate     - Create nvfuser_env.sh",
                         "                     (then source it after exit)",
@@ -715,6 +734,10 @@ class CursesUI:
 
             elif key == ord("e") or key == ord("E"):
                 self.handle_edit()
+
+            elif key == ord("r") or key == ord("R"):
+                # Reload from environment
+                self.reload_from_environment()
 
             elif key == ord("a") or key == ord("A"):
                 self.handle_apply_now()

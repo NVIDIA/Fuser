@@ -54,7 +54,7 @@ if ! _is_sourced; then
     cat << EOF
 nvfuser-configure() {
     local SCRIPT_DIR="$EMBED_SCRIPT_DIR"
-    local APPLY_SCRIPT="/tmp/nvfuser_apply_now.sh"
+    local APPLY_SCRIPT="\$(pwd)/.nvfuser_apply_now.sh"
     local TOOL_PATH="\$SCRIPT_DIR/configure_env.py"
 
     # If file not found, try alternative locations
@@ -79,6 +79,17 @@ nvfuser-configure() {
 
     python "\$TOOL_PATH" "\$@"
     local exit_code=\$?
+
+    # Debug: Show what happened
+    if [ "\$NVFUSER_CONFIG_DEBUG" = "1" ]; then
+        echo "[DEBUG] Python exit code: \$exit_code"
+        echo "[DEBUG] Apply script path: \$APPLY_SCRIPT"
+        if [ -f "\$APPLY_SCRIPT" ]; then
+            echo "[DEBUG] Apply script exists"
+        else
+            echo "[DEBUG] Apply script NOT found"
+        fi
+    fi
 
     # If apply script was generated, source it and clean up
     if [ \$exit_code -eq 0 ] && [ -f "\$APPLY_SCRIPT" ]; then
@@ -106,7 +117,7 @@ nvfuser-configure() {
         local SCRIPT_DIR="$(pwd)"
     fi
 
-    local APPLY_SCRIPT="/tmp/nvfuser_apply_now.sh"
+    local APPLY_SCRIPT="$(pwd)/.nvfuser_apply_now.sh"
     local TOOL_PATH="$SCRIPT_DIR/configure_env.py"
 
     # If SCRIPT_DIR detection failed, try to find configure_env.py in PATH
@@ -121,6 +132,17 @@ nvfuser-configure() {
 
     python "$TOOL_PATH" "$@"
     local exit_code=$?
+
+    # Debug: Show what happened
+    if [ "$NVFUSER_CONFIG_DEBUG" = "1" ]; then
+        echo "[DEBUG] Python exit code: $exit_code"
+        echo "[DEBUG] Apply script path: $APPLY_SCRIPT"
+        if [ -f "$APPLY_SCRIPT" ]; then
+            echo "[DEBUG] Apply script exists"
+        else
+            echo "[DEBUG] Apply script NOT found"
+        fi
+    fi
 
     # If apply script was generated, source it and clean up
     if [ $exit_code -eq 0 ] && [ -f "$APPLY_SCRIPT" ]; then
