@@ -518,13 +518,21 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
     return false;
   }
 
+  // reference 1 is the global reference, so it must have dim mapped the
+  // innermost dim of both groups
+  auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
+  auto mapped_id = domain_map.getMappedAllocDimIn(ref1, innermost2);
+  if (mapped_id == nullptr) {
+    return false;
+  }
+
   // For grouping caused by permutation, the corresponding loop domains should
   // not be all mapped to each other. If they are, it means the two groups are
   // due to broadcast. In this case, they are not considered as valid groups
   // since the broadcast tensor has a smaller size and pointwise scheduler
   // handles broadcast well through unrolling and caching at all levels.
-  const auto& ref1_loop = ref1->getLoopDomain();
-  const auto& ref2_loop = ref2->getLoopDomain();
+  const auto& ref1_loop = ref1->getMaybeAllocationDomain();
+  const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
   const bool all_mapped = std::ranges::equal(
       ref1_loop, ref2_loop, [&](IterDomain* id1, IterDomain* id2) {
@@ -538,13 +546,13 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
             ref1_loop, [](IterDomain* id) { return id->isBroadcast(); }) ||
         std::ranges::any_of(
             ref2_loop, [](IterDomain* id) { return id->isBroadcast(); });
-    NVF_ERROR(any_bcast, "all_mapped implies any_bcast");
+    NVF_ERROR(
+        any_bcast,
+        "all_mapped implies any_bcast, ca_map:\n",
+        ca_map.toString());
     return false;
   }
-  // reference 1 is the global reference, so it must have dim mapped the
-  // innermost dim of both groups
-  auto innermost2 = scheduler_utils::innerMostAllocDim(ref2);
-  return domain_map.getMappedAllocDimIn(ref1, innermost2) != nullptr;
+  return true;
 }
 
 int64_t TransposeDomainMap::getInnerLeafDim(
