@@ -230,7 +230,7 @@ def save_config(
             for var, val in sorted(exports.items()):
                 f.write(f'export {var}="{val}"\n')
 
-    os.chmod(filename, 0o755)
+    os.chmod(filename, 0o700)
 
 
 def generate_script_mode(config: EnvVarConfig) -> None:
