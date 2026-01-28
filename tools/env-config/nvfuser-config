@@ -7,7 +7,7 @@
 # This script launches the configuration tool and optionally applies the configuration
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APPLY_SCRIPT="/tmp/nvfuser_apply_now.sh"
+APPLY_SCRIPT="nvfuser_apply_now.sh"
 
 # Check if we should apply after configuring
 APPLY_AFTER=0
