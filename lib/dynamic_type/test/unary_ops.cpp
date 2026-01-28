@@ -11,27 +11,33 @@
 
 #include "dynamic_type/dynamic_type.h"
 
+#include <cstdint>
+
 #include "utils.h"
 
-#define TEST_UNARY_OP(name, op, int_or_bool, opchar)                          \
-  TEST_F(DynamicTypeTest, name) {                                             \
-    static_assert(requires(DoubleInt64Bool t) { op t; });                     \
-    static_assert(requires(DoubleInt64BoolVec t) { op t; });                  \
-    static_assert((op DoubleInt64Bool(2L)).as<decltype(op 2L)>() == (op 2L)); \
-    EXPECT_EQ((op DoubleInt64BoolVec(2L)).as<decltype(op 2L)>(), (op 2L));    \
-    EXPECT_THAT(                                                              \
-        [&]() { op DoubleInt64Bool(); },                                      \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
-            "Result is dynamic but not convertible to result type")));        \
-    EXPECT_THAT(                                                              \
-        [&]() { op DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); },  \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
-            "Result is dynamic but not convertible to result type")));        \
-    static_assert(requires(int_or_bool##SomeType t) { op t; });               \
-    EXPECT_THAT(                                                              \
-        [&]() { op int_or_bool##SomeType(SomeType{}); },                      \
-        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(    \
-            "Result is dynamic but not convertible to result type")));        \
+#define TEST_UNARY_OP(name, op, int_or_bool, opchar)                         \
+  TEST_F(DynamicTypeTest, name) {                                            \
+    static_assert(requires(DoubleInt64Bool t) { op t; });                    \
+    static_assert(requires(DoubleInt64BoolVec t) { op t; });                 \
+    static_assert(                                                           \
+        (op DoubleInt64Bool(int64_t{2})).as<decltype(op int64_t{2})>() ==    \
+        (op int64_t{2}));                                                    \
+    EXPECT_EQ(                                                               \
+        (op DoubleInt64BoolVec(int64_t{2})).as<decltype(op int64_t{2})>(),   \
+        (op int64_t{2}));                                                    \
+    EXPECT_THAT(                                                             \
+        [&]() { op DoubleInt64Bool(); },                                     \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
+    EXPECT_THAT(                                                             \
+        [&]() { op DoubleInt64BoolVec(std::vector<DoubleInt64BoolVec>{}); }, \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
+    static_assert(requires(int_or_bool##SomeType t) { op t; });              \
+    EXPECT_THAT(                                                             \
+        [&]() { op int_or_bool##SomeType(SomeType{}); },                     \
+        ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(   \
+            "Result is dynamic but not convertible to result type")));       \
   }
 
 TEST_UNARY_OP(Positive, +, Int, '+');
@@ -42,10 +48,11 @@ TEST_UNARY_OP(BinaryNot, ~, Int, '~');
 TEST_F(DynamicTypeTest, LogicalNot) {
   static_assert(requires(DoubleInt64Bool t) { !t; });
   static_assert(requires(DoubleInt64BoolVec t) { !t; });
-  static_assert(std::is_same_v<decltype(!DoubleInt64Bool(2L)), bool>);
-  static_assert((!DoubleInt64Bool(2L)) == (!2L));
-  static_assert(std::is_same_v<decltype(!DoubleInt64BoolVec(2L)), bool>);
-  EXPECT_EQ(!DoubleInt64BoolVec(2L), (!2L));
+  static_assert(std::is_same_v<decltype(!DoubleInt64Bool(int64_t{2})), bool>);
+  static_assert((!DoubleInt64Bool(int64_t{2})) == (!int64_t{2}));
+  static_assert(
+      std::is_same_v<decltype(!DoubleInt64BoolVec(int64_t{2})), bool>);
+  EXPECT_EQ(!DoubleInt64BoolVec(int64_t{2}), (!int64_t{2}));
   EXPECT_THAT(
       [&]() { !DoubleInt64Bool(); },
       ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(

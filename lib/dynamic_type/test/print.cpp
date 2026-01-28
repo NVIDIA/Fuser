@@ -11,6 +11,7 @@
 
 #include "dynamic_type/dynamic_type.h"
 
+#include <cstdint>
 #include <sstream>
 #include <string>
 
@@ -20,12 +21,13 @@ using namespace dynamic_type;
 
 TEST_F(DynamicTypeTest, Printing) {
   std::stringstream ss;
-  ss << DoubleInt64Bool(299792458L) << ", " << DoubleInt64Bool(3.14159) << ", "
-     << DoubleInt64Bool(true);
+  ss << DoubleInt64Bool(int64_t{299792458}) << ", " << DoubleInt64Bool(3.14159)
+     << ", " << DoubleInt64Bool(true);
   EXPECT_EQ(ss.str(), "299792458, 3.14159, 1");
 
   std::stringstream ss2;
-  static_assert(requires(std::stringstream& ss, IntSomeType ist) { ss << ist; });
+  static_assert(
+      requires(std::stringstream & ss, IntSomeType ist) { ss << ist; });
   ss2 << IntSomeType(299792458);
   EXPECT_EQ(ss2.str(), "299792458");
 

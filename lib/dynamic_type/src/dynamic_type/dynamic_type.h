@@ -525,51 +525,59 @@ struct DynamicType {
   template <typename T, typename M>
   using arrow_star_result_t = decltype(std::declval<T>()->*std::declval<M>());
 
-#define DEFINE_ARROW_STAR_OPERATOR(__const)                                    \
-  template <typename MemberT>                                                  \
-  static constexpr auto all_arrow_star_ret_types##__const =                    \
-      remove_void_from_tuple(for_all_types([](auto t) {                        \
-        using T = typename decltype(t)::type;                                  \
-        if constexpr (requires(__const T& obj, MemberT& mem) { obj->*mem; }) { \
-          return std::type_identity<                                           \
-              arrow_star_result_t<__const T&, MemberT&>>{};                    \
-        }                                                                      \
-      }));                                                                     \
-                                                                               \
-  template <typename MemberT>                                                  \
-  using AllArrowStarRetTypes##__const =                                        \
-      decltype(all_arrow_star_ret_types##__const<MemberT>);                    \
-                                                                               \
-  template <typename MemberT>                                                  \
-  static constexpr bool all_arrow_star_ret_types_are_same##__const =           \
-      all_same_type(all_arrow_star_ret_types##__const<MemberT>);               \
-                                                                               \
-  template <typename MemberT>                                                  \
-  using ArrowStarRetType##__const =                                            \
-      typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type;    \
-                                                                               \
-  template <typename MemberT>                                                  \
-  requires(                                                                    \
-      all_arrow_star_ret_types_are_same##__const<MemberT>&&                    \
-          std::tuple_size_v<AllArrowStarRetTypes##__const<MemberT>> >          \
-      0) constexpr typename ArrowStarRetType##__const<MemberT>::type           \
-  operator->*(const MemberT& member) __const {                                 \
-    using RetT = typename ArrowStarRetType##__const<MemberT>::type;            \
-    std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                  \
-    for_all_types([this, &member, &ret](auto t) {                              \
-      using T = typename decltype(t)::type;                                    \
-      if constexpr (requires(__const T obj, MemberT mem) { obj->*mem; }) {     \
-        if (is<T>()) {                                                         \
-          ret = as<T>()->*member;                                              \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        ret.has_value(),                                                       \
-        "Cannot access member with type ",                                     \
-        typeid(RetT).name(),                                                   \
-        " : incompatible type");                                               \
-    return ret.value();                                                        \
+#define DEFINE_ARROW_STAR_OPERATOR(__const)                                 \
+  template <typename MemberT>                                               \
+  static constexpr auto all_arrow_star_ret_types_impl##__const() {          \
+    /* NOTE: use a function template instead of a variable template with */ \
+    /* deduced 'auto' type. This avoids eager instantiation / deduction */  \
+    /* issues on some compilers+stdlibs (e.g. Clang + libstdc++). */        \
+    return remove_void_from_tuple(for_all_types([](auto t) {                \
+      using T = typename decltype(t)::type;                                 \
+      if constexpr (requires(__const T& obj, const MemberT& mem) {          \
+                      obj->*mem;                                            \
+                    }) {                                                    \
+        return std::type_identity<                                          \
+            arrow_star_result_t<__const T&, const MemberT&>>{};             \
+      }                                                                     \
+    }));                                                                    \
+  }                                                                         \
+                                                                            \
+  template <typename MemberT>                                               \
+  using AllArrowStarRetTypes##__const =                                     \
+      decltype(all_arrow_star_ret_types_impl##__const<MemberT>());          \
+                                                                            \
+  template <typename MemberT>                                               \
+  static constexpr bool all_arrow_star_ret_types_are_same##__const =        \
+      all_same_type(all_arrow_star_ret_types_impl##__const<MemberT>());     \
+                                                                            \
+  template <typename MemberT>                                               \
+  using ArrowStarRetType##__const =                                         \
+      typename first_or_void<AllArrowStarRetTypes##__const<MemberT>>::type; \
+                                                                            \
+  template <typename MemberT>                                               \
+  requires(                                                                 \
+      all_arrow_star_ret_types_are_same##__const<MemberT>&&                 \
+          std::tuple_size_v<AllArrowStarRetTypes##__const<MemberT>> >       \
+      0) constexpr typename ArrowStarRetType##__const<MemberT>::type        \
+  operator->*(const MemberT& member) __const {                              \
+    using RetT = typename ArrowStarRetType##__const<MemberT>::type;         \
+    std::optional<wrap_reference_t<RetT>> ret = std::nullopt;               \
+    for_all_types([this, &member, &ret](auto t) {                           \
+      using T = typename decltype(t)::type;                                 \
+      if constexpr (requires(__const T obj, const MemberT& mem) {           \
+                      obj->*mem;                                            \
+                    }) {                                                    \
+        if (is<T>()) {                                                      \
+          ret = as<T>()->*member;                                           \
+        }                                                                   \
+      }                                                                     \
+    });                                                                     \
+    DYNAMIC_TYPE_CHECK(                                                     \
+        ret.has_value(),                                                    \
+        "Cannot access member with type ",                                  \
+        typeid(RetT).name(),                                                \
+        " : incompatible type");                                            \
+    return ret.value();                                                     \
   }
 
   DEFINE_ARROW_STAR_OPERATOR()
