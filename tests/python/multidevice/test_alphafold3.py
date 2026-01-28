@@ -165,7 +165,7 @@ def test_triangle_updates(direction, multidevice_test):
         ]:
             tv.set_device_mesh(mesh)
 
-        for tv in [z_in, mask]:
+        for tv in [z_in_tv, mask_tv]:
             tv.outer_split(2, cp_size)
             tv.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
             tv.outer_split(1, cp_size)
