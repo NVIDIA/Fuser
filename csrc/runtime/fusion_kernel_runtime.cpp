@@ -348,7 +348,7 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
-  if (!(is_expr_eval && isOptionEnabled(EnableOption::InferContiguity))) {
+  if (!is_expr_eval || isOptionDisabled(DisableOption::InferContiguity)) {
     return inferContiguousOutputMetaTensor(
         fusion_to_run, group_runtime_inputs, evaluator_precomputed_values);
   }
