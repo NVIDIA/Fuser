@@ -600,6 +600,20 @@ Internal design doc: http://nv/nvfuser-cp
 
 TODO: move some content to public docs
 
+### Expert Parallelism (EP)
+
+This is not implemented yet.
+
+Supporting expert parallelism requires the tensor list abstraction, which is
+being implemented following [the design
+doc](../dev/ragged_iter_domain_design_doc.md).
+
+The figure below shows how Llama 4 MoE is expert-parallelized with the tensor
+list abstraction. For conciseness, it shows only the router and dispatch
+steps.
+
+<img src="multigpu/expert_parallelism.png" alt="Figure 2" width="600">
+
 ## Debugging
 
 nvFuser's multi-GPU unit tests use `mpirun` to launch one process per GPU.

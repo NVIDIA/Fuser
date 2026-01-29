@@ -2802,7 +2802,6 @@ class MatmulFusionTest
       EnableOptionsGuard::getCurOptions().set(
           EnableOption::FuseMultipleMatmuls);
     }
-    EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
   }
 
   bool fusion_enabled = GetParam().first;

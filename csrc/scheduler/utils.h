@@ -388,6 +388,14 @@ std::vector<TensorView*> getTVsWithNonReductionRFactor(Fusion* fusion);
 // Reset inputs and outputs to global memory, everything else to local.
 void clearMemorySpace(Fusion* fusion);
 
+// Given the return values from cacheInputs and cacheAndForkOutputs, add
+// WaitForPriorGridOp before the first fusion input and LaunchDependentGridOp
+// before storing results for last fusion output
+void applyPDL(
+    Fusion* fusion,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_inputs,
+    const std::vector<std::pair<TensorView*, int64_t>>& cached_outputs);
+
 // Returns the pairs of <cache, input_index> for each cached fusion input.
 // input_index is the position in fusion->inputs(). Otherwise return empty
 // vector.
