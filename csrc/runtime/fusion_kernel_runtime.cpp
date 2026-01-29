@@ -78,7 +78,15 @@ FusionKernelRuntime::FusionKernelRuntime(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  OptimizationPass<preseg_passes::PreSegmenter>::runPass(fusion.get());
+  // CRITICAL FIX  Make a copy before running PreSegmenter to avoid
+  // use-after-free PreSegmenter's RemoveEmptyPass deletes Vals via
+  // DeadCodeRemover. If we modify the original Fusion, any existing references
+  // to it (like in SegmentedGroups that might be created during segmentation)
+  // will have dangling pointers to the deleted Vals. By working on a copy, we
+  // ensure the original Fusion (which may be referenced elsewhere) remains
+  // untouched.
+  auto preseg_fusion = std::make_unique<Fusion>(*fusion);
+  OptimizationPass<preseg_passes::PreSegmenter>::runPass(preseg_fusion.get());
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
     const auto& communicator = Communicator::getInstance();
@@ -87,21 +95,21 @@ FusionKernelRuntime::FusionKernelRuntime(
     if (communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
-      fusion->print();
+      preseg_fusion->print();
     }
   }
 
   // SchedulerRuntimeInfo modifies the fusion, so it is required for both
   // compile paths.
-  std::vector<TensorView*> all_tvs = fusion->allTvs();
+  std::vector<TensorView*> all_tvs = preseg_fusion->allTvs();
   SchedulerRuntimeInfo runtime_info(
-      fusion.get(), args, nullptr, all_tvs, forced_index_type);
+      preseg_fusion.get(), args, nullptr, all_tvs, forced_index_type);
 
   if (serde_buffer == nullptr || !serde_buffer->segmented_fusion()->valid()) {
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
-    segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
+    segmented_fusion_ = SegmentCandidateFinder::segment(
+        std::move(preseg_fusion), args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
