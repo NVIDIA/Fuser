@@ -22,6 +22,86 @@
 
 namespace nvfuser {
 
+namespace {
+
+// Returns the number of "batchable" non-circular-buffered TMA loads found in
+// the given expression list. This is used internally by BatchedTmaInfo.
+//
+// A TMA load is "batchable" if it meets ALL of the following criteria:
+//  1. It is a CpAsyncBulk load operation (not circular-buffered)
+//  2. Block dim X has at least 32 threads (required for elect sync)
+//  3. The loaded TensorView has no circular buffering enabled
+//  4. The loaded TensorView has no thread-parallelized or serial dimensions
+//  5. If multiple TMA loads exist, they must all have the same parallelization
+//
+// The batched non-circular TMA path is only enabled when this count is > 1.
+int64_t getNumOfBatchedTmaLoads(const std::vector<Expr*>& exprs) {
+  // Due to restriction of elect sync, we need to have at least 32 threads in
+  // the block.
+  NVF_ERROR(GpuLower::hasCurrent());
+  auto bdimx_val = GpuLower::current()->info().parallelDimensionMap().get(
+      ParallelType::TIDx);
+  if (!bdimx_val || !bdimx_val->isConstScalar() ||
+      bdimx_val->evaluate().as<int64_t>() < 32L) {
+    return 0;
+  }
+
+  // Find all batchable non-circular TMA loads.
+  std::vector<TensorView*> non_cb_tma_load_tvs;
+  for (auto expr : exprs) {
+    if (!ir_utils::isCpAsyncBulkLoad(expr)) {
+      continue;
+    }
+    auto tv = ir_utils::getTvOutput(expr);
+    if (tv->circularBufferOptions().isEnable()) {
+      return 0;
+    }
+    // The following conditions can be relaxed in the future.
+    // We have some tests where TMA load is used in an untraditional way.
+    // e.g. parallelized with threads, serial load.
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](const IterDomain* id) {
+              return id->isThreadDim() ||
+                  id->getParallelType() == ParallelType::Serial;
+            })) {
+      return 0;
+    }
+    non_cb_tma_load_tvs.push_back(tv);
+  }
+  if (non_cb_tma_load_tvs.size() <= 1) {
+    return (int64_t)non_cb_tma_load_tvs.size();
+  }
+  // Ensure all TMA loads are parallelized in the same way since we naively put
+  // mbarrier wait after the last TMA load which leads to incorrect behavior in
+  // cases with TMA loaded tv goes through broadcast (not exist in auto
+  // scheduler yet but we have a test case for this)
+  // TmaPointwiseBcastTest.InnerOuterBcast/use_auto_scheduler_0_tma_inner_bcast_1_tma_outer_bcast_1
+  const auto& ref_dom = non_cb_tma_load_tvs.front()->getLoopDomain();
+  for (auto tv : non_cb_tma_load_tvs | std::views::drop(1)) {
+    const auto& dom = tv->getLoopDomain();
+    if (!std::ranges::equal(
+            dom,
+            ref_dom,
+            {},
+            &IterDomain::getParallelType,
+            &IterDomain::getParallelType)) {
+      return 0;
+    }
+  }
+  return (int64_t)non_cb_tma_load_tvs.size();
+}
+
+} // namespace
+
+BatchedTmaInfo::BatchedTmaInfo(Fusion* fusion) {
+  // Compute the number of batchable TMA loads from the fusion
+  num_batchable_loads_ = getNumOfBatchedTmaLoads(fusion->exprs());
+  // Note: The mbarrierMap will be populated later during the allocation pass
+  // when the actual mbarriers are allocated.
+}
+
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
   os << "TMADim{"
      << "partitioned="

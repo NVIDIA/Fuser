@@ -195,13 +195,6 @@ bool containsCircularBufferStage(
 
 namespace lower_utils {
 
-//! Returns the number of "batchable" non-circular-buffered TMA loads found in
-//! the given kernel IR expression list.
-//!
-//! The batched non-circular TMA path is only enabled by callers when this
-//! count is > 1.
-int64_t getNumOfBatchedTmaLoads(const std::vector<Expr*>& exprs);
-
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map);
 
 // Allocate global buffer for a grid communication calls, i.e. grid reduce, grid

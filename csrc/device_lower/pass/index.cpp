@@ -1700,9 +1700,10 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
         new_ldst, mbarrier);
 
     GpuLower::current()->propagateExprInfo(ldst, back());
-  } else if (GpuLower::current()->numOfBatchedTmaLoads() > 1) {
+  } else if (
+      GpuLower::current()->info().batchedTmaInfo().mbarrierMap().size() > 1) {
     kir::TensorIndex* mbarrier =
-        GpuLower::current()->batchedTmaMbarrierMap().at(ldst);
+        GpuLower::current()->info().batchedTmaInfo().mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier

@@ -1550,11 +1550,12 @@ class AllocationInserter : public kir::ExprMutator {
     // buffered.
     if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
         (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
-      if (GpuLower::current()->numOfBatchedTmaLoads() > 1) {
+      if (batched_tma_mbarriers_ != nullptr) {
         auto mbarrier = IrBuilder::create<kir::TensorIndex>(
             batched_tma_mbarriers_,
             IrBuilder::create<Val>(batched_tma_index_++, DataType::Index));
-        GpuLower::current()->batchedTmaMbarrierMap()[expr] = mbarrier;
+        GpuLower::current()->info().batchedTmaInfo().mbarrierMap()[expr] =
+            mbarrier;
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()
@@ -1757,8 +1758,7 @@ class AllocationInserter : public kir::ExprMutator {
       insertClusterReductionMBarrier(exprs.at(0));
     }
     int64_t batched_tma_load_count =
-        lower_utils::getNumOfBatchedTmaLoads(exprs);
-    GpuLower::current()->numOfBatchedTmaLoads() = batched_tma_load_count;
+        GpuLower::current()->info().batchedTmaInfo().numBatchableLoads();
     if (batched_tma_load_count > 1) {
       insertBatchedTmaMbarriers(batched_tma_load_count, exprs.at(0));
     }
