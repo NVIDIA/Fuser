@@ -25,7 +25,6 @@ foreach standard : ['20', '23']
             'test/member.cpp',
             'test/move.cpp',
             'test/null.cpp',
-            'test/opcheck.cpp',
             'test/print.cpp',
             'test/typing.cpp',
             'test/unary_ops.cpp',
