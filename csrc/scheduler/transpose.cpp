@@ -18,8 +18,6 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
-#include <algorithm>
-
 namespace nvfuser {
 
 bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
@@ -665,16 +663,6 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   tparams->tag = "Transpose heuristics";
   tparams->cparams.index_type = index_type;
 
-  // Enable TMA (cp.async.bulk.tensor) only on Hopper+.
-  // Keep conservative constraints aligned with current nvFuser TMA support.
-  // NOTE: This only affects group2 cached-input loads (gmem->smem) used for the
-  // transpose thread-binding swap.
-  constexpr int64_t kMaxElementsPerTmaTileDim = 256;
-  const auto* props = at::cuda::getCurrentDeviceProperties();
-  tparams->use_tma_load = (props->major >= 9) &&
-      (tparams->tile_size1 <= kMaxElementsPerTmaTileDim) &&
-      (tparams->tile_size2 <= kMaxElementsPerTmaTileDim);
-
   // Expand inner-most dims to virtual inner-most dims so that the inner-most
   // dims has at least tile_size elements
   // See note [Supporting small transpose dimensions]
@@ -731,10 +719,6 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   };
   scan_max_dtype_size(fusion->inputs());
   scan_max_dtype_size(fusion->outputs());
-
-  // //set tile size
-  // tparams->tile_size1 = 256;
-  // tparams->tile_size2 = 256;
 
   auto max_unroll_factor = ceilDiv(
       // Available unrolling based on size of data type
@@ -827,8 +811,13 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
             grouped_inputs_outputs[1],
             max_unroll_factor);
   }
-
-  tparams->lparams.bind(tparams->getThreadsPerBlock(), ParallelType::TIDx);
+  if (std::getenv("USE_TMA") != nullptr) {
+    tparams->use_tma_load = true;
+    tparams->use_tma_store = true;
+  }
+  if (!tparams->use_tma_load) {
+    tparams->lparams.bind(tparams->getThreadsPerBlock(), ParallelType::TIDx);
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Transpose Stats ========\n"
@@ -859,7 +848,188 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   return tparams;
 }
 
+void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
+  FusionGuard fg(fusion);
+
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion);
+
+  // maybe has_reduction for scheduling should be done on a per output tensor
+  // basis.
+  NVF_ERROR(
+      !ir_utils::hasAnyReductionOps(fusion),
+      "This scheduler only handles pointwise ops.");
+
+  // Cache inputs
+  auto cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  // Cache and fork outputs
+  auto cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
+
+  std::vector<TensorView*> input_tvs;
+  {
+    auto filtered_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
+    // Remove hanging tensor views
+    for (auto tv : filtered_tvs) {
+      if (tv->uses().empty()) {
+        continue;
+      }
+      input_tvs.push_back(tv);
+    }
+  }
+  auto output_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
+
+  int64_t max_dims = 0;
+  for (auto inp : input_tvs) {
+    max_dims = std::max(scheduler_utils::nLogicalDims(inp), max_dims);
+  }
+
+  for (auto out : output_tvs) {
+    max_dims = std::max(scheduler_utils::nLogicalDims(out), max_dims);
+  }
+
+  // If everything is zero dim tensors, just return.
+  if (max_dims == 0) {
+    return;
+  }
+
+  scheduler_tools::TransposeDomainMap domain_map(fusion);
+  auto grouped_inputs_outputs = domain_map.groupInputsOutputsByInnerDim();
+  NVF_ERROR(grouped_inputs_outputs.size() >= 2);
+
+  /*
+   * We need something similar to `cacheFork` for input tensors in group 2. We
+   * need this because we will want to propagate to the entire DAG except group
+   * 2 and its cached inputs, so we need to make sure the DAG is still connected
+   * if we remove group and its cached inputs. For example
+   *    t0
+   *    |
+   *   cache
+   *   /  \
+   *  t1  t2
+   * if groups = {{t1, t2}, {t0}}, then removing {t0, cache} from the DAG will
+   * make it disconnected.
+   */
+  std::vector<TensorView*> input_smem_tvs;
+  std::vector<TensorView*> output_smem_tvs;
+  TensorView* input_reference = nullptr;
+  std::unordered_set<TensorView*> group2_and_cached_inputs(
+      grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
+  for (auto tv : grouped_inputs_outputs[1]) {
+    if (tv->isFusionInput()) {
+      input_reference = tv;
+      auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
+      if (ir_utils::consumerTvsOf(existing_cache).size() > 1) {
+        auto new_cache = tv->cacheAfter();
+        new_cache->setMemoryType(MemoryType::Shared);
+        input_smem_tvs.push_back(new_cache);
+        std::cout << "input_smem_tvs: " << new_cache->toString() << std::endl;
+        group2_and_cached_inputs.emplace(new_cache);
+      } else {
+        existing_cache->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulkTensorTile);
+        existing_cache->setMemoryType(MemoryType::Shared);
+        input_smem_tvs.push_back(existing_cache);
+        std::cout << "input_smem_tvs: " << existing_cache->toString()
+                  << std::endl;
+        group2_and_cached_inputs.emplace(existing_cache);
+      }
+    }
+  }
+  // set cached outputs of group 2 to shared memory
+  TensorView* output_reference = nullptr;
+  TensorView* output_reg_cache = nullptr;
+  for (const auto& [cached_output, output_idx] : cached_outputs) {
+    auto output = fusion->outputs()[output_idx]->as<TensorView>();
+    output_reference = output;
+    if (true || group2_and_cached_inputs.count(output) > 0) {
+      output->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      cached_output->setMemoryType(MemoryType::Shared);
+      output_smem_tvs.push_back(cached_output);
+      std::cout << "output_smem_tvs: " << cached_output->toString()
+                << std::endl;
+      output_reg_cache = cached_output->cacheBefore();
+    }
+  }
+
+  TensorView* reference1 =
+      domain_map.findReferenceFor(grouped_inputs_outputs[0]);
+  TensorView* reference2 =
+      domain_map.findReferenceFor(grouped_inputs_outputs[1]);
+
+  std::cout << "reference1: " << reference1->toString() << std::endl;
+  std::cout << "reference2: " << reference2->toString() << std::endl;
+  fusion->print();
+
+  // scheduler reference1
+  output_reference->split(1, 32);
+  output_reference->split(0, 32);
+  output_reference->reorder({{-2, 0}});
+  output_reference->merge(0);
+  // [I0/32 * I1/32', 32', 32]
+  output_reference->axis(0)->parallelize(ParallelType::BIDx);
+  using Options =
+      scheduler_utils::BoundedDirectionalTransformPropagator::Options;
+  scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+      output_reference,
+      -1,
+      {input_reference},
+      Options{}.propagateParallelType());
+  // For fusion output, we just use TMA to store the entire tile back to global
+  // memory. There is no need to further schedule the output tensor.
+  output_reference->axis(1)->parallelize(ParallelType::Bulk);
+  output_reference->axis(2)->parallelize(ParallelType::Bulk);
+
+  for (auto output_smem_cache : output_smem_tvs) {
+    // [BIDx, 32', 32]
+    output_smem_cache->setAllocationDomain(
+        output_smem_cache->getLoopDomain(), true);
+    output_smem_cache->split(1, 4);
+    // [BIDx, 8', 4', 32]
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        output_smem_cache, -1, {input_reference});
+    output_smem_cache->merge(1, 3);
+    // [BIDx, 256, 4']
+    output_smem_cache->axis(1)->parallelize(ParallelType::TIDx);
+    scheduler_utils::BoundedDirectionalTransformPropagator::backward(
+        output_smem_cache,
+        -1,
+        {input_smem_tvs.at(0)},
+        Options{}.propagateParallelType());
+    output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
+    output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
+    output_reg_cache->setAllocationDomain(
+        output_reg_cache->getLoopDomain(), true);
+  }
+  for (auto input_smem_cache : input_smem_tvs) {
+    // Schedule the memory format for 128 byte swizzle
+    // [BIDx, 8', 4', 32]
+    input_smem_cache->reorder({{-1, 1}});
+    // [BIDx, 32, 8', 4']
+    input_smem_cache->split(1, 8);
+    // [BIDx, 4, 8, 8', 4']
+    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+    // [BIDx, 4, 8, 8', 4']
+    input_smem_cache->setAllocationDomain(
+        input_smem_cache->getLoopDomain(), true);
+    input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
+    input_smem_cache->axis(4)->parallelize(ParallelType::Bulk);
+    // [BIDx, Bulk, Bulk, Bulk, Bulk]
+  }
+
+  fusion->print();
+}
+
 void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
+  if (tparams->use_tma_store || tparams->use_tma_load) {
+    return scheduleTransposeTMA(fusion, tparams);
+  }
   FusionGuard fg(fusion);
 
   // Make sure we don't have global memory set on intermediate tensors from
@@ -926,10 +1096,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
    */
   std::unordered_set<TensorView*> group2_and_cached_inputs(
       grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
-  std::vector<TensorView*> smem_tvs;
-  // Subset of shared-memory staging TVs that are gmem->smem cached-input loads
-  // and will be scheduled with TMA (CpAsyncBulkTensorTile).
-  std::vector<TensorView*> tma_smem_load_tvs;
   for (auto tv : grouped_inputs_outputs[1]) {
     if (tv->isFusionInput()) {
       auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
@@ -937,11 +1103,9 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         auto new_cache = tv->cacheAfter();
         new_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(new_cache);
-        smem_tvs.push_back(new_cache);
       } else {
         existing_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(existing_cache);
-        smem_tvs.push_back(existing_cache);
       }
     }
   }
@@ -950,26 +1114,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     if (group2_and_cached_inputs.count(output) > 0) {
       cached_output->setMemoryType(MemoryType::Shared);
-      smem_tvs.push_back(cached_output);
-    }
-  }
-
-  // Configure TMA loads for the gmem->smem cached-input TVs.
-  // Important: TMA needs the two tiling dimensions preserved as separate Bulk
-  // axes (i.e., do not merge tile1*tile2 like the normal group2 compute path).
-  if (tparams->use_tma_load) {
-    for (auto smem_tv : smem_tvs) {
-      auto ldst = dynamic_cast<LoadStoreOp*>(smem_tv->definition());
-      if (ldst == nullptr) {
-        continue;
-      }
-      // Only enable for gmem->smem loads
-      auto in_tv = dynamic_cast<TensorView*>(ldst->in());
-      if (in_tv == nullptr || !in_tv->isFusionInput()) {
-        continue;
-      }
-      ldst->setOpType(LoadStoreOpType::CpAsyncBulkTensorTile);
-      tma_smem_load_tvs.push_back(smem_tv);
     }
   }
 
@@ -990,9 +1134,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
   auto inner_most_id1 = scheduler_utils::innerMostAllocDim(reference1);
   auto inner_most_id2 = scheduler_utils::innerMostAllocDim(reference2);
-
-  std::cout << "ref1 " << reference1->toString() << std::endl;
-  std::cout << "ref2 " << reference2->toString() << std::endl;
 
   //////////////////////////////////////////
   // Step 1: Make virtual inner most dims //
@@ -1071,23 +1212,18 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     rhs_i = lhs_i;
   }
 
-  // reference1->split(rhs_i, 1);
-  // // [r.., merged_dim, 1, tile1, tile2]
+  reference1->split(rhs_i, 1);
+  // [r.., merged_dim, 1, tile1, tile2]
 
-  // // parallelize non-tile dimensions
-  // reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
+  // parallelize non-tile dimensions
+  reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
   reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
   // [r.., BIDx, Unswitch, tile1, tile2]
 
-  // Propagate transformations so far (including outer-dim merges and BIDx /
-  // Unswitch) to the entire DAG. This ensures TMA staging TVs have the same
-  // untiled-domain schedule as other TVs. TMA staging TVs are still excluded
-  // later from the group2 compute scheduling that merges tile1*tile2.
-  {
-    TransformPropagator propagator(reference1);
-    MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
-    entire_dag.traverse(&propagator);
-  }
+  // Propagate transformations so far to the entire DAG
+  TransformPropagator propagator(reference1);
+  MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
+  entire_dag.traverse(&propagator);
 
   // We may be propagating a reshape during the above transformation.
   //   T0[i0 * i1]     -> View ->   T1[i0  i1] (Root=[i0*i1])
@@ -1110,40 +1246,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       /*selected_parallel_types=*/{},
       /*propagate_padding=*/true,
       /*parallelize_inputs_on_did=*/true);
-
-  // Apply TMA-specific 2D Bulk parallelization for the cached-input smem TVs.
-  // Keep it limited to the tile dims only, as the rest of the schedule is
-  // shared with non-TMA tensors.
-  if (!tma_smem_load_tvs.empty()) {
-    // Identify the two tiling axes by exact-ID mapping against reference1's
-    // tiling axes. This is robust even when tile_size1 == tile_size2.
-    ComputeAtMap ca_map(fusion);
-    IterDomain* ref_tile1 = reference1->axis(-2);
-    IterDomain* ref_tile2 = reference1->axis(-1);
-    auto bulkParallelizeTileDims = [&](TensorView* tv) {
-      IterDomain* tile1_id = nullptr;
-      IterDomain* tile2_id = nullptr;
-      for (auto id : tv->getLoopDomain()) {
-        if (tile1_id == nullptr &&
-            ca_map.areMapped(id, ref_tile1, IdMappingMode::EXACT)) {
-          tile1_id = id;
-        }
-        if (tile2_id == nullptr &&
-            ca_map.areMapped(id, ref_tile2, IdMappingMode::EXACT)) {
-          tile2_id = id;
-        }
-      }
-      NVF_ERROR(
-          tile1_id != nullptr && tile2_id != nullptr,
-          "Failed to identify tiling axes for TMA smem TV: ",
-          tv->toString());
-      tile1_id->parallelize(ParallelType::Bulk);
-      tile2_id->parallelize(ParallelType::Bulk);
-    };
-    for (auto tv : tma_smem_load_tvs) {
-      bulkParallelizeTileDims(tv);
-    }
-  }
 
   // For a transpose scheduling, all we need is to bind threadIdx.x differently
   // for inputs and outputs. This swap of binding could happen at any tensor on
@@ -1218,22 +1320,6 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     auto all_tvs_except1 = ir_utils::allTvsExcept(
         fusion,
         {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
-    // Keep TMA smem staging tensors out of the group2 compute scheduling, as it
-    // merges tile1*tile2 and would destroy the 2D Bulk structure required by
-    // CpAsyncBulkTensorTile.
-    if (!tma_smem_load_tvs.empty()) {
-      all_tvs_except1.erase(
-          std::remove_if(
-              all_tvs_except1.begin(),
-              all_tvs_except1.end(),
-              [&](TensorView* tv) {
-                return std::find(
-                           tma_smem_load_tvs.begin(),
-                           tma_smem_load_tvs.end(),
-                           tv) != tma_smem_load_tvs.end();
-              }),
-          all_tvs_except1.end());
-    }
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
     MaxLogicalDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
     TransformPropagator propagator(reference2);
@@ -1253,30 +1339,16 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
 
     ComputeAtMap ca_map(fusion);
 
-    // Exclude TMA staging tensors; they keep Bulk-parallel tile axes.
-    std::vector<TensorView*> group2_sched_tvs(
-        group2_and_cached_inputs.begin(), group2_and_cached_inputs.end());
-    if (!tma_smem_load_tvs.empty()) {
-      group2_sched_tvs.erase(
-          std::remove_if(
-              group2_sched_tvs.begin(),
-              group2_sched_tvs.end(),
-              [&](TensorView* tv) {
-                return std::find(
-                           tma_smem_load_tvs.begin(),
-                           tma_smem_load_tvs.end(),
-                           tv) != tma_smem_load_tvs.end();
-              }),
-          group2_sched_tvs.end());
-    }
     scheduler_utils::parallelizeAllLike(
-        reference2, group2_sched_tvs, {ParallelType::TIDx});
+        reference2,
+        {group2_and_cached_inputs.begin(), group2_and_cached_inputs.end()},
+        {ParallelType::TIDx});
 
     // Only vectorize the axes that exactly maps to the vectorized axes
     //  on reference as support for permissively mapped axes are not
     //  yet clearly defined.
     std::vector<TensorView*> vectorized_group2_cached_inputs;
-    for (auto gin : group2_sched_tvs) {
+    for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
               gin->getLoopDomain().begin(),
               gin->getLoopDomain().end(),
@@ -1298,7 +1370,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     //  on reference as support for permissively mapped axes are not
     //  yet clearly defined.
     std::vector<TensorView*> unrolled_group2_cached_inputs;
-    for (auto gin : group2_sched_tvs) {
+    for (auto gin : group2_and_cached_inputs) {
       if (std::any_of(
               gin->getLoopDomain().begin(),
               gin->getLoopDomain().end(),

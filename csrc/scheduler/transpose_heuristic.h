@@ -56,6 +56,11 @@ class TransposeParams : public HeuristicParams {
   // the shared-memory staging tensors used for the thread-binding swap.
   bool use_tma_load = false;
 
+  // Use Hopper+ TMA (cp.async.bulk.tensor) for group1 cached-output stores
+  // (shared -> global). When enabled with use_tma_load, implements the full
+  // bank-conflict-free transpose pattern with 128-byte swizzle.
+  bool use_tma_store = false;
+
   using HeuristicParams::HeuristicParams;
 
   // Warning: Does not check launch parameters!
@@ -71,7 +76,8 @@ class TransposeParams : public HeuristicParams {
         other->vectorize_factor1 == vectorize_factor1 &&
         other->vectorize_factor2 == vectorize_factor2 &&
         other->tile_size1 == tile_size1 && other->tile_size2 == tile_size2 &&
-        other->use_tma_load == use_tma_load;
+        other->use_tma_load == use_tma_load &&
+        other->use_tma_store == use_tma_store;
     return attr_equal;
   }
 
@@ -83,6 +89,7 @@ class TransposeParams : public HeuristicParams {
     ss << " input tile size: " << tile_size1 << "\n";
     ss << " output tile size: " << tile_size2 << "\n";
     ss << " use_tma_load: " << use_tma_load << "\n";
+    ss << " use_tma_store: " << use_tma_store << "\n";
     int64_t elements_per_tile = tile_size1 * tile_size2;
     ss << " elements per tile: " << elements_per_tile << "\n";
     int64_t elements_per_thread = elements_per_tile / lparams.bdimx();
@@ -154,7 +161,8 @@ class TransposeParams : public HeuristicParams {
         vectorize_factor2,
         tile_size1,
         tile_size2,
-        use_tma_load);
+        use_tma_load,
+        use_tma_store);
   }
 
   std::unique_ptr<HeuristicParams> clone() const override {

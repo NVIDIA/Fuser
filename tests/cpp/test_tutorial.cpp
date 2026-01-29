@@ -1497,6 +1497,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   output->axis(1)->parallelize(ParallelType::Bulk);
   output->axis(2)->parallelize(ParallelType::Bulk);
   // [BIDx, Bulk, Bulk]
+  fusion.print();
 
   // output_smem_cache and output_reg_cache are scheduled in the same way.
   // We use each warp to load one column of input_smem_cache. We vectorize
