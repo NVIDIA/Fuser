@@ -525,6 +525,8 @@ using newObjectFuncType = Expr*(
 //!  8) Entry added to ir_graphviz .cpp/.h
 //!
 class NVF_API Expr : public Statement {
+  friend class IrStorage;
+
  public:
   explicit Expr(IrBuilderPasskey);
 
