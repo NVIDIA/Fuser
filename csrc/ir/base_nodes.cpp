@@ -351,10 +351,9 @@ Expr::Expr(IrBuilderPasskey passkey) : Statement(passkey) {}
 
 Expr::Expr(const Expr* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner),
-      attributes_(ir_cloner->clone(src->attributes_)) {
-  inputs_ = ir_cloner->clone(src->inputs_);
-  outputs_ = ir_cloner->clone(src->outputs_);
-}
+      attributes_(ir_cloner->clone(src->attributes_)),
+      inputs_(ir_cloner->clone(src->inputs_)),
+      outputs_(ir_cloner->clone(src->outputs_)) {}
 
 Expr::Expr(
     IrBuilderPasskey passkey,
