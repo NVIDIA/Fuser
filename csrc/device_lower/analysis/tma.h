@@ -96,8 +96,6 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
 MmaInputSmemSwizzle getSwizzle(TensorView* tv);
 
 // Contains information about batched non-circular-buffered TMA loads.
-// This is populated during analysis and consumed by later passes
-// (e.g. allocation / indexing / sync insertion).
 //
 // A TMA (Tensor Memory Accelerator) load is considered "batchable" if it meets
 // all of the following criteria (2 and 3 can be removed in the future):
