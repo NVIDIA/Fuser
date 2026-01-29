@@ -20,7 +20,7 @@
 #include "preseg_passes/propagate_shardings.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

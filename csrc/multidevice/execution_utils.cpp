@@ -12,7 +12,9 @@
 #include <vector>
 
 #include "exceptions.h"
+#include "expr_evaluator.h"
 #include "fusion.h"
+#include "linked_hash_map.h"
 #include "multidevice/communicator.h"
 #include "multidevice/device_mesh.h"
 #include "multidevice/utils.h"
@@ -49,19 +51,125 @@ at::Tensor shardTensor1D(
 }
 
 at::Tensor shardTensor(at::Tensor tensor, const TensorView* tv) {
-  if (!isSharded(tv)) {
-    return tensor;
-  }
-
-  NVF_ERROR(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
+  NVF_CHECK(tv->hasDeviceMesh(), "`tv` has no DeviceMesh: ", tv);
   const DeviceMesh& mesh = tv->getDeviceMesh();
 
-  // This function still assumes the mesh is 1D at this very moment. But the
-  // plan is to support multi-dimensional meshes here and leave shardTensor1D
-  // for 1D meshes only and eventually deprecated.
-  NVF_ERROR_EQ(mesh.rank(), 1);
-  return shardTensor1D(
-      tensor, getShardedLogicalAxis(tv, ParallelType::DIDx), mesh);
+  // The following is similar to
+  // [transformFromAllocationToLogical](https://github.com/NVIDIA/Fuser/blob/538ea84fe75c8b516114a46ac159e888ec8ac684/csrc/runtime/allocations.cpp#L771).
+  // I didn't reuse the code yet because
+  // 1.
+  // https://github.com/NVIDIA/Fuser/blob/538ea84fe75c8b516114a46ac159e888ec8ac684/csrc/runtime/allocations.cpp#L902
+  // suggests the code may want to move away from manipulating tensors.
+  // 2. I'm not comfortable with how merges are handled. See code comments
+  // below.
+  // 3. I prefer using LinkedHashMap, avoiding some linear scans.
+
+  // Ignore reduction dimensions because they won't appear in tensor.sizes().
+  auto source = tv->getLogicalDomain() | TensorDomain::kNoReductions;
+  NVF_CHECK(
+      std::ranges::none_of(
+          tv->getMaybeAllocationDomain(), std::mem_fn(&IterDomain::isStream)),
+      "shardTensor is expected to be called in tests on the complete fusion's "
+      "inputs and outputs, whose allocation is not stream-parallelized: ",
+      toDelimitedString(tv->getMaybeAllocationDomain()));
+  auto target = tv->getLoopDomain() |
+      std::views::filter(std::mem_fn(&IterDomain::isDeviceDim)) |
+      TensorDomain::kNoReductions;
+  std::vector<Expr*> transforms = DependencyCheck::getAllExprsBetween(
+      {source.begin(), source.end()}, {target.begin(), target.end()});
+
+  // Bind the logical domain.
+  ExpressionEvaluator evaluator;
+  LinkedHashMap<IterDomain*, int64_t> id_to_size;
+  NVF_CHECK_EQ(std::ranges::distance(source), tensor.dim());
+  for (auto [id, size] : zip(source, tensor.sizes())) {
+    evaluator.bind(id->getMaybeExpandedExtent(), size);
+    id_to_size.pushBack(id, size);
+  }
+
+  // Traverse down to view `tensor` as the loop domain.
+  for (Expr* transform : transforms) {
+    auto* split = dynamic_cast<Split*>(transform);
+    // For example, tv =
+    //   [4, 3]
+    //    \ /
+    //     12
+    //    / \.
+    //   3   4
+    //      / \.
+    //     2   2(DIDx)
+    //
+    // tensor = [[0, 1, 2],
+    //           [3, 4, 5],
+    //           [6, 7, 8],
+    //           [9, 10, 11]]
+    //
+    // GPU 0 is supposed to hold values 0, 2, 4, 6, 8, 10, and GPU 1 is supposed
+    // to hold values 1, 3, 5, 7, 9, 11. But in what shape?
+    NVF_CHECK(
+        split != nullptr,
+        "Stay simple for now. It's tricky to support merges (see code "
+        "comments). I don't expect to see merges between **logical** (not "
+        "root) and loop in the foreseeable future: ",
+        transform->toString());
+
+    auto [in_size, i] = id_to_size.erase(split->in());
+    const auto outer_size =
+        evaluator.evaluate(split->outer()->getMaybeExpandedExtent())
+            .as<int64_t>();
+    id_to_size.insert(i, split->outer(), outer_size);
+    const auto inner_size =
+        evaluator.evaluate(split->inner()->getMaybeExpandedExtent())
+            .as<int64_t>();
+    id_to_size.insert(i, split->inner(), inner_size);
+
+    std::vector<int64_t> new_sizes;
+    new_sizes.reserve(id_to_size.size());
+    for (auto size : id_to_size | std::views::values) {
+      new_sizes.push_back(size);
+    }
+    tensor = tensor.reshape(new_sizes);
+  }
+
+  // Slice the tensor so it contains data only for the current GPU.
+  {
+    const auto device_id = Communicator::getInstance().deviceId();
+    at::Tensor md_index = mesh.multiDimensionalIndexOf(device_id);
+    int64_t axis = 0;
+    for (auto [id, size] : id_to_size) {
+      if (id->isParallelized()) {
+        auto mesh_size = mesh.size(id->getParallelType());
+        NVF_ERROR_EQ(size, mesh_size);
+        auto mesh_axis = mesh.parallelTypeToAxis(id->getParallelType());
+        auto index = md_index[mesh_axis].item<int64_t>();
+        tensor = tensor.slice(axis, index, index + 1);
+      }
+      axis++;
+    }
+  }
+
+  // Traverse up to view the sharded tensor as the logical domain.
+  {
+    LinkedHashMap<IterDomain*, std::monostate> ids;
+    for (auto [id, _] : id_to_size) {
+      ids.pushBack(id, std::monostate());
+    }
+
+    for (Expr* transform : transforms | std::views::reverse) {
+      auto* split = dynamic_cast<Split*>(transform);
+      NVF_ERROR(split != nullptr);
+
+      auto i = ids.erase(split->outer()).second;
+      auto axis = std::ranges::distance(ids.begin(), i);
+      NVF_ERROR(i != ids.end() && i->first == split->inner());
+      i = ids.erase(split->inner()).second;
+      ids.insert(i, split->in(), std::monostate());
+
+      tensor = tensor.flatten(axis, axis + 1);
+    }
+  }
+
+  return tensor;
 }
 
 std::vector<int64_t> unshardedSizes(

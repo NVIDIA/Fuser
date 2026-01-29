@@ -18,8 +18,8 @@
 #include <exceptions.h>
 #include <serde/fusion_cache_generated.h>
 #include <type.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -67,8 +67,8 @@ class NVF_API KernelArgumentHolder {
   // KernelArgumentHolder specific push to disambiguate from PolymorphicValue
   // push
   template <typename T>
-  std::enable_if_t<std::is_same_v<std::decay_t<T>, KernelArgumentHolder>, void>
-  push(const T& args) {
+  requires std::is_same_v<std::decay_t<T>, KernelArgumentHolder> void push(
+      const T& args) {
     arguments_.reserve(arguments_.size() + args.size());
     for (const auto& arg : args) {
       arguments_.emplace_back(arg);

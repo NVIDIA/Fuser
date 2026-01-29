@@ -10,8 +10,8 @@
 #include <optional>
 #include <ranges>
 
-#include <exceptions.h>
-#include <ir/base_nodes.h>
+#include "exceptions.h"
+#include "ir/base_nodes.h"
 
 //! IR header hierarchy
 //! 1. utils.h - PolymorphicBase and NonCopyable

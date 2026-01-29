@@ -21,8 +21,8 @@
 #include <transform_iter.h>
 #include <transform_replay.h>
 #include <type.h>
-#include <utils.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 #include "ir/base_nodes.h"
@@ -255,7 +255,8 @@ void traverseFrontierWithContiguityCheck(
 
 void validateQuantizedOutputScheduling(
     TensorView* quantized_output,
-    DataType input_dtype) {
+    DataType input_dtype,
+    bool is_mxfp8_output = false) {
   // Outputs have the same allocation domain
   // as the logical domain - no allocation domain.
   NVF_ERROR(
@@ -296,9 +297,14 @@ void validateQuantizedOutputScheduling(
     }
   }
 
+  // group id is used as a proxy for vectorization.
+  // When quantizing to mxfp8, we allow no group id
+  // as vectorization is not necessary for quantization to mxfp8
+  // but is required for sub-byte dtypes.
   NVF_ERROR(
-      grouped_id != nullptr,
-      "One of the output IDs must be grouped for ",
+      grouped_id != nullptr || is_mxfp8_output,
+      "One of the output IDs must be grouped for "
+      "BlockQuantizationOp: ",
       quantized_output->definition()->toString());
 
   NVF_ERROR(
@@ -311,14 +317,17 @@ void validateQuantizedOutputScheduling(
       "Parallelization along z axis is not supported for ",
       quantized_output->definition()->toString());
 
-  auto inner_extent = grouped_id->extent()->evaluate().as<int64_t>();
+  auto inner_extent =
+      grouped_id ? grouped_id->extent()->evaluate().as<int64_t>() : 1;
 
+  // Check the extents of group id based on input data type
+  // if group id is present
   NVF_ERROR(
-      ((inner_extent == 4 || inner_extent == 2) &&
-       input_dtype == DataType::Float) ||
-          ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
-           (input_dtype == DataType::BFloat16 ||
-            input_dtype == DataType::Half)),
+      (!grouped_id ||
+       ((inner_extent == 4 || inner_extent == 2) &&
+        input_dtype == DataType::Float) ||
+       ((inner_extent == 8 || inner_extent == 4 || inner_extent == 2) &&
+        (input_dtype == DataType::BFloat16 || input_dtype == DataType::Half))),
       "The group dimension must be  2/4 (FP32) or 2/4/8 "
       "(BF16). Found: ",
       inner_extent,
@@ -385,6 +394,34 @@ void validateQuantizedOutputScheduling(
       ids_to_transform, transform_exprs, [&frontier](Expr* expr) {
         traverseFrontierWithContiguityCheck(frontier, expr);
       });
+
+  // Check that TIDx is multiple of block size.
+  // We hardcode block size of 32 here for now.
+  // As there are no group ids, tidx must now be the innermost
+  // as we reduce across it. We also check that all merges leading
+  // to tidx are contiguous.
+  if (is_mxfp8_output && !grouped_id) {
+    Val* is_divisible = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            thread_x->extent(), IrBuilder::create<Val>(32, DataType::Index)),
+        quantized_output->fusion()->zeroVal());
+
+    NVFUSER_LOWER_VALIDATE(
+        is_divisible,
+        "Block dim X of BlockQuantizationOp input must be divisible by "
+        "block size 32 but got extent ",
+        thread_x->extent()->toInlineString(),
+        " in ",
+        quantized_output->definition()->toString());
+
+    NVF_ERROR(
+        ids_to_transform.back() == thread_x,
+        "When quantizing to Float8_e4m3fn without grouping, TIDx must be the "
+        "innermost ID. Expr: ",
+        quantized_output->definition()->toString());
+
+    return;
+  }
 
   // The grouped ID must correspond to the innermost loop-like domain
   NVF_ERROR(
@@ -795,6 +832,7 @@ class ExprValidator : public OptOutDispatch {
     auto quantized_output = bqop->quantizedOutput()->as<TensorView>();
     auto block_scaling_factor = bqop->blockScales()->as<TensorView>();
     auto output_dtype = quantized_output->dtype();
+    bool is_mxfp8_output = output_dtype == DataType::Float8_e4m3fn;
 
     NVF_ERROR_EQ(
         inp_tv->getMemoryType(),
@@ -814,7 +852,7 @@ class ExprValidator : public OptOutDispatch {
         "Block scaling factor must be a global memory tensor. Found: ",
         block_scaling_factor->getMemoryType());
 
-    if (output_dtype == DataType::Float8_e4m3fn) {
+    if (is_mxfp8_output) {
       NVF_ERROR(
           !bqop->hasGlobalScale(),
           "Global scale is not supported when quantizing to Float8_e4m3fn.");
@@ -862,7 +900,8 @@ class ExprValidator : public OptOutDispatch {
             [](std::optional<bool> c) { return c.value_or(true); }),
         "Block scaling factor not contiguous");
 
-    validateQuantizedOutputScheduling(quantized_output, inp_tv->dtype());
+    validateQuantizedOutputScheduling(
+        quantized_output, inp_tv->dtype(), is_mxfp8_output);
   }
 
   void handle(GroupedBlockQuantizationOp* bqop) final {

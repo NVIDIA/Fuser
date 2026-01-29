@@ -23,8 +23,8 @@
 #include "scheduler/utils.h"
 #include "scheduler/vectorize_helper.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "utils.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

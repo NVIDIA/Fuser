@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -231,7 +231,8 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
-          {"multidevice", DisableOption::Multidevice}};
+          {"multidevice", DisableOption::Multidevice},
+          {"infer_contiguity", DisableOption::InferContiguity}};
   return available_options;
 }
 

@@ -7,7 +7,7 @@
 // clang-format on
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
 #include "ops/all_ops.h"
@@ -83,13 +83,7 @@ bool validateGroupedLayout(
 
 using testing::UnorderedElementsAre;
 
-class LayoutOpTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using LayoutOpTest = NVFuserTest;
 
 TEST_F(LayoutOpTest, CppApi) {
   auto fusion_ptr = std::make_unique<Fusion>();

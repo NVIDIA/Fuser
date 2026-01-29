@@ -8,13 +8,13 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include "csrc/exceptions.h"
+#include "exceptions.h"
 #include "iter_visitor.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
 #include "scheduler/tools/loop_domain_scheduler.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 
@@ -37,12 +37,7 @@ void checkGetAllStmts(Fusion* fusion) {
 
 } // namespace
 
-class LoopDomainSchedulingTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using LoopDomainSchedulingTest = NVFuserTest;
 
 TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
   Fusion fusion;

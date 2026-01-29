@@ -5,16 +5,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "preseg_passes/propagate_shardings.h"
 
 #include <vector>
 
-#include <ir/interface_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <multidevice/propagation.h>
-#include <multidevice/utils.h>
-#include <preseg_passes/propagate_shardings.h>
-#include <scheduler/utils.h>
+#include "ir/interface_nodes.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "multidevice/propagation.h"
+#include "multidevice/utils.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser::preseg_passes {
 

@@ -169,6 +169,7 @@ enum class DisableOption {
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
   ResizeScheduler, //! Disable the resize scheduler
+  InferContiguity, //! Disable contiguity inference
   EndOfOption //! Placeholder for counting the number of elements
 };
 

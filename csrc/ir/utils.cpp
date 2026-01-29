@@ -5,19 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <device_lower/utils.h>
-#include <expr_simplifier.h>
-#include <fusion.h>
-#include <ir/builder.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <iter_visitor.h>
-#include <ops/arith.h>
-#include <scheduler/mma_utils.h>
+#include "ir/utils.h"
 
 #include <limits>
 #include <ranges>
 #include <set>
+
+#include "device_lower/utils.h"
+#include "expr_simplifier.h"
+#include "fusion.h"
+#include "ir/builder.h"
+#include "ir/iostream.h"
+#include "iter_visitor.h"
+#include "ops/arith.h"
+#include "scheduler/mma_utils.h"
 
 namespace nvfuser::ir_utils {
 
