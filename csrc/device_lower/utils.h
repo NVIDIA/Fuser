@@ -18,6 +18,7 @@
 
 #include <bitset>
 #include <map>
+#include <vector>
 
 // Provides utilities for dealing with nested ForLoop and IfThenElse scopes
 
@@ -193,6 +194,13 @@ bool containsCircularBufferStage(
 } // namespace ir_utils
 
 namespace lower_utils {
+
+//! Returns the number of "batchable" non-circular-buffered TMA loads found in
+//! the given kernel IR expression list.
+//!
+//! The batched non-circular TMA path is only enabled by callers when this
+//! count is > 1.
+int64_t getNumOfBatchedTmaLoads(const std::vector<Expr*>& exprs);
 
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map);
 

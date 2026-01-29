@@ -203,6 +203,28 @@ class GpuLower : public NonCopyable {
     return mbarrier_map_;
   }
 
+  std::unordered_map<const Expr*, kir::TensorIndex*>& batchedTmaMbarrierMap() {
+    return non_cb_tma_mbarrier_map_;
+  }
+
+  const std::unordered_map<const Expr*, kir::TensorIndex*>&
+  batchedTmaMbarrierMap() const {
+    return non_cb_tma_mbarrier_map_;
+  }
+
+  //! Number of "batchable" non-circular-buffered TMA loads eligible for the
+  //! batched TMA path. This value is set during lowering (e.g. allocation pass)
+  //! and consumed by later passes (e.g. indexing / sync insertion).
+  //!
+  //! NOTE: The batched TMA path is only used when this count is > 1.
+  int64_t& numOfBatchedTmaLoads() {
+    return num_batched_tma_loads_;
+  }
+
+  int64_t numOfBatchedTmaLoads() const {
+    return num_batched_tma_loads_;
+  }
+
   bool isNvFuserZeroEnabled() {
     if (isOptionDisabled(DisableOption::MagicZero)) {
       return false;
@@ -412,6 +434,14 @@ class GpuLower : public NonCopyable {
 
   // Keep track of the mbarrier used for each load/store and blackwell utcmma
   std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
+
+  // Each non-circular buffered TMA load has a separate mbarrier indexed from 0
+  // to non_cb_tma_count - 1
+  std::unordered_map<const Expr*, kir::TensorIndex*> non_cb_tma_mbarrier_map_;
+
+  // Set/consumed across lowering passes to select the batched non-circular TMA
+  // path (only when > 1).
+  int64_t num_batched_tma_loads_ = 0;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
