@@ -87,6 +87,29 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
+  NVF_ERROR(
+      to->parent_ != nullptr,
+      "IrStorage::copy called with target storage that has no parent "
+      "IrContainer");
+  NVF_ERROR(
+      from->parent_ != nullptr,
+      "IrStorage::copy called with source storage that has no parent "
+      "IrContainer");
+
+  // Validate that all statements in the source have valid container pointers
+  for (auto val : from->vals_) {
+    NVF_ERROR(
+        val->ir_container_ != nullptr && val->ir_container_ == from->parent(),
+        "Source IrStorage has Val with invalid ir_container_ pointer. ",
+        "This indicates memory corruption or use-after-free.");
+  }
+  for (auto expr : from->exprs_) {
+    NVF_ERROR(
+        expr->ir_container_ != nullptr && expr->ir_container_ == from->parent(),
+        "Source IrStorage has Expr with invalid ir_container_ pointer. ",
+        "This indicates memory corruption or use-after-free.");
+  }
+
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
