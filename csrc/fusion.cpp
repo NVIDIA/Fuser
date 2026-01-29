@@ -308,8 +308,13 @@ void Fusion::removeVal(Val* val) {
   // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
+  //
+  // IMPORTANT: We must use unordered_exprs() instead of exprs() here.
+  // exprs() only returns Exprs reachable from terminating outputs, which means
+  // dead Exprs that still reference the Val won't be found and removed.
+  // This causes use-after-free when copying the Fusion later.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : exprs()) {
+  for (Expr* e : unordered_exprs()) {
     if (!inContainer(e)) {
       continue;
     }
