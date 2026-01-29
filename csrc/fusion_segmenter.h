@@ -85,8 +85,8 @@ class SegmentedGroup {
   //! Deserialize SegmentedGroup using flatbuffers
   void deserialize(
       const serde::SegmentedGroup* buffer,
-      const std::vector<Val*>& vals,
-      const std::vector<Expr*>& exprs,
+      const std::deque<Val*>& vals,
+      const std::deque<Expr*>& exprs,
       const std::vector<SegmentedGroup*>& groups,
       const std::vector<SegmentedEdge*>& edges);
 
@@ -388,7 +388,7 @@ class SegmentedFusion {
   //! Deserialize SegmentedEdge using flatbuffers
   nvfuser::SegmentedEdge deserialize(
       const serde::SegmentedEdge* buffer,
-      const std::vector<Val*>& vals);
+      const std::deque<Val*>& vals);
 
  private:
   //! Unique name for segmented fusion

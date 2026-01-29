@@ -75,11 +75,11 @@ class NVF_API IrContainer : public PolymorphicBase {
   }
 
   // Collections access (return values in insertion order)
-  const std::vector<Val*> deterministic_vals() const noexcept {
+  const std::deque<Val*> deterministic_vals() const noexcept {
     return ir_storage()->deterministic_vals();
   }
 
-  const std::vector<Expr*> deterministic_exprs() const noexcept {
+  const std::deque<Expr*> deterministic_exprs() const noexcept {
     return ir_storage()->deterministic_exprs();
   }
 

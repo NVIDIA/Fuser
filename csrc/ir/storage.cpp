@@ -16,27 +16,25 @@
 namespace nvfuser {
 
 //! Return values in insertion order
-const std::vector<Val*> IrStorage::deterministic_vals() const noexcept {
-  std::vector<Val*> vals_vec;
-  vals_vec.reserve(vals_up_.size());
+const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
+  std::deque<Val*> vals_deque;
   std::transform(
       vals_up_.begin(),
       vals_up_.end(),
-      std::back_inserter(vals_vec),
+      std::back_inserter(vals_deque),
       [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
-  return vals_vec;
+  return vals_deque;
 }
 
 //! Return expression in insertion order
-const std::vector<Expr*> IrStorage::deterministic_exprs() const noexcept {
-  std::vector<Expr*> exprs_vec;
-  exprs_vec.reserve(exprs_up_.size());
+const std::deque<Expr*> IrStorage::deterministic_exprs() const noexcept {
+  std::deque<Expr*> exprs_deque;
   std::transform(
       exprs_up_.begin(),
       exprs_up_.end(),
-      std::back_inserter(exprs_vec),
+      std::back_inserter(exprs_deque),
       [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
-  return exprs_vec;
+  return exprs_deque;
 }
 
 //! Return mapping from value to integer id
