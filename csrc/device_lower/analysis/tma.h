@@ -100,7 +100,7 @@ MmaInputSmemSwizzle getSwizzle(TensorView* tv);
 // A TMA (Tensor Memory Accelerator) load is considered "batchable" if it meets
 // all of the following criteria (2 and 3 can be removed in the future):
 //
-//  1. It is a CpAsyncBulk load operation (not circular-buffered)
+//  1. It is a non-circular-buffered TMA load operation
 //  2. Block dim X has at least 32 threads (required for elect sync)
 //  3. The loaded TensorView has no thread-parallelized or serial dimensions,
 //     since they require multiple mbarriers or reuse of the same mbarrier.
@@ -108,13 +108,11 @@ MmaInputSmemSwizzle getSwizzle(TensorView* tv);
 // When multiple batchable TMA loads exist (> 1) and they are all parallelized
 // in the same way, the "batched TMA path" is used, which:
 //
-// - Allocates a shared array of mbarriers (one per TMA load)
-// - Uses indexed mbarrier operations for synchronization
-// - Waits for all TMA loads together after the last load completes
-//
-// This is more efficient than per-load mbarrier allocation when multiple
-// non-circular-buffered TMA loads exist in the kernel.
-//
+// - Allocates and initializes a shared array of mbarriers (one per TMA load)
+// - Sets expected bytes for each TMA load
+// - Waits for all TMA loads together after the last load is issued
+// - invalidates the shared array of mbarriers at the end of the kernel
+
 class BatchedTmaInfo {
  public:
   explicit BatchedTmaInfo(Fusion* fusion);
