@@ -251,80 +251,31 @@ static_assert(!belongs_to<int, float, double, long>);
 
 namespace dynamic_type {
 
-// Take the cartesion product of two tuples.
-// For example:
-// cartesian_product((1, 2), (3, 4)) = ((1, 3), (1, 4), (2, 3), (2, 4))
-template <typename Tuple>
-constexpr auto cartesian_product(Tuple t) {
+// Check if any element(s) from the tuple(s) satisfy the predicate f.
+// Uses C++20 fold expressions to efficiently test all combinations.
+//
+// Single tuple case: tests f(x) for each x in tuple
+// Multiple tuples: tests f(x, y, ...) for all combinations across tuples
+
+// Single tuple: any element satisfies f
+template <typename Tuple, typename Fun>
+constexpr bool any_check(Fun f, Tuple tuple) {
   return std::apply(
-      [](auto... ts) constexpr {
-        return std::make_tuple(std::make_tuple(ts)...);
+      [f](auto... elements) constexpr {
+        return (f(elements) || ...);
       },
-      t);
+      tuple);
 }
 
-template <typename Tuple1, typename... OtherTuples>
-constexpr auto cartesian_product(Tuple1 first, OtherTuples... others) {
-  auto c_first = cartesian_product(first);
-  auto c_others = cartesian_product(others...);
-  // cat one item in c_first with all the items in c_others
-  auto cat_one_first_all_others = [c_others](auto first_item) {
-    return std::apply(
-        [first_item](auto... other_item) constexpr {
-          return std::make_tuple(std::tuple_cat(first_item, other_item)...);
-        },
-        c_others);
-  };
+// Multiple tuples: recursively check all combinations
+template <typename Tuple1, typename... Rest, typename Fun>
+constexpr bool any_check(Fun f, Tuple1 tuple1, Rest... rest) {
   return std::apply(
-      [cat_one_first_all_others](auto... first_items) constexpr {
-        return std::tuple_cat(cat_one_first_all_others(first_items)...);
+      [&](auto... xs) constexpr {
+        return (any_check([&](auto... args) constexpr { return f(xs, args...); }, 
+                          rest...) || ...);
       },
-      c_first);
-}
-
-// For example:
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true)) ==
-    std::make_tuple(std::make_tuple(1.0), std::make_tuple(true)));
-
-static_assert(
-    cartesian_product(std::make_tuple(1.0, true), std::make_tuple(2.0f, 4)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f),
-        std::make_tuple(1.0, 4),
-        std::make_tuple(true, 2.0f),
-        std::make_tuple(true, 4)));
-
-static_assert(
-    cartesian_product(
-        std::make_tuple(1.0, true),
-        std::make_tuple(2.0f, 4),
-        std::make_tuple(std::size_t(0), nullptr)) ==
-    std::make_tuple(
-        std::make_tuple(1.0, 2.0f, std::size_t(0)),
-        std::make_tuple(1.0, 2.0f, nullptr),
-        std::make_tuple(1.0, 4, std::size_t(0)),
-        std::make_tuple(1.0, 4, nullptr),
-        std::make_tuple(true, 2.0f, std::size_t(0)),
-        std::make_tuple(true, 2.0f, nullptr),
-        std::make_tuple(true, 4, std::size_t(0)),
-        std::make_tuple(true, 4, nullptr)));
-
-} // namespace dynamic_type
-
-namespace dynamic_type {
-
-// Can I find an x from tuple1 and a y from tuple12 such that f(x, y) is
-// true? f(x, y) must be defined for all x in tuple1 and y in tuple2.
-template <typename... Tuples, typename Fun>
-constexpr bool any_check(Fun f, Tuples... tuples) {
-  auto c = cartesian_product(tuples...);
-  return std::apply(
-      [f](auto... candidates) constexpr {
-        return any(std::apply(f, candidates)...);
-      },
-      c);
+      tuple1);
 }
 
 // For example:
