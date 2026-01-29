@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/pointwise_utils.h>
-#include <scheduler/scheduler_types.h>
-#include <scheduler/tools/domain_map.h>
-#include <scheduler/utils.h>
-#include <scheduler/vectorize_helper.h>
+#include "fusion.h"
+#include "scheduler/pointwise_utils.h"
+#include "scheduler/scheduler_types.h"
+#include "scheduler/tools/domain_map.h"
+#include "scheduler/utils.h"
+#include "scheduler/vectorize_helper.h"
 
 namespace nvfuser {
 
