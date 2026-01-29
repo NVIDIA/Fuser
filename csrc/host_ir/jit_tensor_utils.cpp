@@ -375,8 +375,9 @@ llvm::Value* packTensorArgument(
         nullptr,
         "zero_dim_tensor");
     builder.CreateStore(data_ptr, ptr_alloca);
+    // Use context-only overload for LLVM opaque pointer compatibility
     return builder.CreateBitCast(
-        ptr_alloca, llvm::PointerType::getUnqual(builder.getInt8Ty()));
+        ptr_alloca, llvm::PointerType::getUnqual(builder.getContext()));
   }
 
   // Create the runtime tensor struct type
@@ -454,8 +455,9 @@ llvm::Value* packTensorArgument(
   }
 
   // Cast to i8* for uniform handling
+  // Use context-only overload for LLVM opaque pointer compatibility
   return builder.CreateBitCast(
-      runtime_tensor, llvm::PointerType::getUnqual(builder.getInt8Ty()));
+      runtime_tensor, llvm::PointerType::getUnqual(builder.getContext()));
 }
 
 } // namespace nvfuser
