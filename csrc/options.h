@@ -130,7 +130,6 @@ enum class EnableOption {
   MulticastProtocol, //! Prescribe multicast protocol:
                      //! memcpy|multimem|batch_memcpy
   ParallelSerde, //! Enable deserializing FusionExecutorCache in parallel
-  InferContiguity, //! Enable contiguity inference
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -170,6 +169,7 @@ enum class DisableOption {
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
   ResizeScheduler, //! Disable the resize scheduler
+  InferContiguity, //! Disable contiguity inference
   EndOfOption //! Placeholder for counting the number of elements
 };
 

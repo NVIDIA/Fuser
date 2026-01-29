@@ -2858,6 +2858,4 @@ def test_issue4888(nvfuser_direct_test):
             (1, 32, 4096, 4096), dtype=torch.bfloat16, device="cuda:0"
         ),
     ]
-    nvfuser_direct_test.exec_nvfuser(
-        nvfuser_fusion_id2, inputs, enable_options=["infer_contiguity"]
-    )
+    nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id2, inputs)

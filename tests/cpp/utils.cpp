@@ -47,7 +47,6 @@ NVFuserTest::NVFuserTest() {
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  EnableOptionsGuard::getCurOptions().set(EnableOption::InferContiguity);
 
   constexpr const char* kTf32Override = "NVIDIA_TF32_OVERRIDE";
   if (setenv(kTf32Override, "0", /*overwrite=*/1) != 0) {

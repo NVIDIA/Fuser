@@ -676,15 +676,14 @@ options:
     category: enable
     env_var: NVFUSER_ENABLE
 
-  - name: infer_contiguity
-    description: Enable contiguity inference
-    type: bool
-    category: enable
-    env_var: NVFUSER_ENABLE
-
   # ========================================================================
   # FEATURE DISABLE OPTIONS (NVFUSER_DISABLE)
   # ========================================================================
+  - name: infer_contiguity
+    description: Disable contiguity inference
+    type: bool
+    category: disable
+    env_var: NVFUSER_DISABLE
   - name: compile_to_sass
     description: Disable direct compilation to SASS (compile to PTX instead)
     type: bool

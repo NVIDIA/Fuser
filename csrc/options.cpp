@@ -185,7 +185,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"p2p_protocol", EnableOption::P2pProtocol},
           {"multicast_protocol", EnableOption::MulticastProtocol},
           {"parallel_serde", EnableOption::ParallelSerde},
-          {"infer_contiguity", EnableOption::InferContiguity},
       };
   return available_options;
 }
@@ -232,7 +231,8 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
-          {"multidevice", DisableOption::Multidevice}};
+          {"multidevice", DisableOption::Multidevice},
+          {"infer_contiguity", DisableOption::InferContiguity}};
   return available_options;
 }
 
