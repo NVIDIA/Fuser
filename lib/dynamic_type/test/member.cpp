@@ -17,6 +17,11 @@ using namespace dynamic_type;
 
 class DynamicTypeTest : public ::testing::Test {};
 
+template <typename T, typename U>
+concept HasArrowStar = requires(T t, U u) {
+  t->*u;
+};
+
 struct A {
   int x;
   int y;
@@ -82,11 +87,11 @@ TEST_F(DynamicTypeTest, MemberPointer) {
   EXPECT_EQ(d->*&D::x, 7);
   EXPECT_EQ(d->*&D::y, 8);
 #endif
-  static_assert(opcheck<ABCD>->*opcheck<int A::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int B::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int C::*>);
-  static_assert(opcheck<ABCD>->*opcheck<int D::*>);
-  static_assert(!(opcheck<ABCD>->*opcheck<int E::*>));
+  static_assert(requires(ABCD obj, int A::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int B::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int C::* ptr) { obj->*ptr; });
+  static_assert(requires(ABCD obj, int D::* ptr) { obj->*ptr; });
+  static_assert(!HasArrowStar<ABCD, int E::*>);
 
   ABCD aa = a;
   EXPECT_EQ(aa->*&A::x, 1);
@@ -151,8 +156,8 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStarRef) {
   EXPECT_EQ(g->*"y", 4);
 #endif
 
-  static_assert(opcheck<EFG>->*opcheck<std::string_view>);
-  static_assert(!(opcheck<EFG>->*opcheck<int>));
+  static_assert(requires(EFG obj, std::string_view sv) { obj->*sv; });
+  static_assert(!HasArrowStar<EFG, int>);
 
   EFG ff = f;
   EXPECT_EQ(ff->*"x", 1);
@@ -227,8 +232,8 @@ TEST_F(DynamicTypeTest, NonMemberPointerArrowStaAccessor) {
   EXPECT_EQ(i->*"x", 3);
   EXPECT_EQ(i->*"y", 4);
 
-  static_assert(opcheck<EHI>->*opcheck<std::string_view>);
-  static_assert(!(opcheck<EHI>->*opcheck<int>));
+  static_assert(requires(EHI obj, std::string_view sv) { obj->*sv; });
+  static_assert(!HasArrowStar<EHI, int>);
 
   EHI hh = h;
   EXPECT_EQ(hh->*"x", 1);

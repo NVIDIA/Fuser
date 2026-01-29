@@ -86,7 +86,7 @@ class Opaque {
 
 template <typename T>
 bool OpaqueEquals<T>::operator()(const Opaque& a, const Opaque& b) const {
-  if constexpr (dynamic_type::opcheck<T> == dynamic_type::opcheck<T>) {
+  if constexpr (requires(const T& x, const T& y) { x == y; }) {
     // If T == T exists, use it
     return a.as<T>() == b.as<T>();
   } else {
