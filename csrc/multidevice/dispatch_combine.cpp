@@ -68,6 +68,10 @@ DispatchResult doMoEDispatch(
   const int64_t world_size = communicator->size();
   const int64_t my_rank = communicator->deviceId();
   NVF_CHECK_EQ(
+      is_token_in_rank.size(0),
+      num_tokens,
+      "is_token_in_rank first dim must match number of tokens.");
+  NVF_CHECK_EQ(
       is_token_in_rank.size(1),
       world_size,
       "is_token_in_rank second dim must match world size.");
@@ -107,8 +111,9 @@ DispatchResult doMoEDispatch(
   auto n_tokens_to_rank = n_tokens_to_rank_cpu.to(x.device());
   auto n_tokens_from_rank = at::empty_like(n_tokens_to_rank);
 
-  NVF_CHECK(
-      backend == CommunicatorBackend::kNccl,
+  NVF_CHECK_EQ(
+      backend,
+      CommunicatorBackend::kNccl,
       "Only NCCL backend is supported for MoEDispatch.");
   CommunicatorBackend actual_backend = backend;
   NVF_CHECK(
@@ -180,6 +185,12 @@ CombineResult doMoECombine(
   NVF_CHECK_EQ(x.dim(), 2, "Combine expects x to be 2D [tokens, hidden].");
   NVF_CHECK_EQ(src_idx.dim(), 1, "src_idx must be 1D.");
   NVF_CHECK_EQ(src_rank.dim(), 1, "src_rank must be 1D.");
+  NVF_CHECK_EQ(
+      src_idx.size(0), x.size(0), "src_idx size must match x first dimension.");
+  NVF_CHECK_EQ(
+      src_rank.size(0),
+      x.size(0),
+      "src_rank size must match x first dimension.");
   NVF_CHECK_EQ(
       n_tokens_to_rank.numel(),
       communicator->size(),

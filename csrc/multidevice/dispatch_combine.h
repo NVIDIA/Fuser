@@ -44,26 +44,27 @@ struct CombineResult {
 //   DispatchResult with recv_* tensors on this rank.
 //
 // Example:
-//   // world_size=2, num_experts=4, T=4, H=2, topk=1
-//   // Experts are partitioned by rank:
-//   //   rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
-//   // Rank0 holds tokens 0,1 and rank1 holds tokens 2,3 in x:
-//   //   rank0 x = [x0, x1], rank1 x = [x2, x3]
-//   // token->rank: [0, 1, 1, 1]  (rank0 keeps x0, sends x1; rank1 keeps x2,x3)
-//   // is_token_in_rank =
-//   //   [[1, 0],
-//   //    [0, 1],
-//   //    [0, 1],
-//   //    [0, 1]]
-//   // topk_idx = [0, 2, 3, 2]  (global expert ids)
-//   // After dispatch on rank0:
-//   //   recv_x has token {0}
-//   //   recv_topk_idx aligned with recv_x (e.g., [0])
-//   //   recv_src_idx tells original token positions (e.g., [0])
-//   // After dispatch on rank1:
-//   //   recv_x has tokens {1, 2, 3}
-//   //   recv_topk_idx aligned with recv_x (e.g., [2, 3, 2])
-//   //   recv_src_idx tells original token positions (e.g., [1, 2, 3])
+//   world_size=2, num_experts=4, T=4, H=2, topk=1
+//   Experts are partitioned by rank:
+//     rank0 owns experts {0, 1}, rank1 owns experts {2, 3}
+//   Rank0 holds tokens 0,1 and rank1 holds tokens 2,3 in x:
+//     rank0 x = [x0, x1], rank1 x = [x2, x3]
+//   token->rank: [0, 1, 1, 1]  (rank0 keeps x0, sends x1; rank1 keeps x2,x3)
+//   is_token_in_rank =
+//     [[1, 0],
+//      [0, 1],
+//      [0, 1],
+//      [0, 1]]
+//   topk_idx = [0, 2, 3, 2]  (global expert ids)
+//   After dispatch on rank0:
+//     recv_x has token {0}
+//     recv_topk_idx aligned with recv_x (e.g., [0])
+//     recv_src_idx tells original token positions (e.g., [0])
+//   After dispatch on rank1:
+//     recv_x has tokens {1, 2, 3}
+//     recv_topk_idx aligned with recv_x (e.g., [2, 2, 3]). Tokens are grouped
+//     by expert id for local expert processing.
+//     recv_src_idx tells original token positions (e.g., [1, 2, 3])
 //   auto out = doMoEDispatch(
 //       x, topk_idx, is_token_in_rank, 4, comm, CommunicatorBackend::kNccl);
 NVF_API DispatchResult doMoEDispatch(
