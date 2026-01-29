@@ -26,15 +26,6 @@ namespace {
 
 // Returns the number of "batchable" non-circular-buffered TMA loads found in
 // the given expression list. This is used internally by BatchedTmaInfo.
-//
-// A TMA load is "batchable" if it meets ALL of the following criteria:
-//  1. It is a CpAsyncBulk load operation (not circular-buffered)
-//  2. Block dim X has at least 32 threads (required for elect sync)
-//  3. The loaded TensorView has no circular buffering enabled
-//  4. The loaded TensorView has no thread-parallelized or serial dimensions
-//  5. If multiple TMA loads exist, they must all have the same parallelization
-//
-// The batched non-circular TMA path is only enabled when this count is > 1.
 int64_t getNumOfBatchedTmaLoads(const std::vector<Expr*>& exprs) {
   // Due to restriction of elect sync, we need to have at least 32 threads in
   // the block.
@@ -58,7 +49,8 @@ int64_t getNumOfBatchedTmaLoads(const std::vector<Expr*>& exprs) {
     }
     // The following conditions can be relaxed in the future.
     // We have some tests where TMA load is used in an untraditional way.
-    // e.g. parallelized with threads, serial load.
+    // e.g. parallelized with threads, serial load, which requires multiple
+    // mbarriers or reuse of the same mbarrier.
     if (std::any_of(
             tv->getLoopDomain().begin(),
             tv->getLoopDomain().end(),
@@ -103,8 +95,7 @@ BatchedTmaInfo::BatchedTmaInfo(Fusion* fusion) {
 }
 
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
-  os << "TMADim{"
-     << "partitioned="
+  os << "TMADim{" << "partitioned="
      << (d.partitioned ? d.partitioned->toString() : "nullptr")
      << ", box=" << (d.box ? d.box->toString() : "nullptr")
      << ", tile=" << (d.tile ? d.tile->toString() : "nullptr")
