@@ -98,94 +98,13 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
       "IrStorage::copy called with source storage that has no parent "
       "IrContainer");
 
-  // CRITICAL VALIDATION: Check if source Fusion's Exprs have dangling pointers
-  // This catches if we're trying to copy a Fusion that was already corrupted
-  for (auto expr : from->exprs_) {
-    for (auto input : expr->inputs()) {
-      NVF_ERROR(
-          input->fusion() == from->parent(),
-          "SOURCE FUSION IS CORRUPTED! Expr in source Fusion has input Val "
-          "from DIFFERENT Fusion. ",
-          "This means the source Fusion itself has cross-Fusion references. ",
-          "Expr: ",
-          expr->toString(),
-          ", Input Val: ",
-          input->toString(),
-          ", Input's Fusion: ",
-          static_cast<void*>(input->fusion()),
-          ", Source Fusion: ",
-          static_cast<void*>(from->parent()));
-    }
-  }
-
-  // Validate that all statements in the source have valid container pointers
-  for (auto val : from->vals_) {
-    NVF_ERROR(
-        val->ir_container_ != nullptr && val->ir_container_ == from->parent(),
-        "Source IrStorage has Val with invalid ir_container_ pointer. ",
-        "This indicates memory corruption or use-after-free.");
-  }
-  for (auto expr : from->exprs_) {
-    NVF_ERROR(
-        expr->ir_container_ != nullptr && expr->ir_container_ == from->parent(),
-        "Source IrStorage has Expr with invalid ir_container_ pointer. ",
-        "This indicates memory corruption or use-after-free.");
-  }
-
   IrCloner ir_cloner(to->parent());
-
-  // First, explicitly clone special vals to ensure they exist in the target
-  // This prevents cross-Fusion references when Exprs reference these vals
-  if (from->zero_val_) {
-    [[maybe_unused]] auto cloned_zero = ir_cloner.clone(from->zero_val_.get());
-    // Note: The cloned val is already registered in to->vals_ by the clone
-    // operation
-  }
-  if (from->one_val_) {
-    [[maybe_unused]] auto cloned_one = ir_cloner.clone(from->one_val_.get());
-  }
-  if (from->false_val_) {
-    [[maybe_unused]] auto cloned_false =
-        ir_cloner.clone(from->false_val_.get());
-  }
-  if (from->true_val_) {
-    [[maybe_unused]] auto cloned_true = ir_cloner.clone(from->true_val_.get());
-  }
-  if (from->magic_zero_val_) {
-    [[maybe_unused]] auto cloned_magic_zero =
-        ir_cloner.clone(from->magic_zero_val_.get());
-  }
 
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
   // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
     if (from->vals().count(val) > 0) {
-      // Validate pointer before cloning - catch corruption early
-      NVF_ERROR(
-          val != nullptr,
-          "Found NULL Val pointer in deterministic_vals during copy");
-      NVF_ERROR(
-          reinterpret_cast<uintptr_t>(val) > 0x10000,
-          "Found corrupted Val pointer in deterministic_vals during copy: ",
-          static_cast<void*>(val));
-
-      // Try to access val's ir_container to ensure object is valid
-      try {
-        auto container = val->fusion();
-        NVF_ERROR(
-            container != nullptr,
-            "Val has NULL fusion() pointer. Val: ",
-            static_cast<void*>(val));
-      } catch (...) {
-        NVF_ERROR(
-            false,
-            "Exception while accessing Val's fusion(). Val object appears "
-            "corrupted. ",
-            "Val pointer: ",
-            static_cast<void*>(val));
-      }
-
       to->vals_.insert(ir_cloner.clone(val));
     }
   }
@@ -193,31 +112,6 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   // Copy expressions in deterministic order
   for (auto expr : from->deterministic_exprs()) {
     if (from->unordered_exprs().count(expr) > 0) {
-      // Validate pointer before cloning - catch corruption early
-      NVF_ERROR(
-          expr != nullptr,
-          "Found NULL Expr pointer in deterministic_exprs during copy");
-      NVF_ERROR(
-          reinterpret_cast<uintptr_t>(expr) > 0x10000,
-          "Found corrupted Expr pointer in deterministic_exprs during copy: ",
-          static_cast<void*>(expr));
-
-      // Try to access expr's ir_container to ensure object is valid
-      try {
-        auto container = expr->fusion();
-        NVF_ERROR(
-            container != nullptr,
-            "Expr has NULL fusion() pointer. Expr: ",
-            static_cast<void*>(expr));
-      } catch (...) {
-        NVF_ERROR(
-            false,
-            "Exception while accessing Expr's fusion(). Expr object appears "
-            "corrupted. ",
-            "Expr pointer: ",
-            static_cast<void*>(expr));
-      }
-
       to->exprs_.insert(ir_cloner.clone(expr));
     }
   }
