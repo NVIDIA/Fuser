@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <deque>
+#include <list>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -43,10 +43,10 @@ class IrStorage {
   }
 
   //! Return values in insertion order
-  const std::deque<Val*> deterministic_vals() const noexcept;
+  const std::vector<Val*> deterministic_vals() const noexcept;
 
   //! Return expression in insertion order
-  const std::deque<Expr*> deterministic_exprs() const noexcept;
+  const std::vector<Expr*> deterministic_exprs() const noexcept;
 
   //! Return mapping from value to integer id
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
@@ -146,15 +146,19 @@ class IrStorage {
       int64_t prev_num_exprs,
       int64_t prev_num_vals);
 
-  // Deque of unique pointer is the memory owning data structure
-  std::deque<std::unique_ptr<Val>> vals_up_;
+  // List of unique pointer is the memory owning data structure.
+  // Using std::list instead of std::deque to guarantee pointer stability:
+  // list elements never move in memory, so raw pointers stored in Expr::inputs_
+  // and other locations remain valid even as the container grows.
+  std::list<std::unique_ptr<Val>> vals_up_;
 
   // A convenient set to return when we just need an unordered set to do
   // something like check if a Val is in this container
   std::unordered_set<Val*> vals_;
 
-  // Deque of unique pointer is the memory owning data structure
-  std::deque<std::unique_ptr<Expr>> exprs_up_;
+  // List of unique pointer is the memory owning data structure.
+  // Using std::list for same pointer stability reasons as vals_up_.
+  std::list<std::unique_ptr<Expr>> exprs_up_;
 
   // A convenient set to return when we just need an unordered set to do
   // something like check if an Expr is in this container

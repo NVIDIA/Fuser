@@ -108,8 +108,8 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
 
 void SegmentedGroup::deserialize(
     const serde::SegmentedGroup* buffer,
-    const std::deque<Val*>& vals,
-    const std::deque<Expr*>& exprs,
+    const std::vector<Val*>& vals,
+    const std::vector<Expr*>& exprs,
     const std::vector<SegmentedGroup*>& groups,
     const std::vector<SegmentedEdge*>& edges) {
   FUSER_PERF_SCOPE("SegmentedGroup::deserialize");
@@ -570,8 +570,8 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
       " expressions while serialization expected at least",
       buffer->num_exprs(),
       " expressions.");
-  const std::deque<Val*>& vals = complete_fusion_->deterministic_vals();
-  const std::deque<Expr*>& exprs = complete_fusion_->deterministic_exprs();
+  const std::vector<Val*>& vals = complete_fusion_->deterministic_vals();
+  const std::vector<Expr*>& exprs = complete_fusion_->deterministic_exprs();
   segmented_fusion_name_ = buffer->segmented_fusion_name();
 
   // Construct segmented groups first because they are necessary for the
@@ -625,7 +625,7 @@ flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
 
 nvfuser::SegmentedEdge SegmentedFusion::deserialize(
     const serde::SegmentedEdge* buffer,
-    const std::deque<Val*>& vals) {
+    const std::vector<Val*>& vals) {
   FUSER_PERF_SCOPE("SegmentedEdge::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
   NVF_ERROR(

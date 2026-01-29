@@ -16,25 +16,27 @@
 namespace nvfuser {
 
 //! Return values in insertion order
-const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
-  std::deque<Val*> vals_deque;
+const std::vector<Val*> IrStorage::deterministic_vals() const noexcept {
+  std::vector<Val*> vals_vec;
+  vals_vec.reserve(vals_up_.size());
   std::transform(
       vals_up_.begin(),
       vals_up_.end(),
-      std::back_inserter(vals_deque),
+      std::back_inserter(vals_vec),
       [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
-  return vals_deque;
+  return vals_vec;
 }
 
 //! Return expression in insertion order
-const std::deque<Expr*> IrStorage::deterministic_exprs() const noexcept {
-  std::deque<Expr*> exprs_deque;
+const std::vector<Expr*> IrStorage::deterministic_exprs() const noexcept {
+  std::vector<Expr*> exprs_vec;
+  exprs_vec.reserve(exprs_up_.size());
   std::transform(
       exprs_up_.begin(),
       exprs_up_.end(),
-      std::back_inserter(exprs_deque),
+      std::back_inserter(exprs_vec),
       [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
-  return exprs_deque;
+  return exprs_vec;
 }
 
 //! Return mapping from value to integer id
@@ -117,6 +119,31 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   // that are not registered in the container.
   for (auto val : from->deterministic_vals()) {
     if (from->vals().count(val) > 0) {
+      // Validate pointer before cloning - catch corruption early
+      NVF_ERROR(
+          val != nullptr,
+          "Found NULL Val pointer in deterministic_vals during copy");
+      NVF_ERROR(
+          reinterpret_cast<uintptr_t>(val) > 0x10000,
+          "Found corrupted Val pointer in deterministic_vals during copy: ",
+          static_cast<void*>(val));
+
+      // Try to access val's ir_container to ensure object is valid
+      try {
+        auto container = val->fusion();
+        NVF_ERROR(
+            container != nullptr,
+            "Val has NULL fusion() pointer. Val: ",
+            static_cast<void*>(val));
+      } catch (...) {
+        NVF_ERROR(
+            false,
+            "Exception while accessing Val's fusion(). Val object appears "
+            "corrupted. ",
+            "Val pointer: ",
+            static_cast<void*>(val));
+      }
+
       to->vals_.insert(ir_cloner.clone(val));
     }
   }
@@ -124,6 +151,31 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   // Copy expressions in deterministic order
   for (auto expr : from->deterministic_exprs()) {
     if (from->unordered_exprs().count(expr) > 0) {
+      // Validate pointer before cloning - catch corruption early
+      NVF_ERROR(
+          expr != nullptr,
+          "Found NULL Expr pointer in deterministic_exprs during copy");
+      NVF_ERROR(
+          reinterpret_cast<uintptr_t>(expr) > 0x10000,
+          "Found corrupted Expr pointer in deterministic_exprs during copy: ",
+          static_cast<void*>(expr));
+
+      // Try to access expr's ir_container to ensure object is valid
+      try {
+        auto container = expr->fusion();
+        NVF_ERROR(
+            container != nullptr,
+            "Expr has NULL fusion() pointer. Expr: ",
+            static_cast<void*>(expr));
+      } catch (...) {
+        NVF_ERROR(
+            false,
+            "Exception while accessing Expr's fusion(). Expr object appears "
+            "corrupted. ",
+            "Expr pointer: ",
+            static_cast<void*>(expr));
+      }
+
       to->exprs_.insert(ir_cloner.clone(expr));
     }
   }

@@ -351,15 +351,58 @@ Expr::Expr(IrBuilderPasskey passkey) : Statement(passkey) {}
 
 Expr::Expr(const Expr* src, IrCloner* ir_cloner)
     : Statement(src, ir_cloner),
-      attributes_(ir_cloner->clone(src->attributes_)),
-      inputs_(ir_cloner->clone(src->inputs_)),
-      outputs_(ir_cloner->clone(src->outputs_)) {
+      attributes_(ir_cloner->clone(src->attributes_)) {
   // Validate that the source Expr has a valid container
   NVF_ERROR(
       src->ir_container_ != nullptr,
       "Source Expr being cloned has NULL ir_container_. ",
       "This indicates the source Fusion was destroyed but its Statements are "
       "still referenced.");
+
+  // Validate input Val pointers before cloning
+  for (size_t i = 0; i < src->inputs_.size(); ++i) {
+    Val* input = src->inputs_[i];
+    NVF_ERROR(
+        input != nullptr,
+        "Expr input[",
+        i,
+        "] is NULL during cloning. Expr: ",
+        static_cast<const void*>(src));
+    NVF_ERROR(
+        reinterpret_cast<uintptr_t>(input) > 0x10000,
+        "Expr input[",
+        i,
+        "] has corrupted pointer: ",
+        static_cast<void*>(input),
+        ". Expr: ",
+        static_cast<const void*>(src));
+
+    // Try to access input's ir_container
+    try {
+      auto container = input->fusion();
+      NVF_ERROR(
+          container != nullptr,
+          "Expr input[",
+          i,
+          "] has NULL fusion() pointer. Input Val: ",
+          static_cast<void*>(input),
+          ", Expr: ",
+          static_cast<const void*>(src));
+    } catch (...) {
+      NVF_ERROR(
+          false,
+          "Exception while accessing Expr input[",
+          i,
+          "]'s fusion(). Val object appears corrupted. ",
+          "Input Val pointer: ",
+          static_cast<void*>(input),
+          ", Expr: ",
+          static_cast<const void*>(src));
+    }
+  }
+
+  inputs_ = ir_cloner->clone(src->inputs_);
+  outputs_ = ir_cloner->clone(src->outputs_);
 }
 
 Expr::Expr(
