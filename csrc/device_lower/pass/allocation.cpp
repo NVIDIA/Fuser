@@ -1550,12 +1550,15 @@ class AllocationInserter : public kir::ExprMutator {
     // buffered.
     if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
         (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
-      if (batched_tma_mbarriers_ != nullptr) {
+      if (GpuLower::current()
+              ->info()
+              .batchedTmaInfo()
+              .batchableLoads()
+              .contains(expr)) {
         auto mbarrier = IrBuilder::create<kir::TensorIndex>(
             batched_tma_mbarriers_,
             IrBuilder::create<Val>(batched_tma_index_++, DataType::Index));
-        GpuLower::current()->info().batchedTmaInfo().mbarrierMap()[expr] =
-            mbarrier;
+        GpuLower::current()->batchedTmaMbarrierMap()[expr] = mbarrier;
       } else {
         // create and allocate a memory barrier
         TensorView* mbarrier = TensorViewBuilder()

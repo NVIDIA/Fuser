@@ -498,15 +498,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     expr->fusion()->zeroVal()),
                 expr->fusion()->zeroVal(DataType::UInt32)));
       }
-    } else if (
-        GpuLower::current()->info().batchedTmaInfo().mbarrierMap().size() > 1) {
+    } else if (GpuLower::current()->batchedTmaMbarrierMap().contains(expr)) {
       // For non-circular buffered TMA loads, collect MBarrierWaitParity
       // to be inserted after the last TMA load
-      const auto& non_cb_tma_mbarrier_map =
-          GpuLower::current()->info().batchedTmaInfo().mbarrierMap();
-
       pending_tma_waits_.push_back(IrBuilder::create<kir::MBarrierWaitParity>(
-          non_cb_tma_mbarrier_map.at(expr),
+          GpuLower::current()->batchedTmaMbarrierMap().at(expr),
           expr->fusion()->zeroVal(DataType::UInt32)));
       // Increment counter and flush if this is the last TMA load
       if (++seen_non_cb_tma_loads_ == total_non_cb_tma_loads_) {
@@ -843,7 +839,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   ReadAfterWriteSyncs(const std::vector<Expr*>& _exprs) {
     // Initialize total number of non-circular buffered TMA loads
     total_non_cb_tma_loads_ =
-        GpuLower::current()->info().batchedTmaInfo().mbarrierMap().size();
+        GpuLower::current()->info().batchedTmaInfo().numBatchableLoads();
 
     // Fusion shared_memory values
     // Tracks if shared memory is modified

@@ -9,6 +9,7 @@
 
 #include <ostream>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -99,8 +100,8 @@ std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
 MmaInputSmemSwizzle getSwizzle(TensorView* tv);
 
 // Contains information about batched non-circular-buffered TMA loads.
-// This is set during the allocation pass and consumed by later passes
-// (e.g. indexing / sync insertion).
+// This is populated during analysis and consumed by later passes
+// (e.g. allocation / indexing / sync insertion).
 //
 // A TMA (Tensor Memory Accelerator) load is considered "batchable" if it meets
 // all of the following criteria:
@@ -122,25 +123,18 @@ class BatchedTmaInfo {
  public:
   explicit BatchedTmaInfo(Fusion* fusion);
 
-  // Each non-circular buffered TMA load has a separate mbarrier indexed from 0
-  // to non_cb_tma_count - 1
-  std::unordered_map<const Expr*, kir::TensorIndex*>& mbarrierMap() {
-    return non_cb_tma_mbarrier_map_;
-  }
-
-  const std::unordered_map<const Expr*, kir::TensorIndex*>& mbarrierMap()
-      const {
-    return non_cb_tma_mbarrier_map_;
+  // Returns the set of batchable TMA load expressions
+  const std::unordered_set<const Expr*>& batchableLoads() const {
+    return batchable_tma_loads_;
   }
 
   // Returns the number of batchable TMA loads computed during construction
   int64_t numBatchableLoads() const {
-    return num_batchable_loads_;
+    return batchable_tma_loads_.size();
   }
 
  private:
-  std::unordered_map<const Expr*, kir::TensorIndex*> non_cb_tma_mbarrier_map_;
-  int64_t num_batchable_loads_ = 0;
+  std::unordered_set<const Expr*> batchable_tma_loads_;
 };
 
 } // namespace nvfuser
