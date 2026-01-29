@@ -29,6 +29,7 @@ reasons to this IrContainer work (note we did not find the error in this branch
 related to that failure).
 
 To reproduce:
+
 ```bash
 pytest /opt/pytorch/lightning-thunder/thunder/tests/test_grad.py -k "outer_nvfuser_cuda_thunder and float32" -vxs
 ```
@@ -61,6 +62,11 @@ For more information on available build and runtime env flags see:
 The system has lldb and gdb.
 
 We can compile builds with address sanitizer: `NVFUSER_BUILD_WITH_ASAN=1`
+
+We **NEED** `ASAN_OPTIONS=protect_shadow_gap=0` at the minimum - without this
+cuda runtime calls will fail. This can have side-effects that are silent in
+python tests like the thunder one. Thunder will not be able to check heurisitics
+of the cuda environment and will fail to generate the test in question here.
 
 Whan running python scripts for nvfuser tests / reproducers you will need:
 `LD_PRELOAD=$(clang-20 -print-file-name=libclang_rt.asan-x86_64.so)`
