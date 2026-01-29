@@ -136,7 +136,6 @@ def test_row_parallel_linear_with_bias(multidevice_test):
             t.set_device_mesh(mesh)
             t.outer_split(-1, d)
             t.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
-
         bias_tv.set_device_mesh(mesh)
 
     b, s = 2, 3
@@ -460,24 +459,24 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
 
     e = 3
     with FusionDefinition() as fd:
-        inp = fd.define_tensor([-1, -1, e], contiguity=True)
-        up_w = fd.define_tensor([4 * e, e], contiguity=True)
-        down_w = fd.define_tensor([e, 4 * e], contiguity=True)
-        up_out = fd.ops.linear(inp, up_w)
-        down_out = fd.ops.linear(up_out, down_w)
+        inp_tv = fd.define_tensor([-1, -1, e], contiguity=True)
+        up_w_tv = fd.define_tensor([4 * e, e], contiguity=True)
+        down_w_tv = fd.define_tensor([e, 4 * e], contiguity=True)
+        up_out = fd.ops.linear(inp_tv, up_w_tv)
+        down_out = fd.ops.linear(up_out, down_w_tv)
         fd.add_output(down_out)
 
         # mesh_y (dim 0) for data parallelism, mesh_x (dim 1) for tensor parallelism
         mesh = nvfuser.multidevice.DeviceMesh(torch.arange(d).reshape(dp_size, tp_size))
-        for t in [inp, up_w, down_w]:
+        for t in [inp_tv, up_w_tv, down_w_tv]:
             t.set_device_mesh(mesh)
 
-        inp.outer_split(0, dp_size)
-        inp.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
-        up_w.outer_split(0, tp_size)
-        up_w.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
-        down_w.outer_split(-1, tp_size)
-        down_w.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
+        inp_tv.outer_split(0, dp_size)
+        inp_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_y)
+        up_w_tv.outer_split(0, tp_size)
+        up_w_tv.axis(0).parallelize(nvfuser.ParallelType.mesh_x)
+        down_w_tv.outer_split(-1, tp_size)
+        down_w_tv.axis(-2).parallelize(nvfuser.ParallelType.mesh_x)
 
     batch_per_rank = 7
     b, s = dp_size * batch_per_rank, 5
@@ -494,18 +493,12 @@ def test_data_and_tensor_parallel_mlp(multidevice_test):
     up_out_ref = torch.nn.functional.linear(inp_ref, up_w_ref)
     down_out_ref = torch.nn.functional.linear(up_out_ref, down_w_ref)
 
-    # TODO: Use shard_tensor when it supports 2D meshes.
-    rank = multidevice_test.rank
-    dp_rank = rank // tp_size
-    tp_rank = rank % tp_size
-    inp = inp_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank].cuda()
-    hidden_per_rank = (4 * e) // tp_size
-    up_w = up_w_ref[tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank].cuda()
-    down_w = down_w_ref[
-        :, tp_rank * hidden_per_rank : (tp_rank + 1) * hidden_per_rank
-    ].cuda()
+    inp = multidevice_test.shard_tensor(inp_ref, inp_tv)
+    up_w = multidevice_test.shard_tensor(up_w_ref, up_w_tv)
+    down_w = multidevice_test.shard_tensor(down_w_ref, down_w_tv)
     (out,) = fd.execute([inp, up_w, down_w])
 
+    dp_rank = multidevice_test.rank // tp_size
     torch.testing.assert_close(
         out.cpu(),
         down_out_ref[dp_rank * batch_per_rank : (dp_rank + 1) * batch_per_rank],
