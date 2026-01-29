@@ -185,6 +185,13 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           PropagateDirection::kBackward);
     }
   }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+    debug() << std::endl;
+  }
 }
 
 } // namespace nvfuser::preseg_passes
