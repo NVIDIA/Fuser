@@ -206,8 +206,13 @@ bool mayUseTma(
     return false;
   }
 
-  // For small TMA sizes, the smem indirection is not worth it.
-  if (props.total_reduction_numel < 128) {
+  int64_t dtype_bytes = props.max_dtype_size_bit_for_vectorization / 8;
+  uint64_t total_reduction_bytes = props.total_reduction_numel * dtype_bytes;
+
+  // Minimum TMA transfer size, below which it seems much slower than non-TMA.
+  uint64_t min_tma_bytes = 16384;
+
+  if (total_reduction_bytes < min_tma_bytes) {
     return false;
   }
 
