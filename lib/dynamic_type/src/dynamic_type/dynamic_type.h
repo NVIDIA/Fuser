@@ -144,12 +144,11 @@ struct DynamicType {
       Containers::template is_candidate_type<T, DynamicType, Ts...>;
 
   template <typename T>
-  static constexpr bool can_cast_to = any_check(
-      [](auto t) {
-        using From = typename decltype(t)::type;
-        return requires(From from) {
+  static constexpr bool can_cast_to = std::apply(
+      [](auto... ts) constexpr {
+        return ((requires(typename decltype(ts)::type from) {
           (T)(from);
-        };
+        }) || ...);
       },
       type_identities_as_tuple);
 
@@ -425,14 +424,13 @@ struct DynamicType {
   }
 
   template <typename IndexT>
-  static constexpr bool has_square_bracket = any_check(
-      [](auto t) {
-        using T = typename decltype(t)::type;
-        return requires(T & tt, IndexT & idx) {
+  static constexpr bool has_square_bracket = std::apply(
+      [](auto... ts) constexpr {
+        return ((requires(typename decltype(ts)::type& tt, IndexT& idx) {
           {
             tt[idx]
           } -> std::same_as<DynamicType&>;
-        };
+        }) || ...);
       },
       type_identities_as_tuple);
 
@@ -469,10 +467,9 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-  static constexpr bool has_any_square_bracket = any_check(
-      [](auto t) {
-        using IndexT = typename decltype(t)::type;
-        return has_square_bracket<IndexT>;
+  static constexpr bool has_any_square_bracket = std::apply(
+      [](auto... ts) constexpr {
+        return (has_square_bracket<typename decltype(ts)::type> || ...);
       },
       type_identities_as_tuple);
 
@@ -745,19 +742,14 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
 #undef DEFINE_BINARY_OP
 
 #define DEFINE_UNARY_OP(opname, op)                                           \
-  /*TODO: we should inline the definition of opname##_helper into requires,*/ \
-  /*but I can only do this in C++20 */                                        \
-  constexpr auto opname##_helper = [](auto x) constexpr {                     \
-    using T = typename decltype(x)::type;                                     \
-    return requires(T t) {                                                    \
-      op t;                                                                   \
-    };                                                                        \
-  };                                                                          \
   template <typename DT>                                                      \
-  requires(is_dynamic_type_v<std::decay_t<DT>>&& any_check(                   \
-      opname##_helper,                                                        \
-      std::decay_t<                                                           \
-          DT>::type_identities_as_tuple)) inline constexpr decltype(auto)     \
+  requires(is_dynamic_type_v<std::decay_t<DT>> && std::apply(                 \
+      [](auto... ts) constexpr {                                              \
+        return ((requires(typename decltype(ts)::type t) {                    \
+          op t;                                                               \
+        }) || ...);                                                           \
+      },                                                                      \
+      std::decay_t<DT>::type_identities_as_tuple)) inline constexpr decltype(auto) \
   operator op(DT&& x) {                                                       \
     return std::decay_t<DT>::dispatch(                                        \
         [](auto&& x) -> decltype(auto) {                                      \
@@ -783,18 +775,14 @@ DEFINE_UNARY_OP(lnot, !);
 // address of the dynamic type itself?
 
 template <typename DT>
-auto star_defined_checker = [](auto t) {
-  using T = typename decltype(t)::type;
-  return requires(T & tt) {
-    {
-      *tt
-    } -> std::same_as<DT&>;
-  };
-};
-
-template <typename DT>
-requires(is_dynamic_type_v<DT>&& any_check(
-    star_defined_checker<DT>,
+requires(is_dynamic_type_v<DT> && std::apply(
+    [](auto... ts) constexpr {
+      return ((requires(typename decltype(ts)::type& tt) {
+        {
+          *tt
+        } -> std::same_as<DT&>;
+      }) || ...);
+    },
     DT::type_identities_as_tuple)) DT&
 operator*(const DT& x) {
   std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
@@ -815,19 +803,15 @@ operator*(const DT& x) {
 }
 
 // Printing
-// TODO: we should inline the definition of can_print into requires, but I can
-// only do this in C++20
-constexpr auto can_print = [](auto x) constexpr {
-  using T = typename decltype(x)::type;
-  return requires(std::ostream & os, T && t) {
-    {
-      os << t
-    } -> std::same_as<std::ostream&>;
-  };
-};
 template <typename DT>
-requires(is_dynamic_type_v<DT>&& any_check(
-    can_print,
+requires(is_dynamic_type_v<DT> && std::apply(
+    [](auto... ts) constexpr {
+      return ((requires(std::ostream& os, typename decltype(ts)::type&& t) {
+        {
+          os << t
+        } -> std::same_as<std::ostream&>;
+      }) || ...);
+    },
     DT::type_identities_as_tuple)) std::ostream&
 operator<<(std::ostream& os, const DT& dt) {
   bool printed = false;
@@ -850,19 +834,16 @@ operator<<(std::ostream& os, const DT& dt) {
 }
 
 #define DEFINE_LEFT_PPMM(opname, op)                                          \
-  /*TODO: we should inline the definition of opname##_helper into requires,*/ \
-  /*but I can only do this in C++20 */                                        \
-  constexpr auto opname##_helper = [](auto x) constexpr {                     \
-    using X = typename decltype(x)::type;                                     \
-    return requires(X & xx) {                                                 \
-      {                                                                       \
-        op xx                                                                 \
-      } -> std::same_as<X&>;                                                  \
-    };                                                                        \
-  };                                                                          \
   template <typename DT>                                                      \
-  requires(is_dynamic_type_v<DT>&& any_check(                                 \
-      opname##_helper, DT::type_identities_as_tuple)) inline constexpr DT&    \
+  requires(is_dynamic_type_v<DT> && std::apply(                               \
+      [](auto... ts) constexpr {                                              \
+        return ((requires(typename decltype(ts)::type& xx) {                  \
+          {                                                                   \
+            op xx                                                             \
+          } -> std::same_as<typename decltype(ts)::type&>;                    \
+        }) || ...);                                                           \
+      },                                                                      \
+      DT::type_identities_as_tuple)) inline constexpr DT&                     \
   operator op(DT & x) {                                                       \
     bool computed = false;                                                    \
     DT::for_all_types([&computed, &x](auto _) {                               \
@@ -893,20 +874,18 @@ DEFINE_LEFT_PPMM(lmm, --);
 #undef DEFINE_LEFT_PPMM
 
 #define DEFINE_RIGHT_PPMM(opname, op)                                         \
-  /*TODO: we should inline the definition of opname##_helper into requires,*/ \
-  /*but I can only do this in C++20 */                                        \
-  template <typename DTVariantType>                                           \
-  constexpr auto opname##_helper = [](auto x) constexpr {                     \
-    using X = typename decltype(x)::type;                                     \
-    if constexpr (requires(X & xx) { xx op; }) {                              \
-      using ResultType = decltype(std::declval<X&>() op);                     \
-      return std::is_constructible_v<DTVariantType, ResultType>;              \
-    }                                                                         \
-    return false;                                                             \
-  };                                                                          \
   template <typename DT>                                                      \
-  requires(is_dynamic_type_v<DT>&& any_check(                                 \
-      opname##_helper<typename DT::VariantType>,                              \
+  requires(is_dynamic_type_v<DT> && std::apply(                               \
+      [](auto... ts) constexpr {                                              \
+        return (([]{                                                          \
+          using X = typename decltype(ts)::type;                              \
+          if constexpr (requires(X& xx) { xx op; }) {                         \
+            using ResultType = decltype(std::declval<X&>() op);               \
+            return std::is_constructible_v<typename DT::VariantType, ResultType>; \
+          }                                                                   \
+          return false;                                                       \
+        }()) || ...);                                                         \
+      },                                                                      \
       DT::type_identities_as_tuple)) inline constexpr DT                      \
   operator op(DT& x, int) {                                                   \
     DT ret;                                                                   \

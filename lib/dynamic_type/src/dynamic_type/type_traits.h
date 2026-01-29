@@ -249,52 +249,6 @@ static_assert(!belongs_to<int, float, double, long>);
 
 } // namespace dynamic_type
 
-namespace dynamic_type {
-
-// Check if any element(s) from the tuple(s) satisfy the predicate f.
-// Uses C++20 fold expressions to efficiently test all combinations.
-//
-// Single tuple case: tests f(x) for each x in tuple
-// Multiple tuples: tests f(x, y, ...) for all combinations across tuples
-
-// Single tuple: any element satisfies f
-template <typename Tuple, typename Fun>
-constexpr bool any_check(Fun f, Tuple tuple) {
-  return std::apply(
-      [f](auto... elements) constexpr {
-        return (f(elements) || ...);
-      },
-      tuple);
-}
-
-// Multiple tuples: recursively check all combinations
-template <typename Tuple1, typename... Rest, typename Fun>
-constexpr bool any_check(Fun f, Tuple1 tuple1, Rest... rest) {
-  return std::apply(
-      [&](auto... xs) constexpr {
-        return (any_check([&](auto... args) constexpr { return f(xs, args...); }, 
-                          rest...) || ...);
-      },
-      tuple1);
-}
-
-// For example:
-static_assert(
-    any_check([](auto x) constexpr { return x > 0; }, std::make_tuple(1, -1)));
-static_assert(!any_check(
-    [](auto x) constexpr { return x > 0; },
-    std::make_tuple(-2, -1)));
-
-static_assert(any_check(
-    [](auto x, auto y) constexpr { return (x + y) > 0; },
-    std::make_tuple(2.0, 1),
-    std::make_tuple(-2, -1)));
-static_assert(!any_check(
-    [](auto x, auto y) constexpr { return (x + y) > 0; },
-    std::make_tuple(1.0, 1),
-    std::make_tuple(-2, -1)));
-
-} // namespace dynamic_type
 
 namespace dynamic_type {
 
