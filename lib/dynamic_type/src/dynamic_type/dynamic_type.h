@@ -604,14 +604,15 @@ struct DynamicType {
   // arguments. I believe it is doable, but I decide to leave it for future.
 };
 
-template <typename T>
-struct is_dynamic_type : std::false_type {};
+template <typename>
+inline constexpr bool is_dynamic_type_v = false;
 
-template <typename... Ts>
-struct is_dynamic_type<DynamicType<Ts...>> : std::true_type {};
+template <typename Containers, typename... Ts>
+inline constexpr bool is_dynamic_type_v<DynamicType<Containers, Ts...>> = true;
 
+// A DynamicType, allowing cv/ref qualifiers on the deduced type.
 template <typename T>
-constexpr bool is_dynamic_type_v = is_dynamic_type<T>::value;
+concept DynamicTypeLike = is_dynamic_type_v<std::remove_cvref_t<T>>;
 
 #define DEFINE_BINARY_OP(opname, op, func_name, return_type, check_existence) \
   template <typename X, typename Y, typename RetT>                            \
@@ -743,15 +744,15 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
 #undef DEFINE_BINARY_OP
 
 #define DEFINE_UNARY_OP(opname, op)                                          \
-  template <typename DT>                                                     \
-  requires(is_dynamic_type_v<std::decay_t<DT>>&& std::apply(                 \
+  template <DynamicTypeLike DT>                                              \
+  requires(std::apply(                                                       \
       [](auto... ts) constexpr {                                             \
         return ((requires(typename decltype(ts)::type t) { op t; }) || ...); \
       },                                                                     \
-      std::decay_t<                                                          \
+      std::remove_cvref_t<                                                   \
           DT>::type_identities_as_tuple)) inline constexpr decltype(auto)    \
   operator op(DT&& x) {                                                      \
-    return std::decay_t<DT>::dispatch(                                       \
+    return std::remove_cvref_t<DT>::dispatch(                                \
         [](auto&& x) -> decltype(auto) {                                     \
           using X = std::decay_t<decltype(x)>;                               \
           if constexpr (requires(X && xx) { op xx; }) {                      \
@@ -774,8 +775,8 @@ DEFINE_UNARY_OP(lnot, !);
 // an alternative. Also, if we overloaded the operator&, how can we get the
 // address of the dynamic type itself?
 
-template <typename DT>
-requires(is_dynamic_type_v<DT>&& std::apply(
+template <DynamicTypeLike DT>
+requires(std::apply(
     [](auto... ts) constexpr {
       return (
           (requires(typename decltype(ts)::type & tt) {
@@ -805,8 +806,8 @@ operator*(const DT& x) {
 }
 
 // Printing
-template <typename DT>
-requires(is_dynamic_type_v<DT>&& std::apply(
+template <DynamicTypeLike DT>
+requires(std::apply(
     [](auto... ts) constexpr {
       return (
           (requires(std::ostream & os, typename decltype(ts)::type && t) {
@@ -838,8 +839,8 @@ operator<<(std::ostream& os, const DT& dt) {
 }
 
 #define DEFINE_LEFT_PPMM(opname, op)                           \
-  template <typename DT>                                       \
-  requires(is_dynamic_type_v<DT>&& std::apply(                 \
+  template <DynamicTypeLike DT>                                \
+  requires(std::apply(                                         \
       [](auto... ts) constexpr {                               \
         return (                                               \
             (requires(typename decltype(ts)::type & xx) {      \
@@ -880,8 +881,8 @@ DEFINE_LEFT_PPMM(lmm, --);
 #undef DEFINE_LEFT_PPMM
 
 #define DEFINE_RIGHT_PPMM(opname, op)                                         \
-  template <typename DT>                                                      \
-  requires(is_dynamic_type_v<DT>&& std::apply(                                \
+  template <DynamicTypeLike DT>                                               \
+  requires(std::apply(                                                        \
       [](auto... ts) constexpr {                                              \
         return (                                                              \
             ([] {                                                             \
@@ -925,12 +926,12 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #undef DEFINE_RIGHT_PPMM
 
-#define DEFINE_ASSIGNMENT_OP(op, assign_op)                                   \
-  template <typename DT, typename T>                                          \
-  requires(is_dynamic_type_v<DT> && (requires(DT dt, T t) {                   \
-             dt op t;                                                         \
-           })) inline constexpr DT& operator assign_op(DT & x, const T & y) { \
-    return x = x op y;                                                        \
+#define DEFINE_ASSIGNMENT_OP(op, assign_op)                         \
+  template <DynamicTypeLike DT, typename T>                         \
+  requires(requires(DT dt, T t) {                                   \
+    dt op t;                                                        \
+  }) inline constexpr DT& operator assign_op(DT & x, const T & y) { \
+    return x = x op y;                                              \
   }
 
 DEFINE_ASSIGNMENT_OP(+, +=);
@@ -950,7 +951,7 @@ DEFINE_ASSIGNMENT_OP(>>, >>=);
 
 // Check that, whether there exist two different types T and U, where both T and
 // U are contained in the type list of dynamic type DT, and T == U is defined.
-template <typename DT>
+template <DynamicTypeLike DT>
 constexpr bool has_cross_type_equality =
     any(remove_void_from_tuple(DT::for_all_types([](auto t) {
       using T = typename decltype(t)::type;
