@@ -18,10 +18,6 @@
 
 namespace nvfuser {
 
-namespace kir {
-class TensorIndex;
-} // namespace kir
-
 // See doc/dev/tma.md for design
 
 // All ValGroups are in the traversal graph of tensor indexer

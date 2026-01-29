@@ -1326,7 +1326,7 @@ class AllocationInserter : public kir::ExprMutator {
     batched_tma_mbarriers_ = all_mbarriers;
 
     // Insert blockSync after mbarrier initialization to ensure mbarrier is
-    // visible to other CTAs
+    // visible to other threads
     auto block_sync = IrBuilder::create<kir::BlockSync>();
     registerInsertBefore(expr, block_sync, nullptr);
   }
