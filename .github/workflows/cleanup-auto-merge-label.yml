@@ -22,7 +22,7 @@ jobs:
 
     steps:
       - name: Remove enable-auto-merge label
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const pr_number = context.payload.pull_request.number;
