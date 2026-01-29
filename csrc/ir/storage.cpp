@@ -114,6 +114,28 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
 
   IrCloner ir_cloner(to->parent());
 
+  // First, explicitly clone special vals to ensure they exist in the target
+  // This prevents cross-Fusion references when Exprs reference these vals
+  if (from->zero_val_) {
+    [[maybe_unused]] auto cloned_zero = ir_cloner.clone(from->zero_val_.get());
+    // Note: The cloned val is already registered in to->vals_ by the clone
+    // operation
+  }
+  if (from->one_val_) {
+    [[maybe_unused]] auto cloned_one = ir_cloner.clone(from->one_val_.get());
+  }
+  if (from->false_val_) {
+    [[maybe_unused]] auto cloned_false =
+        ir_cloner.clone(from->false_val_.get());
+  }
+  if (from->true_val_) {
+    [[maybe_unused]] auto cloned_true = ir_cloner.clone(from->true_val_.get());
+  }
+  if (from->magic_zero_val_) {
+    [[maybe_unused]] auto cloned_magic_zero =
+        ir_cloner.clone(from->magic_zero_val_.get());
+  }
+
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
   // that are not registered in the container.
