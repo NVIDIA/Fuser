@@ -85,19 +85,22 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
   std::swap(a.metadata_, b.metadata_);
 
   std::swap(a.parent_, b.parent_);
+
+  // CRITICAL FIX: Swap special vals and axioms
+  // These are stored separately from vals_up_ but may be referenced by Exprs
+  // in the swapped content. If not swapped, Exprs in container A could
+  // reference special vals from container B after the swap, causing
+  // use-after-free when one container is destroyed.
+  std::swap(a.zero_val_, b.zero_val_);
+  std::swap(a.one_val_, b.one_val_);
+  std::swap(a.true_val_, b.true_val_);
+  std::swap(a.false_val_, b.false_val_);
+  std::swap(a.magic_zero_val_, b.magic_zero_val_);
+  std::swap(a.axioms_, b.axioms_);
 }
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
-  NVF_ERROR(
-      to->parent_ != nullptr,
-      "IrStorage::copy called with target storage that has no parent "
-      "IrContainer");
-  NVF_ERROR(
-      from->parent_ != nullptr,
-      "IrStorage::copy called with source storage that has no parent "
-      "IrContainer");
-
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
@@ -118,38 +121,6 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
-
-  // VALIDATION: After cloning, verify no cross-Fusion references exist
-  for (auto expr : to->exprs_) {
-    for (auto input : expr->inputs()) {
-      NVF_ERROR(
-          input->fusion() == to->parent(),
-          "Cross-Fusion reference detected! Expr in target Fusion has input "
-          "Val that belongs to source Fusion. ",
-          "Expr: ",
-          static_cast<void*>(expr),
-          ", Input Val: ",
-          static_cast<void*>(input),
-          ", Input's Fusion: ",
-          static_cast<void*>(input->fusion()),
-          ", Target Fusion: ",
-          static_cast<void*>(to->parent()));
-    }
-    for (auto output : expr->outputs()) {
-      NVF_ERROR(
-          output->fusion() == to->parent(),
-          "Cross-Fusion reference detected! Expr in target Fusion has output "
-          "Val that belongs to source Fusion. ",
-          "Expr: ",
-          static_cast<void*>(expr),
-          ", Output Val: ",
-          static_cast<void*>(output),
-          ", Output's Fusion: ",
-          static_cast<void*>(output->fusion()),
-          ", Target Fusion: ",
-          static_cast<void*>(to->parent()));
-    }
-  }
 
   if (from->axioms_ != nullptr) {
     to->axioms_ = std::make_unique<std::vector<Val*>>();

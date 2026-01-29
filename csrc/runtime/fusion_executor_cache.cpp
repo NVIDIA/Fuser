@@ -456,25 +456,6 @@ void FusionExecutorCache::deserialize(
     }
 
     for (auto fb_fusion_kernel_runtime : *fb_device_runtimes->runtimes()) {
-      // Validate fusion_ before copying
-      NVF_ERROR(
-          fusion_ != nullptr,
-          "FusionExecutorCache::deserialize: fusion_ is nullptr");
-      NVF_ERROR(
-          fusion_->ir_storage() != nullptr,
-          "FusionExecutorCache::deserialize: fusion_->ir_storage() is nullptr");
-
-      // Check that fusion_ is in a valid state
-      try {
-        [[maybe_unused]] auto num_vals = fusion_->numVals(false);
-        [[maybe_unused]] auto num_exprs = fusion_->numExprs();
-      } catch (...) {
-        NVF_ERROR(
-            false,
-            "FusionExecutorCache::deserialize: fusion_ appears corrupted - "
-            "cannot access basic properties");
-      }
-
       auto conc_fusion = std::make_unique<Fusion>(*fusion_);
       FusionGuard fg(conc_fusion.get());
 
@@ -662,46 +643,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
 
     // Clone fusion_ so that we can safely concretize it
     auto conc_fusion = std::make_unique<Fusion>(*fusion_);
-
-    // VALIDATION: Ensure the copied Fusion is completely isolated from the
-    // original This catches cross-Fusion references that could cause
-    // use-after-free
-    for (auto expr : conc_fusion->exprs()) {
-      for (auto input : expr->inputs()) {
-        NVF_ERROR(
-            input->fusion() == conc_fusion.get(),
-            "CROSS-FUSION REFERENCE DETECTED! Copied Fusion has Expr with "
-            "input Val from original Fusion. ",
-            "This will cause use-after-free when original Fusion is modified. ",
-            "Expr: ",
-            expr->toString(),
-            ", Input Val: ",
-            input->toString(),
-            ", Input's Fusion: ",
-            static_cast<void*>(input->fusion()),
-            ", Copied Fusion: ",
-            static_cast<void*>(conc_fusion.get()),
-            ", Original Fusion: ",
-            static_cast<void*>(fusion_.get()));
-      }
-      for (auto output : expr->outputs()) {
-        NVF_ERROR(
-            output->fusion() == conc_fusion.get(),
-            "CROSS-FUSION REFERENCE DETECTED! Copied Fusion has Expr with "
-            "output Val from original Fusion. ",
-            "Expr: ",
-            expr->toString(),
-            ", Output Val: ",
-            output->toString(),
-            ", Output's Fusion: ",
-            static_cast<void*>(output->fusion()),
-            ", Copied Fusion: ",
-            static_cast<void*>(conc_fusion.get()),
-            ", Original Fusion: ",
-            static_cast<void*>(fusion_.get()));
-      }
-    }
-
     if (initial_info.isDynamic()) {
       const auto& conc_initial_info =
           conc_fusion->getManaged<DynamicTransformInitialInfo>("initial_info");
@@ -726,29 +667,6 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
         conc_fusion->print();
       }
     }
-
-    // VALIDATION: Ensure Fusion is still isolated before passing to
-    // FusionKernelRuntime This catches if any operation (like concretizeFusion)
-    // introduced cross-Fusion references
-    for (auto expr : conc_fusion->exprs()) {
-      for (auto input : expr->inputs()) {
-        NVF_ERROR(
-            input->fusion() == conc_fusion.get(),
-            "CROSS-FUSION REFERENCE before FusionKernelRuntime! ",
-            "Copied Fusion has Expr with input Val from original Fusion. ",
-            "Expr: ",
-            expr->toString(),
-            ", Input Val: ",
-            input->toString(),
-            ", Input's Fusion: ",
-            static_cast<void*>(input->fusion()),
-            ", Copied Fusion: ",
-            static_cast<void*>(conc_fusion.get()),
-            ", Original Fusion: ",
-            static_cast<void*>(fusion_.get()));
-      }
-    }
-
     FusionGuard fg(conc_fusion.get());
     kernel_runtimes.emplace_back(std::make_unique<FusionKernelRuntime>(
         std::move(conc_fusion),
