@@ -146,9 +146,8 @@ struct DynamicType {
   template <typename T>
   static constexpr bool can_cast_to = std::apply(
       [](auto... ts) constexpr {
-        return ((requires(typename decltype(ts)::type from) {
-          (T)(from);
-        }) || ...);
+        return (
+            (requires(typename decltype(ts)::type from) { (T)(from); }) || ...);
       },
       type_identities_as_tuple);
 
@@ -426,11 +425,13 @@ struct DynamicType {
   template <typename IndexT>
   static constexpr bool has_square_bracket = std::apply(
       [](auto... ts) constexpr {
-        return ((requires(typename decltype(ts)::type& tt, IndexT& idx) {
-          {
-            tt[idx]
-          } -> std::same_as<DynamicType&>;
-        }) || ...);
+        return (
+            (requires(typename decltype(ts)::type & tt, IndexT & idx) {
+              {
+                tt[idx]
+              } -> std::same_as<DynamicType&>;
+            }) ||
+            ...);
       },
       type_identities_as_tuple);
 
@@ -741,24 +742,23 @@ DEFINE_BINARY_OP(ge, >=, operator>=, bool, false);
 
 #undef DEFINE_BINARY_OP
 
-#define DEFINE_UNARY_OP(opname, op)                                           \
-  template <typename DT>                                                      \
-  requires(is_dynamic_type_v<std::decay_t<DT>> && std::apply(                 \
-      [](auto... ts) constexpr {                                              \
-        return ((requires(typename decltype(ts)::type t) {                    \
-          op t;                                                               \
-        }) || ...);                                                           \
-      },                                                                      \
-      std::decay_t<DT>::type_identities_as_tuple)) inline constexpr decltype(auto) \
-  operator op(DT&& x) {                                                       \
-    return std::decay_t<DT>::dispatch(                                        \
-        [](auto&& x) -> decltype(auto) {                                      \
-          using X = std::decay_t<decltype(x)>;                                \
-          if constexpr (requires(X && xx) { op xx; }) {                       \
-            return op std::forward<decltype(x)>(x);                           \
-          }                                                                   \
-        },                                                                    \
-        std::forward<DT>(x));                                                 \
+#define DEFINE_UNARY_OP(opname, op)                                          \
+  template <typename DT>                                                     \
+  requires(is_dynamic_type_v<std::decay_t<DT>>&& std::apply(                 \
+      [](auto... ts) constexpr {                                             \
+        return ((requires(typename decltype(ts)::type t) { op t; }) || ...); \
+      },                                                                     \
+      std::decay_t<                                                          \
+          DT>::type_identities_as_tuple)) inline constexpr decltype(auto)    \
+  operator op(DT&& x) {                                                      \
+    return std::decay_t<DT>::dispatch(                                       \
+        [](auto&& x) -> decltype(auto) {                                     \
+          using X = std::decay_t<decltype(x)>;                               \
+          if constexpr (requires(X && xx) { op xx; }) {                      \
+            return op std::forward<decltype(x)>(x);                          \
+          }                                                                  \
+        },                                                                   \
+        std::forward<DT>(x));                                                \
   }
 
 DEFINE_UNARY_OP(pos, +);
@@ -775,13 +775,15 @@ DEFINE_UNARY_OP(lnot, !);
 // address of the dynamic type itself?
 
 template <typename DT>
-requires(is_dynamic_type_v<DT> && std::apply(
+requires(is_dynamic_type_v<DT>&& std::apply(
     [](auto... ts) constexpr {
-      return ((requires(typename decltype(ts)::type& tt) {
-        {
-          *tt
-        } -> std::same_as<DT&>;
-      }) || ...);
+      return (
+          (requires(typename decltype(ts)::type & tt) {
+            {
+              *tt
+            } -> std::same_as<DT&>;
+          }) ||
+          ...);
     },
     DT::type_identities_as_tuple)) DT&
 operator*(const DT& x) {
@@ -804,13 +806,15 @@ operator*(const DT& x) {
 
 // Printing
 template <typename DT>
-requires(is_dynamic_type_v<DT> && std::apply(
+requires(is_dynamic_type_v<DT>&& std::apply(
     [](auto... ts) constexpr {
-      return ((requires(std::ostream& os, typename decltype(ts)::type&& t) {
-        {
-          os << t
-        } -> std::same_as<std::ostream&>;
-      }) || ...);
+      return (
+          (requires(std::ostream & os, typename decltype(ts)::type && t) {
+            {
+              os << t
+            } -> std::same_as<std::ostream&>;
+          }) ||
+          ...);
     },
     DT::type_identities_as_tuple)) std::ostream&
 operator<<(std::ostream& os, const DT& dt) {
@@ -833,39 +837,41 @@ operator<<(std::ostream& os, const DT& dt) {
   return os;
 }
 
-#define DEFINE_LEFT_PPMM(opname, op)                                          \
-  template <typename DT>                                                      \
-  requires(is_dynamic_type_v<DT> && std::apply(                               \
-      [](auto... ts) constexpr {                                              \
-        return ((requires(typename decltype(ts)::type& xx) {                  \
-          {                                                                   \
-            op xx                                                             \
-          } -> std::same_as<typename decltype(ts)::type&>;                    \
-        }) || ...);                                                           \
-      },                                                                      \
-      DT::type_identities_as_tuple)) inline constexpr DT&                     \
-  operator op(DT & x) {                                                       \
-    bool computed = false;                                                    \
-    DT::for_all_types([&computed, &x](auto _) {                               \
-      using Type = typename decltype(_)::type;                                \
-      if constexpr (requires(Type & t) {                                      \
-                      {                                                       \
-                        op t                                                  \
-                      } -> std::same_as<Type&>;                               \
-                    }) {                                                      \
-        if (x.template is<Type>()) {                                          \
-          op x.template as<Type>();                                           \
-          computed = true;                                                    \
-        }                                                                     \
-      }                                                                       \
-    });                                                                       \
-    DYNAMIC_TYPE_CHECK(                                                       \
-        computed,                                                             \
-        "Cannot compute ",                                                    \
-        #op,                                                                  \
-        x.type().name(),                                                      \
-        " : incompatible type");                                              \
-    return x;                                                                 \
+#define DEFINE_LEFT_PPMM(opname, op)                           \
+  template <typename DT>                                       \
+  requires(is_dynamic_type_v<DT>&& std::apply(                 \
+      [](auto... ts) constexpr {                               \
+        return (                                               \
+            (requires(typename decltype(ts)::type & xx) {      \
+              {                                                \
+                op xx                                          \
+              } -> std::same_as<typename decltype(ts)::type&>; \
+            }) ||                                              \
+            ...);                                              \
+      },                                                       \
+      DT::type_identities_as_tuple)) inline constexpr DT&      \
+  operator op(DT & x) {                                        \
+    bool computed = false;                                     \
+    DT::for_all_types([&computed, &x](auto _) {                \
+      using Type = typename decltype(_)::type;                 \
+      if constexpr (requires(Type & t) {                       \
+                      {                                        \
+                        op t                                   \
+                      } -> std::same_as<Type&>;                \
+                    }) {                                       \
+        if (x.template is<Type>()) {                           \
+          op x.template as<Type>();                            \
+          computed = true;                                     \
+        }                                                      \
+      }                                                        \
+    });                                                        \
+    DYNAMIC_TYPE_CHECK(                                        \
+        computed,                                              \
+        "Cannot compute ",                                     \
+        #op,                                                   \
+        x.type().name(),                                       \
+        " : incompatible type");                               \
+    return x;                                                  \
   }
 
 DEFINE_LEFT_PPMM(lpp, ++);
@@ -875,16 +881,19 @@ DEFINE_LEFT_PPMM(lmm, --);
 
 #define DEFINE_RIGHT_PPMM(opname, op)                                         \
   template <typename DT>                                                      \
-  requires(is_dynamic_type_v<DT> && std::apply(                               \
+  requires(is_dynamic_type_v<DT>&& std::apply(                                \
       [](auto... ts) constexpr {                                              \
-        return (([]{                                                          \
-          using X = typename decltype(ts)::type;                              \
-          if constexpr (requires(X& xx) { xx op; }) {                         \
-            using ResultType = decltype(std::declval<X&>() op);               \
-            return std::is_constructible_v<typename DT::VariantType, ResultType>; \
-          }                                                                   \
-          return false;                                                       \
-        }()) || ...);                                                         \
+        return (                                                              \
+            ([] {                                                             \
+              using X = typename decltype(ts)::type;                          \
+              if constexpr (requires(X & xx) { xx op; }) {                    \
+                using ResultType = decltype(std::declval<X&>() op);           \
+                return std::                                                  \
+                    is_constructible_v<typename DT::VariantType, ResultType>; \
+              }                                                               \
+              return false;                                                   \
+            }()) ||                                                           \
+            ...);                                                             \
       },                                                                      \
       DT::type_identities_as_tuple)) inline constexpr DT                      \
   operator op(DT& x, int) {                                                   \

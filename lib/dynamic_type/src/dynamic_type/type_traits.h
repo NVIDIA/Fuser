@@ -249,7 +249,6 @@ static_assert(!belongs_to<int, float, double, long>);
 
 } // namespace dynamic_type
 
-
 namespace dynamic_type {
 
 // Check if all the types in the tuple are the same. If the tuple is empty, or
