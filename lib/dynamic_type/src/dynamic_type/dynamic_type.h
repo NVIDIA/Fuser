@@ -265,12 +265,26 @@ struct DynamicType {
   }
 
   constexpr DynamicType() = default;
+#if defined(__clang__)
+  // Clang has issues with constexpr copy/move constructors in certain contexts
+  DynamicType(const DynamicType&) = default;
+  DynamicType(DynamicType&&) = default;
+  DynamicType& operator=(const DynamicType&) = default;
+  DynamicType& operator=(DynamicType&&) = default;
+#else
+  constexpr DynamicType(const DynamicType&) = default;
+  constexpr DynamicType(DynamicType&&) = default;
+  constexpr DynamicType& operator=(const DynamicType&) = default;
+  constexpr DynamicType& operator=(DynamicType&&) = default;
+#endif
 
   template <typename T>
-  requires requires(T&& t) {
-    VariantType(std::forward<T>(t));
-  }
-  constexpr DynamicType(T&& value) : value(std::forward<T>(value)) {}
+  requires(
+      !std::is_same_v<std::decay_t<T>, DynamicType> &&
+      requires(T && t) {
+        VariantType(std::forward<T>(t));
+      }) constexpr DynamicType(T&& value)
+      : value(std::forward<T>(value)) {}
 
   template <template <typename...> typename Template, typename ItemT>
   requires(
@@ -350,7 +364,10 @@ struct DynamicType {
   }
 
   template <typename T>
-  requires can_cast_to<T> explicit constexpr operator T() const {
+  requires(
+      !std::is_same_v<std::decay_t<T>, DynamicType> &&
+      can_cast_to<T>) explicit constexpr
+  operator T() const {
     return dispatch(
         [](auto x) -> decltype(auto) {
           using X = decltype(x);
@@ -960,6 +977,16 @@ constexpr bool has_cross_type_equality =
         }
       })));
     })));
+
+// Swap function for DynamicType to enable std::swap and std::iter_swap
+template <typename Containers, typename... Ts>
+inline void swap(
+    DynamicType<Containers, Ts...>& a,
+    DynamicType<Containers, Ts...>&
+        b) noexcept(noexcept(std::swap(a.value, b.value))) {
+  using std::swap;
+  swap(a.value, b.value);
+}
 
 #if defined(__clang__)
 #pragma clang diagnostic pop
