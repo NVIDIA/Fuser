@@ -16,6 +16,7 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
+#include "host_ir/ops.h"
 #include "ir/builder.h"
 #include "ir/interface_nodes.h"
 #include "ops/alias.h"

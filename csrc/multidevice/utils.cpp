@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "compute_at_map.h"
+#include "host_ir/ir.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
 #include "transform_replay.h"
@@ -178,6 +179,8 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       id = merge->outer();
+    } else if (auto* swizzle = dynamic_cast<hir::Swizzle*>(def)) {
+      id = swizzle->in();
     } else {
       NVF_THROW(
           "Unexpected transforms from logical to a DID-parallel allocation "
