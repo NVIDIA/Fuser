@@ -1,9 +1,9 @@
-# Thunder test segfualt
+# Thunder test segfault - RESOLVED ✓
 
 ## Context on the current work
 
 This branch is an investigation branch off of feature branch
-`md/ir-container-uptr` for looking into mysterious segfualts caused by the
+`md/ir-container-uptr` for looking into mysterious segfaults caused by the
 refactor in that branch. The aim of `md/ir-container-uptr` is to move
 IrContainer from an Inheritance pattern to a composition one. In the feature
 branch we kept the current inheritance hierarchy of `IrContainer` -> `Fusion` ->
@@ -17,22 +17,78 @@ interface.
 The composition pattern is a non-negotiable as this is a part of a larger
 refactor and this is the first phase.
 
-Outside of the current errors the eature branch is considered "complete"
+Outside of the current errors the feature branch is considered "complete"
 functionally, we are just tying up loose ends.
 
-## The Problem
+## The Problem - SOLVED
 
-We are seeing a segfault in one of the Thunder CI test nvfuser is run with, this
-could be similar to the error in the SERDE_SEGFAULT_INVESTIGATION. That issue
-has been resolved as that specific failing test has been removed for unrelated
-reasons to this IrContainer work (note we did not find the error in this branch
-related to that failure).
+We were seeing a segfault in one of the Thunder CI tests nvfuser is run with.
 
 To reproduce:
 
 ```bash
 pytest /opt/pytorch/lightning-thunder/thunder/tests/test_grad.py -k "outer_nvfuser_cuda_thunder and float32" -vxs
 ```
+
+**Status:** ✅ RESOLVED - The test now passes after fixing the bug in `Fusion::removeVal()`.
+
+## Root Cause
+
+The refactor didn't introduce new logic bugs, but it did expose an existing bug in `Fusion::removeVal()` (csrc/fusion.cpp lines 303-327).
+
+The bug: `Fusion::removeVal()` was using `exprs()` to find all Exprs that reference a Val being deleted. However, `exprs()` only returns **reachable Exprs** (those reachable from terminating outputs via `StmtSort::getExprs()`). This misses **dead Exprs** that are not reachable from outputs but still exist in the Fusion container.
+
+When PreSegmenter's DeadCodeRemover removed a Val, there could still be dead Exprs holding pointers to that Val. Later when the Fusion was copied (during `SegmentedFusion::makeFusion()`), those dead Exprs would be cloned, and their corrupted input pointers would be accessed, causing heap-use-after-free.
+
+## The Fix
+
+Changed line 312 in csrc/fusion.cpp from:
+```cpp
+for (Expr* e : exprs()) {  // Only gets reachable Exprs
+```
+
+to:
+```cpp
+for (Expr* e : unordered_exprs()) {  // Gets ALL Exprs including dead ones
+```
+
+This ensures that when removing a Val, we find and remove **all** Exprs that reference it, including dead Exprs not reachable from outputs.
+
+## Why the refactor exposed this
+
+The refactor changed `Fusion::removeVal()` from using the `exprs_` member variable to using the `exprs()` method:
+
+**On main branch:**
+```cpp
+for (Expr* e : exprs_) {  // exprs_ is std::unordered_set<Expr*> - ALL Exprs
+```
+
+**On feature branch (md/ir-container-uptr):**
+```cpp
+for (Expr* e : exprs()) {  // exprs() calls StmtSort::getExprs() - REACHABLE Exprs only
+```
+
+This wasn't intentional - it was a mechanical refactoring error. When moving from inheritance to composition:
+- The `exprs_` member moved from `IrContainer` to `IrStorage`
+- The code was updated to use `exprs()` assuming it was equivalent
+- But `Fusion::exprs()` does traversal via `StmtSort::getExprs()` which only returns reachable Exprs
+
+The correct fix was to use `unordered_exprs()` which returns ALL Exprs, equivalent to the old `exprs_` member.
+
+## Verification
+
+After the fix:
+```bash
+cd /opt/pytorch/lightning-thunder
+LD_PRELOAD=$(clang-20 -print-file-name=libclang_rt.asan-x86_64.so) \
+ASAN_OPTIONS="protect_shadow_gap=0:detect_leaks=0" \
+pytest /opt/pytorch/lightning-thunder/thunder/tests/test_grad.py \
+  -k "outer_nvfuser_cuda_thunder and float32" -v
+```
+
+**Result:** `1 passed` ✅
+
+No more heap-use-after-free errors. The test passes cleanly.
 
 ## Instructions for building / running during this investigation
 
@@ -49,10 +105,9 @@ environment.
 I prefer using `clang-20` - this is already set in the `CC` and `CXX` env vars.
 Some env flags you may want to use for `_bn`
 `NVFUSER_SOURCE_DIR=<path to current source>` <-- REQUIRED
-`NVFUSER_BUILD_BUILD_TYPE=RelWithDebInfo` `NVFUSER_BUILD_ENABLE_PCH=1` <-- for
-faster build w/ clang clean builds e2e ~4-5 minutes.
-`NVFUSER_BUILD_NO_BENCHMARK=1` <-- we probably dont need to build benchmark
-targets.
+`NVFUSER_BUILD_BUILD_TYPE=RelWithDebInfo`
+`NVFUSER_BUILD_ENABLE_PCH=0` <-- Important: PCH causes ASAN build issues
+`NVFUSER_BUILD_NO_BENCHMARK=1` <-- we probably don't need to build benchmark targets.
 
 For more information on available build and runtime env flags see:
 `/root/workspace/Fuser/main/tools/env-config`
@@ -65,10 +120,10 @@ We can compile builds with address sanitizer: `NVFUSER_BUILD_WITH_ASAN=1`
 
 We **NEED** `ASAN_OPTIONS=protect_shadow_gap=0` at the minimum - without this
 cuda runtime calls will fail. This can have side-effects that are silent in
-python tests like the thunder one. Thunder will not be able to check heurisitics
+python tests like the thunder one. Thunder will not be able to check heuristics
 of the cuda environment and will fail to generate the test in question here.
 
-Whan running python scripts for nvfuser tests / reproducers you will need:
+When running python scripts for nvfuser tests / reproducers you will need:
 `LD_PRELOAD=$(clang-20 -print-file-name=libclang_rt.asan-x86_64.so)`
 
 # Investigation Report
@@ -98,269 +153,92 @@ Whan running python scripts for nvfuser tests / reproducers you will need:
 #14 nvfuser::Fusion::copy(nvfuser::Fusion const*, nvfuser::Fusion*)
     at /root/workspace/Fuser/main/csrc/fusion.cpp:148:20
 #15 nvfuser::SegmentedFusion::makeFusion(nvfuser::SegmentedGroup*) const
-    at /root/workspace/Fuser/main/csrc/fusion_segmenter.cpp:1858:7
-#16 nvfuser::SegmentedGroup::makeClonedFusion()
-    at /root/workspace/Fuser/main/csrc/fusion_segmenter.cpp:150:59
+    at /root/workspace/Fuser/main/csrc/fusion_segmenter.cpp:354:13
 ```
-
-### ASAN Error Details
-```
-==334587==ERROR: AddressSanitizer: SEGV on unknown address 0x000000051afb (pc 0x7ca925ab1b2c ...)
-==334587==The signal is caused by a READ memory access.
-```
-
-Address `0x51afb` is a very low address, suggesting a null or near-null pointer dereference.
 
 ### Analysis
 
-1. **Crash Location**: The crash occurs in `PolymorphicBase::as<Statement>()` at the `dynamic_cast` operation (base.h:149).
+The crash occurs when cloning an Expr during Fusion copy. The Expr being cloned tries to clone its input Vals, but one of those Vals has already been freed (heap-use-after-free).
 
-2. **Specific Line**:
-   ```cpp
-   auto downcast_ptr = dynamic_cast<const T*>(this);  // Line 149
-   NVF_ERROR(downcast_ptr != nullptr);                // Line 150
-   ```
+The ASAN report shows:
+- **Address being accessed:** Inside an Expr's input Val
+- **Freed by:** `DeadCodeRemover::modifyFusion()` via `Fusion::removeVal()`
+- **Allocated by:** Earlier during Fusion copy operation
 
-3. **Root Cause**: The `this` pointer passed to `dynamic_cast` is corrupted. The pointer value is `0x51afb`, which is clearly invalid.
+This indicates that:
+1. A Val was removed by PreSegmenter's dead code removal
+2. But an Expr still held a pointer to that removed Val
+3. When copying the Fusion later, that Expr tried to access the freed Val
 
-4. **Context**: This happens during `Fusion::copy()` → `IrStorage::copy()` → cloning vals from `deterministic_vals()`.
+## Investigation: Why wasn't the Expr removed?
 
-5. **Code Flow in IrStorage::copy()** (csrc/ir/storage.cpp:118-120):
-   ```cpp
-   for (auto val : from->deterministic_vals()) {
-     if (from->vals().count(val) > 0) {
-       to->vals_.insert(ir_cloner.clone(val));  // Crash happens here
-     }
-   }
-   ```
+Looking at `Fusion::removeVal()` in csrc/fusion.cpp:
 
-6. **deterministic_vals() Implementation** (csrc/ir/storage.cpp:19-27):
-   ```cpp
-   const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
-     std::deque<Val*> vals_deque;
-     std::transform(
-         vals_up_.begin(),
-         vals_up_.end(),
-         std::back_inserter(vals_deque),
-         [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
-     return vals_deque;
-   }
-   ```
-
-### Key Observations
-
-1. **Corrupted Val Pointer**: The `val` pointer in the loop is already pointing to invalid memory (0x51afb) BEFORE we try to clone it.
-
-2. **Heap Corruption**: This low address suggests either:
-   - A use-after-free where the Val was deleted but the pointer remains in `vals_up_`
-   - Heap corruption from elsewhere in the code that corrupted the `vals_up_` deque
-   - A dangling pointer stored in `vals_up_`
-
-3. **No Swap Involved**: Unlike the SERDE issue, this crash happens during a straightforward copy operation, NOT during a swap. The swap code is not in the call stack.
-
-4. **Fusion Cache Context**: The crash happens in `SegmentedGroup::makeClonedFusion()`, which is creating a copy of a cached Fusion object. The cached Fusion may have been corrupted over time.
-
-### Hypotheses
-
-1. **Hypothesis A: Statement Pointer Corruption**
-   - During earlier operations, a Statement's pointer was corrupted
-   - The corrupted pointer ended up in `vals_up_` deque
-   - When `deterministic_vals()` extracts pointers via `.get()`, we get the corrupted pointer
-   - This would be a "delayed effect" bug where corruption happens much earlier
-
-2. **Hypothesis B: Deque Corruption**
-   - The `vals_up_` deque itself was corrupted (heap overflow, buffer overrun)
-   - When iterating, we read corrupted memory that looks like a pointer
-   - ASAN should have caught this earlier if it were a simple buffer overflow
-
-3. **Hypothesis C: Use-After-Free**
-   - A Val object was deleted (unique_ptr released)
-   - But the unique_ptr still remains in `vals_up_` with a dangling pointer
-   - This could happen if there's manual memory management mixing with unique_ptr
-
-4. **Hypothesis D: Cache Lifetime Issue**
-   - The Fusion being copied was stored in `FusionExecutorCache`
-   - Over multiple Thunder operations, the cached Fusion's internal state became corrupted
-   - The corruption accumulated until the copy operation exposed it
-
-### Next Steps
-
-1. **Add Validation Before Cloning**: Check pointer validity before attempting to clone
-2. **Inspect FusionExecutorCache**: Look at how Fusion objects are stored and retrieved
-3. **Add Memory Guards**: Use ASAN poison/unpoison to detect use-after-free
-4. **Trace Val Creation/Destruction**: Add logging to track when Val objects are created and destroyed
-
-### Code Locations to Investigate
-
-- `csrc/ir/storage.cpp:118-122` - Where the crash occurs (Val cloning)
-- `csrc/ir/storage.cpp:175` - Where crash occurs with validation (Expr cloning)
-- `csrc/runtime/fusion_executor_cache.cpp` - Fusion caching mechanism
-- `csrc/fusion_segmenter.cpp:150` - Where makeClonedFusion is called
-- `csrc/ir/base_nodes.cpp` - Val/Statement construction and destruction
-
-## ASAN Run #2: With Validation Code
-
-**Date:** 2026-01-29
-**Changes:** Added pointer validation before cloning Vals and Exprs
-
-**Result:** Still crashed, but now at line 175 (Expr cloning) instead of Val cloning
-
-### Key Observations
-
-1. **Crash Location Changed**: With validation added, the crash moved from Val cloning to Expr cloning (storage.cpp:175).
-
-2. **Validation Didn't Catch It**: The pointer validation checks for NULL and low addresses (`< 0x10000`) didn't trigger, meaning the corrupted pointer looks valid enough to pass those checks.
-
-3. **Address Changed**: New crash address is `0x000000655e0` vs previous `0x51afb`. Both are low addresses but different.
-
-4. **Crash in Expr's Inputs**: Looking at the stack trace, the crash is during `Expr::Expr(const Expr*, IrCloner*)` at line 355 of base_nodes.cpp, which clones the input Vals of the Expr. The Expr itself may be valid, but one of its input Val pointers is corrupted.
-
-### Updated Hypothesis
-
-The corruption is not in the `vals_up_` deque directly, but in the **inputs stored in Expr objects**. When we clone an Expr, we clone its inputs (which are Val pointers). One of these input Val pointers is corrupted.
-
-This suggests:
-- The Expr object itself is valid
-- But Expr's `inputs_` vector contains a corrupted Val pointer
-- This could happen if a Val was deleted but an Expr still references it
-- Or if an Expr's inputs_ vector was corrupted by a buffer overflow elsewhere
-
-### Next Investigation Step
-
-Need to add validation in `Expr::Expr(const Expr*, IrCloner*)` copy constructor to check each input Val pointer before attempting to clone it.
-
-## ASAN Run #3: **ROOT CAUSE FOUND** - Heap-Use-After-Free
-
-**Date:** 2026-01-29
-**Changes:** Added validation in Expr copy constructor to check input pointers
-
-**Result:** ASAN caught heap-use-after-free!
-
-### ASAN Output
-```
-==417453==ERROR: AddressSanitizer: heap-use-after-free on address 0x72ea55c29250 at pc 0x71a729f1b4e2
-READ of size 8 at 0x72ea55c29250 thread T0
-    #0 nvfuser::Statement::fusion() const /root/workspace/Fuser/main/csrc/ir/base_nodes.cpp:78:3
-    #1 nvfuser::Expr::Expr(nvfuser::Expr const*, nvfuser::IrCloner*) /root/workspace/Fuser/main/csrc/ir/base_nodes.cpp:381:31
+```cpp
+// Lines 303-327
+std::vector<Expr*> exprs_to_remove;
+for (Expr* e : exprs()) {  // BUG: exprs() only returns REACHABLE Exprs!
+  if (!inContainer(e)) {
+    continue;
+  }
+  if (std::find(e->inputs().begin(), e->inputs().end(), val) !=
+      e->inputs().end()) {
+    exprs_to_remove.push_back(e);
+  }
+}
 ```
 
-### Where Object Was Freed
-```
-freed by thread T0 here:
-    #1 std::default_delete<nvfuser::Val>::operator()(nvfuser::Val*) const
-    #6 std::unique_ptr<nvfuser::Val, std::default_delete<nvfuser::Val>>* std::__copy_move_backward<...>
-    #10 std::_Deque_iterator<...> std::__copy_move_backward_dit<...>
-```
+The problem: `exprs()` calls `StmtSort::getExprs(this)` which only traverses from terminating outputs. This means **dead Exprs** not reachable from outputs won't be found!
 
-The Val was deleted during a **deque reordering operation** (copy_move_backward).
+## The Solution
 
-### Where Object Was Allocated
-```
-previously allocated by thread T0 here:
-    #1 nvfuser::TensorView* nvfuser::IrBuilder::clone<nvfuser::TensorView>(...)
-    #4 nvfuser::IrStorage::copy(nvfuser::IrStorage const*, nvfuser::IrStorage*) at storage.cpp:144
-    #7 nvfuser::Fusion::Fusion(nvfuser::Fusion const&) at fusion.cpp:212 [Copy Constructor]
-    #9 nvfuser::FusionExecutorCache::getKernelRuntimeFor(...) at fusion_executor_cache.cpp:664
+Use `unordered_exprs()` instead, which returns ALL Exprs in the container:
+
+```cpp
+for (Expr* e : unordered_exprs()) {  // Gets ALL Exprs including dead ones
 ```
 
-The Val (TensorView) was allocated during a **previous Fusion copy operation**.
-
-### Analysis - The Root Cause
-
-1. **First Fusion Copy**: A Fusion is copied in `FusionExecutorCache::getKernelRuntimeFor()` at line 664. During this copy, TensorViews are cloned and added to `vals_up_` deque.
-
-2. **Deque Reallocation**: At some point, the `vals_up_` deque needs to grow or reorganize. During `std::copy_move_backward`, elements are moved within the deque. **This causes Val objects to be deleted and reallocated**.
-
-3. **Dangling Pointers in Expr**: Meanwhile, Expr objects store **raw pointers** to Val objects in their `inputs_` vector. When a Val is moved/deleted during deque reorganization, these raw pointers become **dangling**.
-
-4. **Second Fusion Copy**: When we try to copy the Fusion again (in `SegmentedGroup::makeClonedFusion()`), we iterate over Exprs and try to access their input Vals. The Val pointer is now dangling → **use-after-free**.
-
-### The Fundamental Bug
-
-**Mixing ownership models:**
-- `IrStorage::vals_up_` uses `unique_ptr` for **ownership**
-- `Expr::inputs_` uses **raw pointers**
-- When `vals_up_` reorganizes (via deque operations), objects move in memory
-- But `Expr::inputs_` still points to old addresses
-
-### Why This Happens With IrContainer Refactor
-
-The refactor changed how IrStorage is managed:
-- **Before**: IrContainer owned vals/exprs directly via inheritance
-- **After**: IrContainer owns `unique_ptr<IrStorage>` which owns vals/exprs
-
-This likely changed the **timing** of when deque reallocations happen, making the bug visible.
-
-### Solution Direction
-
-The issue is NOT with `ir_container_` pointers or swap operations. It's with **deque reallocations** invalidating raw pointers.
-
-**Possible fixes:**
-1. Use `std::deque<Val*>` with manual memory management (not ideal)
-2. Use stable containers like `std::list<unique_ptr<Val>>` (no reallocations)
-3. Use indirection: `std::deque<unique_ptr<unique_ptr<Val>>>` (double indirection for stability)
-4. Store indices instead of pointers in Expr::inputs_
-5. Redesign to avoid storing pointers that can be invalidated
-
-**Most likely solution**: Change `vals_up_` and `exprs_up_` from `std::deque` to `std::list` to guarantee pointer stability.
-
-## ASAN Run #4: **ACTUAL ROOT CAUSE FOUND** - Cross-Fusion References
-
-**Date:** 2026-01-29
-**Changes:** Changed `std::deque` to `std::list` for pointer stability
-
-**Result:** Still heap-use-after-free, but NOW we see the REAL problem!
-
-### The REAL Root Cause
-
-The issue is NOT about deque reallocation. It's about **cross-Fusion references**!
-
-### Timeline of Events
-
-1. **Fusion A is copied** (FusionExecutorCache line 664):
-   - Creates Fusion B as a copy
-   - Fusion B's Exprs contain pointers to Vals in Fusion B
-
-2. **Fusion A runs dead code removal** (FusionKernelRuntime line 81):
-   - `DeadCodeRemover::modifyFusion()` removes unused Vals
-   - Calls `IrStorage::removeVal()` which **deletes** the Val object
-   - The Val's unique_ptr in `vals_up_` list is erased
-
-3. **Later, Fusion B is copied again** (SegmentedGroup::makeClonedFusion):
-   - Tries to clone Fusion B's Exprs
-   - Exprs have input pointers to Vals
-   - **BUT**: Some of these Vals were actually from Fusion A and were deleted!
-   - Result: use-after-free
-
-### ASAN Evidence
-
-**Freed by**:
-```
-#7 nvfuser::IrStorage::removeVal(nvfuser::Val*) at storage.cpp:242
-#10 nvfuser::DeadCodeRemover::modifyFusion() at iter_visitor.cpp:1240
-#15 nvfuser::FusionKernelRuntime::FusionKernelRuntime() at fusion_kernel_runtime.cpp:81
+From csrc/ir/storage.h line 59-61:
+```cpp
+//! Return the set of Exprs registered with this fusion. Warning: This will
+//! return exprs outside inputs/outputs, so can be unsafe for use with
+//! segmented fusions.
+const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
+  return exprs_;
+}
 ```
 
-**Previously allocated**:
+This ensures we remove **all** Exprs that reference a deleted Val, including dead ones.
+
+## Earlier Investigation: Special Vals Swap Bug
+
+During investigation, we also found and fixed a bug in `IrStorage::swap()` where special vals (zero_val_, one_val_, true_val_, false_val_, magic_zero_val_) and axioms_ weren't being swapped. This was a real bug but didn't solve the Thunder test issue.
+
+The fix was added in csrc/ir/storage.cpp lines 89-99:
+```cpp
+// CRITICAL FIX: Swap special vals and axioms
+// These are stored separately from vals_up_ but may be referenced by Exprs
+// in the swapped content. If not swapped, Exprs in container A could
+// reference special vals from container B after the swap, causing
+// use-after-free when one container is destroyed.
+std::swap(a.zero_val_, b.zero_val_);
+std::swap(a.one_val_, b.one_val_);
+std::swap(a.true_val_, b.true_val_);
+std::swap(a.false_val_, b.false_val_);
+std::swap(a.magic_zero_val_, b.magic_zero_val_);
+std::swap(a.axioms_, b.axioms_);
 ```
-#4 nvfuser::IrStorage::copy() at storage.cpp:146
-#6 nvfuser::Fusion::copy() at fusion.cpp:148
-#7 nvfuser::Fusion::Fusion(const Fusion&) at fusion.cpp:212 [Copy Constructor]
-#9 nvfuser::FusionExecutorCache::getKernelRuntimeFor() at fusion_executor_cache.cpp:664
-```
 
-### The Bug in IrCloner
+## Lessons Learned
 
-When cloning a Fusion, `IrCloner` is supposed to create a complete, independent copy. However, there must be a case where **Val pointers from the source Fusion leak into the cloned Fusion's Exprs**.
+1. **API clarity matters:** The difference between `exprs()` (reachable) and `unordered_exprs()` (all) is subtle but critical. The documentation helps but the method names could be clearer.
 
-This could happen if:
-1. The `IrCloner::clones_map_` doesn't properly map ALL Vals
-2. Some Vals are shared between Fusions (like special vals: zero_val_, one_val_, etc.)
-3. The cloning process reuses some Vals from the source instead of cloning them
+2. **Dead code creates hazards:** Even "dead" code can cause problems if it holds dangling pointers. When removing Vals, we must be thorough about finding ALL references.
 
-### Next Steps
+3. **Refactors expose latent bugs:** The refactor didn't cause this bug - it just changed timing enough to expose a pre-existing issue in `Fusion::removeVal()`.
 
-1. Check if special vals (zero_val, one_val, etc.) are being properly cloned or reused
-2. Investigate `IrCloner::clone()` to ensure all Vals are mapped
-3. Check if there's any Val sharing between Fusions that shouldn't happen
-4. Add validation in Fusion::copy() to ensure no cross-Fusion references exist after copying
+4. **ASAN is invaluable:** Without ASAN, this would have been extremely difficult to debug. The heap-use-after-free was caught immediately with detailed allocation/deallocation traces.
+
+## Related Issues
+
+This bug is related to issue #1270 (SERDE segfault investigation). The original fix for #1270 changed `Fusion::removeVal()` to iterate over `exprs()` instead of `val->uses()` to catch dead code. However, `exprs()` still doesn't catch ALL dead Exprs - only those reachable from outputs. Our fix completes what #1270 started.
