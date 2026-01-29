@@ -98,6 +98,26 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
       "IrStorage::copy called with source storage that has no parent "
       "IrContainer");
 
+  // CRITICAL VALIDATION: Check if source Fusion's Exprs have dangling pointers
+  // This catches if we're trying to copy a Fusion that was already corrupted
+  for (auto expr : from->exprs_) {
+    for (auto input : expr->inputs()) {
+      NVF_ERROR(
+          input->fusion() == from->parent(),
+          "SOURCE FUSION IS CORRUPTED! Expr in source Fusion has input Val "
+          "from DIFFERENT Fusion. ",
+          "This means the source Fusion itself has cross-Fusion references. ",
+          "Expr: ",
+          expr->toString(),
+          ", Input Val: ",
+          input->toString(),
+          ", Input's Fusion: ",
+          static_cast<void*>(input->fusion()),
+          ", Source Fusion: ",
+          static_cast<void*>(from->parent()));
+    }
+  }
+
   // Validate that all statements in the source have valid container pointers
   for (auto val : from->vals_) {
     NVF_ERROR(
@@ -204,6 +224,38 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
+
+  // VALIDATION: After cloning, verify no cross-Fusion references exist
+  for (auto expr : to->exprs_) {
+    for (auto input : expr->inputs()) {
+      NVF_ERROR(
+          input->fusion() == to->parent(),
+          "Cross-Fusion reference detected! Expr in target Fusion has input "
+          "Val that belongs to source Fusion. ",
+          "Expr: ",
+          static_cast<void*>(expr),
+          ", Input Val: ",
+          static_cast<void*>(input),
+          ", Input's Fusion: ",
+          static_cast<void*>(input->fusion()),
+          ", Target Fusion: ",
+          static_cast<void*>(to->parent()));
+    }
+    for (auto output : expr->outputs()) {
+      NVF_ERROR(
+          output->fusion() == to->parent(),
+          "Cross-Fusion reference detected! Expr in target Fusion has output "
+          "Val that belongs to source Fusion. ",
+          "Expr: ",
+          static_cast<void*>(expr),
+          ", Output Val: ",
+          static_cast<void*>(output),
+          ", Output's Fusion: ",
+          static_cast<void*>(output->fusion()),
+          ", Target Fusion: ",
+          static_cast<void*>(to->parent()));
+    }
+  }
 
   if (from->axioms_ != nullptr) {
     to->axioms_ = std::make_unique<std::vector<Val*>>();
