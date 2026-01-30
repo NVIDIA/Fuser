@@ -7,6 +7,7 @@
 // clang-format on
 #include <bindings.h>
 
+#include <scheduler/cutlass.h>
 #include <scheduler/matmul_heuristic.h>
 #include <scheduler/pointwise_heuristic.h>
 #include <scheduler/reduction_heuristic.h>
@@ -548,6 +549,21 @@ void bindHeuristicParams(py::module& nvfuser) {
               )")
       .def_readwrite("mma_macro", &MatmulParams::mma_macro, R"(
                 Type of MMA instruction to use in generated kernel.
+              )");
+
+  py::class_<CutlassParams, HeuristicParams>(
+      nvfuser, "CutlassParams", py::module_local())
+      .def(py::init())
+      .def(
+          "__repr__", [](const CutlassParams& self) { return self.toString(); })
+      .def_readwrite("mma_tile", &CutlassParams::mma_tile, R"(
+                Size of tile computed by each mma instruction.
+              )")
+      .def_readwrite("per_sm_tile", &CutlassParams::per_sm_tile, R"(
+                Size of tile and epilogue computed by each SM.
+              )")
+      .def_readwrite("cluster_shape", &CutlassParams::cluster_shape, R"(
+                Shape of CTA cluster in the order M, N, 1.
               )");
 }
 
