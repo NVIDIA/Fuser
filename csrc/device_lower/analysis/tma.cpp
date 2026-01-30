@@ -23,8 +23,7 @@
 namespace nvfuser {
 
 std::ostream& operator<<(std::ostream& os, const TMADim& d) {
-  os << "TMADim{"
-     << "partitioned="
+  os << "TMADim{" << "partitioned="
      << (d.partitioned ? d.partitioned->toString() : "nullptr")
      << ", box=" << (d.box ? d.box->toString() : "nullptr")
      << ", tile=" << (d.tile ? d.tile->toString() : "nullptr")
@@ -1069,6 +1068,77 @@ std::vector<TMADim> run(
 
 } // namespace collapse_tma_domain
 
+// Validate broadcast usage with TMA loads
+//
+// TMA auto-fills out-of-bounds accesses with zeros. When broadcast dimensions
+// are merged with non-broadcast and loaded with TMA, TMA treats
+// the broadcast as a physical dimension and loads extra rows/cols as zeros,
+// breaking broadcast semantics (which should replicate values, not fill zeros).
+//
+// See test BroadcastDownstreamOfTMALoad for detailed example.
+
+void validateTMAConsumerBroadcasts(TensorView* smem_tv) {
+  // Check if Bulk-parallelized dimensions (TMA tile dimensions) depend on
+  // broadcast dimensions through transformations.
+  //
+  // Uses PERMISSIVE mode which maps broadcast to non-broadcast. We find
+  // ValGroups containing broadcasts and check if Bulk-parallelized ValGroups
+  // are reachable from them through transitive dependencies.
+
+  // Build PERMISSIVE IdModel graph - maps broadcast to non-broadcast through
+  // transformations
+  IdModel id_model(smem_tv->fusion(), /*build_graphs=*/false);
+  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
+  const ValGraph& permissive_graph =
+      id_model.idGraph(IdMappingMode::PERMISSIVE);
+
+  // Collect ValGroups containing broadcast IDs
+  ValGroups broadcast_groups;
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    bool has_broadcast =
+        std::any_of(val_group->begin(), val_group->end(), [](Val* val) {
+          return val->isA<IterDomain>() && val->as<IterDomain>()->isBroadcast();
+        });
+    if (has_broadcast) {
+      broadcast_groups.pushBack(val_group);
+    }
+  }
+
+  // Collect ValGroups containing Bulk-parallelized IDs
+  ValGroups bulk_groups;
+  for (const ValGroup& val_group :
+       permissive_graph.disjointValSets().disjointSets()) {
+    bool has_bulk =
+        std::any_of(val_group->begin(), val_group->end(), [](Val* val) {
+          return val->isA<IterDomain>() &&
+              val->as<IterDomain>()->getParallelType() == ParallelType::Bulk;
+        });
+    if (has_bulk) {
+      bulk_groups.pushBack(val_group);
+    }
+  }
+
+  // Check if any Bulk ValGroup is reachable from broadcast ValGroups
+  // This captures both direct and transitive dependencies (broadcast ->
+  // intermediate -> Bulk)
+  auto reachable_bulk_groups = getReachableValsFrom<ValGraphBFS>(
+      broadcast_groups.vector(),
+      bulk_groups.vector(),
+      Direction::Forward,
+      permissive_graph);
+
+  // If any Bulk group is reachable from broadcasts, it's an error
+  if (!reachable_bulk_groups.empty()) {
+    NVF_ERROR(
+        false,
+        "Broadcast may interfere with TMA loading of ",
+        smem_tv->toString(),
+        ". Bulk-parallelized dimensions are reachable from broadcast "
+        "dimensions through transformations.");
+  }
+}
+
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   auto* producer_tv = ldst->in()->as<TensorView>();
   // In case the producer is aliased, use the alias instead
@@ -1120,6 +1190,12 @@ TMAInfo getTMAInfo(LoadStoreOp* ldst) {
       "When interleave is CU_TENSOR_MAP_INTERLEAVE_NONE ",
       "(this is always the case for nvFuser now)",
       ", the first element of elementStrides must be one.");
+
+  // Validate broadcast usage: TMA auto-fills out-of-bounds with zeros,
+  // breaking broadcast semantics when broadcast dims participate in tile shape.
+  if (!GpuLower::current()->hasMma()) {
+    validateTMAConsumerBroadcasts(smem_tv);
+  }
 
   MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
 
