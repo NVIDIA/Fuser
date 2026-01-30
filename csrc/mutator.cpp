@@ -291,7 +291,7 @@ Expr* OptOutMutator::mutateExpr(
   return new_expr;
 }
 
-void OptOutMutator::removeExpr(IrContainer* container, Expr* expr) const {
+void OptOutMutator::removeExpr(Fusion* container, Expr* expr) const {
   container->removeExpr(expr);
 }
 

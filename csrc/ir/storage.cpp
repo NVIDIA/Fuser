@@ -15,6 +15,15 @@
 
 namespace nvfuser {
 
+// Forward declaration - Fusion inherits from impl::IrContainer
+class Fusion;
+
+// Helper to cast parent() to Fusion* for IrBuilder calls
+static inline Fusion* parentAsFusion(impl::IrContainer* parent) {
+  // Safe cast since only Fusion inherits from impl::IrContainer
+  return static_cast<Fusion*>(parent);
+}
+
 //! Return values in insertion order
 const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
   std::deque<Val*> vals_deque;
@@ -94,7 +103,8 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   to->clear();
-  IrCloner ir_cloner(to->parent());
+  // parent() returns impl::IrContainer*, but IrCloner needs Fusion*
+  IrCloner ir_cloner(parentAsFusion(to->parent()));
 
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
@@ -225,7 +235,7 @@ bool IrStorage::inContainer(const Statement* const_stmt) const {
   }
 
   NVF_ERROR(
-      const_stmt->container() == this->parent(),
+      const_stmt->container() == parentAsFusion(this->parent()),
       "Container claims to own stmt, but stmt disagrees.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -247,8 +257,8 @@ bool IrStorage::inContainer(const Statement* const_stmt) const {
 // Shortcuts for frequently used vals
 Val* IrStorage::zeroVal() {
   if (!zero_val_) {
-    auto zero_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
+    auto zero_val = IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), 0L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -263,14 +273,15 @@ Val* IrStorage::zeroVal(DataType dtype) {
     return falseVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 0L, dtype);
+    return IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), 0L, dtype);
   }
 }
 
 Val* IrStorage::oneVal() {
   if (!one_val_) {
-    auto one_val =
-        IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
+    auto one_val = IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), 1L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -285,14 +296,15 @@ Val* IrStorage::oneVal(DataType dtype) {
     return trueVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this->parent(), 1L, dtype);
+    return IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), 1L, dtype);
   }
 }
 
 Val* IrStorage::falseVal() {
   if (!false_val_) {
     auto false_val = IrBuilder::createInContainer<Val>(
-        this->parent(), false, DataType::Bool);
+        parentAsFusion(this->parent()), false, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == false_val);
     false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -302,8 +314,8 @@ Val* IrStorage::falseVal() {
 
 Val* IrStorage::trueVal() {
   if (!true_val_) {
-    auto true_val =
-        IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
+    auto true_val = IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), true, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == true_val);
     true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -325,10 +337,10 @@ NamedScalar* IrStorage::magicZeroVal() {
 
 Val* IrStorage::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
-    auto metadata_val =
-        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
+    auto metadata_val = IrBuilder::createInContainer<Val>(
+        parentAsFusion(this->parent()), metaDataTypeOf(v));
     auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
-        this->parent(), metadata_val, v);
+        parentAsFusion(this->parent()), metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;
@@ -350,13 +362,13 @@ void IrStorage::lazyInitAxioms() {
 }
 
 void IrStorage::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
+  NVF_ERROR(val->container() == parentAsFusion(this->parent()));
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrStorage::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
+  NVF_ERROR(val->container() == parentAsFusion(this->parent()));
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }

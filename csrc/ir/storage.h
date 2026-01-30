@@ -18,6 +18,11 @@
 
 namespace nvfuser {
 
+// Forward declaration of impl namespace
+namespace impl {
+class IrContainer;
+}
+
 class NamedScalar;
 
 class IrStorage {
@@ -102,7 +107,7 @@ class IrStorage {
   static void swap(IrStorage& a, IrStorage& b) noexcept;
 
   // Let IrInterface access protected methods for forwarding
-  friend class IrContainer;
+  friend class impl::IrContainer;
 
   // Let Fusion access IrStorage::clear()
   friend class Fusion;
@@ -183,7 +188,7 @@ class IrStorage {
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
  public:
-  IrContainer* parent() const {
+  impl::IrContainer* parent() const {
     NVF_ERROR(
         parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
     return parent_;
@@ -192,7 +197,7 @@ class IrStorage {
  private:
   // Parent IrInterface that owns this container (for pure composition pattern)
   // Used by Statement::fusion() to navigate back to owning Fusion
-  IrContainer* parent_ = nullptr;
+  impl::IrContainer* parent_ = nullptr;
 };
 
 } // namespace nvfuser

@@ -344,7 +344,7 @@ class NVF_API OptOutMutator : public PolymorphicBase {
   }
 
  protected:
-  virtual void removeExpr(IrContainer*, Expr*) const;
+  virtual void removeExpr(Fusion*, Expr*) const;
   virtual void registerNewExpr(Expr*) {}
 
  private:

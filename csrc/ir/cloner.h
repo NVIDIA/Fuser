@@ -21,7 +21,7 @@
 
 namespace nvfuser {
 
-class IrContainer;
+class Fusion;
 
 //! Clones nodes from an exiting Fusion
 //!
@@ -35,7 +35,7 @@ class IrCloner {
 
  public:
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-  explicit IrCloner(IrContainer* container);
+  explicit IrCloner(Fusion* container);
   virtual ~IrCloner() = default;
 
   NVF_API Statement* clone(const Statement* statement);
@@ -140,7 +140,7 @@ class IrCloner {
     return cloned_disjoint_sets;
   }
 
-  IrContainer* container() const {
+  Fusion* container() const {
     return ir_container_;
   }
 
@@ -155,7 +155,7 @@ class IrCloner {
 
  private:
   // The destination Fusion container
-  IrContainer* ir_container_ = nullptr;
+  Fusion* ir_container_ = nullptr;
 
   // Builder to make all the new nodes
   IrBuilder builder_;
@@ -177,33 +177,7 @@ class RecomputeTv : private IrCloner {
   Statement* handle(const TensorDomain*);
 };
 
-//! Clone an IR node, forwarding the arguments to the IrCloner constructor.
-template <class T>
-T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
-  NVF_ERROR(
-      ir_cloner != nullptr,
-      "Cannot use create when a cloner object is set. Use clone.");
-
-  NVF_ERROR(
-      ir_cloner->container() != nullptr,
-      "Cloner doesn't have a valid container to store cloned object.");
-
-  T* dest = new T(src, ir_cloner);
-  const auto* src_stmt = dynamic_cast<const Statement*>(src);
-  auto* dest_stmt = dynamic_cast<Statement*>(dest);
-
-  auto dest_container = ir_cloner->container();
-  auto src_container = src_stmt->container();
-
-  dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
-
-  if (src_container != dest_container) {
-    dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());
-  }
-
-  ir_cloner->registerClone(src_stmt, dest_stmt);
-
-  return dest;
-}
+// Note: IrBuilder::clone<T>() template implementation is in fusion.h
+// after Fusion is fully defined
 
 } // namespace nvfuser
