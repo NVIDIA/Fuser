@@ -809,6 +809,11 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   auto index = expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
 
   if (stream_id->definition() != nullptr) {
+    // If the stream axis is defined by a swizzle, the input to
+    // the swizzle is the index into the `in_tensor`.
+    // Currently, we use cyclic shift swizzle to compute the index:
+    // in_index = (out_index (stream index) + device_id) % num_devices
+
     NVF_CHECK(stream_id->definition()->isA<hir::Swizzle>());
     auto* swizzle = stream_id->definition()->as<hir::Swizzle>();
     ParallelType pt = swizzle->pt();
@@ -827,7 +832,8 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   at::Tensor out_tensor =
       in_tensor
           .chunk(
-              expr_evaluator_.evaluate(stream_id->extent()).as<int64_t>(),
+              stream_id->extent()->evaluate().as<int64_t>(),
+              index,
               getShardedLogicalAxis(out_tv, ParallelType::Stream))
           .at(index);
 

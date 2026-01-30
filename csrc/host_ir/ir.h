@@ -592,12 +592,10 @@ class Swizzle : public Expr {
     return "hir::Swizzle";
   }
 
-  // Input iterdomain to be swizzled
   IterDomain* in() const {
     return inputs().at(0)->as<IterDomain>();
   }
 
-  // Output swizzled iterdomain
   IterDomain* out() const {
     return outputs().at(0)->as<IterDomain>();
   }
