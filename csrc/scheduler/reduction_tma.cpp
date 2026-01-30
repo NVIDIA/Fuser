@@ -74,9 +74,9 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion);
 
-  scheduler_utils::prepareForMemoryTypePromotion(fusion);
-
   scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  scheduler_utils::prepareForMemoryTypePromotion(fusion);
 
   std::vector<TensorView*> tma_tvs;
   for (auto [tv, input_idx] : cached_inputs) {
