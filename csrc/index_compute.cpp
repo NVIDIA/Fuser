@@ -885,12 +885,9 @@ void IndexSwizzle::run() {
 void IndexSwizzle::dispatch(Expr* e) {
   auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
   bool needs_update =
-      std::any_of(
-          out_ids.begin(),
-          out_ids.end(),
-          [this](IterDomain* id) {
-            return swizzled_ids_.find(id) != swizzled_ids_.end();
-          });
+      std::any_of(out_ids.begin(), out_ids.end(), [this](IterDomain* id) {
+        return swizzled_ids_.find(id) != swizzled_ids_.end();
+      });
   if (!needs_update) {
     return;
   }

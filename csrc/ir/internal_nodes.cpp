@@ -2771,10 +2771,6 @@ std::string Swizzle::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
-
-
-
-
 Resize::Resize(
     IrBuilderPasskey passkey,
     IterDomain* out,

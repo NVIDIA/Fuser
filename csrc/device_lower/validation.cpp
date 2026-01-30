@@ -1026,7 +1026,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-
   // Given the vectorized loop ID in a tensor, find its innermost
   // ancestors in the allocation domain. Broadcast IDs are ignored.
   // All dependent allocation IDs are also returned.

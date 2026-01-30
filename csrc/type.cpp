@@ -1549,7 +1549,6 @@ std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
   return os;
 }
 
-
 std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
   switch (swizzle) {
     case SwizzleMode::NoSwizzle:

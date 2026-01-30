@@ -25,8 +25,17 @@ namespace swizzles {
 //    1 2 3      1 2 3
 //    4 5 6  =>  6 5 4
 //    7 8 9      7 8 9
+std::pair<Val*, Val*> ZShape(Val* x, Val* y, Val* size_y) {
+  auto zero = x->fusion()->zeroVal();
+  auto one = x->fusion()->oneVal();
+  auto two = IrBuilder::create<Val>(2L, DataType::Index);
+  return {x, where(eq(mod(x, two), zero), y, sub(sub(size_y, one), y))};
+}
 
 // ZShape is inverse of itself
+std::pair<Val*, Val*> unZShape(Val* x, Val* y, Val* size_y) {
+  return ZShape(x, y, size_y);
+}
 
 // Block cyclic Xor swizzle: (bank conflict removal)
 //  Apply cyclic Xor within blocks:
