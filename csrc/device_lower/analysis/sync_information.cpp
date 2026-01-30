@@ -275,8 +275,6 @@ SyncMap::SyncMap(Fusion* fusion, bool error_on_failure) {
                         .mapProducerToConsumer(),
                     /*replay_forward_id_map=*/{},
                     /*target_forward_id_map=*/{},
-                    /*skip_replay_swizzle=*/false,
-                    /*skip_target_swizzle=*/false,
                     /*skip_resize=*/false,
                     /*error_on_failure=*/false)
                     .getReplay();

@@ -325,15 +325,11 @@ BestEffortReplay::BestEffortReplay(
     std::unordered_map<IterDomain*, IterDomain*> target2replay_map,
     std::unordered_map<IterDomain*, IterDomain*> replay_forward_id_map,
     std::unordered_map<IterDomain*, IterDomain*> target_forward_id_map,
-    bool skip_replay_swizzle,
-    bool skip_target_swizzle,
     bool skip_resize,
     bool error_on_failure)
     : target2replay_id_map_(std::move(target2replay_map)),
       replay_forward_id_map_(std::move(replay_forward_id_map)),
       target_forward_id_map_(std::move(target_forward_id_map)),
-      skip_replay_swizzle_(skip_replay_swizzle),
-      skip_target_swizzle_(skip_target_swizzle),
       error_on_failure_(error_on_failure) {
   for (auto entry : target2replay_id_map_) {
     loop_ids_[entry.second] = counter++;
@@ -393,12 +389,6 @@ BestEffortReplay::BestEffortReplay(
           "BestEffortReplay : Unexpected multi-use of id",
           id);
     }
-  }
-
-  if (skip_target_swizzle_ || skip_replay_swizzle_) {
-    // Progress through all swizzle ops if we are skipping
-    //  swizzles on the mapping.
-    skipSwizzles(target_id2expr_map, replay_id2expr_map);
   }
 
   if (skip_resize) {
@@ -616,12 +606,6 @@ BestEffortReplay::BestEffortReplay(
             r_out->as<IterDomain>();
         loop_ids_[r_out->as<IterDomain>()] = counter++;
       }
-    }
-
-    if (skip_target_swizzle_ || skip_replay_swizzle_) {
-      // Progress through all swizzle ops if we are skipping
-      //  swizzles on the mapping.
-      skipSwizzles(target_id2expr_map, replay_id2expr_map);
     }
 
     if (skip_resize) {
@@ -855,8 +839,6 @@ BestEffortReplay BestEffortReplay::replayCasP(
     const TensorView* producer,
     int64_t producer_compute_at_axis,
     const LogicalDomainMap& logical_map,
-    bool skip_consumer_swizzle,
-    bool skip_producer_swizzle,
     bool skip_resize) {
   if (producer_compute_at_axis < 0) {
     producer_compute_at_axis += producer->nDims() + 1;
@@ -904,8 +886,6 @@ BestEffortReplay BestEffortReplay::replayCasP(
       p2c_logical_map,
       forwarding_info.consumer_forwarding_map,
       forwarding_info.producer_forwarding_map,
-      skip_consumer_swizzle,
-      skip_producer_swizzle,
       skip_resize);
 
   consumer_replay.addComplimentLeafIDs(
@@ -922,8 +902,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
     const TensorView* consumer,
     int64_t consumer_compute_at_axis,
     const LogicalDomainMap& logical_map,
-    bool skip_producer_swizzle,
-    bool skip_consumer_swizzle,
     bool skip_resize) {
   if (consumer_compute_at_axis < 0) {
     consumer_compute_at_axis += consumer->nDims() + 1;
@@ -963,8 +941,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
       c2p_logical_map,
       forwarding_info.producer_forwarding_map,
       forwarding_info.consumer_forwarding_map,
-      skip_producer_swizzle,
-      skip_consumer_swizzle,
       skip_resize);
 
   producer_replay.addComplimentLeafIDs(
@@ -974,11 +950,6 @@ BestEffortReplay BestEffortReplay::replayPasC(
   return producer_replay;
 }
 
-void BestEffortReplay::skipSwizzles(
-    const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
-    const std::unordered_map<IterDomain*, Expr*>& replay_id2expr) {}
-
-// Same logic as skipSwizzles
 void BestEffortReplay::skipResizes(
     const std::vector<Expr*>& target_exprs,
     const std::vector<Expr*>& replay_exprs) {
