@@ -256,7 +256,7 @@ void shardLoopLike(
     TensorView* tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
-  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     debug() << "Propagating shardings from " << ref->toString() << " to "
             << tv->toString() << " in " << direction << " for "
             << toDelimitedString(selected_parallel_types) << std::endl;
