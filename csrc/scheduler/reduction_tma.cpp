@@ -29,9 +29,10 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
 
   // Vectorization is not as useful for TMA since we're not doing global loads.
   // Vectorization can hurt the performance of shared memory loads, due to bank
-  // conflicts. For float32, ideal shared memory reads is achieved with no
-  // vectorization. For float16, it would be ideal for vect_factor=2, but we
-  // don't currently handle this.
+  // conflicts. E.g. for float32, ideal shared memory reads are achieved with no
+  // vectorization, but with a vectorization factor of 2, thread 0 and 16 will
+  // both hit bank0 during their first read. For float16, it would be ideal for
+  // vect_factor=2, but we don't currently handle this.
   int64_t vectorization_factor = 1;
 
   // Benchmarking shows some benefit to 512 block size for has_mufu_computation,
