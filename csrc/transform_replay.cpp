@@ -122,10 +122,6 @@ class ReplaySelf : public ReplayTransformations {
     NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
   }
 
-  void handle(Swizzle2D* swizzle) override {
-    NVF_THROW("Unexpected expr to self replay: ", swizzle->toString());
-  }
-
   void handle(Resize* resize) override {
     auto id_in = resize->in();
 

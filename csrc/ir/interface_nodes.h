@@ -761,7 +761,7 @@ class NVF_API TensorView : public Val {
     return has_swizzle_op_;
   }
 
-  //! A temporary helper function for the transition from Swizzle2D to Swizzle
+  //! Helper function for setting swizzle operation flag
   void setHasSwizzleOp() {
     has_swizzle_op_ = true;
   }

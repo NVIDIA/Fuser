@@ -374,50 +374,6 @@ void IndexCompute::handle(Swizzle* swizzle) {
   index_map_[in_y_id] = swizzled_index.second;
 }
 
-void IndexCompute::handle(Swizzle2D* swizzle_2d) {
-  auto out_x_id = maybeGetExactMapConcreteID(swizzle_2d->outX());
-  auto out_y_id = maybeGetExactMapConcreteID(swizzle_2d->outY());
-  auto in_x_id = maybeGetExactMapConcreteID(swizzle_2d->inX());
-  auto in_y_id = maybeGetExactMapConcreteID(swizzle_2d->inY());
-
-  auto out_x_it = index_map_.find(out_x_id);
-  auto out_y_it = index_map_.find(out_y_id);
-
-  if (out_x_it == index_map_.end() || out_y_it == index_map_.end()) {
-    return;
-  }
-
-  const auto out_x_ind = out_x_it->second;
-  const auto out_y_ind = out_y_it->second;
-
-  if (swizzle_mode_ == SwizzleMode::NoSwizzle ||
-      swizzle_mode_ != swizzle_2d->swizzleMode()) {
-    // Handle inactive swizzles by just passing through index
-    //  and extend information.
-
-    if (!index_map_.count(in_x_id)) {
-      index_map_[in_x_id] = out_x_ind;
-      extent_map_[in_x_id] = getExtent(out_x_id);
-    }
-    if (!index_map_.count(in_y_id)) {
-      index_map_[in_y_id] = out_y_ind;
-      extent_map_[in_y_id] = getExtent(out_y_id);
-    }
-  } else {
-    // Generate integer swizzle math if the
-    //  swizzle is activated. See also
-    //  [Note on swizzle mode].
-    std::pair<Val*, Val*> swizzled_index = dispatchSwizzle(
-        swizzle_2d->swizzleType(),
-        out_x_ind,
-        out_y_ind,
-        getExtent(out_x_id),
-        getExtent(out_y_id));
-    index_map_[in_x_id] = swizzled_index.first;
-    index_map_[in_y_id] = swizzled_index.second;
-  }
-}
-
 void IndexCompute::handle(Resize* resize) {
   auto out_id = maybeGetExactMapConcreteID(resize->out());
   auto in_id = maybeGetExactMapConcreteID(resize->in());
@@ -450,7 +406,7 @@ void IndexCompute::handle(Resize* resize) {
 
 void IndexCompute::dispatch(Expr* e) {
   NVF_ERROR(
-      (e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>()),
+      (e->isOneOf<Split, Merge, Swizzle, Resize>()),
       "Invalid expr type found in transform traversal.");
   updateUnswitchedDomains(e);
   BackwardVisitor::dispatch(e);
@@ -537,15 +493,7 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
   //  will gradually enable replaying and mapping of loop
   // swizzles in the IR infrastructure and once that's piped
   // through this part of logic will be removed.
-  std::unordered_set<Expr*> visited;
-  for (auto loop_id : loop_indexing.loopDomains()) {
-    auto loop_id_def = loop_id->definition();
-    if (loop_id_def != nullptr && loop_id_def->isA<Swizzle2D>()) {
-      if (visited.insert(loop_id_def).second) {
-        dispatch(loop_id_def);
-      }
-    }
-  }
+  // Note: Swizzle2D has been removed. This code path is no longer needed.
 
   // Resolve the index vals that could be resolved with only
   //  the loops that consumer_tv doesn't share with any of its
@@ -858,22 +806,6 @@ class UpdateLeafIndices : public IterVisitor {
         SimplifyingIrBuilder::mulExpr(getExtent(outer_id), getExtent(inner_id));
   }
 
-  void handle(Swizzle2D* swizzle_2d) override {
-    auto in_x = swizzle_2d->inX();
-    auto in_y = swizzle_2d->inY();
-    auto out_x = swizzle_2d->outX();
-    auto out_y = swizzle_2d->outY();
-
-    // Forward propagation pass still just forward
-    //  through the indices and the actual swizzle
-    //  will be applied on the backward pass in
-    //  IndexSwizzle class implementation.
-    index_map_[out_x] = index_map_.at(in_x);
-    extent_map_[out_x] = getExtent(in_x);
-    index_map_[out_y] = index_map_.at(in_y);
-    extent_map_[out_y] = getExtent(in_y);
-  }
-
   // return extent_map_[id] if exists, else return id->extent()
   Val* getExtent(IterDomain* id) {
     if (extent_map_.find(id) != extent_map_.end()) {
@@ -959,10 +891,7 @@ void IndexSwizzle::dispatch(Expr* e) {
           out_ids.end(),
           [this](IterDomain* id) {
             return swizzled_ids_.find(id) != swizzled_ids_.end();
-          }) ||
-      (e->isA<Swizzle2D>() &&
-       e->as<Swizzle2D>()->swizzleType() != Swizzle2DType::NoSwizzle &&
-       e->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Data);
+          });
   if (!needs_update) {
     return;
   }
@@ -971,20 +900,6 @@ void IndexSwizzle::dispatch(Expr* e) {
   for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
     swizzled_ids_.insert(input);
   }
-}
-
-void IndexSwizzle::handle(Swizzle2D* swizzle_2d) {
-  auto out_x_id = swizzle_2d->outX();
-  auto out_y_id = swizzle_2d->outY();
-
-  auto out_x_it = index_map_.find(out_x_id);
-  auto out_y_it = index_map_.find(out_y_id);
-
-  NVF_ERROR(
-      out_x_it != index_map_.end() && out_y_it != index_map_.end(),
-      "Swizzle output indices were not propagated through");
-
-  IndexCompute::handle(swizzle_2d);
 }
 
 namespace {

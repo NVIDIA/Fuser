@@ -81,7 +81,6 @@ class IndexCompute : public BackwardVisitor {
   void handle(Split*) override;
   void handle(Merge*) override;
   void handle(Swizzle*) override;
-  void handle(Swizzle2D*) override;
   void handle(Resize*) override;
 
   // return extent_map_[id] if exists, else return id->extent()
@@ -353,8 +352,6 @@ class IndexSwizzle : public IndexCompute {
   using IndexCompute::handle;
 
   void dispatch(Expr* e) override;
-
-  void handle(Swizzle2D* swizzle_2d) override;
 
  private:
   const TensorView* tv_ = nullptr;

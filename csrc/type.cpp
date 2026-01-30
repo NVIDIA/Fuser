@@ -1549,23 +1549,6 @@ std::ostream& operator<<(std::ostream& os, const SwizzleType& swizzle) {
   return os;
 }
 
-std::ostream& operator<<(std::ostream& os, const Swizzle2DType& swizzle) {
-  switch (swizzle) {
-    case Swizzle2DType::NoSwizzle:
-      os << "NoSwizzle";
-      break;
-    case Swizzle2DType::ZShape:
-      os << "ZShape";
-      break;
-    case Swizzle2DType::XOR:
-      os << "Xor";
-      break;
-    case Swizzle2DType::CyclicShift:
-      os << "CyclicShift";
-      break;
-  }
-  return os;
-}
 
 std::ostream& operator<<(std::ostream& os, const SwizzleMode& swizzle) {
   switch (swizzle) {

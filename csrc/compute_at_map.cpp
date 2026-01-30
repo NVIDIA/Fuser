@@ -73,15 +73,7 @@ IterDomainGraph::IterDomainGraph(Fusion* fusion, bool allow_self_mapping) {
 void mapMaybeSwizzleOp(
     DisjointSets<IterDomain*>& disjoint_sets,
     IterDomain* id) {
-  if (auto swizzle_2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-    // Map each input to its corresponding output on the given
-    // disjoint set if this is a loop swizzle. Loop swizzles don't impact
-    // indexing, only iteration order.
-    if (swizzle_2d->swizzleMode() == SwizzleMode::Loop) {
-      disjoint_sets.mapEntries(swizzle_2d->inX(), swizzle_2d->outX());
-      disjoint_sets.mapEntries(swizzle_2d->inY(), swizzle_2d->outY());
-    }
-  }
+  // Swizzle2D has been removed. This function is now a no-op.
 }
 
 bool IterDomainGraph::exprsMap(
@@ -1362,15 +1354,6 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     return false;
   }
 
-  if (expr_1->isA<Swizzle2D>()) {
-    auto swizzle_1 = expr_1->as<Swizzle2D>();
-    auto swizzle_2 = expr_2->as<Swizzle2D>();
-    if (swizzle_1->swizzleType() != swizzle_2->swizzleType() ||
-        swizzle_1->swizzleMode() != swizzle_2->swizzleMode()) {
-      return false;
-    }
-  }
-
   if (expr_1->isA<Swizzle>()) {
     auto swizzle_1 = expr_1->as<Swizzle>();
     auto swizzle_2 = expr_2->as<Swizzle>();
@@ -1435,18 +1418,8 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
           // Definition to this exact map, shouldn't be marked as a definition
           // to traverse on the exact map.
 
-          // This is a WAR for FusionSimpleSwizzle2_CUDA wher there is a pattern
-          // like:
-          //
-          // tv0[32, 32]
-          // tv0->swizzle(Swizzle2DType::ZShape, 0, 1);
-          //
-          // each root domain is exact mapped with the outputs of the swizzle.
-          // So the pre and post swizzle ID is in an exact set, but that exact
-          // set also has the swizzle as a definition that leads to itself.
-          //
-          // TODO: Try to formalize this better in the exact ID traversal. Right
-          // now its just interfering with concrete ID detection.
+          // This pattern could occur with self-mapped domains.
+          // Note: Swizzle2D has been removed from the codebase.
           continue;
         }
         bool match = false;

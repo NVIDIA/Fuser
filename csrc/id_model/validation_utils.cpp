@@ -119,14 +119,7 @@ bool exprsMap(
 
 IdModelValidator::IdModelValidator(Fusion* fusion, bool allow_self_mapping)
     : ca_map_(fusion, allow_self_mapping) {
-  for (auto tv : fusion->allTvs()) {
-    for (auto id : tv->domain()->allIDs()) {
-      if (id->definition() && id->definition()->isA<Swizzle2D>()) {
-        has_swizzle_ = true;
-        break;
-      }
-    }
-  }
+  // Swizzle2D has been removed. has_swizzle_ remains false.
 }
 
 void IdModelValidator::fullyPropagateMappings(

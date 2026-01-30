@@ -34,24 +34,8 @@ namespace {
 // Map through loop swizzles, as input/output IterDomains are exact, only the
 // order they're traversed differs.
 void mapThroughLoopSwizzles(ValGraph& graph) {
-  std::vector<Swizzle2D*> all_swizzles;
-
-  for (const auto& expr_set :
-       std::as_const(graph).disjointExprSets().disjointSets()) {
-    auto swizzles_in_expr_set = ir_utils::filterByType<Swizzle2D>(
-        expr_set->vector().begin(), expr_set->vector().end());
-    all_swizzles.insert(
-        all_swizzles.end(),
-        swizzles_in_expr_set.begin(),
-        swizzles_in_expr_set.end());
-  }
-
-  for (auto swizzle : all_swizzles) {
-    if (swizzle->swizzleMode() == SwizzleMode::Loop) {
-      graph.mapVals(swizzle->inX(), swizzle->outX());
-      graph.mapVals(swizzle->inY(), swizzle->outY());
-    }
-  }
+  // Swizzle2D has been removed. This function is now a no-op.
+  // The newer Swizzle type handles loop swizzles differently.
 }
 
 } // namespace
@@ -521,13 +505,8 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         }
       }
     }
-  } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
-    if (swizzle->swizzleType() == Swizzle2DType::NoSwizzle ||
-        swizzle->swizzleMode() == SwizzleMode::NoSwizzle) {
-      mapped_ids.push_back({swizzle->inX(), swizzle->outX()});
-      mapped_ids.push_back({swizzle->inY(), swizzle->outY()});
-    }
   }
+  // Swizzle2D handling has been removed.
   return mapped_ids;
 }
 
@@ -1306,13 +1285,7 @@ void IdModel::validateAndPropagatePType() {
           not_a_loop_domain = true;
           break;
         }
-        // This is another case of input-output mappings
-        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(expr);
-            swizzle2d != nullptr &&
-            swizzle2d->swizzleMode() == SwizzleMode::Loop) {
-          not_a_loop_domain = true;
-          break;
-        }
+        // Swizzle2D case has been removed.
       }
       if (not_a_loop_domain) {
         continue;

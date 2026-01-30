@@ -18,8 +18,7 @@ namespace nvfuser {
 
 // Transform dispatch
 void ReplayTransformations::dispatch(Expr* e) {
-  auto is_supported_expr =
-      e->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
+  auto is_supported_expr = e->isOneOf<Split, Merge, Swizzle, Resize>();
   NVF_ERROR(
       is_supported_expr, "Invalid expr type found in transform traversal.");
   IterVisitor::dispatch(e);
@@ -184,54 +183,6 @@ void ReplayTransformations::handle(Swizzle* swizzle) {
   // Update our ID map to include these outputs
   id_map_[swizzle->outX()] = outs.first;
   id_map_[swizzle->outY()] = outs.second;
-}
-
-void ReplayTransformations::handle(Swizzle2D* swizzle_2d) {
-  // Grab our input to the split node
-  auto id_in_x = swizzle_2d->inX();
-  auto id_in_y = swizzle_2d->inY();
-
-  // Make sure we have a corresponding entry in our map pointing to the ID we're
-  // going to replay the swizzle on
-  auto it_x = id_map_.find(id_in_x);
-  auto it_y = id_map_.find(id_in_y);
-
-  if (it_x == id_map_.end() || it_y == id_map_.end()) {
-    if (error_on_failure_) {
-      NVF_THROW("Transform traversal failed, dependencies not met.");
-    } else {
-      return;
-    }
-  }
-
-  auto mapped_x = it_x->second;
-  auto mapped_y = it_y->second;
-
-  // Make sure this ID is a loop ID (meaning it has no uses we generated)
-  NVF_ERROR(
-      loop_ids_.find(mapped_x) != loop_ids_.end() &&
-          loop_ids_.find(mapped_y) != loop_ids_.end(),
-      "Transform traversal failed, modified a node but it was not a loop "
-      "node.");
-
-  auto outs = std::make_pair(mapped_x, mapped_y);
-
-  if (replay_swizzle_) {
-    // Replay the swizzle onto mapped
-    outs = IterDomain::swizzle(swizzle_2d->swizzleType(), mapped_x, mapped_y);
-
-    // Remove mapped from the loop IDs
-    loop_ids_.erase(mapped_x);
-    loop_ids_.erase(mapped_y);
-  }
-
-  // Add outputs to loop IDs
-  loop_ids_[outs.first] = newCounter();
-  loop_ids_[outs.second] = newCounter();
-
-  // Update our ID map to include these outputs
-  id_map_[swizzle_2d->outX()] = outs.first;
-  id_map_[swizzle_2d->outY()] = outs.second;
 }
 
 void ReplayTransformations::handle(Resize* exp) {
@@ -627,15 +578,6 @@ BestEffortReplay::BestEffortReplay(
 
     // Need to match swizzle type and parameters if
     //  not skipping swizzles in this mapping pass.
-    if (!(skip_replay_swizzle_ || skip_target_swizzle_) &&
-        replay_expr->isA<Swizzle2D>()) {
-      auto r_swizzle_2d = replay_expr->as<Swizzle2D>();
-      auto t_swizzle_2d = target_expr->as<Swizzle2D>();
-      if (!(r_swizzle_2d->swizzleType() == t_swizzle_2d->swizzleType())) {
-        ERROR_ON_FAILURE(!replay_has_logical_inp);
-        continue;
-      }
-    }
 
     if (replay_expr->isA<Resize>()) {
       auto r_resize = replay_expr->as<Resize>();
@@ -845,57 +787,6 @@ namespace {
 // Trace chain of swizzles until reaching
 //  an IterDomain that's either a loop or
 //  not a producer of any swizzle.
-IterDomain* getSwizzleFinalOutput(
-    IterDomain* id,
-    const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  // Note: currently not supporting swizzling consumer of another
-  //  swizzle id, so this should terminate in 1 iter, but eventually
-  //  will try to support stacked swizzles so keeping this pass
-  //  generic.
-  while (true) {
-    auto expr_it = id2expr.find(id);
-
-    // This means id is a loop that doesn't
-    //  have any consumers. Stop iteration in this case.
-    if (expr_it == id2expr.end()) {
-      break;
-    }
-
-    if (auto expr = dynamic_cast<Swizzle2D*>(expr_it->second)) {
-      // In the case of 2D swizzle ops, just forward
-      //  inX to outX and inY to outY.
-      if (id == expr->inX()) {
-        id = expr->outX();
-      } else {
-        NVF_ERROR(
-            id == expr->inY(),
-            "unknown input to swizzle op",
-            id->toString(),
-            expr->toString());
-        id = expr->outY();
-      }
-    } else {
-      // Probably unreachable but if the expression
-      //  is unknown type assume it is not a swizzle op.
-      break;
-    }
-  }
-
-  return id;
-}
-
-bool isSwizzleInput(
-    IterDomain* input_id,
-    const std::unordered_map<IterDomain*, Expr*>& id2expr) {
-  auto user_expr_it = id2expr.find(input_id);
-
-  if (user_expr_it == id2expr.end()) {
-    return false;
-  }
-
-  return user_expr_it->second->isA<Swizzle2D>();
-}
-
 } // namespace
 
 void BestEffortReplay::addComplimentLeafIDs(
@@ -1086,41 +977,9 @@ BestEffortReplay BestEffortReplay::replayPasC(
 void BestEffortReplay::skipSwizzles(
     const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
     const std::unordered_map<IterDomain*, Expr*>& replay_id2expr) {
-  // Update target2replay map
-  bool updated = true;
-
-  while (updated) {
-    updated = false;
-    for (auto it : target2replay_id_map_) {
-      if ((isSwizzleInput(it.first, target_id2expr) && skip_target_swizzle_) ||
-          (isSwizzleInput(it.second, replay_id2expr) && skip_replay_swizzle_)) {
-        updated = true;
-
-        auto new_target = skip_target_swizzle_
-            ? getSwizzleFinalOutput(it.first, target_id2expr)
-            : it.first;
-        auto new_replay = skip_replay_swizzle_
-            ? getSwizzleFinalOutput(it.second, replay_id2expr)
-            : it.second;
-
-        // new_target and new_replay will now be the final output
-        //  skipping all swizzles in between. We'd need to
-        //  update the mapping and loop ids to the final outputs.
-        target2replay_id_map_.erase(it.first);
-        NVF_ERROR(
-            target2replay_id_map_.insert(std::make_pair(new_target, new_replay))
-                .second,
-            "Unexpected replay loop");
-        // Progress the loop ids if the replay is updated
-        if (it.second != new_replay &&
-            loop_ids_.find(it.second) != loop_ids_.end()) {
-          loop_ids_.erase(it.second);
-          loop_ids_[new_replay] = counter++;
-        }
-        break;
-      }
-    }
-  }
+  // Swizzle2D has been removed. The newer Swizzle type does not require
+  // the same special handling that Swizzle2D did.
+  // This function is now a no-op but kept for API compatibility.
 }
 
 // Same logic as skipSwizzles

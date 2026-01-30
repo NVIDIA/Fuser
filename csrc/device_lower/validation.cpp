@@ -1026,13 +1026,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  void handle(Swizzle2D* swizzle) final {
-    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
-        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
-      // Do not (yet) allow vectorization across any swizzled id.
-      is_valid = false;
-    }
-  }
 
   // Given the vectorized loop ID in a tensor, find its innermost
   // ancestors in the allocation domain. Broadcast IDs are ignored.
@@ -1124,7 +1117,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* expr = expr_g->front();
       NVF_ERROR(
           expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
-              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+              expr->isA<Swizzle>(),
           "Unexpected expr: ",
           expr->toString());
 
@@ -1135,7 +1128,7 @@ class VectorizeValidator : public OptInDispatch {
           ? graph.outputGroups(expr_g)
           : graph.inputGroups(expr_g);
 
-      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+      if (expr->isA<Swizzle>()) {
         // Not supported.
         // TODO: Checking the outputs too since that is what
         // VectorizeValidator::handle(Swizzle*) and
@@ -1868,7 +1861,7 @@ void validateSwizzle(Fusion* fusion) {
       //  cases.
       for (auto swizzle_expr : inlined_swizzles) {
         NVF_ERROR(
-            swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
+            SwizzleMode::Data == SwizzleMode::Loop,
             "Only support inlining loop swizzles");
         validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
       }
@@ -1886,7 +1879,7 @@ void validateSwizzle(Fusion* fusion) {
             !inlined_swizzle_set.count(swizzle_expr),
             "Cannot partially inline across swizzle domains.",
             swizzle_expr->toString());
-        if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
+        if (SwizzleMode::Data == SwizzleMode::Loop) {
           validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
         }
       }

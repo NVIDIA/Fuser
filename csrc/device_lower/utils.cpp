@@ -324,7 +324,7 @@ bool isScalarOp(const Expr* expr) {
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Resize>();
 }
 
 std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
@@ -714,14 +714,8 @@ std::vector<Expr*> getAllSwizzlesBetween(
   auto all_expr = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {to.begin(), to.end()});
 
+  // Swizzle2D has been removed. This now returns an empty vector.
   std::vector<Expr*> all_swizzles;
-
-  std::copy_if(
-      all_expr.begin(),
-      all_expr.end(),
-      std::back_inserter(all_swizzles),
-      [](Expr* expr) { return expr->isA<Swizzle2D>(); });
-
   return all_swizzles;
 }
 

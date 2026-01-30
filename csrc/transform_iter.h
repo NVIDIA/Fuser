@@ -117,7 +117,6 @@ class ReplayTransformations : public IterVisitor {
   // We're going to replay this swizzle operation on the corresponding IDs
   //  if replaying swizzle is enabled.
   void handle(Swizzle* m) override;
-  void handle(Swizzle2D* m) override;
 
   void handle(Resize* resize) override;
 
