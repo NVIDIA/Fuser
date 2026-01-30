@@ -7,9 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <cstdint>
-
 #include <array>
+#include <cstdint>
 #include <memory>
 
 namespace nvfuser {

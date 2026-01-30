@@ -17,7 +17,6 @@
 #include "exceptions.h"
 #include "fusion.h"
 #include "ir/all_nodes.h"
-// TODO: Move to cpp file.
 #include "ir/builder.h"
 #include "scheduler/tools/maxinfo_propagator.h"
 #include "visibility.h"
