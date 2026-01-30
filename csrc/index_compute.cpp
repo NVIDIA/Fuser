@@ -493,7 +493,6 @@ void IndexCompute::run(const LoopIndexing& loop_indexing) {
   //  will gradually enable replaying and mapping of loop
   // swizzles in the IR infrastructure and once that's piped
   // through this part of logic will be removed.
-  // Note: Swizzle2D has been removed. This code path is no longer needed.
 
   // Resolve the index vals that could be resolved with only
   //  the loops that consumer_tv doesn't share with any of its

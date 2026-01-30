@@ -1131,8 +1131,7 @@ class VectorizeValidator : public OptInDispatch {
       if (expr->isA<Swizzle>()) {
         // Not supported.
         // TODO: Checking the outputs too since that is what
-        // VectorizeValidator::handle(Swizzle*) and
-        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // VectorizeValidator::handle(Swizzle*) does, but unclear
         // why.
         if (std::find(inputs.begin(), inputs.end(), cur_group) !=
                 inputs.end() ||

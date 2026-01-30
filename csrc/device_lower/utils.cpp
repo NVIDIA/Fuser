@@ -714,7 +714,6 @@ std::vector<Expr*> getAllSwizzlesBetween(
   auto all_expr = DependencyCheck::getAllExprsBetween(
       {from.begin(), from.end()}, {to.begin(), to.end()});
 
-  // Swizzle2D has been removed. This now returns an empty vector.
   std::vector<Expr*> all_swizzles;
   return all_swizzles;
 }

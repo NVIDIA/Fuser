@@ -634,8 +634,6 @@ IterDomain* exactConcreteId(IterDomain* id) {
 } // namespace
 
 void LoopIndexingAnalysis::visitExpr(Expr* expr) {
-  // Swizzle2D has been removed.
-
   // Current implementation just tries to
   //  follow the exact behavior of reference replay
   //  except that no expr was actually "replayed".

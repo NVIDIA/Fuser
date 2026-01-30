@@ -1107,7 +1107,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
       // take_along_axis is supported but generic gather is not
       reason << "Non-exact gather not supported: " << gather->toString();
     }
-    // Swizzle2D check has been removed.
 
     if (!reason.str().empty()) {
       warn(reason.str());

@@ -976,11 +976,7 @@ BestEffortReplay BestEffortReplay::replayPasC(
 
 void BestEffortReplay::skipSwizzles(
     const std::unordered_map<IterDomain*, Expr*>& target_id2expr,
-    const std::unordered_map<IterDomain*, Expr*>& replay_id2expr) {
-  // Swizzle2D has been removed. The newer Swizzle type does not require
-  // the same special handling that Swizzle2D did.
-  // This function is now a no-op but kept for API compatibility.
-}
+    const std::unordered_map<IterDomain*, Expr*>& replay_id2expr) {}
 
 // Same logic as skipSwizzles
 void BestEffortReplay::skipResizes(

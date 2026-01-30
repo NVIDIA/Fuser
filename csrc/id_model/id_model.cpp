@@ -33,10 +33,7 @@ namespace {
 
 // Map through loop swizzles, as input/output IterDomains are exact, only the
 // order they're traversed differs.
-void mapThroughLoopSwizzles(ValGraph& graph) {
-  // Swizzle2D has been removed. This function is now a no-op.
-  // The newer Swizzle type handles loop swizzles differently.
-}
+void mapThroughLoopSwizzles(ValGraph& graph) {}
 
 } // namespace
 
@@ -506,7 +503,6 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       }
     }
   }
-  // Swizzle2D handling has been removed.
   return mapped_ids;
 }
 
@@ -1285,7 +1281,6 @@ void IdModel::validateAndPropagatePType() {
           not_a_loop_domain = true;
           break;
         }
-        // Swizzle2D case has been removed.
       }
       if (not_a_loop_domain) {
         continue;

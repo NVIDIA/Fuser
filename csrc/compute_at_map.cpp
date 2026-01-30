@@ -72,9 +72,7 @@ IterDomainGraph::IterDomainGraph(Fusion* fusion, bool allow_self_mapping) {
 //!   few build out steps.
 void mapMaybeSwizzleOp(
     DisjointSets<IterDomain*>& disjoint_sets,
-    IterDomain* id) {
-  // Swizzle2D has been removed. This function is now a no-op.
-}
+    IterDomain* id) {}
 
 bool IterDomainGraph::exprsMap(
     Expr* first,
@@ -1419,7 +1417,6 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
           // to traverse on the exact map.
 
           // This pattern could occur with self-mapped domains.
-          // Note: Swizzle2D has been removed from the codebase.
           continue;
         }
         bool match = false;

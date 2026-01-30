@@ -118,9 +118,7 @@ bool exprsMap(
 } // namespace
 
 IdModelValidator::IdModelValidator(Fusion* fusion, bool allow_self_mapping)
-    : ca_map_(fusion, allow_self_mapping) {
-  // Swizzle2D has been removed. has_swizzle_ remains false.
-}
+    : ca_map_(fusion, allow_self_mapping) {}
 
 void IdModelValidator::fullyPropagateMappings(
     DisjointSets<IterDomain*>& id_sets) {
