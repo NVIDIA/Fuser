@@ -17,8 +17,6 @@ class IrBuilderPasskey {
   friend class IrBuilder;
 
  public:
-  // TODO: Collapse ir_container and Kernel once Kernel inherits from
-  // IrContainer
   IrContainer* const ir_container_ = nullptr;
 
  private:
