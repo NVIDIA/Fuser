@@ -295,73 +295,7 @@ namespace {
 // given Fusion
 IdModelOptions getIdModelOptions(Fusion* fusion) {
   IdModelOptions options;
-
-  for (auto expr : fusion->exprs()) {
-    if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
-      if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-        options.setTensorIndexer(true);
-        continue;
-      }
-    } else if (
-        expr->isOneOf<ArgsortOp, PadOp, ScanOp, ScatterOp, SliceOp, TopKOp>()) {
-      options.setTensorIndexer(true);
-      continue;
-    } else if (auto reshape = dynamic_cast<ReshapeOp*>(expr)) {
-      // The legacy indexer has an issue when an expand broadcast is
-      // involved in reshape transformations. Enable both tensor and
-      // predicate indexing if found
-
-      auto producer_tv = reshape->in();
-      auto consumer_tv = reshape->out();
-
-      // Find expanded producer IDs. Note that corresponding consumer IDs do
-      // not inherit the iteration type and are no longer expanded IDs, so the
-      // producer domain needs to be checked to find expanded IDs.
-      std::unordered_set<IterDomain*> expanded_ids;
-      std::copy_if(
-          producer_tv->getLogicalDomain().begin(),
-          producer_tv->getLogicalDomain().end(),
-          std::inserter(expanded_ids, expanded_ids.end()),
-          [](IterDomain* logical_id) {
-            return logical_id->isBroadcast() && logical_id->hasExpandedExtent();
-          });
-
-      if (expanded_ids.empty()) {
-        continue;
-      }
-
-      // Find corresponding consumer root IDs
-      auto c2p = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
-                     .mapConsumerToProducer();
-      std::unordered_set<Val*> consumer_expanded_root_ids;
-      for (auto consumer_root_id : consumer_tv->getRootDomain()) {
-        auto producer_logical_id = c2p.at(consumer_root_id);
-        if (expanded_ids.count(producer_logical_id)) {
-          consumer_expanded_root_ids.insert(consumer_root_id);
-        }
-      }
-
-      auto reshape_exprs = DependencyCheck::getAllExprsBetween(
-          {consumer_tv->getRootDomain().begin(),
-           consumer_tv->getRootDomain().end()},
-          {consumer_tv->getLogicalDomain().begin(),
-           consumer_tv->getLogicalDomain().end()});
-
-      if (std::any_of(
-              reshape_exprs.begin(),
-              reshape_exprs.end(),
-              [&consumer_expanded_root_ids](Expr* expr) {
-                return std::any_of(
-                    expr->inputs().begin(),
-                    expr->inputs().end(),
-                    [&](Val* input) {
-                      return consumer_expanded_root_ids.count(input);
-                    });
-              })) {
-        options.setTensorIndexer(true);
-      }
-    }
-  }
+  options.setTensorIndexer(true);
 
   // If not supported, disable use of TensorIndexer by default. It is
   // still used if explicitly opted-in (see, for example,
