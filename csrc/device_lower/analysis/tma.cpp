@@ -522,13 +522,62 @@ class MergeTileGroupsByRotation : public Pass {
     if (partitioned_dim == inferred_dims_.end()) {
       return false;
     }
+
+    bool box_is_bulk = bulk_groups_.count(partitioned_dim->box) > 0;
+    bool from1_is_bulk = bulk_groups_.count(from_.at(1)) > 0;
+
+    std::cout << "[MergeTileGroupsByRotation::condition] Checking expr: "
+              << expr->front()->toString() << std::endl;
+    std::cout << "  from[0] (partitioned): " << from_.at(0)->toString()
+              << " extent="
+              << from_.at(0)->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+    std::cout << "  from[1]: " << from_.at(1)->toString() << " extent="
+              << from_.at(1)->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+    std::cout << "  to[0]: " << to_.at(0)->toString() << " extent="
+              << to_.at(0)->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+    std::cout
+        << "  partitioned_dim->box extent: "
+        << partitioned_dim->box->front()->as<IterDomain>()->extent()->toString()
+        << std::endl;
+    std::cout << "  partitioned_dim->box is bulk: " << box_is_bulk << std::endl;
+    std::cout << "  from[1] is bulk: " << from1_is_bulk << std::endl;
+
     if (bulk_groups_.count(partitioned_dim->box) == 0 ||
         bulk_groups_.count(from_.at(1)) == 0) {
+      std::cout << "  Result: FALSE (not both bulk)" << std::endl;
       return false;
     }
     NVF_ERROR(
         partitioned_dim->tile == partitioned_dim->box &&
         partitioned_dim->stride == nullptr);
+
+    // Check if merging would exceed the 256-element hardware limit
+    auto box_extent = partitioned_dim->box->front()->as<IterDomain>()->extent();
+    auto from1_extent = from_.at(1)->front()->as<IterDomain>()->extent();
+    Val* merged_extent =
+        SimplifyingIrBuilder::mulExpr(box_extent, from1_extent);
+
+    constexpr int64_t largest_dim_size = 256; // Hardware limitation
+    Val* too_large_after_merge = SimplifyingIrBuilder::gtExpr(
+        merged_extent, IrBuilder::create<Val>(largest_dim_size));
+
+    std::cout << "  Merged box size would be: " << box_extent->toString()
+              << " * " << from1_extent->toString() << " = "
+              << merged_extent->toString() << std::endl;
+
+    if (simplifyExpr(too_large_after_merge)->isTrue()) {
+      std::cout << "  Result: FALSE (would exceed 256 element limit)"
+                << std::endl;
+      return false;
+    }
+
+    std::cout
+        << "  Result: TRUE - WILL MERGE (pattern matches and within limits!)"
+        << std::endl;
+
     return true;
   }
 
@@ -540,7 +589,23 @@ class MergeTileGroupsByRotation : public Pass {
         inferred_dims_.begin(), inferred_dims_.end(), [&](const auto& dim) {
           return dim.partitioned == from_.at(0);
         });
+
+    std::cout << "[MergeTileGroupsByRotation] Merging tile groups:"
+              << std::endl;
+    std::cout
+        << "  Old box extent: "
+        << partitioned_dim->box->front()->as<IterDomain>()->extent()->toString()
+        << std::endl;
+    std::cout << "  Merging with: "
+              << from_.at(1)->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+
     auto new_box = merge(&id_graph, partitioned_dim->tile, from_.at(1));
+
+    std::cout << "  New box extent: "
+              << new_box->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+
     bulk_groups_.insert(new_box);
     inferred_dims_.emplace_back();
     inferred_dims_.back().partitioned = to_.at(0);
@@ -593,16 +658,56 @@ run(
       nonbulk_groups, inferred_dims);
   MergeTileGroupsByRotation merge_tile_pass(bulk_groups, inferred_dims);
 
+  std::cout << "\n[INFER_ROLES DEBUG] Starting infer_roles passes" << std::endl;
+  int iteration = 0;
   bool changed = true;
   while (changed) {
     changed = false;
-    changed = changed || bulk_pass.run(exprs);
-    changed = changed || nonbulk_pass.run(exprs);
-    changed = changed || striding_split_pass.run(exprs);
-    changed = changed || boxing_split_pass.run(exprs);
-    changed = changed || move_partitioned_pass.run(exprs);
-    changed = changed || merge_tile_pass.run(exprs);
+    std::cout << "\n[INFER_ROLES DEBUG] === Iteration " << iteration++
+              << " ===" << std::endl;
+    std::cout << "  Remaining exprs: " << exprs.size() << std::endl;
+    std::cout << "  Current inferred_dims: " << inferred_dims.size()
+              << std::endl;
+    for (const auto& dim : inferred_dims) {
+      std::cout << "    " << dim << std::endl;
+    }
+
+    bool b = bulk_pass.run(exprs);
+    if (b)
+      std::cout << "  bulk_pass made changes" << std::endl;
+    changed = changed || b;
+
+    b = nonbulk_pass.run(exprs);
+    if (b)
+      std::cout << "  nonbulk_pass made changes" << std::endl;
+    changed = changed || b;
+
+    b = striding_split_pass.run(exprs);
+    if (b)
+      std::cout << "  striding_split_pass made changes" << std::endl;
+    changed = changed || b;
+
+    b = boxing_split_pass.run(exprs);
+    if (b)
+      std::cout << "  boxing_split_pass made changes" << std::endl;
+    changed = changed || b;
+
+    b = move_partitioned_pass.run(exprs);
+    if (b)
+      std::cout << "  move_partitioned_pass made changes" << std::endl;
+    changed = changed || b;
+
+    b = merge_tile_pass.run(exprs);
+    if (b)
+      std::cout << "  merge_tile_pass made changes" << std::endl;
+    changed = changed || b;
   }
+
+  std::cout << "\n[INFER_ROLES DEBUG] Final inferred_dims:" << std::endl;
+  for (const auto& dim : inferred_dims) {
+    std::cout << "  " << dim << std::endl;
+  }
+
   return {bulk_groups, nonbulk_groups, inferred_dims};
 }
 
@@ -882,7 +987,25 @@ class DomainMerger {
     auto type1 = type(i + 1);
 
     bool may_increasing_box_size = (type0 == CB && type1 == CB);
+
+    std::cout << "  [shouldMerge] Checking merge of dim " << i << " and "
+              << (i + 1) << std::endl;
+    std::cout << "    Types: "
+              << (type0 == P        ? "P"
+                      : type0 == C  ? "C"
+                      : type0 == SB ? "SB"
+                                    : "CB")
+              << " + "
+              << (type1 == P        ? "P"
+                      : type1 == C  ? "C"
+                      : type1 == SB ? "SB"
+                                    : "CB")
+              << std::endl;
+    std::cout << "    May increase box size: "
+              << (may_increasing_box_size ? "yes" : "no") << std::endl;
+
     if (!may_increasing_box_size) {
+      std::cout << "    Decision: MERGE (not increasing box size)" << std::endl;
       return true;
     }
 
@@ -891,6 +1014,11 @@ class DomainMerger {
     Val* merged_extent = SimplifyingIrBuilder::mulExpr(extent0, extent1);
 
     bool merging_innermost = ((int64_t)size() == i + 2);
+    std::cout << "    Extents: " << extent0->toString() << " * "
+              << extent1->toString() << " = " << merged_extent->toString()
+              << std::endl;
+    std::cout << "    Merging innermost: " << (merging_innermost ? "yes" : "no")
+              << std::endl;
 
     // If merging makes the size of a dimension larger than 256, we should not
     // merge.
@@ -899,6 +1027,8 @@ class DomainMerger {
     Val* too_large_after_merge = SimplifyingIrBuilder::gtExpr(
         merged_extent, IrBuilder::create<Val>(largest_dim_size));
     if (simplifyExpr(too_large_after_merge)->isTrue()) {
+      std::cout << "    Decision: DON'T MERGE (exceeds 256 element limit)"
+                << std::endl;
       return false;
     }
 
@@ -907,9 +1037,14 @@ class DomainMerger {
     if (merging_innermost && swizzle_ != MmaInputSmemSwizzle::None) {
       const int64_t swizzle_size =
           getBytesFromSwizzle(swizzle_) / item_size_bytes_;
+      std::cout << "    Swizzle size check: merged="
+                << merged_extent->toString() << ", swizzle=" << swizzle_size
+                << std::endl;
       Val* merging_makes_gt_swizzle_size = SimplifyingIrBuilder::gtExpr(
           merged_extent, IrBuilder::create<Val>(swizzle_size));
       if (simplifyExpr(merging_makes_gt_swizzle_size)->isTrue()) {
+        std::cout << "    Decision: DON'T MERGE (exceeds swizzle size)"
+                  << std::endl;
         return false;
       }
     }
@@ -917,6 +1052,7 @@ class DomainMerger {
     // Because the shape is dynamic, we don't know if we should merge or
     // not. For this case, we always assume merging is better than not
     // merging.
+    std::cout << "    Decision: MERGE (default/dynamic case)" << std::endl;
     return true;
   }
 
@@ -925,9 +1061,38 @@ class DomainMerger {
     auto type1 = type(i + 1);
     auto g0 = (*this)[i];
     auto g1 = (*this)[i + 1];
+
+    // DEBUG: Print what's being merged
+    std::cout << "[TMA DEBUG] Merging dimension " << i << " and " << (i + 1)
+              << std::endl;
+    std::cout << "  Type[" << i << "] = "
+              << (type0 == P        ? "P"
+                      : type0 == C  ? "C"
+                      : type0 == SB ? "SB"
+                                    : "CB")
+              << std::endl;
+    std::cout << "  Type[" << (i + 1) << "] = "
+              << (type1 == P        ? "P"
+                      : type1 == C  ? "C"
+                      : type1 == SB ? "SB"
+                                    : "CB")
+              << std::endl;
+    std::cout << "  Extent[" << i
+              << "] = " << g0->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+    std::cout << "  Extent[" << (i + 1)
+              << "] = " << g1->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+    std::cout << "  Contiguity[" << i
+              << "] = " << (contiguity(i) ? "true" : "false") << std::endl;
+
     domain_.merge(i);
     contiguity_and_stride_.erase(contiguity_and_stride_.begin() + i);
     const auto& g = (*this)[i];
+
+    std::cout << "  Merged extent = "
+              << g->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
 
     // Update bulk_groups_ and nonbulk_groups_ by propagating through the merge.
     if (bulk_groups_.count(g0) > 0 && bulk_groups_.count(g1) > 0) {
@@ -1002,7 +1167,33 @@ std::vector<TMADim> run(
       dim_info,
       swizzle,
       item_size_bytes);
+
+  // DEBUG: Print initial TMA domain state
+  std::cout
+      << "\n[TMA DEBUG] ===== Initial TMA Domain (innermost to outermost) ====="
+      << std::endl;
+  std::cout << "  Total dimensions: " << tma_domain.size() << std::endl;
+  for (int64_t i = 0; i < (int64_t)tma_domain.size(); i++) {
+    auto t = tma_domain.type(i);
+    std::cout << "  Dim[" << i << "]: type="
+              << (t == P        ? "P"
+                      : t == C  ? "C"
+                      : t == SB ? "SB"
+                                : "CB")
+              << ", extent="
+              << tma_domain[i]->front()->as<IterDomain>()->extent()->toString()
+              << ", contiguous="
+              << (tma_domain.contiguity(i) ? "true" : "false") << std::endl;
+  }
+  std::cout << "  Swizzle size (items): "
+            << (swizzle != MmaInputSmemSwizzle::None
+                    ? getBytesFromSwizzle(swizzle) / item_size_bytes
+                    : 0)
+            << std::endl;
+
   // merge contiguous C groups and CB groups
+  std::cout << "\n[TMA DEBUG] ===== Phase 1: Merging C-C and CB-CB ====="
+            << std::endl;
   for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!tma_domain.contiguity(i)) {
       continue;
@@ -1016,6 +1207,8 @@ std::vector<TMADim> run(
     }
   }
   // merge contiguous C with SB/CB
+  std::cout << "\n[TMA DEBUG] ===== Phase 2: Merging C with SB/CB ====="
+            << std::endl;
   for (int64_t i = 0; i < (int64_t)tma_domain.size() - 1; i++) {
     if (!tma_domain.contiguity(i)) {
       continue;
@@ -1032,7 +1225,24 @@ std::vector<TMADim> run(
   // Compute the final TMA domain. As required by the hardware, tensors used by
   // TMA must be in column major, so our final TMA domain is also from innermost
   // to outermost.
+  std::cout << "\n[TMA DEBUG] ===== After All Merges =====" << std::endl;
+  std::cout << "  Total dimensions: " << tma_domain.size() << std::endl;
+  for (int64_t i = 0; i < (int64_t)tma_domain.size(); i++) {
+    auto t = tma_domain.type(i);
+    std::cout << "  Dim[" << i << "]: type="
+              << (t == P        ? "P"
+                      : t == C  ? "C"
+                      : t == SB ? "SB"
+                                : "CB")
+              << ", extent="
+              << tma_domain[i]->front()->as<IterDomain>()->extent()->toString()
+              << std::endl;
+  }
+
   std::vector<TMADim> result;
+  std::cout << "\n[TMA DEBUG] ===== Creating Final TMA Domain (innermost to "
+               "outermost) ====="
+            << std::endl;
   for (int64_t i = (int64_t)tma_domain.size() - 1; i >= 0; i--) {
     const auto& g = tma_domain[i];
     result.emplace_back();
@@ -1063,7 +1273,53 @@ std::vector<TMADim> run(
     }
     result.back().gmem_stride_bytes =
         SimplifyingIrBuilder::mulExpr(tma_domain.stride(i), item_size_bytes);
+
+    // DEBUG: Print info about this dimension
+    std::cout << "  Final Dim[" << (result.size() - 1) << "]:" << std::endl;
+    std::cout << "    partitioned="
+              << (result.back().partitioned ? result.back()
+                                                  .partitioned->front()
+                                                  ->as<IterDomain>()
+                                                  ->extent()
+                                                  ->toString()
+                                            : "nullptr")
+              << std::endl;
+    std::cout << "    box="
+              << (result.back().box ? result.back()
+                                          .box->front()
+                                          ->as<IterDomain>()
+                                          ->extent()
+                                          ->toString()
+                                    : "nullptr (size-one)")
+              << std::endl;
+    std::cout << "    tile="
+              << (result.back().tile ? result.back()
+                                           .tile->front()
+                                           ->as<IterDomain>()
+                                           ->extent()
+                                           ->toString()
+                                     : "nullptr")
+              << std::endl;
+    std::cout << "    stride="
+              << (result.back().stride ? result.back()
+                                             .stride->front()
+                                             ->as<IterDomain>()
+                                             ->extent()
+                                             ->toString()
+                                       : "nullptr")
+              << std::endl;
   }
+
+  std::cout << "\n[TMA DEBUG] ===== Final Box Sizes =====" << std::endl;
+  for (size_t i = 0; i < result.size(); i++) {
+    std::cout
+        << "  Box[" << i << "] = "
+        << (result[i].box
+                ? result[i].box->front()->as<IterDomain>()->extent()->toString()
+                : "1 (implicit)")
+        << std::endl;
+  }
+
   return result;
 }
 
@@ -1158,6 +1414,9 @@ Val* TMAInfo::tensorMap() const {
       dims_.end(),
       std::back_inserter(box_sizes_inner_to_outer),
       [](const TMADim& d) { return d.boxSize(); });
+  for (auto box_size : box_sizes_inner_to_outer) {
+    std::cout << "box_size: " << box_size->toString() << std::endl;
+  }
 
   std::vector<Val*> element_strides_inner_to_outer;
   std::transform(
