@@ -1019,39 +1019,29 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
     // = [BIDx, 32, 2, 4, 4]
     input_smem_cache->reorder({{-1, 1}});
 
-    :cout << "input_smem_cache after reorder: " << 
-              nput_smem_cache->toString() << std::endl;
+    std::cout << "input_smem_cache after reorder: "
+              << input_smem_cache->toString() << std::endl;
 
-    tile_1(32) by 8 to create first dimension of size 8
-        // [BIDx, 32, 2, 4, 4] -> [BIDx, 4, 8, 2, 4, 4]
-        input_smem_cache->split(1, 8);
+    // Split tile_1 (32) by 8 to create first dimension of size 8
+    // [BIDx, 32, 2, 4, 4] -> [BIDx, 4, 8, 2, 4, 4]
+    input_smem_cache->split(1, 8);
 
-    //
+    // Merge the 2×4 to create second dimension of size 8
+    // [BIDx, 4, 8, 2, 4, 4] -> [BIDx, 4, 8, 8, 4]
+    input_smem_cache->merge(3, 4);
 
-    2×4 to create second dimension of size 8
-        // [BIDx, 4, 8, 2, 4, 4] -> [BIDx, 4, 8, 8, 4]
-        input_smem_cache->merge(3, 4);
+    std::cout << "input_smem_cache before swizzle: "
+              << input_smem_cache->toString() << std::endl;
 
-    std::c
+    // Swizzle the two 8's at positions 2 and 3
+    // [BIDx, 4, 8, 8, 4] with XOR swizzle on dimensions 2 and 3
+    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
 
-            put_smem_cache before swizzle : " << input_smem_c
-                                            che->toString()
-        << std::endl;
-
-    // Swizzle
-
-    's at positions 2 and 3
-        // [BIDx, 4, 8, 8, 4] with XOR swizzle on dimensions 2 and 3
-        input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-
-    // Set allocat
-
-    to match the swizzled layout input_smem_cache->setAllocationDomain(
+    // Set allocation domain to match the swizzled layout
+    input_smem_cache->setAllocationDomain(
         input_smem_cache->getLoopDomain(), true);
 
-    // Parallelize all
-
-    s as Bulk for TMA
+    // Parallelize all dimensions as Bulk for TMA
     input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
@@ -1573,4 +1563,3 @@ void TransposeScheduler::schedule(
   scheduleTranspose(fusion, tparams);
 }
 } // namespace nvfuser
-                            
