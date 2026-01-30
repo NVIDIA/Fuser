@@ -10,7 +10,6 @@
 #include "debug.h"
 #include "id_model/id_model.h"
 #include "ir/utils.h"
-#include "logical_domain_map.h"
 #include "options.h"
 
 namespace nvfuser::preseg_passes {
@@ -150,7 +149,8 @@ void ExactMappedExtentSubstitutionPass::runPass(Fusion* fusion) {
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "ExactLogicalDomainMap after " << name() << ":" << std::endl;
-    IdModel id_model(fusion, false, false, false);
+    IdModel id_model(
+        fusion, /*build_graphs=*/false, /*allow_self_mapping=*/true);
     id_model.buildExactGraph();
     const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
     const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
