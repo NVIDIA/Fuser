@@ -15,6 +15,8 @@
 #include <regex>
 #include <vector>
 
+#include <cuda_runtime.h>
+
 #include <ATen/core/LegacyTypeDispatch.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <ATen/cuda/llvm_jit_strings.h>
@@ -26,7 +28,6 @@
 
 #include "base.h"
 #include "codegen.h"
-#include "cuda_runtime.h"
 #include "cuda_utils.h"
 #include "debug.h"
 #include "device_lower/analysis/bank_conflict.h"

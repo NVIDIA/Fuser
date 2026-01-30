@@ -8,11 +8,16 @@
 
 #include "runtime/cutlass_compiled_kernel.h"
 
+#include <dlfcn.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
+
+#include <cuda_runtime.h>
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -20,13 +25,11 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
-#include <cutlass/codegen.h>
 
 #include "base.h"
 #include "cuda.h"
-#include "cuda_runtime.h"
+#include "cutlass/codegen.h"
 #include "debug.h"
-#include "dlfcn.h"
 #include "fusion.h"
 #include "instrumentation.h"
 #include "ir/all_nodes.h"
@@ -36,7 +39,6 @@
 #include "runtime/executor_kernel_arg.h"
 #include "runtime/executor_params.h"
 #include "scheduler/cutlass.h"
-#include "unistd.h"
 
 namespace nvfuser {
 
