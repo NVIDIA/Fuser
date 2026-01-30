@@ -5,6 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include "ir/internal_base_nodes.h"
+
 #include <algorithm>
 #include <iterator>
 #include <list>
@@ -18,20 +20,19 @@
 #include <utility>
 #include <vector>
 
-#include <ir/cloner.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/iostream.h>
-#include <ir/utils.h>
-#include <ops/alias.h>
-#include <ops/arith.h>
-#include <transform_rfactor.h>
-#include <transform_view.h>
-#include <type.h>
+#include "ir/cloner.h"
+#include "ir/iostream.h"
+#include "ir/utils.h"
+#include "ops/alias.h"
+#include "ops/arith.h"
+#include "transform_rfactor.h"
+#include "transform_view.h"
+#include "type.h"
 
 namespace nvfuser {
 
-IterDomainBuilder::IterDomainBuilder(Val* _start, Val* _extent)
-    : start_(_start), extent_(_extent) {
+IterDomainBuilder::IterDomainBuilder(Val* start, Val* extent)
+    : start_(start), extent_(extent) {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
@@ -48,7 +49,11 @@ IterDomainBuilder::IterDomainBuilder(const IterDomain* id)
       is_rfactor_domain_(id->isRFactorProduct()),
       is_padded_dimension_(id->hasPaddingToMultipleOfWarp()),
       is_clustered_dimension_(id->isClusteredBlockDim()),
-      padded_to_size_(id->getMaybeSizeAfterPadding()) {}
+      padded_to_size_(id->getMaybeSizeAfterPadding()) {
+  if (id->isA<RaggedIterDomain>()) {
+    ragged_extents_ = id->as<RaggedIterDomain>()->extents();
+  }
+}
 
 IterDomainBuilder& IterDomainBuilder::resetSchedulingParams() {
   parallel_type_ = ParallelType::Serial;
@@ -63,52 +68,58 @@ IterDomainBuilder& IterDomainBuilder::resetRfactor() {
   return is_rfactor_domain(false);
 }
 
-IterDomainBuilder& IterDomainBuilder::start(Val* _start) {
-  start_ = _start;
+IterDomainBuilder& IterDomainBuilder::start(Val* start) {
+  start_ = start;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::extent(Val* _extent) {
-  extent_ = _extent;
+IterDomainBuilder& IterDomainBuilder::extent(Val* extent) {
+  extent_ = extent;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::expanded_extent(Val* _expanded_extent) {
-  expanded_extent_ = _expanded_extent;
+IterDomainBuilder& IterDomainBuilder::expanded_extent(Val* expanded_extent) {
+  expanded_extent_ = expanded_extent;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::stop_offset(Val* _stop_offset) {
-  stop_offset_ = _stop_offset;
+IterDomainBuilder& IterDomainBuilder::stop_offset(Val* stop_offset) {
+  stop_offset_ = stop_offset;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::parallel_type(
-    ParallelType _parallel_type) {
-  parallel_type_ = _parallel_type;
+    ParallelType parallel_type) {
+  parallel_type_ = parallel_type;
   return *this;
 }
 
-IterDomainBuilder& IterDomainBuilder::iter_type(IterType _iter_type) {
-  iter_type_ = _iter_type;
+IterDomainBuilder& IterDomainBuilder::iter_type(IterType iter_type) {
+  iter_type_ = iter_type;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::is_rfactor_domain(
-    bool _is_rfactor_domain) {
-  is_rfactor_domain_ = _is_rfactor_domain;
+    bool is_rfactor_domain) {
+  is_rfactor_domain_ = is_rfactor_domain;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::is_padded_dimension(
-    bool _is_padded_dimension) {
-  is_padded_dimension_ = _is_padded_dimension;
+    bool is_padded_dimension) {
+  is_padded_dimension_ = is_padded_dimension;
   return *this;
 }
 
 IterDomainBuilder& IterDomainBuilder::padded_to_size(
-    std::optional<int64_t> _padded_to_size) {
-  padded_to_size_ = _padded_to_size;
+    std::optional<int64_t> padded_to_size) {
+  padded_to_size_ = padded_to_size;
+  return *this;
+}
+
+IterDomainBuilder& IterDomainBuilder::ragged_extents(
+    TensorView* ragged_extents) {
+  ragged_extents_ = ragged_extents;
   return *this;
 }
 
@@ -116,7 +127,13 @@ IterDomain* IterDomainBuilder::build() const {
   NVF_ERROR(
       start_ != nullptr && extent_ != nullptr,
       "Start and extent are required to build an iter domain.");
-  return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
+
+  if (ragged_extents_ != nullptr) {
+    return IrBuilder::createInContainer<RaggedIterDomain>(
+        start_->container(), *this);
+  } else {
+    return IrBuilder::createInContainer<IterDomain>(start_->container(), *this);
+  }
 }
 
 IterDomain::IterDomain(
@@ -817,6 +834,77 @@ void validateLoopDomain(
 
 RaggedIterDomain::RaggedIterDomain(
     IrBuilderPasskey passkey,
+    const IterDomainBuilder& args)
+    : IterDomain(
+          passkey,
+          ValType::RaggedIterDomain,
+          args.start_,
+          args.extent_,
+          args.expanded_extent_,
+          args.stop_offset_,
+          args.parallel_type_,
+          args.iter_type_,
+          args.is_rfactor_domain_,
+          args.is_padded_dimension_,
+          args.is_clustered_dimension_,
+          args.padded_to_size_),
+      extents_(args.ragged_extents_) {
+  // Extents must be non-null
+  NVF_ERROR(
+      extents_ != nullptr, "RaggedIterDomain requires non-null extents tensor");
+
+  // Extents must have integer dtype
+  NVF_ERROR_EQ(
+      extents_->dtype(),
+      DataType::Index,
+      "RaggedIterDomain extents must have index type, got ",
+      extents_->dtype());
+
+  // Only IterType::Iteration is supported at this moment
+  NVF_ERROR_EQ(
+      iter_type_,
+      IterType::Iteration,
+      "Only IterType::Iteration is supported: ",
+      iter_type_);
+
+  // RaggedIterDomain has specific requirements on member values
+  NVF_ERROR(
+      start_->isZeroInt(),
+      "RaggedIterDomain start must be zero, got: ",
+      start_->toInlineString());
+
+  NVF_ERROR(
+      extent_->isOneInt(),
+      "RaggedIterDomain extent must be one (placeholder), got: ",
+      extent_->toInlineString());
+
+  NVF_ERROR(
+      expanded_extent_ == nullptr,
+      "RaggedIterDomain does not support expanded_extent");
+
+  NVF_ERROR(
+      stop_offset_ == nullptr || stop_offset_->isZeroInt(),
+      "RaggedIterDomain stop_offset must be nullptr or zero, got: ",
+      stop_offset_ ? stop_offset_->toInlineString() : "nullptr");
+
+  NVF_ERROR(
+      !is_rfactor_domain_, "RaggedIterDomain does not support rfactor domains");
+
+  NVF_ERROR(
+      !is_padded_dimension_,
+      "RaggedIterDomain does not support padded dimensions");
+
+  NVF_ERROR(
+      !is_clustered_dimension_,
+      "RaggedIterDomain does not support clustered dimensions");
+
+  NVF_ERROR(
+      !padded_to_size_.has_value(),
+      "RaggedIterDomain does not support padded_to_size");
+}
+
+RaggedIterDomain::RaggedIterDomain(
+    IrBuilderPasskey passkey,
     TensorView* extents,
     IterType iter_type,
     ParallelType parallel_type)
@@ -895,6 +983,18 @@ std::string RaggedIterDomain::toString(int indent_size) const {
   return toInlineString(indent_size);
 }
 
+IterDomain* RaggedIterDomain::cloneWithoutRFactor(bool map_with_original) {
+  auto cloned = IterDomainBuilder(this).resetRfactor().build();
+
+  // Optionally map the clone with the original in the Exact graph
+  if (map_with_original) {
+    // TODO: Implement mapping if needed
+    NVF_THROW("Not implemented");
+  }
+
+  return cloned;
+}
+
 std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
     IterDomain* in,
     TensorView* extents) {
@@ -951,6 +1051,107 @@ std::pair<IterDomain*, RaggedIterDomain*> RaggedIterDomain::partition(
   IrBuilder::create<Partition>(component_id, ragged_id, in, extents);
 
   return {component_id, ragged_id};
+}
+
+IterDomain* RaggedIterDomain::combine(
+    IterDomain* component,
+    RaggedIterDomain* ragged) {
+  NVF_ERROR(component != nullptr, "combine: component IterDomain is null");
+  NVF_ERROR(ragged != nullptr, "combine: ragged IterDomain is null");
+
+  NVF_ERROR(
+      !component->isA<RaggedIterDomain>(),
+      "combine: component must be a regular IterDomain, got RaggedIterDomain: ",
+      component->toString());
+
+  // Validate that component and ragged have compatible properties
+  NVF_ERROR_EQ(
+      component->getParallelType(),
+      ParallelType::Serial,
+      "Combining parallelized IterDomain not supported: ",
+      component->toString());
+
+  NVF_ERROR_EQ(
+      ragged->getParallelType(),
+      ParallelType::Serial,
+      "Combining parallelized RaggedIterDomain not supported: ",
+      ragged->toString());
+
+  NVF_ERROR_EQ(
+      component->getIterType(),
+      IterType::Iteration,
+      "combine: only IterType::Iteration is supported for component, got ",
+      component->getIterType(),
+      " for IterDomain: ",
+      component->toString());
+
+  NVF_ERROR_EQ(
+      ragged->getIterType(),
+      IterType::Iteration,
+      "combine: only IterType::Iteration is supported for ragged, got ",
+      ragged->getIterType(),
+      " for RaggedIterDomain: ",
+      ragged->toString());
+
+  // Validate component-ragged pairing when Partition definition is available
+  // (Option 3 of doc/dev/ragged_iter_domain_combine_design_doc.md).
+  // Only validate when the RaggedIterDomain has a direct Partition definition.
+  // After propagation (e.g., set() operations), the definition may be nullptr,
+  // in which case we trust the user to provide the correct component.
+  if (ragged->definition() != nullptr &&
+      ragged->definition()->isA<Partition>()) {
+    auto* partition = ragged->definition()->as<Partition>();
+    IterDomain* expected_component = partition->component();
+
+    NVF_ERROR(
+        component == expected_component,
+        "combine: component mismatch. The provided component does not match ",
+        "the component from the Partition that created this "
+        "RaggedIterDomain.\n",
+        "  Provided component: ",
+        component->toString(),
+        "\n",
+        "  Expected component: ",
+        expected_component->toString());
+  }
+  // If no Partition definition (after set, in segmented fusion, or external
+  // input), trust the user and proceed without validation
+
+  // The combined extent is the sum of all extents in the ragged dimension
+  // For a 1D extents tensor [e0, e1, ..., en-1], the total is sum(extents)
+  TensorView* extents_tv = ragged->extents();
+  NVF_ERROR(extents_tv != nullptr, "combine: ragged extents tensor is null");
+
+  // It is still assumed the extents tensor is just 1D
+  NVF_ERROR_EQ(
+      std::ranges::distance(
+          extents_tv->getLogicalDomain() | TensorDomain::kNoReductions),
+      1,
+      "Unexpected rank of extent tensor: ",
+      extents_tv->toString());
+
+  auto container = component->container();
+  auto zero = container->zeroVal(DataType::Index);
+
+  // Create a symbolic extent for the combined IterDomain
+  // This represents the sum of all ragged extents, i.e.,
+  // sum(extents_tv, {0}). We could use the sum output as the extent
+  // but we would need to extract the scalar value out of the 0-dim
+  // tensor. For now, we leave it as a symbolic Val.
+  Val* combined_extent =
+      IrBuilder::createInContainer<Val>(container, DataType::Index);
+
+  // Create the combined IterDomain with the symbolic extent
+  IterDomain* combined_id = IterDomainBuilder(zero, combined_extent)
+                                .parallel_type(ParallelType::Serial)
+                                .iter_type(IterType::Iteration)
+                                .build();
+
+  // Create the Combine expression linking component + ragged -> combined
+  IrBuilder::createInContainer<Combine>(
+      container, combined_id, component, ragged);
+
+  return combined_id;
 }
 
 TensorDomain::TensorDomain(
@@ -1469,6 +1670,13 @@ bool TensorDomain::hasVectorize() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
         return isParallelTypeVectorize(id->getParallelType());
+      });
+}
+
+bool TensorDomain::hasRaggedIterDomain() const {
+  return std::any_of(
+      logical().begin(), logical().end(), [](IterDomain* logical_id) {
+        return logical_id->isA<RaggedIterDomain>();
       });
 }
 

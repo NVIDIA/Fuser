@@ -19,12 +19,12 @@
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
 
+#include "base.h"
 #include "ir/cloner.h"
 #include "ir/iostream.h"
 #include "ir/printer.h"
 #include "multidevice/allocation_utils.h"
 #include "multidevice/utils.h"
-#include "utils.h"
 
 namespace nvfuser {
 
@@ -54,8 +54,9 @@ std::ostream& operator<<(std::ostream& os, const CommunicationType& type) {
     case CommunicationType::SendRecv:
       os << "SendRecv";
       break;
-    default:
-      NVF_THROW("unrecognized CommunicationType: ", type);
+    case CommunicationType::AllToAll:
+      os << "AllToAll";
+      break;
   }
   return os;
 }
@@ -152,10 +153,10 @@ bool hasRoot(CommunicationType type) {
     case CommunicationType::Allgather:
     case CommunicationType::Allreduce:
     case CommunicationType::ReduceScatter:
+    case CommunicationType::AllToAll:
       return false;
-    default:
-      NVF_THROW("unrecognized CommunicationType: ", type);
   }
+  std::unreachable();
 }
 
 bool isReduction(CommunicationType type) {
@@ -169,6 +170,7 @@ bool isReduction(CommunicationType type) {
     case CommunicationType::Scatter:
     case CommunicationType::Broadcast:
     case CommunicationType::SendRecv:
+    case CommunicationType::AllToAll:
       return false;
     default:
       NVF_THROW("unrecognized CommunicationType: ", type);
@@ -605,6 +607,44 @@ c10::intrusive_ptr<c10d::Work> postSendRecv(
         /*tag=*/0);
   }
 }
+
+c10::intrusive_ptr<c10d::Work> postAllToAll(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor) {
+  NVF_ERROR(
+      isTvContiguous(communication->in()),
+      "Input tensor is not contiguous: ",
+      communication->in(),
+      " contiguity: ",
+      communication->in()->domain()->getContiguityString());
+  NVF_ERROR(
+      isTvContiguous(communication->out()),
+      "Output tensor is not contiguous: ",
+      communication->out(),
+      " contiguity: ",
+      communication->out()->domain()->getContiguityString());
+
+  auto flattened_input_tensor = viewAsCompact(input_tensor);
+  auto flattened_output_tensor = viewAsCompact(output_tensor);
+
+  // alltoall_base requires even splits of the input and output tensors.
+  auto input_splits = at::tensor_split(
+      flattened_input_tensor, communication->team_size(), /*dim=*/0);
+  auto output_splits = at::tensor_split(
+      flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize(input_splits, output_splits);
+
+  std::vector<int64_t> empty_split_sizes;
+  return backend->alltoall_base(
+      flattened_output_tensor,
+      flattened_input_tensor,
+      empty_split_sizes,
+      empty_split_sizes,
+      /*options=*/{});
+}
 } // namespace
 
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
@@ -691,6 +731,9 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
           backend,
           input_tensor,
           output_tensor);
+    case CommunicationType::AllToAll:
+      return postAllToAll(
+          communication, my_device_index, backend, input_tensor, output_tensor);
     default:
       NVF_THROW("Wrong communication type: ", communication->type());
       return nullptr;

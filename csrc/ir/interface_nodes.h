@@ -11,15 +11,15 @@
 #include <limits>
 #include <sstream>
 
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/builder_passkey.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/internal_nodes.h>
-#include <mma_type.h>
-#include <multidevice/device_mesh.h>
-#include <type.h>
-#include <visibility.h>
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/builder_passkey.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/internal_nodes.h"
+#include "mma_type.h"
+#include "multidevice/device_mesh.h"
+#include "type.h"
+#include "visibility.h"
 
 //! Nodes in here are intended to be "user facing" users in this sense being
 //! those that want to be able to generate CUDA code.
@@ -645,11 +645,6 @@ class NVF_API TensorView : public Val {
   //! Swizzle the rectangular tile defined by the iterdomains corresponding
   //!  to the 2 given indices.
   TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
-  TensorView* swizzle(
-      Swizzle2DType swizzle_type,
-      int64_t x,
-      int64_t y,
-      SwizzleMode swizzle_mode = SwizzleMode::Data);
 
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of

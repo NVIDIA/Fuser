@@ -84,7 +84,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     const auto& communicator = Communicator::getInstance();
     // Only the first local rank will print. Pre-segmenter fusion IR is device
     // agnostic, so letting all ranks print isn't any more useful.
-    if (!communicator.is_available() || communicator.local_rank() == 0) {
+    if (communicator.local_rank() == 0) {
       debug() << "Fusion IR after pre-segmenter optimization passes:"
               << std::endl;
       fusion->print();
@@ -337,6 +337,49 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
+KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
+    HeuristicParamsList* heuristics,
+    SegmentedGroup* group_to_run,
+    const KernelArgumentHolder& group_runtime_inputs,
+    PrecomputedValues* evaluator_precomputed_values) const {
+  FUSER_PERF_SCOPE("FusionKernelRuntime::inferOutputMetaTensor");
+  NVF_ERROR(heuristics != nullptr);
+  Fusion* fusion_to_run = group_to_run->getFusion();
+  const auto& heuristic_params = heuristics->at(group_to_run->groupId());
+  const bool is_expr_eval =
+      heuristic_params->scheduler_type == SchedulerType::ExprEval;
+  if (!is_expr_eval || isOptionDisabled(DisableOption::InferContiguity)) {
+    return inferContiguousOutputMetaTensor(
+        fusion_to_run, group_runtime_inputs, evaluator_precomputed_values);
+  }
+
+  // For expr evaluated fusion, the striding rules follow that of ATen.
+  ExpressionEvaluator eval_fusion;
+  for (const auto& [in, tensor_pv] :
+       zip(fusion_to_run->inputs(), group_runtime_inputs)) {
+    if (tensor_pv.is<at::Tensor>()) {
+      const auto& t = tensor_pv.as<at::Tensor>();
+      if (t.defined()) {
+        const auto meta_t = at::empty_strided(
+            t.sizes(),
+            t.strides(),
+            at::TensorOptions().device(at::kMeta).dtype(t.dtype()));
+        eval_fusion.bind(in, meta_t);
+      } else {
+        eval_fusion.bind(in, t);
+      }
+    } else {
+      eval_fusion.bind(in, tensor_pv);
+    }
+  }
+  KernelArgumentHolder group_runtime_outputs;
+  for (Val* v : fusion_to_run->outputs()) {
+    auto result = eval_fusion.evaluate(v);
+    group_runtime_outputs.push(result);
+  }
+  return group_runtime_outputs;
+}
+
 std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
     const KernelArgumentHolder& args) const {
   std::vector<KernelArgumentHolder> all_runtime_inputs;
@@ -362,12 +405,8 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
-    // TODO: inferOutputShapeAndContiguousStrides doesn't seem to strictly
-    // require a Fusion for each segment. Consider using the complete fusion
-    // instead.
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
-        fusion_to_run.get(), group_runtime_inputs);
+    auto group_runtime_outputs = inferOutputMetaTensor(
+        heuristics_.get(), group_to_run, group_runtime_inputs);
 
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
@@ -599,8 +638,9 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     }
 
     // Generate metadata for the fusion's outputs
-    auto group_runtime_outputs = inferOutputShapeAndContiguousStrides(
-        fusion_to_run,
+    auto group_runtime_outputs = inferOutputMetaTensor(
+        heuristics.get(),
+        group_to_run,
         group_runtime_inputs,
         evaluator_precomputed_values.get());
 

@@ -9,9 +9,9 @@
 
 #include <iosfwd>
 
-#include <dispatch.h>
-#include <exceptions.h>
-#include <visibility.h>
+#include "dispatch.h"
+#include "exceptions.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

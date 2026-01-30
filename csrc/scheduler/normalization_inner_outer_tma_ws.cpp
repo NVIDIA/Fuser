@@ -11,7 +11,7 @@
 #include <scheduler/normalization_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {

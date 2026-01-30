@@ -12,7 +12,7 @@
 #include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <options.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

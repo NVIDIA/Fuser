@@ -15,8 +15,8 @@
 #include <cupti.h>
 #include <debug.h>
 #include <options.h>
-#include <utils.h>
 #include <visibility.h>
+#include "base.h"
 
 namespace nvfuser {
 

@@ -35,7 +35,8 @@ class BuildConfig:
     install_requires: list = field(default_factory=list)
     extras_require: dict = field(default_factory=dict)
     cpp_standard: int = 20
-    cutlass_max_jobs: int = 0
+    cutlass_max_jobs: int | None = None
+    enable_pch: bool = False
 
 
 def check_env_flag_bool_default(name: str, default: str = "") -> bool:
@@ -279,6 +280,8 @@ def override_build_config_from_env(config):
         config.cutlass_max_jobs = int(os.getenv("NVFUSER_CUTLASS_MAX_JOBS"))
     if "NVFUSER_BUILD_NVMMH_INCLUDE_DIR" in os.environ:
         config.nvmmh_include_dir = os.getenv("NVFUSER_BUILD_NVMMH_INCLUDE_DIR")
+    if "NVFUSER_BUILD_ENABLE_PCH" in os.environ:
+        config.enable_pch = get_env_flag_bool("NVFUSER_BUILD_ENABLE_PCH")
 
 
 def get_default_install_prefix():
@@ -469,14 +472,16 @@ def cmake(config, relative_path):
         f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
         f"-DBUILD_TEST={on_or_off(not config.no_test)}",
         f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
-        f"-DBUILD_CUTLASS={on_or_off(not config.no_cutlass)}",
+        f"-DNVFUSER_DISABLE_CUTLASS={on_or_off(config.no_cutlass)}",
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}",
+        f"-DNVFUSER_USE_PCH={on_or_off(config.enable_pch)}",
         "-B",
         cmake_build_dir,
     ]
+    if config.cutlass_max_jobs:
+        cmd_str.append(f"-DCUTLASS_MAX_JOBS={config.cutlass_max_jobs}")
     if config.nvmmh_include_dir:
         cmd_str.append(f"-DNVMMH_INCLUDE_DIR={config.nvmmh_include_dir}")
     if not config.no_ninja:

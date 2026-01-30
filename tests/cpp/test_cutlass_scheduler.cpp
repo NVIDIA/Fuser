@@ -28,7 +28,7 @@
 #include "scheduler/runtime_info.h"
 #include "scheduler/scheduler_types.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

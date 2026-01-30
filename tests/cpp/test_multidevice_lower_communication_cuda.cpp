@@ -23,7 +23,7 @@
 #include "runtime/communication_executor.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/multidevice.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

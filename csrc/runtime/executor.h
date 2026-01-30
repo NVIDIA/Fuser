@@ -21,7 +21,7 @@
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <serde/fusion_cache_generated.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

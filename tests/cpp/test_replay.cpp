@@ -6,14 +6,15 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include "fusion.h"
 #include "ops/all_ops.h"
 #include "runtime/fusion_executor_cache.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "transform_replay.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

@@ -5,23 +5,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/base_nodes.h>
+#include "ir/base_nodes.h"
 
 #include <string>
 #include <unordered_map>
 
-#include <device_lower/utils.h>
-#include <dispatch.h>
-#include <expr_evaluator.h>
-#include <fusion.h>
-#include <host_ir/container.h>
-#include <ir/builder.h>
-#include <ir/cloner.h>
-#include <ir/printer.h>
-#include <ir/utils.h>
-#include <kernel.h>
-#include <kernel_ir.h>
-#include <kernel_ir_dispatch.h>
+#include "device_lower/utils.h"
+#include "dispatch.h"
+#include "expr_evaluator.h"
+#include "fusion.h"
+#include "host_ir/container.h"
+#include "ir/builder.h"
+#include "ir/cloner.h"
+#include "ir/printer.h"
+#include "ir/utils.h"
+#include "kernel.h"
+#include "kernel_ir.h"
+#include "kernel_ir_dispatch.h"
 
 namespace nvfuser {
 
@@ -29,7 +29,11 @@ Statement::Statement(IrBuilderPasskey passkey)
     : ir_container_{passkey.ir_container_} {}
 
 Statement::Statement(const Statement* src, IrCloner* ir_cloner)
-    : ir_container_{ir_cloner->container()} {}
+    : ir_container_{ir_cloner->container()} {
+  NVF_ERROR(
+      ir_container_ != nullptr,
+      "Statement cloning constructor received NULL container from IrCloner");
+}
 
 NVFUSER_DEFINE_CLONE(Statement)
 

@@ -21,13 +21,15 @@
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
-#include <utils.h>
 #include <val_graph.h>
 #include <val_graph_visitor.h>
+#include "base.h"
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <runtime/executor_utils.h>
+
+#include <cmath>
 
 namespace nvfuser {
 
@@ -237,7 +239,8 @@ std::vector<MatmulDimRole> HopperPlus::reorderBlockTileTraversal(
         Mo_pos >= 0 || No_pos >= 0, "Either M or N role must be present.");
     NVF_ERROR(
         Mo_pos != No_pos, "The position of M and N roles must be different.");
-    NVF_ERROR(abs(Mo_pos - No_pos) == 1, "M and N roles must be consecutive.");
+    NVF_ERROR(
+        std::abs(Mo_pos - No_pos) == 1, "M and N roles must be consecutive.");
 
     bool is_M_present = Mo_pos >= 0;
     bool is_N_present = No_pos >= 0;

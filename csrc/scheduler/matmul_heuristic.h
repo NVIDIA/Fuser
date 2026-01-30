@@ -10,7 +10,7 @@
 #include <c10/util/hash.h>
 #include <mma_type.h>
 #include <scheduler/heuristic.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 #include "type.h"

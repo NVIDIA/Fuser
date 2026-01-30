@@ -244,14 +244,22 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
       consumer_loop_groups.pushBack(output_loop_groups);
     }
 
-    // Suppose the outputs are involved in broadcast forwarding, they
-    // could be grouped together, so if that happens, the number of
-    // output loop groups could be just one. However, there should be
-    // no such broadcast forwarding. Assert here just in case.
+    // Expr has multiple outputs but there's only one loop group. This
+    // can happen when all output groups are merged together due to
+    // broadcast forwarding. See IdMappingMode.ReproIssue5803Minimal
+    // for a concrete pattern. In this case, there's no partial
+    // inlining possible, so nothing to propagate.
+    if (consumer_loop_groups.size() == 1) {
+      continue;
+    }
+
     NVF_ERROR(
         expected_num_consumer_loop_group_count_if_fully_inlined <=
         consumer_loop_groups.size());
 
+    // Even when the outputs have multiple loop groups, if it's the
+    // same number as the number of outputs themselves, it should not
+    // be necessary to propagate anything
     if (consumer_loop_groups.size() ==
         expected_num_consumer_loop_group_count_if_fully_inlined) {
       continue;

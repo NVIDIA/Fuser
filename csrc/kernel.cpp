@@ -324,6 +324,10 @@ class KernelIrScanner : private IrVisitor {
     summary_.has_block_quantize_op = true;
   }
 
+  void handle(GroupedBlockQuantizationOp* bqop) final {
+    summary_.has_block_quantize_op = true;
+  }
+
   void handle(ScanOp* scan) final {
     summary_.has_scan = true;
   }

@@ -29,7 +29,7 @@
 #include <runtime/fusion_cache_utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 

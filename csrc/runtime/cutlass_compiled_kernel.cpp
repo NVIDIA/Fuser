@@ -22,7 +22,7 @@
 #include <runtime/executor_params.h>
 #include <scheduler/cutlass.h>
 #include <unistd.h>
-#include <utils.h>
+#include "base.h"
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
