@@ -19,7 +19,7 @@ class Fusion;
 namespace impl {
 
 IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
-  ir_storage()->parent_ = this;
+  ir_storage()->parent_ = static_cast<Fusion*>(this);
 }
 
 IrContainer::~IrContainer() {}
@@ -33,12 +33,12 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   // After swap, each IrContainer owns a different IrStorage, so we must update
   // the parent backpointers in those containers to point to their new owners
   if (a.ir_storage_) {
-    a.ir_storage()->parent_ = &a;
     // Also update all Statement ir_container_ pointers to point to new owner
     // Note: IrContainer is now in impl namespace, but Statement::ir_container_
     // is Fusion*. Since only Fusion (and its derived classes) inherit from
     // impl::IrContainer, this cast is safe.
     auto* fusion_a = static_cast<Fusion*>(&a);
+    a.ir_storage()->parent_ = fusion_a;
     for (auto val : a.vals()) {
       val->ir_container_ = fusion_a;
     }
@@ -47,9 +47,9 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
     }
   }
   if (b.ir_storage_) {
-    b.ir_storage()->parent_ = &b;
     // Also update all Statement ir_container_ pointers to point to new owner
     auto* fusion_b = static_cast<Fusion*>(&b);
+    b.ir_storage()->parent_ = fusion_b;
     for (auto val : b.vals()) {
       val->ir_container_ = fusion_b;
     }

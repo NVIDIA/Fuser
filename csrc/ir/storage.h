@@ -188,7 +188,7 @@ class IrStorage {
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
  public:
-  impl::IrContainer* parent() const {
+  Fusion* parent() const {
     NVF_ERROR(
         parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
     return parent_;
@@ -197,7 +197,7 @@ class IrStorage {
  private:
   // Parent IrInterface that owns this container (for pure composition pattern)
   // Used by Statement::fusion() to navigate back to owning Fusion
-  impl::IrContainer* parent_ = nullptr;
+  Fusion* parent_ = nullptr;
 };
 
 } // namespace nvfuser
