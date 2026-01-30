@@ -501,7 +501,7 @@ target_link_libraries(nvfuser_codegen PRIVATE
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
-  target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+  target_compile_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
