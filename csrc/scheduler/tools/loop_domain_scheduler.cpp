@@ -86,10 +86,6 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
         resize->rightExpand());
   }
 
-  void handle(const Swizzle2D* swizzle_2d) final {
-    NVF_THROW("Unsupported");
-  }
-
   void handle(const Swizzle* swizzle) final {
     NVF_THROW("Unsupported");
   }
@@ -165,10 +161,6 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
         resize->rightExpand(),
         resize->out()->getIterType());
     replayed_expr_ = tv_->axis(loop_id_pos)->definition();
-  }
-
-  void handle(const Swizzle2D* swizzle_2d) final {
-    NVF_THROW("Unsupported");
   }
 
   void handle(const Swizzle* swizzle) final {
