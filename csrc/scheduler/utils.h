@@ -29,6 +29,8 @@ class HeuristicDataCache;
 //! BoundedDirectionalTransformPropagator.
 enum class PropagateDirection { kBackward = 0, kForward };
 
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction);
+
 namespace scheduler_utils {
 
 // Assume any only half of the register file is available to spend on buffers,

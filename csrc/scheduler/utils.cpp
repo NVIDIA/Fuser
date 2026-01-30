@@ -43,6 +43,22 @@
 #include <type.h>
 #include <val_graph_visitor.h>
 
+namespace nvfuser {
+
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction) {
+  switch (direction) {
+    case PropagateDirection::kForward:
+      os << "Forward";
+      break;
+    case PropagateDirection::kBackward:
+      os << "Backward";
+      break;
+  }
+  return os;
+}
+
+} // namespace nvfuser
+
 namespace nvfuser::scheduler_utils {
 
 // Minimal PTX code for a no-op kernel, used for occupancy queries
