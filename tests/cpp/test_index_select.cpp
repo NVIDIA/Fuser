@@ -74,7 +74,6 @@ void checkIndexSelectVectorization(
 class IndexSelectTest : public NVFuserTest {
  protected:
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     NVFuserTest::SetUp();
   }
 };

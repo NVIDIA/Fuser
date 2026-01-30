@@ -451,8 +451,6 @@ class TMASimpleLdstTest
       default:
         NVF_THROW("Invalid dimension");
     }
-
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2858,7 +2856,6 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2912,7 +2909,6 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

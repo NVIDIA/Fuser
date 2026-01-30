@@ -162,7 +162,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"cutlass_scheduler", EnableOption::CutlassScheduler},
           {"fuse_matmul", EnableOption::FuseMatmul},
           {"fuse_multiple_matmuls", EnableOption::FuseMultipleMatmuls},
-          {"id_model", EnableOption::IdModel},
           {"id_model_extra_validation", EnableOption::IdModelExtraValidation},
           {"io_to_lower_precision", EnableOption::IoToLowerPrecision},
           {"kernel_db", EnableOption::KernelDb},

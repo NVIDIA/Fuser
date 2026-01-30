@@ -56,7 +56,6 @@ class ReshapeTest : public NVFuserTest {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -397,7 +396,6 @@ class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
