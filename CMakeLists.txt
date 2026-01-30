@@ -955,6 +955,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_expr_same_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_fusion_hash.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
