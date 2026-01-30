@@ -526,11 +526,16 @@ bool TransposeDomainMap::hasAtLeastTwoValidGroups(Fusion* fusion) {
     return false;
   }
 
-  // For grouping caused by permutation, the corresponding loop domains should
-  // not be all mapped to each other. If they are, it means the two groups are
-  // due to broadcast. In this case, they are not considered as valid groups
-  // since the broadcast tensor has a smaller size and pointwise scheduler
-  // handles broadcast well through unrolling and caching at all levels.
+  // For grouping caused by permutation, the corresponding allocation domains
+  // should not be all mapped to each other. If they are, it means the two
+  // groups are due to broadcast. In this case, they are not considered as valid
+  // groups since the broadcast tensor has a smaller size and pointwise
+  // scheduler handles broadcast well through unrolling and caching at all
+  // levels. For example, in TransposeTest.NoTransposeMaverick17B, two inputs
+  // are tv0[i0, i1] and tv1[i2, b3] where i0/i2 and i1/b3 are mapped to each
+  // other. However, tv0 and tv1 are in two different groups because of the
+  // broadcast. In this case, we should use the pointwise scheduler instead of
+  // the transpose scheduler.
   const auto& ref1_loop = ref1->getMaybeAllocationDomain();
   const auto& ref2_loop = ref2->getMaybeAllocationDomain();
   const auto& ca_map = domain_map.getComputeAtMap();
