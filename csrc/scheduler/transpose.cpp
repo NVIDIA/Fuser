@@ -963,14 +963,17 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
 
   std::cout << "reference1: " << reference1->toString() << std::endl;
   std::cout << "reference2: " << reference2->toString() << std::endl;
-  fusion->print();
 
-  // scheduler reference1
-  output_reference->split(1, 32);
-  output_reference->split(0, 32);
+  // output: [I0, I1] -> [I0/tile_0 * I1/tile_1, tile_0, tile_1]
+  // smem -> register is vectorized
+  // register -> smem is unrolled
+  int64_t tile_0 = 32, tile_1 = 32, n_warps = 4, unroll_vect = 4;
+  // int64_t n_serial_loop = tile_0 / unroll_vect / n_warps;
+  output_reference->split(1, tile_1);
+  output_reference->split(0, tile_0);
   output_reference->reorder({{-2, 0}});
   output_reference->merge(0);
-  // [I0/32 * I1/32', 32', 32]
+  // [I0/tile_0 * I1/tile_1, tile_0, tile_1]
   output_reference->axis(0)->parallelize(ParallelType::BIDx);
   using Options =
       scheduler_utils::BoundedDirectionalTransformPropagator::Options;
@@ -984,38 +987,71 @@ void scheduleTransposeTMA(Fusion* fusion, const TransposeParams* tparams) {
   output_reference->axis(1)->parallelize(ParallelType::Bulk);
   output_reference->axis(2)->parallelize(ParallelType::Bulk);
 
+  fusion->printMath();
+
   for (auto output_smem_cache : output_smem_tvs) {
     // [BIDx, 32', 32]
     output_smem_cache->setAllocationDomain(
         output_smem_cache->getLoopDomain(), true);
-    output_smem_cache->split(1, 4);
-    // [BIDx, 8', 4', 32]
+    // [BDIx, tile_0, tile_1] -> [BDIx, tile_0/unroll_vect, unroll_vect, tile_1]
+    output_smem_cache->split(1, unroll_vect);
+    // [BDIx, tile_0/unroll_vect/n_warps, n_warps, unroll_vect, tile_1]
+    output_smem_cache->split(1, n_warps);
+
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         output_smem_cache, -1, {input_reference});
-    output_smem_cache->merge(1, 3);
-    // [BIDx, 256, 4']
-    output_smem_cache->axis(1)->parallelize(ParallelType::TIDx);
+    output_smem_cache->axis(2)->parallelize(ParallelType::TIDy);
+    output_smem_cache->axis(4)->parallelize(ParallelType::TIDx);
     scheduler_utils::BoundedDirectionalTransformPropagator::backward(
         output_smem_cache,
         -1,
         {input_smem_tvs.at(0)},
         Options{}.propagateParallelType());
-    output_smem_cache->axis(2)->parallelize(ParallelType::Unroll);
-    output_reg_cache->axis(2)->parallelize(ParallelType::Vectorize);
+    output_smem_cache->axis(3)->parallelize(ParallelType::Unroll);
+    output_reg_cache->axis(3)->parallelize(ParallelType::Vectorize);
     output_reg_cache->setAllocationDomain(
         output_reg_cache->getLoopDomain(), true);
   }
   for (auto input_smem_cache : input_smem_tvs) {
     // Schedule the memory format for 128 byte swizzle
-    // [BIDx, 8', 4', 32]
+    // After backward propagation and reorder:
+    // [BIDx, tile_1, tile_0/unroll_vect/n_warps, n_warps, unroll_vect]
+    // = [BIDx, 32, 2, 4, 4]
     input_smem_cache->reorder({{-1, 1}});
-    // [BIDx, 32, 8', 4']
-    input_smem_cache->split(1, 8);
-    // [BIDx, 4, 8, 8', 4']
-    input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
-    // [BIDx, 4, 8, 8', 4']
-    input_smem_cache->setAllocationDomain(
+
+    :cout << "input_smem_cache after reorder: " << 
+              nput_smem_cache->toString() << std::endl;
+
+    tile_1(32) by 8 to create first dimension of size 8
+        // [BIDx, 32, 2, 4, 4] -> [BIDx, 4, 8, 2, 4, 4]
+        input_smem_cache->split(1, 8);
+
+    //
+
+    2×4 to create second dimension of size 8
+        // [BIDx, 4, 8, 2, 4, 4] -> [BIDx, 4, 8, 8, 4]
+        input_smem_cache->merge(3, 4);
+
+    std::c
+
+            put_smem_cache before swizzle : " << input_smem_c
+                                            che->toString()
+        << std::endl;
+
+    // Swizzle
+
+    's at positions 2 and 3
+        // [BIDx, 4, 8, 8, 4] with XOR swizzle on dimensions 2 and 3
+        input_smem_cache->swizzle(SwizzleType::XOR, 2, 3);
+
+    // Set allocat
+
+    to match the swizzled layout input_smem_cache->setAllocationDomain(
         input_smem_cache->getLoopDomain(), true);
+
+    // Parallelize all
+
+    s as Bulk for TMA
     input_smem_cache->axis(1)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(2)->parallelize(ParallelType::Bulk);
     input_smem_cache->axis(3)->parallelize(ParallelType::Bulk);
@@ -1537,3 +1573,4 @@ void TransposeScheduler::schedule(
   scheduleTranspose(fusion, tparams);
 }
 } // namespace nvfuser
+                            

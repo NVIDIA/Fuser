@@ -1452,9 +1452,8 @@ TEST_F(TransposeTest, TmaTranspose) {
     auto_schedule = true;
   }
   if (auto_schedule) {
-    // H100, non-tma, 82%, tma 71%
+    // H100, non-tma, 82%, tma-256, 71%, tma-128, 78%
     // non-tma, GB200, 62%, 2.18 ms, vect = 4, unroll = 2
-    // tma, load and store, 71% H100
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
     auto outputs = executor_cache.runFusionWithInputs({input0});
     testValidate(
