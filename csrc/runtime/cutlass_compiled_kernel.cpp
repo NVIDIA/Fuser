@@ -117,7 +117,7 @@ void CutlassCompiledKernel::run(
     NVF_ERROR(false, "Kernel not compiled");
   }
 
-  NVF_ERROR(workspace_size_function_);
+  NVF_ERROR(temp_tensor_sizes_function_);
   NVF_ERROR(run_kernel_function_);
   // Launch the CUTLASS kernel
 
@@ -139,30 +139,52 @@ void CutlassCompiledKernel::run(
     }
   }
 
-  const size_t workspace_size = workspace_size_function_(tensor_args);
-  auto const workspace_options = at::TensorOptions().dtype(at::kByte).device(
-      at::kCUDA, args.getDeviceIndex());
-  if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
-    debug() << "Allocating " << workspace_size
-            << " bytes to use as CUTLASS workspace" << std::endl;
-  }
-  const at::Tensor workspace = at::empty(workspace_size, workspace_options);
+  // Temporary tensors are appended after outputs in the tensor_args vector
+  size_t num_inputs_and_outputs = tensor_args.size();
+  tensor_args.resize(num_inputs_and_outputs + num_temp_tensors_);
+  std::vector<at::Tensor> temp_tensors;
+  temp_tensors.reserve(num_temp_tensors_);
+  {
+    std::vector<int64_t> temp_tensor_sizes(num_temp_tensors_);
 
-  // Call the kernel
-  run_kernel_function_(
-      tensor_args, reinterpret_cast<uint8_t*>(workspace.data_ptr()), stream);
+    temp_tensor_sizes_function_(temp_tensor_sizes.data(), tensor_args);
+
+    auto const temp_tensor_options =
+        at::TensorOptions().dtype(at::kByte).device(
+            at::kCUDA, args.getDeviceIndex());
+    for (auto [i, sz] : enumerate(temp_tensor_sizes)) {
+      if (isDebugDumpEnabled(DebugDumpOption::CutlassCompile)) {
+        debug() << "Allocating " << sz
+                << " bytes to use for CUTLASS temporary space" << std::endl;
+      }
+      at::Tensor t = at::empty({sz}, temp_tensor_options);
+      temp_tensors.push_back(t);
+      TensorArg& targ = tensor_args.at(num_inputs_and_outputs + i);
+      targ.data_ptr = t.data_ptr();
+      targ.dim = t.dim();
+      targ.sizes = (int64_t*)t.sizes().data();
+      targ.strides = (int64_t*)t.strides().data();
+    }
+  }
+
+  run_kernel_function_(tensor_args, stream);
 }
 
 void CutlassCompiledKernel::generateCode() {
   FUSER_PERF_SCOPE("CutlassCompiledKernel::generateCode");
 
-  cutlass_code_ = getStructuredCodeFromExternalFiles(getGlobalFusionCount());
-  if (!cutlass_code_.empty()) {
+  // Generate CUTLASS kernel code using the code generator
+  const cutlass_codegen::CutlassGeneratedCode ck =
+      cutlass_codegen::generateCode(fusion_, params_);
+  cutlass_code_ = ck.code;
+  num_temp_tensors_ = ck.num_temp_tensors;
+
+  std::string external_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!external_code.empty()) {
+    cutlass_code_ = external_code;
     return;
   }
-
-  // Generate CUTLASS kernel code using the code generator
-  cutlass_code_ = cutlass_codegen::generateCode(fusion_, params_);
 
   // Dump the kernel if requested. Note that we do not currently distinguish
   // between the kernel and the entire CUTLASS source file.
@@ -349,10 +371,10 @@ void CutlassCompiledKernel::compileWithNVCC() {
 void CutlassCompiledKernel::loadKernel() {
   if (shared_library_handle_) {
     // Get functions from dlopen-loaded library
-    workspace_size_function_ = reinterpret_cast<WorkspaceSizeFunc>(
-        dlsym(shared_library_handle_, "workspace_size"));
-    if (!workspace_size_function_) {
-      NVF_THROW("Failed to get CUTLASS workspace size function: ", dlerror());
+    temp_tensor_sizes_function_ = reinterpret_cast<TempTensorSizesFunc>(
+        dlsym(shared_library_handle_, "temp_tensor_sizes"));
+    if (!temp_tensor_sizes_function_) {
+      NVF_THROW("Failed to get CUTLASS temp tensor size function: ", dlerror());
     }
     run_kernel_function_ = reinterpret_cast<RunKernelFunc>(
         dlsym(shared_library_handle_, "run_kernel"));
