@@ -84,11 +84,6 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
 
   std::swap(a.parent_, b.parent_);
 
-  // CRITICAL FIX: Swap special vals and axioms
-  // These are stored separately from vals_up_ but may be referenced by Exprs
-  // in the swapped content. If not swapped, Exprs in container A could
-  // reference special vals from container B after the swap, causing
-  // use-after-free when one container is destroyed.
   std::swap(a.zero_val_, b.zero_val_);
   std::swap(a.one_val_, b.one_val_);
   std::swap(a.true_val_, b.true_val_);
