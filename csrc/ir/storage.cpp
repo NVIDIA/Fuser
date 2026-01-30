@@ -83,6 +83,13 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
   std::swap(a.metadata_, b.metadata_);
 
   std::swap(a.parent_, b.parent_);
+
+  std::swap(a.zero_val_, b.zero_val_);
+  std::swap(a.one_val_, b.one_val_);
+  std::swap(a.true_val_, b.true_val_);
+  std::swap(a.false_val_, b.false_val_);
+  std::swap(a.magic_zero_val_, b.magic_zero_val_);
+  std::swap(a.axioms_, b.axioms_);
 }
 
 IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
