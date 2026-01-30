@@ -142,7 +142,7 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public IrContainer {
+class NVF_API Fusion : public impl::IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  public:
@@ -483,8 +483,8 @@ class NVF_API Fusion : public IrContainer {
   friend class TranslateApplicableWelford;
   friend Val;
 
-  using IrContainer::registerExpr;
-  using IrContainer::registerVal;
+  using impl::IrContainer::registerExpr;
+  using impl::IrContainer::registerVal;
 
   //! Register the Val with this fusion
   void registerVal(Val* val) override;
@@ -541,20 +541,15 @@ class NVF_API Fusion : public IrContainer {
   inline static const std::string exact_mappings_key = "exact_mappings";
 };
 
+// Template implementations for Fusion::manage<T>() that use IrCloner
 template <typename T>
 std::any defaultCloneFunction(IrCloner& cloner, std::any data) {
   auto cloned_data = cloner.clone(std::any_cast<T>(data));
-  // Adding a static_assert to improve error message. Without this
-  // static_assert, the following cast will still fail, but the error message
-  // will be unreadable.
   static_assert(
       std::is_convertible_v<decltype(cloned_data), T>,
       "IrCloner::clone returns a data type that is not compatible with the "
       "original managed data type. "
       "Likely you will need to check IrCloner::clone for your data type.");
-  // Convert the result of the clone back to T before assigning to std::any.
-  // This ensures the type of the std::any does not change over the clone of
-  // fusion.
   return std::any((T)cloned_data);
 }
 
@@ -566,6 +561,43 @@ size_t Fusion::manage(T data) {
 template <typename T>
 void Fusion::manage(std::string key, T data) {
   return manage(key, std::any(data), defaultCloneFunction<T>);
+}
+
+// Template implementations for IrBuilder that require Fusion to be fully
+// defined
+template <class T, class... Args>
+T* IrBuilder::createInContainer(Fusion* container, Args&&... args) {
+  NVF_ERROR(container != nullptr, "Need an active container to build IR.");
+  T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
+  container->registerStmt(IrBuilderPasskey(container), node);
+  return node;
+}
+
+template <class T>
+T* IrBuilder::clone(const T* src, IrCloner* ir_cloner) {
+  NVF_ERROR(
+      ir_cloner != nullptr,
+      "Cannot use create when a cloner object is set. Use clone.");
+  NVF_ERROR(
+      ir_cloner->container() != nullptr,
+      "Cloner doesn't have a valid container to store cloned object.");
+
+  T* dest = new T(src, ir_cloner);
+  const auto* src_stmt = dynamic_cast<const Statement*>(src);
+  auto* dest_stmt = dynamic_cast<Statement*>(dest);
+
+  auto dest_container = ir_cloner->container();
+  auto src_container = src_stmt->container();
+
+  dest_container->registerStmt(IrBuilderPasskey(dest_container), dest_stmt);
+
+  if (src_container != dest_container) {
+    dest_stmt->setName(IrBuilderPasskey(dest_container), src_stmt->name());
+  }
+
+  ir_cloner->registerClone(src_stmt, dest_stmt);
+
+  return dest;
 }
 
 } // namespace nvfuser

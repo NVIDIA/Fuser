@@ -13,6 +13,11 @@
 
 namespace nvfuser {
 
+// Forward declaration - Fusion inherits from impl::IrContainer
+class Fusion;
+
+namespace impl {
+
 IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
   ir_storage()->parent_ = this;
 }
@@ -30,21 +35,26 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   if (a.ir_storage_) {
     a.ir_storage()->parent_ = &a;
     // Also update all Statement ir_container_ pointers to point to new owner
+    // Note: IrContainer is now in impl namespace, but Statement::ir_container_
+    // is Fusion*. Since only Fusion (and its derived classes) inherit from
+    // impl::IrContainer, this cast is safe.
+    auto* fusion_a = static_cast<Fusion*>(&a);
     for (auto val : a.vals()) {
-      val->ir_container_ = &a;
+      val->ir_container_ = fusion_a;
     }
     for (auto expr : a.deterministic_exprs()) {
-      expr->ir_container_ = &a;
+      expr->ir_container_ = fusion_a;
     }
   }
   if (b.ir_storage_) {
     b.ir_storage()->parent_ = &b;
     // Also update all Statement ir_container_ pointers to point to new owner
+    auto* fusion_b = static_cast<Fusion*>(&b);
     for (auto val : b.vals()) {
-      val->ir_container_ = &b;
+      val->ir_container_ = fusion_b;
     }
     for (auto expr : b.deterministic_exprs()) {
-      expr->ir_container_ = &b;
+      expr->ir_container_ = fusion_b;
     }
   }
 }
@@ -54,4 +64,6 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   return ir_cloner;
 }
+
+} // namespace impl
 } // namespace nvfuser
