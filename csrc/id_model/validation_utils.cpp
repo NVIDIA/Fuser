@@ -9,7 +9,7 @@
 #include <id_model/to_string.h>
 #include <id_model/validation_utils.h>
 #include <ir/utils.h>
-#include <utils.h>
+#include "base.h"
 
 #include <sstream>
 

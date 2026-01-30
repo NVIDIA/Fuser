@@ -119,7 +119,7 @@ NVF_API TensorView* cutlass_nvfp4_grouped_mm(
 // Scaled Dot Product Flash Attention Forward Result
 struct SdpfaFwdResult {
   TensorView* output = nullptr;
-  TensorView* log_sumexp = nullptr;
+  TensorView* logsumexp = nullptr;
   TensorView* philox_seed = nullptr;
   TensorView* philox_offset = nullptr;
 };
@@ -151,7 +151,7 @@ NVF_API SdpfaBwdResult sdpfa_bwd(
     TensorView* key,
     TensorView* value,
     TensorView* output,
-    TensorView* log_sumexp,
+    TensorView* logsumexp,
     Val* dropout_p,
     Val* is_causal,
     TensorView* philox_seed,

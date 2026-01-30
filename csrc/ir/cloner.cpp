@@ -5,15 +5,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <ir/cloner.h>
+#include "ir/cloner.h"
 
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/builder.h>
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
 
 namespace nvfuser {
 
-IrCloner::IrCloner(IrContainer* container) : ir_container_(container) {}
+IrCloner::IrCloner(IrContainer* container) : ir_container_(container) {
+  NVF_ERROR(
+      container != nullptr,
+      "IrCloner constructor received NULL container pointer");
+}
 
 Statement* IrCloner::clone(const Statement* statement) {
   if (statement == nullptr) {

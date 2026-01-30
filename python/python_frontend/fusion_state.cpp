@@ -8,7 +8,7 @@
 #include <instrumentation.h>
 #include <python_frontend/fusion_record.h>
 #include <python_frontend/fusion_state.h>
-#include <utils.h>
+#include "base.h"
 
 // Require namespace for perf scope instrumentation
 using namespace nvfuser::inst;

@@ -24,6 +24,12 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
+  NVF_CHECK(
+      !tv->domain()->hasRaggedIterDomain(),
+      "Select operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor: ",
+      tv->toString());
+
   std::vector<IterDomain*> new_root;
   new_root.reserve(dom.size() - 1);
   dim = wrapDim(dim, (int64_t)dom.size());
@@ -46,6 +52,20 @@ TensorView* indexSelect(
     TensorView* lookup_tv,
     int64_t dim,
     TensorView* index_tv) {
+  NVF_CHECK(
+      !lookup_tv->domain()->hasRaggedIterDomain(),
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Input tensor (lookup_tv): ",
+      lookup_tv->toString());
+
+  NVF_CHECK(
+      !index_tv->domain()->hasRaggedIterDomain(),
+      "IndexSelect operation is not supported for tensors with "
+      "RaggedIterDomain. "
+      "Index tensor (index_tv): ",
+      index_tv->toString());
+
   DataType dtype = lookup_tv->getDataType().value();
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
@@ -131,6 +151,18 @@ TensorView* indexPutAccumulate(
 
 // torch.gather
 TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
+  NVF_CHECK(
+      !inp->domain()->hasRaggedIterDomain(),
+      "Gather operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor (inp): ",
+      inp->toString());
+
+  NVF_CHECK(
+      !index->domain()->hasRaggedIterDomain(),
+      "Gather operation is not supported for tensors with RaggedIterDomain. "
+      "Index tensor (index): ",
+      index->toString());
+
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
   NVF_CHECK(
@@ -168,6 +200,26 @@ TensorView* scatter(
     TensorView* index,
     Val* src,
     std::optional<BinaryOpType> accumulate_op) {
+  NVF_CHECK(
+      !self->domain()->hasRaggedIterDomain(),
+      "Scatter operation is not supported for tensors with RaggedIterDomain. "
+      "Input tensor (self): ",
+      self->toString());
+
+  NVF_CHECK(
+      !index->domain()->hasRaggedIterDomain(),
+      "Scatter operation is not supported for tensors with RaggedIterDomain. "
+      "Index tensor (index): ",
+      index->toString());
+
+  if (src->isA<TensorView>()) {
+    NVF_CHECK(
+        !src->as<TensorView>()->domain()->hasRaggedIterDomain(),
+        "Scatter operation is not supported for tensors with RaggedIterDomain. "
+        "Source tensor (src): ",
+        src->toString());
+  }
+
   auto self_dom = TensorDomain::noReductions(self->getLogicalDomain());
   auto idx_dom = TensorDomain::noReductions(index->getLogicalDomain());
 

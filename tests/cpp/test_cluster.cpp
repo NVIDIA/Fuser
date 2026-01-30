@@ -9,6 +9,8 @@
 #include <sstream>
 #include <tuple>
 
+#include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include "logical_domain_map.h"
@@ -17,8 +19,8 @@
 #include "scheduler/matmul_utils.h"
 #include "scheduler/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
 #include "type.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

@@ -13,7 +13,7 @@
 #include "kernel_db/kernel_db.h"
 #include "kernel_db/utils.h"
 #include "tests/cpp/utils.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 // RUN CMD: bin/test_jit --gtest_filter="NVFuserTest*KernelDb_Write*"
 

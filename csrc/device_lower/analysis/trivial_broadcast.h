@@ -53,6 +53,8 @@ class NVF_API ConcretizedBroadcastDomains : private IterVisitor {
 
   void handle(BlockQuantizationOp* bq) final;
 
+  void handle(GroupedBlockQuantizationOp* bq) final;
+
   void dispatch(Expr* expr) final;
 
   void markAsConcretized(

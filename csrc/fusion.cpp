@@ -101,17 +101,16 @@ bool Fusion::sameDefinition(const Fusion& other) const {
   return true;
 }
 
-void swap(Fusion& a, Fusion& b) noexcept {
+void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  using std::swap;
+  // Swap IrContainer base class (contains IrStorage)
+  IrContainer::swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
 
-  swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  std::swap(a.inputs_, b.inputs_);
+  std::swap(a.outputs_, b.outputs_);
 
-  swap(a.inputs_, b.inputs_);
-  swap(a.outputs_, b.outputs_);
-
-  swap(a.io_alias_, b.io_alias_);
+  std::swap(a.io_alias_, b.io_alias_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -122,9 +121,10 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
+
   auto ir_cloner = IrContainer::copy(from, to);
 
-  for (auto val : from->vals_) {
+  for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
     ir_cloner.clone(val)->setUses(ir_cloner.clone(val->uses_));
   }
@@ -183,15 +183,13 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
-// Clang tidy complains when using default constructor for IrContainer instead
-// of copy constructor. Fusion::copy has a call to IrContainer::copy, so it's
-// redundant to use the IrContainer copy constructor, but it is harmless since
-// Fusion::copy starts by calling clear().
-Fusion::Fusion(const Fusion& other) : IrContainer(other) {
+// Copy constructor
+Fusion::Fusion(const Fusion& other) {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
+// Move constructor
 Fusion::Fusion(Fusion&& other) noexcept {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
@@ -222,7 +220,10 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  IrContainer::clear();
+  // Clear container contents instead of destroying it
+  // This preserves the container object so Statement pointers don't become
+  // dangling
+  ir_storage()->clear();
 
   inputs_.clear();
   outputs_.clear();
@@ -284,8 +285,13 @@ void Fusion::removeVal(Val* val) {
   // value in its inputs(). In https://github.com/NVIDIA/Fuser/issues/1270 this
   // caused a segfault when the fusion was cloned since that will clone not only
   // live objects but also these dangerous dangling dead ones.
+  //
+  // IMPORTANT: We must use unordered_exprs() instead of exprs() here.
+  // exprs() only returns Exprs reachable from terminating outputs, which means
+  // dead Exprs that still reference the Val won't be found and removed.
+  // This causes use-after-free when copying the Fusion later.
   std::vector<Expr*> exprs_to_remove;
-  for (Expr* e : exprs_) {
+  for (Expr* e : unordered_exprs()) {
     if (!inContainer(e)) {
       continue;
     }
@@ -718,7 +724,7 @@ void Fusion::resetTvUses() {
   // getExprs only uses definition, so even if we've modified uses already to
   // remove dead exprs, this could reinsert them. getExprs is also boundeds by
   // inputs as registered inputs will return nullptr as their definition.
-  const auto all_tvs = ir_utils::filterByType<TensorView>(vals_);
+  const auto all_tvs = ir_utils::filterByType<TensorView>(vals());
   const auto used_exprs = StmtSort::getExprs(this);
 
   for (auto tv : all_tvs) {

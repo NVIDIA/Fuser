@@ -85,7 +85,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   bdimx = ceilDiv(after_vect, params->persistent_batch_size);
   bdimx =
       bdimx % warp_size == 0 ? bdimx : bdimx + warp_size - bdimx % warp_size;
-
+  int64_t compute_bdimx = bdimx, compute_bdimy = 1, compute_bdimz = 1;
   // set warp specialized circular buffer options
   // don't use warp specialized if the total iteration count is too small
   // TODO: heuristic tuning determine when to use warp specialized version
@@ -93,7 +93,9 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
   int64_t bdimy = LaunchParams::UNINITIALIZED_VAL;
   int64_t bdimz = LaunchParams::UNINITIALIZED_VAL;
   const int64_t n_compute_warp_groups = 2;
-  const int64_t n_rows_per_compute_warp_group = 2;
+  // Each TMA stage processes multiple rows of iterations, must be divisible.
+  const int64_t n_rows_per_compute_warp_group =
+      total_iter_count % 2 == 0 ? 2 : 1;
   const int64_t iter_limited_stages = total_iter_count /
       (n_compute_warp_groups * n_rows_per_compute_warp_group * sm_count);
   const int64_t smem_size_bit = prop.max_persistent_buffer_size_bit *
@@ -105,6 +107,8 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     gdimx = sm_count;
     bdimy = n_compute_warp_groups;
     bdimz = 1; // warp specialized kernel requires static CTA shape
+    compute_bdimy = bdimy;
+    compute_bdimz = bdimz;
     params->n_grouped_rows = n_rows_per_compute_warp_group;
     ParallelType ws_pt = bdimy > 1 ? ParallelType::TIDy : ParallelType::TIDx;
     WarpSpecialized ws(ws_pt);
@@ -113,9 +117,6 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
       ws.stage_slice_position = 3;
       // Limitation in grouped reduction runtime function
       NVF_ERROR(bdimx == 128, "bdimx must be 128 for TIDy warp specialization");
-      NVF_ERROR(
-          params->n_grouped_rows > 1,
-          "n_grouped_rows must be greater than 1 for TIDy warp specialization");
     } else {
       bdimx += kWarpSpecializationPaddedThreads;
     }
@@ -123,7 +124,7 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     if (total_threads > 256) {
       int64_t reg_per_thread = getRegPerThreadGivenThreadsPerSM(total_threads);
       int64_t computation_threads =
-          total_threads - kWarpSpecializationPaddedThreads;
+          compute_bdimx * compute_bdimy * compute_bdimz;
       ws.num_registers = scheduler_utils::getRegisterSharing(
           reg_per_thread,
           computation_threads,
@@ -146,6 +147,9 @@ std::unique_ptr<InnerNormTmaParams> getInnerPersistentHeuristics(
     params->cparams.bdimx = bdimx;
     params->cparams.bdimy = bdimy;
     params->cparams.bdimz = bdimz;
+    params->cparams.compute_bdimx = compute_bdimx;
+    params->cparams.compute_bdimy = compute_bdimy;
+    params->cparams.compute_bdimz = compute_bdimz;
   }
 
   // Set index type
@@ -450,7 +454,9 @@ void scheduleInnerPersistentWarpSpecialized(
     reduction_tv->split(iteration_pos, params->lparams.bdimy() - 1);
     tidy_pos = iteration_pos + 1;
     reduction_pos++;
-    group_pos++;
+    if (group_pos >= 0) {
+      group_pos++;
+    }
   }
   if (params->lparams.gdimx() > 1) {
     // [I/Group/TIDy, TIDy, Group, R] -> [I/Group/TIDy/BIDx, BIDx, TIDy,
@@ -458,8 +464,12 @@ void scheduleInnerPersistentWarpSpecialized(
     reduction_tv->split(iteration_pos, params->lparams.gdimx());
     reduction_tv->axis(iteration_pos + 1)->parallelize(ParallelType::BIDx);
     reduction_pos++;
-    tidy_pos++;
-    group_pos++;
+    if (tidy_pos >= 0) {
+      tidy_pos++;
+    }
+    if (group_pos >= 0) {
+      group_pos++;
+    }
   }
 
   TransformPropagator propagator(reduction_tv);
@@ -494,10 +504,12 @@ void scheduleInnerPersistentWarpSpecialized(
   // reduction This enables a two-stage reduction:
   //   1. Thread-local vectorized reduction (across b and v dimensions)
   //   2. Block-level reduction (across x dimension using warp/block primitives)
-  // rfactor axes: {reduction_pos, vectorize_pos} corresponding to b and v
-  // dimensions
+  // rfactor axes: {reduction_pos, vectorize_pos, unswitch_pos} corresponding to
+  // b, v and us dimensions
+  int64_t unswitch_pos = reduction_pos + 1;
   int64_t vectorize_pos = reduction_pos + 3;
-  auto reference_tv = reduction_tv->rFactor({reduction_pos, vectorize_pos});
+  auto reference_tv =
+      reduction_tv->rFactor({reduction_pos, vectorize_pos, unswitch_pos});
 
   // Propagate transformations from reference_tv to all non-TMA tensors
   // TMA tensors keep their simple [BIDx, Bulk] schedule

@@ -7,21 +7,21 @@
 // clang-format on
 #pragma once
 
-#include <c10/core/ScalarType.h>
-#include <exceptions.h>
-
-#include <ir/builder_passkey.h>
-#include <polymorphic_value.h>
-#include <type.h>
-#include <utils.h>
-#include <visibility.h>
-
 #include <cstdint>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+
+#include <c10/core/ScalarType.h>
+
+#include "base.h"
+#include "exceptions.h"
+#include "ir/builder_passkey.h"
+#include "polymorphic_value.h"
+#include "type.h"
+#include "visibility.h"
 
 // TODO: Add more types (int32, int64)
 // TODO: sameAs should have better logic to check against any type and return
@@ -58,6 +58,7 @@ class Expr;
 class Val;
 class IrCloner;
 class IrContainer;
+class IrStorage;
 class IrBuilderPasskey;
 class IrContainerPasskey;
 class ExpressionEvaluator;
@@ -95,6 +96,7 @@ class ExprPasskey {
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
   friend void swap(Fusion&, Fusion&) noexcept;
   friend void swap(IrContainer& a, IrContainer& b) noexcept;
+  friend class IrContainer;
 
  public:
   Statement() = delete;
@@ -421,6 +423,7 @@ class NVF_API Val : public Statement {
  protected:
   friend class Fusion;
   friend class IrContainer;
+  friend class IrStorage;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;

@@ -19,6 +19,8 @@
 #endif
 #include <torch/cuda.h>
 
+#include <gmock/gmock-matchers.h>
+
 #include "fusion_segmenter.h"
 #include "ir/all_nodes.h"
 #include "ir/iostream.h"
@@ -27,7 +29,7 @@
 #include "ops/all_ops.h"
 #include "options.h"
 #include "runtime/allocations.h"
-#include "tests/cpp/validator.h"
+#include "validator_utils.h"
 
 namespace nvfuser {
 

@@ -18,7 +18,7 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-#include <utils.h>
+#include "base.h"
 
 namespace nvfuser {
 
@@ -468,7 +468,15 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (const auto& [cached_input, input_idx] : cached_inputs) {
     if (vectorize) {
-      auto producer_tvs = ir_utils::producerTvsOf(cached_input);
+      auto all_producers = ir_utils::producerTvsOf(cached_input);
+      // Filter out schedule operations used for programmatic dependent launch
+      // because they are not traditional producers
+      std::vector<TensorView*> producer_tvs;
+      std::copy_if(
+          all_producers.begin(),
+          all_producers.end(),
+          std::back_inserter(producer_tvs),
+          [](TensorView* tv) { return !ir_utils::isScheduleOp(tv); });
       if (producer_tvs.size() == 1 &&
           vectorizable_expr(cached_input->definition()) &&
           std::ranges::find(vectorizable_inputs_outputs, producer_tvs[0]) !=
