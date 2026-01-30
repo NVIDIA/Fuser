@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <bfs.h>
-
 #include <vector>
+
+#include "bfs.h"
 
 namespace nvfuser {
 

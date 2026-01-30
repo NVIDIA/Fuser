@@ -7,10 +7,11 @@
 // clang-format on
 #pragma once
 
-#include <visibility.h>
 #include <array>
 #include <ostream>
 #include <string>
+
+#include "visibility.h"
 
 namespace nvfuser {
 
