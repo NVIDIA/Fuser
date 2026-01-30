@@ -27,8 +27,16 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
 
   auto dev_prop = at::cuda::getCurrentDeviceProperties();
 
-  // These are derived from benchmarking.
-  int64_t threads_per_block = props.has_mufu_computation ? 512 : 256;
+  // Vectorization is not as useful for TMA since we're not doing global loads.
+  // Vectorization can hurt the performance of shared memory loads, due to bank
+  // conflicts. For float32, ideal shared memory reads is achieved with no
+  // vectorization. For float16, it would be ideal for vect_factor=2, but we
+  // don't currently handle this.
+  int64_t vectorization_factor = 1;
+
+  // Benchmarking shows some benefit to 512 block size for has_mufu_computation,
+  // but it's not across the board. Stick to 256 for now.
+  int64_t threads_per_block = 256;
 
   const int64_t max_threads_per_sm = dev_prop->maxThreadsPerMultiProcessor;
   const int64_t target_threads_per_sm = max_threads_per_sm / 2;
@@ -40,11 +48,12 @@ std::unique_ptr<TmaInnerReductionParams> getReductionHeuristics(
       target_threads_per_sm,
       props.has_mufu_computation);
 
-  // TMA kernel doesn't do vectorization due to working out of shared memory.
-  // Instead, fold the entire vect_unroll into unroll_factor.
+  // Since vectorization isn't currently performed, fold the entire vect_unroll
+  // factor into unroll.
   int64_t unroll_factor = scheduler_utils::lastPow2(target_vect_unroll);
 
   auto params = std::make_unique<TmaInnerReductionParams>();
+  params->vectorization_factor = vectorization_factor;
   params->threads_per_block = threads_per_block;
   params->unroll_factor = unroll_factor;
 
@@ -107,21 +116,29 @@ void scheduleReduction(Fusion* fusion, const TmaInnerReductionParams* rparams) {
   // Non-TMA scheduling
   //
   // Apply splits following the pattern:
-  // [I, R] -> [I, R/tidx, tidx]
-  //        -> [I, R/tidx/unroll, unroll, tidx]
+  // [I, R] -> [I, R/vect, vect]
+  //        -> [I, R/vect/tidx, tidx, vect]
+  //        -> [I, R/vect/tidx/unroll, unroll, tidx, vect]
 
-  // Split 1: TIDx (always applied)
+  // Split 1: Vectorization factor (innermost serial split for TMA)
+  if (rparams->vectorization_factor > 1) {
+    reduction_tv->split(inner_reduce_axis, rparams->vectorization_factor);
+    reduction_tv->axis(inner_reduce_axis + 1)
+        ->parallelize(ParallelType::Serial);
+  }
+
+  // Split 2: TIDx (always applied)
   reduction_tv->split(inner_reduce_axis, rparams->threads_per_block);
   reduction_tv->axis(inner_reduce_axis + 1)->parallelize(ParallelType::TIDx);
 
-  // Split 2: Inner unroll (outside of TIDx)
+  // Split 3: Inner unroll (outside of TIDx)
   if (rparams->unroll_factor > 1) {
     reduction_tv->split(inner_reduce_axis, rparams->unroll_factor);
     reduction_tv->axis(inner_reduce_axis + 1)
         ->parallelize(ParallelType::Unroll);
   }
 
-  // Split 3: Unswitch (always applied)
+  // Split 4: Unswitch (always applied)
   reduction_tv->split(inner_reduce_axis, 1);
   reduction_tv->axis(inner_reduce_axis + 1)
       ->parallelize(ParallelType::Unswitch);
