@@ -477,12 +477,7 @@ TEST_F(TopKDynamicTest, KZeroConcretization) {
       << tv3->definition()->toString();
 }
 
-class TopKTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using TopKTest = NVFuserTest;
 
 // Parameterized test fixture for BasicExecution with different data types
 class TopKTestBasicExecution : public TopKTest,

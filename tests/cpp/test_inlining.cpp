@@ -20,12 +20,7 @@
 
 namespace nvfuser {
 
-class InliningTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using InliningTest = NVFuserTest;
 
 TEST_F(InliningTest, InliningMismatchedDims1) {
   Fusion fusion;

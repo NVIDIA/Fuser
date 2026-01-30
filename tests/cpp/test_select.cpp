@@ -15,12 +15,7 @@
 
 namespace nvfuser {
 
-class SelectTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using SelectTest = NVFuserTest;
 
 TEST_F(SelectTest, Pointwise) {
   auto fusion_ptr = std::make_unique<Fusion>();

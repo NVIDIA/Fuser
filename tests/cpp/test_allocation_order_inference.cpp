@@ -23,12 +23,7 @@ namespace nvfuser {
 
 using testing::ElementsAre;
 
-class AllocationOrderInferenceTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using AllocationOrderInferenceTest = NVFuserTest;
 
 std::vector<int64_t> getAllocationOrder(TensorView* tv) {
   std::optional<std::vector<int64_t>> permutation =

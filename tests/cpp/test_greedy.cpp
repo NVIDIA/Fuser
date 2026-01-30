@@ -23,12 +23,7 @@
 
 namespace nvfuser {
 
-class GreedySchedulerTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using GreedySchedulerTest = NVFuserTest;
 
 class GreedySchedulerTestConstraintSize
     : public GreedySchedulerTest,

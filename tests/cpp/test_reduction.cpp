@@ -74,12 +74,7 @@ void validateNoParallelBroadcastExist(kir::Kernel* kernel) {
 
 } // namespace
 
-class ReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using ReductionTest = NVFuserTest;
 
 TEST_F(ReductionTest, GridAllreduce1) {
   const int nx = 999;

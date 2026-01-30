@@ -56,12 +56,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu2Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using Gpu2Test = NVFuserTest;
 
 TEST_F(Gpu2Test, FusionGlobalIntermediate_CUDA) {
   Fusion fusion;

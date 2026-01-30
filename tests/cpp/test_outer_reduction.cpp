@@ -33,12 +33,7 @@
 
 namespace nvfuser {
 
-class OuterReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using OuterReductionTest = NVFuserTest;
 
 using namespace at::indexing;
 

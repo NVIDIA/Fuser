@@ -22,12 +22,7 @@
 
 namespace nvfuser {
 
-class RemoveBcastSqueezeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using RemoveBcastSqueezeTest = NVFuserTest;
 
 namespace {
 

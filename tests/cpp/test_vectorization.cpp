@@ -34,11 +34,7 @@ void checkMappedVal(
 
 } // namespace
 
-class VectorizationAnalysisTest : public NVFuserTest {
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using VectorizationAnalysisTest = NVFuserTest;
 
 // Simple pad test
 TEST_F(

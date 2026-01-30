@@ -17,12 +17,7 @@
 
 namespace nvfuser {
 
-class PointwiseFusedReductionTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using PointwiseFusedReductionTest = NVFuserTest;
 
 // inner reduction + non-broadcast epilogue, can't be fused
 // outer reduction + non-broadcast epilogue, can be fused

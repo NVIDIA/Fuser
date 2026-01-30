@@ -55,12 +55,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu1Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using Gpu1Test = NVFuserTest;
 
 // A few smoke tests for IrGraphGenerator
 // (These tests exercise IrGraphGenerator through a non-trivial IR,

@@ -1731,7 +1731,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
 // It is not required to run compile-time invalid case tests on Hopper or newer
 // GPUs. Detecting invalid cases does not even require a GPU.
-class TMACompileTimeInvalidTest : public NVFuserTest {};
+using TMACompileTimeInvalidTest = NVFuserTest;
 class TMARuntimeInvalidTest : public TMATest {};
 
 TEST_F(TMACompileTimeInvalidTest, BulkNotInTMA) {

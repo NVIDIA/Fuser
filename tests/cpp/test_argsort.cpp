@@ -22,12 +22,7 @@
 
 namespace nvfuser {
 
-class ArgsortTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using ArgsortTest = NVFuserTest;
 
 // Parameterized test fixture for BasicExecution with different data types
 class ArgsortTestBasicExecution

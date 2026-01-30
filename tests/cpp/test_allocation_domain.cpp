@@ -21,12 +21,7 @@
 
 namespace nvfuser {
 
-class AllocationDomainTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using AllocationDomainTest = NVFuserTest;
 
 using ::testing::ElementsAre;
 

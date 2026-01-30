@@ -71,12 +71,7 @@ void checkIndexSelectVectorization(
 
 } // namespace
 
-class IndexSelectTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using IndexSelectTest = NVFuserTest;
 
 TEST_F(IndexSelectTest, Simple1) {
   for (int i = 0; i < 5; ++i) {

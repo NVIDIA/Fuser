@@ -52,12 +52,7 @@ namespace nvfuser {
 
 using testing::UnorderedElementsAre;
 
-class ReshapeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-  }
-};
+using ReshapeTest = NVFuserTest;
 
 TEST_F(ReshapeTest, ViewDtypeSameSizeOutput) {
   Fusion fusion;
