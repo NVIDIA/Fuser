@@ -148,16 +148,8 @@ void lowerToBroadcast(
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
 
-  NVF_ERROR_EQ(
-      sender_mesh.rank(),
-      1,
-      "Broadcast only supports a 1D sender mesh. Given ",
-      sender_mesh);
-  NVF_ERROR_EQ(
-      receiver_mesh.rank(),
-      1,
-      "Broadcast only supports a 1D receiver mesh. Given ",
-      receiver_mesh);
+  NVF_ERROR_EQ(sender_mesh.rank(), 1, "sender: ", input_tv->toString());
+  NVF_ERROR_EQ(receiver_mesh.rank(), 1, "receiver: ", output_tv->toString());
 
   DeviceIdxType root = sender_mesh.at(0);
   Team team = receiver_mesh.vector();

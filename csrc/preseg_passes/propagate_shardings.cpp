@@ -13,7 +13,6 @@
 #include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/propagation.h"
-#include "multidevice/utils.h"
 #include "scheduler/utils.h"
 
 namespace nvfuser::preseg_passes {
@@ -186,6 +185,13 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           selected_parallel_types,
           PropagateDirection::kBackward);
     }
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
+    debug() << std::endl
+            << "Fusion Transforms after " << name() << ":" << std::endl;
+    fusion->printTransforms();
+    debug() << std::endl;
   }
 }
 
