@@ -15,25 +15,35 @@
 
 namespace nvfuser {
 
+// Forward declaration of impl namespace
+namespace impl {
+class IrContainer;
+}
+
 class IrBuilderPasskey;
 class ExprPasskey;
 class OptOutMutator;
 
 // Passkey for container to register names with statements
 class IrContainerPasskey {
-  friend class IrContainer;
+  friend class impl::IrContainer;
   friend class IrStorage;
 
  private:
   explicit IrContainerPasskey() = default;
 };
 
-// IrContainer: Base class for types that provide IrContainer API via
-// composition
+namespace impl {
+
+// IrContainer: Implementation detail base class for types that provide
+// IrContainer API via composition
 //
 // This class handles the composition infrastructure and forwarding boilerplate
 // for accessing IrStorage functionality. Derived classes (like Fusion) can
 // focus on their specific logic while inheriting the full IrContainer API.
+//
+// Note: IrContainer is now in the impl namespace. External code should use
+// Fusion as the public base class interface.
 //
 // Key Features:
 // - Owns IrStorage via unique_ptr (can be shared_ptr in Phase 2)
@@ -236,4 +246,5 @@ class NVF_API IrContainer : public PolymorphicBase {
   std::unique_ptr<IrStorage> ir_storage_;
 };
 
+} // namespace impl
 } // namespace nvfuser
