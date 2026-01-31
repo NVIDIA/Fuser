@@ -833,71 +833,6 @@ Val* getExtentOfRootAxis(IterDomain* id, Val* normal_extent = nullptr) {
 
 } // namespace
 
-IndexSwizzle::IndexSwizzle(
-    const TensorView* tv,
-    std::unordered_map<IterDomain*, Val*> initial_index_map,
-    std::unordered_map<IterDomain*, Val*> extent_map,
-    std::unordered_set<IterDomain*> zero_domains,
-    std::unordered_set<IterDomain*> zero_merged_in)
-    : IndexCompute(
-          tv->domain(),
-          std::move(initial_index_map),
-          std::move(extent_map),
-          std::move(zero_domains),
-          std::move(zero_merged_in)),
-      tv_(tv) {}
-
-IndexSwizzle::IndexSwizzle(
-    const TensorView* tv,
-    const TensorDomain* domain,
-    std::unordered_map<IterDomain*, Val*> initial_index_map,
-    std::unordered_map<IterDomain*, Val*> extent_map,
-    std::unordered_set<IterDomain*> zero_domains,
-    std::unordered_set<IterDomain*> zero_merged_in)
-    : IndexCompute(
-          domain,
-          std::move(initial_index_map),
-          std::move(extent_map),
-          std::move(zero_domains),
-          std::move(zero_merged_in)),
-      tv_(tv) {}
-
-void IndexSwizzle::run() {
-  if (tv_->hasSwizzleOp()) {
-    // Propagate backward for the annotated swizzle path.
-    // TODO:
-    //  eventually will unify the two swizzling implementation
-    //  code path in a follow up. Currently just focusing on
-    //  getting the necessary implementation of the swizzle
-    //  operator ready.
-    //
-    // At this intermediate state, the legacy swizzle implementation
-    //  takes precedence, i.e. whenever swizzle_type_ is not NoSwizzle,
-    //  the new swizzle op pass is disabled.
-    UpdateLeafIndices update_loop(td_, indexMap(), extentMap());
-    index_map_ = update_loop.indexMap();
-    extent_map_ = update_loop.extentMap();
-    IndexCompute::swizzle_mode_ = SwizzleMode::Data;
-    IndexCompute::run();
-  }
-}
-
-void IndexSwizzle::dispatch(Expr* e) {
-  auto out_ids = ir_utils::filterByType<IterDomain>(e->outputs());
-  bool needs_update =
-      std::any_of(out_ids.begin(), out_ids.end(), [this](IterDomain* id) {
-        return swizzled_ids_.find(id) != swizzled_ids_.end();
-      });
-  if (!needs_update) {
-    return;
-  }
-
-  IndexCompute::dispatch(e);
-  for (auto input : ir_utils::filterByType<IterDomain>(e->inputs())) {
-    swizzled_ids_.insert(input);
-  }
-}
-
 namespace {
 
 //! Check if the index of a parallel loop should be substituted with
@@ -1349,40 +1284,10 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
   const auto& producer_indexing = producer_indexing_from_idgraph.index;
 
-  IndexSwizzle index_swizzle(
-      producer_tv,
-      producer_indexing.indexMap(),
-      producer_indexing.extentMap(),
-      producer_indexing.zeroDomains(),
-      producer_indexing.zeroMergedIn());
-
-  index_swizzle.run();
-
-  auto producer_swizzled_index = index_swizzle;
-
-  if (producer_tv->hasSwizzleOp()) {
-    // Special handling needed on the new swizzle
-    //  op pass:
-    //  each swizzle op is local to the tensor,
-    //  so ReplayPasC will not include the swizzle
-    //  ops on the producer iterdomain. So would
-    //  need to traverse forward the producer domain
-    //  before the replay to get the swizzle ops.
-    IndexSwizzle producer_swizzle2d(
-        producer_tv,
-        domain_guard.prevDomain(),
-        producer_indexing.indexMap(),
-        producer_indexing.extentMap(),
-        producer_indexing.zeroDomains(),
-        producer_indexing.zeroMergedIn());
-    producer_swizzle2d.run();
-    producer_swizzled_index = producer_swizzle2d;
-  }
-
   // TODO: merge the two swizzle compute logic once the new one is ready.
   //  will need to replace cyclic shift swizzle with xor since swizzle2d
   //  doesn't have cyclic shift.
-  const auto& index_map = producer_swizzled_index.indexMap();
+  const auto& index_map = producer_indexing.indexMap();
 
   const auto& extent_map = producer_indexing.extentMap();
   const auto& zero_domain_map = producer_indexing.zeroDomains();
@@ -1836,16 +1741,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
   auto consumer_indexing = consumer_indexing_from_idgraph.index;
 
-  IndexSwizzle index_swizzle(
-      consumer_tv,
-      consumer_indexing.indexMap(),
-      consumer_indexing.extentMap(),
-      consumer_indexing.zeroDomains(),
-      consumer_indexing.zeroMergedIn());
-
-  index_swizzle.run();
-
-  const auto& index_map = index_swizzle.indexMap();
+  const auto& index_map = consumer_indexing.indexMap();
   const auto& extent_map = consumer_indexing.extentMap();
   const auto& zero_domain_map = consumer_indexing.zeroDomains();
 

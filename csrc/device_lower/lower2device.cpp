@@ -416,10 +416,6 @@ void GpuLower::analysis(Fusion* fusion) {
   validateMma(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateMma");
 
-  // Validate swizzle usage on the fusion schedule.
-  validateSwizzle(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
-
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
