@@ -2134,12 +2134,14 @@ bool shouldUseTensorIndexer(
         producer->definition()->isA<LoadStoreOp>() &&
         producer->definition()->as<LoadStoreOp>()->opType() ==
             LoadStoreOpType::LdMatrix;
+    is_producer_ldmatrix_op = false;
     bool is_producer_stmatrix_op_with_no_alloc_domain =
         producer->definition() != nullptr &&
         producer->definition()->isA<LoadStoreOp>() &&
         producer->definition()->as<LoadStoreOp>()->opType() ==
             LoadStoreOpType::StMatrix &&
         !producer->hasAllocation();
+    is_producer_stmatrix_op_with_no_alloc_domain = false;
 
     if (assert) {
       NVF_ERROR(
@@ -2167,9 +2169,11 @@ bool shouldUseTensorIndexer(
 
   // If opted in, TensorIndexer is used as long as it's supported
   if (GpuLower::current()->idModelOptions().isTensorIndexerEnabled() &&
-      is_tensor_indexer_supported(/*assert=*/false)) {
+      is_tensor_indexer_supported(/*assert=*/true)) {
     return true;
   }
+
+  NVF_THROW("TensorIndexer not used");
 
   return false;
 }
