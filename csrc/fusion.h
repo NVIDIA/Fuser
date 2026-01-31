@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include "base.h"
 
 #include <ATen/core/ivalue.h>
 
@@ -20,7 +21,6 @@
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
-#include <ir/container.h>
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
@@ -142,7 +142,7 @@ class AliasInfoMap {
 //! The Fusion owns the whole IR graph (Vals and Exprs)
 //!
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
-class NVF_API Fusion : public impl::IrContainer {
+class NVF_API Fusion : public PolymorphicBase {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
  protected:
@@ -169,7 +169,7 @@ class NVF_API Fusion : public impl::IrContainer {
     }
   }
 
-  Fusion() = default;
+  Fusion();
 
   Fusion(const Fusion& other);
   Fusion(Fusion&& other) noexcept;
@@ -663,6 +663,7 @@ class NVF_API Fusion : public impl::IrContainer {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
+  std::unique_ptr<IrStorage> ir_storage_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner

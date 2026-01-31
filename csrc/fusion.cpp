@@ -211,14 +211,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
+// Default constructor
+Fusion::Fusion() : ir_storage_(std::make_unique<IrStorage>()) {
+  ir_storage_->parent_ = this;
+}
+
 // Copy constructor
-Fusion::Fusion(const Fusion& other) {
+Fusion::Fusion(const Fusion& other) : Fusion() {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept {
+Fusion::Fusion(Fusion&& other) noexcept : Fusion() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }

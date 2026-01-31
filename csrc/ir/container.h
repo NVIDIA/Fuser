@@ -36,21 +36,21 @@ class IrContainerPasskey {
 
 namespace impl {
 
-class NVF_API IrContainer : public PolymorphicBase {
- protected:
-  // Constructors
-  explicit IrContainer();
-
-  IrContainer(const IrContainer& other) = delete;
-  IrContainer(IrContainer&& other) noexcept = delete;
-  IrContainer& operator=(const IrContainer& other) = delete;
-  IrContainer& operator=(IrContainer&& other) noexcept = delete;
-
-  ~IrContainer() override;
-
- protected:
-  std::unique_ptr<IrStorage> ir_storage_;
-};
+// class NVF_API IrContainer : public PolymorphicBase {
+//  protected:
+//   // Constructors
+//   explicit IrContainer();
+//
+//   IrContainer(const IrContainer& other) = delete;
+//   IrContainer(IrContainer&& other) noexcept = delete;
+//   IrContainer& operator=(const IrContainer& other) = delete;
+//   IrContainer& operator=(IrContainer&& other) noexcept = delete;
+//
+//   ~IrContainer() override;
+//
+//  protected:
+//   std::unique_ptr<IrStorage> ir_storage_;
+// };
 
 } // namespace impl
 } // namespace nvfuser
