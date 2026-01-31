@@ -18,10 +18,13 @@
 
 namespace nvfuser {
 
-// Forward declaration of impl namespace
-namespace impl {
-class IrContainer;
-}
+// Passkey for container to register names with statements
+class IrContainerPasskey {
+  friend class IrStorage;
+
+ private:
+  explicit IrContainerPasskey() = default;
+};
 
 class NamedScalar;
 
@@ -105,9 +108,6 @@ class IrStorage {
   static IrCloner copy(const IrStorage* from, IrStorage* to);
 
   static void swap(IrStorage& a, IrStorage& b) noexcept;
-
-  // Let IrInterface access protected methods for forwarding
-  friend class impl::IrContainer;
 
   // Let Fusion access IrStorage::clear()
   friend class Fusion;
@@ -195,7 +195,7 @@ class IrStorage {
   }
 
  private:
-  // Parent IrInterface that owns this container (for pure composition pattern)
+  // Parent Fusion that owns this container (for pure composition pattern)
   // Used by Statement::fusion() to navigate back to owning Fusion
   Fusion* parent_ = nullptr;
 };

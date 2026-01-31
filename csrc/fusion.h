@@ -21,6 +21,7 @@
 #include <fusion_guard.h>
 #include <ir/base_nodes.h>
 #include <ir/cloner.h>
+#include <ir/storage.h>
 #include <iter_visitor.h>
 #include <runtime/executor_params.h>
 #include <visibility.h>
