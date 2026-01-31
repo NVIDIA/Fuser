@@ -708,16 +708,6 @@ std::vector<Expr*> replaceInputsInExpr(
   return ReplaceExprInput::replace(exprs, replacement_map);
 }
 
-std::vector<Expr*> getAllSwizzlesBetween(
-    std::vector<IterDomain*> from,
-    std::vector<IterDomain*> to) {
-  auto all_expr = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {to.begin(), to.end()});
-
-  std::vector<Expr*> all_swizzles;
-  return all_swizzles;
-}
-
 bool isTMAOrMMASmemTv(TensorView* tv) {
   return tv->getMemoryType() == MemoryType::Shared &&
       (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||

@@ -29,14 +29,6 @@
 
 namespace nvfuser {
 
-namespace {
-
-// Map through loop swizzles, as input/output IterDomains are exact, only the
-// order they're traversed differs.
-void mapThroughLoopSwizzles(ValGraph& graph) {}
-
-} // namespace
-
 void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
     std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
@@ -400,9 +392,6 @@ ValGraph& IdModel::buildExactGraph() {
         }
       }
     }
-
-    // TODO: Revisit if we really should map domains in the exact map
-    mapThroughLoopSwizzles(graph);
   }
 
   // Map additional exact mappings if registered. Only map those that
