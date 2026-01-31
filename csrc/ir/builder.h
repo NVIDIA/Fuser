@@ -39,16 +39,11 @@ class IrBuilder {
   }
 
   //! Allocate a new IR node, forwarding the arguments to the appropriate
-  //! constructor and registering with the container
+  //! constructor and registering with the container.
+  //! Implementation provided at the end of fusion.h after Fusion is fully
+  //! defined.
   template <class T, class... Args>
-  static T* createInContainer(IrContainer* container, Args&&... args) {
-    NVF_ERROR(container != nullptr, "Need an active container to build IR.");
-    T* node = new T(IrBuilderPasskey(container), std::forward<Args>(args)...);
-
-    container->registerStmt(IrBuilderPasskey(container), node);
-
-    return node;
-  }
+  static T* createInContainer(Fusion* container, Args&&... args);
 
   //! Clone an IR node, forwarding the arguments to the IrCloner constructor.
   //! Register clones with IrCloner's target container.
