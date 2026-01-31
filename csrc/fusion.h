@@ -148,16 +148,18 @@ class NVF_API Fusion : public PolymorphicBase {
 
  protected:
   // Direct access to underlying container
-  IrStorage* ir_storage() {
+  IrContainer* ir_container() {
     NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
+        ir_container_.get() != nullptr,
+        "Accessing a uninitialized IrContainer!.")
+    return ir_container_.get();
   }
 
-  const IrStorage* ir_storage() const {
+  const IrContainer* ir_container() const {
     NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
+        ir_container_.get() != nullptr,
+        "Accessing a uninitialized IrContainer!.")
+    return ir_container_.get();
   }
 
  public:
@@ -502,106 +504,106 @@ class NVF_API Fusion : public PolymorphicBase {
   void resetExactMappings();
 
   //===================================================================
-  // IrStorage API Forwarding (Public Methods)
+  // IrContainer API Forwarding (Public Methods)
   //===================================================================
 
   // Container queries
   bool inContainer(const Statement* stmt) const {
-    return ir_storage()->inContainer(stmt);
+    return ir_container()->inContainer(stmt);
   }
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    ir_storage()->assertInContainer(stmt, msg);
+    ir_container()->assertInContainer(stmt, msg);
   }
 
   // Collections access (return values in insertion order)
   const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_storage()->deterministic_vals();
+    return ir_container()->deterministic_vals();
   }
 
   const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_storage()->deterministic_exprs();
+    return ir_container()->deterministic_exprs();
   }
 
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
       const noexcept {
-    return ir_storage()->deterministic_vals_map();
+    return ir_container()->deterministic_vals_map();
   }
 
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
       const noexcept {
-    return ir_storage()->deterministic_exprs_map();
+    return ir_container()->deterministic_exprs_map();
   }
 
   // Collections access (unordered sets)
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_storage()->unordered_exprs();
+    return ir_container()->unordered_exprs();
   }
 
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_storage()->vals();
+    return ir_container()->vals();
   }
 
   // Count queries
   int64_t numExprs() const noexcept {
-    return ir_storage()->numExprs();
+    return ir_container()->numExprs();
   }
 
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_storage()->numVals(include_shortcuts);
+    return ir_container()->numVals(include_shortcuts);
   }
 
   // Shortcut values (frequently used constants)
   Val* zeroVal() {
-    return ir_storage()->zeroVal();
+    return ir_container()->zeroVal();
   }
 
   Val* oneVal() {
-    return ir_storage()->oneVal();
+    return ir_container()->oneVal();
   }
 
   Val* falseVal() {
-    return ir_storage()->falseVal();
+    return ir_container()->falseVal();
   }
 
   Val* trueVal() {
-    return ir_storage()->trueVal();
+    return ir_container()->trueVal();
   }
 
   NamedScalar* magicZeroVal() {
-    return ir_storage()->magicZeroVal();
+    return ir_container()->magicZeroVal();
   }
 
   Val* zeroVal(DataType dtype) {
-    return ir_storage()->zeroVal(dtype);
+    return ir_container()->zeroVal(dtype);
   }
 
   Val* oneVal(DataType dtype) {
-    return ir_storage()->oneVal(dtype);
+    return ir_container()->oneVal(dtype);
   }
 
   Val* metadataOf(Val* val) {
-    return ir_storage()->metadataOf(val);
+    return ir_container()->metadataOf(val);
   }
 
   // Axioms (CUDA programming assumptions)
   const std::vector<Val*>& axioms() {
-    return ir_storage()->axioms();
+    return ir_container()->axioms();
   }
 
   void assumePositive(Val* val) {
-    ir_storage()->assumePositive(val);
+    ir_container()->assumePositive(val);
   }
 
   void assumeNonNegative(Val* val) {
-    ir_storage()->assumeNonNegative(val);
+    ir_container()->assumeNonNegative(val);
   }
 
   // Statement removal
   void removeStatementsCreatedAfter(
       int64_t num_exprs_before,
       int64_t num_vals_before) {
-    ir_storage()->removeStatementsCreatedAfter(
+    ir_container()->removeStatementsCreatedAfter(
         num_exprs_before, num_vals_before);
   }
 
@@ -664,7 +666,7 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
-  std::unique_ptr<IrStorage> ir_storage_;
+  std::unique_ptr<IrContainer> ir_container_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner

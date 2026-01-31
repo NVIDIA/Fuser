@@ -16,7 +16,7 @@
 namespace nvfuser {
 
 //! Return values in insertion order
-const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
+const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
   std::deque<Val*> vals_deque;
   std::transform(
       vals_up_.begin(),
@@ -27,7 +27,7 @@ const std::deque<Val*> IrStorage::deterministic_vals() const noexcept {
 }
 
 //! Return expression in insertion order
-const std::deque<Expr*> IrStorage::deterministic_exprs() const noexcept {
+const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
   std::deque<Expr*> exprs_deque;
   std::transform(
       exprs_up_.begin(),
@@ -38,7 +38,7 @@ const std::deque<Expr*> IrStorage::deterministic_exprs() const noexcept {
 }
 
 //! Return mapping from value to integer id
-const std::unordered_map<Val*, int64_t> IrStorage::deterministic_vals_map()
+const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
     const noexcept {
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
@@ -53,7 +53,7 @@ const std::unordered_map<Val*, int64_t> IrStorage::deterministic_vals_map()
 }
 
 //! Return mapping from expression to integer id
-const std::unordered_map<Expr*, int64_t> IrStorage::deterministic_exprs_map()
+const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
     const noexcept {
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
@@ -67,7 +67,7 @@ const std::unordered_map<Expr*, int64_t> IrStorage::deterministic_exprs_map()
   return exprs_map;
 }
 
-void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
+void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
   // Swap the content
@@ -92,7 +92,7 @@ void IrStorage::swap(IrStorage& a, IrStorage& b) noexcept {
   std::swap(a.axioms_, b.axioms_);
 }
 
-IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
+IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
   IrCloner ir_cloner(to->parent());
 
@@ -127,13 +127,13 @@ IrCloner IrStorage::copy(const IrStorage* from, IrStorage* to) {
   return ir_cloner;
 }
 
-IrStorage::IrStorage() = default;
+IrContainer::IrContainer() = default;
 
-IrStorage::~IrStorage() {
+IrContainer::~IrContainer() {
   clear();
 }
 
-void IrStorage::removeExpr(Expr* expr) {
+void IrContainer::removeExpr(Expr* expr) {
   NVF_ERROR(
       exprs_.find(expr) != exprs_.end(),
       "Wanted to remove an expression but it doesn't exist in this container.");
@@ -152,7 +152,7 @@ void IrStorage::removeExpr(Expr* expr) {
 
 //! Completely remove val from the fusion, break all dependencies associated
 //! with it
-void IrStorage::removeVal(Val* val) {
+void IrContainer::removeVal(Val* val) {
   // Don't remove shortcuts
   if (val == true_val_.get() || val == false_val_.get() ||
       val == one_val_.get() || val == zero_val_.get() ||
@@ -177,7 +177,7 @@ void IrStorage::removeVal(Val* val) {
 }
 
 //! Register the Val with this container
-void IrStorage::registerVal(Val* val) {
+void IrContainer::registerVal(Val* val) {
   if (inContainer(val)) {
     return;
   }
@@ -189,7 +189,7 @@ void IrStorage::registerVal(Val* val) {
 }
 
 //! Register expr with this container.
-void IrStorage::registerExpr(Expr* expr) {
+void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
@@ -200,8 +200,8 @@ void IrStorage::registerExpr(Expr* expr) {
   expr->setName(IrContainerPasskey(), getExprName());
 }
 
-void IrStorage::clear() noexcept {
-  FUSER_PERF_SCOPE("IrStorage clear");
+void IrContainer::clear() noexcept {
+  FUSER_PERF_SCOPE("IrContainer clear");
   vals_.clear();
   vals_up_.clear();
   exprs_.clear();
@@ -212,7 +212,7 @@ void IrStorage::clear() noexcept {
   expr_name_counter_ = 0;
 }
 
-bool IrStorage::inContainer(const Statement* const_stmt) const {
+bool IrContainer::inContainer(const Statement* const_stmt) const {
   // We don't use dynamic_cast here because `const_stmt` may be an invalid
   // pointer. Specifically a pointer to a Statement owned by another container
   // that has been freed.
@@ -245,7 +245,7 @@ bool IrStorage::inContainer(const Statement* const_stmt) const {
 }
 
 // Shortcuts for frequently used vals
-Val* IrStorage::zeroVal() {
+Val* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val =
         IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
@@ -256,7 +256,7 @@ Val* IrStorage::zeroVal() {
   return zero_val_.get();
 }
 
-Val* IrStorage::zeroVal(DataType dtype) {
+Val* IrContainer::zeroVal(DataType dtype) {
   if (dtype == DataType::Index) {
     return zeroVal();
   } else if (isBooleanType(dtype)) {
@@ -267,7 +267,7 @@ Val* IrStorage::zeroVal(DataType dtype) {
   }
 }
 
-Val* IrStorage::oneVal() {
+Val* IrContainer::oneVal() {
   if (!one_val_) {
     auto one_val =
         IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
@@ -278,7 +278,7 @@ Val* IrStorage::oneVal() {
   return one_val_.get();
 }
 
-Val* IrStorage::oneVal(DataType dtype) {
+Val* IrContainer::oneVal(DataType dtype) {
   if (dtype == DataType::Index) {
     return oneVal();
   } else if (isBooleanType(dtype)) {
@@ -289,7 +289,7 @@ Val* IrStorage::oneVal(DataType dtype) {
   }
 }
 
-Val* IrStorage::falseVal() {
+Val* IrContainer::falseVal() {
   if (!false_val_) {
     auto false_val = IrBuilder::createInContainer<Val>(
         this->parent(), false, DataType::Bool);
@@ -300,7 +300,7 @@ Val* IrStorage::falseVal() {
   return false_val_.get();
 }
 
-Val* IrStorage::trueVal() {
+Val* IrContainer::trueVal() {
   if (!true_val_) {
     auto true_val =
         IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
@@ -311,7 +311,7 @@ Val* IrStorage::trueVal() {
   return true_val_.get();
 }
 
-NamedScalar* IrStorage::magicZeroVal() {
+NamedScalar* IrContainer::magicZeroVal() {
   if (!magic_zero_val_) {
     auto magic_zero =
         IrBuilder::create<NamedScalar>(kMagicZeroName, DataType::Index);
@@ -323,7 +323,7 @@ NamedScalar* IrStorage::magicZeroVal() {
   return magic_zero_val_.get();
 }
 
-Val* IrStorage::metadataOf(Val* v) {
+Val* IrContainer::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
     auto metadata_val =
         IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
@@ -334,7 +334,7 @@ Val* IrStorage::metadataOf(Val* v) {
   return metadata_.at(v).first;
 }
 
-void IrStorage::lazyInitAxioms() {
+void IrContainer::lazyInitAxioms() {
   if (!axioms_) {
     axioms_ = std::make_unique<std::vector<Val*>>();
     axioms_->reserve(kParallelTypeThreads.size() * 3);
@@ -349,19 +349,19 @@ void IrStorage::lazyInitAxioms() {
   }
 }
 
-void IrStorage::assumePositive(Val* val) {
+void IrContainer::assumePositive(Val* val) {
   NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
-void IrStorage::assumeNonNegative(Val* val) {
+void IrContainer::assumeNonNegative(Val* val) {
   NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
-void IrStorage::removeStatementsCreatedAfter(
+void IrContainer::removeStatementsCreatedAfter(
     int64_t prev_num_exprs,
     int64_t prev_num_vals) {
   NVF_ERROR(

@@ -55,7 +55,7 @@ class Fusion;
 class Expr;
 class Val;
 class IrCloner;
-class IrStorage;
+class IrContainer;
 class IrBuilderPasskey;
 class IrContainerPasskey;
 class ExpressionEvaluator;
@@ -417,7 +417,7 @@ class NVF_API Val : public Statement {
 
  protected:
   friend class Fusion;
-  friend class IrStorage;
+  friend class IrContainer;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;
