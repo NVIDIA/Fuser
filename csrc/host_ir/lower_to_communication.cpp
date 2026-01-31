@@ -393,8 +393,8 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
 
     const DeviceMesh& producer_mesh = producer->getDeviceMesh();
     const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
-    const bool p_sharded = p_loop_did != nullptr && producer_mesh.size() > 1;
-    const bool c_sharded = c_loop_did != nullptr && consumer_mesh.size() > 1;
+    const bool p_sharded = p_loop_did != nullptr;
+    const bool c_sharded = c_loop_did != nullptr;
     const bool same_mesh = producer_mesh == consumer_mesh;
 
     if (e->isA<LoadStoreOp>()) {
