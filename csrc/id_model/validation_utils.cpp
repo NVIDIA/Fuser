@@ -249,11 +249,6 @@ void compareDisjointSets(
 } // namespace
 
 void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (exact_graph.disjointValSets().disjointSets().empty()) {
     return;
@@ -274,11 +269,6 @@ void IdModelValidator::checkExactGraphEquivalence(const ValGraph& exact_graph) {
 
 void IdModelValidator::checkAlmostExactGraphEquivalence(
     const ValGraph& almost_exact_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (almost_exact_graph.disjointValSets().disjointSets().empty()) {
     return;
@@ -293,11 +283,6 @@ void IdModelValidator::checkAlmostExactGraphEquivalence(
 
 void IdModelValidator::checkPermissiveGraphEquivalence(
     const ValGraph& permissive_graph) {
-  if (has_swizzle_) {
-    // Ignoring a fusion with swizzle
-    return;
-  }
-
   // Empty graph
   if (permissive_graph.disjointValSets().disjointSets().empty()) {
     return;
