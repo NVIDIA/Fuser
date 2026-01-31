@@ -17,12 +17,12 @@ namespace nvfuser {
 class Fusion;
 
 namespace impl {
-
-IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
-  ir_storage_->parent_ = static_cast<Fusion*>(this);
-}
-
-IrContainer::~IrContainer() {}
+//
+// IrContainer::IrContainer() : ir_storage_(std::make_unique<IrStorage>()) {
+//  ir_storage_->parent_ = static_cast<Fusion*>(this);
+//}
+//
+// IrContainer::~IrContainer() {}
 
 } // namespace impl
 } // namespace nvfuser
