@@ -9,8 +9,6 @@
 
 #include <cstdint>
 #include <limits>
-#include <memory>
-#include <stdexcept>
 #include <unordered_map>
 #include <vector>
 
@@ -98,9 +96,7 @@ class ExprPasskey {
 //! Basically beinng able to succienctly traverse down the inhereitance stack of
 //! a Statment at runtime. This is currently implemented in dispatch.h
 class NVF_API Statement : public NonCopyable, public PolymorphicBase {
-  friend void swap(Fusion&, Fusion&) noexcept;
-  friend void swap(impl::IrContainer& a, impl::IrContainer& b) noexcept;
-  friend class impl::IrContainer;
+  friend class Fusion;
 
  public:
   Statement() = delete;

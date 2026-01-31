@@ -145,7 +145,30 @@ class AliasInfoMap {
 class NVF_API Fusion : public impl::IrContainer {
   typedef std::unordered_map<int, std::vector<int64_t>> PermutationMap;
 
+ protected:
+  // Direct access to underlying container
+  IrStorage* ir_storage() {
+    NVF_ERROR(
+        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
+    return ir_storage_.get();
+  }
+
+  const IrStorage* ir_storage() const {
+    NVF_ERROR(
+        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
+    return ir_storage_.get();
+  }
+
  public:
+  // Registration (public API with passkey)
+  virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
+    if (stmt->isVal()) {
+      registerVal(stmt->asVal());
+    } else {
+      registerExpr(stmt->asExpr());
+    }
+  }
+
   Fusion() = default;
 
   Fusion(const Fusion& other);
@@ -168,11 +191,11 @@ class NVF_API Fusion : public impl::IrContainer {
 
   //! Break dependency chains associated with Expr, remove references to expr
   //! delete expr
-  void removeExpr(Expr* expr) override;
+  virtual void removeExpr(Expr* expr);
 
   //! Completely remove val from the fusion, break all dependencies associated
   //! with it
-  void removeVal(Val* val) override;
+  virtual void removeVal(Val* val);
 
   //! Register input as an input of the fusion
   void addInput(Val* input);
@@ -477,17 +500,118 @@ class NVF_API Fusion : public impl::IrContainer {
 
   void resetExactMappings();
 
+  //===================================================================
+  // IrStorage API Forwarding (Public Methods)
+  //===================================================================
+
+  // Container queries
+  bool inContainer(const Statement* stmt) const {
+    return ir_storage()->inContainer(stmt);
+  }
+
+  void assertInContainer(const Statement* stmt, const std::string& msg) const {
+    ir_storage()->assertInContainer(stmt, msg);
+  }
+
+  // Collections access (return values in insertion order)
+  const std::deque<Val*> deterministic_vals() const noexcept {
+    return ir_storage()->deterministic_vals();
+  }
+
+  const std::deque<Expr*> deterministic_exprs() const noexcept {
+    return ir_storage()->deterministic_exprs();
+  }
+
+  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
+      const noexcept {
+    return ir_storage()->deterministic_vals_map();
+  }
+
+  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
+      const noexcept {
+    return ir_storage()->deterministic_exprs_map();
+  }
+
+  // Collections access (unordered sets)
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
+    return ir_storage()->unordered_exprs();
+  }
+
+  const std::unordered_set<Val*>& vals() const noexcept {
+    return ir_storage()->vals();
+  }
+
+  // Count queries
+  int64_t numExprs() const noexcept {
+    return ir_storage()->numExprs();
+  }
+
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return ir_storage()->numVals(include_shortcuts);
+  }
+
+  // Shortcut values (frequently used constants)
+  Val* zeroVal() {
+    return ir_storage()->zeroVal();
+  }
+
+  Val* oneVal() {
+    return ir_storage()->oneVal();
+  }
+
+  Val* falseVal() {
+    return ir_storage()->falseVal();
+  }
+
+  Val* trueVal() {
+    return ir_storage()->trueVal();
+  }
+
+  NamedScalar* magicZeroVal() {
+    return ir_storage()->magicZeroVal();
+  }
+
+  Val* zeroVal(DataType dtype) {
+    return ir_storage()->zeroVal(dtype);
+  }
+
+  Val* oneVal(DataType dtype) {
+    return ir_storage()->oneVal(dtype);
+  }
+
+  Val* metadataOf(Val* val) {
+    return ir_storage()->metadataOf(val);
+  }
+
+  // Axioms (CUDA programming assumptions)
+  const std::vector<Val*>& axioms() {
+    return ir_storage()->axioms();
+  }
+
+  void assumePositive(Val* val) {
+    ir_storage()->assumePositive(val);
+  }
+
+  void assumeNonNegative(Val* val) {
+    ir_storage()->assumeNonNegative(val);
+  }
+
+  // Statement removal
+  void removeStatementsCreatedAfter(
+      int64_t num_exprs_before,
+      int64_t num_vals_before) {
+    ir_storage()->removeStatementsCreatedAfter(
+        num_exprs_before, num_vals_before);
+  }
+
  protected:
   friend SegmentCandidateFinder;
   friend SegmentedFusion;
   friend class TranslateApplicableWelford;
   friend Val;
 
-  using impl::IrContainer::registerExpr;
-  using impl::IrContainer::registerVal;
-
   //! Register the Val with this fusion
-  void registerVal(Val* val) override;
+  virtual void registerVal(Val* val);
 
   //! Register expr with this fusion.
   //! When we register an expression, we want to update the dependency tracking
@@ -495,7 +619,7 @@ class NVF_API Fusion : public impl::IrContainer {
   //! definitions of outputs and register this Expr as the definition. Otherwise
   //! will update definition if not previously set, but will not remove old
   //! definitions.
-  void registerExpr(Expr* expr) override;
+  virtual void registerExpr(Expr* expr);
 
   //! Clear Expr's from TV uses that are not required to produce outputs from
   //! inputs. Only other place this is used (other than Fusion) is in
