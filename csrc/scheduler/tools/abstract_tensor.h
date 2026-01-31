@@ -7,21 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <id_model/schedule.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <type.h>
-#include <val_graph.h>
-
 #include <type_traits>
 #include <utility>
+
+#include "dynamic_type/dynamic_type.h"
+#include "id_model/schedule.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "type.h"
+#include "val_graph.h"
 
 #ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
 #endif
-
-#include <dynamic_type/dynamic_type.h>
 
 namespace nvfuser {
 

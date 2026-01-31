@@ -7,20 +7,19 @@
 // clang-format on
 #pragma once
 
-#include <compute_at_map.h>
-#include <device_lower/analysis/divisible_split.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <visibility.h>
-// TODO: Move to cpp file.
-#include <ir/builder.h>
-
 #include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+#include "compute_at_map.h"
+#include "device_lower/analysis/divisible_split.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/builder.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

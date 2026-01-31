@@ -7,15 +7,16 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/normalization_inner.h>
-#include <scheduler/normalization_utils.h>
-
 #include <cstddef>
+
 #include <memory>
 #include <sstream>
 #include <string>
+
+#include "fusion.h"
+#include "scheduler/heuristic.h"
+#include "scheduler/normalization_inner.h"
+#include "scheduler/normalization_utils.h"
 
 namespace nvfuser {
 

@@ -7,8 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <ir/all_nodes.h>
-#include <scheduler/utils.h>
+#include "ir/all_nodes.h"
+#include "scheduler/utils.h"
 
 namespace nvfuser {
 class SchedulerRuntimeInfo;
