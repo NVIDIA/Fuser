@@ -87,7 +87,6 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
     }
 
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -310,7 +309,6 @@ class HopperRS : public HopperBase,
 
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
@@ -423,7 +421,6 @@ class HopperRSStmatrix
 
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
     layout = std::get<2>(GetParam());
@@ -669,7 +666,6 @@ class SSTest : public Base,
 
   void SetUp() override {
     Base::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());

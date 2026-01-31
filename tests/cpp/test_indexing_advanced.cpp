@@ -18,21 +18,11 @@
 
 namespace nvfuser {
 
-class AdvancedIndexingTest : public NVFuserFixtureParamTest<bool> {
- protected:
-  void SetUp() override {
-    if (GetParam()) {
-      EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-    } else {
-      EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-    }
-  }
-};
-
+using AdvancedIndexingTest = NVFuserTest;
 using AdvancedIndexingIdModelTest = NVFuserTest;
 
 // Repro for issue #1873
-TEST_P(AdvancedIndexingTest, InlineBroadcast) {
+TEST_F(AdvancedIndexingTest, InlineBroadcast) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -68,7 +58,7 @@ TEST_P(AdvancedIndexingTest, InlineBroadcast) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 1) {
+TEST_F(AdvancedIndexingTest, 1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -117,7 +107,7 @@ TEST_P(AdvancedIndexingTest, 1) {
 }
 
 // Same as 1 but merge starting from inner most dimension
-TEST_P(AdvancedIndexingTest, 2) {
+TEST_F(AdvancedIndexingTest, 2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -166,7 +156,7 @@ TEST_P(AdvancedIndexingTest, 2) {
 }
 
 // Same compute as 1 and 2 but use a scheduler.
-TEST_P(AdvancedIndexingTest, 3) {
+TEST_F(AdvancedIndexingTest, 3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -191,7 +181,7 @@ TEST_P(AdvancedIndexingTest, 3) {
 }
 
 // Same as 3 but use 3 dimensions and concrete sizes
-TEST_P(AdvancedIndexingTest, 4) {
+TEST_F(AdvancedIndexingTest, 4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -217,7 +207,7 @@ TEST_P(AdvancedIndexingTest, 4) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 5) {
+TEST_F(AdvancedIndexingTest, 5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -249,7 +239,7 @@ TEST_P(AdvancedIndexingTest, 5) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 6) {
+TEST_F(AdvancedIndexingTest, 6) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -287,7 +277,7 @@ TEST_P(AdvancedIndexingTest, 6) {
       cg_results.heuristic_params->lparams);
 }
 
-TEST_P(AdvancedIndexingTest, 7) {
+TEST_F(AdvancedIndexingTest, 7) {
   // Might be able to use this one without 6 as the heuristics in 6 may change
   // and this test is to cover the same issue.
   Fusion fusion;
@@ -333,7 +323,7 @@ TEST_P(AdvancedIndexingTest, 7) {
       &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 8) {
+TEST_F(AdvancedIndexingTest, 8) {
   // Same as 7 but with outer splits instead of inner
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -379,7 +369,7 @@ TEST_P(AdvancedIndexingTest, 8) {
 }
 
 // Same as 5 but using implicit broadcast
-TEST_P(AdvancedIndexingTest, 9) {
+TEST_F(AdvancedIndexingTest, 9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -409,7 +399,7 @@ TEST_P(AdvancedIndexingTest, 9) {
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 10) {
+TEST_F(AdvancedIndexingTest, 10) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -468,7 +458,7 @@ TEST_P(AdvancedIndexingTest, 10) {
   NVF_CHECK(output_ref.equal(output));
 }
 
-TEST_P(AdvancedIndexingTest, 11) {
+TEST_F(AdvancedIndexingTest, 11) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -516,7 +506,7 @@ TEST_P(AdvancedIndexingTest, 11) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 12) {
+TEST_F(AdvancedIndexingTest, 12) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -554,7 +544,7 @@ TEST_P(AdvancedIndexingTest, 12) {
       &fusion, cg_outputs, {aten_input}, aten_outputs, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 13) {
+TEST_F(AdvancedIndexingTest, 13) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -600,7 +590,7 @@ TEST_P(AdvancedIndexingTest, 13) {
   testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 14) {
+TEST_F(AdvancedIndexingTest, 14) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -643,7 +633,7 @@ TEST_P(AdvancedIndexingTest, 14) {
 // This excercises indexing with broadcast root axes. Non-broadcast
 // axes need to be preferred when propagating index exprs to root
 // axes. See, e.g., Index::getConsumerIndex_impl.
-TEST_P(AdvancedIndexingTest, 15) {
+TEST_F(AdvancedIndexingTest, 15) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -674,7 +664,7 @@ TEST_P(AdvancedIndexingTest, 15) {
   testValidate(&fusion, cg_outputs, {t0, t3}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 16) {
+TEST_F(AdvancedIndexingTest, 16) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -704,7 +694,7 @@ TEST_P(AdvancedIndexingTest, 16) {
   testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 17) {
+TEST_F(AdvancedIndexingTest, 17) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -738,7 +728,7 @@ TEST_P(AdvancedIndexingTest, 17) {
 }
 
 // Repro of issue #2560
-TEST_P(AdvancedIndexingTest, 18) {
+TEST_F(AdvancedIndexingTest, 18) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -781,7 +771,7 @@ TEST_P(AdvancedIndexingTest, 18) {
       __FILE__);
 }
 
-TEST_P(AdvancedIndexingTest, 19) {
+TEST_F(AdvancedIndexingTest, 19) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1087,13 +1077,5 @@ TEST_F(AdvancedIndexingIdModelTest, IndexSplitMerge) {
   testValidate(
       &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    AdvancedIndexingTest,
-    testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "IdModel" : "Legacy";
-    });
 
 } // namespace nvfuser

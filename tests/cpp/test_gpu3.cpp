@@ -61,13 +61,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu3Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu3Test = NVFuserTest;
 
 TEST_F(Gpu3Test, FusionNonDivisibleSplit1_CUDA) {
   Fusion fusion;
@@ -3400,8 +3394,6 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 

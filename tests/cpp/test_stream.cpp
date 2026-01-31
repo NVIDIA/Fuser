@@ -29,9 +29,7 @@ namespace nvfuser {
 // tests/python/direct/test_stream.py because the Python API is sufficient.
 class StreamTest : public NVFuserTest {
  public:
-  StreamTest() {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
+  StreamTest() {}
 };
 
 TEST_F(StreamTest, AddPerStream) {

@@ -31,7 +31,6 @@ class PointwiseTestP : public NVFuserFixtureParamTest<ParamType> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

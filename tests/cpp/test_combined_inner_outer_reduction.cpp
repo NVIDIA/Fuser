@@ -45,7 +45,6 @@ class CombinedSchedulerTest
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

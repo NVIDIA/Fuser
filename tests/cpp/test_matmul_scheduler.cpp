@@ -2936,7 +2936,6 @@ class AllocationDomainTest
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     NVFuserFixtureParamTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   std::pair<TensorView*, TensorView*> getInputTVs(
@@ -3389,8 +3388,6 @@ class HopperPlusMatmulSchedulerTest
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.circular_buffer_smem_read = true;
     mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
-
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 
   void TearDown() {

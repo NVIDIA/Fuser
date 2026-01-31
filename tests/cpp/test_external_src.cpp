@@ -19,7 +19,7 @@
 
 namespace nvfuser {
 
-class ExternalSrcExample : public NVFuserTest {};
+using ExternalSrcExample = NVFuserTest;
 
 // This is for internal testing only and is intended to be used as a template to
 // compile and run an external source file. By default, it should just

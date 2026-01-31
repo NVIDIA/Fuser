@@ -21,7 +21,7 @@
 
 namespace nvfuser {
 
-class TensorFactoryTest : public NVFuserTest {};
+using TensorFactoryTest = NVFuserTest;
 
 TEST_F(TensorFactoryTest, StandaloneFull) {
   auto sizes = {0, 1, 10, 17, 1024};

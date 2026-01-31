@@ -16,9 +16,6 @@ namespace nvfuser {
 
 class IdModelOptions {
  public:
-  IdModelOptions()
-      : tensor_indexer_enabled_(isOptionEnabled(EnableOption::IdModel)) {}
-
   void setTensorIndexer(bool b) {
     tensor_indexer_enabled_ = b;
   }
@@ -36,8 +33,8 @@ class IdModelOptions {
   }
 
  private:
-  // Enable TensorIndexer
-  bool tensor_indexer_enabled_ = false;
+  // Enable TensorIndexer by default
+  bool tensor_indexer_enabled_ = true;
 };
 
 } // namespace nvfuser

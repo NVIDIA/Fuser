@@ -43,7 +43,6 @@ class SgLangMoETest : public NVFuserFixtureParamTest<MoEConfig> {
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
     std::tie(
         num_experts, num_tokens, topk, rounding_factor, manual_scheduling) =
