@@ -20,6 +20,7 @@ namespace impl {
 class IrContainer;
 }
 
+class Fusion;
 class IrBuilderPasskey;
 class ExprPasskey;
 class OptOutMutator;
@@ -75,175 +76,179 @@ class NVF_API IrContainer : public PolymorphicBase {
   // IrStorage API Forwarding (Public Methods)
   //===================================================================
 
-  // Container queries
-  bool inContainer(const Statement* stmt) const {
-    return ir_storage()->inContainer(stmt);
-  }
+  //// Container queries
+  // bool inContainer(const Statement* stmt) const {
+  //   return ir_storage()->inContainer(stmt);
+  // }
 
-  void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    ir_storage()->assertInContainer(stmt, msg);
-  }
+  // void assertInContainer(const Statement* stmt, const std::string& msg) const
+  // {
+  //   ir_storage()->assertInContainer(stmt, msg);
+  // }
 
-  // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_storage()->deterministic_vals();
-  }
+  //// Collections access (return values in insertion order)
+  // const std::deque<Val*> deterministic_vals() const noexcept {
+  //   return ir_storage()->deterministic_vals();
+  // }
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_storage()->deterministic_exprs();
-  }
+  // const std::deque<Expr*> deterministic_exprs() const noexcept {
+  //   return ir_storage()->deterministic_exprs();
+  // }
 
-  const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_storage()->deterministic_vals_map();
-  }
+  // const std::unordered_map<Val*, int64_t> deterministic_vals_map()
+  //     const noexcept {
+  //   return ir_storage()->deterministic_vals_map();
+  // }
 
-  const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_storage()->deterministic_exprs_map();
-  }
+  // const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
+  //     const noexcept {
+  //   return ir_storage()->deterministic_exprs_map();
+  // }
 
-  // Collections access (unordered sets)
-  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_storage()->unordered_exprs();
-  }
+  //// Collections access (unordered sets)
+  // const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
+  //   return ir_storage()->unordered_exprs();
+  // }
 
-  const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_storage()->vals();
-  }
+  // const std::unordered_set<Val*>& vals() const noexcept {
+  //   return ir_storage()->vals();
+  // }
 
-  // Count queries
-  int64_t numExprs() const noexcept {
-    return ir_storage()->numExprs();
-  }
+  //// Count queries
+  // int64_t numExprs() const noexcept {
+  //   return ir_storage()->numExprs();
+  // }
 
-  int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_storage()->numVals(include_shortcuts);
-  }
+  // int64_t numVals(bool include_shortcuts) const noexcept {
+  //   return ir_storage()->numVals(include_shortcuts);
+  // }
 
-  // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_storage()->zeroVal();
-  }
+  //// Shortcut values (frequently used constants)
+  // Val* zeroVal() {
+  //   return ir_storage()->zeroVal();
+  // }
 
-  Val* oneVal() {
-    return ir_storage()->oneVal();
-  }
+  // Val* oneVal() {
+  //   return ir_storage()->oneVal();
+  // }
 
-  Val* falseVal() {
-    return ir_storage()->falseVal();
-  }
+  // Val* falseVal() {
+  //   return ir_storage()->falseVal();
+  // }
 
-  Val* trueVal() {
-    return ir_storage()->trueVal();
-  }
+  // Val* trueVal() {
+  //   return ir_storage()->trueVal();
+  // }
 
-  NamedScalar* magicZeroVal() {
-    return ir_storage()->magicZeroVal();
-  }
+  // NamedScalar* magicZeroVal() {
+  //   return ir_storage()->magicZeroVal();
+  // }
 
-  Val* zeroVal(DataType dtype) {
-    return ir_storage()->zeroVal(dtype);
-  }
+  // Val* zeroVal(DataType dtype) {
+  //   return ir_storage()->zeroVal(dtype);
+  // }
 
-  Val* oneVal(DataType dtype) {
-    return ir_storage()->oneVal(dtype);
-  }
+  // Val* oneVal(DataType dtype) {
+  //   return ir_storage()->oneVal(dtype);
+  // }
 
-  Val* metadataOf(Val* val) {
-    return ir_storage()->metadataOf(val);
-  }
+  // Val* metadataOf(Val* val) {
+  //   return ir_storage()->metadataOf(val);
+  // }
 
-  // Axioms (CUDA programming assumptions)
-  const std::vector<Val*>& axioms() {
-    return ir_storage()->axioms();
-  }
+  //// Axioms (CUDA programming assumptions)
+  // const std::vector<Val*>& axioms() {
+  //   return ir_storage()->axioms();
+  // }
 
-  void assumePositive(Val* val) {
-    ir_storage()->assumePositive(val);
-  }
+  // void assumePositive(Val* val) {
+  //   ir_storage()->assumePositive(val);
+  // }
 
-  void assumeNonNegative(Val* val) {
-    ir_storage()->assumeNonNegative(val);
-  }
+  // void assumeNonNegative(Val* val) {
+  //   ir_storage()->assumeNonNegative(val);
+  // }
 
-  // Statement removal
-  void removeStatementsCreatedAfter(
-      int64_t num_exprs_before,
-      int64_t num_vals_before) {
-    ir_storage()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
-  }
+  //// Statement removal
+  // void removeStatementsCreatedAfter(
+  //     int64_t num_exprs_before,
+  //     int64_t num_vals_before) {
+  //   ir_storage()->removeStatementsCreatedAfter(
+  //       num_exprs_before, num_vals_before);
+  // }
 
-  // Registration (public API with passkey)
-  virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
-    // Dispatch to Val or Expr registration, which calls the virtual protected
-    // methods that subclasses (like Fusion) override
-    if (stmt->isVal()) {
-      registerVal(passkey, stmt->asVal());
-    } else {
-      registerExpr(passkey, stmt->asExpr());
-    }
-  }
+  //// Registration (public API with passkey)
+  // virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
+  //   // Dispatch to Val or Expr registration, which calls the virtual
+  //   protected
+  //   // methods that subclasses (like Fusion) override
+  //   if (stmt->isVal()) {
+  //     registerVal(passkey, stmt->asVal());
+  //   } else {
+  //     registerExpr(passkey, stmt->asExpr());
+  //   }
+  // }
 
-  virtual void registerVal(IrBuilderPasskey passkey, Val* val) {
-    // Call the protected virtual method that subclasses override
-    registerVal(val);
-  }
+  // virtual void registerVal(IrBuilderPasskey passkey, Val* val) {
+  //   // Call the protected virtual method that subclasses override
+  //   registerVal(val);
+  // }
 
-  virtual void registerExpr(IrBuilderPasskey passkey, Expr* expr) {
-    // Call the protected virtual method that subclasses override
-    registerExpr(expr);
-  }
+  // virtual void registerExpr(IrBuilderPasskey passkey, Expr* expr) {
+  //   // Call the protected virtual method that subclasses override
+  //   registerExpr(expr);
+  // }
 
   //===================================================================
   // Container Access
   //===================================================================
 
-  // Direct access to underlying container
-  IrStorage* ir_storage() {
-    NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
-  }
+  //// Direct access to underlying container
+  // IrStorage* ir_storage() {
+  //   NVF_ERROR(
+  //       ir_storage_.get() != nullptr, "Accessing a uninitialized
+  //       IrContainer!.")
+  //   return ir_storage_.get();
+  // }
 
-  const IrStorage* ir_storage() const {
-    NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
-  }
+  // const IrStorage* ir_storage() const {
+  //   NVF_ERROR(
+  //       ir_storage_.get() != nullptr, "Accessing a uninitialized
+  //       IrContainer!.")
+  //   return ir_storage_.get();
+  // }
 
  protected:
   //===================================================================
   // Protected Registration API (for derived class overrides)
   //===================================================================
 
-  static IrCloner copy(const IrContainer* from, IrContainer* to);
-  static void swap(IrContainer& a, IrContainer& b) noexcept;
+  // static IrCloner copy(const IrContainer* from, IrContainer* to);
+  // static void swap(IrContainer& a, IrContainer& b) noexcept;
 
-  // Derived classes (like Fusion) override these to add custom logic
-  virtual void registerVal(Val* val) {
-    ir_storage()->registerVal(val);
-  }
+  //// Derived classes (like Fusion) override these to add custom logic
+  // virtual void registerVal(Val* val) {
+  //   ir_storage()->registerVal(val);
+  // }
 
-  virtual void registerExpr(Expr* expr) {
-    ir_storage()->registerExpr(expr);
-  }
+  // virtual void registerExpr(Expr* expr) {
+  //   ir_storage()->registerExpr(expr);
+  // }
 
-  virtual void removeExpr(Expr* expr) {
-    ir_storage()->removeExpr(expr);
-  }
+  // virtual void removeExpr(Expr* expr) {
+  //   ir_storage()->removeExpr(expr);
+  // }
 
-  virtual void removeVal(Val* val) {
-    ir_storage()->removeVal(val);
-  }
+  // virtual void removeVal(Val* val) {
+  //   ir_storage()->removeVal(val);
+  // }
+
+  std::unique_ptr<IrStorage> ir_storage_;
 
  private:
   //===================================================================
   // Data Members
   //===================================================================
-
-  std::unique_ptr<IrStorage> ir_storage_;
 };
 
 } // namespace impl

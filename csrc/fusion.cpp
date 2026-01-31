@@ -104,8 +104,36 @@ bool Fusion::sameDefinition(const Fusion& other) const {
 void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  // Swap IrContainer base class (contains IrStorage)
-  IrContainer::swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  // We need to be careful to call IrStorage swap not unique_ptr swap, which
+  // will only swap the ptrs NOT the contents.
+  IrStorage::swap(*(a.ir_storage()), *(b.ir_storage()));
+
+  // Fix parent pointers after swapping containers
+  // After swap, each IrContainer owns a different IrStorage, so we must update
+  // the parent backpointers in those containers to point to their new owners
+  if (a.ir_storage_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    // Note: IrContainer is now in impl namespace, but Statement::ir_container_
+    // is Fusion*. Since only Fusion (and its derived classes) inherit from
+    // impl::IrContainer, this cast is safe.
+    a.ir_storage()->parent_ = &a;
+    for (auto val : a.vals()) {
+      val->ir_container_ = &a;
+    }
+    for (auto expr : a.deterministic_exprs()) {
+      expr->ir_container_ = &a;
+    }
+  }
+  if (b.ir_storage_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    b.ir_storage()->parent_ = &b;
+    for (auto val : b.vals()) {
+      val->ir_container_ = &b;
+    }
+    for (auto expr : b.deterministic_exprs()) {
+      expr->ir_container_ = &b;
+    }
+  }
 
   std::swap(a.inputs_, b.inputs_);
   std::swap(a.outputs_, b.outputs_);
@@ -122,7 +150,7 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
 
-  auto ir_cloner = IrContainer::copy(from, to);
+  auto ir_cloner = IrStorage::copy(from->ir_storage(), to->ir_storage());
 
   for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
@@ -260,7 +288,8 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrContainer::removeExpr(expr);
+  // TODO : CHECK THIS vvv
+  ir_storage()->removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -304,7 +333,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrContainer::removeVal(val);
+  ir_storage()->removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -668,7 +697,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrContainer::registerVal(val);
+  ir_storage()->registerVal(val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -681,7 +710,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrContainer::registerExpr(expr);
+  ir_storage()->registerExpr(expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
