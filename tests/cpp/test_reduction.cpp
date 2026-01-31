@@ -2815,16 +2815,20 @@ class TmaInnerReductionTest
 
   // Check if we expect TMA to be used based on mayUseTma() conditions
   bool expectTmaUsed(DataType dtype, int64_t reduction_size) {
-    // Skip TMA for small reductions
-    if (reduction_size < 128) {
-      return false;
-    }
-
     // TMA requires 16-byte alignment (vectorize_factor > 1)
     int64_t dtype_size_bit = dataTypeSizeBit(dtype);
     int64_t dtype_bytes = dtype_size_bit / 8;
     int64_t min_elems_for_alignment = 16 / dtype_bytes;
     if (reduction_size % min_elems_for_alignment != 0) {
+      return false;
+    }
+
+    uint64_t total_reduction_bytes = reduction_size * dtype_bytes;
+
+    // Minimum TMA transfer size, below which it seems much slower than non-TMA.
+    uint64_t min_tma_bytes = 16384;
+
+    if (total_reduction_bytes < min_tma_bytes) {
       return false;
     }
 
