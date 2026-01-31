@@ -1106,13 +1106,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
         gather != nullptr && !gather->exactSizes()) {
       // take_along_axis is supported but generic gather is not
       reason << "Non-exact gather not supported: " << gather->toString();
-    } else {
-      for (const auto& id : tv->domain()->allIDs()) {
-        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
-          reason << "Swizzle2D not supported: " << swizzle2d->toString();
-          break;
-        }
-      }
     }
 
     if (!reason.str().empty()) {

@@ -1026,14 +1026,6 @@ class VectorizeValidator : public OptInDispatch {
     }
   }
 
-  void handle(Swizzle2D* swizzle) final {
-    if (swizzle->outX() == vectorized_id_ || swizzle->inX() == vectorized_id_ ||
-        swizzle->outY() == vectorized_id_ || swizzle->inY() == vectorized_id_) {
-      // Do not (yet) allow vectorization across any swizzled id.
-      is_valid = false;
-    }
-  }
-
   // Given the vectorized loop ID in a tensor, find its innermost
   // ancestors in the allocation domain. Broadcast IDs are ignored.
   // All dependent allocation IDs are also returned.
@@ -1124,7 +1116,7 @@ class VectorizeValidator : public OptInDispatch {
       Expr* expr = expr_g->front();
       NVF_ERROR(
           expr->isA<Merge>() || expr->isA<Split>() || expr->isA<Resize>() ||
-              expr->isA<Swizzle>() || expr->isA<Swizzle2D>(),
+              expr->isA<Swizzle>(),
           "Unexpected expr: ",
           expr->toString());
 
@@ -1135,11 +1127,10 @@ class VectorizeValidator : public OptInDispatch {
           ? graph.outputGroups(expr_g)
           : graph.inputGroups(expr_g);
 
-      if (expr->isOneOf<Swizzle, Swizzle2D>()) {
+      if (expr->isA<Swizzle>()) {
         // Not supported.
         // TODO: Checking the outputs too since that is what
-        // VectorizeValidator::handle(Swizzle*) and
-        // VectorizeValidator::handle(Swizzle2D*) do, but unclear
+        // VectorizeValidator::handle(Swizzle*) does, but unclear
         // why.
         if (std::find(inputs.begin(), inputs.end(), cur_group) !=
                 inputs.end() ||
@@ -1816,80 +1807,6 @@ void validateMma(Fusion* fusion) {
     }
     if (auto ldst = dynamic_cast<LoadStoreOp*>(expr)) {
       validateSizeMemoryOp(ldst);
-    }
-  }
-}
-
-namespace {
-
-// Utility function to validate a loop swizzle:
-//  1. Throws an error if any output of the swizzle is not in loop_domain set.
-//  2. Warns if any output of the swizzle is not the concrete id of the loop
-//  map.
-// The second case would make the codegen ignore this swizzle, as if it was
-// not there at all.
-void validateLoopSwizzle(
-    Expr* swizzle_expr,
-    std::unordered_set<IterDomain*>& loop_domains) {
-  for (auto out_id :
-       ir_utils::filterByType<IterDomain>(swizzle_expr->outputs())) {
-    NVF_ERROR(
-        loop_domains.count(out_id),
-        "Loop swizzle can only be direct producer of loop domains.");
-    if (lower_utils::getConcreteLoopID(out_id) != out_id) {
-      TORCH_WARN_ONCE("Ignored loop swizzle :", swizzle_expr->toString());
-    }
-  }
-}
-
-} // namespace
-
-void validateSwizzle(Fusion* fusion) {
-  auto used_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(used_vals)) {
-    if (tv->hasSwizzleOp()) {
-      std::unordered_set<IterDomain*> tv_loop_domain_set(
-          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
-
-      // Make sure no swizzle op is inlined:
-      auto inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getLogicalDomain(),
-          {tv->getLoopDomain().begin(),
-           tv->getLoopDomain().begin() + tv->getMaxComputePosition()});
-
-      auto not_inlined_swizzles = ir_utils::getAllSwizzlesBetween(
-          tv->getLogicalDomain(),
-          {tv->getLoopDomain().begin() + tv->getMaxComputePosition(),
-           tv->getLoopDomain().end()});
-
-      // Check inlined swizzles: only loop swizzles can be inlined currently
-      //  as inlining data swizzles would require addtional support of
-      //  unswizzle operator, which currently doesn't have important use
-      //  cases.
-      for (auto swizzle_expr : inlined_swizzles) {
-        NVF_ERROR(
-            swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop,
-            "Only support inlining loop swizzles");
-        validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
-      }
-
-      std::unordered_set<Expr*> inlined_swizzle_set(
-          inlined_swizzles.begin(), inlined_swizzles.end());
-
-      // Check not inlined swizzles:
-      //  Apply the loop swizzle check when it applies, and
-      // also make sure that the no swizzle is also in inlined_swizzle set.
-      // The latter would mean that one output of the swizzle is inlined while
-      //  the other is not. Such case will not be supported.
-      for (auto swizzle_expr : not_inlined_swizzles) {
-        NVF_ERROR(
-            !inlined_swizzle_set.count(swizzle_expr),
-            "Cannot partially inline across swizzle domains.",
-            swizzle_expr->toString());
-        if (swizzle_expr->as<Swizzle2D>()->swizzleMode() == SwizzleMode::Loop) {
-          validateLoopSwizzle(swizzle_expr, tv_loop_domain_set);
-        }
-      }
     }
   }
 }
