@@ -324,7 +324,7 @@ bool isScalarOp(const Expr* expr) {
 }
 
 bool isIterDomainOp(const Expr* expr) {
-  return expr->isOneOf<Split, Merge, Swizzle, Swizzle2D, Resize>();
+  return expr->isOneOf<Split, Merge, Swizzle, Resize>();
 }
 
 std::optional<std::pair<IterDomain*, IterDomain*>> getMaybeWarpReductionDim(
@@ -706,23 +706,6 @@ std::vector<Expr*> replaceInputsInExpr(
     const std::vector<Expr*>& exprs,
     const std::unordered_map<Val*, Val*>& replacement_map) {
   return ReplaceExprInput::replace(exprs, replacement_map);
-}
-
-std::vector<Expr*> getAllSwizzlesBetween(
-    std::vector<IterDomain*> from,
-    std::vector<IterDomain*> to) {
-  auto all_expr = DependencyCheck::getAllExprsBetween(
-      {from.begin(), from.end()}, {to.begin(), to.end()});
-
-  std::vector<Expr*> all_swizzles;
-
-  std::copy_if(
-      all_expr.begin(),
-      all_expr.end(),
-      std::back_inserter(all_swizzles),
-      [](Expr* expr) { return expr->isA<Swizzle2D>(); });
-
-  return all_swizzles;
 }
 
 bool isTMAOrMMASmemTv(TensorView* tv) {

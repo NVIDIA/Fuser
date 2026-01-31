@@ -157,12 +157,6 @@ NVF_API std::vector<Expr*> flattenScopedExprs(
 NVF_API std::vector<Expr*> flattenScopedExprs(
     const Scope::ExprList& loop_nests);
 
-//! Returns all swizzle ops between the set of iterdomains
-//!  in `from` and `to`.
-std::vector<Expr*> getAllSwizzlesBetween(
-    std::vector<IterDomain*> from,
-    std::vector<IterDomain*> to);
-
 // Replace value pass on Kernel IR.
 //  Replace each use of any Val* that apears in the given `replacement_map`
 //  Keeps the predicate carried by each expr

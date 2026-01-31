@@ -8609,8 +8609,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
             PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
             /*replay_forward_id_map=*/{},
             /*target_forward_id_map=*/{},
-            /*skip_replay_swizzle=*/false,
-            /*skip_target_swizzle=*/false,
             /*skip_resize=*/false,
             /*error_on_failure=*/true);
       },
@@ -8624,8 +8622,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
       PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
       /*replay_forward_id_map=*/{},
       /*target_forward_id_map=*/{},
-      /*skip_replay_swizzle=*/false,
-      /*skip_target_swizzle=*/false,
       /*skip_resize=*/false,
       /*error_on_failure=*/false);
 }
