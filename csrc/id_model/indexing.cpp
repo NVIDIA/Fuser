@@ -34,6 +34,8 @@
 namespace nvfuser {
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
+  NVF_ERROR(isSupported(id_model.fusion()));
+
   buildLoopIndexMap();
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {

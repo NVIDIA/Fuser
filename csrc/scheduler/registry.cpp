@@ -64,6 +64,16 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  // Support of non-exact gather was dropped when the legacy indexer was
+  // deprecated
+  if (std::ranges::any_of(
+          ir_utils::getOpsOfType<GatherOp>(fusion),
+          [](GatherOp* gather) { return !gather->exactSizes(); })) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "Non-exact gather ops");
+    return false;
+  }
+
   // Fusions with `MatmulOp, LinearOp, MmaOp` can only be accepted by Matmul
   // scheduler.
   if (scheduler_type != SchedulerType::Matmul &&

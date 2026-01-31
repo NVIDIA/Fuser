@@ -583,7 +583,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction1) {
 
   validateSegmentation(
       executor_cache.getMostRecentKernelRuntime(),
-      {SchedulerType::Reduction, SchedulerType::PointWise});
+      {SchedulerType::Reduction, SchedulerType::ExprEval});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -1128,7 +1128,8 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
 }
 
 // Test grouped reduction on IterType::GatherScatter
-TEST_F(GatherTest, GatherIterGoupedReduction) {
+// Codegen support of non-exact gather dropped
+TEST_F(GatherTest, DISABLED_GatherIterGoupedReduction) {
   const int max_dim_size = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -1212,7 +1213,8 @@ TEST_F(GatherTest, GatherIterGoupedReduction) {
       lparams);
 }
 
-TEST_F(GatherTest, SameTvUsedAsLookupAndIndex) {
+// Codegen support of non-exact gather dropped
+TEST_F(GatherTest, DISABLED_SameTvUsedAsLookupAndIndex) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
