@@ -60,11 +60,6 @@ class IrBuilderPasskey;
 class IrContainerPasskey;
 class ExpressionEvaluator;
 
-// Forward declaration of impl namespace
-namespace impl {
-class IrContainer;
-}
-
 namespace kir {
 class Kernel;
 class Predicate;
@@ -422,7 +417,6 @@ class NVF_API Val : public Statement {
 
  protected:
   friend class Fusion;
-  friend class impl::IrContainer;
   friend class IrStorage;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
