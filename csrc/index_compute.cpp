@@ -1980,8 +1980,6 @@ bool shouldUseTensorIndexer(
     return true;
   }
 
-  NVF_THROW("TensorIndexer not used");
-
   return false;
 }
 
