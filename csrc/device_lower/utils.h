@@ -18,6 +18,7 @@
 
 #include <bitset>
 #include <map>
+#include <vector>
 
 // Provides utilities for dealing with nested ForLoop and IfThenElse scopes
 

@@ -500,6 +500,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   tmemInfo() = computeTMemInfo(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
+
+  info().set(std::make_unique<BatchedTmaInfo>(fusion_));
+  dumpExprsIfEnabled(fusion_->exprs(), "build BatchedTmaInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {
