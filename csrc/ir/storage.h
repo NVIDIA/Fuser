@@ -20,7 +20,7 @@ namespace nvfuser {
 
 // Passkey for container to register names with statements
 class IrContainerPasskey {
-  friend class IrStorage;
+  friend class IrContainer;
 
  private:
   explicit IrContainerPasskey() = default;
@@ -28,20 +28,20 @@ class IrContainerPasskey {
 
 class NamedScalar;
 
-class IrStorage {
+class IrContainer {
  public:
-  NVF_API IrStorage();
+  NVF_API IrContainer();
 
-  // Copy/Move Constructors and Operators are deleted. IrStorage is managed
+  // Copy/Move Constructors and Operators are deleted. IrContainer is managed
   // through a smart pointer in IrContainer. Semantic operations for Fusion
   // types are handled directly through copy and swap functions.
-  IrStorage(const IrStorage& other) = delete;
-  IrStorage(IrStorage&& other) noexcept = delete;
+  IrContainer(const IrContainer& other) = delete;
+  IrContainer(IrContainer&& other) noexcept = delete;
 
-  IrStorage& operator=(const IrStorage& other) = delete;
-  IrStorage& operator=(IrStorage&& other) noexcept = delete;
+  IrContainer& operator=(const IrContainer& other) = delete;
+  IrContainer& operator=(IrContainer&& other) noexcept = delete;
 
-  ~IrStorage();
+  ~IrContainer();
 
   bool inContainer(const Statement* stmt) const;
 
@@ -105,11 +105,11 @@ class IrStorage {
   void assumeNonNegative(Val* val);
 
  protected:
-  static IrCloner copy(const IrStorage* from, IrStorage* to);
+  static IrCloner copy(const IrContainer* from, IrContainer* to);
 
-  static void swap(IrStorage& a, IrStorage& b) noexcept;
+  static void swap(IrContainer& a, IrContainer& b) noexcept;
 
-  // Let Fusion access IrStorage::clear()
+  // Let Fusion access IrContainer::clear()
   friend class Fusion;
 
   void removeExpr(Expr* expr);
