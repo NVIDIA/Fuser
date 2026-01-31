@@ -787,6 +787,8 @@ bool containsCircularBufferStage(
 
 namespace lower_utils {
 
+// Returns the number of batchable non-circular TMA loads. The batched path is
+// only enabled by callers when the returned count is > 1.
 bool hasBlockSync(const Expr* expr, const ThreadPredicateMap& pred_map) {
   if (expr->isA<kir::BlockSync>() || expr->isA<kir::GridSync>() ||
       expr->isA<kir::BlockSerializeWait>() ||
