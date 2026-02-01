@@ -1560,22 +1560,20 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
 
     // global schedule
     auto reference1 = tv1;
-    int64_t inner_most_pos1_in_ref1 = 1, inner_most_pos2_in_ref1 = 0;
     int64_t tile_size1 = 32, tile_size2 = 32;
     // [i1, i2] -> [i1, i2/tile1, tile1]
-    reference1->split(inner_most_pos1_in_ref1, tile_size1);
-    reference1->reorder({{inner_most_pos1_in_ref1 + 1, -1}});
-    reference1->split(inner_most_pos2_in_ref1, tile_size2);
-    reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
+    reference1->split(1, tile_size1);
+    reference1->reorder({{2, -1}});
+    reference1->split(0, tile_size2);
+    reference1->reorder({{1, -1}});
     reference1->merge(0);
 
-    int64_t rhs_i = 0;
-    reference1->split(rhs_i, 1);
+    reference1->split(0, 1);
     // [r.., merged_dim, 1, tile1, tile2]
 
     // parallelize non-tile dimensions
-    reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
-    reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
+    reference1->axis(1)->parallelize(ParallelType::Unswitch);
+    reference1->axis(0)->parallelize(ParallelType::BIDx);
     // [r.., BIDx, Unswitch, tile1, tile2]
 
     // Propagate transformations so far to the entire DAG
