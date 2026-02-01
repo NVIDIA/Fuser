@@ -1527,4 +1527,110 @@ TEST_F(TransposeTest, TmaTranspose) {
     testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
   }
 }
+
+TEST_F(TransposeTest, TmaTransposeSimple) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = transpose(tv0, 0, 1);
+  fusion.addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+  bool auto_schedule = false;
+  if (std::getenv("USE_AUTO") != nullptr) {
+    auto_schedule = true;
+  }
+  if (auto_schedule) {
+    // H100, non-tma, 82%, tma-256, 71%, tma-128, 78%, tma-128-2tilesPerCTA, 80%
+    // non-tma, GB200, 62%, 2.18 ms, vect = 4, unroll = 2
+    FusionExecutorCache executor_cache(std::move(fusion_ptr));
+    auto outputs = executor_cache.runFusionWithInputs({input0});
+    testValidate(
+        executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
+  } else {
+    auto input_cache = tv0->cacheAfter();
+    auto output_cache = tv1->cacheBefore();
+    input_cache->setMemoryType(MemoryType::Shared);
+
+    // global schedule
+    auto reference1 = tv1;
+    int64_t inner_most_pos1_in_ref1 = 1, inner_most_pos2_in_ref1 = 0;
+    int64_t tile_size1 = 32, tile_size2 = 32;
+    // [i1, i2] -> [i1, i2/tile1, tile1]
+    reference1->split(inner_most_pos1_in_ref1, tile_size1);
+    reference1->reorder({{inner_most_pos1_in_ref1 + 1, -1}});
+    reference1->split(inner_most_pos2_in_ref1, tile_size2);
+    reference1->reorder({{inner_most_pos2_in_ref1 + 1, -1}});
+    reference1->merge(0);
+
+    int64_t rhs_i = 0;
+    reference1->split(rhs_i, 1);
+    // [r.., merged_dim, 1, tile1, tile2]
+
+    // parallelize non-tile dimensions
+    reference1->axis(rhs_i + 1)->parallelize(ParallelType::Unswitch);
+    reference1->axis(rhs_i)->parallelize(ParallelType::BIDx);
+    // [r.., BIDx, Unswitch, tile1, tile2]
+
+    // Propagate transformations so far to the entire DAG
+    TransformPropagator propagator(reference1);
+    MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
+    entire_dag.traverse(&propagator);
+
+    scheduler_utils::parallelizeAllLike(
+        reference1,
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{},
+        /*propagate_padding=*/true,
+        /*parallelize_inputs_on_did=*/true);
+
+    std::cout << output_cache->toString() << std::endl;
+    //////////////////////////////
+    // Step 3: Schedule group 2 //
+    //////////////////////////////
+    // [BIDx, Unswitch, tile1, tile2]
+    int64_t pos = 2;
+    int64_t vectorize_factor = 4, threads_per_block = 128;
+    for (auto tv : {tv0, input_cache}) {
+      tv->merge(pos);
+      tv->split(pos, vectorize_factor);
+      tv->split(pos, threads_per_block);
+      // [BIDx, Unswitch, Unroll, TIDx, Vectorize]
+      tv->axis(2)->parallelize(ParallelType::Unroll);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+      if (tv == input_cache) {
+        tv->axis(4)->parallelize(ParallelType::Vectorize);
+      }
+    }
+    //////////////////////////////
+    // Step 4: Schedule group 1 //
+    //////////////////////////////
+    // [BIDx, Unswitch, tile1, tile2]
+    for (auto tv : {output_cache, tv1}) {
+      tv->reorder({{-2, -1}});
+      // [..., tile2, tile1]
+      tv->merge(pos);
+      tv->split(pos, vectorize_factor);
+      tv->split(pos, threads_per_block);
+      tv->axis(2)->parallelize(ParallelType::Unroll);
+      tv->axis(3)->parallelize(ParallelType::TIDx);
+      if (tv == tv1) {
+        tv->axis(4)->parallelize(ParallelType::Vectorize);
+      }
+    }
+    inlineMost();
+    fusion.print();
+    KernelExecutor ke;
+    ke.compile(&fusion, {input0});
+    auto outputs = ke.run({input0});
+    testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
+  }
+}
+
 } // namespace nvfuser
