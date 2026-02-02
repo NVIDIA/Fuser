@@ -115,10 +115,10 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
 
-  if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Val*>>();
-    for (auto pred : *from->axioms_) {
-      to->axioms_->push_back(ir_cloner.clone(pred));
+  if (!from->axioms_.empty()) {
+    to->axioms_.reserve(from->axioms_.size());
+    for (auto pred : from->axioms_) {
+      to->axioms_.push_back(ir_cloner.clone(pred));
     }
   }
 
@@ -206,7 +206,7 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  axioms_.reset();
+  axioms_.clear();
   val_type_name_map_.clear();
   metadata_.clear();
   expr_name_counter_ = 0;
@@ -335,16 +335,15 @@ Val* IrContainer::metadataOf(Val* v) {
 }
 
 void IrContainer::lazyInitAxioms() {
-  if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Val*>>();
-    axioms_->reserve(kParallelTypeThreads.size() * 3);
+  if (axioms_.empty()) {
+    axioms_.reserve(kParallelTypeThreads.size() * 3);
     auto zero = zeroVal();
     for (auto p : kParallelTypeThreads) {
       auto pidx = NamedScalar::getParallelIndex(p);
       auto pdim = NamedScalar::getParallelDim(p);
-      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
-      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
-      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+      axioms_.push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+      axioms_.push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+      axioms_.push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
     }
   }
 }
@@ -352,13 +351,13 @@ void IrContainer::lazyInitAxioms() {
 void IrContainer::assumePositive(Val* val) {
   NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
+  axioms_.emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrContainer::assumeNonNegative(Val* val) {
   NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
-  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
+  axioms_.emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
 void IrContainer::removeStatementsCreatedAfter(

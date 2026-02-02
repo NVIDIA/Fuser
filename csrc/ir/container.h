@@ -98,7 +98,7 @@ class IrContainer {
   // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
   const std::vector<Val*>& axioms() {
     lazyInitAxioms();
-    return *axioms_;
+    return axioms_;
   }
 
   void assumePositive(Val* val);
@@ -184,7 +184,7 @@ class IrContainer {
   std::unique_ptr<Val> one_val_;
   std::unique_ptr<Val> zero_val_;
   std::unique_ptr<NamedScalar> magic_zero_val_;
-  std::unique_ptr<std::vector<Val*>> axioms_;
+  std::vector<Val*> axioms_;
   std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 
  public:
