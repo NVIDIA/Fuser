@@ -393,23 +393,21 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
 
     const DeviceMesh& producer_mesh = producer->getDeviceMesh();
     const DeviceMesh& consumer_mesh = consumer->getDeviceMesh();
-    const bool p_sharded = p_loop_did != nullptr && producer_mesh.size() > 1;
-    const bool c_sharded = c_loop_did != nullptr && consumer_mesh.size() > 1;
     const bool same_mesh = producer_mesh == consumer_mesh;
 
     if (e->isA<LoadStoreOp>()) {
-      if (p_sharded && !c_sharded) {
+      if (p_loop_did && !c_loop_did) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allgather
                                            : CommunicationType::Gather;
         fill_communication_info(type, p_logical_id, p2c_map.at(p_logical_id));
       }
-      if (!p_sharded && c_sharded) {
+      if (!p_loop_did && c_loop_did) {
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         fill_communication_info(
             CommunicationType::Scatter, c2p_map.at(c_logical_id), c_logical_id);
       }
-      if (p_sharded && c_sharded) {
+      if (p_loop_did && c_loop_did) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         IterDomain* c_logical_id = getLogicalFromLoopId(consumer, c_loop_did);
         // TODO(#4604): This is problematic for 2D sharding.
@@ -424,12 +422,12 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
       }
     } else {
       NVF_ERROR(e->isA<ReductionOp>() || e->isA<SqueezeOp>());
-      if (!p_sharded) {
+      if (!p_loop_did) {
         // Not a reduction based communication.
         continue;
       }
 
-      if (!c_sharded) {
+      if (!c_loop_did) {
         IterDomain* p_logical_id = getLogicalFromLoopId(producer, p_loop_did);
         CommunicationType type = same_mesh ? CommunicationType::Allreduce
                                            : CommunicationType::Reduce;
