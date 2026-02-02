@@ -30,7 +30,6 @@ class GatherTest : public NVFuserTest {
   void SetUp() override {
     // To make the tests using std::rand deterministic
     std::srand(0);
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
