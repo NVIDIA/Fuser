@@ -7,12 +7,12 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <mma_type.h>
-#include <scheduler/heuristic.h>
-#include <scheduler/registry.h>
-#include <scheduler/scheduler_types.h>
-#include <visibility.h>
+#include "fusion.h"
+#include "mma_type.h"
+#include "scheduler/heuristic.h"
+#include "scheduler/registry.h"
+#include "scheduler/scheduler_types.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

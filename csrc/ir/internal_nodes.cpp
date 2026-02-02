@@ -2771,43 +2771,6 @@ std::string Swizzle::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
-Swizzle2D::Swizzle2D(
-    IrBuilderPasskey passkey,
-    IterDomain* out_x,
-    IterDomain* out_y,
-    IterDomain* in_x,
-    IterDomain* in_y,
-    Swizzle2DType swizzle_type,
-    SwizzleMode swizzle_mode)
-    : Expr(passkey) {
-  addOutput(out_x);
-  addOutput(out_y);
-  addInput(in_x);
-  addInput(in_y);
-  addDataAttribute(swizzle_type);
-  addDataAttribute(swizzle_mode);
-}
-
-std::string Swizzle2D::toString(int indent_size) const {
-  std::stringstream ss;
-  ss << swizzleType() << "(2D): ";
-  ss << inX()->toString();
-  ss << " , ";
-  ss << inY()->toString();
-  ss << " -> ";
-  ss << outX()->toString();
-  ss << " , ";
-  ss << outY()->toString();
-  ss << "\n";
-  return ss.str();
-}
-
-std::string Swizzle2D::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Tensor op can not be printed inline");
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle2D)
-
 Resize::Resize(
     IrBuilderPasskey passkey,
     IterDomain* out,

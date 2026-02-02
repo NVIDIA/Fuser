@@ -7,7 +7,7 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
+#include "fusion.h"
 
 namespace nvfuser {
 

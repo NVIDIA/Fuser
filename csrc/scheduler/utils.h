@@ -7,15 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <visibility.h>
 #include "base.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/all_nodes.h"
+#include "ir/cloner.h"
+#include "scheduler/reduction_heuristic.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

@@ -12,6 +12,7 @@
 #include <device_lower/analysis/padded_parallel_dimensions.h>
 #include <device_lower/analysis/tensor_init_val.h>
 #include <device_lower/analysis/thread_predicate.h>
+#include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
 #include <id_model/id_model.h>
 #include <parallel_dimension_map.h>
@@ -117,6 +118,11 @@ class FusionInfo {
 
   FUSION_INFO_DEFINE_FUNCTIONS(TensorInitVal, tensor_init_val, tensorInitVal);
 
+  FUSION_INFO_DEFINE_FUNCTIONS(
+      BatchedTmaInfo,
+      batched_tma_info,
+      batchedTmaInfo);
+
  private:
   FUSION_INFO_DEFINE_FIELD(
       ConcretizedBroadcastDomains,
@@ -137,6 +143,8 @@ class FusionInfo {
   FUSION_INFO_DEFINE_FIELD(IdModel, id_model);
 
   FUSION_INFO_DEFINE_FIELD(TensorInitVal, tensor_init_val);
+
+  FUSION_INFO_DEFINE_FIELD(BatchedTmaInfo, batched_tma_info);
 };
 
 #undef FUSION_INFO_DEFINE_FUNCTIONS

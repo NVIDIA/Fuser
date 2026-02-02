@@ -5,31 +5,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <runtime/fusion_executor_cache.h>
+#include "runtime/fusion_executor_cache.h"
 
-#include <dynamic_transform.h>
-#include <fusion.h>
-#include <logical_domain_map.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/fusion_kernel_runtime.h>
-#include <type.h>
-
-#include <debug.h>
-#include <dynamic_transform.h>
-#include <fusion_profiler.h>
-#include <instrumentation.h>
-#include <ir/utils.h>
-#include <logical_domain_map.h>
-#include <multidevice/communicator.h>
-#include <options.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <runtime/allocations.h>
-#include <runtime/executor_params.h>
-#include <runtime/executor_utils.h>
-#include <runtime/fusion_cache_utils.h>
-#include <scheduler/debug_utils.h>
-#include <scheduler/registry.h>
 #include "base.h"
+#include "debug.h"
+#include "dynamic_transform.h"
+#include "fusion.h"
+#include "fusion_profiler.h"
+#include "instrumentation.h"
+#include "ir/utils.h"
+#include "logical_domain_map.h"
+#include "multidevice/communicator.h"
+#include "options.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "runtime/allocations.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_params.h"
+#include "runtime/executor_utils.h"
+#include "runtime/fusion_cache_utils.h"
+#include "runtime/fusion_kernel_runtime.h"
+#include "scheduler/debug_utils.h"
+#include "scheduler/registry.h"
+#include "type.h"
 
 namespace nvfuser {
 

@@ -29,6 +29,10 @@ class CursesUI:
         self.top_row: int = 0
         self.modified: bool = False
         self.should_exit: bool = False
+        self.search_mode: bool = False
+        self.search_query: str = ""
+        self.search_matches: list[int] = []  # Indices of matching items
+        self.search_match_index: int = 0  # Current match we're at
 
         # Build flat list of all options with category headers
         self.display_items: list[dict[str, str | object]] = []
@@ -73,28 +77,37 @@ class CursesUI:
         """Draw the bottom help text."""
         height, width = self.stdscr.getmaxyx()
 
-        # Show context-sensitive help based on current selection
-        item = (
-            self.display_items[self.current_row]
-            if self.current_row < len(self.display_items)
-            else None
-        )
-
-        if item and item["type"] == "option":
-            opt = item["option"]
-            match opt.var_type:
-                case "bool":
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
-                case "multi":
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
-                case _:
-                    # String/Int - Enter to edit
-                    help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+        # Show search mode or normal help
+        if self.search_mode:
+            help_text = f"/{self.search_query}"
+            if self.search_matches:
+                help_text += (
+                    f" [{self.search_match_index + 1}/{len(self.search_matches)}]"
+                )
+            help_text = help_text.ljust(width - 1)
         else:
-            help_text = "[↑↓/jk] Nav  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+            # Show context-sensitive help based on current selection
+            item = (
+                self.display_items[self.current_row]
+                if self.current_row < len(self.display_items)
+                else None
+            )
 
-        if self.modified:
-            help_text = "[MODIFIED] " + help_text
+            if item and item["type"] == "option":
+                opt = item["option"]
+                match opt.var_type:
+                    case "bool":
+                        help_text = "[↑↓/jk] Nav  [/] Search  [n/N] Next/Prev  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+                    case "multi":
+                        help_text = "[↑↓/jk] Nav  [/] Search  [n/N] Next/Prev  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Cycle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+                    case _:
+                        # String/Int - Enter to edit
+                        help_text = "[↑↓/jk] Nav  [/] Search  [n/N] Next/Prev  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Edit  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+            else:
+                help_text = "[↑↓/jk] Nav  [/] Search  [n/N] Next/Prev  [{}] Sect  [PgUp/PgDn] Top/Bot  [Enter] Toggle  [r] Reload  [a] Apply  [g] Gen  [q] Quit"
+
+            if self.modified:
+                help_text = "[MODIFIED] " + help_text
 
         self.stdscr.attron(curses.color_pair(2))
         self.stdscr.addstr(height - 1, 0, help_text.ljust(width - 1))
@@ -616,6 +629,113 @@ class CursesUI:
         visible_rows = height - 7
         self.top_row = max(0, self.current_row - visible_rows + 1)
 
+    def search_items(self, query: str) -> list[int]:
+        """Search for items matching the query.
+
+        Returns list of indices of matching items (both headers and options).
+        Searches in option names and category headers only.
+        Case-insensitive search.
+        """
+        if not query:
+            return []
+
+        matches = []
+        query_lower = query.lower()
+
+        for i, item in enumerate(self.display_items):
+            if item["type"] == "header":
+                # Search in category header text
+                if query_lower in item["text"].lower():
+                    matches.append(i)
+            elif item["type"] == "option":
+                opt = item["option"]
+                # Search in option name only
+                if query_lower in opt.name.lower():
+                    matches.append(i)
+
+        return matches
+
+    def handle_search(self) -> None:
+        """Enter search mode and handle search input."""
+        height, width = self.stdscr.getmaxyx()
+
+        # Enable cursor for search input
+        curses.curs_set(1)
+        curses.echo()
+
+        search_query = ""
+
+        try:
+            while True:
+                # Draw the search prompt
+                self.stdscr.move(height - 1, 0)
+                self.stdscr.clrtoeol()
+                self.stdscr.attron(curses.color_pair(2))
+                prompt = f"/{search_query}"
+                self.stdscr.addstr(height - 1, 0, prompt.ljust(width - 1))
+                self.stdscr.attroff(curses.color_pair(2))
+                self.stdscr.move(height - 1, len(prompt))
+                self.stdscr.refresh()
+
+                # Get key
+                key = self.stdscr.getch()
+
+                if key == ord("\n") or key == curses.KEY_ENTER:
+                    # Accept search and jump to first match
+                    if search_query:
+                        self.search_query = search_query
+                        self.search_matches = self.search_items(search_query)
+                        if self.search_matches:
+                            self.search_match_index = 0
+                            self.jump_to_search_match(self.search_matches[0])
+                    break
+                elif key == 27:  # Escape
+                    # Cancel search
+                    break
+                elif key == curses.KEY_BACKSPACE or key == 127 or key == 8:
+                    # Backspace
+                    if search_query:
+                        search_query = search_query[:-1]
+                elif 32 <= key <= 126:
+                    # Printable character
+                    search_query += chr(key)
+        finally:
+            curses.noecho()
+            curses.curs_set(0)
+
+    def jump_to_search_match(self, match_index: int) -> None:
+        """Jump to a specific item by index."""
+        if 0 <= match_index < len(self.display_items):
+            self.current_row = match_index
+            # Adjust scroll to center the match if possible
+            height, _ = self.stdscr.getmaxyx()
+            visible_rows = height - 7
+            # Try to center the match
+            target_top = max(0, self.current_row - visible_rows // 2)
+            # But make sure we don't scroll past the end
+            max_top = max(0, len(self.display_items) - visible_rows)
+            self.top_row = min(target_top, max_top)
+
+    def jump_to_next_match(self) -> None:
+        """Jump to next search match (n in vim)."""
+        if not self.search_matches:
+            return
+
+        self.search_match_index = (self.search_match_index + 1) % len(
+            self.search_matches
+        )
+        self.jump_to_search_match(self.search_matches[self.search_match_index])
+
+    def jump_to_prev_match(self) -> None:
+        """Jump to previous search match (N in vim)."""
+        if not self.search_matches:
+            return
+
+        self.search_match_index = (self.search_match_index - 1) % len(
+            self.search_matches
+        )
+        self.jump_to_search_match(self.search_matches[self.search_match_index])
+
     def run(self) -> None:
         """Main event loop."""
         while True:
@@ -754,6 +874,18 @@ class CursesUI:
                 self.handle_generate()
                 if self.should_exit:
                     break  # Exit immediately after generate
+
+            elif key == ord("/"):
+                # Enter search mode
+                self.handle_search()
+
+            elif key == ord("n"):
+                # Jump to next search match
+                self.jump_to_next_match()
+
+            elif key == ord("N"):
+                # Jump to previous search match
+                self.jump_to_prev_match()
 
 
 def run_curses_ui(stdscr, config: EnvVarConfig) -> None:

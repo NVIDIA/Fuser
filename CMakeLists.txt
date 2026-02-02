@@ -216,6 +216,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
   ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
+  ${NVFUSER_SRCS_DIR}/ir/storage.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/internal_base_nodes.cpp
@@ -302,7 +303,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/greedy.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mark_aliases.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
-  ${NVFUSER_SRCS_DIR}/scheduler/matmul_ampere-.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_hopper+.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
@@ -501,7 +501,7 @@ target_link_libraries(nvfuser_codegen PRIVATE
 )
 
 if(NVFUSER_BUILD_WITH_ASAN)
-  target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+  target_compile_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(codegen_internal PUBLIC -fsanitize=address)
   target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()

@@ -5,28 +5,28 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <runtime/fusion_kernel_runtime.h>
+#include "runtime/fusion_kernel_runtime.h"
 
 #include <c10/cuda/CUDAGuard.h>
 
-#include <fusion.h>
-#include <fusion_profiler.h>
-#include <fusion_segmenter.h>
-#include <host_ir/lowering.h>
-#include <host_ir/passes.h>
-#include <instrumentation.h>
-#include <ir/base_nodes.h>
-#include <multidevice/communication.h>
-#include <multidevice/utils.h>
-#include <preseg_passes/pre_segmenter.h>
-#include <python_frontend/fusion_definition.h>
-#include <python_frontend/translation.h>
-#include <runtime/executor.h>
-#include <runtime/executor_dispatch.h>
-#include <runtime/fusion_cache_utils.h>
-#include <scheduler/heuristic.h>
-#include <serde/fusion_cache_generated.h>
-#include <type.h>
+#include "fusion.h"
+#include "fusion_profiler.h"
+#include "fusion_segmenter.h"
+#include "host_ir/lowering.h"
+#include "host_ir/passes.h"
+#include "instrumentation.h"
+#include "ir/base_nodes.h"
+#include "multidevice/communication.h"
+#include "multidevice/utils.h"
+#include "preseg_passes/pre_segmenter.h"
+#include "python_frontend/fusion_definition.h"
+#include "python_frontend/translation.h"
+#include "runtime/executor.h"
+#include "runtime/executor_dispatch.h"
+#include "runtime/fusion_cache_utils.h"
+#include "scheduler/heuristic.h"
+#include "serde/fusion_cache_generated.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -348,7 +348,7 @@ KernelArgumentHolder FusionKernelRuntime::inferOutputMetaTensor(
   const auto& heuristic_params = heuristics->at(group_to_run->groupId());
   const bool is_expr_eval =
       heuristic_params->scheduler_type == SchedulerType::ExprEval;
-  if (!(is_expr_eval && isOptionEnabled(EnableOption::InferContiguity))) {
+  if (!is_expr_eval || isOptionDisabled(DisableOption::InferContiguity)) {
     return inferContiguousOutputMetaTensor(
         fusion_to_run, group_runtime_inputs, evaluator_precomputed_values);
   }

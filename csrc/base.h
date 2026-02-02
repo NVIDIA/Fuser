@@ -293,7 +293,6 @@ SPECIALIZE_PRINTER(tma::TensorMapL2Promotion);
 SPECIALIZE_PRINTER(tma::TensorMapFloatOOBFill);
 SPECIALIZE_PRINTER(MmaInputSmemSwizzle);
 SPECIALIZE_PRINTER(SwizzleType);
-SPECIALIZE_PRINTER(Swizzle2DType);
 SPECIALIZE_PRINTER(SwizzleMode);
 SPECIALIZE_PRINTER(std::vector<int>);
 SPECIALIZE_PRINTER(std::vector<uint32_t>);

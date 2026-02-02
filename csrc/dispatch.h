@@ -119,7 +119,6 @@ class Val;
   f(Partition);                      \
   f(Combine);                        \
   f(Swizzle);                        \
-  f(Swizzle2D);                      \
   f(Resize);                         \
   f(MatmulOp);                       \
   f(LinearOp);                       \

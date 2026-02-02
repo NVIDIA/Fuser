@@ -7,12 +7,13 @@
 // clang-format on
 #pragma once
 
-#include <c10/util/hash.h>
-#include <mma_type.h>
-#include <scheduler/heuristic.h>
-#include "base.h"
-
 #include <sstream>
+
+#include <c10/util/hash.h>
+
+#include "base.h"
+#include "mma_type.h"
+#include "scheduler/heuristic.h"
 #include "type.h"
 
 namespace nvfuser {

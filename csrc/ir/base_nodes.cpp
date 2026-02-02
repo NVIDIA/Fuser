@@ -29,7 +29,11 @@ Statement::Statement(IrBuilderPasskey passkey)
     : ir_container_{passkey.ir_container_} {}
 
 Statement::Statement(const Statement* src, IrCloner* ir_cloner)
-    : ir_container_{ir_cloner->container()} {}
+    : ir_container_{ir_cloner->container()} {
+  NVF_ERROR(
+      ir_container_ != nullptr,
+      "Statement cloning constructor received NULL container from IrCloner");
+}
 
 NVFUSER_DEFINE_CLONE(Statement)
 
