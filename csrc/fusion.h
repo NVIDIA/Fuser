@@ -151,20 +151,20 @@ class NVF_API Fusion : public PolymorphicBase {
   IrContainer* ir_container() {
     NVF_ERROR(
         ir_container_.get() != nullptr,
-        "Accessing a uninitialized IrContainer!.")
+        "Accessing an uninitialized IrContainer!.")
     return ir_container_.get();
   }
 
   const IrContainer* ir_container() const {
     NVF_ERROR(
         ir_container_.get() != nullptr,
-        "Accessing a uninitialized IrContainer!.")
+        "Accessing an uninitialized IrContainer!.")
     return ir_container_.get();
   }
 
  public:
   // Registration (public API with passkey)
-  virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
+  virtual void registerStmt(IrBuilderPasskey, Statement* stmt) {
     if (stmt->isVal()) {
       registerVal(stmt->asVal());
     } else {
