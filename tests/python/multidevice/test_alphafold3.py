@@ -144,6 +144,8 @@ def test_triangle_updates(direction, multidevice_test):
         z = fd.ops.matmul(a, b)  # [b, c, i, j]
         z = fd.ops.permute(z, [0, 2, 3, 1])  # [b, i, j, c]
 
+        einsum_out = z
+
         z = layer_norm(fd, z, w_norm_out, b_norm_out)
         z = gating(fd, z, w_p_out, z_in, w_g_out)
         fd.add_output(z)
@@ -162,10 +164,11 @@ def test_triangle_updates(direction, multidevice_test):
             w_p_out,
             w_g_out,
             mask_tv,
+            einsum_out,
         ]:
             tv.set_device_mesh(mesh)
 
-        for tv in [z_in_tv, mask_tv]:
+        for tv in [z_in_tv, mask_tv, einsum_out]:
             tv.outer_split(2, cp_size)
             tv.axis(2).parallelize(nvfuser.ParallelType.mesh_x)
             tv.outer_split(1, cp_size)
