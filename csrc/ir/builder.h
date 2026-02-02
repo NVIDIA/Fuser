@@ -11,7 +11,7 @@
 #include "exceptions.h"
 #include "fusion_guard.h"
 #include "ir/builder_passkey.h"
-#include "ir/storage.h"
+#include "ir/container.h"
 #include "visibility.h"
 
 namespace nvfuser {
