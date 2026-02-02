@@ -1558,14 +1558,9 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
     auto output_cache = tv1->cacheBefore();
     input_cache->setMemoryType(MemoryType::Shared);
 
-    int64_t tile_size1 = 32, tile_size2 = 16;
-    bool use_propagate_schedule = true;
-    if (std::getenv("USE_PROPAGATE") != nullptr) {
-      use_propagate_schedule = true;
-    }
-    if (std::getenv("USE_PER_TENSOR") != nullptr) {
-      use_propagate_schedule = false;
-    }
+    int64_t tile_size1 = 32, tile_size2 = 32;
+    bool use_propagate_schedule = false;
+
     if (use_propagate_schedule) {
       // Propagate-based schedule from a single reference.
       auto reference1 = tv1;
@@ -1596,32 +1591,35 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
           /*propagate_padding=*/true,
           /*parallelize_inputs_on_did=*/true);
     } else {
-      // Per-tensor schedule mirroring TransformPrinter order in 1.log.
-      // Group-2 tensors: input side uses [x, y] layout.
-      for (auto tv : {tv0, input_cache}) {
-        // [x, y] -> [x/32, 32, y/16, 16]
-        tv->split(1, tile_size2);
-        tv->split(0, tile_size1);
-        // [y/16, x/32, 32, 16]
-        tv->reorder({{2, 0}, {0, 1}, {1, 2}});
-        // [y/16 * x/32, 32, 16]
-        tv->merge(0);
-        tv->split(0, 1);
-        tv->axis(1)->parallelize(ParallelType::Unswitch);
-        tv->axis(0)->parallelize(ParallelType::BIDx);
-      }
       // Group-1 tensors: output side uses [y, x] layout.
       for (auto tv : {output_cache, tv1}) {
-        // [y, x] -> [y/16, 16, x/32, 32]
+        // [y, x] -> [y/tile_size2, tile_size2, x/tile_size1, tile_size1]
         tv->split(1, tile_size1);
         tv->split(0, tile_size2);
-        // [y/16, x/32, 32, 16]
-        tv->reorder({{1, 3}, {3, 2}, {2, 1}});
-        // [y/16 * x/32, 32, 16]
+        // [x/tile_size1, y/tile_size2, tile_size1, tile_size2]
+        tv->reorder({{0, 1}, {1, 3}, {2, 0}, {3, 2}});
+        std::cout << tv->toString() << std::endl;
+        // [x/tile_size1 * y/tile_size2, tile_size1, tile_size2]
         tv->merge(0);
         tv->split(0, 1);
         tv->axis(1)->parallelize(ParallelType::Unswitch);
         tv->axis(0)->parallelize(ParallelType::BIDx);
+        std::cout << tv->toString() << std::endl;
+      }
+      // Group-2 tensors: input side uses [x, y] layout.
+      for (auto tv : {tv0, input_cache}) {
+        // [x, y] -> [x/tile_size1, tile_size1, y/tile_size2, tile_size2]
+        tv->split(1, tile_size2);
+        tv->split(0, tile_size1);
+        // [x/tile_size1, y/tile_size2, tile_size1, tile_size2]
+        tv->reorder({{1, 2}, {2, 1}});
+        std::cout << tv->toString() << std::endl;
+        // [x/tile_size1 * y/tile_size2, tile_size1, tile_size2]
+        tv->merge(0);
+        tv->split(0, 1);
+        tv->axis(1)->parallelize(ParallelType::Unswitch);
+        tv->axis(0)->parallelize(ParallelType::BIDx);
+        std::cout << tv->toString() << std::endl;
       }
     }
     // Print to verify the loop domain matches the expected transform order.
@@ -1629,19 +1627,33 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
     //////////////////////////////
     // Step 3: Schedule group 2 //
     //////////////////////////////
-    // Vectorize/Unroll for group 2. Only the shared cache is vectorized.
     int64_t pos = 2;
     int64_t vectorize_factor = 4, threads_per_block = 128;
-    for (auto tv : {tv0, input_cache}) {
+    // schedule input cache
+    // [BIDx, Unswitch, tile_size1, tile_size2]
+    input_cache->split(3, 4);
+    // [BIDx, Unswitch, tile_size1, tile_size2/4, 4]
+    input_cache->split(2, 8);
+    // [BIDx, Unswitch, tile_size1/8, 8, tile_size2/4, 4]
+    input_cache->swizzle(SwizzleType::XOR, 3, 4);
+    input_cache->merge(2);
+    input_cache->merge(2);
+    input_cache->split(2, threads_per_block);
+    // [BIDx, Unswitch, Unroll, TIDx, Vectorize]
+    input_cache->setAllocationDomain(input_cache->getLoopDomain(), true);
+    input_cache->axis(2)->parallelize(ParallelType::Unroll);
+    input_cache->axis(3)->parallelize(ParallelType::TIDx);
+    input_cache->axis(4)->parallelize(ParallelType::Vectorize);
+    // [BIDx, Bulk, Bulk, Bulk, Bulk]
+    // Vectorize/Unroll for group 2. Only the shared cache is vectorized.
+
+    for (auto tv : {tv0}) {
       tv->merge(pos);
       tv->split(pos, vectorize_factor);
       tv->split(pos, threads_per_block);
       // [BIDx, Unswitch, Unroll, TIDx, Vectorize]
       tv->axis(2)->parallelize(ParallelType::Unroll);
       tv->axis(3)->parallelize(ParallelType::TIDx);
-      if (tv == input_cache) {
-        tv->axis(4)->parallelize(ParallelType::Vectorize);
-      }
     }
     //////////////////////////////
     // Step 4: Schedule group 1 //
