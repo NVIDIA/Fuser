@@ -18,7 +18,7 @@ namespace nvfuser {
 
 using dynamic_type::has_explicit_conversion_v;
 
-class PolymorphicValueTest : public NVFuserTest {};
+using PolymorphicValueTest = NVFuserTest;
 
 TEST_F(PolymorphicValueTest, OpaqueEquality) {
   Opaque a{DataType::Int}, b{DataType::Int};

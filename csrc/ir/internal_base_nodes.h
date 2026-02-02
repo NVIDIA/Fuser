@@ -384,10 +384,6 @@ class NVF_API IterDomain : public Val {
   static std::pair<IterDomain*, IterDomain*> swizzle(
       SwizzleType swizzle_type,
       IterDomain* in_x,
-      IterDomain* in_y);
-  static std::pair<IterDomain*, IterDomain*> swizzle(
-      Swizzle2DType swizzle_type,
-      IterDomain* in_x,
       IterDomain* in_y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
@@ -828,9 +824,8 @@ class NVF_API TensorDomain : public Val {
 
   //! Applies 2D swizzle on a rectangular tile defined by
   //!  a pair of iterdomains contained in this domain.
-  void swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
   void swizzle(
-      Swizzle2DType swizzle_type,
+      SwizzleType swizzle_type,
       int64_t x,
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);

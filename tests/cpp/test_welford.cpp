@@ -17,13 +17,7 @@
 
 namespace nvfuser {
 
-class WelfordTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using WelfordTest = NVFuserTest;
 
 TEST_F(WelfordTest, SerialWelford) {
   int x = 128, y = 64, z = 64;

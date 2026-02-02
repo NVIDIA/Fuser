@@ -295,7 +295,6 @@ namespace {
 // given Fusion
 IdModelOptions getIdModelOptions(Fusion* fusion) {
   IdModelOptions options;
-  options.setTensorIndexer(true);
 
   // If not supported, disable use of TensorIndexer by default. It is
   // still used if explicitly opted-in (see, for example,
@@ -416,10 +415,6 @@ void GpuLower::analysis(Fusion* fusion) {
   validateMma(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateMma");
 
-  // Validate swizzle usage on the fusion schedule.
-  validateSwizzle(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "validateSwizzle");
-
   validateReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateReductions");
 
@@ -504,6 +499,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   tmemInfo() = computeTMemInfo(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
+
+  info().set(std::make_unique<BatchedTmaInfo>(fusion_));
+  dumpExprsIfEnabled(fusion_->exprs(), "build BatchedTmaInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {

@@ -21,13 +21,7 @@
 
 namespace nvfuser {
 
-class AllocationDomainTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using AllocationDomainTest = NVFuserTest;
 
 using ::testing::ElementsAre;
 

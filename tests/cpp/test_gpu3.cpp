@@ -61,13 +61,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-class Gpu3Test : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using Gpu3Test = NVFuserTest;
 
 TEST_F(Gpu3Test, FusionNonDivisibleSplit1_CUDA) {
   Fusion fusion;
@@ -3400,8 +3394,6 @@ TEST_F(Gpu3Test, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(Gpu3Test, FusionInsertMagicZero1_CUDA) {
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -8609,8 +8601,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
             PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
             /*replay_forward_id_map=*/{},
             /*target_forward_id_map=*/{},
-            /*skip_replay_swizzle=*/false,
-            /*skip_target_swizzle=*/false,
             /*skip_resize=*/false,
             /*error_on_failure=*/true);
       },
@@ -8624,8 +8614,6 @@ TEST_F(Gpu3Test, BestEffortReplayWithMismatchedRootToLogical) {
       PairwiseLogicalDomainMap(tv1, tv2).mapProducerToConsumer(),
       /*replay_forward_id_map=*/{},
       /*target_forward_id_map=*/{},
-      /*skip_replay_swizzle=*/false,
-      /*skip_target_swizzle=*/false,
       /*skip_resize=*/false,
       /*error_on_failure=*/false);
 }

@@ -22,13 +22,7 @@
 
 namespace nvfuser {
 
-class ArgsortTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using ArgsortTest = NVFuserTest;
 
 // Parameterized test fixture for BasicExecution with different data types
 class ArgsortTestBasicExecution
