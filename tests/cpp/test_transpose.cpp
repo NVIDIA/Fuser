@@ -1432,102 +1432,6 @@ TEST_F(TransposeTest, Tma) {
   testValidate(executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
 }
 
-TEST_F(TransposeTest, TmaTranspose) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  FusionGuard fg(fusion_ptr.get());
-  Fusion& fusion = *fusion_ptr;
-
-  auto dtype = DataType::Float;
-  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
-  fusion.addInput(tv0);
-  auto tv1 = transpose(tv0, 0, 1);
-  fusion.addOutput(tv1);
-
-  auto options =
-      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor input0 = at::randn({262144, 5120}, options);
-
-  bool auto_schedule = false;
-  if (std::getenv("USE_AUTO") != nullptr) {
-    auto_schedule = true;
-  }
-  if (auto_schedule) {
-    // H100, non-tma, 82%, tma-256, 71%, tma-128, 78%, tma-128-2tilesPerCTA, 80%
-    // non-tma, GB200, 62%, 2.18 ms, vect = 4, unroll = 2
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto outputs = executor_cache.runFusionWithInputs({input0});
-    testValidate(
-        executor_cache.fusion(), outputs, {input0}, __LINE__, __FILE__);
-  } else {
-    auto tv0_smem = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-    auto tv1_regs = tv1->cacheBefore();
-    tv0_smem->setMemoryType(MemoryType::Shared);
-    int64_t t0 = 32, t1 = 32;
-    int64_t unroll = 2, vectorization = 4;
-    int64_t bdimy = t0 / unroll, bdimx = t1 / vectorization;
-    NVF_ERROR(bdimx % 32 == 0);
-    NVF_ERROR(bdimy * unroll == t0);
-    // [i0, i1]
-    tv0_smem->split(1, t1);
-    tv0_smem->split(0, t0);
-    // [i0/t0, t0, i1/t1, t1] -> [i0/t0 * i1/t1, t0, t1]
-    tv0_smem->reorder({{1, 2}});
-    tv0_smem->merge(0);
-    tv0_smem->axis(0)->parallelize(ParallelType::BIDx);
-    // Schedule the memory format for 128 byte swizzle
-    // [BIDx, t0, t1]
-    tv0_smem->split(1, 8);
-    // [BIDx, 4, 8, 8', 4']
-    tv0_smem->swizzle(SwizzleType::XOR, 2, 3);
-    // [BIDx, 4, 8, 8', 4']
-    tv0_smem->setAllocationDomain(tv0_smem->getLoopDomain(), true);
-    tv0_smem->axis(1)->parallelize(ParallelType::Bulk);
-    tv0_smem->axis(2)->parallelize(ParallelType::Bulk);
-    tv0_smem->axis(3)->parallelize(ParallelType::Bulk);
-    tv0_smem->axis(4)->parallelize(ParallelType::Bulk);
-    // Apply TMA swizzle to avoid bank conflicts on transpose
-    // The XOR swizzle makes BOTH row-wise and column-wise access
-    // bank-conflict-free So we don't need ldmatrix/stmatrix for a simple
-    // transpose!
-    MmaInputSmemSwizzle swizzle_type =
-        mma_utils::tmaSwizzleSharedMemory(tv0_smem);
-    tv0_smem->applyMmaSwizzleForTMALoad(swizzle_type);
-
-    // propagate to other tensors
-    TransformPropagator propagator(tv0_smem);
-    MaxLogicalDomainInfoSpanningTree(tv0_smem).traverse(&propagator);
-
-    // schedule tv0_smem
-    tv0_smem->axis(0)->parallelize(ParallelType::BIDy);
-    tv0_smem->axis(1)->parallelize(ParallelType::BIDx);
-    scheduler_utils::parallelizeAllLike(tv0_smem);
-
-    // bulk parallelize tv0
-    tv0_smem->axis(2)->parallelize(ParallelType::Bulk);
-    tv0_smem->axis(3)->parallelize(ParallelType::Bulk);
-
-    // tidx and tidy
-    // With swizzled memory, these accesses are now bank-conflict-free!
-    for (auto tv : {tv1_regs, tv1}) {
-      // [i0/t0, i1/t1, t0, t1] -> [i0/t0, i1/t1, u, t0/u, t1/v, v]
-      tv->split(3, vectorization);
-      tv->split(2, unroll, false);
-      tv->axis(2)->parallelize(ParallelType::Unroll);
-      tv->axis(3)->parallelize(ParallelType::TIDy);
-      tv->axis(4)->parallelize(ParallelType::TIDx);
-      if (tv == tv1) {
-        tv->axis(5)->parallelize(ParallelType::Vectorize);
-      }
-    }
-    inlineMost();
-    fusion.print();
-    KernelExecutor ke;
-    ke.compile(&fusion, {input0});
-    auto outputs = ke.run({input0});
-    testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
-  }
-}
-
 TEST_F(TransposeTest, TmaTransposeSimple) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -1631,11 +1535,13 @@ TEST_F(TransposeTest, TmaTransposeSimple) {
     int64_t vectorize_factor = 4, threads_per_block = 128;
     // schedule input cache
     // [BIDx, Unswitch, tile_size1, tile_size2]
-    input_cache->split(3, 4);
-    // [BIDx, Unswitch, tile_size1, tile_size2/4, 4]
-    input_cache->split(2, 8);
-    // [BIDx, Unswitch, tile_size1/8, 8, tile_size2/4, 4]
-    input_cache->swizzle(SwizzleType::XOR, 3, 4);
+    input_cache->split(3, vectorize_factor);
+    // [BIDx, Unswitch, tile_size1, tile_size2/vectorize_factor,
+    // vectorize_factor]
+    input_cache->split(2, vectorize_factor);
+    // [BIDx, Unswitch, tile_size1/vectorize_factor, vectorize_factor,
+    // tile_size2/vectorize_factor, vectorize_factor]
+    input_cache->swizzle(SwizzleType::XOR, 2, 4);
     input_cache->merge(2);
     input_cache->merge(2);
     input_cache->split(2, threads_per_block);
