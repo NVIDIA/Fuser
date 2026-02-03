@@ -35,7 +35,7 @@ def transpose_fusion(
     T7 = fd.ops.gt(T5, S6)
     T9 = fd.ops.where(T7, T5, S6)
     # add segmenter set to avoid presegment passes setting the output as a view of the input without any data movement. It leads to pointwise instead of transpose scheduler.
-    # we can also expose OptimizationPassGuard to python frontend and disable presegment passes to enfource output to be contiguous and then transpose scheduler will be used.
+    # we can also expose OptimizationPassGuard to python frontend and disable presegment passes to enforce output to be contiguous and then transpose scheduler will be used.
     if is_copy_transpose:
         T10 = fd.ops.segment_set(T9)
         fd.add_output(T10)
