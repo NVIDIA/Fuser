@@ -297,6 +297,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/runtime/fusion_cache_utils.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_executor_cache.cpp
   ${NVFUSER_SRCS_DIR}/runtime/fusion_kernel_runtime.cpp
+  ${NVFUSER_SRCS_DIR}/runtime/matmul_tma.cu
   ${NVFUSER_SRCS_DIR}/scheduler/cache_policy_refiner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/cutlass.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/heuristic.cpp
@@ -399,19 +400,27 @@ endif()
 # "private" (not installed) static library.
 add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
+# Special handling for CUDA files that include CUTLASS headers
+# nvcc doesn't support the same flags as gcc/clang, so we need to wrap them
+set_source_files_properties(
+  ${NVFUSER_SRCS_DIR}/runtime/matmul_tma.cu
+  PROPERTIES
+  COMPILE_OPTIONS "-Xcompiler=-Wall;-Xcompiler=-Wno-unused-function;-Xcompiler=-Werror"
+)
+
 if(NOT MSVC)
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     target_compile_options(codegen_internal PRIVATE
-      -Wall -Wno-unused-function -Werror
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror
 
       # These warnings are not treated as errors because of gcc 12.2 used in
       # manylinux image. consider enable this when we upgrade.
       # linking comment:
       # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
+      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized>)
   else()
     target_compile_options(codegen_internal PRIVATE
-      -Wall -Wno-unused-function -Werror)
+      $<$<COMPILE_LANGUAGE:CXX>:-Wall -Wno-unused-function -Werror>)
   endif()
 endif()
 
@@ -423,6 +432,9 @@ if (NVMMH_FOUND)
 endif()
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
+  ${NVFUSER_THIRD_PARTY_DIR}/cutlass/include
+  ${NVFUSER_THIRD_PARTY_DIR}/cutlass/tools/util/include
+  /usr/local/cuda/include/cccl
   PRIVATE
   ${CUDA_INCLUDE_DIRS}
 )
@@ -1066,6 +1078,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_translate_mma.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_aten_evaluation.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_matmul_perf.cpp
     # ${NVFUSER_ROOT}/tests/cpp/test_matmul_sass.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_matmul_scheduler.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_mma.cpp
