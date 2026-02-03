@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "compute_at_map.h"
-#include "host_ir/ir.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
 #include "transform_replay.h"

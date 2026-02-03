@@ -10,7 +10,6 @@
 #include "fusion.h"
 #include "host_ir/container.h"
 #include "host_ir/evaluator.h"
-#include "host_ir/ops.h"
 #include "host_ir/pass/stream_parallel_type.h"
 #include "ir/all_nodes.h"
 #include "multidevice/symmetric_tensor.h"
