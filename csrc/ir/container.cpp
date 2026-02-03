@@ -18,6 +18,7 @@ namespace nvfuser {
 
 //! Return values in insertion order
 const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Val*> vals_deque;
   std::transform(
       vals_up_.begin(),
@@ -29,6 +30,7 @@ const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
 
 //! Return expression in insertion order
 const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
+  std::shared_lock lock(mutex_);
   std::deque<Expr*> exprs_deque;
   std::transform(
       exprs_up_.begin(),
@@ -41,6 +43,7 @@ const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
 //! Return mapping from value to integer id
 const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Val*, int64_t> vals_map;
   int64_t count = 0;
   std::transform(
@@ -56,6 +59,7 @@ const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
 //! Return mapping from expression to integer id
 const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
     const noexcept {
+  std::shared_lock lock(mutex_);
   std::unordered_map<Expr*, int64_t> exprs_map;
   int64_t count = 0;
   std::transform(
@@ -68,8 +72,38 @@ const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
   return exprs_map;
 }
 
+const std::unordered_set<Expr*>& IrContainer::unordered_exprs() const noexcept {
+  // Note: Returns reference - caller responsible for not holding across
+  // concurrent modifications. Lock provides snapshot consistency during call.
+  std::shared_lock lock(mutex_);
+  return exprs_;
+}
+
+const std::unordered_set<Val*>& IrContainer::vals() const noexcept {
+  // Note: Returns reference - caller responsible for not holding across
+  // concurrent modifications. Lock provides snapshot consistency during call.
+  std::shared_lock lock(mutex_);
+  return vals_;
+}
+
+int64_t IrContainer::numExprs() const noexcept {
+  std::shared_lock lock(mutex_);
+  return std::ssize(exprs_);
+}
+
+int64_t IrContainer::numVals(bool include_shortcuts) const noexcept {
+  std::shared_lock lock(mutex_);
+  return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
+}
+
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
+
+  // Lock both containers in consistent order to avoid deadlock
+  // Use std::lock to lock both mutexes atomically
+  std::unique_lock lock_a(a.mutex_, std::defer_lock);
+  std::unique_lock lock_b(b.mutex_, std::defer_lock);
+  std::lock(lock_a, lock_b);
 
   // Swap the content
   std::swap(a.vals_up_, b.vals_up_);
@@ -88,22 +122,46 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
-  to->clear();
+  // Lock both containers: shared for reading from, unique for writing to
+  std::shared_lock lock_from(from->mutex_);
+  std::unique_lock lock_to(to->mutex_);
+
+  // Clear without calling clear() which would try to re-acquire the lock
+  to->vals_.clear();
+  to->vals_up_.clear();
+  to->exprs_.clear();
+  to->exprs_up_.clear();
+  to->axioms_.reset();
+  to->val_type_name_map_.clear();
+  to->metadata_.clear();
+  to->expr_name_counter_ = 0;
 
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
   // that are not registered in the container.
-  for (auto val : from->deterministic_vals()) {
-    if (from->vals().count(val) > 0) {
+  std::deque<Val*> from_vals;
+  std::transform(
+      from->vals_up_.begin(),
+      from->vals_up_.end(),
+      std::back_inserter(from_vals),
+      [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
+  for (auto val : from_vals) {
+    if (from->vals_.count(val) > 0) {
       to->vals_.insert(ir_cloner.clone(val));
     }
   }
 
   // Copy expressions in deterministic order
-  for (auto expr : from->deterministic_exprs()) {
-    if (from->unordered_exprs().count(expr) > 0) {
+  std::deque<Expr*> from_exprs;
+  std::transform(
+      from->exprs_up_.begin(),
+      from->exprs_up_.end(),
+      std::back_inserter(from_exprs),
+      [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
+  for (auto expr : from_exprs) {
+    if (from->exprs_.count(expr) > 0) {
       to->exprs_.insert(ir_cloner.clone(expr));
     }
   }

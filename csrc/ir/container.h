@@ -8,6 +8,7 @@
 #pragma once
 
 #include <deque>
+#include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -67,18 +68,14 @@ class IrContainer {
   //! Return the set of Exprs registered with this fusion. Warning: This will
   //! return exprs outside inputs/outputs, so can be unsafe for use with
   //! segmented fusions.
-  const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return exprs_;
-  }
+  //! Note: Returns reference - caller must not hold across concurrent mods
+  const std::unordered_set<Expr*>& unordered_exprs() const noexcept;
 
   //! Return the set of Vals registered with this fusion
-  const std::unordered_set<Val*>& vals() const noexcept {
-    return vals_;
-  }
+  //! Note: Returns reference - caller must not hold across concurrent mods
+  const std::unordered_set<Val*>& vals() const noexcept;
 
-  int64_t numExprs() const noexcept {
-    return std::ssize(exprs_);
-  }
+  int64_t numExprs() const noexcept;
 
   // Note: The include_shortcuts parameter is now deprecated.
   // With Phase 2 per-Fusion special values, all vals (including special values)
@@ -94,6 +91,10 @@ class IrContainer {
   // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
  protected:
+  // Mutex for thread-safe access when container is shared between Fusions
+  // mutable because we need to lock in const methods
+  mutable std::shared_mutex mutex_;
+
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
   static void swap(IrContainer& a, IrContainer& b) noexcept;
