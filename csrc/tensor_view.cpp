@@ -769,6 +769,10 @@ TensorView* TensorView::swizzle(
 }
 
 TensorView* TensorView::swizzle1d(int64_t x, ParallelType pt) {
+  NVF_CHECK(
+      deviceParallelTypes().contains(pt),
+      "Swizzle1D only supports device parallel types, given: ",
+      pt);
   domain()->swizzle1d(x, pt);
   return this;
 }
