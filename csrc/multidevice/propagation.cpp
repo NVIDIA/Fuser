@@ -258,7 +258,7 @@ void shardLoopLike(
     PropagateDirection direction) {
   if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
     debug() << "Propagating shardings from " << ref->toString() << " to "
-            << tv->toString() << " in " << direction << " for "
+            << target->toString() << " in " << direction << " for "
             << toDelimitedString(selected_parallel_types) << std::endl;
   }
 
