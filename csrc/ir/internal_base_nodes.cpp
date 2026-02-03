@@ -547,6 +547,12 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
   return std::make_pair(out_x, out_y);
 }
 
+IterDomain* IterDomain::swizzle1d(IterDomain* in, ParallelType pt) {
+  IterDomain* out = IterDomainBuilder(in).build();
+  IrBuilder::createInContainer<Swizzle1D>(in->container(), out, in, pt);
+  return out;
+}
+
 IterDomain* IterDomain::resize(
     IterDomain* in,
     Val* left_expansion,
@@ -1804,6 +1810,16 @@ void TensorDomain::swizzle(
 
   loop_domain_.erase(loop_domain_.begin() + y);
   loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
+}
+
+void TensorDomain::swizzle1d(int64_t x, ParallelType pt) {
+  x = wrapDim(x);
+
+  IterDomain* swizzle_in = axis(x);
+  IterDomain* swizzle_out = IterDomain::swizzle1d(swizzle_in, pt);
+
+  loop_domain_.erase(loop_domain_.begin() + x);
+  loop_domain_.insert(loop_domain_.begin() + x, swizzle_out);
 }
 
 void TensorDomain::resize(

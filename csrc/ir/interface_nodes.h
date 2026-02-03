@@ -646,6 +646,12 @@ class NVF_API TensorView : public Val {
   //!  to the 2 given indices.
   TensorView* swizzle(SwizzleType swizzle_type, int64_t x, int64_t y);
 
+  //! Swizzle1D is currently only used and handled in HostIr
+  //! It computes the `in` id to the swizzle as a function of the device id
+  //! (corresponding to the parallel type) and `out` id. See
+  //! `HostIrEvaluator::handle(ShardByStream)` for usage.
+  TensorView* swizzle1d(int64_t x, ParallelType pt);
+
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
   //! (left_expansion + axis->extent() + right_expansion).

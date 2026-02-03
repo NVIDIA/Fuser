@@ -387,6 +387,8 @@ class NVF_API IterDomain : public Val {
       IterDomain* in_y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
 
+  static IterDomain* swizzle1d(IterDomain* in, ParallelType pt);
+
  protected:
   friend TensorDomain;
   friend ReplayTransformations;
@@ -829,6 +831,8 @@ class NVF_API TensorDomain : public Val {
       int64_t x,
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  void swizzle1d(int64_t x, ParallelType pt);
 
   // Resize an axis by left_expansion and right_expansion
   void resize(

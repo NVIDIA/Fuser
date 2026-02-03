@@ -2771,6 +2771,32 @@ std::string Swizzle::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
 
+Swizzle1D::Swizzle1D(
+    IrBuilderPasskey passkey,
+    IterDomain* out,
+    IterDomain* in,
+    ParallelType pt)
+    : Expr(passkey) {
+  addOutput(out);
+  addInput(in);
+  addDataAttribute(pt);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle1D)
+
+std::string Swizzle1D::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = Swizzle1D("
+                          << in()->toString()
+                          << ", parallelType=" << parallelType() << ")"
+                          << std::endl;
+  return ss.str();
+}
+
+std::string Swizzle1D::toInlineString(int indent_size) const {
+  NVF_THROW("Swizzle1D can not be printed inline");
+}
+
 Resize::Resize(
     IrBuilderPasskey passkey,
     IterDomain* out,
