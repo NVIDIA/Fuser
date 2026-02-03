@@ -2788,7 +2788,8 @@ std::string Swizzle1D::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = Swizzle1D("
                           << in()->toString()
-                          << ", parallelType=" << parallelType() << ")" << std::endl;
+                          << ", parallelType=" << parallelType() << ")"
+                          << std::endl;
   return ss.str();
 }
 

@@ -808,7 +808,7 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
   auto index = expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
 
-  if (stream_id->definition() != nullptr) {
+  if (stream_id->definition()->isA<Swizzle1D>()) {
     // If the stream axis is defined by a swizzle, the input to
     // the swizzle is the index into the `in_tensor`.
     // Currently, we use cyclic shift swizzle to compute the index:
@@ -817,7 +817,6 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
     // of `shardByStream` such that `add` and `mod` are in the HostIrContainer
     // similar to
     // https://github.com/NVIDIA/Fuser/blob/0a6adb140d440cc1b6d5f21dfd05874f9699b2c6/csrc/swizzle.h#L26-L31.
-    NVF_CHECK(stream_id->definition()->isA<Swizzle1D>());
     auto* swizzle = stream_id->definition()->as<Swizzle1D>();
     ParallelType pt = swizzle->parallelType();
 
