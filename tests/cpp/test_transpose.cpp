@@ -1500,4 +1500,32 @@ TEST_F(TransposeTest, SwizzleNoBankConflict) {
   testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
 }
 
+TEST_F(TransposeTest, AutoSwizzleNoBankConflict) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = transpose(tv0, 0, 1);
+  fusion.addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({input0});
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
+  ASSERT_TRUE(getBankConflictInfo(runtime->executors()
+                                      .front()
+                                      ->as<KernelExecutor>()
+                                      ->compiledKernel()
+                                      ->kernel())
+                  .empty());
+  testValidate(&fusion, cg_outputs, {input0}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

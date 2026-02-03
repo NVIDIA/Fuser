@@ -17,6 +17,7 @@
 #include <scheduler/transpose.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
+#include "ir/utils.h"
 
 namespace nvfuser {
 
@@ -910,6 +911,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
    */
   std::unordered_set<TensorView*> group2_and_cached_inputs(
       grouped_inputs_outputs[1].begin(), grouped_inputs_outputs[1].end());
+  std::vector<TensorView*> smem_cached_tvs;
   for (auto tv : grouped_inputs_outputs[1]) {
     if (tv->isFusionInput()) {
       auto existing_cache = ir_utils::consumerTvsOf(tv)[0];
@@ -917,9 +919,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
         auto new_cache = tv->cacheAfter();
         new_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(new_cache);
+        smem_cached_tvs.push_back(new_cache);
       } else {
         existing_cache->setMemoryType(MemoryType::Shared);
         group2_and_cached_inputs.emplace(existing_cache);
+        smem_cached_tvs.push_back(existing_cache);
       }
     }
   }
@@ -928,6 +932,16 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
     auto output = fusion->outputs()[output_idx]->as<TensorView>();
     if (group2_and_cached_inputs.count(output) > 0) {
       cached_output->setMemoryType(MemoryType::Shared);
+    }
+  }
+
+  for (auto tv : smem_cached_tvs) {
+    const auto& consumers = ir_utils::consumerTvsOf(tv);
+    if (std::any_of(
+            consumers.begin(), consumers.end(), [](TensorView* consumer) {
+              return !consumer->definition()->isA<LoadStoreOp>();
+            })) {
+      tv->cacheAfter();
     }
   }
 
@@ -1124,6 +1138,7 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   reference2->merge(pos);
   reference2->split(pos, tparams->vectorize_factor2);
   reference2->split(pos, tparams->getThreadsPerBlock());
+
   // [..., Unroll, TIDx, Vectorize, b...]
 
   // Propagate transformations of reference2 to the entire DAG except
@@ -1131,9 +1146,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // inputs and outputs themselves are disconnected, so we have to borrow the
   // entire DAG and use its spanning tree.
   {
-    auto all_tvs_except1 = ir_utils::allTvsExcept(
-        fusion,
-        {grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end()});
+    std::unordered_set<TensorView*> except_tvs;
+    except_tvs.insert(
+        grouped_inputs_outputs[0].begin(), grouped_inputs_outputs[0].end());
+    except_tvs.insert(smem_cached_tvs.begin(), smem_cached_tvs.end());
+    auto all_tvs_except1 = ir_utils::allTvsExcept(fusion, except_tvs);
     SetSelector selector({all_tvs_except1.begin(), all_tvs_except1.end()});
     MaxLogicalDomainInfoSpanningTree entire_dag_except1(reference2, &selector);
     TransformPropagator propagator(reference2);
@@ -1224,8 +1241,11 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   // Propagate transformations, parallelization of the reference1 to the entire
   // DAG except group 2 and its corresponding cached outputs.
   {
-    auto all_tvs_except2 =
-        ir_utils::allTvsExcept(fusion, group2_and_cached_inputs);
+    std::unordered_set<TensorView*> except_tvs;
+    except_tvs.insert(
+        group2_and_cached_inputs.begin(), group2_and_cached_inputs.end());
+    except_tvs.insert(smem_cached_tvs.begin(), smem_cached_tvs.end());
+    auto all_tvs_except2 = ir_utils::allTvsExcept(fusion, except_tvs);
     SetSelector selector({all_tvs_except2.begin(), all_tvs_except2.end()});
     MaxLogicalDomainInfoSpanningTree entire_dag_except_outputs(
         reference1, &selector);
@@ -1288,6 +1308,25 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
       scheduler_utils::parallelizeAllLike(
           reference1, unrolled_group1_cached_inputs, {ParallelType::Unroll});
     }
+  }
+
+  // schedule smem_cached_tvs
+  for (auto tv : smem_cached_tvs) {
+    std::cout << "scheduling smem_cached_tv: " << tv->toString() << std::endl;
+    int64_t pos = tv->nDims() - 2;
+    bool is_group2 = group2_and_cached_inputs.count(tv) > 0;
+    int64_t vect =
+        is_group2 ? tparams->vectorize_factor2 : tparams->vectorize_factor1;
+    tv->split(pos + 1, vect);
+    tv->split(pos, vect);
+    tv->swizzle(SwizzleType::XOR, pos, pos + 2);
+    tv->merge(pos);
+    tv->merge(pos);
+    tv->split(pos, tparams->getThreadsPerBlock());
+    tv->axis(pos)->parallelize(ParallelType::Unroll);
+    tv->axis(pos + 1)->parallelize(ParallelType::TIDx);
+    tv->axis(pos + 2)->parallelize(ParallelType::Vectorize);
+    std::cout << "scheduled smem_cached_tv: " << tv->toString() << std::endl;
   }
 
   ////////////////////////////////
