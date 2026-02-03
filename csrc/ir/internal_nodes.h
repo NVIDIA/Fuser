@@ -1995,8 +1995,10 @@ class Swizzle : public Expr {
   }
 };
 
-//! Applies 2D swizzles on a rectangular tile defined by 2 iterdomains.
-
+// Swizzle1D is currently only used and handled in HostIr.
+// The main use case is to compute the indexing for ring-based overlap, where
+// `out` is stream-parallel and `in` is a function of the device id and stream
+// index. See `HostIrEvaluator::handle(ShardByStream)` for usage.
 class Swizzle1D : public Expr {
  public:
   using Expr::Expr;
