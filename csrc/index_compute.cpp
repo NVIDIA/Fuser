@@ -1935,52 +1935,13 @@ bool shouldUseTensorIndexer(
         GpuLower::current()->tmemInfo().hasTMemTensor();
   };
 
-  // Check if TensorIndexer is supported.
-  auto is_tensor_indexer_supported = [&](bool assert) -> bool {
-    bool is_producer_ldmatrix_op = producer->definition() != nullptr &&
-        producer->definition()->isA<LoadStoreOp>() &&
-        producer->definition()->as<LoadStoreOp>()->opType() ==
-            LoadStoreOpType::LdMatrix;
-    is_producer_ldmatrix_op = false;
-    bool is_producer_stmatrix_op_with_no_alloc_domain =
-        producer->definition() != nullptr &&
-        producer->definition()->isA<LoadStoreOp>() &&
-        producer->definition()->as<LoadStoreOp>()->opType() ==
-            LoadStoreOpType::StMatrix &&
-        !producer->hasAllocation();
-    is_producer_stmatrix_op_with_no_alloc_domain = false;
-
-    if (assert) {
-      NVF_ERROR(
-          !is_producer_ldmatrix_op,
-          "TensorIndexer required but not supported as the producer is "
-          "produced by ldmatrix: ",
-          producer->definition()->toString());
-      NVF_ERROR(
-          !is_producer_stmatrix_op_with_no_alloc_domain,
-          "TensorIndexer required but not supported as the producer is "
-          "produced by stmatrix and it does not have allocation domain: ",
-          producer->definition()->toString());
-    }
-
-    return !is_producer_ldmatrix_op &&
-        !is_producer_stmatrix_op_with_no_alloc_domain;
-  };
-
-  // TensorIndexer is always used if it's required
-  if (is_tensor_indexer_required()) {
-    // Make sure it's supported
-    is_tensor_indexer_supported(/*assert=*/true);
-    return true;
-  }
-
-  // If opted in, TensorIndexer is used as long as it's supported
-  if (GpuLower::current()->idModelOptions().isTensorIndexerEnabled() &&
-      is_tensor_indexer_supported(/*assert=*/true)) {
-    return true;
-  }
-
-  return false;
+  // TensorIndexer is always used when required or if not disabled.
+  // Note: Previously, ldmatrix and stmatrix were first introduced
+  // with Ampere, their indexing were only implemented in the legacy
+  // indexer in a rather manual way. The current implementation uses
+  // the alternate loop domain to enable TensorIndexer-based indexing.
+  return is_tensor_indexer_required() ||
+      GpuLower::current()->idModelOptions().isTensorIndexerEnabled();
 }
 
 } // namespace
