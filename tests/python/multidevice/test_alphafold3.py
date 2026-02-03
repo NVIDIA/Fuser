@@ -74,7 +74,7 @@ def gating(
 )
 def test_triangle_updates(direction, multidevice_test):
     d = multidevice_test.size
-    cp_size = 1
+    cp_size = 2
     if d % (cp_size * cp_size) != 0:
         pytest.skip(
             f"We only support even split, so {d} has to be divisible by {cp_size * cp_size} for {cp_size=}."
