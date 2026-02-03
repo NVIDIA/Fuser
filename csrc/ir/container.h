@@ -7,233 +7,197 @@
 // clang-format on
 #pragma once
 
-#include <memory>
+#include <deque>
+#include <unordered_map>
+#include <unordered_set>
 
-#include <ir/base_nodes.h>
-#include <ir/storage.h>
-#include <visibility.h>
+#include "base.h"
+#include "exceptions.h"
+#include "ir/base_nodes.h"
+#include "visibility.h"
 
 namespace nvfuser {
-
-class IrBuilderPasskey;
-class ExprPasskey;
-class OptOutMutator;
 
 // Passkey for container to register names with statements
 class IrContainerPasskey {
   friend class IrContainer;
-  friend class IrStorage;
 
  private:
   explicit IrContainerPasskey() = default;
 };
 
-// IrContainer: Base class for types that provide IrContainer API via
-// composition
-//
-// This class handles the composition infrastructure and forwarding boilerplate
-// for accessing IrStorage functionality. Derived classes (like Fusion) can
-// focus on their specific logic while inheriting the full IrContainer API.
-//
-// Key Features:
-// - Owns IrStorage via unique_ptr (can be shared_ptr in Phase 2)
-// - Forwards all IrStorage public methods
-// - Allows derived classes to override protected IrContainer methods
-class NVF_API IrContainer : public PolymorphicBase {
- protected:
-  // Constructors
-  explicit IrContainer();
+class NamedScalar;
 
-  // TODO: The semantics of IrContainers are largely driven through copy/swap
-  // function behavior. It might be better if this behaviour was properly
-  // defined through class semantics directly.
-  //
-  // Copy/Move are deleted. IrContainer is a forwarding interface class. We
-  // rely on copy/swap function behavior to handle the semantics of IrStorage.
+class IrContainer {
+ public:
+  NVF_API IrContainer();
+
+  // Copy/Move Constructors and Operators are deleted. IrContainer is managed
+  // through a smart pointer in IrContainer. Semantic operations for Fusion
+  // types are handled directly through copy and swap functions.
   IrContainer(const IrContainer& other) = delete;
   IrContainer(IrContainer&& other) noexcept = delete;
+
   IrContainer& operator=(const IrContainer& other) = delete;
   IrContainer& operator=(IrContainer&& other) noexcept = delete;
 
-  ~IrContainer() override;
+  ~IrContainer();
 
-  // Let mutator remove Exprs.
-  friend OptOutMutator;
-
- public:
-  //===================================================================
-  // IrStorage API Forwarding (Public Methods)
-  //===================================================================
-
-  // Container queries
-  bool inContainer(const Statement* stmt) const {
-    return ir_storage()->inContainer(stmt);
-  }
+  bool inContainer(const Statement* stmt) const;
 
   void assertInContainer(const Statement* stmt, const std::string& msg) const {
-    ir_storage()->assertInContainer(stmt, msg);
+    NVF_CHECK(
+        inContainer(stmt), msg, " it was not found in the active container.");
   }
 
-  // Collections access (return values in insertion order)
-  const std::deque<Val*> deterministic_vals() const noexcept {
-    return ir_storage()->deterministic_vals();
-  }
+  //! Return values in insertion order
+  const std::deque<Val*> deterministic_vals() const noexcept;
 
-  const std::deque<Expr*> deterministic_exprs() const noexcept {
-    return ir_storage()->deterministic_exprs();
-  }
+  //! Return expression in insertion order
+  const std::deque<Expr*> deterministic_exprs() const noexcept;
 
+  //! Return mapping from value to integer id
   const std::unordered_map<Val*, int64_t> deterministic_vals_map()
-      const noexcept {
-    return ir_storage()->deterministic_vals_map();
-  }
+      const noexcept;
 
+  //! Return mapping from expression to integer id
   const std::unordered_map<Expr*, int64_t> deterministic_exprs_map()
-      const noexcept {
-    return ir_storage()->deterministic_exprs_map();
-  }
+      const noexcept;
 
-  // Collections access (unordered sets)
+  //! Return the set of Exprs registered with this fusion. Warning: This will
+  //! return exprs outside inputs/outputs, so can be unsafe for use with
+  //! segmented fusions.
   const std::unordered_set<Expr*>& unordered_exprs() const noexcept {
-    return ir_storage()->unordered_exprs();
+    return exprs_;
   }
 
+  //! Return the set of Vals registered with this fusion
   const std::unordered_set<Val*>& vals() const noexcept {
-    return ir_storage()->vals();
+    return vals_;
   }
 
-  // Count queries
   int64_t numExprs() const noexcept {
-    return ir_storage()->numExprs();
+    return std::ssize(exprs_);
   }
 
+  // When include_shortcuts is true, it will count the shortcuts like true_val_.
   int64_t numVals(bool include_shortcuts) const noexcept {
-    return ir_storage()->numVals(include_shortcuts);
+    return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
 
-  // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_storage()->zeroVal();
-  }
+  // Shortcuts for frequently used vals
+  NVF_API Val* zeroVal();
+  NVF_API Val* oneVal();
+  Val* falseVal();
+  Val* trueVal();
+  NamedScalar* magicZeroVal();
+  NVF_API Val* zeroVal(DataType dtype);
+  NVF_API Val* oneVal(DataType dtype);
+  Val* metadataOf(Val*);
 
-  Val* oneVal() {
-    return ir_storage()->oneVal();
-  }
-
-  Val* falseVal() {
-    return ir_storage()->falseVal();
-  }
-
-  Val* trueVal() {
-    return ir_storage()->trueVal();
-  }
-
-  NamedScalar* magicZeroVal() {
-    return ir_storage()->magicZeroVal();
-  }
-
-  Val* zeroVal(DataType dtype) {
-    return ir_storage()->zeroVal(dtype);
-  }
-
-  Val* oneVal(DataType dtype) {
-    return ir_storage()->oneVal(dtype);
-  }
-
-  Val* metadataOf(Val* val) {
-    return ir_storage()->metadataOf(val);
-  }
-
-  // Axioms (CUDA programming assumptions)
+  // Axioms about CUDA programming, for example: threadIdx.x < blockDim.x
   const std::vector<Val*>& axioms() {
-    return ir_storage()->axioms();
+    lazyInitAxioms();
+    return *axioms_;
   }
 
-  void assumePositive(Val* val) {
-    ir_storage()->assumePositive(val);
-  }
-
-  void assumeNonNegative(Val* val) {
-    ir_storage()->assumeNonNegative(val);
-  }
-
-  // Statement removal
-  void removeStatementsCreatedAfter(
-      int64_t num_exprs_before,
-      int64_t num_vals_before) {
-    ir_storage()->removeStatementsCreatedAfter(
-        num_exprs_before, num_vals_before);
-  }
-
-  // Registration (public API with passkey)
-  virtual void registerStmt(IrBuilderPasskey passkey, Statement* stmt) {
-    // Dispatch to Val or Expr registration, which calls the virtual protected
-    // methods that subclasses (like Fusion) override
-    if (stmt->isVal()) {
-      registerVal(passkey, stmt->asVal());
-    } else {
-      registerExpr(passkey, stmt->asExpr());
-    }
-  }
-
-  virtual void registerVal(IrBuilderPasskey passkey, Val* val) {
-    // Call the protected virtual method that subclasses override
-    registerVal(val);
-  }
-
-  virtual void registerExpr(IrBuilderPasskey passkey, Expr* expr) {
-    // Call the protected virtual method that subclasses override
-    registerExpr(expr);
-  }
-
-  //===================================================================
-  // Container Access
-  //===================================================================
-
-  // Direct access to underlying container
-  IrStorage* ir_storage() {
-    NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
-  }
-
-  const IrStorage* ir_storage() const {
-    NVF_ERROR(
-        ir_storage_.get() != nullptr, "Accessing a uninitialized IrContainer!.")
-    return ir_storage_.get();
-  }
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
  protected:
-  //===================================================================
-  // Protected Registration API (for derived class overrides)
-  //===================================================================
-
   static IrCloner copy(const IrContainer* from, IrContainer* to);
+
   static void swap(IrContainer& a, IrContainer& b) noexcept;
 
-  // Derived classes (like Fusion) override these to add custom logic
-  virtual void registerVal(Val* val) {
-    ir_storage()->registerVal(val);
+  // Let Fusion access IrContainer::clear()
+  friend class Fusion;
+
+  void removeExpr(Expr* expr);
+
+  //! Completely remove val from the fusion, break all dependencies associated
+  //! with it
+  void removeVal(Val* val);
+
+  //! Register the Val with this container
+  NVF_API void registerVal(Val* val);
+
+  //! Register expr with this container.
+  NVF_API void registerExpr(Expr* expr);
+
+  StmtNameType getValName(ValType vtype) {
+    if (val_type_name_map_.find(vtype) == val_type_name_map_.end()) {
+      val_type_name_map_[vtype] = 0;
+    }
+    return val_type_name_map_[vtype]++;
   }
 
-  virtual void registerExpr(Expr* expr) {
-    ir_storage()->registerExpr(expr);
+  StmtNameType getExprName() {
+    return expr_name_counter_++;
   }
 
-  virtual void removeExpr(Expr* expr) {
-    ir_storage()->removeExpr(expr);
-  }
+  void clear() noexcept;
 
-  virtual void removeVal(Val* val) {
-    ir_storage()->removeVal(val);
+  void lazyInitAxioms();
+
+  friend class StatementGuard;
+
+  // A simple garbage collection mechanism to remove all Exprs and Vals that
+  // were created after a certain point. This is useful for analysis that
+  // creates new Exprs and Vals in the container and wants to clean up after
+  // itself.
+  //
+  // Used by StatementGuard only.
+  void removeStatementsCreatedAfter(
+      int64_t prev_num_exprs,
+      int64_t prev_num_vals);
+
+  // Deque of unique pointer is the memory owning data structure
+  std::deque<std::unique_ptr<Val>> vals_up_;
+
+  // A convenient set to return when we just need an unordered set to do
+  // something like check if a Val is in this container
+  std::unordered_set<Val*> vals_;
+
+  // Deque of unique pointer is the memory owning data structure
+  std::deque<std::unique_ptr<Expr>> exprs_up_;
+
+  // A convenient set to return when we just need an unordered set to do
+  // something like check if an Expr is in this container
+  std::unordered_set<Expr*> exprs_;
+
+  // Values names counters
+  std::unordered_map<ValType, StmtNameType> val_type_name_map_;
+
+  // Expression names counter
+  StmtNameType expr_name_counter_ = 0;
+
+  // Manually store some persistent, frequently used nodes. It's very
+  // challenging to do this anything but manually as detecting when a container
+  // may or may not have one of these vals is tricky. Specifically because if
+  // the container doesn't own it, it's hard to understand from the outside if
+  // the node may have been removed then re-registered. It could also be tricky
+  // to know when we're using a different container as in FusionCopy_test
+  // demonstrates deleting then creating containers can result in the same
+  // pointer for the container.
+  std::unique_ptr<Val> true_val_;
+  std::unique_ptr<Val> false_val_;
+  std::unique_ptr<Val> one_val_;
+  std::unique_ptr<Val> zero_val_;
+  std::unique_ptr<NamedScalar> magic_zero_val_;
+  std::unique_ptr<std::vector<Val*>> axioms_;
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
+
+ public:
+  Fusion* parent() const {
+    NVF_ERROR(
+        parent_ != nullptr, "Call to IrContainer::parent() holds nullptr.")
+    return parent_;
   }
 
  private:
-  //===================================================================
-  // Data Members
-  //===================================================================
-
-  std::unique_ptr<IrStorage> ir_storage_;
+  // Parent Fusion that owns this container (for pure composition pattern)
+  // Used by Statement::fusion() to navigate back to owning Fusion
+  Fusion* parent_ = nullptr;
 };
 
 } // namespace nvfuser
