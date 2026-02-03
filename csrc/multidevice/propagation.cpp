@@ -12,6 +12,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "base.h"
 #include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/internal_nodes.h"
@@ -255,6 +256,12 @@ void shardLoopLike(
     TensorView* target,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
+  if (isDebugDumpEnabled(DebugDumpOption::TransformPropagator)) {
+    debug() << "Propagating shardings from " << ref->toString() << " to "
+            << target->toString() << " in " << direction << " for "
+            << toDelimitedString(selected_parallel_types) << std::endl;
+  }
+
   std::unordered_set<IterDomain*> device_or_stream_ids;
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
       getRef2TargetMap(ref, target, direction);
