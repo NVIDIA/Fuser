@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "ir/builder.h"
+#include "ir/interface_nodes.h"
 #include "ir/internal_base_nodes.h"
 #include "ir/utils.h"
 #include "logical_domain_map.h"
@@ -96,10 +97,11 @@ void lowerToGather(
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
-  NVF_ERROR(
-      sender_mesh.rank() == 1,
+  NVF_ERROR_EQ(
+      sender_mesh.rank(),
+      1,
       "Currently only lower Gather on a 1D mesh. Given ",
-      sender_mesh);
+      input_tv);
   for (auto root : output_tv->getDeviceMesh().vector()) {
     Team team = sender_mesh.vector();
     if (!sender_mesh.has(root)) {
@@ -343,6 +345,10 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
     TensorView* producer,
     TensorView* consumer,
     ParallelType pt) {
+  if (!haveDifferentShardings(producer, consumer, {pt})) {
+    return std::nullopt;
+  }
+
   const PairwiseLogicalDomainMap pairwise_map(producer, consumer);
   const std::unordered_map<IterDomain*, IterDomain*> p2c =
       pairwise_map.mapProducerToConsumer();
@@ -351,10 +357,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
 
   IterDomain* p_loop_id = getShardedIterDomain(producer, pt, DomainType::kLoop);
   IterDomain* c_loop_id = getShardedIterDomain(consumer, pt, DomainType::kLoop);
-  if (p_loop_id == nullptr && c_loop_id == nullptr) {
-    // Not sharded on this parallel type
-    return std::nullopt;
-  }
   IterDomain* p_logical_id =
       p_loop_id ? getLogicalFromLoopId(producer, p_loop_id) : nullptr;
   IterDomain* c_logical_id =
@@ -367,6 +369,17 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   Expr* def = consumer->definition();
   NVF_ERROR(def != nullptr);
   if (def->isA<LoadStoreOp>()) {
+    if (p_loop_id == nullptr && c_loop_id == nullptr) {
+      // Given the hasDifferentShardings check at the beginning of this
+      // function, this is only possible when `producer` and `consumer` have
+      // different meshes. In this case, we arbitrarily choose any GPU in the
+      // sender mesh to be the root and let it broadcast.
+      return CommunicationInfo{
+          .type = CommunicationType::Broadcast,
+          .p_sharded_id = nullptr,
+          .c_sharded_id = nullptr};
+    }
+
     if (p_loop_id && !c_loop_id) {
       CommunicationType type =
           same_mesh ? CommunicationType::Allgather : CommunicationType::Gather;
@@ -401,6 +414,7 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
   NVF_ERROR(def->isA<ReductionOp>() || def->isA<SqueezeOp>());
   if (!p_loop_id) {
     // Not a reduction based communication.
+    // FIXME: Is this possible?
     return std::nullopt;
   }
 
@@ -411,17 +425,6 @@ std::optional<CommunicationInfo> getCommunicationInfoForParallelType(
         .type = type,
         .p_sharded_id = p_logical_id,
         .c_sharded_id = p2c.at(p_logical_id)};
-  }
-
-  // Check if `p_logical_id` is reduced in the output.
-  auto c_it = p2c.find(p_logical_id);
-  NVF_ERROR(
-      c_it != p2c.end(),
-      "Cannot find the mapped consumer logical ID for the producer logical "
-      "ID ",
-      p_logical_id);
-  if (!c_it->second->isReduction()) {
-    return std::nullopt;
   }
 
   return CommunicationInfo{
@@ -476,17 +479,10 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
     communication_info = *info_per_pt;
   }
 
-  if (!communication_info.has_value()) {
-    // This happens when p_loop_id and c_loop_id are both nullptr (therefore
-    // replicated) yet `e` is resharding. This is only possible when `producer`
-    // and `consumer` have different meshes. In this case, we arbitrarily choose
-    // any GPU in the sender mesh to be the root and let it broadcast.
-    communication_info = CommunicationInfo{
-        .type = CommunicationType::Broadcast,
-        .p_sharded_id = nullptr,
-        .c_sharded_id = nullptr};
-  }
-
+  NVF_ERROR(
+      communication_info.has_value(),
+      "Expected at least one sharding change in `e`: ",
+      e);
   return *communication_info;
 }
 
