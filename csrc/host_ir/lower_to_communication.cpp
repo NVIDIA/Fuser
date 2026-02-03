@@ -368,7 +368,8 @@ CommunicationInfo getCommunicationInfo(Expr* e) {
                                      IterDomain* c_sharded_id) {
     NVF_ERROR(
         !communication_info.has_value(),
-        "Expected at most one sharding change");
+        "Expected at most one sharding change: ",
+        e->toString());
     communication_info = CommunicationInfo{type, p_sharded_id, c_sharded_id};
   };
 
