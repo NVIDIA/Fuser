@@ -28,13 +28,7 @@ namespace nvfuser {
 using testing::Contains;
 using testing::UnorderedElementsAre;
 
-class PersistentBufferTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
   Fusion fusion;
@@ -2195,7 +2189,6 @@ class TmaPersistentTestP
   void SetUp() override {
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
     NVFuserFixtureParamTest<ParamType>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     EnableOptionsGuard::getCurOptions().set(EnableOption::TmaInnerPersistent);
   }
 };

@@ -252,12 +252,12 @@ int numParallelIterDomains(const TensorView* tv) {
 
 void shardLoopLike(
     const TensorView* ref,
-    TensorView* tv,
+    TensorView* target,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     PropagateDirection direction) {
   std::unordered_set<IterDomain*> device_or_stream_ids;
   const std::unordered_map<IterDomain*, IterDomain*> ref2target =
-      getRef2TargetMap(ref, tv, direction);
+      getRef2TargetMap(ref, target, direction);
 
   const auto& ref_mesh = ref->getDeviceMesh();
 
@@ -271,8 +271,8 @@ void shardLoopLike(
     // 1. The device id parallel type is present in the device mesh.
     // 2. The number of devices corresponding to the parallel type is same
     // between the reference and target.
-    if (ref_id->isDeviceDim() && tv->hasDeviceMesh()) {
-      const auto& target_mesh = tv->getDeviceMesh();
+    if (ref_id->isDeviceDim() && target->hasDeviceMesh()) {
+      const auto& target_mesh = target->getDeviceMesh();
       const auto parallel_type = ref_id->getParallelType();
       if (!target_mesh.hasParallelType(parallel_type)) {
         continue;
@@ -303,19 +303,19 @@ void shardLoopLike(
     // This is the ID to which the sharding will be propagated.
     // For e.g., if ref [h] -> target [a, h/a], then the outermost logical ID
     // is `a`.
-    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, tv);
+    IterDomain* outermost_target_id = getOutermostLogicalId(target_id, target);
 
     if (outermost_target_id->isParallelized()) {
       continue;
     }
     // Skip if the target is not in the loop domain (i.e. further transformed).
-    if (!isInDomain(outermost_target_id, tv->getLoopDomain())) {
+    if (!isInDomain(outermost_target_id, target->getLoopDomain())) {
       continue;
     }
     device_or_stream_ids.insert(ref_id);
   }
 
-  transformLoopDomain(tv, ref, device_or_stream_ids, direction);
+  transformLoopDomain(target, ref, device_or_stream_ids, direction);
 }
 
 } // namespace nvfuser
