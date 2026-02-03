@@ -1407,4 +1407,93 @@ TEST_F(TransposeTest, DanglingBroadcastIssue4957) {
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(TransposeTest, SwizzleNoBankConflict) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto dtype = DataType::Float;
+  auto tv0 = makeContigConcreteTensor({262144, 5120}, dtype);
+  fusion.addInput(tv0);
+  auto tv1 = transpose(tv0, 0, 1);
+  fusion.addOutput(tv1);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor input0 = at::randn({262144, 5120}, options);
+
+  auto input_cache = tv0->cacheAfter();
+  auto output_cache = tv1->cacheBefore();
+  input_cache->setMemoryType(MemoryType::Shared);
+
+  // Step-1, tiling and parallelizing non-tile dimensions
+  int64_t tile_size1 = 32, tile_size2 = 32;
+  // Group 1 (output-side layout [y, x]).
+  for (auto tv : {output_cache, tv1}) {
+    // [y, x] -> [y/tile_size2, tile_size2, x/tile_size1, tile_size1]
+    tv->split(1, tile_size1);
+    tv->split(0, tile_size2);
+    // [x/tile_size1, y/tile_size2, tile_size1, tile_size2]
+    tv->reorder({{0, 1}, {1, 3}, {2, 0}, {3, 2}});
+    // [x/tile_size1 * y/tile_size2, tile_size1, tile_size2]
+    tv->merge(0);
+    tv->split(0, 1);
+    tv->axis(1)->parallelize(ParallelType::Unswitch);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+  // Group 2 (input-side layout [x, y]).
+  for (auto tv : {tv0, input_cache}) {
+    // [x, y] -> [x/tile_size1, tile_size1, y/tile_size2, tile_size2]
+    tv->split(1, tile_size2);
+    tv->split(0, tile_size1);
+    // [x/tile_size1, y/tile_size2, tile_size1, tile_size2]
+    tv->reorder({{1, 2}, {2, 1}});
+    // [x/tile_size1 * y/tile_size2, tile_size1, tile_size2]
+    tv->merge(0);
+    tv->split(0, 1);
+    tv->axis(1)->parallelize(ParallelType::Unswitch);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+  }
+
+  // Step-2, schedule input shared cache to avoid bank conflict
+  int64_t pos = 2;
+  int64_t vectorize_factor = 4, threads_per_block = 128;
+  // Schedule input shared cache.
+  // [BIDx, Unswitch, tile_size1, tile_size2]
+  input_cache->split(3, vectorize_factor);
+  // [BIDx, Unswitch, tile_size1, tile_size2/vectorize_factor,
+  // vectorize_factor]
+  input_cache->split(2, vectorize_factor);
+  // [BIDx, Unswitch, tile_size1/vectorize_factor, vectorize_factor,
+  // tile_size2/vectorize_factor, vectorize_factor]
+  input_cache->swizzle(SwizzleType::XOR, 2, 4);
+  input_cache->merge(2);
+  input_cache->merge(2);
+  input_cache->split(2, threads_per_block);
+  // [BIDx, Unswitch, Unroll, TIDx, Vectorize]
+  input_cache->setAllocationDomain(input_cache->getLoopDomain(), true);
+  input_cache->axis(2)->parallelize(ParallelType::Unroll);
+  input_cache->axis(3)->parallelize(ParallelType::TIDx);
+  input_cache->axis(4)->parallelize(ParallelType::Vectorize);
+
+  // Step-3, schedule output cache
+  for (auto tv : {output_cache, tv1}) {
+    tv->reorder({{-2, -1}});
+    // [..., tile2, tile1]
+    tv->merge(pos);
+    tv->split(pos, vectorize_factor);
+    tv->split(pos, threads_per_block);
+    tv->axis(2)->parallelize(ParallelType::Unroll);
+    tv->axis(3)->parallelize(ParallelType::TIDx);
+    if (tv == tv1) {
+      tv->axis(4)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  inlineMost();
+  KernelExecutor ke;
+  ke.compile(&fusion, {input0});
+  auto outputs = ke.run({input0});
+  testValidate(&fusion, outputs, {input0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
