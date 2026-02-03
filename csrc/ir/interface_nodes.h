@@ -757,18 +757,6 @@ class NVF_API TensorView : public Val {
   //!  using TMA.
   void applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle);
 
-  //! Returns if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool hasSwizzleOp() const {
-    return has_swizzle_op_;
-  }
-
-  //! A temporary helper function for the transition from Swizzle2D to Swizzle
-  void setHasSwizzleOp() {
-    has_swizzle_op_ = true;
-  }
-
   friend TransformPropagator;
   friend MostInlinedTransformPropagator;
   friend TransformReplay;
@@ -931,11 +919,6 @@ class NVF_API TensorView : public Val {
   // copying of the data, so we want to pass the data value as a standard
   // kernel argument value.
   bool cpu_scalar_ = false;
-
-  //! Indicates if this tensor view has swizzle operator on its tensor domain.
-  //!  This is the temporary flag for indicating that the new swizzle
-  //!  implementation is used and will be removed in follow ups.
-  bool has_swizzle_op_ = false;
 
   //! Direct consumer tensors that this tensor is computed with
   std::vector<TensorView*> compute_with_consumers_;

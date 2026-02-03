@@ -111,7 +111,11 @@ def test_row_parallel_linear_forward(multidevice_test):
     # is still expecting data.  It's unclear to me whether we should relax
     # SegmentProfiler's assumptions or stop creating them in the first place.
     with torch.profiler.profile(record_shapes=True) as prof:
-        (out,) = fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+        (out,) = fd.execute(
+            [inp, weight],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
     torch.testing.assert_close(out.cpu(), out_ref)
 
     matmul_events = [event for event in prof.events() if event.name == "aten::mm"]
@@ -146,7 +150,11 @@ def test_row_parallel_linear_forward_benchmark(multidevice_test, benchmark, s):
     weight = multidevice_test.shard_tensor(weight_ref, fd.fusion.inputs()[1])
 
     warmup_fn, benchmark_fn = get_benchmark_fns(
-        lambda: fd.execute([inp, weight], _enable_options=["host_ir_lowering"])
+        lambda: fd.execute(
+            [inp, weight],
+            _enable_options=["host_ir_lowering"],
+            _disable_options=["infer_contiguity"],
+        )
     )
     warmup_fn()
     benchmark.pedantic(benchmark_fn, rounds=5)

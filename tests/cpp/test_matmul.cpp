@@ -61,15 +61,21 @@
 
 namespace nvfuser {
 
-using MatmulTest = NVFuserTest;
+class MatmulTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    NVFuserTest::SetUp();
+    NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  };
+};
 
-class MatmulTestWithLayout : public NVFuserTest,
+class MatmulTestWithLayout : public MatmulTest,
                              public ::testing::WithParamInterface<MmaLayout> {
  protected:
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
-    NVFuserTest::SetUp();
+    MatmulTest::SetUp();
   }
 };
 
@@ -664,8 +670,6 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulRegCircularBuffer) {
 // Matmul-Matmul fusion test on Ampere
 TEST_F(MatmulTest, MatmulMatmulAmpere) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(8, 0);
-
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
 
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -3479,7 +3483,6 @@ class HopperMatmulTest : public HopperBase {
  protected:
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -3893,7 +3896,7 @@ class MLPBenchmarkTest
   MatmulParams mparams;
 
   void SetUp() override {
-    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
     test_params = GetParam();
     NVFuserTest::SetUp();
     if (test_params.warp_specialization || test_params.persistent_kernel) {

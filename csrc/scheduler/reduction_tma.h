@@ -7,9 +7,9 @@
 // clang-format on
 #pragma once
 
-#include <fusion.h>
-#include <scheduler/reduction.h>
-#include <scheduler/reduction_utils.h>
+#include "fusion.h"
+#include "scheduler/reduction.h"
+#include "scheduler/reduction_utils.h"
 
 namespace nvfuser {
 

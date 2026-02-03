@@ -48,18 +48,6 @@ void ReplayTransform::handle(const Merge* merge) {
 
 // We're going to replay this swizzle operation on the corresponding IDs
 //  if replaying swizzle is enabled.
-void ReplayTransform::handle(const Swizzle2D* swizzle_2d) {
-  NVF_ERROR(
-      input_ids_.size() == 2,
-      "Expected two inputs to match swizzle: ",
-      swizzle_2d->toString());
-  replayed_expr_ = IterDomain::swizzle(
-                       swizzle_2d->swizzleType(),
-                       input_ids_[0],
-                       input_ids_[1],
-                       swizzle_2d->swizzleMode())
-                       .first->definition();
-}
 
 void ReplayTransform::handle(const Swizzle* swizzle) {
   NVF_ERROR(

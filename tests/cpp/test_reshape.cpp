@@ -52,13 +52,7 @@ namespace nvfuser {
 
 using testing::UnorderedElementsAre;
 
-class ReshapeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using ReshapeTest = NVFuserTest;
 
 TEST_F(ReshapeTest, ViewDtypeSameSizeOutput) {
   Fusion fusion;
@@ -397,7 +391,6 @@ class ReshapeReduction : public NVFuserFixtureParamTest<ReshapeReductionParam> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<ReshapeReductionParam>::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

@@ -10,7 +10,6 @@
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/matmul.h>
-#include <scheduler/matmul_ampere-.h>
 #include <scheduler/matmul_hopper+.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
@@ -78,7 +77,9 @@ void MatmulScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       params);
   auto macro = mparams->mma_macro;
   if (isTuring(macro) || isAmpere(macro)) {
-    schedule_matmul::AmpereMinus(fusion, mparams).run();
+    NVF_THROW(
+        "Support for Turing and Ampere was dropped. Scheduling functionality "
+        "should still be largely available except for swizzling");
   } else if (isHopper(macro)) {
     schedule_matmul::Hopper(fusion, mparams).run();
   } else if (isBlackwell(macro)) {

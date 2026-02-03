@@ -6,23 +6,18 @@
  */
 // clang-format on
 
-#include <cuda.h>
-#include <cuda_runtime.h>
-#include <cutlass/codegen.h>
-#include <debug.h>
+#include "runtime/cutlass_compiled_kernel.h"
+
 #include <dlfcn.h>
-#include <fusion.h>
-#include <instrumentation.h>
-#include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <options.h>
-#include <runtime/compiled_kernel.h>
-#include <runtime/cutlass_compiled_kernel.h>
-#include <runtime/executor_kernel_arg.h>
-#include <runtime/executor_params.h>
-#include <scheduler/cutlass.h>
 #include <unistd.h>
-#include "base.h"
+
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include <cuda_runtime.h>
 
 #include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
@@ -31,11 +26,19 @@
 #include <c10/cuda/CUDAMathCompat.h>
 #include <c10/util/Exception.h>
 
-#include <chrono>
-#include <filesystem>
-#include <fstream>
-#include <string>
-#include <vector>
+#include "base.h"
+#include "cuda.h"
+#include "cutlass/codegen.h"
+#include "debug.h"
+#include "fusion.h"
+#include "instrumentation.h"
+#include "ir/all_nodes.h"
+#include "ops/all_ops.h"
+#include "options.h"
+#include "runtime/compiled_kernel.h"
+#include "runtime/executor_kernel_arg.h"
+#include "runtime/executor_params.h"
+#include "scheduler/cutlass.h"
 
 namespace nvfuser {
 

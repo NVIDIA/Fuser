@@ -520,35 +520,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
 std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
     SwizzleType swizzle_type,
     IterDomain* in_x,
-    IterDomain* in_y) {
-  NVF_CHECK(
-      !in_x->extent()->isZeroInt() && !in_y->extent()->isZeroInt(),
-      "Invalid swizzling of a empty dimension.");
-
-  // TODO: reduction check on swizzle:
-  NVF_CHECK(
-      !in_x->isReduction() && !in_y->isReduction(),
-      "swizzled reduction not yet supported");
-
-  for (auto input : InputsOf::outputs({in_x, in_y})) {
-    NVF_CHECK(
-        !input->as<IterDomain>()->isBroadcast(),
-        "swizzling broadcast axes not yet supported");
-  }
-
-  IterDomain* out_x = IterDomainBuilder(in_x).build();
-
-  IterDomain* out_y = IterDomainBuilder(in_y).build();
-
-  IrBuilder::createInContainer<Swizzle>(
-      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
-
-  return std::make_pair(out_x, out_y);
-}
-
-std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
-    Swizzle2DType swizzle_type,
-    IterDomain* in_x,
     IterDomain* in_y,
     SwizzleMode swizzle_mode) {
   NVF_CHECK(
@@ -570,8 +541,8 @@ std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
 
   IterDomain* out_y = IterDomainBuilder(in_y).build();
 
-  IrBuilder::createInContainer<Swizzle2D>(
-      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type, swizzle_mode);
+  IrBuilder::createInContainer<Swizzle>(
+      in_x->container(), out_x, out_y, in_x, in_y, swizzle_type);
 
   return std::make_pair(out_x, out_y);
 }
@@ -1816,29 +1787,8 @@ std::vector<IterDomain*> TensorDomain::orderedAs(
   return reordered_domain;
 }
 
-void TensorDomain::swizzle(SwizzleType swizzle_type, int64_t x, int64_t y) {
-  NVF_ERROR(nDims() > 0, "Tried to do merge on a 0-dim domain");
-  x = wrapDim(x);
-  y = wrapDim(y);
-
-  IterDomain* axis_x = axis(x);
-  IterDomain* axis_y = axis(y);
-
-  IterDomain* axis_out_x = nullptr;
-  IterDomain* axis_out_y = nullptr;
-
-  std::tie(axis_out_x, axis_out_y) =
-      IterDomain::swizzle(swizzle_type, axis_x, axis_y);
-
-  loop_domain_.erase(loop_domain_.begin() + x);
-  loop_domain_.insert(loop_domain_.begin() + x, axis_out_x);
-
-  loop_domain_.erase(loop_domain_.begin() + y);
-  loop_domain_.insert(loop_domain_.begin() + y, axis_out_y);
-}
-
 void TensorDomain::swizzle(
-    Swizzle2DType swizzle_type,
+    SwizzleType swizzle_type,
     int64_t x,
     int64_t y,
     SwizzleMode swizzle_mode) {

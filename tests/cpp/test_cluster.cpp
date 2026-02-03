@@ -31,7 +31,6 @@ class ClusterReductionTest : public NVFuserTest,
  protected:
   void SetUp() override {
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   }
 };

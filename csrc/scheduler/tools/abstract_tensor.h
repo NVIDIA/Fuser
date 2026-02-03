@@ -7,21 +7,20 @@
 // clang-format on
 #pragma once
 
-#include <id_model/schedule.h>
-#include <ir/builder.h>
-#include <ir/internal_base_nodes.h>
-#include <ir/utils.h>
-#include <type.h>
-#include <val_graph.h>
-
 #include <type_traits>
 #include <utility>
+
+#include "dynamic_type/dynamic_type.h"
+#include "id_model/schedule.h"
+#include "ir/builder.h"
+#include "ir/internal_base_nodes.h"
+#include "ir/utils.h"
+#include "type.h"
+#include "val_graph.h"
 
 #ifndef DYNAMIC_TYPE_CHECK
 #define DYNAMIC_TYPE_CHECK NVF_ERROR
 #endif
-
-#include <dynamic_type/dynamic_type.h>
 
 namespace nvfuser {
 
@@ -234,90 +233,6 @@ struct DispatchSwizzle {
   }
 };
 
-// Copy-paste of DispatchSwizzle with s/SwizzleType/Swizzle2DType/g
-// This is a temporary helper and should be removed eventually.
-struct DispatchLegacySwizzle {
-  template <typename LHS, typename RHS>
-  std::pair<AbstractId, AbstractId> operator()(
-      Swizzle2DType swizzle_type,
-      LHS&& lhs,
-      RHS&& rhs) const {
-    using L = std::decay_t<LHS>;
-    using R = std::decay_t<RHS>;
-    if constexpr (
-        std::is_same_v<L, std::monostate> &&
-        std::is_same_v<R, std::monostate>) {
-      return {std::monostate{}, std::monostate{}};
-    } else if constexpr (
-        std::is_same_v<L, IterDomain*> && std::is_same_v<R, IterDomain*>) {
-      auto [out_x, out_y] = IterDomain::swizzle(
-          swizzle_type, std::forward<LHS>(lhs), std::forward<RHS>(rhs));
-      return {out_x, out_y};
-    } else if constexpr (
-        std::is_same_v<L, ValGroupAndItsGraph> &&
-        std::is_same_v<R, ValGroupAndItsGraph>) {
-      NVF_THROW("not supported");
-    } else if constexpr (
-        std::is_same_v<L, IterDomain*> &&
-        std::is_same_v<R, ValGroupAndItsGraph>) {
-      return (*this)(
-          swizzle_type,
-          ValGroupAndItsGraph{rhs.graph->toGroup(lhs), rhs.graph},
-          std::forward<RHS>(rhs));
-    } else if constexpr (
-        std::is_same_v<L, ValGroupAndItsGraph> &&
-        std::is_same_v<R, IterDomain*>) {
-      return (*this)(
-          swizzle_type,
-          std::forward<LHS>(lhs),
-          ValGroupAndItsGraph{lhs.graph->toGroup(rhs), lhs.graph});
-    } else if constexpr (
-        std::is_same_v<L, std::vector<AbstractId>> &&
-        std::is_same_v<R, std::vector<AbstractId>>) {
-      NVF_CHECK(
-          lhs.size() == rhs.size(),
-          "Can not merge vectors of AbstractId of different size.");
-      std::vector<AbstractId> result_x;
-      std::vector<AbstractId> result_y;
-      result_x.reserve(lhs.size());
-      result_y.reserve(lhs.size());
-      for (auto i : arange(lhs.size())) {
-        auto [out_x, out_y] =
-            AbstractId::dispatch((*this), swizzle_type, lhs[i], rhs[i]);
-        result_x.emplace_back(out_x);
-        result_y.emplace_back(out_y);
-      }
-      return {result_x, result_y};
-    } else if constexpr (std::is_same_v<L, std::vector<AbstractId>>) {
-      std::vector<AbstractId> result_x;
-      std::vector<AbstractId> result_y;
-      result_x.reserve(lhs.size());
-      result_y.reserve(lhs.size());
-      for (auto i : arange(lhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, lhs[i], std::forward<RHS>(rhs));
-        result_x.emplace_back(out_x);
-        result_y.emplace_back(out_y);
-      }
-      return {result_x, result_y};
-    } else if constexpr (std::is_same_v<R, std::vector<AbstractId>>) {
-      std::vector<AbstractId> result_x;
-      std::vector<AbstractId> result_y;
-      result_x.reserve(rhs.size());
-      result_y.reserve(rhs.size());
-      for (auto i : arange(rhs.size())) {
-        auto [out_x, out_y] = AbstractId::dispatch(
-            (*this), swizzle_type, std::forward<LHS>(lhs), rhs[i]);
-        result_x.emplace_back(out_x);
-        result_y.emplace_back(out_y);
-      }
-      return {result_x, result_y};
-    } else {
-      NVF_CHECK(false, "Unsupported type in AbstractTensor::merge");
-      return {};
-    }
-  }
-};
 struct DispatchParallelize {
   template <typename INPUT>
   void operator()(ParallelType parallel_type, INPUT&& in) const {
@@ -794,31 +709,6 @@ class AbstractTensorWithInfo {
 
     auto [out_x, out_y] = AbstractId::dispatch(
         DispatchSwizzle{}, swizzle_type, domain_[x], domain_[y]);
-
-    std::swap(domain_[x], out_x);
-    std::swap(domain_[y], out_y);
-
-    auto [info_outer, info_inner] =
-        Info::swizzle(swizzle_type, info_[x], info_[y]);
-    info_[x] = std::move(info_outer);
-    info_[y] = std::move(info_inner);
-
-    return *this;
-  }
-
-  // Temporary helper for legacy swizzle, should be removed eventually.
-  // This is a copy-paste of AbstractTensor::swizzle(SwizzleType
-  AbstractTensorWithInfo& swizzle(
-      Swizzle2DType swizzle_type,
-      int64_t x,
-      int64_t y) {
-    NVF_ERROR(domain_.size() == info_.size());
-
-    x = wrapDim(x, (int64_t)domain_.size());
-    y = wrapDim(y, (int64_t)domain_.size());
-
-    auto [out_x, out_y] = AbstractId::dispatch(
-        DispatchLegacySwizzle{}, swizzle_type, domain_[x], domain_[y]);
 
     std::swap(domain_[x], out_x);
     std::swap(domain_[y], out_y);
