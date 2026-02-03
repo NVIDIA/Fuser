@@ -13,7 +13,6 @@
 #include "ir/iostream.h"
 #include "ir/utils.h"
 #include "multidevice/propagation.h"
-#include "multidevice/utils.h"
 #include "scheduler/utils.h"
 
 namespace nvfuser::preseg_passes {

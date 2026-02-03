@@ -806,14 +806,37 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
   IterDomain* stream_id = *i;
 
   auto in_tensor = getKnownConcreteValue(shard->in()).as<at::Tensor>();
-  auto stream_index =
-      expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+  auto index = expr_evaluator_.evaluate(shard->stream_index()).as<int64_t>();
+
+  if (stream_id->definition()->isA<Swizzle1D>()) {
+    // If the stream axis is defined by a swizzle, the input to
+    // the swizzle is the index into the `in_tensor`.
+    // Currently, we use cyclic shift swizzle to compute the index:
+    // in_index = (out_index (stream index) + device_id) % num_devices
+    // TODO(prmishra): In the future, the swizzle compute should be done outside
+    // of `shardByStream` such that `add` and `mod` are in the HostIrContainer
+    // similar to
+    // https://github.com/NVIDIA/Fuser/blob/0a6adb140d440cc1b6d5f21dfd05874f9699b2c6/csrc/swizzle.h#L26-L31.
+    auto* swizzle = stream_id->definition()->as<Swizzle1D>();
+    ParallelType pt = swizzle->parallelType();
+
+    auto mesh = out_tv->getDeviceMesh();
+    // Find the index of the current device in the slice of mesh corresponding
+    // to the parallel type
+    auto team_size = mesh.size(pt);
+    at::Tensor md_index =
+        mesh.multiDimensionalIndexOf(communicator_->deviceId());
+    auto pt_axis = mesh.parallelTypeToAxis(pt);
+    int64_t team_index = md_index[pt_axis].item<int64_t>();
+    index = (index + team_index) % team_size;
+  }
+
   at::Tensor out_tensor =
       in_tensor
           .chunk(
               stream_id->extent()->evaluate().as<int64_t>(),
               getShardedLogicalAxis(out_tv, ParallelType::Stream))
-          .at(stream_index);
+          .at(index);
 
   expr_evaluator_.bind(out_tv, out_tensor);
 }

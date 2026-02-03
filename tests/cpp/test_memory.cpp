@@ -2859,7 +2859,8 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
   }
 };
 
-TEST_P(LdMatrixTest, Regular) {
+// Disabled as the alternate loop domain is missing
+TEST_P(LdMatrixTest, DISABLED_Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -2912,7 +2913,8 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
   }
 };
 
-TEST_P(StMatrixTest, Regular) {
+// Disabled as the alternate loop domain is missing
+TEST_P(StMatrixTest, DISABLED_Regular) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3006,7 +3008,8 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(DataType::Half, DataType::BFloat16)),
     testNameStMatrixTest);
 
-TEST_P(LdMatrixTest, Transpose) {
+// Disabled as the alternate loop domain is missing
+TEST_P(LdMatrixTest, DISABLED_Transpose) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 

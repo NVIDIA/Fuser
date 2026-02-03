@@ -104,8 +104,34 @@ bool Fusion::sameDefinition(const Fusion& other) const {
 void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  // Swap IrContainer base class (contains IrStorage)
-  IrContainer::swap(static_cast<IrContainer&>(a), static_cast<IrContainer&>(b));
+  // We need to be careful to call IrContainer swap not unique_ptr swap, which
+  // will only swap the ptrs NOT the contents.
+  IrContainer::swap(*(a.ir_container()), *(b.ir_container()));
+
+  // Fix parent pointers after swapping containers
+  // After swap, each Fusion owns a different IrContainer, so we must
+  // update the parent backpointers in those containers to point to their new
+  // owners
+  if (a.ir_container_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    a.ir_container()->parent_ = &a;
+    for (auto val : a.vals()) {
+      val->ir_container_ = &a;
+    }
+    for (auto expr : a.deterministic_exprs()) {
+      expr->ir_container_ = &a;
+    }
+  }
+  if (b.ir_container_) {
+    // Also update all Statement ir_container_ pointers to point to new owner
+    b.ir_container()->parent_ = &b;
+    for (auto val : b.vals()) {
+      val->ir_container_ = &b;
+    }
+    for (auto expr : b.deterministic_exprs()) {
+      expr->ir_container_ = &b;
+    }
+  }
 
   std::swap(a.inputs_, b.inputs_);
   std::swap(a.outputs_, b.outputs_);
@@ -122,7 +148,7 @@ std::unique_ptr<SegmentedFusion> Fusion::segment(
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   to->clear();
 
-  auto ir_cloner = IrContainer::copy(from, to);
+  auto ir_cloner = IrContainer::copy(from->ir_container(), to->ir_container());
 
   for (auto val : from->vals()) {
     ir_cloner.clone(val)->setDefinition(ir_cloner.clone(val->definition_));
@@ -183,14 +209,19 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
   return ir_cloner;
 }
 
+// Default constructor
+Fusion::Fusion() : ir_container_(std::make_unique<IrContainer>()) {
+  ir_container_->parent_ = this;
+}
+
 // Copy constructor
-Fusion::Fusion(const Fusion& other) {
+Fusion::Fusion(const Fusion& other) : Fusion() {
   FUSER_PERF_SCOPE("Fusion copy");
   Fusion::copy(&other, this);
 }
 
 // Move constructor
-Fusion::Fusion(Fusion&& other) noexcept {
+Fusion::Fusion(Fusion&& other) noexcept : Fusion() {
   FUSER_PERF_SCOPE("Fusion move");
   swap(*this, other);
 }
@@ -223,7 +254,7 @@ void Fusion::clear() noexcept {
   // Clear container contents instead of destroying it
   // This preserves the container object so Statement pointers don't become
   // dangling
-  ir_storage()->clear();
+  ir_container()->clear();
 
   inputs_.clear();
   outputs_.clear();
@@ -260,7 +291,7 @@ void Fusion::removeExpr(Expr* expr) {
     }
   }
 
-  IrContainer::removeExpr(expr);
+  ir_container()->removeExpr(expr);
 }
 
 void Fusion::removeVal(Val* val) {
@@ -304,7 +335,7 @@ void Fusion::removeVal(Val* val) {
   for (auto e : exprs_to_remove) {
     removeExpr(e);
   }
-  IrContainer::removeVal(val);
+  ir_container()->removeVal(val);
 
   invalidateTvsAndUses();
 }
@@ -668,7 +699,7 @@ void Fusion::registerVal(Val* val) {
         val->fusion() == this, val, " was not found in the active fusion.");
   }
 
-  IrContainer::registerVal(val);
+  ir_container()->registerVal(val);
 }
 
 void Fusion::registerExpr(Expr* expr) {
@@ -681,7 +712,7 @@ void Fusion::registerExpr(Expr* expr) {
         expr->fusion() == this, expr, " was not found in the active fusion.");
   }
 
-  IrContainer::registerExpr(expr);
+  ir_container()->registerExpr(expr);
 
   for (Val* input : expr->inputs()) {
     assertInContainer(input, "Input to expr is invalid, ");
