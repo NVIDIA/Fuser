@@ -2089,6 +2089,38 @@ class Swizzle2D : public Expr {
   }
 };
 
+class Swizzle1D : public Expr {
+ public:
+  using Expr::Expr;
+
+  Swizzle1D(
+      IrBuilderPasskey passkey,
+      IterDomain* out,
+      IterDomain* in,
+      ParallelType pt);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Swizzle1D";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  IterDomain* in() const {
+    return inputs().at(0)->as<IterDomain>();
+  }
+
+  IterDomain* out() const {
+    return outputs().at(0)->as<IterDomain>();
+  }
+
+  ParallelType parallelType() const {
+    return attribute<ParallelType>(0);
+  }
+};
+
 //! IterDomain expression to resize
 class Resize : public Expr {
  public:

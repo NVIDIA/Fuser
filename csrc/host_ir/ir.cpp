@@ -503,36 +503,4 @@ std::string ForLoop::toInlineString(int indent_size) const {
       index, iter_domain->start(), iter_domain->stop());
 }
 
-Swizzle::Swizzle(
-    IrBuilderPasskey passkey,
-    IterDomain* in,
-    IterDomain* out,
-    ParallelType pt)
-    : Expr(passkey, {in}, {out}, {}) {
-  NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_ERROR(
-      passkey.ir_container_->isA<HostIrContainer>(),
-      this,
-      "must be registered in a HostIrContainer");
-  NVF_ERROR(in != nullptr);
-  NVF_ERROR(out != nullptr);
-  addDataAttribute(pt);
-}
-
-NVFUSER_DEFINE_CLONE_AND_CREATE(Swizzle)
-
-std::string Swizzle::toString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << " = Swizzle("
-                          << in()->toString() << ", pt=" << pt() << std::endl;
-  return ss.str();
-}
-
-std::string Swizzle::toInlineString(int indent_size) const {
-  std::stringstream ss;
-  indent(ss, indent_size) << "Swizzle(" << in()->toInlineString()
-                          << ", pt=" << pt() << ")";
-  return ss.str();
-}
-
 } // namespace nvfuser::hir

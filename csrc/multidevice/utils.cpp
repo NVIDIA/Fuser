@@ -179,7 +179,7 @@ int64_t getProducingLogicalAxis(const TensorView* tv, IterDomain* id) {
       // When `unshardedSizes` is given a local tensor of shape [1, 1], it's
       // unclear the global shape is [1, D] or [D, 1] or even [2, D/2], etc.
       id = merge->outer();
-    } else if (auto* swizzle = dynamic_cast<hir::Swizzle*>(def)) {
+    } else if (auto* swizzle = dynamic_cast<Swizzle1D*>(def)) {
       id = swizzle->in();
     } else {
       NVF_THROW(

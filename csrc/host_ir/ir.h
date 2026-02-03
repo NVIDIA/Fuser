@@ -569,40 +569,4 @@ class ForLoop : public Expr {
   }
 };
 
-class Swizzle : public Expr {
- public:
-  using Expr::Expr;
-
-  Swizzle(
-      IrBuilderPasskey passkey,
-      IterDomain* in,
-      IterDomain* out,
-      ParallelType pt);
-
-  Swizzle(const Swizzle& other) = delete;
-  Swizzle& operator=(const Swizzle& other) = delete;
-  Swizzle(Swizzle&& other) = delete;
-  Swizzle& operator=(Swizzle&& other) = delete;
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-  const char* getOpString() const override {
-    return "hir::Swizzle";
-  }
-
-  IterDomain* in() const {
-    return inputs().at(0)->as<IterDomain>();
-  }
-
-  IterDomain* out() const {
-    return outputs().at(0)->as<IterDomain>();
-  }
-
-  ParallelType pt() const {
-    return attribute<ParallelType>(0);
-  }
-};
-
 } // namespace nvfuser::hir

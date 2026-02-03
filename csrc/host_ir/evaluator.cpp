@@ -813,10 +813,13 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
     // the swizzle is the index into the `in_tensor`.
     // Currently, we use cyclic shift swizzle to compute the index:
     // in_index = (out_index (stream index) + device_id) % num_devices
-
-    NVF_CHECK(stream_id->definition()->isA<hir::Swizzle>());
-    auto* swizzle = stream_id->definition()->as<hir::Swizzle>();
-    ParallelType pt = swizzle->pt();
+    // TODO(prmishra): In the future, the swizzle compute should be done outside
+    // of `shardByStream` such that `add` and `mod` are in the HostIrContainer
+    // similar to
+    // https://github.com/NVIDIA/Fuser/blob/0a6adb140d440cc1b6d5f21dfd05874f9699b2c6/csrc/swizzle.h#L26-L31.
+    NVF_CHECK(stream_id->definition()->isA<Swizzle1D>());
+    auto* swizzle = stream_id->definition()->as<Swizzle1D>();
+    ParallelType pt = swizzle->parallelType();
 
     auto mesh = out_tv->getDeviceMesh();
     // Find the index of the current device in the slice of mesh corresponding
@@ -833,7 +836,6 @@ void HostIrEvaluator::handle(ShardByStream* shard) {
       in_tensor
           .chunk(
               stream_id->extent()->evaluate().as<int64_t>(),
-              index,
               getShardedLogicalAxis(out_tv, ParallelType::Stream))
           .at(index);
 

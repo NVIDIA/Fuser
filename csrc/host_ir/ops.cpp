@@ -24,21 +24,6 @@
 
 namespace nvfuser::hir {
 
-TensorView* swizzle(TensorView* in, int64_t axis, ParallelType pt) {
-  NVF_ERROR(in != nullptr);
-
-  IterDomain* swizzle_in = in->axis(axis);
-  IterDomain* swizzle_out = IterDomainBuilder(swizzle_in).build();
-  IrBuilder::create<Swizzle>(swizzle_in, swizzle_out, pt);
-
-  std::vector<IterDomain*> loop_domain = in->getLoopDomain();
-  loop_domain.erase(loop_domain.begin() + axis);
-  loop_domain.insert(loop_domain.begin() + axis, swizzle_out);
-  in->setLoopDomain(loop_domain);
-
-  return in;
-}
-
 TensorView* shardByStream(TensorView* source, Val* stream_index, Expr* e) {
   NVF_ERROR(
       getShardedIterDomain(

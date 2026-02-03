@@ -533,7 +533,7 @@ TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
 
     for (auto* tv : {in_tv, out_tv}) {
       tv->outer_split(0, d);
-      tv = hir::swizzle(tv, 0, ParallelType::DIDx);
+      tv->swizzle1d(0, ParallelType::DIDx);
       tv->axis(0)->parallelize(ParallelType::Stream);
     }
 
@@ -553,7 +553,7 @@ TEST_F(MultiDeviceTest, SwizzleWithParallelType) {
       tv->outer_split(1, d);
       tv->axis(1)->parallelize(ParallelType::DIDx);
       tv->outer_split(0, d);
-      tv = hir::swizzle(tv, 0, ParallelType::DIDx);
+      tv->swizzle1d(0, ParallelType::DIDx);
       tv->axis(0)->parallelize(ParallelType::Stream);
       tv->setAllocationDomain(tv->getLoopDomain(), true);
     }
