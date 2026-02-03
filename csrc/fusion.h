@@ -8,6 +8,7 @@
 #pragma once
 
 #include <any>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -163,7 +164,11 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container_.get();
   }
 
- public:
+  // Return the shared_ptr to the container (for Phase 2 container sharing)
+  std::shared_ptr<IrContainer> ir_container_ptr() const {
+    return ir_container_;
+  }
+
   // Registration (public API with passkey)
   virtual void registerStmt(IrBuilderPasskey, Statement* stmt) {
     if (stmt->isVal()) {
@@ -643,7 +648,7 @@ class NVF_API Fusion : public PolymorphicBase {
   std::unique_ptr<std::vector<TensorView*>> all_tvs_ptr_ = nullptr;
 
   inline static const std::string exact_mappings_key = "exact_mappings";
-  std::unique_ptr<IrContainer> ir_container_;
+  std::shared_ptr<IrContainer> ir_container_;
 
   // Phase 2: Per-Fusion special values
   // With shared containers, each Fusion needs its own special values.

@@ -220,8 +220,9 @@ IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
 }
 
 // Default constructor
-Fusion::Fusion() : ir_container_(std::make_unique<IrContainer>()) {
+Fusion::Fusion() : ir_container_(std::make_shared<IrContainer>()) {
   ir_container_->parent_ = this;
+  ir_container_->addFusion(this); // Register with container for Phase 2
 }
 
 // Copy constructor
@@ -252,6 +253,9 @@ Fusion& Fusion::operator=(Fusion&& other) noexcept {
 }
 
 Fusion::~Fusion() {
+  if (ir_container_) {
+    ir_container_->removeFusion(this); // Unregister before destruction
+  }
   clear();
 }
 
