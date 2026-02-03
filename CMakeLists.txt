@@ -18,7 +18,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
-set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
 set(NVFUSER_PYTHON_COMMON "${NVFUSER_ROOT}/python/python_common")
 set(NVFUSER_PYTHON_DIRECT_BINDINGS "${NVFUSER_ROOT}/python/python_direct")
 set(NVFUSER_CUTLASS "${NVFUSER_ROOT}/cutlass")
@@ -386,21 +385,6 @@ if(NOT MSVC)
   )
 endif()
 
-if(BUILD_PYTHON)
-  list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/segmentation.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
-    ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
-    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
-    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
-    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
-  )
-endif()
-
 # We create both static and shared libraries.
 #
 # Shared libraries are what ships, but a large advantage of static libraries is
@@ -611,128 +595,6 @@ install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
 if(BUILD_PYTHON)
-  # -----------------------------
-  # build nvfuser python library
-  # -----------------------------
-  # nvfuser python API sources
-  set(NVFUSER_PYTHON_SRCS)
-  list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_PYTHON_BINDINGS}/multidevice_bindings.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
-    ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
-  )
-
-  add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
-  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_CUTLASS})
-  target_include_directories(nvf_py_internal SYSTEM INTERFACE
-    ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
-  )
-
-  # setup python API version
-  add_custom_command(
-    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
-    COMMAND
-    "${Python_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
-    COMMAND
-    "${Python_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py nvfuser
-    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_PYTHON_DIR}/tools/
-  )
-  add_custom_target(
-    gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
-  )
-  add_dependencies(nvf_py_internal gen_nvfuser_version)
-
-  target_compile_definitions(nvf_py_internal PRIVATE
-    "-DTORCH_CUDA_BUILD_MAIN_LIB"
-    "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C
-  )
-
-  add_library(nvfuser MODULE $<TARGET_OBJECTS:nvf_py_internal>)
-  target_compile_definitions(nvfuser PRIVATE
-    "-DTORCH_CUDA_BUILD_MAIN_LIB"
-    "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C
-  )
-
-  if(NOT MSVC)
-    target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
-    target_compile_options(nvf_py_internal PRIVATE -Werror)
-
-    # Add function/data sections for dead code elimination
-    target_compile_options(nvf_py_internal PRIVATE
-      "-ffunction-sections"
-      "-fdata-sections"
-    )
-
-    set(NVF_LIB_SUFFIX ".so")
-  else()
-    set(NVF_LIB_SUFFIX ".pyd")
-  endif()
-
-  set_target_properties(nvfuser PROPERTIES
-    C_STANDARD ${NVFUSER_C_STANDARD}
-    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvfuser_common/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
-    SUFFIX ${NVF_LIB_SUFFIX}
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
-  set_target_properties(nvf_py_internal PROPERTIES
-    C_STANDARD ${NVFUSER_C_STANDARD}
-    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
-
-  if (NVFUSER_USE_CUTLASS)
-    target_link_libraries(nvf_py_internal PRIVATE nvf_cutlass)
-  endif()
-
-  if (NOT MSVC)
-    target_link_libraries(nvf_py_internal PRIVATE CUDA::cupti)
-  endif()
-
-  target_link_libraries(nvf_py_internal PRIVATE
-    nvfuser_codegen
-    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
-    pybind11::pybind11 pybind11::headers
-  )
-
-  target_link_libraries(nvfuser PRIVATE
-    nvf_py_internal
-    Python::Module
-  )
-
-  # Add dead code elimination flags to reduce file size
-  if(NOT MSVC)
-    target_link_options(nvfuser PRIVATE
-      "-Wl,--gc-sections"
-      "-Wl,--as-needed"
-      $<$<CONFIG:Release>:-s>
-    )
-  endif()
-
-  set_target_properties(nvfuser PROPERTIES
-    INSTALL_RPATH "$ORIGIN:$ORIGIN/lib:$ORIGIN/../build:$ORIGIN/../nvfuser_common/lib"
-  )
-  install(TARGETS nvfuser DESTINATION lib)
-
   # ------------------------------------------------
   # build nvfuser direct python library
   # ------------------------------------------------
@@ -755,6 +617,9 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/profile.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/direct_utils.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/python_translate.cpp
+    ${NVFUSER_PYTHON_COMMON}/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
+    ${NVFUSER_PYTHON_COMMON}/translation_names.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -1443,9 +1308,6 @@ target_include_directories(codegen_internal PRIVATE "${CMAKE_BINARY_DIR}/include
 install(EXPORT NvfuserTargets FILE NvfuserConfig.cmake DESTINATION share/cmake/nvfuser)
 
 file(CREATE_LINK "${CMAKE_BINARY_DIR}" "${NVFUSER_ROOT}/bin" SYMBOLIC)
-# These symbolic links help IDEs like Cursor resolve symbols in nvfuser and
-# nvfuser_direct.
-file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser" "${NVFUSER_ROOT}/nvfuser" SYMBOLIC)
 file(CREATE_LINK "${NVFUSER_ROOT}/python/nvfuser_direct" "${NVFUSER_ROOT}/nvfuser_direct" SYMBOLIC)
 
 message(STATUS "******** Nvfuser configuration summary ********")

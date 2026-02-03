@@ -17,8 +17,6 @@
 #include "instrumentation.h"
 #include "ir/base_nodes.h"
 #include "preseg_passes/pre_segmenter.h"
-#include "python_frontend/fusion_definition.h"
-#include "python_frontend/translation.h"
 #include "runtime/executor.h"
 #include "runtime/executor_dispatch.h"
 #include "runtime/fusion_cache_utils.h"
@@ -428,16 +426,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   const int64_t num_groups = numGroups();
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
-  }
-
-  if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
-    for (SegmentedGroup* group_to_run : runtime_workspace_.group_run_order) {
-      debug() << "Python definition for segmented group "
-              << group_to_run->groupId() << ":" << std::endl;
-      python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
-      python_frontend::translate(group_to_run->getFusion(), &fd);
-      fd.print(debug());
-    }
   }
 
   const std::vector<KernelArgumentHolder> all_runtime_inputs =
