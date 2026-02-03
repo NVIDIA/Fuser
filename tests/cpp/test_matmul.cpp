@@ -2334,7 +2334,6 @@ class HopperMatmulTest : public HopperBase {
  protected:
   void SetUp() override {
     HopperBase::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

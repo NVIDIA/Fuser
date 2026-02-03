@@ -9,7 +9,6 @@ from nvfuser_direct import (
     FusionDefinition,
     DataType,
 )
-from python.utils import set_env
 from python.direct_utils import (
     FLOAT4_E2M1_MAX,
     FLOAT8_E4M3_EPS,
@@ -176,8 +175,8 @@ def test_layout_op_and_cutlass_nvfp4_grouped_mm(
 
     # FIXME: force indexing to use IdModel indexer to avoid indexing error.
     # see issue: https://github.com/NVIDIA/Fuser/issues/5200
-    with set_env(NVFUSER_ENABLE="id_model(all)"):
-        o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
+    # NOTE: IdModel indexer is now enabled by default, so this is no longer needed.
+    o, _ = nvfuser_direct_test.exec_nvfuser(nvfuser_fusion_id0, inputs)
 
     # quantization for activation is needed for reference.
     # note: following sglang implementation, not computing global scaling factor for mat1

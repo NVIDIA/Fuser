@@ -42,7 +42,6 @@ std::vector<SizeParams> generateSizeOneParams() {
 class IndexPut : public NVFuserFixtureParamTest<SizeParams> {
  protected:
   void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
     NVFuserTest::SetUp();
   }
 };

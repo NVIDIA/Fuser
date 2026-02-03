@@ -22,7 +22,7 @@
 
 namespace nvfuser {
 
-class SwizzleTest : public NVFuserTest {};
+using SwizzleTest = NVFuserTest;
 
 TEST_F(SwizzleTest, Transpose1) {
   Fusion fusion;

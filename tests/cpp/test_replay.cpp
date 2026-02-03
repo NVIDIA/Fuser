@@ -25,13 +25,7 @@ using testing::Optional;
 using testing::Property;
 using testing::SizeIs;
 
-class ReplayTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using ReplayTest = NVFuserTest;
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   auto fusion = std::make_unique<Fusion>();

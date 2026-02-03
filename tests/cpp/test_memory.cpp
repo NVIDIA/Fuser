@@ -451,8 +451,6 @@ class TMASimpleLdstTest
       default:
         NVF_THROW("Invalid dimension");
     }
-
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -1733,7 +1731,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
 
 // It is not required to run compile-time invalid case tests on Hopper or newer
 // GPUs. Detecting invalid cases does not even require a GPU.
-class TMACompileTimeInvalidTest : public NVFuserTest {};
+using TMACompileTimeInvalidTest = NVFuserTest;
 class TMARuntimeInvalidTest : public TMATest {};
 
 TEST_F(TMACompileTimeInvalidTest, BulkNotInTMA) {
@@ -2858,7 +2856,6 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 
@@ -2913,7 +2910,6 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
   }
 };
 

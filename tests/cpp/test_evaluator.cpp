@@ -17,7 +17,7 @@
 
 namespace nvfuser {
 
-class ExprEvalTest : public NVFuserTest {};
+using ExprEvalTest = NVFuserTest;
 
 using ::testing::ElementsAre;
 using ::testing::HasSubstr;
