@@ -47,15 +47,14 @@ def transpose_fusion(
 # contiguous() materializes a contiguous copy of the result.
 # When compiled with thunder, contiguous version will use nvFuser's transpose scheduler, otherwise it will use the pointwise scheduler.
 def transpose_fwd_fn(inputs: list):  # [input1, input2, dim0, dim1, is_copy_transpose]
+    relu_transpose_result = torch.nn.functional.relu(
+        torch.transpose(inputs[0] + inputs[1], inputs[2], inputs[3])
+    )
     is_copy_transpose = inputs[4]
     if is_copy_transpose:
-        return torch.nn.functional.relu(
-            torch.transpose(inputs[0] + inputs[1], inputs[2], inputs[3])
-        ).contiguous()
+        return relu_transpose_result.contiguous()
     else:
-        return torch.nn.functional.relu(
-            torch.transpose(inputs[0] + inputs[1], inputs[2], inputs[3])
-        )
+        return relu_transpose_result
 
 
 def _generate_transpose_params():
