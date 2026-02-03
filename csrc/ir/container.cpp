@@ -96,6 +96,71 @@ int64_t IrContainer::numVals(bool include_shortcuts) const noexcept {
   return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
 }
 
+// =========================================================================
+// Fusion tracking for shared container support (Phase 2)
+// =========================================================================
+
+void IrContainer::addFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.insert(fusion);
+}
+
+void IrContainer::removeFusion(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.erase(fusion);
+  removeStatementsOwnedByUnlocked(fusion);
+}
+
+void IrContainer::transferFusion(Fusion* from, Fusion* to) {
+  std::unique_lock lock(mutex_);
+  sharing_fusions_.erase(from);
+  sharing_fusions_.insert(to);
+  // Note: Statements retain their container() pointer - they don't need
+  // to be updated because container() returns Fusion* which points to
+  // the owning Fusion, and that ownership is what we're transferring.
+}
+
+size_t IrContainer::sharingCount() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_.size();
+}
+
+bool IrContainer::hasMultipleFusions() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_.size() > 1;
+}
+
+const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
+  std::shared_lock lock(mutex_);
+  return sharing_fusions_;
+}
+
+void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
+  // Remove all Vals owned by this Fusion
+  for (auto it = vals_up_.begin(); it != vals_up_.end();) {
+    Val* val = it->get();
+    // Check if this Val's container points to the Fusion being removed
+    if (val->container() == fusion) {
+      vals_.erase(val);
+      it = vals_up_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  // Remove all Exprs owned by this Fusion
+  for (auto it = exprs_up_.begin(); it != exprs_up_.end();) {
+    Expr* expr = it->get();
+    // Check if this Expr's container points to the Fusion being removed
+    if (expr->container() == fusion) {
+      exprs_.erase(expr);
+      it = exprs_up_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
@@ -131,9 +196,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->vals_up_.clear();
   to->exprs_.clear();
   to->exprs_up_.clear();
-  to->axioms_.reset();
   to->val_type_name_map_.clear();
-  to->metadata_.clear();
   to->expr_name_counter_ = 0;
 
   IrCloner ir_cloner(to->parent());

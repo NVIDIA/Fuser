@@ -90,10 +90,40 @@ class IrContainer {
   // Fusion::metadataOf(), Fusion::axioms(), etc. instead.
   // This avoids ownership conflicts when multiple Fusions share an IrContainer.
 
+ public:
+  // =========================================================================
+  // Fusion tracking for shared container support (Phase 2)
+  // =========================================================================
+
+  //! Register a Fusion as sharing this container
+  void addFusion(Fusion* fusion);
+
+  //! Unregister a Fusion and cleanup its owned Statements
+  void removeFusion(Fusion* fusion);
+
+  //! Transfer registration from one Fusion to another (for move operations)
+  void transferFusion(Fusion* from, Fusion* to);
+
+  //! Number of Fusions sharing this container
+  size_t sharingCount() const;
+
+  //! Whether multiple Fusions share this container
+  bool hasMultipleFusions() const;
+
+  //! Get the set of Fusions sharing this container
+  const std::unordered_set<Fusion*>& sharingFusions() const;
+
  protected:
   // Mutex for thread-safe access when container is shared between Fusions
   // mutable because we need to lock in const methods
   mutable std::shared_mutex mutex_;
+
+  //! Fusions that share this container (for Phase 2 shared_ptr ownership)
+  std::unordered_set<Fusion*> sharing_fusions_;
+
+  //! Remove all Statements owned by a specific Fusion (internal helper)
+  //! Caller must hold unique_lock on mutex_
+  void removeStatementsOwnedByUnlocked(Fusion* fusion);
 
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
