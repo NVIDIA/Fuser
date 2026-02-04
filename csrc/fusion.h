@@ -566,22 +566,15 @@ class NVF_API Fusion : public PolymorphicBase {
   Val* zeroVal(DataType dtype);
   Val* oneVal(DataType dtype);
 
-  Val* metadataOf(Val* val) {
-    return ir_container()->metadataOf(val);
-  }
+  // Phase 2: Per-Fusion metadata and axioms
+  // These are now per-Fusion to avoid ownership issues with shared containers.
+  Val* metadataOf(Val* val);
 
   // Axioms (CUDA programming assumptions)
-  const std::vector<Val*>& axioms() {
-    return ir_container()->axioms();
-  }
+  const std::vector<Val*>& axioms();
 
-  void assumePositive(Val* val) {
-    ir_container()->assumePositive(val);
-  }
-
-  void assumeNonNegative(Val* val) {
-    ir_container()->assumeNonNegative(val);
-  }
+  void assumePositive(Val* val);
+  void assumeNonNegative(Val* val);
 
   // Statement removal
   void removeStatementsCreatedAfter(
@@ -661,6 +654,14 @@ class NVF_API Fusion : public PolymorphicBase {
   Val* true_val_ = nullptr;
   Val* false_val_ = nullptr;
   NamedScalar* magic_zero_val_ = nullptr;
+
+  // Phase 2: Per-Fusion axioms (CUDA programming assumptions)
+  // These are per-Fusion to avoid ownership issues with shared containers.
+  std::unique_ptr<std::vector<Val*>> axioms_;
+
+  // Phase 2: Per-Fusion metadata cache
+  // Maps Val* to (metadata_val, metadata_expr) pairs
+  std::unordered_map<Val*, std::pair<Val*, Expr*>> metadata_;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
