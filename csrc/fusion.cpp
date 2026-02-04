@@ -20,7 +20,9 @@
 #include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ir/cloner.h>
+#include <ir/internal_nodes.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -279,6 +281,9 @@ void Fusion::clear() noexcept {
   true_val_ = nullptr;
   false_val_ = nullptr;
   magic_zero_val_ = nullptr;
+
+  axioms_.reset();
+  metadata_.clear();
 
   invalidateTvsAndUses();
 
@@ -766,6 +771,49 @@ Val* Fusion::oneVal(DataType dtype) {
     // NOTE: this does not cache values
     return IrBuilder::createInContainer<Val>(this, 1L, dtype);
   }
+}
+
+Val* Fusion::metadataOf(Val* v) {
+  if (metadata_.count(v) == 0) {
+    // Create metadata val owned by the same Fusion as v
+    Fusion* owner = v->container();
+    auto metadata_val =
+        IrBuilder::createInContainer<Val>(owner, metaDataTypeOf(v));
+    auto metadata_expr =
+        IrBuilder::createInContainer<GetMetaData>(owner, metadata_val, v);
+    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
+  }
+  return metadata_.at(v).first;
+}
+
+const std::vector<Val*>& Fusion::axioms() {
+  if (!axioms_) {
+    axioms_ = std::make_unique<std::vector<Val*>>();
+    axioms_->reserve(kParallelTypeThreads.size() * 3);
+    auto zero = zeroVal();
+    for (auto p : kParallelTypeThreads) {
+      auto pidx = NamedScalar::getParallelIndex(p);
+      auto pdim = NamedScalar::getParallelDim(p);
+      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
+      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
+      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
+    }
+  }
+  return *axioms_;
+}
+
+void Fusion::assumePositive(Val* val) {
+  NVF_ERROR(inContainer(val));
+  // Lazy init axioms, then add the assumption
+  axioms();
+  axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
+}
+
+void Fusion::assumeNonNegative(Val* val) {
+  NVF_ERROR(inContainer(val));
+  // Lazy init axioms, then add the assumption
+  axioms();
+  axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
 void Fusion::registerVal(Val* val) {
