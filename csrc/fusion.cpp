@@ -7,6 +7,7 @@
 // clang-format on
 #include <fusion.h>
 
+#include <type.h>
 #include <iterator>
 #include <ranges>
 
@@ -137,6 +138,13 @@ void Fusion::swap(Fusion& a, Fusion& b) noexcept {
   std::swap(a.outputs_, b.outputs_);
 
   std::swap(a.io_alias_, b.io_alias_);
+
+  // Swap per-Fusion special values (Phase 2)
+  std::swap(a.zero_val_, b.zero_val_);
+  std::swap(a.one_val_, b.one_val_);
+  std::swap(a.true_val_, b.true_val_);
+  std::swap(a.false_val_, b.false_val_);
+  std::swap(a.magic_zero_val_, b.magic_zero_val_);
 }
 
 std::unique_ptr<SegmentedFusion> Fusion::segment(
@@ -263,6 +271,14 @@ void Fusion::clear() noexcept {
 
   managed_data_.clear();
   managed_named_data_.clear();
+
+  // Reset per-Fusion special values (they'll be recreated lazily if needed)
+  // The actual Val objects were removed by removeStatementsOwnedBy above.
+  zero_val_ = nullptr;
+  one_val_ = nullptr;
+  true_val_ = nullptr;
+  false_val_ = nullptr;
+  magic_zero_val_ = nullptr;
 
   invalidateTvsAndUses();
 
@@ -687,6 +703,69 @@ void Fusion::printTransforms() {
   FusionGuard fg(this);
   IrTransformPrinter t_exprs(debug());
   t_exprs.handle(this);
+}
+
+// =========================================================================
+// Per-Fusion Special Values (Phase 2)
+// Each Fusion has its own special values for safe container sharing.
+// =========================================================================
+
+Val* Fusion::zeroVal() {
+  if (!zero_val_) {
+    zero_val_ = IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+  }
+  return zero_val_;
+}
+
+Val* Fusion::oneVal() {
+  if (!one_val_) {
+    one_val_ = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+  }
+  return one_val_;
+}
+
+Val* Fusion::falseVal() {
+  if (!false_val_) {
+    false_val_ = IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+  }
+  return false_val_;
+}
+
+Val* Fusion::trueVal() {
+  if (!true_val_) {
+    true_val_ = IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+  }
+  return true_val_;
+}
+
+NamedScalar* Fusion::magicZeroVal() {
+  if (!magic_zero_val_) {
+    magic_zero_val_ = IrBuilder::createInContainer<NamedScalar>(
+        this, kMagicZeroName, DataType::Index);
+  }
+  return magic_zero_val_;
+}
+
+Val* Fusion::zeroVal(DataType dtype) {
+  if (dtype == DataType::Index) {
+    return zeroVal();
+  } else if (isBooleanType(dtype)) {
+    return falseVal();
+  } else {
+    // NOTE: this does not cache values
+    return IrBuilder::createInContainer<Val>(this, 0L, dtype);
+  }
+}
+
+Val* Fusion::oneVal(DataType dtype) {
+  if (dtype == DataType::Index) {
+    return oneVal();
+  } else if (isBooleanType(dtype)) {
+    return trueVal();
+  } else {
+    // NOTE: this does not cache values
+    return IrBuilder::createInContainer<Val>(this, 1L, dtype);
+  }
 }
 
 void Fusion::registerVal(Val* val) {
