@@ -218,10 +218,6 @@ class ReplayRFactor : public ReplayTransformations {
     NVF_THROW("Unexpected expression: ", swizzle->toString());
   }
 
-  void handle(Swizzle2D* swizzle) override {
-    NVF_THROW("Unexpected expression: ", swizzle->toString());
-  }
-
   // The IterDomains in the original_domain that are being factored into the
   // first stage of the two stage reduction (the producer).
   std::unordered_set<IterDomain*> rfactor_axes_;

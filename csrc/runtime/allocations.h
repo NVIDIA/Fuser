@@ -7,11 +7,10 @@
 // clang-format on
 #pragma once
 
-#include <ir/all_nodes.h>
-
-#include <evaluator_common.h>
-
 #include <c10/core/ScalarType.h>
+
+#include "evaluator_common.h"
+#include "ir/all_nodes.h"
 
 namespace nvfuser {
 

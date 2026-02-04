@@ -8,11 +8,12 @@
 #pragma once
 
 #include <ATen/core/ivalue.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/registry.h>
-#include <visibility.h>
+
+#include "exceptions.h"
+#include "fusion.h"
+#include "scheduler/reduction_heuristic.h"
+#include "scheduler/registry.h"
+#include "visibility.h"
 
 namespace nvfuser {
 

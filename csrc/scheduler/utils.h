@@ -7,15 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <disjoint_set.h>
-#include <exceptions.h>
-#include <fusion.h>
-#include <ir/all_nodes.h>
-#include <ir/cloner.h>
-#include <scheduler/reduction_heuristic.h>
-#include <scheduler/tools/maxinfo_propagator.h>
-#include <visibility.h>
 #include "base.h"
+#include "disjoint_set.h"
+#include "exceptions.h"
+#include "fusion.h"
+#include "ir/interface_nodes.h"
+#include "scheduler/reduction_heuristic.h"
+#include "scheduler/tools/maxinfo_propagator.h"
+#include "visibility.h"
 
 namespace nvfuser {
 
@@ -28,6 +27,8 @@ class HeuristicDataCache;
 //! For example, in sharding propagation or
 //! BoundedDirectionalTransformPropagator.
 enum class PropagateDirection { kBackward = 0, kForward };
+
+std::ostream& operator<<(std::ostream& os, PropagateDirection direction);
 
 namespace scheduler_utils {
 

@@ -1287,6 +1287,72 @@ class AllocationInserter : public kir::ExprMutator {
     registerInsertBefore(expr, cluster_sync, nullptr);
   }
 
+  void insertBatchedTmaMbarriers(
+      const int64_t batched_tma_load_count,
+      Expr* expr) {
+    NVF_ERROR_GT(
+        batched_tma_load_count,
+        1,
+        "Batched non-circular TMA mbarriers should only be used when there are "
+        "more than one batchable TMA loads. Got: ",
+        batched_tma_load_count);
+    TensorView* all_mbarriers =
+        TensorViewBuilder()
+            .shape(std::vector<int64_t>{batched_tma_load_count})
+            .dtype(DataType::UInt64)
+            .contiguity(true)
+            .build();
+    all_mbarriers->setMemoryType(MemoryType::Shared);
+    kir::Allocate* mbarrier_alloc =
+        IrBuilder::create<kir::Allocate>(all_mbarriers, MemoryType::Shared);
+    registerInsertBefore(expr, mbarrier_alloc, nullptr);
+
+    // For multiple mbarriers, create a for loop using the utility function
+    auto fl = ir_utils::createRangeLoop(batched_tma_load_count);
+    kir::TensorIndex* indexed_mbarrier =
+        IrBuilder::create<kir::TensorIndex>(all_mbarriers, fl->index());
+
+    auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+        indexed_mbarrier,
+        simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+            DataType::UInt32, GpuLower::current()->kernel()->oneVal())));
+    Expr* pred_mbarrier_init = mbarrier_init->withPredicate(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+
+    fl->body().pushBack(pred_mbarrier_init);
+
+    registerInsertBefore(expr, fl, nullptr);
+
+    batched_tma_mbarriers_ = all_mbarriers;
+
+    // Insert blockSync after mbarrier initialization to ensure mbarrier is
+    // visible to other threads
+    auto block_sync = IrBuilder::create<kir::BlockSync>();
+    registerInsertBefore(expr, block_sync, nullptr);
+  }
+
+  void invalidateBatchedTmaMbarriers(const int64_t batched_tma_load_count) {
+    NVF_ERROR_GT(
+        batched_tma_load_count,
+        1,
+        "Batched non-circular TMA mbarriers should only be used when there are "
+        "more than one batchable TMA loads. Got: ",
+        batched_tma_load_count);
+    // Insert blockSync before mbarrier invalidation to ensure all operations
+    // are complete
+    auto block_sync = IrBuilder::create<kir::BlockSync>();
+    exprs_.push_back(block_sync);
+
+    // For multiple mbarriers, create a for loop to invalidate all
+    auto fl = ir_utils::createRangeLoop(batched_tma_load_count);
+    kir::TensorIndex* indexed_mbarrier = IrBuilder::create<kir::TensorIndex>(
+        batched_tma_mbarriers_, fl->index());
+    auto mbarrier_inval =
+        IrBuilder::create<kir::MBarrierInvalidate>(indexed_mbarrier);
+    fl->body().pushBack(mbarrier_inval);
+    exprs_.push_back(fl);
+  }
+
   void dispatch(Expr* expr) override {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>() ||
         expr->isA<kir::AllocTMem>()) {
@@ -1484,36 +1550,47 @@ class AllocationInserter : public kir::ExprMutator {
     // buffered.
     if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
         (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
-      // create and allocate a memory barrier
-      TensorView* mbarrier = TensorViewBuilder()
-                                 .shape(std::vector<int64_t>{})
-                                 .dtype(DataType::UInt64)
-                                 .contiguity(true)
-                                 .build();
-      mbarrier->setMemoryType(MemoryType::Shared);
-      auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
-          mbarrier,
-          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
-              DataType::UInt32,
-              expr->isA<MmaOp>() ? expr->fusion()->oneVal()
-                                 : lower_utils::getNumThreadsInTensorView(
-                                       expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>(
-          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
-      auto mbarrier_inval =
-          IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>(
-          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
+      if (GpuLower::current()
+              ->info()
+              .batchedTmaInfo()
+              .batchableLoads()
+              .contains(expr)) {
+        auto mbarrier = IrBuilder::create<kir::TensorIndex>(
+            batched_tma_mbarriers_,
+            IrBuilder::create<Val>(batched_tma_index_++, DataType::Index));
+        GpuLower::current()->batchedTmaMbarrierMap()[expr] = mbarrier;
+      } else {
+        // create and allocate a memory barrier
+        TensorView* mbarrier = TensorViewBuilder()
+                                   .shape(std::vector<int64_t>{})
+                                   .dtype(DataType::UInt64)
+                                   .contiguity(true)
+                                   .build();
+        mbarrier->setMemoryType(MemoryType::Shared);
+        auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
+            mbarrier,
+            simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
+                DataType::UInt32,
+                expr->isA<MmaOp>() ? expr->fusion()->oneVal()
+                                   : lower_utils::getNumThreadsInTensorView(
+                                         expr->output(0)->as<TensorView>()))));
+        auto sync_init = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
+        auto mbarrier_inval =
+            IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
+        auto sync_inval = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
 
-      kir::Allocate* mbarrier_alloc =
-          IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
-      Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
-      registerInsertBefore(expr, mbarrier_alloc, expr_scope);
-      registerInsertBefore(expr, mbarrier_init, expr_scope);
-      registerInsertBefore(expr, sync_init, expr_scope);
-      registerInsertAfter(expr, mbarrier_inval, expr_scope);
-      registerInsertAfter(expr, sync_inval, expr_scope);
-      GpuLower::current()->mbarrierMap()[expr] = mbarrier;
+        kir::Allocate* mbarrier_alloc =
+            IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
+        Scope* expr_scope = scope_.empty() ? nullptr : scope_.back();
+        registerInsertBefore(expr, mbarrier_alloc, expr_scope);
+        registerInsertBefore(expr, mbarrier_init, expr_scope);
+        registerInsertBefore(expr, sync_init, expr_scope);
+        registerInsertAfter(expr, mbarrier_inval, expr_scope);
+        registerInsertAfter(expr, sync_inval, expr_scope);
+        GpuLower::current()->mbarrierMap()[expr] = mbarrier;
+      }
     }
   }
 
@@ -1683,11 +1760,24 @@ class AllocationInserter : public kir::ExprMutator {
     if (GpuLower::current()->clusterReductionCount() >= 1) {
       insertClusterReductionMBarrier(exprs.at(0));
     }
+    int64_t batched_tma_load_count =
+        GpuLower::current()->info().batchedTmaInfo().numBatchableLoads();
+    if (batched_tma_load_count > 1) {
+      insertBatchedTmaMbarriers(batched_tma_load_count, exprs.at(0));
+    }
     kir::ExprMutator::traverseAndInsert(exprs);
+
+    // Insert mbarrier invalidation at the end of the kernel for non-circular
+    // buffered TMA operations
+    if (batched_tma_load_count > 1) {
+      invalidateBatchedTmaMbarriers(batched_tma_load_count);
+    }
   }
 
  private:
   GpuLower* gpu_lower_ = nullptr;
+  TensorView* batched_tma_mbarriers_ = nullptr;
+  int64_t batched_tma_index_ = 0;
 
  public:
   static std::vector<Expr*> insert(const std::vector<Expr*>& exprs) {

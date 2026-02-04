@@ -7,7 +7,6 @@
 // clang-format on
 #include "preseg_passes/decompose_reshardings.h"
 
-#include "device_lower/utils.h"
 #include "fusion.h"
 #include "host_ir/lower_to_communication.h"
 #include "ir/base_nodes.h"
@@ -17,11 +16,9 @@
 #include "linked_hash_map.h"
 #include "multidevice/propagation.h"
 #include "multidevice/resharding.h"
-#include "multidevice/utils.h"
 #include "ops/alias.h"
 #include "ops/arith.h"
 #include "ops/composite.h"
-#include "ops/utils.h"
 #include "transform_replay.h"
 
 namespace nvfuser::preseg_passes {

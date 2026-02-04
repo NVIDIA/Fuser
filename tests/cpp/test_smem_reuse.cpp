@@ -30,7 +30,7 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-class SmemReuseTest : public NVFuserTest {};
+using SmemReuseTest = NVFuserTest;
 
 // Test that we re-use different-size smem allocations
 //

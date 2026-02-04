@@ -1732,9 +1732,10 @@ std::ostream& operator<<(
 }
 
 void SegmentedFusion::print() const {
-  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{\n";
-  completeFusion()->printMath();
-  debug() << "} // {Re-written complete fusion}\n";
+  debug() << "Segmented_Fusion Dump: -- Re-written complete fusion:{"
+          << std::endl;
+  completeFusion()->print();
+  debug() << "} // {Re-written complete fusion}" << std::endl << std::endl;
   debug() << this << "\n";
 }
 

@@ -15,43 +15,86 @@
 
 namespace nvfuser {
 
-void swap(IrContainer& a, IrContainer& b) noexcept {
+//! Return values in insertion order
+const std::deque<Val*> IrContainer::deterministic_vals() const noexcept {
+  std::deque<Val*> vals_deque;
+  std::transform(
+      vals_up_.begin(),
+      vals_up_.end(),
+      std::back_inserter(vals_deque),
+      [](const std::unique_ptr<Val>& val_up) { return val_up.get(); });
+  return vals_deque;
+}
+
+//! Return expression in insertion order
+const std::deque<Expr*> IrContainer::deterministic_exprs() const noexcept {
+  std::deque<Expr*> exprs_deque;
+  std::transform(
+      exprs_up_.begin(),
+      exprs_up_.end(),
+      std::back_inserter(exprs_deque),
+      [](const std::unique_ptr<Expr>& expr_up) { return expr_up.get(); });
+  return exprs_deque;
+}
+
+//! Return mapping from value to integer id
+const std::unordered_map<Val*, int64_t> IrContainer::deterministic_vals_map()
+    const noexcept {
+  std::unordered_map<Val*, int64_t> vals_map;
+  int64_t count = 0;
+  std::transform(
+      vals_up_.begin(),
+      vals_up_.end(),
+      std::inserter(vals_map, vals_map.end()),
+      [&count](const std::unique_ptr<Val>& val_up) {
+        return std::make_pair(val_up.get(), count++);
+      });
+  return vals_map;
+}
+
+//! Return mapping from expression to integer id
+const std::unordered_map<Expr*, int64_t> IrContainer::deterministic_exprs_map()
+    const noexcept {
+  std::unordered_map<Expr*, int64_t> exprs_map;
+  int64_t count = 0;
+  std::transform(
+      exprs_up_.begin(),
+      exprs_up_.end(),
+      std::inserter(exprs_map, exprs_map.end()),
+      [&count](const std::unique_ptr<Expr>& expr_up) {
+        return std::make_pair(expr_up.get(), count++);
+      });
+  return exprs_map;
+}
+
+void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   FUSER_PERF_SCOPE("Fusion swap");
 
-  using std::swap;
-
   // Swap the content
-  swap(a.vals_up_, b.vals_up_);
-  swap(a.vals_, b.vals_);
+  std::swap(a.vals_up_, b.vals_up_);
+  std::swap(a.vals_, b.vals_);
 
-  swap(a.exprs_up_, b.exprs_up_);
-  swap(a.exprs_, b.exprs_);
+  std::swap(a.exprs_up_, b.exprs_up_);
+  std::swap(a.exprs_, b.exprs_);
 
-  swap(a.val_type_name_map_, b.val_type_name_map_);
-  swap(a.expr_name_counter_, b.expr_name_counter_);
+  std::swap(a.val_type_name_map_, b.val_type_name_map_);
+  std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  swap(a.metadata_, b.metadata_);
+  std::swap(a.metadata_, b.metadata_);
 
-  // Fixup the Statement::fusion_ links for a
-  for (auto val : a.vals_) {
-    val->ir_container_ = &a;
-  }
-  for (auto expr : a.exprs_) {
-    expr->ir_container_ = &a;
-  }
+  std::swap(a.parent_, b.parent_);
 
-  // Fixup the Statement::fusion_ links for b
-  for (auto val : b.vals_) {
-    val->ir_container_ = &a;
-  }
-  for (auto expr : b.exprs_) {
-    expr->ir_container_ = &a;
-  }
+  std::swap(a.zero_val_, b.zero_val_);
+  std::swap(a.one_val_, b.one_val_);
+  std::swap(a.true_val_, b.true_val_);
+  std::swap(a.false_val_, b.false_val_);
+  std::swap(a.magic_zero_val_, b.magic_zero_val_);
+  std::swap(a.axioms_, b.axioms_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
-  IrCloner ir_cloner(to);
+  IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
   // deterministic_vals can contain special values like one_val_, zero_val_, etc
@@ -75,7 +118,7 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   if (from->axioms_ != nullptr) {
     to->axioms_ = std::make_unique<std::vector<Val*>>();
     for (auto pred : *from->axioms_) {
-      to->axioms_->emplace_back(ir_cloner.clone(pred));
+      to->axioms_->push_back(ir_cloner.clone(pred));
     }
   }
 
@@ -86,52 +129,8 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
 IrContainer::IrContainer() = default;
 
-IrContainer::IrContainer(const IrContainer& other) {
-  FUSER_PERF_SCOPE("IrContainer copy");
-  IrContainer::copy(&other, this);
-}
-
-IrContainer::IrContainer(IrContainer&& other) noexcept {
-  FUSER_PERF_SCOPE("IrContainer move");
-  swap(*this, other);
-}
-
-IrContainer& IrContainer::operator=(const IrContainer& other) {
-  FUSER_PERF_SCOPE("IrContainer copy assign");
-  IrContainer copy(other);
-  clear();
-  swap(*this, copy);
-  return *this;
-}
-
-IrContainer& IrContainer::operator=(IrContainer&& other) noexcept {
-  FUSER_PERF_SCOPE("IrContainer move assign");
-  clear();
-  swap(*this, other);
-  return *this;
-}
-
 IrContainer::~IrContainer() {
   clear();
-}
-
-//! Register the Statement with this container
-void IrContainer::registerStmt(IrBuilderPasskey, Statement* stmt) {
-  if (stmt->isVal()) {
-    registerVal(stmt->asVal());
-  } else {
-    registerExpr(stmt->asExpr());
-  }
-}
-
-//! Register the Val with this container
-void IrContainer::registerVal(IrBuilderPasskey, Val* val) {
-  registerVal(val);
-}
-
-//! Register expr with this container.
-void IrContainer::registerExpr(IrBuilderPasskey, Expr* expr) {
-  registerExpr(expr);
 }
 
 void IrContainer::removeExpr(Expr* expr) {
@@ -183,6 +182,7 @@ void IrContainer::registerVal(Val* val) {
     return;
   }
 
+  // Otherwise handle registration locally
   vals_up_.emplace_back(val);
   vals_.insert(val);
   val->setName(IrContainerPasskey(), getValName(val->vtype()));
@@ -193,6 +193,8 @@ void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
+
+  // Otherwise handle registration locally
   exprs_up_.emplace_back(expr);
   exprs_.insert(expr);
   expr->setName(IrContainerPasskey(), getExprName());
@@ -223,7 +225,7 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   }
 
   NVF_ERROR(
-      const_stmt->container() == this,
+      const_stmt->container() == this->parent(),
       "Container claims to own stmt, but stmt disagrees.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
@@ -246,7 +248,7 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
 Val* IrContainer::zeroVal() {
   if (!zero_val_) {
     auto zero_val =
-        IrBuilder::createInContainer<Val>(this, 0L, DataType::Index);
+        IrBuilder::createInContainer<Val>(this->parent(), 0L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == zero_val);
     zero_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -261,13 +263,14 @@ Val* IrContainer::zeroVal(DataType dtype) {
     return falseVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this, 0L, dtype);
+    return IrBuilder::createInContainer<Val>(this->parent(), 0L, dtype);
   }
 }
 
 Val* IrContainer::oneVal() {
   if (!one_val_) {
-    auto one_val = IrBuilder::createInContainer<Val>(this, 1L, DataType::Index);
+    auto one_val =
+        IrBuilder::createInContainer<Val>(this->parent(), 1L, DataType::Index);
     NVF_ERROR(vals_up_.back().get() == one_val);
     one_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -282,14 +285,14 @@ Val* IrContainer::oneVal(DataType dtype) {
     return trueVal();
   } else {
     // NOTE: this does not cache values
-    return IrBuilder::createInContainer<Val>(this, 1L, dtype);
+    return IrBuilder::createInContainer<Val>(this->parent(), 1L, dtype);
   }
 }
 
 Val* IrContainer::falseVal() {
   if (!false_val_) {
-    auto false_val =
-        IrBuilder::createInContainer<Val>(this, false, DataType::Bool);
+    auto false_val = IrBuilder::createInContainer<Val>(
+        this->parent(), false, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == false_val);
     false_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -300,7 +303,7 @@ Val* IrContainer::falseVal() {
 Val* IrContainer::trueVal() {
   if (!true_val_) {
     auto true_val =
-        IrBuilder::createInContainer<Val>(this, true, DataType::Bool);
+        IrBuilder::createInContainer<Val>(this->parent(), true, DataType::Bool);
     NVF_ERROR(vals_up_.back().get() == true_val);
     true_val_ = std::unique_ptr<Val>(vals_up_.back().release());
     vals_up_.pop_back();
@@ -323,9 +326,9 @@ NamedScalar* IrContainer::magicZeroVal() {
 Val* IrContainer::metadataOf(Val* v) {
   if (metadata_.count(v) == 0) {
     auto metadata_val =
-        IrBuilder::createInContainer<Val>(this, metaDataTypeOf(v));
-    auto metadata_expr =
-        IrBuilder::createInContainer<GetMetaData>(this, metadata_val, v);
+        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
+    auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
+        this->parent(), metadata_val, v);
     metadata_[v] = std::make_pair(metadata_val, metadata_expr);
   }
   return metadata_.at(v).first;
@@ -347,13 +350,13 @@ void IrContainer::lazyInitAxioms() {
 }
 
 void IrContainer::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this);
+  NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::gtExpr(val, zeroVal()));
 }
 
 void IrContainer::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this);
+  NVF_ERROR(val->container() == this->parent());
   lazyInitAxioms();
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }

@@ -19,13 +19,7 @@
 
 namespace nvfuser {
 
-class MoveRepeatForwardTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    NVFuserTest::SetUp();
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel);
-  }
-};
+using MoveRepeatForwardTest = NVFuserTest;
 
 TEST_F(MoveRepeatForwardTest, Simple) {
   auto fusion_ptr = std::make_unique<Fusion>();
