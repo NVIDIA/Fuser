@@ -113,6 +113,26 @@ class IrContainer {
   //! Get the set of Fusions sharing this container
   const std::unordered_set<Fusion*>& sharingFusions() const;
 
+  // =========================================================================
+  // Per-Fusion Statement Tracking (Phase 2 Task 4)
+  // =========================================================================
+
+  //! Get Vals owned by a specific Fusion
+  //! Returns empty set if Fusion has no vals in this container
+  const std::unordered_set<Val*>& valsOwnedBy(Fusion* fusion) const;
+
+  //! Get Exprs owned by a specific Fusion
+  //! Returns empty set if Fusion has no exprs in this container
+  const std::unordered_set<Expr*>& exprsOwnedBy(Fusion* fusion) const;
+
+  //! Transfer statement ownership tracking from one Fusion to another
+  //! Used during move operations
+  void transferStatementOwnership(Fusion* from, Fusion* to);
+
+  //! Public version of removeStatementsOwnedBy (acquires lock)
+  //! Removes all Statements owned by a specific Fusion
+  void removeStatementsOwnedBy(Fusion* fusion);
+
  protected:
   // Mutex for thread-safe access when container is shared between Fusions
   // mutable because we need to lock in const methods
@@ -120,6 +140,13 @@ class IrContainer {
 
   //! Fusions that share this container (for Phase 2 shared_ptr ownership)
   std::unordered_set<Fusion*> sharing_fusions_;
+
+  //! Per-Fusion statement tracking for efficient ownership queries
+  //! Maps each Fusion to the set of Vals it owns in this container
+  std::unordered_map<Fusion*, std::unordered_set<Val*>> per_fusion_vals_;
+
+  //! Maps each Fusion to the set of Exprs it owns in this container
+  std::unordered_map<Fusion*, std::unordered_set<Expr*>> per_fusion_exprs_;
 
   //! Remove all Statements owned by a specific Fusion (internal helper)
   //! Caller must hold unique_lock on mutex_

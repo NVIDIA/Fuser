@@ -135,6 +135,52 @@ const std::unordered_set<Fusion*>& IrContainer::sharingFusions() const {
   return sharing_fusions_;
 }
 
+// =========================================================================
+// Per-Fusion Statement Tracking (Phase 2 Task 4)
+// =========================================================================
+
+const std::unordered_set<Val*>& IrContainer::valsOwnedBy(Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
+  static const std::unordered_set<Val*> empty;
+  auto it = per_fusion_vals_.find(fusion);
+  return it != per_fusion_vals_.end() ? it->second : empty;
+}
+
+const std::unordered_set<Expr*>& IrContainer::exprsOwnedBy(
+    Fusion* fusion) const {
+  std::shared_lock lock(mutex_);
+  static const std::unordered_set<Expr*> empty;
+  auto it = per_fusion_exprs_.find(fusion);
+  return it != per_fusion_exprs_.end() ? it->second : empty;
+}
+
+void IrContainer::transferStatementOwnership(Fusion* from, Fusion* to) {
+  std::unique_lock lock(mutex_);
+
+  // Transfer vals ownership tracking
+  auto vals_it = per_fusion_vals_.find(from);
+  if (vals_it != per_fusion_vals_.end()) {
+    // Move the set to 'to', merging if 'to' already has entries
+    auto& to_vals = per_fusion_vals_[to];
+    to_vals.insert(vals_it->second.begin(), vals_it->second.end());
+    per_fusion_vals_.erase(vals_it);
+  }
+
+  // Transfer exprs ownership tracking
+  auto exprs_it = per_fusion_exprs_.find(from);
+  if (exprs_it != per_fusion_exprs_.end()) {
+    // Move the set to 'to', merging if 'to' already has entries
+    auto& to_exprs = per_fusion_exprs_[to];
+    to_exprs.insert(exprs_it->second.begin(), exprs_it->second.end());
+    per_fusion_exprs_.erase(exprs_it);
+  }
+}
+
+void IrContainer::removeStatementsOwnedBy(Fusion* fusion) {
+  std::unique_lock lock(mutex_);
+  removeStatementsOwnedByUnlocked(fusion);
+}
+
 void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
   // Remove all Vals owned by this Fusion
   for (auto it = vals_up_.begin(); it != vals_up_.end();) {
@@ -159,6 +205,10 @@ void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
       ++it;
     }
   }
+
+  // Clean up per-Fusion tracking (Phase 2 Task 4)
+  per_fusion_vals_.erase(fusion);
+  per_fusion_exprs_.erase(fusion);
 }
 
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
@@ -256,6 +306,14 @@ void IrContainer::removeExpr(Expr* expr) {
       expr_in_deque != exprs_up_.end(),
       "Wanted to remove an expression but its unique ptr is missing.");
 
+  // Remove from per-Fusion tracking (Phase 2 Task 4)
+  if (expr->container() != nullptr) {
+    auto it = per_fusion_exprs_.find(expr->container());
+    if (it != per_fusion_exprs_.end()) {
+      it->second.erase(expr);
+    }
+  }
+
   exprs_.erase(expr);
   exprs_up_.erase(expr_in_deque);
 }
@@ -279,6 +337,14 @@ void IrContainer::removeVal(Val* val) {
       val_in_deque != vals_up_.end(),
       "Wanted to remove a value but its unique ptr is missing.");
 
+  // Remove from per-Fusion tracking (Phase 2 Task 4)
+  if (val->container() != nullptr) {
+    auto it = per_fusion_vals_.find(val->container());
+    if (it != per_fusion_vals_.end()) {
+      it->second.erase(val);
+    }
+  }
+
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
 }
@@ -293,6 +359,12 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(val);
   vals_.insert(val);
   val->setName(IrContainerPasskey(), getValName(val->vtype()));
+
+  // Track per-Fusion ownership (Phase 2 Task 4)
+  // val->container() returns the owning Fusion
+  if (val->container() != nullptr) {
+    per_fusion_vals_[val->container()].insert(val);
+  }
 }
 
 //! Register expr with this container.
@@ -305,6 +377,12 @@ void IrContainer::registerExpr(Expr* expr) {
   exprs_up_.emplace_back(expr);
   exprs_.insert(expr);
   expr->setName(IrContainerPasskey(), getExprName());
+
+  // Track per-Fusion ownership (Phase 2 Task 4)
+  // expr->container() returns the owning Fusion
+  if (expr->container() != nullptr) {
+    per_fusion_exprs_[expr->container()].insert(expr);
+  }
 }
 
 void IrContainer::clear() noexcept {
@@ -315,6 +393,10 @@ void IrContainer::clear() noexcept {
   exprs_up_.clear();
   val_type_name_map_.clear();
   expr_name_counter_ = 0;
+
+  // Clear per-Fusion tracking (Phase 2 Task 4)
+  per_fusion_vals_.clear();
+  per_fusion_exprs_.clear();
 }
 
 bool IrContainer::inContainer(const Statement* const_stmt) const {

@@ -265,11 +265,17 @@ void Fusion::clear() noexcept {
   // constructor of Trace, which could throw an exception.
   // FUSER_PERF_SCOPE("Fusion clear");
 
-  // Clear container contents instead of destroying it
-  // This preserves the container object so Statement pointers don't become
-  // dangling
-  ir_container()->clear();
+  // Phase 2 (Task 4): Only clear THIS Fusion's statements, not the entire
+  // container. With shared containers, calling ir_container()->clear() would
+  // break other Fusions sharing the container.
+  //
+  // Phase 1: ir_container()->clear() was equivalent to this (1:1 relationship)
+  // Phase 2: Must filter by ownership to avoid affecting other Fusions
+  if (ir_container_) {
+    ir_container_->removeStatementsOwnedBy(this);
+  }
 
+  // Clear Fusion-level state (these are per-Fusion, not in the container)
   inputs_.clear();
   outputs_.clear();
 

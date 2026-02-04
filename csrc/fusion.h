@@ -550,6 +550,27 @@ class NVF_API Fusion : public PolymorphicBase {
     return ir_container()->vals();
   }
 
+  // Per-Fusion Statement Access (Phase 2 Task 4)
+  // These methods return only statements owned by THIS Fusion,
+  // not all statements in the shared container.
+  //
+  // Phase 1 (unique_ptr): ownedVals() == vals() (1:1 relationship)
+  // Phase 2 (shared_ptr): ownedVals() ⊆ vals() (filtering by ownership)
+
+  //! Return only Vals owned by this Fusion
+  //! Unlike vals() which returns ALL vals in the (possibly shared) container,
+  //! this returns only vals where val->container() == this
+  const std::unordered_set<Val*>& ownedVals() const {
+    return ir_container()->valsOwnedBy(const_cast<Fusion*>(this));
+  }
+
+  //! Return only Exprs owned by this Fusion
+  //! Unlike unordered_exprs() which returns ALL exprs in the container,
+  //! this returns only exprs where expr->container() == this
+  const std::unordered_set<Expr*>& ownedExprs() const {
+    return ir_container()->exprsOwnedBy(const_cast<Fusion*>(this));
+  }
+
   // Count queries
   int64_t numExprs() const noexcept {
     return ir_container()->numExprs();
