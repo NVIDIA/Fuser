@@ -59,6 +59,7 @@ namespace nvfuser {
 //! checks.
 
 class Fusion;
+class NamedScalar;
 class TensorView;
 
 class SegmentCandidateFinder;
@@ -554,33 +555,16 @@ class NVF_API Fusion : public PolymorphicBase {
   }
 
   // Shortcut values (frequently used constants)
-  Val* zeroVal() {
-    return ir_container()->zeroVal();
-  }
-
-  Val* oneVal() {
-    return ir_container()->oneVal();
-  }
-
-  Val* falseVal() {
-    return ir_container()->falseVal();
-  }
-
-  Val* trueVal() {
-    return ir_container()->trueVal();
-  }
-
-  NamedScalar* magicZeroVal() {
-    return ir_container()->magicZeroVal();
-  }
-
-  Val* zeroVal(DataType dtype) {
-    return ir_container()->zeroVal(dtype);
-  }
-
-  Val* oneVal(DataType dtype) {
-    return ir_container()->oneVal(dtype);
-  }
+  // Phase 2: These are now per-Fusion with lazy creation.
+  // Each Fusion has its own special values to avoid ownership conflicts
+  // when multiple Fusions share an IrContainer.
+  Val* zeroVal();
+  Val* oneVal();
+  Val* falseVal();
+  Val* trueVal();
+  NamedScalar* magicZeroVal();
+  Val* zeroVal(DataType dtype);
+  Val* oneVal(DataType dtype);
 
   Val* metadataOf(Val* val) {
     return ir_container()->metadataOf(val);
@@ -667,6 +651,16 @@ class NVF_API Fusion : public PolymorphicBase {
 
   inline static const std::string exact_mappings_key = "exact_mappings";
   std::unique_ptr<IrContainer> ir_container_;
+
+  // Phase 2: Per-Fusion special values
+  // With shared containers, each Fusion needs its own special values.
+  // These are raw pointers - memory is owned by IrContainer's vals_up_.
+  // Destroying this Fusion removes these vals via removeStatementsOwnedBy().
+  Val* zero_val_ = nullptr;
+  Val* one_val_ = nullptr;
+  Val* true_val_ = nullptr;
+  Val* false_val_ = nullptr;
+  NamedScalar* magic_zero_val_ = nullptr;
 };
 
 // Template implementations for Fusion::manage<T>() that use IrCloner
