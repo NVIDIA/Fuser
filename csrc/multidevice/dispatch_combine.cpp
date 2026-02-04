@@ -38,7 +38,7 @@ void waitWork(const c10::intrusive_ptr<c10d::Work>& work) {
 
 } // namespace
 
-DispatchResult doMoEDispatch(
+DispatchResult doMoeDispatch(
     const at::Tensor& x,
     const at::Tensor& topk_idx,
     const at::Tensor& is_token_in_rank,
@@ -114,7 +114,7 @@ DispatchResult doMoEDispatch(
   NVF_CHECK_EQ(
       backend,
       CommunicatorBackend::kNccl,
-      "Only NCCL backend is supported for MoEDispatch.");
+      "Only NCCL backend is supported for MoeDispatch.");
   CommunicatorBackend actual_backend = backend;
   NVF_CHECK(
       communicator->isBackendAvailable(actual_backend),
@@ -166,7 +166,7 @@ DispatchResult doMoEDispatch(
       n_tokens_from_rank};
 }
 
-CombineResult doMoECombine(
+CombineResult doMoeCombine(
     const at::Tensor& x,
     const at::Tensor& src_idx,
     const at::Tensor& src_rank,
@@ -213,7 +213,7 @@ CombineResult doMoECombine(
 
   NVF_CHECK(
       backend == CommunicatorBackend::kNccl,
-      "Only NCCL backend is supported for MoECombine.");
+      "Only NCCL backend is supported for MoeCombine.");
   CommunicatorBackend actual_backend = backend;
   NVF_CHECK(
       communicator->isBackendAvailable(actual_backend),

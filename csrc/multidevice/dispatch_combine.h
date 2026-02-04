@@ -65,9 +65,9 @@ struct CombineResult {
 //     recv_topk_idx aligned with recv_x (e.g., [2, 2, 3]). Tokens are grouped
 //     by expert id for local expert processing.
 //     recv_src_idx tells original token positions (e.g., [1, 2, 3])
-//   auto out = doMoEDispatch(
+//   auto out = doMoeDispatch(
 //       x, topk_idx, is_token_in_rank, 4, comm, CommunicatorBackend::kNccl);
-NVF_API DispatchResult doMoEDispatch(
+NVF_API DispatchResult doMoeDispatch(
     const at::Tensor& x, // [T, H]
     const at::Tensor& topk_idx, // [T] or [T, 1]
     const at::Tensor& is_token_in_rank, // [T, R]
@@ -98,10 +98,10 @@ NVF_API DispatchResult doMoEDispatch(
 //   //   src_rank = [0, 1, 1]
 //   // n_tokens_to_rank and n_tokens_from_rank are [R] counts per rank.
 //   // Combine scatters results back to original token order per rank.
-//   auto combined = doMoECombine(
+//   auto combined = doMoeCombine(
 //       x, src_idx, src_rank, n_tokens_to_rank,
 //       n_tokens_from_rank, comm, CommunicatorBackend::kNccl);
-NVF_API CombineResult doMoECombine(
+NVF_API CombineResult doMoeCombine(
     const at::Tensor& x,
     const at::Tensor& src_idx,
     const at::Tensor& src_rank,

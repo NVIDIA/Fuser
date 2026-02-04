@@ -321,7 +321,7 @@ std::string P2PCommunication::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
-MoEDispatch::MoEDispatch(
+MoeDispatch::MoeDispatch(
     IrBuilderPasskey passkey,
     TensorView* out_x,
     TensorView* out_topk_idx,
@@ -349,9 +349,9 @@ MoEDispatch::MoEDispatch(
   validate();
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(MoEDispatch)
+NVFUSER_DEFINE_CLONE_AND_CREATE(MoeDispatch)
 
-std::string MoEDispatch::toInlineString(int indent_size) const {
+std::string MoeDispatch::toInlineString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Dispatch " << name() << " ("
                           << "num_experts=" << numExperts() << ", "
@@ -363,11 +363,11 @@ std::string MoEDispatch::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::string MoEDispatch::toString(int indent_size) const {
+std::string MoeDispatch::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
-void MoEDispatch::validate() {
+void MoeDispatch::validate() {
   NVF_CHECK(numExperts() > 0, "num_experts must be positive.");
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(inTopkIdx()->isA<TensorView>(), "topk_idx must be a TensorView.");
@@ -401,7 +401,7 @@ void MoEDispatch::validate() {
       "out_n_tokens_from_rank must be integral.");
 }
 
-MoECombine::MoECombine(
+MoeCombine::MoeCombine(
     IrBuilderPasskey passkey,
     TensorView* out_x,
     TensorView* in_x,
@@ -421,9 +421,9 @@ MoECombine::MoECombine(
   validate();
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(MoECombine)
+NVFUSER_DEFINE_CLONE_AND_CREATE(MoeCombine)
 
-std::string MoECombine::toInlineString(int indent_size) const {
+std::string MoeCombine::toInlineString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Combine " << name() << " ("
                           << "backend=" << backend() << ", "
@@ -434,11 +434,11 @@ std::string MoECombine::toInlineString(int indent_size) const {
   return ss.str();
 }
 
-std::string MoECombine::toString(int indent_size) const {
+std::string MoeCombine::toString(int indent_size) const {
   return toInlineString(indent_size) + "\n";
 }
 
-void MoECombine::validate() {
+void MoeCombine::validate() {
   NVF_CHECK(inX()->isA<TensorView>(), "in_x must be a TensorView.");
   NVF_CHECK(
       inSrcIdx()->getDataType().has_value() &&

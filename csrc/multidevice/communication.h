@@ -187,11 +187,11 @@ class P2PCommunication : public Expr {
 //   Outputs are recv-aligned tensors: out_x/out_topk_idx/out_src_* with
 //   [T_recv, ...] and out_n_tokens_to_rank/out_n_tokens_from_rank with shape
 //   [R].
-class MoEDispatch : public Expr {
+class MoeDispatch : public Expr {
  public:
   using Expr::Expr;
 
-  MoEDispatch(
+  MoeDispatch(
       IrBuilderPasskey passkey,
       TensorView* out_x,
       TensorView* out_topk_idx,
@@ -208,17 +208,17 @@ class MoEDispatch : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  MoEDispatch(const MoEDispatch& other) = delete;
-  MoEDispatch& operator=(const MoEDispatch& other) = delete;
-  MoEDispatch(MoEDispatch&& other) = delete;
-  MoEDispatch& operator=(MoEDispatch&& other) = delete;
+  MoeDispatch(const MoeDispatch& other) = delete;
+  MoeDispatch& operator=(const MoeDispatch& other) = delete;
+  MoeDispatch(MoeDispatch&& other) = delete;
+  MoeDispatch& operator=(MoeDispatch&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
-    return "MoEDispatch";
+    return "MoeDispatch";
   }
 
   TensorView* outX() const {
@@ -272,11 +272,11 @@ class MoEDispatch : public Expr {
 //   in_x: [T_recv, H], in_src_idx: [T_recv], in_src_rank: [T_recv],
 //   in_n_tokens_to_rank: [R], in_n_tokens_from_rank: [R].
 //   Outputs are source-aligned: out_x with shape [T_src, ...].
-class MoECombine : public Expr {
+class MoeCombine : public Expr {
  public:
   using Expr::Expr;
 
-  MoECombine(
+  MoeCombine(
       IrBuilderPasskey passkey,
       TensorView* out_x,
       TensorView* in_x,
@@ -286,17 +286,17 @@ class MoECombine : public Expr {
       TensorView* in_n_tokens_from_rank,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
-  MoECombine(const MoECombine& other) = delete;
-  MoECombine& operator=(const MoECombine& other) = delete;
-  MoECombine(MoECombine&& other) = delete;
-  MoECombine& operator=(MoECombine&& other) = delete;
+  MoeCombine(const MoeCombine& other) = delete;
+  MoeCombine& operator=(const MoeCombine& other) = delete;
+  MoeCombine(MoeCombine&& other) = delete;
+  MoeCombine& operator=(MoeCombine&& other) = delete;
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
   const char* getOpString() const override {
-    return "MoECombine";
+    return "MoeCombine";
   }
 
   TensorView* outX() const {

@@ -48,7 +48,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
   auto* n_tokens_to_rank = makeSymbolicTensor(1, DataType::Int);
   auto* n_tokens_from_rank = makeSymbolicTensor(1, DataType::Int);
 
-  auto* dispatch = IrBuilder::create<MoEDispatch>(
+  auto* dispatch = IrBuilder::create<MoeDispatch>(
       recv_x,
       recv_topk_idx,
       recv_src_idx,
@@ -62,7 +62,7 @@ TEST_F(DispatchCombineTest, DispatchCombineTop1) {
       CommunicatorBackend::kNccl);
 
   auto* combined_x = makeSymbolicTensor(2);
-  auto* combine = IrBuilder::create<MoECombine>(
+  auto* combine = IrBuilder::create<MoeCombine>(
       combined_x,
       recv_x,
       recv_src_idx,

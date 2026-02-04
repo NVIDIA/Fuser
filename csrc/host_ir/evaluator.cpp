@@ -387,7 +387,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   }
 }
 
-void HostIrEvaluator::handle(MoEDispatch* dispatch) {
+void HostIrEvaluator::handle(MoeDispatch* dispatch) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
@@ -397,7 +397,7 @@ void HostIrEvaluator::handle(MoEDispatch* dispatch) {
   auto is_token_in_rank =
       getKnownConcreteValue(dispatch->inIsTokenInRank()).as<at::Tensor>();
 
-  auto result = doMoEDispatch(
+  auto result = doMoeDispatch(
       x,
       topk_idx,
       is_token_in_rank,
@@ -414,7 +414,7 @@ void HostIrEvaluator::handle(MoEDispatch* dispatch) {
       dispatch->outTokensFromRank(), result.n_tokens_from_rank);
 }
 
-void HostIrEvaluator::handle(MoECombine* combine) {
+void HostIrEvaluator::handle(MoeCombine* combine) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
@@ -427,7 +427,7 @@ void HostIrEvaluator::handle(MoECombine* combine) {
   auto n_tokens_from_rank =
       getKnownConcreteValue(combine->inTokensFromRank()).as<at::Tensor>();
 
-  auto result = doMoECombine(
+  auto result = doMoeCombine(
       x,
       src_idx,
       src_rank,

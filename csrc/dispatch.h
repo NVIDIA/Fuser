@@ -118,8 +118,8 @@ class Val;
   f(Merge);                          \
   f(Partition);                      \
   f(Combine);                        \
-  f(MoEDispatch);                    \
-  f(MoECombine);                     \
+  f(MoeDispatch);                    \
+  f(MoeCombine);                     \
   f(Swizzle);                        \
   f(Resize);                         \
   f(MatmulOp);                       \
