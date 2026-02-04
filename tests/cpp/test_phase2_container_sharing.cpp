@@ -416,4 +416,699 @@ TEST_F(Phase2ContainerTest, RemoveStatementsOwnedByAPI) {
   EXPECT_EQ(container.unordered_exprs().size(), 0);
 }
 
+// =============================================================================
+// Task 7 Tests: Per-Fusion Special Values
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, PerFusionSpecialValuesBasic) {
+  // Test that special values are created per-Fusion
+  Fusion a;
+  FusionGuard fg_a(&a);
+  Val* zero_a = a.zeroVal();
+  Val* one_a = a.oneVal();
+
+  EXPECT_NE(zero_a, nullptr);
+  EXPECT_NE(one_a, nullptr);
+  EXPECT_EQ(zero_a->container(), &a);
+  EXPECT_EQ(one_a->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, SpecialValuesOwnedByFusion) {
+  // Test that special values are tracked in ownedVals
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  Val* zero_a = a.zeroVal();
+
+  // Special values should be in ownedVals
+  EXPECT_TRUE(a.ownedVals().count(zero_a) > 0);
+}
+
+TEST_F(Phase2ContainerTest, SeparateFusionsHaveOwnSpecialValues) {
+  // Two independent Fusions should have different special values
+  Fusion a;
+  Fusion b;
+
+  {
+    FusionGuard fg_a(&a);
+    Val* zero_a = a.zeroVal();
+    EXPECT_EQ(zero_a->container(), &a);
+  }
+
+  {
+    FusionGuard fg_b(&b);
+    Val* zero_b = b.zeroVal();
+    EXPECT_EQ(zero_b->container(), &b);
+  }
+
+  // Each has its own zero (different objects)
+  EXPECT_NE(a.zeroVal(), b.zeroVal());
+}
+
+TEST_F(Phase2ContainerTest, DestroyFusionDoesNotAffectOther) {
+  // Destroying one Fusion should not affect another's special values
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  // Create special values in a
+  Val* zero_a = a.zeroVal();
+  EXPECT_NE(zero_a, nullptr);
+
+  {
+    Fusion b;
+    FusionGuard fg_b(&b);
+    Val* zero_b = b.zeroVal();
+    EXPECT_NE(zero_b, nullptr);
+    // b destroyed here
+  }
+
+  // a should still work fine - its special values should still be valid
+  Val* zero_a_again = a.zeroVal();
+  EXPECT_EQ(zero_a_again, zero_a);
+  EXPECT_EQ(zero_a_again->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, SpecialValuesLazyCreation) {
+  // Special values should be created lazily
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  // Before calling zeroVal(), it shouldn't exist
+  // (Can't directly test this, but we can verify it works after call)
+  Val* zero1 = a.zeroVal();
+  Val* zero2 = a.zeroVal();
+
+  // Same value returned on repeated calls
+  EXPECT_EQ(zero1, zero2);
+}
+
+TEST_F(Phase2ContainerTest, AllSpecialValuesPerFusion) {
+  // Test all special value accessors
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  Val* zero = a.zeroVal();
+  Val* one = a.oneVal();
+  Val* true_val = a.trueVal();
+  Val* false_val = a.falseVal();
+  NamedScalar* magic_zero = a.magicZeroVal();
+
+  // All should be non-null
+  EXPECT_NE(zero, nullptr);
+  EXPECT_NE(one, nullptr);
+  EXPECT_NE(true_val, nullptr);
+  EXPECT_NE(false_val, nullptr);
+  EXPECT_NE(magic_zero, nullptr);
+
+  // All should have container() == &a
+  EXPECT_EQ(zero->container(), &a);
+  EXPECT_EQ(one->container(), &a);
+  EXPECT_EQ(true_val->container(), &a);
+  EXPECT_EQ(false_val->container(), &a);
+  EXPECT_EQ(magic_zero->container(), &a);
+
+  // All should be tracked in ownedVals
+  EXPECT_TRUE(a.ownedVals().count(zero) > 0);
+  EXPECT_TRUE(a.ownedVals().count(one) > 0);
+  EXPECT_TRUE(a.ownedVals().count(true_val) > 0);
+  EXPECT_TRUE(a.ownedVals().count(false_val) > 0);
+  EXPECT_TRUE(a.ownedVals().count(magic_zero) > 0);
+}
+
+TEST_F(Phase2ContainerTest, SpecialValuesClearedOnFusionClear) {
+  // Test that Fusion::clear() resets special values
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  // Create special values
+  Val* zero_before = a.zeroVal();
+  Val* one_before = a.oneVal();
+  EXPECT_NE(zero_before, nullptr);
+  EXPECT_NE(one_before, nullptr);
+
+  // Clear the fusion
+  a.clear();
+
+  // Special values should be recreated lazily (new objects)
+  Val* zero_after = a.zeroVal();
+  Val* one_after = a.oneVal();
+
+  // The new objects should be different from the old ones
+  // (old ones were removed by removeStatementsOwnedBy)
+  EXPECT_NE(zero_after, zero_before);
+  EXPECT_NE(one_after, one_before);
+
+  // New objects should be valid and owned by the fusion
+  EXPECT_EQ(zero_after->container(), &a);
+  EXPECT_EQ(one_after->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, SpecialValuesWithDtype) {
+  // Test zeroVal(dtype) and oneVal(dtype) accessors
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  // Index type should return the cached value
+  Val* zero_index = a.zeroVal(DataType::Index);
+  Val* zero_cached = a.zeroVal();
+  EXPECT_EQ(zero_index, zero_cached);
+
+  Val* one_index = a.oneVal(DataType::Index);
+  Val* one_cached = a.oneVal();
+  EXPECT_EQ(one_index, one_cached);
+
+  // Bool type should return true/false val
+  Val* zero_bool = a.zeroVal(DataType::Bool);
+  Val* false_cached = a.falseVal();
+  EXPECT_EQ(zero_bool, false_cached);
+
+  Val* one_bool = a.oneVal(DataType::Bool);
+  Val* true_cached = a.trueVal();
+  EXPECT_EQ(one_bool, true_cached);
+
+  // Other types should create new values (not cached)
+  Val* zero_float = a.zeroVal(DataType::Float);
+  Val* zero_float2 = a.zeroVal(DataType::Float);
+  // These are not cached, so they're different objects
+  EXPECT_NE(zero_float, zero_float2);
+}
+
+// =============================================================================
+// Task 5 Tests: Copy Semantics with Shared Containers
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, CopySharesContainer) {
+  // After copy, both Fusions point to the same container
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy
+
+  // Both should share the same container
+  EXPECT_EQ(a.ir_container_ptr().get(), b.ir_container_ptr().get());
+}
+
+TEST_F(Phase2ContainerTest, CopyRegistersWithContainer) {
+  // sharingCount should increment after copy
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  EXPECT_EQ(a.ir_container()->sharingCount(), 1);
+
+  Fusion b(a);
+
+  EXPECT_EQ(a.ir_container()->sharingCount(), 2);
+  EXPECT_EQ(b.ir_container()->sharingCount(), 2);
+}
+
+TEST_F(Phase2ContainerTest, CopiedNodesOwnedByNewFusion) {
+  // Cloned nodes should have container() == &copy
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a);
+
+  // b should have inputs
+  EXPECT_EQ(b.inputs().size(), 1);
+
+  // b's input should be owned by b (not a)
+  EXPECT_EQ(b.inputs()[0]->container(), &b);
+
+  // b's input should be different from a's input (cloned)
+  EXPECT_NE(b.inputs()[0], a.inputs()[0]);
+}
+
+TEST_F(Phase2ContainerTest, CopyOwnedValsAreIndependent) {
+  // a's ownedVals and b's ownedVals should be disjoint
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a);
+
+  // All of a's ownedVals should have container() == &a
+  for (auto* v : a.ownedVals()) {
+    EXPECT_EQ(v->container(), &a);
+  }
+
+  // All of b's ownedVals should have container() == &b
+  for (auto* v : b.ownedVals()) {
+    EXPECT_EQ(v->container(), &b);
+  }
+
+  // The sets should be disjoint
+  for (auto* v : a.ownedVals()) {
+    EXPECT_EQ(b.ownedVals().count(v), 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, DestructorOnlyRemovesOwnedStatements) {
+  // Destroying copy should not affect original's statements
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  size_t a_vals_before = a.ownedVals().size();
+
+  {
+    Fusion b(a); // Copy
+    // b gets its own cloned nodes
+    EXPECT_GT(b.ownedVals().size(), 0);
+    // b destroyed here
+  }
+
+  // a's vals should still exist and be unchanged
+  EXPECT_EQ(a.ownedVals().size(), a_vals_before);
+
+  // a's vals should still have correct container
+  for (auto* v : a.ownedVals()) {
+    EXPECT_EQ(v->container(), &a);
+  }
+}
+
+TEST_F(Phase2ContainerTest, CopyHasOwnSpecialValues) {
+  // Each Fusion (original and copy) should have its own special values
+  Fusion a;
+  FusionGuard fg_a(&a);
+  Val* zero_a = a.zeroVal();
+  Val* one_a = a.oneVal();
+
+  Fusion b(a); // Copy
+
+  // Copy should have its own special values
+  Val* zero_b = b.zeroVal();
+  Val* one_b = b.oneVal();
+
+  // Different objects
+  EXPECT_NE(zero_a, zero_b);
+  EXPECT_NE(one_a, one_b);
+
+  // Correct ownership
+  EXPECT_EQ(zero_a->container(), &a);
+  EXPECT_EQ(zero_b->container(), &b);
+}
+
+TEST_F(Phase2ContainerTest, CopySpecialValuesIndependent) {
+  // Destroying copy should not affect original's special values
+  Fusion a;
+  FusionGuard fg_a(&a);
+  Val* zero_a = a.zeroVal();
+
+  {
+    Fusion b(a); // Copy
+    Val* zero_b = b.zeroVal();
+    EXPECT_NE(zero_a, zero_b);
+    // b destroyed here
+  }
+
+  // a's special values should still be valid
+  EXPECT_EQ(a.zeroVal(), zero_a);
+  EXPECT_EQ(zero_a->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, CopySharingCountDecrementsOnDestruction) {
+  // When copy is destroyed, sharingCount should decrement
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  auto container_ptr = a.ir_container_ptr();
+  EXPECT_EQ(container_ptr->sharingCount(), 1);
+
+  {
+    Fusion b(a);
+    EXPECT_EQ(container_ptr->sharingCount(), 2);
+    // b destroyed here
+  }
+
+  EXPECT_EQ(container_ptr->sharingCount(), 1);
+}
+
+TEST_F(Phase2ContainerTest, CopyReturnsIrCloner) {
+  // Fusion::copy should return IrCloner for node mapping
+  // We test this indirectly via the copy constructor which uses Fusion::copy
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  // Copy constructor uses Fusion::copy internally
+  Fusion b(a);
+
+  // Verify the copy worked - b has cloned inputs/outputs
+  EXPECT_EQ(b.inputs().size(), a.inputs().size());
+  EXPECT_EQ(b.outputs().size(), a.outputs().size());
+
+  // Cloned nodes should belong to b
+  EXPECT_EQ(b.inputs()[0]->container(), &b);
+  EXPECT_EQ(b.outputs()[0]->container(), &b);
+
+  // They should be different objects from a's nodes
+  EXPECT_NE(b.inputs()[0], a.inputs()[0]);
+  EXPECT_NE(b.outputs()[0], a.outputs()[0]);
+}
+
+// =============================================================================
+// Task 6 Tests: Move Semantics with Shared Containers
+// =============================================================================
+
+TEST_F(Phase2ContainerTest, MoveConstructorTransfersOwnership) {
+  // Move constructor should transfer container ownership
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  auto* container = a.ir_container_ptr().get();
+  size_t a_vals_count = a.ownedVals().size();
+
+  Fusion b(std::move(a));
+
+  // b should have a's old container
+  EXPECT_EQ(b.ir_container_ptr().get(), container);
+
+  // b should have a's statements
+  EXPECT_EQ(b.ownedVals().size(), a_vals_count);
+}
+
+TEST_F(Phase2ContainerTest, MoveConstructorSourceIsValid) {
+  // After move, source should be valid with new empty container
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  Fusion b(std::move(a));
+
+  // Source has new empty container (not nullptr)
+  EXPECT_NE(a.ir_container_ptr().get(), nullptr);
+  EXPECT_NE(a.ir_container_ptr().get(), b.ir_container_ptr().get());
+
+  // Source is empty
+  EXPECT_EQ(a.ownedVals().size(), 0);
+  EXPECT_EQ(a.inputs().size(), 0);
+  EXPECT_EQ(a.outputs().size(), 0);
+
+  // Source can still be used safely
+  a.clear(); // Should not crash
+}
+
+TEST_F(Phase2ContainerTest, MoveUpdatesStatementOwnership) {
+  // Moved statements should have container() pointing to destination
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  // Capture original vals
+  std::vector<Val*> orig_vals(a.ownedVals().begin(), a.ownedVals().end());
+  EXPECT_GT(orig_vals.size(), 0);
+
+  Fusion b(std::move(a));
+
+  // All original vals now belong to b
+  for (auto* val : orig_vals) {
+    EXPECT_EQ(val->container(), &b);
+  }
+
+  // b's ownedVals should contain them
+  for (auto* val : orig_vals) {
+    EXPECT_TRUE(b.ownedVals().count(val) > 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, MoveTransfersSpecialValues) {
+  // Move should transfer special value pointers to destination
+  Fusion a;
+  FusionGuard fg_a(&a);
+  Val* zero_a = a.zeroVal();
+  Val* one_a = a.oneVal();
+
+  Fusion b(std::move(a));
+
+  // b should have a's special values
+  EXPECT_EQ(b.zeroVal(), zero_a);
+  EXPECT_EQ(b.oneVal(), one_a);
+
+  // Ownership updated to b
+  EXPECT_EQ(zero_a->container(), &b);
+  EXPECT_EQ(one_a->container(), &b);
+}
+
+TEST_F(Phase2ContainerTest, MoveSourceCanCreateNewSpecialValues) {
+  // After move, source can create new special values
+  Fusion a;
+  FusionGuard fg_a(&a);
+  Val* zero_a = a.zeroVal();
+
+  Fusion b(std::move(a));
+
+  // a is now empty but valid - can create new special values
+  Val* zero_a_new = a.zeroVal();
+
+  // Different from the moved one
+  EXPECT_NE(zero_a_new, zero_a);
+  EXPECT_EQ(zero_a_new->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, MoveAssignmentWorks) {
+  // Move assignment should transfer ownership
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  auto* container = a.ir_container_ptr().get();
+
+  Fusion b;
+  b = std::move(a);
+
+  // b has a's container
+  EXPECT_EQ(b.ir_container_ptr().get(), container);
+
+  // a is valid but empty
+  EXPECT_NE(a.ir_container_ptr().get(), nullptr);
+  EXPECT_EQ(a.ownedVals().size(), 0);
+}
+
+TEST_F(Phase2ContainerTest, MoveAssignmentSelfAssignment) {
+  // Self-assignment should be a no-op
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  auto* container = a.ir_container_ptr().get();
+  size_t vals_count = a.ownedVals().size();
+
+  // Use a reference to avoid -Wself-move warning
+  Fusion& a_ref = a;
+  a = std::move(a_ref);
+
+  // Should be unchanged
+  EXPECT_EQ(a.ir_container_ptr().get(), container);
+  EXPECT_EQ(a.ownedVals().size(), vals_count);
+}
+
+TEST_F(Phase2ContainerTest, SwapExchangesContainers) {
+  // Swap should exchange container pointers
+  Fusion a, b;
+
+  auto* container_a = a.ir_container_ptr().get();
+  auto* container_b = b.ir_container_ptr().get();
+
+  Fusion::swap(a, b);
+
+  EXPECT_EQ(a.ir_container_ptr().get(), container_b);
+  EXPECT_EQ(b.ir_container_ptr().get(), container_a);
+}
+
+TEST_F(Phase2ContainerTest, SwapUpdatesStatementOwnership) {
+  // Swap should exchange statement ownership
+  Fusion a, b;
+
+  {
+    FusionGuard fg_a(&a);
+    auto* tv0 = makeSymbolicTensor(2);
+    a.addInput(tv0);
+  }
+
+  {
+    FusionGuard fg_b(&b);
+    auto* tv0 = makeSymbolicTensor(3);
+    b.addInput(tv0);
+  }
+
+  // Capture original vals
+  std::vector<Val*> a_vals(a.ownedVals().begin(), a.ownedVals().end());
+  std::vector<Val*> b_vals(b.ownedVals().begin(), b.ownedVals().end());
+
+  Fusion::swap(a, b);
+
+  // a's old vals now belong to b
+  for (auto* val : a_vals) {
+    EXPECT_EQ(val->container(), &b);
+  }
+
+  // b's old vals now belong to a
+  for (auto* val : b_vals) {
+    EXPECT_EQ(val->container(), &a);
+  }
+}
+
+TEST_F(Phase2ContainerTest, SwapExchangesSpecialValues) {
+  // Swap should exchange special values
+  Fusion a, b;
+
+  Val* zero_a = nullptr;
+  Val* zero_b = nullptr;
+
+  {
+    FusionGuard fg_a(&a);
+    zero_a = a.zeroVal();
+  }
+
+  {
+    FusionGuard fg_b(&b);
+    zero_b = b.zeroVal();
+  }
+
+  Fusion::swap(a, b);
+
+  // Special values exchanged
+  EXPECT_EQ(a.zeroVal(), zero_b);
+  EXPECT_EQ(b.zeroVal(), zero_a);
+
+  // Ownership updated
+  EXPECT_EQ(zero_a->container(), &b);
+  EXPECT_EQ(zero_b->container(), &a);
+}
+
+TEST_F(Phase2ContainerTest, SwapSelfSwapIsNoop) {
+  // Swapping with self should be a no-op
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  auto* container = a.ir_container_ptr().get();
+  size_t vals_count = a.ownedVals().size();
+
+  Fusion::swap(a, a);
+
+  EXPECT_EQ(a.ir_container_ptr().get(), container);
+  EXPECT_EQ(a.ownedVals().size(), vals_count);
+}
+
+TEST_F(Phase2ContainerTest, MoveFromCopyPreservesOther) {
+  // If we copy A to B (sharing container), then move A to C,
+  // B should be unaffected
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Fusion b(a); // Copy - shares container
+
+  // Capture b's state
+  size_t b_vals_before = b.ownedVals().size();
+  std::vector<Val*> b_vals(b.ownedVals().begin(), b.ownedVals().end());
+
+  Fusion c(std::move(a)); // Move a to c
+
+  // b should be completely unaffected
+  EXPECT_EQ(b.ownedVals().size(), b_vals_before);
+  for (auto* val : b_vals) {
+    EXPECT_EQ(val->container(), &b);
+    EXPECT_TRUE(b.ownedVals().count(val) > 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, MoveFromCopyTransfersCorrectly) {
+  // If we copy A to B, then move A to C,
+  // C should have A's original statements
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+
+  // Capture a's vals before copy
+  std::vector<Val*> a_vals(a.ownedVals().begin(), a.ownedVals().end());
+
+  Fusion b(a); // Copy
+  Fusion c(std::move(a)); // Move a to c
+
+  // c should have a's original vals
+  for (auto* val : a_vals) {
+    EXPECT_EQ(val->container(), &c);
+    EXPECT_TRUE(c.ownedVals().count(val) > 0);
+  }
+}
+
+TEST_F(Phase2ContainerTest, MovePreservesInputsOutputs) {
+  // Move should transfer inputs/outputs vectors
+  Fusion a;
+  FusionGuard fg_a(&a);
+
+  auto* tv0 = makeSymbolicTensor(2);
+  a.addInput(tv0);
+  auto* tv1 = add(tv0, tv0);
+  a.addOutput(tv1);
+
+  Val* orig_input = a.inputs()[0];
+  Val* orig_output = a.outputs()[0];
+
+  Fusion b(std::move(a));
+
+  // b has the inputs/outputs
+  EXPECT_EQ(b.inputs().size(), 1);
+  EXPECT_EQ(b.outputs().size(), 1);
+  EXPECT_EQ(b.inputs()[0], orig_input);
+  EXPECT_EQ(b.outputs()[0], orig_output);
+
+  // a is empty
+  EXPECT_EQ(a.inputs().size(), 0);
+  EXPECT_EQ(a.outputs().size(), 0);
+}
+
 } // namespace nvfuser

@@ -212,10 +212,13 @@ void IrContainer::removeStatementsOwnedByUnlocked(Fusion* fusion) {
 }
 
 void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
-  FUSER_PERF_SCOPE("Fusion swap");
+  FUSER_PERF_SCOPE("IrContainer swap");
+
+  // NOTE: This method is deprecated in Phase 2. Fusion::swap handles
+  // pointer-based swapping of shared containers. This is kept for
+  // backward compatibility but should not be called directly.
 
   // Lock both containers in consistent order to avoid deadlock
-  // Use std::lock to lock both mutexes atomically
   std::unique_lock lock_a(a.mutex_, std::defer_lock);
   std::unique_lock lock_b(b.mutex_, std::defer_lock);
   std::lock(lock_a, lock_b);
@@ -234,9 +237,16 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
 
   // Note: Special values, axioms, and metadata are now per-Fusion,
   // not per-IrContainer. They are handled by Fusion::swap.
+  std::swap(a.sharing_fusions_, b.sharing_fusions_);
+  std::swap(a.per_fusion_vals_, b.per_fusion_vals_);
+  std::swap(a.per_fusion_exprs_, b.per_fusion_exprs_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
+  // NOTE: This method is deprecated in Phase 2. Fusion::copy handles
+  // copying with shared containers. This is kept for backward compatibility
+  // but should not be called directly.
+
   // Lock both containers: shared for reading from, unique for writing to
   std::shared_lock lock_from(from->mutex_);
   std::unique_lock lock_to(to->mutex_);
@@ -248,12 +258,18 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->exprs_up_.clear();
   to->val_type_name_map_.clear();
   to->expr_name_counter_ = 0;
+  to->per_fusion_vals_.clear();
+  to->per_fusion_exprs_.clear();
 
+  // NOTE: In Phase 2, we can't use to->parent() here because parent_ might
+  // not be set correctly for shared containers. Fusion::copy handles this.
+  NVF_ERROR(
+      to->parent_ != nullptr,
+      "IrContainer::copy requires parent_ to be set. Use Fusion::copy "
+      "instead.");
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
-  // deterministic_vals can contain special values like one_val_, zero_val_, etc
-  // that are not registered in the container.
   std::deque<Val*> from_vals;
   std::transform(
       from->vals_up_.begin(),
@@ -411,9 +427,15 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
     return false;
   }
 
+  // Phase 2: With shared containers, multiple Fusions can share this container.
+  // The statement's container() returns its owning Fusion, which should be
+  // one of the Fusions sharing this container.
+  // Phase 1 (single Fusion): sharing_fusions_ == {parent_}
+  // Phase 2 (shared container): sharing_fusions_ contains multiple Fusions
   NVF_ERROR(
-      const_stmt->container() == this->parent(),
-      "Container claims to own stmt, but stmt disagrees.");
+      sharing_fusions_.count(const_stmt->container()) > 0,
+      "Container claims to own stmt, but stmt's owning Fusion is not "
+      "registered with this container.");
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   auto* stmt = const_cast<Statement*>(const_stmt);
