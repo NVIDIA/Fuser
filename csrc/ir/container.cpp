@@ -81,17 +81,12 @@ void IrContainer::swap(IrContainer& a, IrContainer& b) noexcept {
   std::swap(a.val_type_name_map_, b.val_type_name_map_);
   std::swap(a.expr_name_counter_, b.expr_name_counter_);
 
-  std::swap(a.metadata_, b.metadata_);
-
   std::swap(a.parent_, b.parent_);
-
-  // Note: Special values (zero_val_, one_val_, etc.) are now per-Fusion,
-  // not per-IrContainer. They are swapped as part of the Fusion-level swap.
-  std::swap(a.axioms_, b.axioms_);
 }
 
 IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
   to->clear();
+
   IrCloner ir_cloner(to->parent());
 
   // Copy values in deterministic order
@@ -112,15 +107,6 @@ IrCloner IrContainer::copy(const IrContainer* from, IrContainer* to) {
 
   to->val_type_name_map_ = from->val_type_name_map_;
   to->expr_name_counter_ = from->expr_name_counter_;
-
-  if (from->axioms_ != nullptr) {
-    to->axioms_ = std::make_unique<std::vector<Val*>>();
-    for (auto pred : *from->axioms_) {
-      to->axioms_->push_back(ir_cloner.clone(pred));
-    }
-  }
-
-  to->metadata_ = ir_cloner.clone(from->metadata_);
 
   return ir_cloner;
 }
@@ -201,9 +187,7 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  axioms_.reset();
   val_type_name_map_.clear();
-  metadata_.clear();
   expr_name_counter_ = 0;
 }
 
@@ -239,50 +223,7 @@ bool IrContainer::inContainer(const Statement* const_stmt) const {
   return true;
 }
 
-// Note: Shortcut values (zeroVal, oneVal, trueVal, falseVal, magicZeroVal)
-// are now per-Fusion. Use Fusion::zeroVal() etc. instead.
 // This avoids ownership conflicts when multiple Fusions share an IrContainer.
-
-Val* IrContainer::metadataOf(Val* v) {
-  if (metadata_.count(v) == 0) {
-    auto metadata_val =
-        IrBuilder::createInContainer<Val>(this->parent(), metaDataTypeOf(v));
-    auto metadata_expr = IrBuilder::createInContainer<GetMetaData>(
-        this->parent(), metadata_val, v);
-    metadata_[v] = std::make_pair(metadata_val, metadata_expr);
-  }
-  return metadata_.at(v).first;
-}
-
-void IrContainer::lazyInitAxioms() {
-  if (!axioms_) {
-    axioms_ = std::make_unique<std::vector<Val*>>();
-    axioms_->reserve(kParallelTypeThreads.size() * 3);
-    // Use parent()->zeroVal() since special values are now per-Fusion
-    auto zero = parent()->zeroVal();
-    for (auto p : kParallelTypeThreads) {
-      auto pidx = NamedScalar::getParallelIndex(p);
-      auto pdim = NamedScalar::getParallelDim(p);
-      axioms_->push_back(SimplifyingIrBuilder::geExpr(pidx, zero));
-      axioms_->push_back(SimplifyingIrBuilder::gtExpr(pdim, zero));
-      axioms_->push_back(SimplifyingIrBuilder::ltExpr(pidx, pdim));
-    }
-  }
-}
-
-void IrContainer::assumePositive(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  // Use parent()->zeroVal() since special values are now per-Fusion
-  axioms_->emplace_back(IrBuilder::gtExpr(val, parent()->zeroVal()));
-}
-
-void IrContainer::assumeNonNegative(Val* val) {
-  NVF_ERROR(val->container() == this->parent());
-  lazyInitAxioms();
-  // Use parent()->zeroVal() since special values are now per-Fusion
-  axioms_->emplace_back(IrBuilder::geExpr(val, parent()->zeroVal()));
-}
 
 void IrContainer::removeStatementsCreatedAfter(
     int64_t prev_num_exprs,
